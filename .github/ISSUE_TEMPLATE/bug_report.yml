@@ -1,0 +1,88 @@
+name: Bug report
+description: Something in L'Atelier behaves incorrectly
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The fields below are the ones that usually decide
+        whether a bug can be reproduced — a report missing them tends to sit.
+
+        **Do not paste connection strings, passwords, or real document contents.**
+        A `mongodb://` URI carries credentials in its userinfo segment. Redact
+        before pasting.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Numbered steps from a fresh launch. If it depends on the shape of your
+        data, describe the shape — field names and types — not the values.
+      placeholder: |
+        1. Open a connection to …
+        2. Run the query …
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where in the app
+      options:
+        - Connections / connection switcher
+        - Data view — browsing documents
+        - Query builder or raw query
+        - Aggregation pipeline
+        - Structure view
+        - Indexes / users / admin
+        - Mongo shell
+        - Script editor
+        - Somewhere else / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: L'Atelier version
+      description: From the About dialog, or the tag you built from.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.3 (Apple Silicon) / Windows 11 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: server
+    attributes:
+      label: MongoDB server version and kind
+      placeholder: 8.0.5 — Atlas M10 / self-hosted replica set / standalone in Docker
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: |
+        The app writes a daily log under its userData directory —
+        `~/Library/Application Support/L'Atelier/logs/` on macOS,
+        `%APPDATA%\L'Atelier\logs\` on Windows.
+
+        Paste the lines around the failure. Redact anything identifying first.
+      render: text

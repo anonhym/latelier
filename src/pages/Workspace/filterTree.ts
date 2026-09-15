@@ -1,0 +1,719 @@
+// Pure module — no React, no CollectionTabState, no api imports. That purity
+// (enforced by an eslint override scoped to this file, see eslint.config.js)
+// is what makes this reusable as the aggregation `$match` editor later
+// (redesign C, W13 §1). Do not import anything renderer-shaped here.
+//
+// See specs/W13-filter-tree-editor.md for the full spec this module
+// implements (§1 model, §2 parseFilter, §3 printFilter, §4 edit API).
+import type { ValType } from '@shared/types';
+import { isCompilableOp } from './builder';
+
+// ─── §1 Model ────────────────────────────────────────────────────────────────
+
+/** Node identity IS its position. No generated ids to keep stable. */
+export type NodePath = readonly number[];
+
+export interface CondNode {
+  kind: 'cond';
+  field: string;
+  op: string; // any $-prefixed op; print validates
+  valType: ValType;
+  value: string; // raw text, typed at print time
+}
+
+export interface RawNode {
+  kind: 'raw';
+  /** One clause, verbatim. Printed byte-for-byte after a parse check. */
+  json: string;
+}
+
+export interface GroupNode {
+  kind: 'group';
+  logic: '$and' | '$or' | '$nor';
+  children: FilterNode[];
+}
+
+export type FilterNode = GroupNode | CondNode | RawNode;
+
+// ─── §2 parseFilter ──────────────────────────────────────────────────────────
+
+export type ParseOutcome = { ok: true; root: GroupNode } | { ok: false; reason: string };
+
+/**
+ * Multi-key predicate splitting is an allowlist, not a general rule (§2a).
+ * `{a:{$gte:1,$lte:5}}` may safely become two conds joined by the parent
+ * `$and`. `{a:{$regex:"x",$options:"i"}}` may not — `$options` modifies
+ * `$regex`, and splitting them changes what the query matches. Only used to
+ * decide whether a *multi*-key predicate may split; a single-key predicate
+ * always attempts a cond regardless of this set.
+ */
+const SPLITTABLE_OPS = new Set([
+  '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$all',
+  '$exists', '$type', '$size', '$mod', '$regex',
+  '$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet',
+]);
+
+const LOGIC_KEYS = new Set(['$and', '$or', '$nor']);
+
+
+/**
+ * EJSON sentinel keys from §2b's unrepresentable-shape list that are NOT
+ * query operators. Without this check, a single-key field value like
+ * `{$numberDouble: "1.5"}` or `{$minKey: 1}` would be misread by the
+ * operator-map branch below as "operator `$numberDouble` with string value
+ * '1.5'" (a representable plain string!) instead of "an unrepresentable
+ * value sentinel" — silently producing a wrong cond instead of degrading to
+ * raw. Must be checked before the operator-map branch, same reason as
+ * `guessSentinelOnly`.
+ */
+const UNREPRESENTABLE_SENTINEL_KEYS = new Set([
+  '$binary', '$timestamp', '$numberDouble', '$numberInt', '$regularExpression',
+  '$minKey', '$maxKey', '$code', '$dbPointer',
+]);
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+interface ValueGuess {
+  valType: ValType;
+  text: string;
+}
+
+/**
+ * Recognizes exactly the four EJSON sentinels that represent a *complete*
+ * value (§2b): `{$oid}` / `{$date}` / `{$numberLong}` / `{$numberDecimal}`.
+ * Deliberately excludes `{$regex}` — a bare `{field: {$regex: "x"}}` means
+ * the `$regex` query OPERATOR (the common case), not an implicit-$eq match
+ * against a literal regex value, so it must not win over the operator-map
+ * branch in `parseFieldPredicate`. `{$regex}` as a value is still
+ * representable (see `guessValue`) — just not through this "is the whole
+ * field value actually a sentinel" fast path.
+ */
+function guessSentinelOnly(v: unknown): ValueGuess | null {
+  if (!isPlainObject(v)) return null;
+  const keys = Object.keys(v);
+  if (keys.length !== 1) return null;
+  const k = keys[0];
+  if (k === '$oid' && typeof v.$oid === 'string') return { valType: 'objectid', text: v.$oid };
+  if (k === '$date' && typeof v.$date === 'string') return { valType: 'date', text: v.$date };
+  if (k === '$numberLong' && typeof v.$numberLong === 'string') {
+    return { valType: 'long', text: v.$numberLong };
+  }
+  if (k === '$numberDecimal' && typeof v.$numberDecimal === 'string') {
+    return { valType: 'decimal', text: v.$numberDecimal };
+  }
+  return null;
+}
+
+/** Representable elements of a `$in`/`$nin`/`$all` (or implicit-$eq) array (§2b). */
+function isRepresentableArrayElement(el: unknown): boolean {
+  if (el === null || typeof el === 'boolean' || typeof el === 'number' || typeof el === 'string') {
+    return true;
+  }
+  if (!isPlainObject(el)) return false; // nested array, or not an object at all
+  const keys = Object.keys(el);
+  if (keys.length !== 1) return false;
+  const k = keys[0];
+  return (
+    (k === '$oid' && typeof el.$oid === 'string') ||
+    (k === '$date' && typeof el.$date === 'string') ||
+    (k === '$numberLong' && typeof el.$numberLong === 'string') ||
+    (k === '$numberDecimal' && typeof el.$numberDecimal === 'string')
+  );
+}
+
+/**
+ * The value→(valType,text) inference, the inverse of `buildTypedValue` in
+ * `builder.ts` (§2b). Handles scalars, the four value sentinels, `{$regex}`
+ * as a value (distinct from the `$regex` operator — see `guessSentinelOnly`),
+ * and homogeneous representable arrays. Returns `null` for anything else:
+ * plain nested objects, `$binary`, `$timestamp`, `$numberDouble`/
+ * `$numberInt`, `$regularExpression`, `$minKey`/`$maxKey`, `$code`,
+ * `$dbPointer`, or an array containing an unrepresentable element.
+ */
+function guessValue(v: unknown): ValueGuess | null {
+  if (v === null) return { valType: 'null', text: '' };
+  if (typeof v === 'boolean') return { valType: 'boolean', text: String(v) };
+  if (typeof v === 'number') return { valType: 'number', text: String(v) };
+  if (typeof v === 'string') return { valType: 'string', text: v };
+  if (Array.isArray(v)) {
+    if (!v.every(isRepresentableArrayElement)) return null;
+    return { valType: 'array', text: JSON.stringify(v) };
+  }
+  const sentinel = guessSentinelOnly(v);
+  if (sentinel) return sentinel;
+  if (isPlainObject(v)) {
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === '$regex' && typeof v.$regex === 'string') {
+      return { valType: 'regex', text: v.$regex };
+    }
+  }
+  return null;
+}
+
+function condNode(field: string, op: string, guess: ValueGuess): CondNode {
+  return { kind: 'cond', field, op, valType: guess.valType, value: guess.text };
+}
+
+function rawPair(field: string, value: unknown): RawNode {
+  return { kind: 'raw', json: JSON.stringify({ [field]: value }) };
+}
+
+/**
+ * `{ field: { $op1: v1, $op2: v2, ... } }` → one or more cond nodes, or a
+ * single raw node when it can't be split/modeled (§2a, §2b).
+ */
+function parseOperatorMap(field: string, obj: Record<string, unknown>, keys: string[]): FilterNode[] {
+  if (keys.length === 1) {
+    const op = keys[0];
+    const guess = guessValue(obj[op]);
+    if (guess) return [condNode(field, op, guess)];
+    return [rawPair(field, obj)];
+  }
+  const allSplittable = keys.every((k) => SPLITTABLE_OPS.has(k));
+  if (allSplittable) {
+    const guesses = keys.map((k) => guessValue(obj[k]));
+    if (guesses.every((g): g is ValueGuess => g !== null)) {
+      return keys.map((k, i) => condNode(field, k, guesses[i]));
+    }
+  }
+  return [rawPair(field, obj)];
+}
+
+/** One field key's predicate → one or more sibling nodes (§2, §2a, §2b). */
+function parseFieldPredicate(field: string, rawValue: unknown): FilterNode[] {
+  if (isPlainObject(rawValue)) {
+    const keys = Object.keys(rawValue);
+    // A single-key object that IS a recognized value sentinel is an
+    // implicit-$eq VALUE, not an operator map — must be checked first, else
+    // e.g. `{$oid: "..."}` would be mistaken for an (nonexistent) `$oid` op.
+    if (keys.length === 1) {
+      const guess = guessSentinelOnly(rawValue);
+      if (guess) return [condNode(field, '$eq', guess)];
+      if (UNREPRESENTABLE_SENTINEL_KEYS.has(keys[0])) return [rawPair(field, rawValue)];
+    }
+    if (keys.length > 0 && keys.every((k) => k.startsWith('$'))) {
+      return parseOperatorMap(field, rawValue, keys);
+    }
+    // Nested doc used for whole-document equality (or `{}`) — unrepresentable.
+    return [rawPair(field, rawValue)];
+  }
+  const guess = guessValue(rawValue);
+  if (guess) return [condNode(field, '$eq', guess)];
+  return [rawPair(field, rawValue)]; // array with an unrepresentable element
+}
+
+function collapseToNode(nodes: FilterNode[]): FilterNode {
+  if (nodes.length === 0) return { kind: 'group', logic: '$and', children: [] };
+  if (nodes.length === 1) return nodes[0];
+  return { kind: 'group', logic: '$and', children: nodes };
+}
+
+/** One object (root, or one `$and`/`$or`/`$nor` array item) → sibling nodes. */
+function parseClauseToNodes(obj: Record<string, unknown>): FilterNode[] {
+  const nodes: FilterNode[] = [];
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (LOGIC_KEYS.has(key)) {
+      if (Array.isArray(value)) {
+        nodes.push(groupFromLogicArray(key as GroupNode['logic'], value));
+      } else {
+        // A $and/$or/$nor whose value isn't an array is a raw node, not a
+        // parse failure.
+        nodes.push({ kind: 'raw', json: JSON.stringify({ [key]: value }) });
+      }
+      continue;
+    }
+    if (key.startsWith('$')) {
+      // Any clause-level `$`-key that isn't $and/$or/$nor is a whole-clause
+      // operator (`$expr`, `$text`, `$where`, `$jsonSchema`, `$comment`,
+      // `$sampleRate`, ...), never a field name — MongoDB field names can't
+      // lead with `$` in query syntax. Falling through to
+      // `parseFieldPredicate` for an operator this module doesn't name by
+      // name would silently mangle it into a bogus field-named cond (e.g.
+      // `{"$comment":"why"}` parsing as field `"$comment"` equals `"why"`).
+      nodes.push({ kind: 'raw', json: JSON.stringify({ [key]: value }) });
+      continue;
+    }
+    nodes.push(...parseFieldPredicate(key, value));
+  }
+  return nodes;
+}
+
+function parseArrayItem(item: unknown): FilterNode {
+  if (!isPlainObject(item)) return { kind: 'raw', json: JSON.stringify(item) };
+  return collapseToNode(parseClauseToNodes(item));
+}
+
+function groupFromLogicArray(logic: GroupNode['logic'], arr: unknown[]): GroupNode {
+  return { kind: 'group', logic, children: arr.map(parseArrayItem) };
+}
+
+function parseRoot(obj: Record<string, unknown>): GroupNode {
+  const collapsed = collapseToNode(parseClauseToNodes(obj));
+  if (collapsed.kind === 'group') return collapsed;
+  return { kind: 'group', logic: '$and', children: [collapsed] };
+}
+
+/**
+ * Total on any valid JSON object (§2). Fails on exactly two things: text
+ * that isn't valid JSON, and a root that isn't an object. Never fails
+ * because of an operator it doesn't recognize — unmodelable shapes degrade
+ * to a raw node instead (§2a, §2b).
+ *
+ * Uses plain `JSON.parse` with sentinel-aware inspection of the resulting
+ * plain objects — not `ejsonParse`, which revives sentinels into BSON class
+ * instances (wrong shape for a tree editor that stores value *text*).
+ *
+ * ponytail: a `number`-valType cond's integer precision is guarded at print
+ * time (`condValueProblem`'s `isUnsafeNumber` check) instead of here, so
+ * `9007199254740993` is caught whether it lands as a cond or inside a raw
+ * node's text. What this whole-document `JSON.parse` still can't preserve
+ * is *non-integer* precision beyond a JS double's ~15-17 significant digits
+ * (e.g. `0.1234567890123456789` silently loses trailing digits) — JSON
+ * itself has no way to carry that, and every other numeric path in this app
+ * has the same ceiling. No upgrade path without a different wire format for
+ * non-integer values; not attempted here.
+ */
+export function parseFilter(ejson: string): ParseOutcome {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(ejson);
+  } catch {
+    return { ok: false, reason: 'Invalid JSON' };
+  }
+  if (!isPlainObject(parsed)) {
+    return { ok: false, reason: 'Root must be an object' };
+  }
+  return { ok: true, root: parseRoot(parsed) };
+}
+
+// ─── §3 printFilter ──────────────────────────────────────────────────────────
+
+export interface NodeProblem {
+  path: NodePath;
+  message: string;
+}
+
+export type PrintOutcome = { ok: true; json: string } | { ok: false; problems: NodeProblem[] };
+
+const SIMPLE_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
+const ARRAY_VALUE_OPS = new Set(['$in', '$nin', '$all']);
+const BITS_OPS = new Set(['$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet']);
+
+const NUMBER_PRECISION_MESSAGE =
+  'Contains a number too large to represent exactly — use {"$numberLong": "..."} or {"$numberDecimal": "..."} instead';
+
+/** §3a's big-integer guard: true when `n` can't be losslessly round-tripped through this filter's JSON. */
+function isUnsafeNumber(n: number): boolean {
+  return !Number.isFinite(n) || (Number.isInteger(n) && !Number.isSafeInteger(n));
+}
+
+/**
+ * Best-effort JSON-array parse — `[]` on anything that isn't a JSON array.
+ *
+ * Exported for `builder.ts`'s `mergeOrReplaceDragged`, which needs the same
+ * lenient parse `coerceArrayElementWire`/`buildScalarWire` below serve — a
+ * second real consumer, so exporting beats a second copy drifting out of
+ * sync.
+ */
+export function parseJsonArrayLenient(raw: string): unknown[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function isEjsonWrapped(el: unknown, key: string): boolean {
+  return typeof el === 'object' && el !== null && key in el;
+}
+
+/**
+ * Coerces one pre-coercion array element (as stored in a scalar-`valType`
+ * `$in`/`$nin` cond's `value` text) to its wire shape.
+ *
+ * Exported for `builder.ts`'s `mergeOrReplaceDragged`, which needs this
+ * exact conversion to normalize an existing row's elements into the fully
+ * wire-encoded form a merged `valType: 'array'` cond expects — the same
+ * shape `parseFilter`'s array guess already produces. A second real
+ * consumer, so exporting beats a second copy drifting out of sync.
+ */
+export function coerceArrayElementWire(el: unknown, valType: ValType): unknown {
+  switch (valType) {
+    case 'objectid':
+      return typeof el === 'string' ? { $oid: el } : el;
+    case 'long':
+      return isEjsonWrapped(el, '$numberLong') ? el : { $numberLong: String(el).trim() };
+    case 'decimal':
+      return isEjsonWrapped(el, '$numberDecimal') ? el : { $numberDecimal: String(el).trim() };
+    case 'date':
+      return typeof el === 'string' ? { $date: el } : el;
+    case 'number':
+      return typeof el === 'number' ? el : Number(el);
+    case 'boolean':
+      return typeof el === 'boolean' ? el : el === 'true';
+    case 'string':
+      return String(el);
+    default:
+      return el;
+  }
+}
+
+/**
+ * Builds the wire shape for one scalar (non-array-op) cond value.
+ *
+ * Exported for `builder.ts`'s `mergeOrReplaceDragged` — same reason as
+ * `coerceArrayElementWire` above: it needs the identical scalar→wire
+ * conversion to encode both the existing row's `$eq` value and the freshly
+ * dragged value before merging them into a `valType: 'array'` cond.
+ */
+export function buildScalarWire(valType: ValType, value: string): unknown {
+  switch (valType) {
+    case 'string':
+      return value;
+    case 'number':
+      return Number(value);
+    case 'long':
+      return { $numberLong: value.trim() };
+    case 'decimal':
+      return { $numberDecimal: value.trim() };
+    case 'boolean':
+      return value === 'true';
+    case 'date':
+      return { $date: value };
+    case 'null':
+      return null;
+    case 'regex':
+      return { $regex: value };
+    case 'objectid':
+      return { $oid: value };
+    case 'array':
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [];
+      }
+    default:
+      return value;
+  }
+}
+
+/**
+ * Blocking-validity checks for a cond (§3). Deliberately mirrors
+ * `describeCondProblem` in builder.ts (same number/long/decimal/$mod
+ * checks) — NOT its "doesn't apply to <valType>" line, which is advisory
+ * only per §3 ("applicability is advisory, as today") and must never block
+ * printing.
+ */
+function condValueProblem(node: CondNode): string | null {
+  if (!node.op.startsWith('$')) return 'Operator must start with "$"';
+  if (!isCompilableOp(node.op)) return `${node.op} is not encodable — convert to a raw clause`;
+  const isScalarNumeric =
+    !ARRAY_VALUE_OPS.has(node.op) && node.op !== '$mod' && node.value.trim() !== '';
+  if (node.valType === 'number' && isScalarNumeric && !Number.isFinite(Number(node.value))) {
+    return 'Value must be a valid number';
+  }
+  if (node.valType === 'number' && isScalarNumeric) {
+    // §3a's big-integer guard, cond path: `number` is representable per §2b
+    // (unlike `long`/`decimal`, which carry exact text), so a plain-number
+    // cond skips the raw-node guard entirely. A scalar $gt/$eq/etc. beyond
+    // 2^53 would otherwise round silently on print.
+    if (isUnsafeNumber(Number(node.value))) return NUMBER_PRECISION_MESSAGE;
+  }
+  if (
+    // Not gated on node.valType: parseFilter always assigns array-value-op
+    // conds valType 'array' (guessValue's array branch), never 'number' — a
+    // 'number' gate here is dead code on every parser-produced cond. The
+    // `typeof el === 'number'` filter below is the real guard: it already
+    // skips long/decimal/objectid/date elements, which carry exact text as
+    // strings or $-sentinel objects rather than raw numbers, so dropping the
+    // valType conjunct can't newly block those.
+    ARRAY_VALUE_OPS.has(node.op) &&
+    parseJsonArrayLenient(node.value).some((el) => typeof el === 'number' && isUnsafeNumber(el))
+  ) {
+    return NUMBER_PRECISION_MESSAGE;
+  }
+  if (node.valType === 'long' && isScalarNumeric && !/^[+-]?\d+$/.test(node.value.trim())) {
+    return 'Long value must be an integer';
+  }
+  if (
+    node.valType === 'decimal' &&
+    isScalarNumeric &&
+    !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(node.value.trim())
+  ) {
+    return 'Decimal value must be a number';
+  }
+  if (node.op === '$mod') {
+    const arr = parseJsonArrayLenient(node.value);
+    if (arr.length !== 2) return '$mod value must be a 2-element array, e.g. [2, 1]';
+    const [divisor, remainder] = arr;
+    if (typeof divisor !== 'number' || !Number.isFinite(divisor)) {
+      return '$mod divisor must be a finite number';
+    }
+    if (divisor === 0) return '$mod divisor cannot be 0';
+    if (typeof remainder !== 'number' || !Number.isFinite(remainder)) {
+      return '$mod remainder must be a finite number';
+    }
+  }
+  return null;
+}
+
+/**
+ * Encodes an already-validated cond's value onto the wire. Lenient where
+ * `describeCondProblem` is lenient (e.g. a malformed `$in` array silently
+ * encodes as `[]`, matching builder.ts's `buildCondValue`/`parseJsonArray`)
+ * — `condValueProblem` above is the single source of blocking validation.
+ *
+ * `$exists` deliberately preserves the stored boolean text instead of
+ * builder.ts's `buildCondValue`, which always emits `true`: forcing `true`
+ * would silently flip a parsed `{$exists:false}` on the very first print,
+ * breaking the semantic round-trip this module exists to guarantee.
+ */
+function encodeCondValue(node: CondNode): unknown {
+  const { op, valType, value } = node;
+  if (op === '$exists') return value.trim() !== 'false';
+  if (SIMPLE_OPS.has(op)) return buildScalarWire(valType, value);
+  if (ARRAY_VALUE_OPS.has(op)) {
+    return parseJsonArrayLenient(value).map((el) => coerceArrayElementWire(el, valType));
+  }
+  if (op === '$regex') return value;
+  if (op === '$type') {
+    const n = Number(value);
+    return Number.isFinite(n) && value.trim() !== '' ? n : value;
+  }
+  if (op === '$mod') {
+    const arr = parseJsonArrayLenient(value);
+    return arr.length === 2 ? arr : [0, 0];
+  }
+  if (op === '$size' || BITS_OPS.has(op)) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  // Unreachable: condValueProblem's isCompilableOp check already blocked
+  // anything that would land here. Defensive fallback only.
+  return value;
+}
+
+/**
+ * Parses a raw node's JSON with the big-integer guard of §3a: a numeric
+ * literal beyond `Number.isSafeInteger` range rounds silently under
+ * `JSON.parse` (`9007199254740993` → `...992`) — `isUnsafeNumber` flags the
+ * *parsed value*, checked via the reviver as each number token is produced.
+ *
+ * ponytail (deliberate narrowing of §3a's literal text): §3a as written
+ * compares reviver `context.source` text against `JSON.stringify` of the
+ * parsed value, which also flags lossless reformattings like `1.0` or `1e3`
+ * as "not round-trip-safe" — a false positive that would block a valid
+ * hand-typed raw clause for no reason (a `RawNode` built by `parseFilter`
+ * itself never hits this, since it always holds already-restringified text).
+ * Checking the parsed value directly instead of its source text still
+ * catches every actual precision loss and stops flagging harmless
+ * reformatting. Upgrade path if `context.source` fidelity is needed for
+ * some other reason later: compare source text as §3a describes.
+ */
+function parseRawWithPrecisionCheck(
+  json: string,
+): { ok: true; value: unknown } | { ok: false; reason: string } {
+  let lossy = false;
+  const reviver = (_key: string, val: unknown): unknown => {
+    if (typeof val === 'number' && isUnsafeNumber(val)) lossy = true;
+    return val;
+  };
+  let value: unknown;
+  try {
+    value = JSON.parse(json, reviver);
+  } catch {
+    return { ok: false, reason: 'Not valid JSON' };
+  }
+  if (!isPlainObject(value)) {
+    return { ok: false, reason: 'Raw clause must be a JSON object' };
+  }
+  if (lossy) {
+    return { ok: false, reason: NUMBER_PRECISION_MESSAGE };
+  }
+  return { ok: true, value };
+}
+
+type PrintNodeResult = { kind: 'value'; value: unknown } | { kind: 'pending' } | { kind: 'blocked' };
+
+function printNode(node: FilterNode, path: number[], problems: NodeProblem[]): PrintNodeResult {
+  if (node.kind === 'cond') {
+    if (node.field.trim() === '') return { kind: 'pending' }; // §5 pending rule
+    const problem = condValueProblem(node);
+    if (problem) {
+      problems.push({ path, message: problem });
+      return { kind: 'blocked' };
+    }
+    return { kind: 'value', value: { [node.field]: { [node.op]: encodeCondValue(node) } } };
+  }
+  if (node.kind === 'raw') {
+    if (node.json.trim() === '') return { kind: 'pending' }; // §5 pending rule
+    const parsed = parseRawWithPrecisionCheck(node.json);
+    if (!parsed.ok) {
+      problems.push({ path, message: parsed.reason });
+      return { kind: 'blocked' };
+    }
+    return { kind: 'value', value: parsed.value };
+  }
+  // group
+  const childValues: unknown[] = [];
+  let anyBlocked = false;
+  node.children.forEach((child, i) => {
+    const r = printNode(child, [...path, i], problems);
+    if (r.kind === 'blocked') anyBlocked = true;
+    else if (r.kind === 'value') childValues.push(r.value);
+  });
+  if (anyBlocked) return { kind: 'blocked' };
+  if (childValues.length === 0) {
+    // A root with no printable children prints `{}`; a nested group with
+    // none is omitted (pending) from its parent (§3a).
+    return path.length === 0 ? { kind: 'value', value: {} } : { kind: 'pending' };
+  }
+  if (childValues.length === 1 && node.logic !== '$nor') {
+    // A group with exactly one printable child prints as that child —
+    // except $nor, whose envelope is semantic and always survives (§3a).
+    return { kind: 'value', value: childValues[0] };
+  }
+  return { kind: 'value', value: { [node.logic]: childValues } };
+}
+
+/**
+ * Fail-closed (§3): a discriminated result, never a best-effort string, so a
+ * node the printer can't encode never reaches `queryRaw`.
+ */
+export function printFilter(root: GroupNode): PrintOutcome {
+  const problems: NodeProblem[] = [];
+  const result = printNode(root, [], problems);
+  if (result.kind === 'blocked') return { ok: false, problems };
+  const value = result.kind === 'value' ? result.value : {};
+  return { ok: true, json: JSON.stringify(value) };
+}
+
+// ─── §4 Edit API ─────────────────────────────────────────────────────────────
+//
+// All pure, all return new roots. Path-as-identity (§4): an edit that
+// changes structure renumbers siblings.
+
+export function nodeAt(root: GroupNode, path: NodePath): FilterNode | null {
+  let node: FilterNode = root;
+  for (const i of path) {
+    if (node.kind !== 'group') return null;
+    const child: FilterNode | undefined = node.children[i];
+    if (!child) return null;
+    node = child;
+  }
+  return node;
+}
+
+function updateNodeAt(node: FilterNode, path: NodePath, next: FilterNode): FilterNode {
+  if (path.length === 0) return next;
+  if (node.kind !== 'group') return node; // can't descend further; no-op
+  const [i, ...rest] = path;
+  const children = node.children.map((c, idx) => (idx === i ? updateNodeAt(c, rest, next) : c));
+  return { ...node, children };
+}
+
+export function updateAt(root: GroupNode, path: NodePath, next: FilterNode): GroupNode {
+  if (path.length === 0) {
+    // Root must stay a group; no-op if the caller tries to replace it with
+    // a bare cond/raw node.
+    return next.kind === 'group' ? next : root;
+  }
+  return updateNodeAt(root, path, next) as GroupNode;
+}
+
+function insertNodeAt(target: FilterNode, path: NodePath, node: FilterNode, index?: number): FilterNode {
+  if (target.kind !== 'group') return target; // can't insert into non-group; no-op
+  if (path.length === 0) {
+    const children = [...target.children];
+    // Out-of-range clamps rather than throwing; `length` is a legitimate
+    // index (append), so the upper bound is inclusive.
+    children.splice(index === undefined ? children.length : Math.max(0, Math.min(index, children.length)), 0, node);
+    return { ...target, children };
+  }
+  const [i, ...rest] = path;
+  const children = target.children.map((c, idx) => (idx === i ? insertNodeAt(c, rest, node, index) : c));
+  return { ...target, children };
+}
+
+/** `index` omitted appends — every existing caller relies on that. */
+export function insertAt(root: GroupNode, parent: NodePath, node: FilterNode, index?: number): GroupNode {
+  return insertNodeAt(root, parent, node, index) as GroupNode;
+}
+
+function removeNodeAt(target: FilterNode, path: NodePath): FilterNode {
+  if (target.kind !== 'group') return target;
+  const [i, ...rest] = path;
+  if (rest.length === 0) {
+    return { ...target, children: target.children.filter((_, idx) => idx !== i) };
+  }
+  const children = target.children.flatMap((c, idx) => {
+    if (idx !== i) return [c];
+    const updated = removeNodeAt(c, rest);
+    // Removing the last child of a nested group removes the empty group too.
+    if (updated.kind === 'group' && updated.children.length === 0) return [];
+    return [updated];
+  });
+  return { ...target, children };
+}
+
+export function removeAt(root: GroupNode, path: NodePath): GroupNode {
+  if (path.length === 0) return root; // the root group is never removed
+  return removeNodeAt(root, path) as GroupNode;
+}
+
+/**
+ * Move a node within its own group (never between groups). Composed from
+ * `removeAt` + index-aware `insertAt` so the tree keeps a single
+ * mutation path. A move needs at least two siblings (otherwise `to` is out of
+ * range and this is a no-op), so the level can never empty out under the
+ * remove — `removeNodeAt`'s empty-group prune can't fire here.
+ */
+export function moveAt(root: GroupNode, path: NodePath, delta: number): GroupNode {
+  if (path.length === 0) return root; // the root group has no siblings
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAt(root, parentPath);
+  const node = nodeAt(root, path);
+  if (!node || !parent || parent.kind !== 'group') return root;
+  const to = path[path.length - 1] + delta;
+  if (to < 0 || to >= parent.children.length) return root;
+  return insertAt(removeAt(root, path), parentPath, node, to);
+}
+
+export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['logic']): GroupNode {
+  const target = nodeAt(root, path);
+  if (!target) return root;
+  const wrapped: GroupNode = { kind: 'group', logic, children: [target] };
+  return updateAt(root, path, wrapped);
+}
+
+/**
+ * Best-effort encode of a cond as a raw node. Falls back to a blank pending
+ * raw node — never `{}`, which matches everything and would make a bad
+ * fallback silently widen the group it sits in (§4).
+ */
+export function toRawNode(cond: CondNode): RawNode {
+  if (cond.field.trim() === '') return { kind: 'raw', json: '' };
+  if (condValueProblem(cond)) return { kind: 'raw', json: '' };
+  return { kind: 'raw', json: JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } }) };
+}
+
+/**
+ * raw → cond(s) when §2 can model it, wrapped in `$and` when it models to
+ * more than one node (splicing them flat would change semantics under an
+ * `$or`/`$nor` parent), bare when it models to exactly one; unchanged when
+ * `raw.json` isn't valid JSON or isn't an object (§4).
+ */
+export function tryParseRaw(raw: RawNode): FilterNode {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.json);
+  } catch {
+    return raw;
+  }
+  if (!isPlainObject(parsed)) return raw;
+  return collapseToNode(parseClauseToNodes(parsed));
+}

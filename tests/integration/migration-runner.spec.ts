@@ -1,0 +1,115 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, afterEach } from 'vitest';
+import BetterSqlite3 from 'better-sqlite3';
+import { runMigrations } from '../../electron/db/migrationRunner';
+
+function tmpFile(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-mig-'));
+  return path.join(dir, 'test.db');
+}
+
+describe('migrationRunner', () => {
+  const opened: BetterSqlite3.Database[] = [];
+
+  afterEach(() => {
+    while (opened.length) opened.pop()!.close();
+  });
+
+  it('applies migrations in order and advances schema_version', () => {
+    const db = new BetterSqlite3(tmpFile());
+    opened.push(db);
+    runMigrations(db, [
+      {
+        version: 1,
+        name: '001-init.sql',
+        sql: `CREATE TABLE schema_version (version INTEGER NOT NULL);
+              INSERT INTO schema_version (version) VALUES (0);
+              CREATE TABLE t1 (x INTEGER);
+              UPDATE schema_version SET version = 1;`,
+      },
+      {
+        version: 2,
+        name: '002-add.sql',
+        sql: `CREATE TABLE t2 (x INTEGER);
+              UPDATE schema_version SET version = 2;`,
+      },
+    ]);
+    const v = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+    expect(v.version).toBe(2);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='t2'").get(),
+    ).toBeDefined();
+  });
+
+  it('is idempotent — re-running does not throw or advance version', () => {
+    const db = new BetterSqlite3(tmpFile());
+    opened.push(db);
+    const migs = [
+      {
+        version: 1,
+        name: '001.sql',
+        sql: `CREATE TABLE schema_version (version INTEGER NOT NULL);
+              INSERT INTO schema_version (version) VALUES (0);
+              UPDATE schema_version SET version = 1;`,
+      },
+    ];
+    runMigrations(db, migs);
+    runMigrations(db, migs);
+    const v = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+    expect(v.version).toBe(1);
+  });
+
+  it('rolls back a failing migration and leaves schema_version unchanged', () => {
+    const db = new BetterSqlite3(tmpFile());
+    opened.push(db);
+    runMigrations(db, [
+      {
+        version: 1,
+        name: '001.sql',
+        sql: `CREATE TABLE schema_version (version INTEGER NOT NULL);
+              INSERT INTO schema_version (version) VALUES (0);
+              UPDATE schema_version SET version = 1;`,
+      },
+    ]);
+    expect(() =>
+      runMigrations(db, [
+        {
+          version: 1,
+          name: '001.sql',
+          sql: 'ignored because version <= current',
+        },
+        {
+          version: 2,
+          name: '002-broken.sql',
+          sql: `CREATE TABLE ok (x INTEGER);
+                NOT VALID SQL;`,
+        },
+      ]),
+    ).toThrow();
+    const v = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+    expect(v.version).toBe(1);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ok'").get(),
+      'partial migration must be rolled back',
+    ).toBeUndefined();
+  });
+
+  it('fails loudly if a migration does not advance schema_version', () => {
+    const db = new BetterSqlite3(tmpFile());
+    opened.push(db);
+    expect(() =>
+      runMigrations(db, [
+        {
+          version: 1,
+          name: '001.sql',
+          sql: `CREATE TABLE schema_version (version INTEGER NOT NULL);
+                INSERT INTO schema_version (version) VALUES (0);
+                -- forgot to UPDATE schema_version
+                CREATE TABLE x (y INTEGER);`,
+        },
+      ]),
+    ).toThrow(/did not advance/);
+  });
+});

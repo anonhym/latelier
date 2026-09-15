@@ -1,0 +1,83 @@
+name: Claude Code
+
+# Disabled to conserve free runner minutes — an @claude mention on any issue,
+# comment, or review used to start a runner. Restore by putting these back
+# under `on:`; the '@claude' guard below is deliberately left intact so a
+# restore can't accidentally arm every comment in the repo.
+#   issue_comment: {types: [created]}
+#   pull_request_review_comment: {types: [created]}
+#   issues: {types: [opened, assigned]}
+#   pull_request_review: {types: [submitted]}
+#
+# READ THIS BEFORE RESTORING THEM — this repository is public.
+#
+# The '@claude' guard below is a guard on the *text*, not on *who wrote it*.
+# Anyone with a GitHub account can comment '@claude ...' on any issue or PR
+# here. With the triggers above restored and nothing else changed, every one of
+# those starts a runner that executes an arbitrary instruction from a stranger,
+# with this repository checked out and the OAuth token in the environment.
+#
+# So a restore needs a second guard on author association, not just the
+# mention. Add it to the `if:` below, ANDed with the existing conditions:
+#
+#   (github.event.comment.author_association == 'OWNER' ||
+#    github.event.comment.author_association == 'MEMBER' ||
+#    github.event.comment.author_association == 'COLLABORATOR')
+#
+# Note the field moves with the event — `github.event.comment.*` for
+# issue_comment and pull_request_review_comment, `github.event.review.*` for
+# pull_request_review, `github.event.issue.*` for issues. A condition reading
+# the wrong one reads as null, and `null == 'OWNER'` is false, so that trigger
+# silently stops working rather than becoming unsafe. Check each trigger you
+# restore instead of pasting one line four times.
+#
+# Keep the allow-list shape above. Inverting it to a deny-list — something like
+# `author_association != 'NONE'` — is the version that fails *open*: the same
+# missing field makes `null != 'NONE'` true, and the guard admits everyone.
+#
+# `issue_comment` is the sharpest edge: it fires on comments on pull requests
+# too, including PRs from forks, and it always runs the workflow definition
+# from the default branch. That is the same shape as `pull_request_target` and
+# deserves the same suspicion.
+on:
+  workflow_dispatch:
+
+jobs:
+  claude:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@0a8d3c9443bbff909ab973b6a17a340b913f229f # v1.0.221
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
+          # prompt: 'Update the pull request description to include a summary of changes.'
+
+          # Optional: Add claude_args to customize behavior and configuration
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+          # claude_args: '--allowed-tools Bash(gh pr *)'
+

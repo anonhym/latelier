@@ -1,0 +1,56 @@
+import { Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+
+/**
+ * Shared confirm-before-destroy dialog for a Connection — used by both
+ * ConnectionManager's deep list and the Switcher. Extracted rather
+ * than duplicated so the two entry points can't drift on copy: content,
+ * destructive styling, and the "server data is untouched" reassurance stay
+ * one definition.
+ */
+export function ConnectionDeleteDialog({ name, tabCount, onCancel, onConfirm, returnFocusTo }: {
+  name: string;
+  /**
+   * Spec §4.6 — folded into the existing body rather than a second
+   * dialog: "Two dialogs for one action is the thing people click through
+   * without reading."
+   */
+  tabCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+  /**
+   * Where to send focus on cancel, when the opener knows better than this
+   * dialog can. Opened from a row of `ConnectionExpandedTable`, that
+   * row is already detached by this component's first render, so the
+   * render-time capture inside the hook yields a no-op.
+   */
+  returnFocusTo?: HTMLElement | null;
+}) {
+  // Dismiss paths only — `onConfirm` deletes the connection this was opened
+  // from, so its trigger is gone by the time focus could go back.
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  return (
+    <Modal
+      opened
+      onClose={close}
+      title={`Delete "${name}"?`}
+      centered
+      size="md"
+      role="alertdialog"
+    >
+      <Stack gap="md">
+        <Text size="xs" c="dimmed" lh={1.5}>
+          This removes the saved connection and all its saved queries and history. Mongo data on the
+          server is not touched.
+          {tabCount > 0
+            ? ` It also closes ${tabCount} open tab${tabCount === 1 ? '' : 's'}.`
+            : ''}
+        </Text>
+        <Group justify="flex-end" gap="xs">
+          <Button size="compact-xs" variant="subtle" onClick={close}>Cancel</Button>
+          <Button size="compact-xs" variant="filled" color="red" onClick={onConfirm}>Delete</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}

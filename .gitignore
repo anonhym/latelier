@@ -1,0 +1,62 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+dist-electron
+.gitnexus
+release/
+release*.zip
+*.zip
+test-results/
+.claude/scheduled_tasks.lock
+.claude/workflows/
+.claude/worktrees/
+.claude/dev-loop-state.json
+.claude/dev-loop-metrics.jsonl
+.claude/retro-inbox.md
+
+# Docket is local run state end to end — case ledgers, generated workflow
+# scripts, and the dossier the loop accumulates as it works. The dossier
+# used to be tracked on the theory that it was project config; it is not.
+# It is one machine's record of how its own runs went, it means nothing to
+# anyone else reading this repository, and it grows without review.
+.docket/
+
+# Skiff run traces and calibration logs are local run history.
+.skiff/
+
+# Obsidian's per-vault workspace state — editor layout, not project config.
+.obsidian/
+
+# Stryker mutation testing — sandbox copy and generated HTML report.
+.stryker-tmp/
+reports/mutation/
+
+# Local-only audit reports, not meant to be committed.
+docs/mongolab-rename-remaining-2026-09-15.md
+docs/UX-AUDIT.md
+docs/ux-audit-independent-2026-08-08.md
+docs/ux-audit-unified-ste100-2026-08-09.md
+docs/ux-review-2026-08-09-draft.md
+docs/DATA-VIEW-UX-REVIEW.md
+docs/REACT-ELECTRON-ARCHITECTURE-REPORT-2026-08-13.md

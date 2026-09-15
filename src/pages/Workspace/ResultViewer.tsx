@@ -1,0 +1,272 @@
+/* eslint-disable react-refresh/only-export-components */
+// Compound namespace (X11 phase 5): one `ResultViewer` export wraps several
+// internal slot components. The react-refresh rule wants one component per
+// file, but co-locating the slots is the whole point — and they're not
+// addressed as top-level exports, only via the namespace.
+import { type ReactNode } from 'react';
+import { TreeView } from './views/TreeView';
+import { JsonView } from './views/JsonView';
+import { TableView } from './views/TableView';
+import { ResultBar } from './ResultBar';
+import { ResultSelectionProvider } from './ResultSelectionProvider';
+import { SelectionActionBar } from './SelectionActionBar';
+import { useCollectionWorkspace } from './context';
+import { EMPTY_DOCUMENTS } from './resultSelection';
+import { findProblem } from './builder';
+import type { ReferenceRule } from '@shared/types';
+
+/**
+ * Compound result view (X11 phase 5). Replaces the old ResultArea monolith
+ * with a slot-based namespace so any provider can compose only the pieces
+ * it needs. All slots read from `CollectionWorkspaceContext` — drop them
+ * inside any `<CollectionWorkspaceProvider>` (real tab, saved-query
+ * preview, aggregation snapshot) and they render against that state.
+ *
+ *   <ResultViewer>
+ *     <ResultViewer.Pagination />
+ *     <ResultViewer.Body
+ *       onColumnResize={...}
+ *       onRowExpand={...}
+ *       onSortField={...}
+ *       onClearFilter={...}
+ *     />
+ *   </ResultViewer>
+ *
+ * Or pick individual slots for custom composition:
+ *
+ *   <ResultViewer>
+ *     <ResultViewer.Pagination />
+ *     <ResultViewer.Tree expandedRows={...} onRowExpand={...} />
+ *   </ResultViewer>
+ */
+function ResultViewerRoot({ children }: { children: ReactNode }) {
+  // T0.4 — scope bulk-selection state to this subtree, resetting whenever
+  // the result set itself changes (new run, page change, tab switch,
+  // post-delete re-run).
+  const { state } = useCollectionWorkspace();
+  const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
+  return (
+    <ResultSelectionProvider documents={documents}>{children}</ResultSelectionProvider>
+  );
+}
+
+interface BodyProps {
+  onClearFilter: () => void;
+  onColumnResize: (field: string, width: number) => void;
+  onRowExpand: (docId: string, expanded: boolean) => void;
+  onSortField?: (field: string) => void;
+  /** User-configured preview field set; `null` while loading, `[]` if unset. */
+  previewFields?: string[] | null;
+  refsByField?: Map<string, ReferenceRule>;
+  onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
+  onRefHoverLeave?: () => void;
+  onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
+}
+
+function Body({
+  onClearFilter,
+  onColumnResize,
+  onRowExpand,
+  onSortField,
+  previewFields,
+  refsByField,
+  onRefHover,
+  onRefHoverLeave,
+  onRefOpen,
+}: BodyProps) {
+  const { state, meta } = useCollectionWorkspace();
+  const isLoading = meta.isLoading;
+  const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
+  const hasError = !!state.lastRun?.error;
+  const isEmpty = documents.length === 0 && !isLoading && !hasError;
+  // X14 §5 — dimmed, not hidden or inert, while the query above cannot
+  // run: these rows still describe a real earlier query, and a user editing a
+  // filter is often reading them to decide what to type next. Same rule as the
+  // count marker in `ResultBar`, so the two never disagree. Opacity only — no
+  // `pointer-events: none`, which would take selection and row expansion away.
+  const isStale = findProblem(state) !== null;
+
+  return (
+    <div
+      data-stale={isStale ? 'true' : undefined}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        position: 'relative',
+        opacity: isStale ? 0.45 : undefined,
+      }}
+    >
+      {isLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 32,
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            padding: '4px 12px',
+            background: 'var(--atelier-surface)',
+            borderBottom: '1px solid var(--atelier-border)',
+            fontSize: 11,
+            color: 'var(--atelier-text-muted)',
+            textAlign: 'center',
+          }}
+        >
+          Loading…
+        </div>
+      )}
+
+      {isEmpty ? (
+        <EmptyState onClearFilter={onClearFilter} />
+      ) : (
+        <>
+          {state.view === 'Tree' && (
+            <Tree
+              onRowExpand={onRowExpand}
+              previewFields={previewFields}
+              refsByField={refsByField}
+              onRefHover={onRefHover}
+              onRefHoverLeave={onRefHoverLeave}
+              onRefOpen={onRefOpen}
+            />
+          )}
+          {state.view === 'JSON' && <Json />}
+          {state.view === 'Table' && (
+            <Table
+              onColumnResize={onColumnResize}
+              onRowExpand={onRowExpand}
+              onSortField={onSortField}
+              refsByField={refsByField}
+              onRefHover={onRefHover}
+              onRefHoverLeave={onRefHoverLeave}
+              onRefOpen={onRefOpen}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--atelier-text-ghost)',
+        fontSize: 13,
+        gap: 8,
+      }}
+    >
+      <span>No matching documents</span>
+      <button
+        onClick={onClearFilter}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--atelier-accent)',
+          fontSize: 12,
+          textDecoration: 'underline',
+        }}
+      >
+        Clear filter
+      </button>
+    </div>
+  );
+}
+
+interface TreeSlotProps {
+  onRowExpand: (docId: string, expanded: boolean) => void;
+  previewFields?: string[] | null;
+  refsByField?: Map<string, ReferenceRule>;
+  onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
+  onRefHoverLeave?: () => void;
+  onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
+}
+
+function Tree({
+  onRowExpand,
+  previewFields,
+  refsByField,
+  onRefHover,
+  onRefHoverLeave,
+  onRefOpen,
+}: TreeSlotProps) {
+  const { state } = useCollectionWorkspace();
+  const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
+  return (
+    <TreeView
+      documents={documents}
+      expandedRows={state.expandedRows}
+      onSelect={() => {/* selection is internal to TreeView */}}
+      onRowExpand={onRowExpand}
+      previewFields={previewFields}
+      refsByField={refsByField}
+      onRefHover={onRefHover}
+      onRefHoverLeave={onRefHoverLeave}
+      onRefOpen={onRefOpen}
+    />
+  );
+}
+
+function Json() {
+  const { state } = useCollectionWorkspace();
+  const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
+  return <JsonView documents={documents} />;
+}
+
+interface TableSlotProps {
+  onColumnResize: (field: string, width: number) => void;
+  onRowExpand: (docId: string, expanded: boolean) => void;
+  onSortField?: (field: string) => void;
+  refsByField?: Map<string, ReferenceRule>;
+  onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
+  onRefHoverLeave?: () => void;
+  onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
+}
+
+function Table({
+  onColumnResize,
+  onRowExpand,
+  onSortField,
+  refsByField,
+  onRefHover,
+  onRefHoverLeave,
+  onRefOpen,
+}: TableSlotProps) {
+  const { state } = useCollectionWorkspace();
+  const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
+  return (
+    <TableView
+      documents={documents}
+      columns={state.columns}
+      columnConfig={state.columnConfig}
+      onColumnResize={onColumnResize}
+      expandedRows={state.expandedRows}
+      onRowExpand={onRowExpand}
+      onSortField={onSortField}
+      sort={state.builder.sort}
+      refsByField={refsByField}
+      onRefHover={onRefHover}
+      onRefHoverLeave={onRefHoverLeave}
+      onRefOpen={onRefOpen}
+    />
+  );
+}
+
+export const ResultViewer = Object.assign(ResultViewerRoot, {
+  Pagination: ResultBar,
+  Body,
+  Tree,
+  Json,
+  Table,
+  EmptyState,
+  SelectionBar: SelectionActionBar,
+});

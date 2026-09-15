@@ -1,0 +1,50 @@
+{
+  "version": "1",
+  "project": {
+    "name": "mongo-lab"
+  },
+  "ticketSource": {
+    "type": "github-issues",
+    "labels": [
+      "ready"
+    ],
+    "order": "priority-label"
+  },
+  "commands": {
+    "typecheck": "npx tsc -b"
+  },
+  "reviewer": {
+    "type": "claude-code-action",
+    "workflow": ".github/workflows/claude-code-review.yml",
+    "waitTimeoutMinutes": 30,
+    "pollIntervalSeconds": 120
+  },
+  "release": {
+    "type": "github-tags",
+    "tagPrefix": "v",
+    "builder": "electron-builder",
+    "publish": true
+  },
+  "autonomy": "checkpoint",
+  "dod": "See CLAUDE.md § Definition of done — canonical there, and parsed from it by /converge.",
+  "enforce": [],
+  "enforcePaths": {
+    "rendererGlob": "src/**",
+    "migrationsGlob": "electron/db/migrations/**"
+  },
+  "planningNotes": [
+    "This repo has a GitNexus code graph (mcp__gitnexus__*). For navigation, who-calls-this, and impact/blast-radius, prefer gitnexus impact/query over full grep/read scans. But verify the index is BOTH fresh AND scoped to THIS repo before trusting a result: the shared graph indexes several repos, and a cross-repo result gives false negatives/positives (e.g. 0 callers for a grep-confirmed symbol, or a HIGH-risk flag citing another repo processes). If the index is stale or its repo-scope cannot be confirmed, fall back to grep/read + tests.",
+    "better-sqlite3 13 is an N-API addon whose platform-architecture prebuilt works in both system Node and Electron. If a NODE_MODULE_VERSION mismatch appears, find the compile-from-source path; do not add a rebuild script.",
+    "Stage-op catalog test shape: when a ticket adds StageOp entries to KNOWN_STAGE_OPS/DEFAULT_BODIES (pipeline.ts), test catalog presence only — that the op is in KNOWN_STAGE_OPS and DEFAULT_BODIES[op] is truthy. Do NOT assert validateStageBody/isValidEjson accepts the default body: default bodies intentionally use unquoted-key JS-object-literal syntax (e.g. groupBy: \"$field\") that fails strict JSON.parse by design until the user edits it — true for pre-existing ops like $group too, not a regression.",
+    "Stateful component-test wrapper: tab-level component tests (e.g. aggregation-tab.spec.tsx) default to a renderTab helper with a static state prop + noop onPatch spy — fine for smoke tests. Any assertion whose effect only appears after state round-trips back through onPatch into props (staleness markers, derived warning strips) needs a stateful wrapper (real useState merging the patch + re-rendering, e.g. renderStatefulTab) planned from the start, not a static-prop render.",
+    "Spec-mandated normalization, test-first: when a plan includes a free-text/custom-value escape hatch with a spec-mandated normalization rule (e.g. custom stage-op names normalize to a single leading $), the test-first list must cover that rule's adversarial edges up front: repeated/multiple leading delimiters ($$foo → $foo) and input that normalizes to empty (submit control must disable). Don't test only the happy single-$ case.",
+    "Popover dismiss stopPropagation — test via parent spies: to prove a popover's internal dismiss handlers (Escape keydown, backdrop click) call stopPropagation, render the component under a plain parent with its own onClick/onKeyDown spies and assert those are NOT called (e.g. renderWithParentHandlers). A document-level listener gives a false pass — closing the popover unmounts the backdrop/input in the same tick, which independently halts native bubbling.",
+    "Every popover dismiss path needs its own stopPropagation: popovers rendered inline over an interactive ancestor (e.g. StageOpPicker over a stage row's expand/collapse toggle) need e.stopPropagation() on EACH of their own dismiss paths independently — the Escape-keydown branch and the backdrop-click handler each need it. The trigger's open-click having stopPropagation does not cover the picker's own dismiss branches; plan and test each path separately.",
+    "This app ships Electron-only (Chromium runtime). Decline cross-browser review findings: Firefox/Safari-specific quirks (e.g. HTML5 drag-and-drop needing dataTransfer.setData in dragstart, vendor CSS behaviors) do not apply and are not worth a fix round or a planning constraint — the app never runs in those browsers.",
+    "Tree/collapsible components whose per-node expand/collapse state is a Set/object recreated each render (new identity) MUST give React.memo a custom comparator scoping the diff to the node own path + descendant-path prefix (like TreeView.tsx FieldNode) — a bare React.memo re-renders every node on every toggle. Lint/typecheck do not catch it; only review does. Plan the comparator from the start for any new tree/JSON/collapsible view.",
+    "Component files here cannot export object/array/function constants (eslint-plugin-react-refresh only-export-components allows only primitive literals under the vite preset). A shared object-shaped constant (color map, config) needed by more than one component must live in a plain non-component .ts module from the start — exporting it from a component is blocked with no syntax workaround and forces duplication.",
+    "When replacing a plain <textarea> with the CodeMirror-based ScriptEditor, explicitly plan for (or scope out) textarea-affordance parity: ScriptEditor has fixed height (no vertical resize) and Escape closes the completion popup instead of blurring. Both are silent regressions vs a textarea with resize:vertical + an Escape-to-blur handler. Recurs across the T2.x UX-audit series.",
+    "For ephemeral/inline controls that mount or unmount on user interaction (inline editors, popovers, drag handles), plan the component test around the real-browser lifecycle event jsdom does not simulate (blur-on-unmount, dragend-on-cancel): the test must dispatch that trailing event explicitly (e.g. Escape keydown + blur inside one act()) or the cancel/reset guard logic ships untested and only a reviewer or e2e catches it. — [auto-promoted: 2nd occurrence, review-caught twice (onDragEnd-on-cancel reset, blur-on-unmount trailing commit)]",
+    "Workspace.tsx action callbacks (updateField, openDuplicate, etc.) are unexported closures over refs/hooks — component tests cannot import the real impl. Do not maintain a hand-written harness mirror in permanent lockstep (it drifts); scope component assertions to the shared pure helpers in docId.ts (buildIdFilter/isInlineEditable/stripIdForDuplicate) and treat the e2e suite as the source of truth for the real callback + IPC wiring."
+  ]
+}

@@ -1,0 +1,10 @@
+<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="L'Atelier ligature wordmark on dark">
+  <!-- Light-on-dark variant of the wordmark. Same geometry as the dark version
+       but with ghost text — for use on Deep, Navy, or any other dark surface. -->
+  <g font-family="Inter, 'SF Pro Display', system-ui, -apple-system, sans-serif"
+     fill="#e8e0ff">
+    <text x="40" y="148" font-weight="900" font-size="140" letter-spacing="-3">L</text>
+    <text x="148" y="148" font-weight="300" font-size="140" letter-spacing="-3">Atelier</text>
+  </g>
+  <circle cx="128" cy="60" r="9" fill="#7c6af7"/>
+</svg>

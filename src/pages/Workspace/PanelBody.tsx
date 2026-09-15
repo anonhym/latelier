@@ -1,0 +1,555 @@
+import React from 'react';
+import { Alert, AppShell, Button } from '@mantine/core';
+import {
+  Group as PanelGroup,
+  Panel,
+  Separator as PanelResizeHandle,
+  type PanelImperativeHandle,
+} from 'react-resizable-panels';
+import { themeVars } from '../../theme/themeVars';
+import { I } from '../../icons';
+import { isKnownNotConnected } from '../../state/connections';
+import type {
+  CollectionView,
+  CollectionTab,
+  ScriptTab as ScriptTabType,
+  WorkspaceTab,
+  ConnectionSummary,
+  AggregationTabState,
+  SchemaTabState,
+} from '@shared/types';
+import type { WorkspaceTabsState } from '../../state/workspaceTabs';
+import type { SuggestionContext } from '../../features/fieldSuggestions/types';
+import { ConnectionSwitcher, type ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
+import { ReferenceDrawer } from '../../features/references/ReferenceDrawer';
+import type { UseReferenceRulesResult } from '../../features/references/useReferenceRules';
+import {
+  BUILDER_COLLAPSED_PCT,
+  BUILDER_MIN_PCT,
+  isUserChosenBuilderSplit,
+} from './panelSizes';
+import { AggregationTab } from './Aggregation/AggregationTab';
+import { SchemaView } from './SchemaView';
+import { QueryBar } from './QueryBar';
+import { ResultViewer } from './ResultViewer';
+import { BuilderPane } from './BuilderPane';
+import { ResizeHandle } from './ResizeHandle';
+import { DividerNotch } from './DividerNotch';
+import { MongoShellPane } from './MongoShellPane';
+import { ScriptTab } from './ScriptTab';
+import { CollectionHeader } from './CollectionHeader';
+import {
+  CollectionWorkspaceProvider,
+  type CollectionWorkspaceActions,
+  type CollectionWorkspaceMeta,
+} from './context';
+import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
+import { useCollectionTabActions } from './useCollectionTabActions';
+import { useDocumentDialogs } from './useDocumentDialogs';
+import type { ReferenceDrawerState } from './useReferenceDrawer';
+
+const SUB_TABS: ReadonlyArray<{
+  key: CollectionView;
+  label: string;
+  icon: string;
+}> = [
+  { key: 'documents', label: 'Documents', icon: '⚡' },
+  { key: 'aggregation', label: 'Aggregation', icon: 'Σ' },
+  { key: 'schema', label: 'Schema', icon: '⚙' },
+];
+
+function SubTabStrip({
+  active,
+  onSelect,
+}: {
+  active: CollectionView;
+  onSelect: (view: CollectionView) => void;
+}) {
+  const T = themeVars;
+  return (
+    <div
+      role="tablist"
+      aria-label="Collection view"
+      style={{
+        height: 26,
+        display: 'flex',
+        alignItems: 'stretch',
+        borderBottom: `1px solid ${T.border}`,
+        background: T.surfaceRaised,
+        flexShrink: 0,
+        paddingLeft: 12,
+      }}
+    >
+      {SUB_TABS.map((t) => {
+        const selected = t.key === active;
+        return (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onSelect(t.key)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '0 11px',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              background: 'transparent',
+              color: selected ? T.text : T.textMuted,
+              border: 'none',
+              borderBottom: selected
+                ? `2px solid ${T.accent}`
+                : '2px solid transparent',
+            }}
+          >
+            <span style={{ fontSize: 10, opacity: 0.7 }}>{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CenteredPane({ children }: { children: React.ReactNode }) {
+  const T = themeVars;
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: T.textMuted,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// `key={v-${prefsReady}}`/`key={h-${prefsReady}}` must stay on the PanelGroup elements below — jsdom's no-op ResizeObserver means a relocated key passes silently, but workspace-panel-prefs.spec.tsx pins it by DOM identity.
+
+// `actions` must stay the exact `workspaceActions` reference from Workspace.tsx — workspace-actions-identity.spec.tsx pins it across renders.
+export interface PanelBodyCollectionProps {
+  tab: CollectionTab;
+  meta: CollectionWorkspaceMeta;
+  actions: CollectionWorkspaceActions;
+  view: CollectionView;
+  aggregationState: AggregationTabState;
+  schemaState: SchemaTabState;
+  previewKnownFields: string[];
+  activePreviewFields: string[] | null;
+  setActivePreviewFields: (fields: string[]) => void;
+  suggestionContext: SuggestionContext | null;
+  savedRefreshKey: number;
+}
+
+export interface PanelBodyProps {
+  panelPrefs: ReturnType<typeof useWorkspacePanelPrefs>;
+  collectionTabActions: ReturnType<typeof useCollectionTabActions>;
+  documentDialogs: ReturnType<typeof useDocumentDialogs>;
+  refDrawer: ReferenceDrawerState;
+  tabs: WorkspaceTabsState;
+  referenceRules: UseReferenceRulesResult;
+  shellOpen: boolean;
+  setShellOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  focusedConnection: ConnectionSummary | null;
+  initialLoadPending: boolean;
+  anyConnectionOpen: boolean;
+  switcherProps: Omit<ConnectionSwitcherProps, 'variant'>;
+  setNewTabOpen: (open: boolean) => void;
+  active: WorkspaceTab | null;
+  openConnection: (id: string) => void;
+  activeScript: ScriptTabType | null;
+  collection: PanelBodyCollectionProps | null;
+  dark: boolean;
+  builderPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  toggleBuilder: () => void;
+  notchRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+export function PanelBody({
+  panelPrefs,
+  collectionTabActions,
+  documentDialogs,
+  refDrawer,
+  tabs,
+  referenceRules,
+  shellOpen,
+  setShellOpen,
+  focusedConnection,
+  initialLoadPending,
+  anyConnectionOpen,
+  switcherProps,
+  setNewTabOpen,
+  active,
+  openConnection,
+  activeScript,
+  collection,
+  dark,
+  builderPanelRef,
+  toggleBuilder,
+  notchRef,
+}: PanelBodyProps) {
+  const T = themeVars;
+  const {
+    prefsReady,
+    refDrawerWidth, setRefDrawerWidth, commitRefDrawerWidth,
+    innerHSplit, commitInnerHSplit,
+    shellSplit, commitShellSplit,
+    builderCollapsed,
+  } = panelPrefs;
+  const {
+    patchActiveScript,
+    selectActiveView,
+    clearActiveFilter,
+    handleColumnResize,
+    handleRowExpand,
+    handleSortField,
+    patchAggregation,
+    patchSchema,
+  } = collectionTabActions;
+  const { openInsertModal, setDeleteSelected } = documentDialogs;
+  const {
+    refStack, setRefStack,
+    refDrawerPinned, setRefDrawerPinned,
+    setRefEditorOpen,
+    handleRefHover, handleRefHoverLeave, handleRefOpen,
+  } = refDrawer;
+
+  return (
+    <AppShell.Main
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        minHeight: 0,
+        minWidth: 0,
+      }}
+    >
+      <PanelGroup
+        key={`v-${String(prefsReady)}`}
+        orientation="vertical"
+        style={{ flex: 1, overflow: 'hidden' }}
+        onLayoutChanged={(layout) => {
+          if (!shellOpen || !focusedConnection) return;
+          const shellPct = layout['v-shell'];
+          if (shellPct === undefined) return;
+          commitShellSplit(shellPct);
+        }}
+      >
+        <Panel
+          id="v-main"
+          defaultSize={shellOpen && focusedConnection ? 100 - shellSplit : 100}
+          minSize={30}
+          style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
+        >
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {initialLoadPending || tabs.loading ? (
+          <CenteredPane>
+            <span>Loading workspace…</span>
+          </CenteredPane>
+        ) : tabs.tabs.length === 0 ? (
+          <CenteredPane>
+            <div style={{ textAlign: 'center', maxWidth: 320 }}>
+              <div style={{ color: T.textMuted, marginBottom: 12 }}>
+                {anyConnectionOpen
+                  ? 'Select a collection from the sidebar to get started.'
+                  : 'No connection is open. Select one to get started.'}
+              </div>
+              {anyConnectionOpen ? (
+                <Button variant="filled" size="xs" leftSection={I.plus} onClick={() => setNewTabOpen(true)}>
+                  Open a collection
+                </Button>
+              ) : (
+                <ConnectionSwitcher {...switcherProps} variant="cta" />
+              )}
+            </div>
+          </CenteredPane>
+        ) : active && isKnownNotConnected(focusedConnection) ? (
+          // Never render the result grid off a stale cache while the tab's own connection is dormant.
+          <CenteredPane>
+            <div style={{ textAlign: 'center', maxWidth: 320 }}>
+              <div style={{ color: T.textMuted, marginBottom: 12 }}>
+                {focusedConnection!.name} is not connected.
+              </div>
+              <Button
+                variant="filled"
+                size="xs"
+                onClick={() => openConnection(active.connectionId)}
+              >
+                Connect
+              </Button>
+            </div>
+          </CenteredPane>
+        ) : activeScript ? (
+          <ScriptTab
+            tab={activeScript}
+            onPatch={patchActiveScript}
+          />
+        ) : collection ? (
+            // Builder pane always renders; agg/schema views just dim it via overlay rather than unmounting.
+            <CollectionWorkspaceProvider
+              state={collection.tab.state}
+              actions={collection.actions}
+              meta={collection.meta}
+            >
+              <SubTabStrip
+                active={collection.view}
+                onSelect={selectActiveView}
+              />
+              <PanelGroup
+                key={`h-${String(prefsReady)}`}
+                orientation="horizontal"
+                style={{ flex: 1, overflow: 'hidden' }}
+                onLayoutChanged={(layout) => {
+                  // Geometry-based guard: a state flag races toggleBuilder's synchronous collapse() call.
+                  const builderPct = layout['h-builder'];
+                  if (!isUserChosenBuilderSplit(builderPct)) return;
+                  commitInnerHSplit(builderPct);
+                }}
+              >
+                <Panel
+                  id="h-result"
+                  defaultSize={100 - innerHSplit}
+                  minSize={30}
+                  style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
+                >
+                  {collection.view === 'documents' && (
+                    <>
+                      <CollectionHeader
+                        connectionId={collection.tab.connectionId}
+                        dbName={collection.tab.dbName}
+                        collection={collection.tab.collection}
+                        onInsert={openInsertModal}
+                        onOpenReferences={() => setRefEditorOpen(true)}
+                        referenceRuleCount={referenceRules.rules.length}
+                        previewKnownFields={collection.previewKnownFields}
+                        previewFields={collection.activePreviewFields}
+                        onPreviewFieldsChange={collection.setActivePreviewFields}
+                      />
+                      <QueryBar suggestionContext={collection.suggestionContext} />
+                      <ResultViewer>
+                        <ResultViewer.Pagination />
+                        <ResultViewer.SelectionBar onDeleteSelected={setDeleteSelected} />
+                        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                          <ResultViewer.Body
+                            onClearFilter={clearActiveFilter}
+                            onColumnResize={handleColumnResize}
+                            onRowExpand={handleRowExpand}
+                            onSortField={handleSortField}
+                            previewFields={collection.activePreviewFields}
+                            refsByField={referenceRules.byField}
+                            onRefHover={handleRefHover}
+                            onRefHoverLeave={handleRefHoverLeave}
+                            onRefOpen={handleRefOpen}
+                          />
+                          {refStack.length > 0 && (
+                            <>
+                              <ResizeHandle
+                                edge="right"
+                                value={refDrawerWidth}
+                                min={160}
+                                max={560}
+                                onChange={setRefDrawerWidth}
+                                onCommit={commitRefDrawerWidth}
+                                ariaLabel="Resize reference drawer"
+                              />
+                              <ReferenceDrawer
+                                stack={refStack}
+                                pinned={refDrawerPinned}
+                                width={refDrawerWidth}
+                                onPush={(frame) => setRefStack((prev) => [...prev, frame])}
+                                onPop={() => setRefStack((prev) => prev.slice(0, -1))}
+                                onClose={() => {
+                                  setRefStack([]);
+                                  setRefDrawerPinned(false);
+                                }}
+                                onTogglePin={() => setRefDrawerPinned((p) => !p)}
+                              />
+                            </>
+                          )}
+                        </div>
+                      </ResultViewer>
+                    </>
+                  )}
+                  {collection.view === 'aggregation' && (
+                    <AggregationTab
+                      connectionId={collection.tab.connectionId}
+                      dbName={collection.tab.dbName}
+                      collection={collection.tab.collection}
+                      state={collection.aggregationState}
+                      darkMode={dark}
+                      sourceCount={null}
+                      onPatch={patchAggregation}
+                    />
+                  )}
+                  {collection.view === 'schema' && (
+                    <SchemaView
+                      connectionId={collection.tab.connectionId}
+                      dbName={collection.tab.dbName}
+                      collection={collection.tab.collection}
+                      state={collection.schemaState}
+                      onPatch={patchSchema}
+                    />
+                  )}
+                </Panel>
+                <PanelResizeHandle
+                  style={{
+                    width: 4,
+                    flexShrink: 0,
+                    cursor: 'col-resize',
+                    position: 'relative',
+                    zIndex: 2,
+                  }}
+                  aria-label="Resize builder pane"
+                />
+                <Panel
+                  id="h-builder"
+                  panelRef={builderPanelRef}
+                  defaultSize={builderCollapsed ? BUILDER_COLLAPSED_PCT : innerHSplit}
+                  minSize={BUILDER_MIN_PCT}
+                  collapsible
+                  collapsedSize={BUILDER_COLLAPSED_PCT}
+                  style={{ overflow: 'visible' }}
+                >
+                  {builderCollapsed ? (
+                    <div
+                      style={{
+                        height: '100%',
+                        borderLeft: `1px solid ${T.border}`,
+                        background: T.surface,
+                        position: 'relative',
+                      }}
+                    >
+                      <DividerNotch
+                        side="left"
+                        collapsed
+                        onClick={toggleBuilder}
+                        ariaLabel="Open builder pane"
+                        buttonRef={notchRef}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ position: 'relative', height: '100%' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          pointerEvents: collection.view === 'documents' ? undefined : 'none',
+                          opacity: collection.view === 'documents' ? 1 : 0.35,
+                          filter: collection.view === 'documents' ? undefined : 'saturate(0.6)',
+                        }}
+                        aria-hidden={collection.view !== 'documents'}
+                      >
+                        <BuilderPane
+                          savedRefreshKey={collection.savedRefreshKey}
+                          onOpenInTab={(saved) => {
+                            if (saved.kind === 'aggregation') {
+                              void tabs.openAggregation({
+                                connectionId: saved.connectionId,
+                                dbName: saved.dbName,
+                                collection: saved.collection,
+                                savedId: saved.id,
+                                name: saved.name,
+                              });
+                            } else if (saved.kind === 'script') {
+                              void tabs.openScript({ connectionId: saved.connectionId });
+                            }
+                          }}
+                        />
+                      </div>
+                      <DividerNotch
+                        side="left"
+                        collapsed={false}
+                        onClick={toggleBuilder}
+                        ariaLabel="Collapse builder pane"
+                        buttonRef={notchRef}
+                      />
+                      {collection.view !== 'documents' && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'center',
+                            padding: '60px 16px 16px',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          <Alert
+                            color="gray"
+                            variant="light"
+                            style={{ maxWidth: 280, pointerEvents: 'auto' }}
+                            styles={{ message: { fontSize: 12, lineHeight: 1.5 } }}
+                          >
+                            The query builder only applies to the Documents
+                            view.{' '}
+                            <Button
+                              variant="subtle"
+                              size="compact-xs"
+                              onClick={() => selectActiveView('documents')}
+                              styles={{ root: { padding: 0, height: 'auto', fontSize: 12 } }}
+                            >
+                              Switch to Documents
+                            </Button>
+                          </Alert>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Panel>
+              </PanelGroup>
+            </CollectionWorkspaceProvider>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: T.textMuted,
+                fontSize: 13,
+              }}
+            >
+              Select a collection to query.
+            </div>
+          )}
+      </div>
+        </Panel>
+        {shellOpen && focusedConnection && (
+          <>
+            <PanelResizeHandle
+              style={{
+                height: 4,
+                flexShrink: 0,
+                cursor: 'row-resize',
+                position: 'relative',
+                zIndex: 2,
+              }}
+              aria-label="Resize shell pane"
+            />
+            <Panel
+              id="v-shell"
+              defaultSize={shellSplit}
+              minSize={10}
+              style={{ overflow: 'hidden' }}
+            >
+              <MongoShellPane
+                connectionId={focusedConnection.id}
+                connectionName={focusedConnection.name}
+                onClose={() => setShellOpen(false)}
+              />
+            </Panel>
+          </>
+        )}
+      </PanelGroup>
+    </AppShell.Main>
+  );
+}

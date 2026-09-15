@@ -1,0 +1,49 @@
+name: Feature or change request
+description: Propose something L'Atelier should do differently
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is spec-driven: `specs/` is the design source of truth, and
+        most changes belong inside an existing spec rather than beside it. The
+        questions below are about finding that slot.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do, and where does the app get in the way? Describe
+        the situation, not the solution — the best fix is often not the one that
+        first comes to mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: If you have a specific change in mind, describe it here.
+    validations:
+      required: false
+
+  - type: input
+    id: spec
+    attributes:
+      label: Related spec
+      description: |
+        If you know which one this belongs to, name it — e.g. `W15`, `X16`,
+        `C11`. Leave blank if you don't; triage will work it out.
+    validations:
+      required: false
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do instead today
+      description: |
+        The current workaround, if there is one. This is genuinely useful for
+        prioritising — "impossible" and "annoying" get scheduled differently.
+    validations:
+      required: false

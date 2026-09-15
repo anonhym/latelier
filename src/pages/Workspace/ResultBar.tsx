@@ -1,0 +1,265 @@
+import { ActionIcon, Group, Menu, Select, SegmentedControl } from '@mantine/core';
+import { themeVars } from '../../theme/themeVars';
+import { I } from '../../icons';
+import type { ResultViewMode } from '@shared/types';
+import { useCollectionWorkspace } from './context';
+import { api } from '../../api/atelier';
+import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
+import { ColumnChooser } from './ColumnChooser';
+import { findProblem } from './builder';
+
+const VIEWS: ResultViewMode[] = ['Tree', 'JSON', 'Table'];
+
+// W07 §2 / §5: fixed page-size option set (canonical copy lives in
+// `state/workspaceTabs.ts`, reused here to avoid a second hardcoded array).
+// Changing the value resets `page` to 0 and re-runs (same reasoning as the
+// pager buttons' `goToPage`: patch + run with the same override so the
+// runner doesn't close over stale state).
+const PAGE_SIZE_DATA = PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
+
+/**
+ * Inline result strip that sits directly below the QueryBar. Mirrors the
+ * mockup layout:
+ *
+ *   « ‹ P/T › »  ·  N results · D ms · showing X–Y          [Tree|JSON|Table]
+ *
+ * Reads everything off the collection-workspace context — no props. Drop it
+ * into any provider (workspace tab, saved-query preview, aggregation result
+ * snapshot) and it renders against that consumer's state without rewiring.
+ */
+export function ResultBar() {
+  const T = themeVars;
+  const { state, actions, meta } = useCollectionWorkspace();
+  const lastRun = state.lastRun;
+  const page = state.page;
+  const pageSize = state.pageSize;
+  const docCount = lastRun?.documents.length ?? null;
+  const duration = lastRun?.durationMs ?? null;
+  const totalCount = state.totalCount;
+  const hasMore = state.lastRunHasMore;
+  const isLoading = meta.isLoading;
+  const view = state.view;
+  const isReadOnly = !!meta.isReadOnly;
+
+  // X14 §5 — the dangerous half of the defect this ticket exists for.
+  // A refused filter never re-runs, so `lastRun` keeps describing the query
+  // the user has since edited away and "139 results" reads as the answer to
+  // the text now in the box. Derived rather than held: the button-less Run
+  // paths (auto-run on open, the palette's `query.run`) repair inside
+  // `useQueryRunner`, where no QueryBar-local message exists to hang this on.
+  // `findProblem` is the Run button's own rule, so the count is marked stale
+  // exactly while Run is refusing to make it current again.
+  const isStale = findProblem(state) !== null;
+
+  const start = docCount !== null ? page * pageSize + 1 : null;
+  const end = docCount !== null ? page * pageSize + docCount : null;
+  const totalPages =
+    totalCount !== undefined ? Math.max(1, Math.ceil(totalCount / pageSize)) : null;
+
+  const canPrev = page > 0 && !isLoading;
+  // Prefer totalPages when it's known: the find's server-side `hasMore` is
+  // computed as `docs.length === limit`, which is a false positive on a last
+  // page that happens to be exactly full. Once the count() background fetch
+  // settles, totalPages is authoritative — only fall back to hasMore while
+  // the count is still in flight.
+  const canNext =
+    !isLoading &&
+    (totalPages !== null ? page < totalPages - 1 : !!hasMore);
+  const canFirst = canPrev;
+  const canLast = totalPages !== null && page < totalPages - 1 && !isLoading;
+
+  // Pagination through context: patch + re-run with the same override so
+  // `run` doesn't close over a stale `page` from before the patch.
+  const goToPage = (p: number) => {
+    const patch = { page: p };
+    actions.patch(patch);
+    actions.run(patch);
+  };
+
+  // Page-size selector (W07 §2/§3, T0.5). Convert the Select's string value
+  // to a number once at this boundary and reuse the single numeric variable
+  // for the patch/run and the sticky-default prefs write — never let a
+  // string reach `effectivePageLimit` / `FindInput.limit`.
+  const handlePageSizeChange = (value: string | null) => {
+    if (!value) return;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0 || n === pageSize) return;
+    const patch = { pageSize: n, page: 0 };
+    actions.patch(patch);
+    actions.run(patch);
+    void api.prefs.set(DEFAULT_PAGE_SIZE_PREF_KEY, n).catch(() => {
+      // best-effort; the tab's own pageSize already persisted via patch.
+    });
+  };
+
+  return (
+    <Group
+      gap={10}
+      wrap="nowrap"
+      style={{
+        padding: '4px 14px',
+        borderBottom: `1px solid ${T.border}`,
+        background: T.surface,
+        flexShrink: 0,
+        fontSize: 11,
+        color: T.textMuted,
+      }}
+    >
+      {/* Pager — first · prev · P/T · next · last */}
+      <Group gap={2} wrap="nowrap">
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={() => canFirst && goToPage(0)}
+          disabled={!canFirst}
+          aria-label="First page"
+        >
+          {I.chevLL}
+        </ActionIcon>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={() => canPrev && goToPage(page - 1)}
+          disabled={!canPrev}
+          aria-label="Previous page"
+        >
+          {I.chevL}
+        </ActionIcon>
+        <span style={{ padding: '0 6px', color: T.text, fontVariantNumeric: 'tabular-nums' }}>
+          {page + 1}
+          {totalPages !== null ? ` / ${totalPages}` : ''}
+        </span>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={() => canNext && goToPage(page + 1)}
+          disabled={!canNext}
+          aria-label="Next page"
+        >
+          {I.chevR}
+        </ActionIcon>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          onClick={() => canLast && totalPages !== null && goToPage(totalPages - 1)}
+          disabled={!canLast}
+          aria-label="Last page"
+        >
+          {I.chevRR}
+        </ActionIcon>
+      </Group>
+
+      {/* Page-size selector — W07 §2/§5, T0.5. `comboboxProps={{ keepMounted:
+          false }}` unmounts the option list while closed (Mantine's default
+          keeps it mounted-but-hidden for a11y) — otherwise every numeric
+          option label (10/25/50/100/250/500) sits in the DOM at all times
+          and collides with substring text locators elsewhere on the page
+          (e.g. a document field rendering the digit "5"). */}
+      <Select
+        size="xs"
+        aria-label="Rows per page"
+        value={String(pageSize)}
+        onChange={handlePageSizeChange}
+        data={PAGE_SIZE_DATA}
+        allowDeselect={false}
+        withCheckIcon={false}
+        comboboxProps={{ keepMounted: false }}
+        style={{ width: 62, flexShrink: 0 }}
+      />
+
+      {/* Counts + range */}
+      <Group gap={6} wrap="nowrap">
+        {docCount !== null ? (
+          <>
+            <span style={{ color: T.textGhost }}>·</span>
+            <span>
+              <strong
+                style={{ color: isStale ? T.textGhost : T.text, fontWeight: 600 }}
+              >
+                {totalCount !== undefined ? totalCount.toLocaleString() : docCount.toLocaleString()}
+                {hasMore && totalCount === undefined ? '+' : ''}
+              </strong>{' '}
+              results
+            </span>
+            {/* Plain text, not a live region: the QueryBar's `role="alert"`
+                already announces the reason, and two announcements for one
+                keystroke is worse than none. */}
+            {isStale && (
+              <span
+                data-testid="result-count-stale"
+                style={{ color: T.warn, fontWeight: 600 }}
+              >
+                (not current — fix the query above)
+              </span>
+            )}
+            {duration !== null && (
+              <>
+                <span>·</span>
+                <span>
+                  <strong style={{ color: T.text, fontWeight: 600 }}>{duration}</strong> ms
+                </span>
+              </>
+            )}
+            {start !== null && end !== null && (
+              <>
+                <span>·</span>
+                <span>
+                  showing {start.toLocaleString()}–{end.toLocaleString()}
+                </span>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <span style={{ color: T.textGhost }}>·</span>
+            <span style={{ color: T.textMuted }}>No run yet</span>
+          </>
+        )}
+      </Group>
+
+      <span style={{ flex: 1 }} />
+
+      {/* Column chooser — Table-only (T2.5). */}
+      {view === 'Table' && <ColumnChooser />}
+
+      {/* View switch */}
+      <SegmentedControl
+        size="xs"
+        value={view}
+        onChange={(v) => actions.patch({ view: v as ResultViewMode })}
+        data={VIEWS.map((v) => ({ label: v, value: v }))}
+      />
+
+      {/* Overflow — destructive/bulk actions. Hidden for read-only
+          consumers (ScriptTab's snapshot provider) so there's nothing to
+          short-circuit at the leaf. */}
+      {!isReadOnly && (
+        <Menu position="bottom-end" shadow="md" width={210}>
+          <Menu.Target>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label="More result actions"
+            >
+              {I.more}
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              color="red"
+              leftSection={I.trash}
+              onClick={() => actions.openDeleteAll()}
+            >
+              Delete all matching…
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
+    </Group>
+  );
+}

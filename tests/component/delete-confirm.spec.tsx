@@ -1,0 +1,263 @@
+import React from 'react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '../helpers/render';
+import { DeleteConfirm } from '../../src/pages/Workspace/DeleteConfirm';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+
+afterEach(() => {
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+describe('DeleteConfirm — single document (regression)', () => {
+  it('deletes via doc.deleteOne and never calls confirmDeleteMany', async () => {
+    const deleteOne = vi.fn(async () => ({ deletedCount: 1 }));
+    const confirmDeleteMany = vi.fn();
+    installAtelierMock({ doc: { deleteOne, confirmDeleteMany } });
+
+    const onClose = vi.fn();
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1', sku: 'a' }]}
+        onClose={onClose}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    expect(screen.getByText('Delete document?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(deleteOne).toHaveBeenCalledTimes(1));
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
+    expect(deleteOne).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'app',
+      collection: 'orders',
+      filterJson: JSON.stringify({ _id: '1' }),
+    });
+    expect(onDeleted).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // N0.1 — a row from a `find` with an `_id`-excluding projection carries no
+  // `_id`. Deleting it must refuse (via `buildIdFilter` returning null)
+  // rather than falling through to `JSON.stringify({ _id: undefined })` ===
+  // "{}", which would silently delete an ARBITRARY document server-side.
+  it('refuses to delete a document with no _id: surfaces an error and never calls doc.deleteOne', async () => {
+    const deleteOne = vi.fn(async () => ({ deletedCount: 1 }));
+    const confirmDeleteMany = vi.fn();
+    installAtelierMock({ doc: { deleteOne, confirmDeleteMany } });
+
+    const onClose = vi.fn();
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ sku: 'a' }]}
+        onClose={onClose}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    expect(screen.getByText('Delete document?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(deleteOne).not.toHaveBeenCalled();
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
+    expect(onDeleted).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // read-only connections disable Delete outright rather than
+  // letting the confirm flow run into a server-side rejection.
+  it('disables Delete and never calls doc.deleteOne when readOnly is true, even on click, and shows the read-only alert', async () => {
+    const deleteOne = vi.fn(async () => ({ deletedCount: 1 }));
+    installAtelierMock({ doc: { deleteOne } });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1', sku: 'a' }]}
+        readOnly
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    const deleteBtn = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+    expect(deleteBtn.disabled).toBe(true);
+
+    fireEvent.click(deleteBtn);
+
+    expect(deleteOne).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('This connection is read-only. Deleting is disabled.'),
+    ).toBeTruthy();
+  });
+});
+
+describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
+  it('fetches the count exactly once on mount, even under StrictMode double-invocation', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 3, confirmToken: 'tok-1' }));
+    installAtelierMock({ doc: { confirmDeleteMany } });
+
+    render(
+      <React.StrictMode>
+        <DeleteConfirm
+          connectionId="c1"
+          dbName="app"
+          collection="orders"
+          docs={[]}
+          filter='{"status":"pending"}'
+          onClose={() => undefined}
+          onDeleted={() => undefined}
+        />
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(confirmDeleteMany).toHaveBeenCalledTimes(1));
+    expect(confirmDeleteMany).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'app',
+      collection: 'orders',
+      filterJson: '{"status":"pending"}',
+    });
+  });
+
+  it('shows the fetched count in the title once resolved', async () => {
+    installAtelierMock({
+      doc: { confirmDeleteMany: async () => ({ count: 42, confirmToken: 'tok-1' }) },
+    });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText(/42 matching document/)).toBeTruthy());
+  });
+
+  it('keeps Delete disabled until the collection name is typed and the count has resolved, then reuses the token from the count fetch (no second confirmDeleteMany call)', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 5, confirmToken: 'tok-xyz' }));
+    const deleteMany = vi.fn(async () => ({ deletedCount: 5 }));
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
+
+    const onClose = vi.fn();
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={onClose}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    const deleteBtn = () => screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+
+    // Not yet typed the collection name, and count still resolving.
+    expect(deleteBtn().disabled).toBe(true);
+
+    // Type the collection name before the count resolves — still disabled.
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+    expect(deleteBtn().disabled).toBe(true);
+
+    await waitFor(() => expect(confirmDeleteMany).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(deleteBtn().disabled).toBe(false));
+
+    fireEvent.click(deleteBtn());
+
+    await waitFor(() => expect(deleteMany).toHaveBeenCalledTimes(1));
+    expect(deleteMany).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'app',
+      collection: 'orders',
+      filterJson: '{"status":"pending"}',
+      confirmToken: 'tok-xyz',
+    });
+    // No second confirmDeleteMany round trip on click.
+    expect(confirmDeleteMany).toHaveBeenCalledTimes(1);
+    expect(onDeleted).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Delete disabled when the matched count resolves to 0, even after typing the collection name', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 0, confirmToken: 'tok-empty' }));
+    const deleteMany = vi.fn();
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"nonexistent"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    const deleteBtn = () => screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+
+    await waitFor(() => expect(confirmDeleteMany).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+
+    // Count resolved to 0 — even with the collection name typed correctly,
+    // there is nothing to delete, so the button must stay disabled.
+    expect(deleteBtn().disabled).toBe(true);
+    fireEvent.click(deleteBtn());
+    expect(deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a confirmDeleteMany rejection via the alert and leaves Delete disabled', async () => {
+    installAtelierMock({
+      doc: {
+        confirmDeleteMany: async () => {
+          throw new Error('boom');
+        },
+      },
+    });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+});

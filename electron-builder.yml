@@ -1,0 +1,43 @@
+appId: dev.mongolab.app
+productName: L'Atelier
+asar: true
+asarUnpack:
+  - "**/better-sqlite3/**"
+directories:
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+linux:
+  target: AppImage
+  icon: build/icon.png
+win:
+  target: nsis
+  icon: build/icon.ico
+nsis:
+  # Wizard-style installer instead of one-click. The default one-click
+  # installer runs an aggressive "is the app already running?" check before
+  # writing files; that check has a long-standing false-positive bug on
+  # fresh installs where the user sees "MongoLab cannot be closed, close
+  # manually and click retry" with nothing actually running. The wizard
+  # path skips the auto-kill step entirely.
+  oneClick: false
+  # Per-user install (no UAC prompt; lives under %LOCALAPPDATA%). Matches
+  # how every other dev tool installs on Windows. Set perMachine: true if
+  # you want enterprise-style %ProgramFiles% installs later.
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Keep the user's connections + secrets across upgrades; only wipe on
+  # an explicit user request. The app's `userData` lives under the name
+  # `app.setName` sets — `%APPDATA%/L'Atelier/` — not under `appId`, which
+  # is a bundle identifier and names no directory. So this is the safe
+  # default, and the directory does not move when `appId` eventually does.
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-${version}-setup.${ext}
+  # Override the running-app check (see build/installer.nsh for why).
+  include: build/installer.nsh

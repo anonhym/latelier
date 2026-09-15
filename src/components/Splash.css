@@ -1,0 +1,72 @@
+/* L'Atelier brand splash. See src/components/Splash.tsx and X08 §3.4. */
+
+.atelier-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--atelier-deep);
+  color: var(--atelier-ghost);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  animation: atelier-splash-fade-in 200ms ease-out;
+}
+
+.atelier-splash__wordmark {
+  width: 200px;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.atelier-splash__tagline {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  /* T153 contrast audit: reviewed against fixed --atelier-deep (#1a1a2e) —
+     verified ~4.94:1, clears WCAG AA (4.5:1). Leave unchanged. */
+  color: rgba(232, 224, 255, 0.55);
+  margin-top: 4px;
+}
+
+.atelier-splash__progress {
+  margin-top: 16px;
+  width: 140px;
+  height: 3px;
+  background: rgba(232, 224, 255, 0.15);
+  border-radius: 100px;
+  overflow: hidden;
+  position: relative;
+}
+
+.atelier-splash__progress-bar {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--atelier-violet);
+  border-radius: 100px;
+  animation: atelier-splash-load 1.6s ease-in-out infinite;
+}
+
+@keyframes atelier-splash-load {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(150%); }
+  100% { transform: translateX(150%); }
+}
+
+@keyframes atelier-splash-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atelier-splash,
+  .atelier-splash__progress-bar {
+    animation: none;
+  }
+  .atelier-splash__progress-bar {
+    width: 100%;
+  }
+}

@@ -1,0 +1,261 @@
+import React from 'react';
+import { I } from '../../../icons';
+import { isRecord, toDisplayValue, type DisplayType, type DisplayValue } from '../../../utils/displayValue';
+
+// Replicated from `Workspace/views/TreeView.tsx` (kept in sync manually) so
+// both JSON-tree surfaces share the same visual vocabulary. Not imported
+// directly: TreeView.tsx only exports components (react-refresh's
+// "one component per file" rule), so the palette can't be re-exported from
+// there without a broader TreeView refactor, which is out of scope here.
+const TYPE_HUES: Partial<Record<DisplayType, { bg: string; fg: string }>> = {
+  objectid: { bg: 'rgba(138,107,64,0.12)', fg: '#8A6B40' },
+  date: { bg: 'rgba(26,80,104,0.10)', fg: '#1A5068' },
+  long: { bg: 'rgba(107,58,138,0.10)', fg: '#6B3A8A' },
+  decimal: { bg: 'rgba(107,58,138,0.10)', fg: '#6B3A8A' },
+  regex: { bg: 'rgba(184,76,20,0.12)', fg: '#B84C14' },
+  binary: { bg: 'rgba(80,80,80,0.10)', fg: '#666' },
+  array: { bg: 'rgba(107,58,138,0.10)', fg: '#6B3A8A' },
+  object: { bg: 'rgba(80,80,138,0.10)', fg: '#5050A8' },
+};
+
+const TYPE_THEMED: Partial<Record<DisplayType, { bg: string; fg: string }>> = {
+  string: { bg: 'transparent', fg: 'var(--atelier-text-ghost)' },
+  number: { bg: 'var(--atelier-accent-soft)', fg: 'var(--atelier-accent)' },
+  boolean: { bg: 'var(--atelier-green-soft)', fg: 'var(--atelier-green-text)' },
+  null: { bg: 'var(--atelier-surface-raised)', fg: 'var(--atelier-text-ghost)' },
+  undefined: { bg: 'var(--atelier-surface-raised)', fg: 'var(--atelier-text-ghost)' },
+};
+
+/**
+ * Generic, self-contained collapsible JSON tree — renders an arbitrary
+ * `unknown` value (not bound to a document list, builder drag-drop, or
+ * per-row actions like `TreeView`). Built for `ExplainDrawer` so the explain
+ * plan gets syntax-highlighted, expand/collapse rendering per A06-save-explain
+ * §"Drawer UI" instead of a raw `<pre>` dump.
+ *
+ * Expansion state is local `useState` — ephemeral, not persisted to
+ * `workspace_tabs.state_json` (the drawer itself is transient).
+ *
+ * Default expansion: top-level keys are always visible; any nested
+ * object/array starts collapsed until its own toggle is clicked.
+ */
+export interface JsonTreeProps {
+  value: unknown;
+  /** Field names to visually emphasize (e.g. summary-relevant explain keys). */
+  highlightKeys?: Set<string>;
+}
+
+function TypeBadge({ type }: { type: DisplayType }) {
+  const colors = TYPE_HUES[type] ?? TYPE_THEMED[type] ?? {
+    bg: 'var(--atelier-surface-raised)',
+    fg: 'var(--atelier-text-muted)',
+  };
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        padding: '1px 5px',
+        borderRadius: 'var(--atelier-radius-xs)',
+        background: colors.bg,
+        color: colors.fg,
+        fontWeight: 600,
+        letterSpacing: '0.03em',
+        textTransform: 'uppercase',
+        flexShrink: 0,
+      }}
+    >
+      {type}
+    </span>
+  );
+}
+
+function formatLeaf(dv: DisplayValue): string {
+  return dv.type === 'string' ? `"${dv.display}"` : dv.display;
+}
+
+interface JsonNodeProps {
+  name: string;
+  value: unknown;
+  depth: number;
+  path: string;
+  expandedPaths: Set<string>;
+  onToggle: (path: string) => void;
+  highlightKeys?: Set<string>;
+}
+
+function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highlightKeys }: JsonNodeProps) {
+  const dv = toDisplayValue(value);
+  const isExpandable = dv.type === 'object' || dv.type === 'array';
+  const isExpanded = isExpandable && expandedPaths.has(path);
+  const highlighted = highlightKeys?.has(name) ?? false;
+
+  const childEntries: Array<[string, unknown]> = React.useMemo(() => {
+    if (!isExpanded) return [];
+    if (dv.type === 'array' && Array.isArray(value)) {
+      return value.map((v, i): [string, unknown] => [String(i), v]);
+    }
+    if (dv.type === 'object' && isRecord(value)) {
+      return Object.entries(value);
+    }
+    return [];
+  }, [isExpanded, dv.type, value]);
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '2px 0',
+          paddingLeft: depth * 16,
+          fontSize: 11,
+        }}
+      >
+        {isExpandable ? (
+          <button
+            onClick={() => onToggle(path)}
+            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 14,
+              height: 14,
+              padding: 0,
+              background: 'none',
+              border: 'none',
+              color: 'var(--atelier-text-ghost)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms',
+            }}
+          >
+            {I.chevD}
+          </button>
+        ) : (
+          <span style={{ width: 14, flexShrink: 0 }} />
+        )}
+        <span
+          style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            color: highlighted ? 'var(--atelier-warn)' : 'var(--atelier-text-muted)',
+            fontWeight: highlighted ? 700 : 400,
+            flexShrink: 0,
+          }}
+        >
+          {name}:
+        </span>
+        <span
+          style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            color: 'var(--atelier-text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            minWidth: 0,
+          }}
+        >
+          {formatLeaf(dv)}
+        </span>
+        <TypeBadge type={dv.type} />
+      </div>
+      {isExpanded &&
+        childEntries.map(([k, v]) => (
+          <JsonNode
+            key={`${path}.${k}`}
+            name={k}
+            value={v}
+            depth={depth + 1}
+            path={`${path}.${k}`}
+            expandedPaths={expandedPaths}
+            onToggle={onToggle}
+            highlightKeys={highlightKeys}
+          />
+        ))}
+    </>
+  );
+}
+
+// Same comparator convention as `TreeView.tsx`'s `FieldNode`: `expandedPaths`
+// is a new `Set` instance on every toggle (identity always changes), which
+// would otherwise defeat `React.memo` and re-render every node in the tree
+// on a single toggle. Skip re-render unless THIS node's own expansion state
+// changed, or (when expanded) a descendant path's expansion state changed —
+// descendant paths are always prefixed with `${path}.` since paths are built
+// by dot-joining from the root, so this also covers deeper descendants, not
+// just immediate children.
+const JsonNode = React.memo(JsonNodeImpl, (prev, next) => {
+  // Cheap identity checks first.
+  if (
+    prev.value !== next.value ||
+    prev.name !== next.name ||
+    prev.path !== next.path ||
+    prev.depth !== next.depth ||
+    prev.onToggle !== next.onToggle ||
+    prev.highlightKeys !== next.highlightKeys
+  ) {
+    return false;
+  }
+  if (prev.expandedPaths !== next.expandedPaths) {
+    const wasExpanded = prev.expandedPaths.has(prev.path);
+    const isExpanded = next.expandedPaths.has(next.path);
+    if (wasExpanded !== isExpanded) return false;
+    if (isExpanded) {
+      const prefix = `${next.path}.`;
+      for (const p of prev.expandedPaths) {
+        if (p.startsWith(prefix) && !next.expandedPaths.has(p)) return false;
+      }
+      for (const p of next.expandedPaths) {
+        if (p.startsWith(prefix) && !prev.expandedPaths.has(p)) return false;
+      }
+    }
+  }
+  return true;
+});
+
+export function JsonTree({ value, highlightKeys }: JsonTreeProps) {
+  const [expandedPaths, setExpandedPaths] = React.useState<Set<string>>(() => new Set());
+
+  const onToggle = React.useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const rootEntries: Array<[string, unknown]> = React.useMemo(() => {
+    if (Array.isArray(value)) return value.map((v, i): [string, unknown] => [String(i), v]);
+    if (isRecord(value)) return Object.entries(value);
+    return [];
+  }, [value]);
+
+  if (rootEntries.length === 0) {
+    const dv = toDisplayValue(value);
+    return (
+      <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: 'var(--atelier-text)' }}>
+        {formatLeaf(dv)}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {rootEntries.map(([k, v]) => (
+        <JsonNode
+          key={k}
+          name={k}
+          value={v}
+          depth={0}
+          path={k}
+          expandedPaths={expandedPaths}
+          onToggle={onToggle}
+          highlightKeys={highlightKeys}
+        />
+      ))}
+    </div>
+  );
+}

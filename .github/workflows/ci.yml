@@ -1,0 +1,200 @@
+name: CI
+
+# A docs-only change runs nothing. `docs/` and `specs/` hold Markdown and
+# nothing else, so `**.md` covers every documentation path on its own — with
+# one carve-out: `tests/unit/troubleshooting-doc.spec.ts` asserts that
+# `docs/troubleshooting.md` still matches the recipe registry, so editing that
+# one file can break a test and must keep triggering CI. Negation only works
+# inside `paths`, never `paths-ignore`, hence the include-all-then-subtract
+# shape; the last matching pattern wins.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**'
+      - '!**.md'
+      - 'docs/troubleshooting.md'
+  # Only PRs targeting main — ticket → feature-base PRs run their gates locally.
+  pull_request:
+    branches: [main]
+    # Repeated rather than shared: GitHub Actions does not resolve YAML anchors.
+    paths:
+      - '**'
+      - '!**.md'
+      - 'docs/troubleshooting.md'
+  # Manual entry point, mainly for running e2e against a branch that is not yet
+  # in a PR to `main`. No path filter — a hand-triggered run is always
+  # deliberate.
+  workflow_dispatch:
+
+# Least privilege, set explicitly rather than inherited. This workflow only
+# ever reads the repository — it does not comment, label, or push. Declaring it
+# here means the token stays read-only even if the repository-wide default is
+# later set to read/write. Fork PRs are already capped at read by GitHub, so
+# this is about runs on `main` and on branches in this repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap, runs on every push and every PR.
+  test:
+    name: Lint + audit + unit / integration / component
+    # A manual dispatch is for e2e; these are cheap to run locally and would
+    # otherwise add ~7 minutes to every hand-triggered Playwright run.
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Must stay above `run-tests.mjs`'s per-project watchdog (15m), or GitHub
+    # cancels the job first and the watchdog's hang diagnostic can never print
+    # here — which is the only place it matters.
+    # The job today is ~7m: install + Electron + lint + typecheck + audit +
+    # ~5m of tests. 25 leaves the watchdog room to fire and still bounds a hang.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # `npm install` rather than `npm ci`: the lockfile is generated on
+      # macOS dev machines and skips transitive deps of Linux-only platform
+      # binaries (e.g., `@rolldown/binding-linux-*` pulls `@emnapi/*@1.10.0`
+      # which never lands in the lockfile from a macOS resolve). `npm install`
+      # tolerates the gap and resolves them on Linux; `npm ci` refuses.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # electron's bundled installer downloads the release zip fine, but its
+      # extract-zip step silently no-ops on this runner (Node 24 / ubuntu-latest):
+      # it leaves node_modules/electron/dist with only locales/ and never writes
+      # path.txt, so require('electron') throws "Electron failed to install
+      # correctly" in the diagnostic-service integration test. Extract the zip
+      # ourselves with system unzip (deterministic), then write path.txt.
+      - name: Install Electron binary
+        run: |
+          ver=$(node -p "require('./node_modules/electron/package.json').version")
+          zip="electron-v${ver}-linux-x64.zip"
+          curl -fsSL --retry 3 -o "/tmp/${zip}" \
+            "https://github.com/electron/electron/releases/download/v${ver}/${zip}"
+          rm -rf node_modules/electron/dist
+          unzip -q "/tmp/${zip}" -d node_modules/electron/dist
+          printf electron > node_modules/electron/path.txt
+          test -x node_modules/electron/dist/electron \
+            && echo "electron binary OK ($ver)" \
+            || { echo "::error::electron binary missing after unzip"; exit 1; }
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Audit IPC secret allowlist
+        run: npm run audit:ipc
+
+      - name: Unit + integration + component tests
+        run: npm test
+
+  # Runs on PRs targeting `main`, on pushes to `main`, and on manual dispatch.
+  # It was `workflow_dispatch`-only while free runner minutes were the binding
+  # constraint; that constraint is gone, and a manual-only gate does not survive
+  # contact with contributors who cannot dispatch it. A PR into a feature base
+  # still triggers nothing — run it locally there.
+  e2e:
+    name: Playwright + Electron (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    # Split across runners rather than made parallel on one. Each test pays a
+    # full Electron launch plus a mongodb-memory-server spin-up, both roughly
+    # 10x slower here than locally — measured at ~24s/test, 1601s of a 28.3m
+    # job, against ~92s of setup. Caching the setup was the obvious lever and
+    # it is worth nothing; the test time is the job.
+    #
+    # `workers: 1` stays inside each shard on purpose. Raising it is the other
+    # way to spend the same runner, and it shares an Electron and a Mongo
+    # between concurrent tests — mongodb-memory-server is already known fragile
+    # under CPU contention. Four processes on four machines keeps every test as
+    # isolated as it is today and costs only billed minutes, not correctness.
+    #
+    # Four, not more. Measured on run 34640889050: 8.2m / 6.9m / 10.4m / 8.1m,
+    # so the slowest shard is the job, at 10.4m against 28.3m before. That is
+    # level with the ~10.4m test job, which now sets the floor for the whole
+    # workflow — a fifth shard, or evening out the 6.9-10.4m spread, would
+    # shorten this job and not the run.
+    #
+    # A spec file is never split down the middle. Playwright shards whole test
+    # groups, and with `fullyParallel: false` a group is a file — so a file
+    # whose tests build on each other still runs in order, in one process.
+    strategy:
+      # A red shard must not cancel the other three — one of them failing too
+      # is the difference between a flake and a break.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # 20 against a measured 10.4m worst shard. The headroom is for the spread,
+    # not for comfort: shard 3 draws the heavy specs today and a new spec file
+    # lands wherever the split puts it.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # `npm install` rather than `npm ci`: the lockfile is generated on
+      # macOS dev machines and skips transitive deps of Linux-only platform
+      # binaries (e.g., `@rolldown/binding-linux-*` pulls `@emnapi/*@1.10.0`
+      # which never lands in the lockfile from a macOS resolve). `npm install`
+      # tolerates the gap and resolves them on Linux; `npm ci` refuses.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # electron's bundled installer downloads the release zip fine, but its
+      # extract-zip step silently no-ops on this runner (Node 24 / ubuntu-latest):
+      # it leaves node_modules/electron/dist with only locales/ and never writes
+      # path.txt, so electron.launch fails every e2e test with "Electron failed
+      # to install correctly". Extract the zip ourselves with system unzip
+      # (deterministic), then write path.txt.
+      - name: Install Electron binary
+        run: |
+          ver=$(node -p "require('./node_modules/electron/package.json').version")
+          zip="electron-v${ver}-linux-x64.zip"
+          curl -fsSL --retry 3 -o "/tmp/${zip}" \
+            "https://github.com/electron/electron/releases/download/v${ver}/${zip}"
+          rm -rf node_modules/electron/dist
+          unzip -q "/tmp/${zip}" -d node_modules/electron/dist
+          printf electron > node_modules/electron/path.txt
+          test -x node_modules/electron/dist/electron \
+            && echo "electron binary OK ($ver)" \
+            || { echo "::error::electron binary missing after unzip"; exit 1; }
+
+      - name: Install Playwright system deps
+        run: npx playwright install-deps
+
+      - name: Run E2E
+        # Electron needs an X server on Linux even when launched
+        # programmatically; xvfb-run stands one up for the test process.
+        #
+        # `test:e2e` is `npm run build && npx playwright test`, so every shard
+        # builds its own bundle. That is deliberate: the build is seconds, and
+        # sharing one through an artifact would trade it for an upload, a
+        # download, and a way for a shard to test a bundle it did not make.
+        run: xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Unique per shard — upload-artifact v4 refuses a name that already
+          # exists, so a shared one would fail every shard after the first.
+          name: playwright-traces-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

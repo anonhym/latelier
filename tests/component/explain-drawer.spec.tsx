@@ -1,0 +1,191 @@
+import React from 'react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
+import { ExplainDrawer } from '../../src/pages/Workspace/Aggregation/ExplainDrawer';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('ExplainDrawer', () => {
+  it('renders a COLLSCAN summary strip containing the literal string "COLLSCAN"', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => {
+      expect(dialog.textContent).toContain('COLLSCAN');
+    });
+  });
+
+  it('renders metric chips when executionStats is present', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: {
+        queryPlanner: {
+          winningPlan: {
+            stage: 'FETCH',
+            inputStage: { stage: 'IXSCAN', indexName: 'email_1', keyPattern: { email: 1 } },
+          },
+        },
+        executionStats: {
+          nReturned: 5,
+          totalDocsExamined: 5,
+          totalKeysExamined: 5,
+          executionTimeMillis: 3,
+        },
+      },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => {
+      expect(dialog.textContent).toContain('email_1');
+      expect(dialog.textContent).toContain('5');
+      expect(dialog.textContent).toContain('3');
+    });
+  });
+
+  it('degrades gracefully: unrecognized plan shape hides the summary strip but still renders the full tree', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { weird: 1, nested: { deeper: 'value' } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => {
+      expect(dialog.textContent).toContain('weird');
+    });
+    // No summary strip data-testid rendered for an unrecognized shape.
+    expect(screen.queryByTestId('explain-summary-strip')).toBeNull();
+  });
+
+  it('preserves existing drawer contracts: Verbosity select and Close button', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    const onClose = vi.fn();
+    render(<ExplainDrawer onClose={onClose} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    expect(screen.getByLabelText('Verbosity')).toBeTruthy();
+    // X15 T6 — the bespoke `aria-label="Close explain"` ✕ is gone; the close
+    // control is now Mantine's, labelled "Close" like every other X15 dialog.
+    const closeBtn = within(dialog).getByRole('button', { name: 'Close' });
+    fireEvent.click(closeBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the role=alert error branch', async () => {
+    const runExplain = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('boom');
+  });
+
+  it('Raw/Tree toggle switches the body to the raw <pre> dump and back', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => {
+      expect(dialog.textContent).toContain('COLLSCAN');
+    });
+
+    // Tree mode (default): `winningPlan` is nested one level below the
+    // visible top-level `queryPlanner` key, so it's collapsed and hidden —
+    // a good discriminator for "we're not looking at the raw dump".
+    //
+    // X15 T6 — this used to be `dialog.querySelector('pre')`, which reaches
+    // into the drawer's internal element tree. A `<pre>` has no implicit ARIA
+    // role, so the accessible-query equivalent is the `explain-raw` testid the
+    // migration put on it. Same discriminator, same three assertions.
+    expect(within(dialog).queryByTestId('explain-raw')).toBeNull();
+    expect(dialog.textContent).not.toContain('winningPlan');
+
+    fireEvent.click(screen.getByLabelText('Switch to raw view'));
+
+    const pre = within(dialog).getByTestId('explain-raw');
+    expect(pre.textContent).toContain('winningPlan');
+
+    fireEvent.click(screen.getByLabelText('Switch to tree view'));
+    expect(within(dialog).queryByTestId('explain-raw')).toBeNull();
+  });
+
+  it('does not leave role="dialog" on the backdrop — it belongs to the panel', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    // MUTATION TARGET — the hand-rolled drawer put `role="dialog"` +
+    // `aria-label="Explain plan"` on the `position: fixed` scrim and left the
+    // panel unlabelled, so a screen reader announced the scrim. Move the role
+    // back onto the overlay and this goes red twice over: `getByRole` becomes
+    // ambiguous, and the overlay stops being role-less.
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    expect(within(dialog).getByLabelText('Verbosity')).toBeTruthy();
+
+    const overlay = document.body.querySelector('.mantine-Drawer-overlay');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('role')).toBeNull();
+  });
+
+  it('moves focus into the panel on open — the hand-rolled drawer never did', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  });
+
+  it('Escape closes it, and focus returns to the trigger', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    function Harness() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Explain</button>
+          {open && <ExplainDrawer onClose={() => setOpen(false)} runExplain={runExplain} />}
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Explain' });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Explain plan' })).toBeNull(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('still exposes an Expand toggle in the tree', async () => {
+    const runExplain = vi.fn(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+    }));
+    render(<ExplainDrawer onClose={() => {}} runExplain={runExplain} />);
+
+    await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Expand' }).length).toBeGreaterThan(0);
+    });
+  });
+});

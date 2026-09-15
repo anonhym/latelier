@@ -1,0 +1,8 @@
+# Every path, one owner. This repository has a single maintainer; the entry
+# exists so GitHub requests a review automatically rather than to describe a
+# division of responsibility.
+#
+# CODEOWNERS only has teeth when branch protection requires owner review — see
+# docs/publication-checklist.md.
+
+* @anonhym

@@ -1,0 +1,431 @@
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
+import {
+  DbCollectionNavigator,
+  type DbCollectionNavigatorProps,
+} from '../../src/pages/Workspace/DbCollectionNavigator';
+import {
+  connectionFixture,
+  installAtelierMock,
+  uninstallAtelierMock,
+} from '../helpers/atelierMock';
+import type { CollectionInfo } from '../../shared/ipc';
+
+function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
+  const baseProps: DbCollectionNavigatorProps = {
+    connectionsWithTabs: new Set(),
+    connections: [connectionFixture({ id: 'c1', name: 'Prod', color: '#1A6835' })],
+    focusedConnectionId: 'c1',
+    activeDbName: 'shop',
+    activeCollection: 'orders',
+    onOpenCollection: vi.fn(),
+    onOpenAggregation: vi.fn(),
+    ...props,
+  };
+  return render(<DbCollectionNavigator {...baseProps} />);
+}
+
+afterEach(() => {
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+function baseMocks(overrides: Parameters<typeof installAtelierMock>[0] = {}) {
+  return installAtelierMock({
+    meta: {
+      listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+      listCollections: async () => [
+        {
+          name: 'orders',
+          type: 'collection' as const,
+          documentCount: 0,
+          sizeBytes: 0,
+          indexCount: 0,
+          capped: false,
+        },
+      ],
+    },
+    ...overrides,
+  });
+}
+
+describe('DbCollectionNavigator — T1.1 admin actions', () => {
+  it('DB context menu "Create collection" is enabled and opens the create drawer; success refreshes the DB', async () => {
+    const listCollections = vi.fn(async () => [
+      {
+        name: 'orders',
+        type: 'collection' as const,
+        documentCount: 0,
+        sizeBytes: 0,
+        indexCount: 0,
+        capped: false,
+      },
+    ]);
+    baseMocks({
+      meta: {
+        listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+        listCollections,
+      },
+      collection: {
+        create: async (input) => ({ name: (input as { collection: string }).collection }),
+      },
+    });
+
+    mountNavigator();
+    await screen.findByText('orders');
+    const initialCalls = listCollections.mock.calls.length;
+
+    fireEvent.contextMenu(screen.getByTestId('nav-db-shop'));
+    const item = screen.getByRole('menuitem', { name: 'Create collection' });
+    expect(item.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(item);
+
+    await waitFor(() => expect(screen.getByLabelText('Collection name')).toBeTruthy());
+    await userEvent.type(screen.getByLabelText('Collection name'), 'invoices');
+    await userEvent.click(screen.getByText('Create collection'));
+
+    await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
+  it('collection context menu "Rename collection" opens the rename modal; success refreshes the DB', async () => {
+    const listCollections = vi.fn(async () => [
+      {
+        name: 'orders',
+        type: 'collection' as const,
+        documentCount: 0,
+        sizeBytes: 0,
+        indexCount: 0,
+        capped: false,
+      },
+    ]);
+    baseMocks({
+      meta: {
+        listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+        listCollections,
+      },
+      collection: {
+        rename: async (input) => ({ name: (input as { newName: string }).newName }),
+      },
+    });
+
+    mountNavigator();
+    await screen.findByText('orders');
+    const initialCalls = listCollections.mock.calls.length;
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    const item = screen.getByRole('menuitem', { name: 'Rename collection' });
+    expect(item.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(item);
+
+    await waitFor(() => expect(screen.getByLabelText('New name')).toBeTruthy());
+    await userEvent.type(screen.getByLabelText('New name'), 'purchase_orders');
+    await userEvent.click(screen.getByText('Rename').closest('button')!);
+
+    await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
+  it('collection context menu "Drop collection" opens type-to-confirm; success refreshes the DB', async () => {
+    const listCollections = vi.fn(async () => [
+      {
+        name: 'orders',
+        type: 'collection' as const,
+        documentCount: 0,
+        sizeBytes: 0,
+        indexCount: 0,
+        capped: false,
+      },
+    ]);
+    baseMocks({
+      meta: {
+        listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+        listCollections,
+      },
+      collection: {
+        drop: async () => ({ dropped: true }),
+      },
+    });
+
+    mountNavigator();
+    await screen.findByText('orders');
+    const initialCalls = listCollections.mock.calls.length;
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop collection' }));
+
+    const confirmInput = await screen.findByLabelText('Confirm collection name');
+    const dropBtn = screen.getByText('Drop').closest('button')!;
+    expect((dropBtn as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(confirmInput, 'orders');
+    expect((dropBtn as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(dropBtn);
+
+    await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
+  it('DB context menu "Drop database" opens type-to-confirm; success refreshes the DB list (row disappears)', async () => {
+    const listDatabases = vi.fn(async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }]);
+    baseMocks({
+      meta: {
+        listDatabases,
+        listCollections: async () => [],
+      },
+      database: {
+        drop: async () => ({ dropped: true }),
+      },
+    });
+
+    mountNavigator({ activeDbName: null, activeCollection: null });
+    await screen.findByText('shop');
+    const initialCalls = listDatabases.mock.calls.length;
+
+    fireEvent.contextMenu(screen.getByTestId('nav-db-shop'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop database' }));
+
+    const confirmInput = await screen.findByLabelText('Confirm database name');
+    const dropBtn = screen.getByText('Drop database').closest('button')!;
+    expect((dropBtn as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(confirmInput, 'shop');
+    expect((dropBtn as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(dropBtn);
+
+    await waitFor(() => expect(listDatabases.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+});
+
+// X16.3 — which Connection an admin action runs against.
+//
+// Every id in this component is a string, so pointing a destructive path at
+// the Focused Tab's Connection, or at the first root, typechecks perfectly and
+// drops a collection on the wrong server. The fixture keeps those three apart:
+// `c1` is first in the list, `c2` is the Focused Tab's, and `c3` is the root
+// the action is performed in. An assertion of `'c3'` therefore fails for a
+// path that reads either of the other two.
+describe('DbCollectionNavigator — an admin action runs against the row’s own Connection', () => {
+  const THREE = [
+    connectionFixture({ id: 'c1', name: 'Prod' }),
+    connectionFixture({ id: 'c2', name: 'Staging' }),
+    connectionFixture({ id: 'c3', name: 'Archive' }),
+  ];
+
+  /** Expand Archive (`c3`) and its `shop` DB while the Focused Tab is on `c2`. */
+  async function mountOnArchive(props: Partial<DbCollectionNavigatorProps> = {}) {
+    const rendered = mountNavigator({
+      connectionsWithTabs: new Set(),
+      connections: THREE,
+      focusedConnectionId: 'c2',
+      activeDbName: null,
+      activeCollection: null,
+      ...props,
+    });
+    const archive = screen
+      .getAllByTestId('nav-connection')
+      .find((r) => r.getAttribute('data-connection-id') === 'c3')!;
+    fireEvent.click(archive);
+    fireEvent.click(await screen.findByTestId('nav-db-shop'));
+    await screen.findByTestId('nav-coll-shop-orders');
+    return rendered;
+  }
+
+  it('drops the collection on that Connection, and closes that Connection’s tabs', async () => {
+    const drop = vi.fn<(i: { connectionId: string; dbName: string; collection: string }) => Promise<{ dropped: boolean }>>(
+      async () => ({ dropped: true }),
+    );
+    const listCollections = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>>(
+      async () => [
+        { name: 'orders', type: 'collection', documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+      ],
+    );
+    baseMocks({
+      meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
+      collection: { drop: drop as never },
+    });
+    const onCollectionDropped = vi.fn();
+    await mountOnArchive({ onCollectionDropped });
+    listCollections.mockClear();
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop collection' }));
+    await userEvent.type(await screen.findByLabelText('Confirm collection name'), 'orders');
+    await userEvent.click(screen.getByText('Drop').closest('button')!);
+
+    await waitFor(() => expect(drop).toHaveBeenCalled());
+    expect(drop.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3', dbName: 'shop', collection: 'orders' });
+    expect(onCollectionDropped).toHaveBeenCalledWith('c3', 'shop', 'orders');
+    // The refresh that follows reads the same server, not the expanded root by
+    // coincidence or the Focused Tab's.
+    await waitFor(() => expect(listCollections).toHaveBeenCalled());
+    expect(listCollections.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3' });
+  });
+
+  it('drops the database on that Connection, and closes that Connection’s tabs', async () => {
+    const drop = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<{ dropped: true }>>(
+      async () => ({ dropped: true as const }),
+    );
+    const listDatabases = vi.fn<(i: { connectionId: string }) => Promise<{ name: string; sizeOnDisk: number; empty: boolean }[]>>(
+      async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+    );
+    baseMocks({
+      meta: {
+        listDatabases: listDatabases as never,
+        listCollections: async () => [
+          { name: 'orders', type: 'collection' as const, documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+        ],
+      },
+      database: { drop: drop as never },
+    });
+    const onDatabaseDropped = vi.fn();
+    await mountOnArchive({ onDatabaseDropped });
+    listDatabases.mockClear();
+
+    fireEvent.contextMenu(screen.getByTestId('nav-db-shop'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop database' }));
+    await userEvent.type(await screen.findByLabelText('Confirm database name'), 'shop');
+    await userEvent.click(screen.getByText('Drop database').closest('button')!);
+
+    await waitFor(() => expect(drop).toHaveBeenCalled());
+    expect(drop.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3', dbName: 'shop' });
+    expect(onDatabaseDropped).toHaveBeenCalledWith('c3', 'shop');
+    await waitFor(() => expect(listDatabases).toHaveBeenCalled());
+    expect(listDatabases.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3' });
+  });
+
+  it('renames the collection on that Connection, and re-points that Connection’s tabs', async () => {
+    const rename = vi.fn<(i: { connectionId: string; dbName: string; collection: string }) => Promise<{ name: string }>>(
+      async () => ({ name: 'purchase_orders' }),
+    );
+    const listCollections = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>>(
+      async () => [
+        { name: 'orders', type: 'collection', documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+      ],
+    );
+    baseMocks({
+      meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
+      collection: { rename: rename as never },
+    });
+    const onCollectionRenamed = vi.fn();
+    await mountOnArchive({ onCollectionRenamed });
+    listCollections.mockClear();
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename collection' }));
+    await userEvent.type(await screen.findByLabelText('New name'), 'purchase_orders');
+    await userEvent.click(screen.getByText('Rename').closest('button')!);
+
+    await waitFor(() => expect(rename).toHaveBeenCalled());
+    expect(rename.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3', dbName: 'shop', collection: 'orders' });
+    expect(onCollectionRenamed).toHaveBeenCalledWith('c3', 'shop', 'orders', 'purchase_orders');
+    await waitFor(() => expect(listCollections).toHaveBeenCalled());
+    expect(listCollections.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3' });
+  });
+
+  it('creates the collection on that Connection', async () => {
+    const create = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<{ name: string }>>(
+      async () => ({ name: 'invoices' }),
+    );
+    const listCollections = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>>(
+      async () => [
+        { name: 'orders', type: 'collection', documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+      ],
+    );
+    baseMocks({
+      meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
+      collection: { create: create as never },
+    });
+    await mountOnArchive();
+    listCollections.mockClear();
+
+    fireEvent.contextMenu(screen.getByTestId('nav-db-shop'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create collection' }));
+    await userEvent.type(await screen.findByLabelText('Collection name'), 'invoices');
+    await userEvent.click(screen.getByText('Create collection'));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(create.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3', dbName: 'shop' });
+    await waitFor(() => expect(listCollections).toHaveBeenCalled());
+    expect(listCollections.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3' });
+  });
+
+  it('refreshes the Connection the dialog acted on, even if the open root moved under it', async () => {
+    // The dialog outlives the accordion: switching tabs while a confirm is up
+    // expands another root, and the refresh that follows the drop must still
+    // read the server the drop ran against.
+    const drop = vi.fn<(i: { connectionId: string; dbName: string; collection: string }) => Promise<{ dropped: boolean }>>(
+      async () => ({ dropped: true }),
+    );
+    const listCollections = vi.fn<(i: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>>(
+      async () => [
+        { name: 'orders', type: 'collection', documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+      ],
+    );
+    baseMocks({
+      meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
+      collection: { drop: drop as never },
+    });
+    const { rerender } = await mountOnArchive();
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop collection' }));
+    await userEvent.type(await screen.findByLabelText('Confirm collection name'), 'orders');
+
+    // The Focused Tab moves to Prod, so Prod's root opens and Archive's closes.
+    rerender(
+      <DbCollectionNavigator
+        connectionsWithTabs={new Set()}
+        connections={THREE}
+        focusedConnectionId="c1"
+        activeDbName={null}
+        activeCollection={null}
+        onOpenCollection={vi.fn()}
+        onOpenAggregation={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId('nav-connection')
+          .find((r) => r.getAttribute('data-connection-id') === 'c1')!
+          .getAttribute('aria-expanded'),
+      ).toBe('true'),
+    );
+    listCollections.mockClear();
+
+    await userEvent.click(screen.getByText('Drop').closest('button')!);
+
+    await waitFor(() => expect(drop).toHaveBeenCalled());
+    expect(drop.mock.calls[0]![0]).toMatchObject({ connectionId: 'c3' });
+    await waitFor(() => expect(listCollections).toHaveBeenCalled());
+    for (const [args] of listCollections.mock.calls) {
+      expect(args).toMatchObject({ connectionId: 'c3' });
+    }
+  });
+
+  it('reads the read-only marker off that Connection, not the Focused Tab’s', async () => {
+    // `c3` is read-only and `c2` is not. The marker is a label, never
+    // the guard (ADR 0005), but a label taken from the wrong Connection is
+    // exactly how someone talks themselves into confirming.
+    baseMocks({
+      meta: {
+        listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+        listCollections: async () => [
+          { name: 'orders', type: 'collection' as const, documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+        ],
+      },
+    });
+    await mountOnArchive({
+      connectionsWithTabs: new Set(),
+      connections: [
+        connectionFixture({ id: 'c1', name: 'Prod' }),
+        connectionFixture({ id: 'c2', name: 'Staging' }),
+        connectionFixture({ id: 'c3', name: 'Archive', readOnly: true }),
+      ],
+    });
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Drop collection' }));
+    await userEvent.type(await screen.findByLabelText('Confirm collection name'), 'orders');
+
+    expect(screen.getByText('This connection is read-only. Dropping is disabled.')).toBeTruthy();
+    expect((screen.getByText('Drop').closest('button') as HTMLButtonElement).disabled).toBe(true);
+  });
+});

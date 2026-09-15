@@ -1,0 +1,175 @@
+/* L'Atelier brand tokens. Synced from ../atelier-brand/palette/tokens.css.
+   Used by brand-specific surfaces (splash, marketing). */
+:root {
+  --atelier-violet: #7c6af7;
+  --atelier-ghost:  #e8e0ff;
+  --atelier-deep:   #1a1a2e;
+  --atelier-navy:   #0d1f2d;
+}
+
+/* X12 — semantic theme tokens (the renderer's single design-token layer).
+   MantineProvider sets data-mantine-color-scheme on <html> from useTheme();
+   the matching block below applies, so light/dark switches automatically in
+   both runtime and tests. These mirror the former tokens.ts LIGHT/DARK values
+   exactly and are surfaced to TS via src/theme/themeVars.ts (replacing the
+   legacy useT() object). Referenced from inline styles as var(--atelier-*). */
+:root,
+[data-mantine-color-scheme="light"] {
+  /* Surfaces */
+  --atelier-bg:             #faf8f5;
+  --atelier-surface:        #ffffff;
+  --atelier-surface-raised: #f3f0ea;
+  --atelier-surface-active: #e9e5dc;
+  /* Borders */
+  --atelier-border:         rgba(26,26,46,0.09);
+  --atelier-border-med:     rgba(26,26,46,0.16);
+  /* Text */
+  --atelier-text:           #1a1a2e;
+  --atelier-text-muted:     rgba(26,26,46,0.63);
+  --atelier-text-ghost:     rgba(26,26,46,0.50);
+  --mantine-color-dimmed:   var(--atelier-text-muted);
+  /* Accent (violet primary) */
+  --atelier-accent:         #7c6af7;
+  --atelier-accent-text:    #ffffff;
+  --atelier-accent-soft:    rgba(124,106,247,0.09);
+  --atelier-accent-border:  rgba(124,106,247,0.30);
+  /* Status — dot + scalar */
+  --atelier-green-dot:      #16a34a;
+  --atelier-warn:           #c2410c;
+  --atelier-red:            #dc2626;
+  /* Status — pill backgrounds / text / borders */
+  --atelier-green-soft:     rgba(22,163,74,0.10);
+  --atelier-green-text:     #15803d;
+  --atelier-green-border:   rgba(22,163,74,0.30);
+  --atelier-warn-soft:      rgba(194,65,12,0.10);
+  --atelier-warn-text:      #c2410c;
+  --atelier-warn-border:    rgba(194,65,12,0.30);
+  --atelier-red-soft:       rgba(220,38,38,0.10);
+  --atelier-red-text:       #dc2626;
+  --atelier-red-border:     rgba(220,38,38,0.30);
+  /* Radii */
+  --atelier-radius:         8px;
+  --atelier-radius-sm:      6px;
+  --atelier-radius-xs:      4px;
+  /* Shadows */
+  --atelier-shadow:         0 1px 3px rgba(0,0,0,0.06),0 4px 12px rgba(0,0,0,0.04);
+  --atelier-shadow-lg:      0 8px 32px rgba(0,0,0,0.10);
+  /* Number syntax color (static, same in both modes) */
+  --atelier-color-number:   #1565c0;
+}
+
+[data-mantine-color-scheme="dark"] {
+  /* Surfaces */
+  --atelier-bg:             #0f1214;
+  --atelier-surface:        #161a1e;
+  --atelier-surface-raised: #1c2228;
+  --atelier-surface-active: #232b34;
+  /* Borders */
+  --atelier-border:         rgba(200,210,220,0.08);
+  --atelier-border-med:     rgba(200,210,220,0.14);
+  /* Text */
+  --atelier-text:           #cdd5de;
+  --atelier-text-muted:     rgba(200,210,220,0.62);
+  --atelier-text-ghost:     rgba(200,210,220,0.45);
+  --mantine-color-dimmed:   var(--atelier-text-muted);
+  /* Accent */
+  --atelier-accent:         #7c6af7;
+  --atelier-accent-text:    #ffffff;
+  --atelier-accent-soft:    rgba(124,106,247,0.14);
+  --atelier-accent-border:  rgba(124,106,247,0.38);
+  /* Status — dot + scalar */
+  --atelier-green-dot:      #4ade80;
+  --atelier-warn:           #fb923c;
+  --atelier-red:            #f87171;
+  /* Status — pill backgrounds / text / borders */
+  --atelier-green-soft:     rgba(74,222,128,0.14);
+  --atelier-green-text:     #86efac;
+  --atelier-green-border:   rgba(74,222,128,0.32);
+  --atelier-warn-soft:      rgba(251,146,60,0.14);
+  --atelier-warn-text:      #fb923c;
+  --atelier-warn-border:    rgba(251,146,60,0.32);
+  --atelier-red-soft:       rgba(248,113,113,0.14);
+  --atelier-red-text:       #fca5a5;
+  --atelier-red-border:     rgba(248,113,113,0.32);
+  /* Radii */
+  --atelier-radius:         8px;
+  --atelier-radius-sm:      6px;
+  --atelier-radius-xs:      4px;
+  /* Shadows */
+  --atelier-shadow:         0 2px 8px rgba(0,0,0,0.35);
+  --atelier-shadow-lg:      0 8px 32px rgba(0,0,0,0.55);
+  /* Number syntax color */
+  --atelier-color-number:   #90caf9;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; overflow: hidden; }
+body { font-family: "Inter", system-ui, sans-serif; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 4px; }
+* { -webkit-font-smoothing: antialiased; }
+input, button, select, textarea { font-family: inherit; }
+a { text-decoration: none; }
+textarea { resize: none; }
+
+/* Disable browser scroll anchoring inside the document tree view. When the
+   user expands a nested array, ~30 child rows appear in flow inside an
+   already-expanded doc row; the browser would otherwise pick a descendant
+   below the change as an anchor and shift scrollTop to keep it stable,
+   yanking the click target off the cursor. Applying `none` to the scroll
+   container alone wasn't enough in Chromium — every descendant needs it. */
+.tree-view-no-scroll-anchor,
+.tree-view-no-scroll-anchor * { overflow-anchor: none; }
+
+/* W15 §5 (#324) — keyboard focus ring for elements that are interactive
+   without being a native control. The query bar's advanced-row disclosure is
+   a styled `<div role="button">`; a div gets no UA focus ring, so tabbing to
+   it landed nowhere visible (the item W14 §2 left open).
+
+   Lives here rather than inline because `:focus-visible` is a pseudo-class —
+   the `style={{…}}` everything else in that row uses cannot express it. The
+   outline is inset (`outline-offset: -2px`): the trigger fills a 120px cell
+   that already has a 1px border, so an outset ring would be clipped by the
+   neighbouring cell. `:focus-visible`, not `:focus`, so a mouse click on the
+   trigger doesn't leave a ring behind. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--atelier-accent);
+  outline-offset: -2px;
+  border-radius: var(--atelier-radius-xs);
+}
+
+/* #482 — panel splitters highlight on hover and while dragging, the way the
+   navigator's bespoke `ResizeHandle` already does. X12 phase 7 moved the
+   builder and shell splits onto react-resizable-panels and left every
+   `Separator` painted `transparent` with no interactive state, so both were
+   invisible at rest and gave no feedback mid-drag.
+
+   Keyed off `data-separator`'s *value*, which the library documents as the
+   hook for custom hover and active styles. It carries that separator's own
+   interaction state — `inactive` / `hover` / `active` / `focus` — and `active`
+   is what makes the drag work: the library takes pointer capture on
+   pointerdown, so for all but the first instant of a real drag the pointer is
+   nowhere near the 4px strip and a `:hover` rule would have gone dark.
+
+   Keyboard resize is the third state, but it comes from `:focus-visible`
+   rather than `[data-separator='focus']`. The library sets `focus` for a
+   mouse drag too, which would leave the handle lit after the release until
+   you clicked elsewhere. `:focus-visible` keeps the highlight for arrow-key
+   resizing and drops it for the mouse — the same split `.focus-ring` above
+   already uses.
+
+   One rule covers every `Separator` in the app rather than a copy per call
+   site, and it has to live in CSS — an attribute selector is not something
+   the `style={{…}}` props at the call sites can express. Those props must not
+   set `background` at all: an inline declaration outranks this rule and is
+   exactly what made the handles invisible. */
+[data-separator] {
+  background: transparent;
+  transition: background 120ms;
+}
+[data-separator='hover'],
+[data-separator='active'],
+[data-separator]:focus-visible {
+  background: var(--atelier-accent);
+}

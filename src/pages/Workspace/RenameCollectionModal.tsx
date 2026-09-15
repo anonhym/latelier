@@ -1,0 +1,94 @@
+import React from 'react';
+import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { api, getErrorMessage } from '../../api/atelier';
+import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+
+interface RenameCollectionModalProps {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  onCancel: () => void;
+  onRenamed: (newName: string) => void;
+  /** Supplied when the opener is gone by first render (context menu). */
+  returnFocusTo?: HTMLElement | null;
+}
+
+/** Same-database rename dialog (T1.1) — the driver only supports renaming
+ * within the same database, so there is no target-DB field. */
+export function RenameCollectionModal({
+  connectionId,
+  dbName,
+  collection,
+  onCancel,
+  onRenamed,
+  returnFocusTo,
+}: RenameCollectionModalProps) {
+  // Dismiss paths only — the success callback hands off elsewhere.
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  const [newName, setNewName] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const trimmed = newName.trim();
+  const canSubmit = trimmed.length > 0 && trimmed !== collection;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.collection.rename({ connectionId, dbName, collection, newName: trimmed });
+      onRenamed(trimmed);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Rename failed'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      opened
+      onClose={close}
+      title={`Rename "${collection}"`}
+      centered
+      size="md"
+      aria-label="Rename collection"
+    >
+      <Stack gap="sm">
+        <Text size="xs" c="dimmed">
+          {dbName}.{collection} → {dbName}.{trimmed || '…'}
+        </Text>
+        <TextInput
+          aria-label="New name"
+          autoFocus
+          value={newName}
+          onChange={(e) => setNewName(e.currentTarget.value)}
+          placeholder="new collection name"
+          size="xs"
+          styles={{
+            input: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
+          }}
+        />
+        {error && (
+          <Alert color="red" variant="light" role="alert">
+            {error}
+          </Alert>
+        )}
+        <Group justify="flex-end" gap="xs">
+          <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="filled"
+            size="compact-xs"
+            onClick={() => void submit()}
+            disabled={!canSubmit || submitting}
+          >
+            {submitting ? 'Renaming…' : 'Rename'}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}

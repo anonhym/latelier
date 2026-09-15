@@ -1,0 +1,67 @@
+name: Claude Code Review
+
+# Disabled to conserve free runner minutes. Restore by putting back:
+#   pull_request:
+#     types: [opened, synchronize, ready_for_review, reopened]
+#
+# READ THIS BEFORE RESTORING IT — this repository is public.
+#
+# `pull_request` (the trigger above) is the safe one and the one to use: for a
+# PR from a fork it runs with a read-only token and no access to secrets, so an
+# untrusted contributor cannot reach `CLAUDE_CODE_OAUTH_TOKEN`. The consequence
+# is that fork PRs get no automated review — accept that rather than reaching
+# for the workaround.
+#
+# The workaround is `pull_request_target`, and it must not be used here. It
+# runs the workflow from the default branch *with* secrets and a writable
+# token, in the context of the base repo, while reviewing code the contributor
+# controls. Checking out the PR head under it hands a stranger's code the
+# OAuth token. If fork review is ever wanted, use a two-workflow
+# `workflow_run` split instead, and keep the privileged half from ever checking
+# out untrusted code.
+#
+# The author filter below is commented out and is an *allow*-list, not a
+# restriction — do not read it as a guard. If a restore ever needs to limit who
+# can start a run, the condition is on author association:
+#
+#   if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+#                github.event.pull_request.author_association)
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+
+jobs:
+  claude-review:
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@0a8d3c9443bbff909ab973b6a17a340b913f229f # v1.0.221
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ inputs.pr_number }}'
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
+

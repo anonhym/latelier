@@ -1,0 +1,135 @@
+import { dialog, shell, type BrowserWindow } from 'electron';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { z } from 'zod';
+import { IPC_CHANNELS, type PickFilePurpose } from '@shared/ipc';
+import type { Router } from '../router.ts';
+import { zodValidator } from '../validators.ts';
+import { SystemError, ValidationError } from '../../errors.ts';
+import type { DiagnosticService } from '../../services/DiagnosticService.ts';
+
+const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key']);
+const OpenExternalInput = z.string().url();
+const SaveFileInput = z.object({
+  defaultName: z.string().optional(),
+  content: z.string(),
+});
+const NoInput = z.undefined().or(z.null()).or(z.object({}));
+
+const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
+  'tls-ca': [
+    { name: 'Certificates', extensions: ['pem', 'crt', 'cer'] },
+    { name: 'All files', extensions: ['*'] },
+  ],
+  'tls-client-cert': [
+    { name: 'Certificates / keys', extensions: ['pem', 'crt', 'key', 'p12', 'pfx'] },
+    { name: 'All files', extensions: ['*'] },
+  ],
+  'ssh-key': [
+    { name: 'Private keys', extensions: ['pem', 'key', 'ppk'] },
+    { name: 'All files', extensions: ['*'] },
+  ],
+};
+
+export function registerAppChannels(
+  router: Router,
+  getWindow: () => BrowserWindow | null,
+  diagnostic?: DiagnosticService,
+): void {
+  router.register(
+    IPC_CHANNELS.appPickFile,
+    zodValidator(PickFileInput),
+    async (purpose) => {
+      const win = getWindow();
+      const result = await dialog.showOpenDialog(win ?? undefined as unknown as BrowserWindow, {
+        properties: ['openFile'],
+        filters: PURPOSE_FILTERS[purpose],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { path: null };
+      return { path: result.filePaths[0]! };
+    },
+  );
+
+  router.register(
+    IPC_CHANNELS.appOpenExternal,
+    zodValidator(OpenExternalInput),
+    async (url) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        throw new ValidationError('invalid URL');
+      }
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new ValidationError(`unsupported protocol: ${parsed.protocol}`);
+      }
+      await shell.openExternal(url);
+      return { opened: true };
+    },
+  );
+
+  router.register(
+    IPC_CHANNELS.appSaveFile,
+    zodValidator(SaveFileInput),
+    async ({ defaultName, content }) => {
+      const win = getWindow();
+      const result = await dialog.showSaveDialog(
+        win ?? (undefined as unknown as BrowserWindow),
+        {
+          defaultPath: defaultName ?? 'export.json',
+          filters: [
+            { name: 'JSON', extensions: ['json'] },
+            { name: 'All files', extensions: ['*'] },
+          ],
+        },
+      );
+      if (result.canceled || !result.filePath) return { path: null };
+      try {
+        await fs.mkdir(path.dirname(result.filePath), { recursive: true });
+        await fs.writeFile(result.filePath, content, 'utf8');
+      } catch (err) {
+        throw new SystemError(
+          'INTERNAL',
+          `failed to write file: ${(err as Error).message}`,
+        );
+      }
+      return { path: result.filePath };
+    },
+  );
+
+  router.register(
+    IPC_CHANNELS.appDiagnosticBundle,
+    zodValidator(NoInput),
+    async () => {
+      if (!diagnostic) {
+        throw new SystemError('INTERNAL', 'diagnostic service not available');
+      }
+      const win = getWindow();
+      const dialogOpts = {
+        defaultPath: diagnostic.defaultFilename(),
+        filters: [
+          { name: 'JSON', extensions: ['json'] },
+          { name: 'All files', extensions: ['*'] },
+        ],
+      };
+      // Use the parented overload when we have a window; fall back to the
+      // window-less overload otherwise. Avoids casting `undefined` to
+      // BrowserWindow.
+      const result = await (win
+        ? dialog.showSaveDialog(win, dialogOpts)
+        : dialog.showSaveDialog(dialogOpts));
+      if (result.canceled || !result.filePath) return { path: null };
+      const content = await diagnostic.serialize();
+      try {
+        await fs.mkdir(path.dirname(result.filePath), { recursive: true });
+        await fs.writeFile(result.filePath, content, 'utf8');
+      } catch (err) {
+        throw new SystemError(
+          'INTERNAL',
+          `failed to write diagnostic bundle: ${(err as Error).message}`,
+        );
+      }
+      return { path: result.filePath };
+    },
+  );
+}

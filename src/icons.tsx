@@ -1,0 +1,98 @@
+// Central icon set. Sourced from @tabler/icons-react (Mantine's companion
+// library) — no hand-drawn SVG paths live here anymore. The `I.*` facade is
+// kept so the ~140 existing call sites (`{I.search}`, etc.) stay unchanged;
+// each entry is a ready-to-render element with the size/stroke that the old
+// custom glyph used, so layouts don't shift. Icons inherit color via
+// `currentColor` (Tabler's default), preserving existing theme styling.
+import {
+  IconArrowRight,
+  IconArrowsMaximize,
+  IconChartLine,
+  IconCheck,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconChevronUp,
+  IconClock,
+  IconCode,
+  IconCommand,
+  IconCopy,
+  IconDatabase,
+  IconDeviceFloppy,
+  IconDotsVertical,
+  IconExternalLink,
+  IconEye,
+  IconEyeOff,
+  IconFileText,
+  IconFilter,
+  IconGripVertical,
+  IconList,
+  IconLock,
+  IconMoon,
+  IconParentheses,
+  IconPencil,
+  IconPlayerPlayFilled,
+  IconPlugOff,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconServer,
+  IconSettings,
+  IconSun,
+  IconTerminal2,
+  IconTrash,
+  IconX,
+} from '@tabler/icons-react';
+
+// Shared stroke. Tabler's default is 2; 1.6 reads close to the old hand-drawn
+// 1.4–1.5 weight so the migration stays visually neutral.
+const s = 1.6;
+
+export const I = {
+  search: <IconSearch size={13} stroke={s} />,
+  plus: <IconPlus size={12} stroke={s} />,
+  edit: <IconPencil size={12} stroke={s} />,
+  trash: <IconTrash size={13} stroke={s} />,
+  open: <IconExternalLink size={12} stroke={s} />,
+  server: <IconServer size={14} stroke={s} />,
+  doc: <IconFileText size={13} stroke={s} />,
+  moon: <IconMoon size={14} stroke={s} />,
+  sun: <IconSun size={14} stroke={s} />,
+  cmd: <IconCommand size={13} stroke={s} />,
+  close: <IconX size={12} stroke={s} />,
+  chevR: <IconChevronRight size={14} stroke={s} />,
+  chevL: <IconChevronLeft size={14} stroke={s} />,
+  chevLL: <IconChevronsLeft size={13} stroke={s} />,
+  chevRR: <IconChevronsRight size={13} stroke={s} />,
+  clock: <IconClock size={13} stroke={s} />,
+  chevD: <IconChevronDown size={13} stroke={s} />,
+  chevU: <IconChevronUp size={13} stroke={s} />,
+  play: <IconPlayerPlayFilled size={11} />,
+  plugOff: <IconPlugOff size={12} stroke={s} />,
+  db: <IconDatabase size={13} stroke={s} />,
+  lock: <IconLock size={11} stroke={s} />,
+  coll: <IconList size={13} stroke={s} />,
+  view: <IconEye size={14} stroke={s} />,
+  timeseries: <IconChartLine size={14} stroke={s} />,
+  openTab: <IconExternalLink size={12} stroke={s} />,
+  filter: <IconFilter size={13} stroke={s} />,
+  sync: <IconRefresh size={12} stroke={s} />,
+  check: <IconCheck size={14} stroke={2} />,
+  eye: <IconEye size={14} stroke={s} />,
+  eyeOff: <IconEyeOff size={14} stroke={s} />,
+  drag: <IconGripVertical size={14} stroke={s} />,
+  code: <IconCode size={13} stroke={s} />,
+  copy: <IconCopy size={12} stroke={s} />,
+  save: <IconDeviceFloppy size={14} stroke={s} />,
+  arrowR: <IconArrowRight size={11} stroke={s} />,
+  expand: <IconArrowsMaximize size={11} stroke={s} />,
+  gear: <IconSettings size={14} stroke={s} />,
+  terminal: <IconTerminal2 size={13} stroke={s} />,
+  more: <IconDotsVertical size={14} stroke={s} />,
+  // W15 §13.1 — "add nested group" needs a glyph of its own; `<>`
+  // (I.code) reads as raw JSON and now sits on "add raw clause", where it
+  // is accurate. Parentheses are how a nested boolean group is written.
+  group: <IconParentheses size={13} stroke={s} />,
+};

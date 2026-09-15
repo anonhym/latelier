@@ -1,0 +1,115 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '../helpers/render';
+import { ErrorBoundary } from '../../src/components/ErrorBoundary';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+
+function Thrower({ shouldThrow }: { shouldThrow: boolean }) {
+  if (shouldThrow) {
+    throw new Error('boom');
+  }
+  return <div>thrower ok</div>;
+}
+
+function NonThrower() {
+  return <div>never throws</div>;
+}
+
+describe('<ErrorBoundary>', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    installAtelierMock();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    uninstallAtelierMock();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('renders fallback UI with Reload/Report controls when a child throws', () => {
+    render(
+      <ErrorBoundary>
+        <Thrower shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Report' })).toBeTruthy();
+    expect(screen.queryByText('thrower ok')).toBeNull();
+  });
+
+  it('logs the caught error via console.error with the boundary tag', () => {
+    render(
+      <ErrorBoundary>
+        <Thrower shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    const taggedCalls = consoleErrorSpy.mock.calls.filter(
+      (call: unknown[]) => call[0] === '[ErrorBoundary] uncaught render error',
+    );
+    expect(taggedCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('calls window.location.reload when Reload is clicked', () => {
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    // jsdom (29.x) marks location.reload non-configurable, so
+    // vi.spyOn(window.location, 'reload') throws "Cannot redefine property".
+    // Replacing the whole (configurable) location object is the portable mock;
+    // the try/finally guarantees restoration even if an assertion throws.
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, reload: reloadSpy },
+    });
+
+    try {
+      render(
+        <ErrorBoundary>
+          <Thrower shouldThrow />
+        </ErrorBoundary>,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(reloadSpy).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
+  it('surfaces the diagnostic bundle path when Report is clicked', async () => {
+    installAtelierMock({
+      app: {
+        diagnosticBundle: async () => ({ path: '/tmp/bundle.zip' }),
+      },
+    });
+
+    render(
+      <ErrorBoundary>
+        <Thrower shouldThrow />
+      </ErrorBoundary>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved to /tmp/bundle.zip')).toBeTruthy();
+    });
+  });
+
+  it('renders children normally with zero console.error calls when nothing throws', () => {
+    render(
+      <ErrorBoundary>
+        <NonThrower />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText('never throws')).toBeTruthy();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+});

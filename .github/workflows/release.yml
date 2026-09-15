@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual trigger for dry-running the workflow without cutting a tag.
+  workflow_dispatch:
+
+# Permissions required by softprops/action-gh-release to create the
+# release and attach assets.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_glob: |
+              release/*.dmg
+              release/*.dmg.blockmap
+              release/*.zip
+              release/latest-mac.yml
+            build_script: electron-builder --mac --x64 --arm64
+          - os: windows-latest
+            artifact_glob: |
+              release/*.exe
+              release/*.exe.blockmap
+              release/latest.yml
+            build_script: electron-builder --win --x64
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # See ci.yml for why we use `npm install` over `npm ci`.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # No project-managed ABI rebuild step: better-sqlite3 13 is an N-API
+      # addon whose prebuilt binary serves every Node/Electron ABI.
+      # electron-builder still prepares native dependencies while packaging,
+      # but does not compile better-sqlite3 from source.
+      - name: Build renderer + main
+        run: npm run build
+
+      - name: Package with electron-builder
+        env:
+          # Disable auto-discovery of code-signing certs. Without explicit
+          # creds the build is unsigned — Gatekeeper / SmartScreen will warn
+          # users on first launch but the installer is still functional.
+          # When real certs are wired (future), drop this and add the
+          # CSC_LINK / CSC_KEY_PASSWORD / WIN_CSC_LINK secrets.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # GitHub publishing is handled by the release step below; tell
+          # electron-builder not to attempt its own publish.
+          GH_TOKEN: ''
+        run: npx ${{ matrix.build_script }} --publish never
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: ${{ matrix.artifact_glob }}
+          # Don't fail if a glob matches nothing (e.g., the .yml feed file
+          # naming conventions vary across electron-builder versions).
+          fail_on_unmatched_files: false
+          # Created on first job to land; subsequent jobs append assets.
+          generate_release_notes: true
+
+      # workflow_dispatch runs (no tag) — keep the artifacts as workflow
+      # outputs so we can grab them for testing the pipeline before tagging.
+      - name: Upload as workflow artifact (dry-run only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.os }}
+          path: release/
+          retention-days: 7

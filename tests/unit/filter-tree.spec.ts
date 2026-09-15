@@ -1,0 +1,1404 @@
+import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
+import {
+  parseFilter,
+  printFilter,
+  nodeAt,
+  updateAt,
+  insertAt,
+  removeAt,
+  moveAt,
+  wrapInGroup,
+  toRawNode,
+  tryParseRaw,
+  coerceArrayElementWire,
+  buildScalarWire,
+  parseJsonArrayLenient,
+  type GroupNode,
+  type CondNode,
+  type RawNode,
+  type FilterNode,
+} from '../../src/pages/Workspace/filterTree';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function mustParse(ejson: string): GroupNode {
+  const r = parseFilter(ejson);
+  if (!r.ok) throw new Error(`expected parse ok, got: ${r.reason}`);
+  return r.root;
+}
+
+function mustPrint(root: GroupNode): string {
+  const p = printFilter(root);
+  if (!p.ok) throw new Error(`expected print ok, got problems: ${JSON.stringify(p.problems)}`);
+  return p.json;
+}
+
+/** parseFilter then printFilter in one shot — the shape most tests need. */
+function roundTrip(ejson: string): string {
+  return mustPrint(mustParse(ejson));
+}
+
+function cond(overrides: Partial<CondNode> = {}): CondNode {
+  return { kind: 'cond', field: 'a', op: '$eq', valType: 'string', value: 'x', ...overrides };
+}
+
+function raw(json: string): RawNode {
+  return { kind: 'raw', json };
+}
+
+function group(logic: GroupNode['logic'], children: FilterNode[]): GroupNode {
+  return { kind: 'group', logic, children };
+}
+
+// ─── Parser (§2, §10) ────────────────────────────────────────────────────────
+
+describe('parseFilter — parse table (§2)', () => {
+  it('{} -> root $and group, no children', () => {
+    expect(mustParse('{}')).toEqual(group('$and', []));
+  });
+
+  it('{ name: "x" } -> one cond, implicit $eq', () => {
+    expect(mustParse('{"name":"x"}')).toEqual(
+      group('$and', [cond({ field: 'name', op: '$eq', valType: 'string', value: 'x' })]),
+    );
+  });
+
+  it('{ name: { $eq: "x" } } -> one cond', () => {
+    expect(mustParse('{"name":{"$eq":"x"}}')).toEqual(
+      group('$and', [cond({ field: 'name', op: '$eq', valType: 'string', value: 'x' })]),
+    );
+  });
+
+  it('{ a: 1, b: 2 } -> root $and, two conds', () => {
+    expect(mustParse('{"a":1,"b":2}')).toEqual(
+      group('$and', [
+        cond({ field: 'a', op: '$eq', valType: 'number', value: '1' }),
+        cond({ field: 'b', op: '$eq', valType: 'number', value: '2' }),
+      ]),
+    );
+  });
+
+  it('{ $and: [...] } -> root becomes that group directly (not double-wrapped)', () => {
+    const root = mustParse('{"$and":[{"a":1},{"b":2}]}');
+    expect(root.logic).toBe('$and');
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('{ $or: [...] } -> root becomes an $or group', () => {
+    const root = mustParse('{"$or":[{"a":1},{"b":2}]}');
+    expect(root.logic).toBe('$or');
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('{ $nor: [...] } -> root becomes a $nor group', () => {
+    const root = mustParse('{"$nor":[{"a":1}]}');
+    expect(root.logic).toBe('$nor');
+    expect(root.children).toHaveLength(1);
+  });
+
+  it('{ a: { $gte: 1, $lte: 5 } } -> two conds (§2a splittable pair)', () => {
+    expect(mustParse('{"a":{"$gte":1,"$lte":5}}')).toEqual(
+      group('$and', [
+        cond({ field: 'a', op: '$gte', valType: 'number', value: '1' }),
+        cond({ field: 'a', op: '$lte', valType: 'number', value: '5' }),
+      ]),
+    );
+  });
+
+  it('{ a: { $regex: "x", $options: "i" } } -> exactly one raw node', () => {
+    const root = mustParse('{"a":{"$regex":"x","$options":"i"}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('{ items: { $elemMatch: {...} } } -> one raw node', () => {
+    const root = mustParse('{"items":{"$elemMatch":{"sku":1}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toEqual(raw('{"items":{"$elemMatch":{"sku":1}}}'));
+  });
+
+  it.each(['$expr', '$text', '$where', '$jsonSchema'])(
+    '%s at top level -> one raw node, not a parse failure',
+    (key) => {
+      const src = `{"${key}":{"whatever":1}}`;
+      const r = parseFilter(src);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.root.children).toHaveLength(1);
+      expect(r.root.children[0].kind).toBe('raw');
+    },
+  );
+
+  it('an unenumerated clause-level $-operator (e.g. $comment) also becomes raw, not a mangled cond', () => {
+    // Regression: any clause-level `$`-key is an operator, never a field
+    // name — MongoDB field names can't lead with `$`. Falling through to
+    // field-predicate parsing for an operator this module doesn't name by
+    // name would parse `"$comment"` as a literal field, then print it back
+    // as `{"$comment":{"$eq":"why"}}` — a different, invalid filter.
+    const root = mustParse('{"$comment":"why"}');
+    expect(root.children).toEqual([raw('{"$comment":"why"}')]);
+    expect(roundTrip('{"$comment":"why"}')).toBe('{"$comment":"why"}');
+  });
+
+  it('field-level $not -> one raw node', () => {
+    const root = mustParse('{"a":{"$not":{"$gt":5}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toEqual(raw('{"a":{"$not":{"$gt":5}}}'));
+  });
+
+  it('{ loc: { $near: {...}, $maxDistance: 10 } } -> exactly one raw node', () => {
+    const src = '{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":10}}';
+    const root = mustParse(src);
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toEqual(raw(src));
+  });
+
+  it('nested { $and: [ { $or: [...] }, { a: 1 } ] } -> nested groups, arbitrary depth', () => {
+    const root = mustParse('{"$and":[{"$or":[{"a":1},{"b":2}]},{"c":3}]}');
+    expect(root.logic).toBe('$and');
+    expect(root.children).toHaveLength(2);
+    const [orGroup, cCond] = root.children;
+    expect(orGroup.kind).toBe('group');
+    if (orGroup.kind === 'group') {
+      expect(orGroup.logic).toBe('$or');
+      expect(orGroup.children).toHaveLength(2);
+    }
+    expect(cCond).toEqual(cond({ field: 'c', op: '$eq', valType: 'number', value: '3' }));
+  });
+
+  it('parseFilter fails only on invalid JSON and non-object root', () => {
+    expect(parseFilter('not json').ok).toBe(false);
+    expect(parseFilter('[1,2,3]').ok).toBe(false);
+    expect(parseFilter('"a string"').ok).toBe(false);
+    expect(parseFilter('42').ok).toBe(false);
+    expect(parseFilter('null').ok).toBe(false);
+    // Never fails on an operator it doesn't understand.
+    expect(parseFilter('{"status":"active","qty":{"$gt":5}}').ok).toBe(true);
+    expect(parseFilter('{"items":{"$elemMatch":{"sku":1}}}').ok).toBe(true);
+  });
+
+  it('{ status: "active", qty: { $gt: 5 } } -> two conds under root $and', () => {
+    expect(mustParse('{"status":"active","qty":{"$gt":5}}')).toEqual(
+      group('$and', [
+        cond({ field: 'status', op: '$eq', valType: 'string', value: 'active' }),
+        cond({ field: 'qty', op: '$gt', valType: 'number', value: '5' }),
+      ]),
+    );
+  });
+
+  it('$oid / $date / $numberLong / $numberDecimal round-trip exact value text', () => {
+    const oid = '507f1f77bcf86cd799439011';
+    const date = '2024-01-01T00:00:00.000Z';
+    const long = '9223372036854775807';
+    const decimal = '12345678901234567890.123456789';
+    const root = mustParse(
+      `{"a":{"$oid":"${oid}"},"b":{"$date":"${date}"},"c":{"$numberLong":"${long}"},"d":{"$numberDecimal":"${decimal}"}}`,
+    );
+    expect(root.children).toEqual([
+      cond({ field: 'a', op: '$eq', valType: 'objectid', value: oid }),
+      cond({ field: 'b', op: '$eq', valType: 'date', value: date }),
+      cond({ field: 'c', op: '$eq', valType: 'long', value: long }),
+      cond({ field: 'd', op: '$eq', valType: 'decimal', value: decimal }),
+    ]);
+  });
+
+  it('{ $or: [...], a: 1 } -> root $and group containing the $or group and the cond as siblings', () => {
+    const root = mustParse('{"$or":[{"x":1},{"y":2}],"a":3}');
+    expect(root.logic).toBe('$and');
+    expect(root.children).toHaveLength(2);
+    expect(root.children[0].kind).toBe('group');
+    expect(root.children[1]).toEqual(cond({ field: 'a', op: '$eq', valType: 'number', value: '3' }));
+  });
+
+  it('$and/$or/$nor with a non-array value -> a raw node, not a parse failure', () => {
+    const r = parseFilter('{"$and":{"foo":1}}');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.root.children).toEqual([raw('{"$and":{"foo":1}}')]);
+  });
+});
+
+// ─── Value representability (§2b, §10, §11) ─────────────────────────────────
+
+describe('parseFilter — value representability (§2b)', () => {
+  const unrepresentable: Record<string, string> = {
+    'plain nested object': '{"a":{"$eq":{"nested":1}}}',
+    '$binary': '{"a":{"$binary":{"base64":"AAAA","subType":"00"}}}',
+    '$timestamp': '{"a":{"$timestamp":{"t":1,"i":1}}}',
+    '$numberDouble': '{"a":{"$numberDouble":"1.5"}}',
+    '$numberInt': '{"a":{"$numberInt":"5"}}',
+    '$regularExpression': '{"a":{"$regularExpression":{"pattern":"x","options":"i"}}}',
+    '$minKey': '{"a":{"$minKey":1}}',
+    '$maxKey': '{"a":{"$maxKey":1}}',
+    '$code': '{"a":{"$code":"function(){}"}}',
+    '$dbPointer': '{"a":{"$dbPointer":{"$ref":"x","$id":{"$oid":"507f1f77bcf86cd799439011"}}}}',
+    '$in array with unrepresentable element': '{"a":{"$in":[1,{"nested":1}]}}',
+  };
+
+  it.each(Object.entries(unrepresentable))('%s -> a raw node, never a mangled cond', (_label, src) => {
+    const root = mustParse(src);
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+    if (root.children[0].kind === 'raw') {
+      // Never the legacy "[object Object]" corruption (§2b).
+      expect(root.children[0].json).not.toContain('[object Object]');
+    }
+  });
+});
+
+// ─── Split allowlist (§2a, §11) ──────────────────────────────────────────────
+
+describe('parseFilter — split allowlist (§2a)', () => {
+  it('$gte + $lte splits into two conds', () => {
+    const root = mustParse('{"a":{"$gte":1,"$lte":5}}');
+    expect(root.children.every((c) => c.kind === 'cond')).toBe(true);
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('$regex + $options does not split — one raw node', () => {
+    const root = mustParse('{"a":{"$regex":"x","$options":"i"}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('$near + $maxDistance does not split — one raw node', () => {
+    const root = mustParse('{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":10}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('a pair containing any non-allowlisted key does not split', () => {
+    const root = mustParse('{"a":{"$gte":1,"$elemMatch":{"b":1}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+});
+
+// ─── Printer (§3, §10) ───────────────────────────────────────────────────────
+
+describe('printFilter — normalizations (§3a)', () => {
+  it('implicit $eq prints explicit', () => {
+    expect(roundTrip('{"name":"x"}')).toBe('{"name":{"$eq":"x"}}');
+  });
+
+  it('a single printable child collapses the group', () => {
+    expect(roundTrip('{"$and":[{"a":1}]}')).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('$nor keeps its envelope even with a single child', () => {
+    expect(roundTrip('{"$nor":[{"a":1}]}')).toBe('{"$nor":[{"a":{"$eq":1}}]}');
+  });
+
+  it('single-child $and does not keep its envelope', () => {
+    expect(roundTrip('{"$and":[{"a":1}]}')).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('single-child $or does not keep its envelope', () => {
+    expect(roundTrip('{"$or":[{"a":1}]}')).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('a nested group with no printable children is omitted from its parent', () => {
+    // {} as an $and array item parses to an empty nested group; once its
+    // sibling is the only printable child left, the $and itself collapses.
+    expect(roundTrip('{"$and":[{},{"a":1}]}')).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('a root with no printable children prints {}', () => {
+    expect(roundTrip('{}')).toBe('{}');
+  });
+
+  it('multiple top-level fields print as {"$and":[...]}, not the implicit form', () => {
+    expect(roundTrip('{"a":1,"b":2}')).toBe('{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}');
+  });
+
+  it('key order follows tree order', () => {
+    expect(roundTrip('{"z":1,"a":2}')).toBe('{"$and":[{"z":{"$eq":1}},{"a":{"$eq":2}}]}');
+  });
+
+  it('raw nodes normalize through JSON.parse + JSON.stringify', () => {
+    const root: GroupNode = group('$and', [raw('{ "a" : 1,  "b": [1,2, 3] }')]);
+    expect(mustPrint(root)).toBe('{"a":1,"b":[1,2,3]}');
+  });
+});
+
+describe('printFilter — blocking problems (§3, §10)', () => {
+  it('op not starting with "$" blocks with the right path', () => {
+    const root = group('$and', [cond({ op: 'eq' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toEqual([{ path: [0], message: 'Operator must start with "$"' }]);
+  });
+
+  it('invalid number value blocks', () => {
+    const root = group('$and', [cond({ valType: 'number', value: 'abc' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+  });
+
+  it('invalid long value blocks with the node path', () => {
+    const root = group('$and', [cond({ valType: 'long', value: '1.5' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('invalid decimal value blocks with the node path', () => {
+    const root = group('$and', [cond({ valType: 'decimal', value: 'abc' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('invalid $mod value blocks with the node path', () => {
+    const root = group('$and', [cond({ op: '$mod', value: '[1]' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('a $mod divisor of 0 blocks with the node path', () => {
+    const root = group('$and', [cond({ op: '$mod', value: '[0,1]' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('an unencodable op ($elemMatch typed onto a cond row) blocks as a backstop', () => {
+    const root = group('$and', [cond({ op: '$elemMatch', value: '{}' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('a raw node holding unparseable JSON blocks', () => {
+    const root = group('$and', [raw('{not json')]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toEqual([{ path: [0], message: 'Not valid JSON' }]);
+  });
+
+  it('a raw node whose parsed JSON is not an object blocks', () => {
+    const root = group('$and', [raw('[1,2,3]')]);
+    expect(printFilter(root).ok).toBe(false);
+  });
+
+  it('a cond with an empty field is skipped and never appears in problems', () => {
+    const root = group('$and', [cond({ field: '' }), cond({ field: 'good', value: 'ok' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ good: { $eq: 'ok' } });
+  });
+
+  it('a cond whose op is outside FIELD_OPS[valType] still prints (applicability is advisory)', () => {
+    // $size is not applicable to 'string' per FIELD_OPS, but must still print.
+    const root = group('$and', [cond({ op: '$size', valType: 'string', value: '3' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(true);
+  });
+
+  it('collects every problem across the whole tree, not just the first', () => {
+    const root = group('$and', [
+      cond({ field: 'a', op: 'eq' }),
+      group('$or', [cond({ field: 'b', valType: 'number', value: 'abc' })]),
+    ]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toEqual(
+      expect.arrayContaining([
+        { path: [0], message: 'Operator must start with "$"' },
+        { path: [1, 0], message: 'Value must be a valid number' },
+      ]),
+    );
+    expect(p.problems).toHaveLength(2);
+  });
+});
+
+describe('printFilter — numeric precision guard on raw nodes (§3a)', () => {
+  // These two build a RawNode literal directly rather than going through
+  // parseFilter. That is deliberate, not the hand-built-node flaw the
+  // cond-path tests below were guilty of: a plain field value like
+  // `{"a":9007199254740993}` is representable per §2b, so parseFilter would
+  // turn it into a *cond*, never a raw node — this exact RawNode.json shape
+  // is only reachable by the user hand-typing into a "+Raw" clause box
+  // (§5 pending-raw lifecycle), which never round-trips through parseFilter
+  // at all. That hand-typed path is real and is what this guard exists for.
+  it('a hand-typed raw clause containing 9007199254740993 blocks with that node path', () => {
+    const root = group('$and', [raw('{"a":9007199254740993}')]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toHaveLength(1);
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('the same value nested inside another object still blocks, reaching nested tokens', () => {
+    // Also not re-rootable at parseFilter: parseFilter's own whole-document
+    // JSON.parse would already round 9007199254740993 before this RawNode
+    // gets built (the documented parse-side gap on `parseFilter`), so
+    // routing this input through parseFilter would silently test the
+    // rounded, now-"safe-looking" value instead of proving the guard
+    // reaches a nested token. Hand-building is the only way to exercise
+    // this specific literal.
+    const root = group('$and', [
+      raw('{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":9007199254740993}}'),
+    ]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('the same value as {"$numberLong": "..."} in the same position prints fine, end to end', () => {
+    // Reachable via parseFilter: $near/$maxDistance is unsplittable (§2a) so
+    // this whole pair degrades to one raw node regardless, and $numberLong's
+    // value is a JSON *string* — never tokenized as a JS number — so nothing
+    // in the parse pipeline rounds it before printFilter sees it.
+    const src =
+      '{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":{"$numberLong":"9007199254740993"}}}';
+    expect(roundTrip(src)).toBe(src);
+  });
+
+  it('a lossless reformatting like 1.0 does not trip the guard (deliberate narrowing of §3a)', () => {
+    // Also only reachable by hand-typing, for the same reason as above: a
+    // RawNode built by parseFilter always holds already-restringified text
+    // (JSON.parse('1.0') is the JS number 1, and JSON.stringify(1) is "1"),
+    // so parseFilter can never produce a RawNode whose text contains "1.0"
+    // in the first place — the false positive this narrowing fixes only
+    // ever reaches a user typing directly into a raw-clause textarea.
+    const root = group('$and', [raw('{"loc":{"$near":{"$geometry":1},"$maxDistance":1.0}}')]);
+    expect(printFilter(root).ok).toBe(true);
+  });
+});
+
+describe('condValueProblem — big-integer guard on the cond path', () => {
+  // `number` is representable per §2b (unlike `long`/`decimal`, which carry
+  // exact text), so `{"a":{"$gt":9007199254740993}}` parses to a *cond*, not
+  // a raw node — the raw-node guard above never runs for it. Every case here
+  // is re-rooted at parseFilter(input) rather than a hand-built CondNode:
+  // an earlier round of this test suite hand-built a cond with an op/valType
+  // combination (`$in` + `valType: 'number'`) that parseFilter can never
+  // actually produce (array-value ops always parse to `valType: 'array'`,
+  // never `'number'`) — the test passed while the branch it exercised was
+  // unreachable dead code on real input. Starting from parseFilter every
+  // time is what would have caught that.
+  it('a scalar number cond beyond safe-integer range blocks with the node path', () => {
+    const root = mustParse('{"a":{"$gt":9007199254740993}}');
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('the boundary: 9007199254740991 (safe) prints, 9007199254740993 (unsafe) blocks', () => {
+    expect(printFilter(mustParse('{"a":{"$gt":9007199254740991}}')).ok).toBe(true);
+    expect(printFilter(mustParse('{"a":{"$gt":9007199254740993}}')).ok).toBe(false);
+  });
+
+  it('the same value as valType long ($numberLong text) prints fine, end to end', () => {
+    const src = '{"a":{"$gt":{"$numberLong":"9007199254740993"}}}';
+    expect(roundTrip(src)).toBe(src);
+  });
+
+  it('an $in array containing an unsafe integer element blocks — the exact reported repro', () => {
+    // {"a":{"$in":[1,9007199254740993]}} parses to
+    // cond(field:'a', op:'$in', valType:'array', ...) — valType 'array', not
+    // 'number'. The bug: condValueProblem's array-element check was gated on
+    // `node.valType === 'number'`, a combination the parser never produces,
+    // so the guard never ran and the rounded value printed as ok:true.
+    const root = mustParse('{"a":{"$in":[1,9007199254740993]}}');
+    expect(root.children[0]).toMatchObject({ kind: 'cond', op: '$in', valType: 'array' });
+    const p = printFilter(root);
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].path).toEqual([0]);
+  });
+
+  it('an $in array of only safe integers prints fine, end to end', () => {
+    expect(roundTrip('{"a":{"$in":[1,2,3]}}')).toBe('{"a":{"$in":[1,2,3]}}');
+  });
+
+  it('an $in array element already wrapped as {$numberLong} is untouched by the number check', () => {
+    // Verifies the fix's claim: the element-level `typeof el === 'number'`
+    // filter already excludes long/decimal-style elements (they parse as
+    // objects, not JS numbers), so dropping the valType gate cannot newly
+    // block this escape-hatch form.
+    const src = '{"a":{"$in":[{"$numberLong":"9007199254740993"}]}}';
+    expect(roundTrip(src)).toBe(src);
+  });
+});
+
+// ─── Sentinel-key exactness (§2b) ───────────────────────────────────────────
+//
+// guessSentinelOnly / isRepresentableArrayElement gate on an exact key match
+// AND a string-typed value. Every test above that only exercises the
+// matching case leaves the `&&`/`===`/`||` wiring unproven — a mutant that
+// swaps `&&` for `||`, or drops the key check, or the typeof check, produces
+// the same output for a *matching* input. These prove the negative: a wrong
+// key, or a right key with the wrong value type, must NOT take the sentinel
+// path.
+
+describe('guessSentinelOnly — exact key AND string-typed value required (§2b)', () => {
+  it.each(['$oid', '$date', '$numberLong', '$numberDecimal'] as const)(
+    '%s with a non-string value is NOT a sentinel — falls to the operator map',
+    (key) => {
+      // A number-typed value under the sentinel key: guessSentinelOnly must
+      // reject it (wrong type), so it's read as operator `key` with a
+      // representable *number* value instead of the sentinel valType.
+      const root = mustParse(`{"a":{"${key}":123}}`);
+      expect(root.children).toEqual([cond({ field: 'a', op: key, valType: 'number', value: '123' })]);
+    },
+  );
+
+  it.each(['$oid', '$date', '$numberLong', '$numberDecimal'])(
+    'a similarly-named but wrong key (%sx) with a string value is NOT a sentinel',
+    (key) => {
+      const wrongKey = `${key}x`;
+      const root = mustParse(`{"a":{"${wrongKey}":"x"}}`);
+      expect(root.children).toEqual([cond({ field: 'a', op: wrongKey, valType: 'string', value: 'x' })]);
+    },
+  );
+});
+
+describe('isRepresentableArrayElement — element-level sentinel exactness (§2b)', () => {
+  it('a nested array element is not representable (isPlainObject false branch)', () => {
+    const root = mustParse('{"a":{"$in":[1,[2,3]]}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('a multi-key object element is not representable (keys.length !== 1 branch)', () => {
+    const root = mustParse('{"a":{"$in":[1,{"$oid":"x","extra":1}]}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('a single-key object element with an unrecognized key is not representable', () => {
+    const root = mustParse('{"a":{"$in":[1,{"$foo":"x"}]}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it.each(['$oid', '$date', '$numberLong', '$numberDecimal'])(
+    'a single-key %s element with a non-string value is not representable',
+    (key) => {
+      const root = mustParse(`{"a":{"$in":[1,{"${key}":123}]}}`);
+      expect(root.children).toHaveLength(1);
+      expect(root.children[0].kind).toBe('raw');
+    },
+  );
+
+  it('every sentinel-shaped element kind is representable together in one array', () => {
+    const root = mustParse(
+      '{"a":{"$in":[1,"x",true,null,{"$oid":"507f1f77bcf86cd799439011"},{"$date":"2024-01-01T00:00:00.000Z"},{"$numberLong":"9"},{"$numberDecimal":"9.5"}]}}',
+    );
+    expect(root.children).toEqual([
+      cond({
+        field: 'a',
+        op: '$in',
+        valType: 'array',
+        value: JSON.stringify([
+          1,
+          'x',
+          true,
+          null,
+          { $oid: '507f1f77bcf86cd799439011' },
+          { $date: '2024-01-01T00:00:00.000Z' },
+          { $numberLong: '9' },
+          { $numberDecimal: '9.5' },
+        ]),
+      }),
+    ]);
+  });
+});
+
+describe('guessValue — $regex-as-value branch (distinct from the $regex operator, §2b)', () => {
+  it('a single-key {$regex: string} value is representable as valType regex', () => {
+    const root = mustParse('{"a":{"$eq":{"$regex":"x.*"}}}');
+    expect(root.children).toEqual([cond({ field: 'a', op: '$eq', valType: 'regex', value: 'x.*' })]);
+  });
+
+  it('a non-string $regex value is not representable', () => {
+    const root = mustParse('{"a":{"$eq":{"$regex":123}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('a two-key object with $regex plus another key is not representable', () => {
+    const root = mustParse('{"a":{"$eq":{"$regex":"x","extra":1}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+
+  it('a single-key object with a different key is not representable', () => {
+    const root = mustParse('{"a":{"$eq":{"$notregex":"x"}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].kind).toBe('raw');
+  });
+});
+
+describe('UNREPRESENTABLE_SENTINEL_KEYS — short-circuits before the operator-map fallback (§2b)', () => {
+  // $minKey/$maxKey/$code already distinguish the fast path from the
+  // fallback (their values are simple representable literals, so removing
+  // them from the set would visibly change the parse). $binary/$timestamp/
+  // $regularExpression/$dbPointer normally carry multi-key object values,
+  // which guessValue rejects either way — so a *realistic* value can't tell
+  // the two paths apart. A contrived value shaped like the $regex sentinel
+  // can: it proves the set is checked first, not just that the end result
+  // happens to match for ordinary BSON-shaped input.
+  it.each(['$binary', '$timestamp', '$regularExpression', '$dbPointer'])(
+    'a contrived %s value shaped like the $regex sentinel is still raw, never smuggled through as a cond',
+    (key) => {
+      const src = `{"a":{"${key}":{"$regex":"x"}}}`;
+      expect(mustParse(src).children).toEqual([raw(src)]);
+    },
+  );
+});
+
+describe('parseOperatorMap — every guess must be representable to split (§2a)', () => {
+  it('one representable and one unrepresentable value in a splittable pair blocks the split', () => {
+    const root = mustParse('{"a":{"$gte":1,"$lte":{"nested":1}}}');
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toEqual(raw('{"a":{"$gte":1,"$lte":{"nested":1}}}'));
+  });
+
+  it('a multi-key predicate combining every SPLITTABLE_OPS entry splits fully, proving each literal is a real member (§2a)', () => {
+    const src =
+      '{"a":{"$eq":1,"$ne":2,"$gt":3,"$gte":4,"$lt":5,"$lte":6,"$in":[1],"$nin":[2],"$all":[3],"$exists":true,"$type":1,"$size":1,"$mod":[2,1],"$regex":"x","$bitsAllClear":1,"$bitsAnyClear":1,"$bitsAllSet":1,"$bitsAnySet":1}}';
+    const root = mustParse(src);
+    expect(root.children).toHaveLength(18);
+    expect(root.children.every((c) => c.kind === 'cond')).toBe(true);
+  });
+});
+
+describe('parseArrayItem — a non-object array item degrades to a raw node (§2)', () => {
+  it('a bare scalar as an $and array item becomes raw, not a parse failure', () => {
+    const root = mustParse('{"$and":[1,{"a":2}]}');
+    expect(root.children[0]).toEqual(raw('1'));
+    expect(root.children[1]).toEqual(cond({ field: 'a', op: '$eq', valType: 'number', value: '2' }));
+  });
+});
+
+describe('parseFilter — exact failure reasons (§2)', () => {
+  it('invalid JSON reports "Invalid JSON"', () => {
+    const r = parseFilter('not json');
+    expect(r).toEqual({ ok: false, reason: 'Invalid JSON' });
+  });
+
+  it('a non-object root reports "Root must be an object"', () => {
+    const r = parseFilter('[1,2,3]');
+    expect(r).toEqual({ ok: false, reason: 'Root must be an object' });
+  });
+});
+
+// ─── Exported wire-encoding helpers (also used by builder.ts) ──────────────
+
+describe('coerceArrayElementWire — direct (exported for builder.ts reuse)', () => {
+  it('objectid: wraps a bare string, passes an already-wrapped element through', () => {
+    expect(coerceArrayElementWire('507f1f77bcf86cd799439011', 'objectid')).toEqual({
+      $oid: '507f1f77bcf86cd799439011',
+    });
+    expect(coerceArrayElementWire({ $oid: 'already' }, 'objectid')).toEqual({ $oid: 'already' });
+  });
+
+  it('long: wraps a bare value with trim, passes an already-wrapped element through unchanged', () => {
+    expect(coerceArrayElementWire(' 123 ', 'long')).toEqual({ $numberLong: '123' });
+    expect(coerceArrayElementWire({ $numberLong: '999' }, 'long')).toEqual({ $numberLong: '999' });
+  });
+
+  it('long: null is not an already-wrapped element, so it gets wrapped too', () => {
+    expect(coerceArrayElementWire(null, 'long')).toEqual({ $numberLong: 'null' });
+  });
+
+  it('decimal: wraps a bare value with trim, passes an already-wrapped element through unchanged', () => {
+    expect(coerceArrayElementWire(' 1.5 ', 'decimal')).toEqual({ $numberDecimal: '1.5' });
+    expect(coerceArrayElementWire({ $numberDecimal: '9.9' }, 'decimal')).toEqual({ $numberDecimal: '9.9' });
+  });
+
+  it('date: wraps a bare string, passes an already-wrapped element through unchanged', () => {
+    expect(coerceArrayElementWire('2024-01-01', 'date')).toEqual({ $date: '2024-01-01' });
+    expect(coerceArrayElementWire({ $date: 'already' }, 'date')).toEqual({ $date: 'already' });
+  });
+
+  it('number: converts a non-number via Number(), passes a number through', () => {
+    expect(coerceArrayElementWire('42', 'number')).toBe(42);
+    expect(coerceArrayElementWire(42, 'number')).toBe(42);
+  });
+
+  it('boolean: passes booleans through, coerces only the literal string "true"', () => {
+    expect(coerceArrayElementWire(true, 'boolean')).toBe(true);
+    expect(coerceArrayElementWire('true', 'boolean')).toBe(true);
+    expect(coerceArrayElementWire('false', 'boolean')).toBe(false);
+    expect(coerceArrayElementWire('anything else', 'boolean')).toBe(false);
+  });
+
+  it('string: stringifies', () => {
+    expect(coerceArrayElementWire(42, 'string')).toBe('42');
+  });
+
+  it('an unhandled valType (e.g. array/regex/null) passes the element through unchanged', () => {
+    expect(coerceArrayElementWire('x', 'array')).toBe('x');
+  });
+});
+
+describe('buildScalarWire — direct (exported for builder.ts reuse)', () => {
+  it('string: returns verbatim', () => expect(buildScalarWire('string', 'x')).toBe('x'));
+  it('number: converts via Number()', () => expect(buildScalarWire('number', '42')).toBe(42));
+  it('long: wraps with trim', () => expect(buildScalarWire('long', ' 123 ')).toEqual({ $numberLong: '123' }));
+  it('decimal: wraps with trim', () =>
+    expect(buildScalarWire('decimal', ' 1.5 ')).toEqual({ $numberDecimal: '1.5' }));
+  it('boolean: only the literal string "true" becomes true', () => {
+    expect(buildScalarWire('boolean', 'true')).toBe(true);
+    expect(buildScalarWire('boolean', 'false')).toBe(false);
+    expect(buildScalarWire('boolean', 'anything')).toBe(false);
+  });
+  it('date: wraps as $date', () => expect(buildScalarWire('date', '2024-01-01')).toEqual({ $date: '2024-01-01' }));
+  it('null: always null regardless of value text', () => expect(buildScalarWire('null', 'ignored')).toBeNull());
+  it('regex: wraps as $regex', () => expect(buildScalarWire('regex', 'x.*')).toEqual({ $regex: 'x.*' }));
+  it('objectid: wraps as $oid', () =>
+    expect(buildScalarWire('objectid', '507f1f77bcf86cd799439011')).toEqual({
+      $oid: '507f1f77bcf86cd799439011',
+    }));
+  it('array: parses JSON, empty array on parse failure', () => {
+    expect(buildScalarWire('array', '[1,2,3]')).toEqual([1, 2, 3]);
+    expect(buildScalarWire('array', 'not json')).toEqual([]);
+  });
+});
+
+describe('parseJsonArrayLenient — direct (exported for builder.ts reuse)', () => {
+  it('parses a valid JSON array', () => expect(parseJsonArrayLenient('[1,2,3]')).toEqual([1, 2, 3]));
+  it('returns [] for valid JSON that is not an array', () => expect(parseJsonArrayLenient('{"a":1}')).toEqual([]));
+  it('returns [] for invalid JSON', () => expect(parseJsonArrayLenient('not json')).toEqual([]));
+});
+
+// ─── condValueProblem — isScalarNumeric exclusions (§3a) ────────────────────
+
+describe('condValueProblem — isScalarNumeric excludes $mod and array-value ops (§3a)', () => {
+  it('$mod is excluded from the scalar-number checks even hand-built with valType number', () => {
+    const root = group('$and', [cond({ op: '$mod', valType: 'number', value: '[2,1]' })]);
+    expect(printFilter(root).ok).toBe(true);
+  });
+
+  it('an array-value op is excluded from the scalar-number checks even hand-built with valType number', () => {
+    const root = group('$and', [cond({ op: '$in', valType: 'number', value: '[1,2]' })]);
+    expect(printFilter(root).ok).toBe(true);
+  });
+
+  it('an empty numeric value is excluded from scalar-number checks — encodes as 0 rather than blocking', () => {
+    const root = group('$and', [cond({ valType: 'number', value: '' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ a: { $eq: 0 } });
+  });
+});
+
+describe('condValueProblem — $mod divisor/remainder finiteness (§3)', () => {
+  it('a non-numeric divisor blocks with the finite-number message', () => {
+    const p = printFilter(group('$and', [cond({ op: '$mod', value: '["x",1]' })]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].message).toBe('$mod divisor must be a finite number');
+  });
+
+  it('a non-numeric remainder blocks with the finite-number message', () => {
+    const p = printFilter(group('$and', [cond({ op: '$mod', value: '[1,"x"]' })]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].message).toBe('$mod remainder must be a finite number');
+  });
+
+  it('a divisor of 1e400 (parses to Infinity) blocks as non-finite, not just non-numeric', () => {
+    const p = printFilter(group('$and', [cond({ op: '$mod', value: '[1e400,1]' })]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].message).toBe('$mod divisor must be a finite number');
+  });
+
+  it('a remainder of 1e400 (parses to Infinity) blocks as non-finite, not just non-numeric', () => {
+    const p = printFilter(group('$and', [cond({ op: '$mod', value: '[1,1e400]' })]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].message).toBe('$mod remainder must be a finite number');
+  });
+});
+
+// ─── encodeCondValue — every op family, exact encoded shape (§3) ───────────
+
+describe('encodeCondValue — SIMPLE_OPS / ARRAY_VALUE_OPS membership (§3)', () => {
+  it.each(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'])('%s uses buildScalarWire (simple ops)', (op) => {
+    expect(roundTrip(`{"a":{"${op}":5}}`)).toBe(`{"a":{"${op}":5}}`);
+  });
+
+  it.each(['$in', '$nin', '$all'])('%s uses the array-element wire coercion', (op) => {
+    expect(roundTrip(`{"a":{"${op}":[1,2]}}`)).toBe(`{"a":{"${op}":[1,2]}}`);
+  });
+});
+
+describe('encodeCondValue — $size / bits ops encode as a number (§3)', () => {
+  it('$size with a non-numeric value encodes as 0', () => {
+    const p = printFilter(group('$and', [cond({ op: '$size', value: 'abc' })]));
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ a: { $size: 0 } });
+  });
+
+  it.each(['$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet'])(
+    '%s encodes value as a number, proving membership in BITS_OPS',
+    (op) => {
+      const p = printFilter(group('$and', [cond({ op, value: '5' })]));
+      expect(p.ok).toBe(true);
+      if (!p.ok) return;
+      expect(JSON.parse(p.json)).toEqual({ a: { [op]: 5 } });
+    },
+  );
+});
+
+// ─── Long/decimal regex validation — sign and shape edges (§3) ─────────────
+
+describe('long/decimal regex validation — sign and shape edges (§3)', () => {
+  it('a leading + or - sign is valid for long', () => {
+    expect(printFilter(group('$and', [cond({ valType: 'long', value: '+123' })])).ok).toBe(true);
+    expect(printFilter(group('$and', [cond({ valType: 'long', value: '-123' })])).ok).toBe(true);
+  });
+
+  it('surrounding whitespace is trimmed before validating a long value', () => {
+    expect(printFilter(group('$and', [cond({ valType: 'long', value: ' 123 ' })])).ok).toBe(true);
+  });
+
+  it('a bare sign with no digits is invalid for long', () => {
+    expect(printFilter(group('$and', [cond({ valType: 'long', value: '+' })])).ok).toBe(false);
+  });
+
+  it('a leading + or - sign, and every numeric shape, is valid for decimal', () => {
+    for (const v of ['+1.5', '-1.5', '+.5', '-.5', '+1', '1.5e10', '1.5e-10', '.5e+3']) {
+      expect(printFilter(group('$and', [cond({ valType: 'decimal', value: v })])).ok).toBe(true);
+    }
+  });
+
+  it('a lone decimal point, or an exponent with no digits, is invalid for decimal', () => {
+    for (const v of ['.', '1.5e', '1.5e+']) {
+      expect(printFilter(group('$and', [cond({ valType: 'decimal', value: v })])).ok).toBe(false);
+    }
+  });
+});
+
+describe('condValueProblem / encodeCondValue — .trim() edges on user-typed text (§3)', () => {
+  it('$exists trims whitespace before comparing to "false"', () => {
+    const p = printFilter(group('$and', [cond({ op: '$exists', value: ' false ' })]));
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ a: { $exists: false } });
+  });
+
+  it('a whitespace-only field is treated as pending, just like a truly empty field', () => {
+    const root = group('$and', [cond({ field: '   ' }), cond({ field: 'good', value: 'ok' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ good: { $eq: 'ok' } });
+  });
+
+  it('toRawNode treats a whitespace-only field as pending too', () => {
+    expect(toRawNode(cond({ field: '   ' }))).toEqual(raw(''));
+  });
+
+  it('a whitespace-only raw json is treated as pending, just like empty', () => {
+    const root = group('$and', [raw('   '), cond({ field: 'good', value: 'ok' })]);
+    const p = printFilter(root);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(JSON.parse(p.json)).toEqual({ good: { $eq: 'ok' } });
+  });
+});
+
+describe('parseRawWithPrecisionCheck — exact failure reasons (§3a)', () => {
+  it('a non-object raw JSON reports "Raw clause must be a JSON object"', () => {
+    const p = printFilter(group('$and', [raw('[1,2,3]')]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toEqual([{ path: [0], message: 'Raw clause must be a JSON object' }]);
+  });
+
+  it('a lossy raw JSON reports the number-precision message', () => {
+    const p = printFilter(group('$and', [raw('{"a":9007199254740993}')]));
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems[0].message).toBe(
+      'Contains a number too large to represent exactly — use {"$numberLong": "..."} or {"$numberDecimal": "..."} instead',
+    );
+  });
+});
+
+// ─── Fixpoint (§3b, §11) ─────────────────────────────────────────────────────
+
+const CORPUS: string[] = [
+  '{}',
+  '{"name":"x"}',
+  '{"name":{"$eq":"x"}}',
+  '{"a":1,"b":2}',
+  '{"$and":[{"a":1},{"b":2}]}',
+  '{"$or":[{"a":1},{"b":2}]}',
+  '{"$nor":[{"a":1}]}',
+  '{"a":{"$gte":1,"$lte":5}}',
+  '{"a":{"$regex":"x","$options":"i"}}',
+  '{"items":{"$elemMatch":{"sku":1}}}',
+  '{"$expr":{"$gt":["$a","$b"]}}',
+  '{"a":{"$not":{"$gt":5}}}',
+  '{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":10}}',
+  '{"$and":[{"$or":[{"a":1},{"b":2}]},{"c":3}]}',
+  '{"status":"active","qty":{"$gt":5}}',
+  '{"$or":[{"x":1},{"y":2}],"a":3}',
+  '{"$and":{"foo":1}}',
+  '{"a":{"$eq":{"nested":1}}}',
+  '{"a":{"$in":[1,{"nested":1}]}}',
+  '{"a":{"$oid":"507f1f77bcf86cd799439011"}}',
+  '{"a":{"$date":"2024-01-01T00:00:00.000Z"}}',
+  '{"a":{"$numberLong":"9223372036854775807"}}',
+  '{"a":{"$numberDecimal":"12345.6789"}}',
+  '{"a":true,"b":null}',
+  '{"a":{"$in":[1,2,3]}}',
+  '{"a":{"$exists":false}}',
+  '{"a":{"$exists":true}}',
+  '{"a":{"$mod":[2,1]}}',
+  '{"a":{"$size":3}}',
+  '{"a":{"$bitsAllSet":5}}',
+  '{"tags":["a","b"]}',
+];
+
+describe('fixpoint (§3b)', () => {
+  it.each(CORPUS)('print(parse(print(parse(s)))) === print(parse(s)) for %s', (s) => {
+    const parsed1 = parseFilter(s);
+    expect(parsed1.ok).toBe(true);
+    if (!parsed1.ok) return;
+    const printed1 = printFilter(parsed1.root);
+    if (!printed1.ok) return; // property is vacuous when the first print fails
+    const parsed2 = parseFilter(printed1.json);
+    expect(parsed2.ok).toBe(true);
+    if (!parsed2.ok) return;
+    const printed2 = printFilter(parsed2.root);
+    expect(printed2.ok).toBe(true);
+    if (!printed2.ok) return;
+    expect(printed2.json).toBe(printed1.json);
+  });
+});
+
+// ─── Semantics — hand-checked pairs (§3b, §11) ──────────────────────────────
+
+describe('semantics — hand-checked (input, expectedOutput) pairs', () => {
+  const pairs: Array<[string, string]> = [
+    ['{}', '{}'],
+    ['{"name":"x"}', '{"name":{"$eq":"x"}}'],
+    [
+      '{"status":"active","qty":{"$gt":5}}',
+      '{"$and":[{"status":{"$eq":"active"}},{"qty":{"$gt":5}}]}',
+    ],
+    ['{"a":{"$gte":1,"$lte":5}}', '{"$and":[{"a":{"$gte":1}},{"a":{"$lte":5}}]}'],
+    [
+      '{"a":{"$regex":"x","$options":"i"}}',
+      '{"a":{"$regex":"x","$options":"i"}}',
+    ],
+    [
+      '{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":10}}',
+      '{"loc":{"$near":{"type":"Point","coordinates":[0,0]},"$maxDistance":10}}',
+    ],
+    [
+      '{"$and":[{"$or":[{"a":1},{"b":2}]},{"c":3}]}',
+      '{"$and":[{"$or":[{"a":{"$eq":1}},{"b":{"$eq":2}}]},{"c":{"$eq":3}}]}',
+    ],
+    [
+      '{"$or":[{"x":1},{"y":2}],"a":3}',
+      '{"$and":[{"$or":[{"x":{"$eq":1}},{"y":{"$eq":2}}]},{"a":{"$eq":3}}]}',
+    ],
+    // $exists preserves false rather than builder.ts's always-true encoding —
+    // a deliberate divergence, pinned here so it can't silently regress.
+    ['{"a":{"$exists":false}}', '{"a":{"$exists":false}}'],
+    ['{"a":{"$exists":true}}', '{"a":{"$exists":true}}'],
+    ['{"tags":["a","b"]}', '{"tags":{"$eq":["a","b"]}}'],
+    ['{"a":{"$in":[1,2,3]}}', '{"a":{"$in":[1,2,3]}}'],
+    ['{"a":{"$mod":[2,1]}}', '{"a":{"$mod":[2,1]}}'],
+  ];
+
+  it.each(pairs)('parse+print(%s) === %s', (input, expected) => {
+    expect(roundTrip(input)).toBe(expected);
+  });
+});
+
+// ─── Edit API (§4, §11) ──────────────────────────────────────────────────────
+
+describe('nodeAt', () => {
+  it('[] returns the root itself', () => {
+    const root = group('$and', [cond()]);
+    expect(nodeAt(root, [])).toBe(root);
+  });
+
+  it('resolves a nested path', () => {
+    const inner = cond({ field: 'inner' });
+    const root = group('$and', [group('$or', [inner])]);
+    expect(nodeAt(root, [0, 0])).toEqual(inner);
+  });
+
+  it('returns null for an out-of-range index', () => {
+    const root = group('$and', [cond()]);
+    expect(nodeAt(root, [5])).toBeNull();
+  });
+
+  it('returns null when descending past a leaf', () => {
+    const root = group('$and', [cond()]);
+    expect(nodeAt(root, [0, 0])).toBeNull();
+  });
+});
+
+describe('updateAt — purity and path arithmetic', () => {
+  it('replaces the node at path without mutating the original', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const snapshot = structuredClone(root);
+    const next = updateAt(root, [1], cond({ field: 'z' }));
+    expect(root).toEqual(snapshot); // original untouched
+    expect(next.children[1]).toEqual(cond({ field: 'z' }));
+    expect(next.children[0]).toEqual(cond({ field: 'a' }));
+  });
+
+  it('updates a deeply nested node', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'x' })])]);
+    const next = updateAt(root, [0, 0], cond({ field: 'y' }));
+    expect(nodeAt(next, [0, 0])).toEqual(cond({ field: 'y' }));
+  });
+
+  it('replaces the whole root at an empty path when next is a group', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    const next = group('$or', [cond({ field: 'b' })]);
+    expect(updateAt(root, [], next)).toEqual(next);
+  });
+
+  it('is a no-op at an empty path when next is not a group (root must stay a group)', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(updateAt(root, [], cond({ field: 'z' }))).toEqual(root);
+  });
+});
+
+describe('insertAt — purity and path arithmetic', () => {
+  it('appends a new child without mutating the original', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    const snapshot = structuredClone(root);
+    const next = insertAt(root, [], cond({ field: 'b' }));
+    expect(root).toEqual(snapshot);
+    expect(next.children).toHaveLength(2);
+    expect(next.children[1]).toEqual(cond({ field: 'b' }));
+  });
+
+  it('inserts into a nested group', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'x' })])]);
+    const next = insertAt(root, [0], cond({ field: 'y' }));
+    expect(nodeAt(next, [0])).toMatchObject({ kind: 'group', children: expect.any(Array) });
+    const inner = nodeAt(next, [0]);
+    expect(inner?.kind === 'group' && inner.children).toHaveLength(2);
+  });
+
+  // the optional index that makes reorder possible.
+  it('inserts at an explicit index: start, middle, and end', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' }), cond({ field: 'c' })]);
+    expect(fields(insertAt(root, [], cond({ field: 'n' }), 0))).toEqual(['n', 'a', 'b', 'c']);
+    expect(fields(insertAt(root, [], cond({ field: 'n' }), 1))).toEqual(['a', 'n', 'b', 'c']);
+    expect(fields(insertAt(root, [], cond({ field: 'n' }), 3))).toEqual(['a', 'b', 'c', 'n']);
+  });
+
+  it('clamps an out-of-range index instead of throwing', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    expect(fields(insertAt(root, [], cond({ field: 'n' }), -5))).toEqual(['n', 'a', 'b']);
+    expect(fields(insertAt(root, [], cond({ field: 'n' }), 99))).toEqual(['a', 'b', 'n']);
+  });
+
+  it('inserts at an index inside a nested group', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'x' }), cond({ field: 'y' })])]);
+    const inner = nodeAt(insertAt(root, [0], cond({ field: 'n' }), 1), [0]);
+    expect(inner?.kind === 'group' && inner.children.map((c) => (c.kind === 'cond' ? c.field : '?'))).toEqual([
+      'x',
+      'n',
+      'y',
+    ]);
+  });
+
+  it('is a no-op when the parent path resolves to a non-group node', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(insertAt(root, [0], cond({ field: 'z' }))).toEqual(root);
+  });
+
+  it('inserting into a nested group at index 1 does not touch the group at index 0', () => {
+    const root = group('$and', [
+      group('$or', [cond({ field: 'untouched' })]),
+      group('$or', [cond({ field: 'x' })]),
+    ]);
+    const next = insertAt(root, [1], cond({ field: 'y' }));
+    expect(nodeAt(next, [0])).toEqual(group('$or', [cond({ field: 'untouched' })]));
+    const inner = nodeAt(next, [1]);
+    expect(inner?.kind === 'group' && inner.children).toHaveLength(2);
+  });
+});
+
+/** Field names of a group's direct children, for order assertions. */
+function fields(g: GroupNode): string[] {
+  return g.children.map((c) => (c.kind === 'cond' ? c.field : c.kind));
+}
+
+describe('moveAt — reorder within a group', () => {
+  it('moves a child up and down without mutating the original', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' }), cond({ field: 'c' })]);
+    const snapshot = structuredClone(root);
+    expect(fields(moveAt(root, [2], -1))).toEqual(['a', 'c', 'b']);
+    expect(fields(moveAt(root, [0], 1))).toEqual(['b', 'a', 'c']);
+    expect(root).toEqual(snapshot);
+  });
+
+  it('is a no-op at either end, and for the root itself', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    expect(moveAt(root, [0], -1)).toEqual(root);
+    expect(moveAt(root, [1], 1)).toEqual(root);
+    expect(moveAt(root, [], -1)).toEqual(root);
+  });
+
+  it('is a no-op when the path points to a nonexistent node', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(moveAt(root, [99], 1)).toEqual(root);
+  });
+
+  it('is a no-op when the parent path resolves to a non-group node', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    expect(moveAt(root, [0, 0], 1)).toEqual(root);
+  });
+
+  it('is a no-op when the parent path is itself out of range', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(moveAt(root, [5, 0], 1)).toEqual(root);
+  });
+
+  it('reorders inside a nested group without disturbing the outer level', () => {
+    const root = group('$and', [
+      cond({ field: 'outer' }),
+      group('$or', [cond({ field: 'x' }), cond({ field: 'y' }), cond({ field: 'z' })]),
+    ]);
+    const next = moveAt(root, [1, 2], -1);
+    expect(fields(next)).toEqual(['outer', 'group']);
+    const inner = nodeAt(next, [1]);
+    expect(inner?.kind === 'group' && fields(inner)).toEqual(['x', 'z', 'y']);
+  });
+
+  it('reorders at depth 3', () => {
+    const root = group('$and', [
+      group('$or', [group('$and', [cond({ field: 'p' }), cond({ field: 'q' })])]),
+    ]);
+    const inner = nodeAt(moveAt(root, [0, 0, 1], -1), [0, 0]);
+    expect(inner?.kind === 'group' && fields(inner)).toEqual(['q', 'p']);
+  });
+
+  it('leaves a single-child group intact — the empty-group prune never fires', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'only' })]), cond({ field: 'sibling' })]);
+    expect(moveAt(root, [0, 0], -1)).toEqual(root);
+    expect(moveAt(root, [0, 0], 1)).toEqual(root);
+  });
+});
+
+describe('removeAt — purity, path arithmetic, and empty-group collapsing', () => {
+  it('removes a leaf without mutating the original', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const snapshot = structuredClone(root);
+    const next = removeAt(root, [0]);
+    expect(root).toEqual(snapshot);
+    expect(next.children).toEqual([cond({ field: 'b' })]);
+  });
+
+  it('the root group is never removed, even for an empty path', () => {
+    const root = group('$and', [cond()]);
+    expect(removeAt(root, [])).toEqual(root);
+  });
+
+  it('the root survives becoming empty', () => {
+    const root = group('$and', [cond()]);
+    const next = removeAt(root, [0]);
+    expect(next).toEqual(group('$and', []));
+  });
+
+  it('removing the last child of a nested group removes the empty group too', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'only' })]), cond({ field: 'sibling' })]);
+    const next = removeAt(root, [0, 0]);
+    // The now-empty $or group is pruned, leaving just the sibling.
+    expect(next.children).toEqual([cond({ field: 'sibling' })]);
+  });
+
+  it('cascades the collapse through multiple nested levels', () => {
+    const root = group('$and', [
+      group('$or', [group('$and', [cond({ field: 'deep' })])]),
+    ]);
+    const next = removeAt(root, [0, 0, 0]);
+    expect(next).toEqual(group('$and', []));
+  });
+
+  it('removing from a nested group at index 1 does not touch the group at index 0', () => {
+    const root = group('$and', [
+      group('$or', [cond({ field: 'untouched' })]),
+      group('$or', [cond({ field: 'x' }), cond({ field: 'y' })]),
+    ]);
+    const next = removeAt(root, [1, 0]);
+    expect(nodeAt(next, [0])).toEqual(group('$or', [cond({ field: 'untouched' })]));
+  });
+
+  it('descending past a leaf is a no-op, not a crash', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'x' })])]);
+    expect(removeAt(root, [0, 0, 5])).toEqual(root);
+  });
+});
+
+describe('wrapInGroup — purity', () => {
+  it('wraps the node at path in a new group without mutating the original', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const snapshot = structuredClone(root);
+    const next = wrapInGroup(root, [0], '$or');
+    expect(root).toEqual(snapshot);
+    expect(next.children[0]).toEqual(group('$or', [cond({ field: 'a' })]));
+    expect(next.children[1]).toEqual(cond({ field: 'b' }));
+  });
+});
+
+describe('toRawNode', () => {
+  it('best-effort encodes a valid cond', () => {
+    const c = cond({ field: 'a', op: '$eq', valType: 'string', value: 'x' });
+    expect(toRawNode(c)).toEqual(raw('{"a":{"$eq":"x"}}'));
+  });
+
+  it('falls back to a blank pending raw node for an empty field, never {}', () => {
+    const c = cond({ field: '' });
+    const result = toRawNode(c);
+    expect(result).toEqual(raw(''));
+    expect(result.json).not.toBe('{}');
+  });
+
+  it('falls back to a blank pending raw node for an invalid value, never {}', () => {
+    const c = cond({ field: 'a', valType: 'number', value: 'not a number' });
+    const result = toRawNode(c);
+    expect(result).toEqual(raw(''));
+    expect(result.json).not.toBe('{}');
+  });
+});
+
+describe('tryParseRaw', () => {
+  it('a clause modeling to more than one cond returns an $and-wrapped group', () => {
+    const result = tryParseRaw(raw('{"a":{"$gte":1},"b":2}'));
+    expect(result.kind).toBe('group');
+    if (result.kind !== 'group') return;
+    expect(result.logic).toBe('$and');
+    expect(result.children).toHaveLength(2);
+  });
+
+  it('a single-cond clause returns bare, not wrapped', () => {
+    const result = tryParseRaw(raw('{"a":1}'));
+    expect(result).toEqual(cond({ field: 'a', op: '$eq', valType: 'number', value: '1' }));
+  });
+
+  it('unparseable JSON is left unchanged', () => {
+    const r = raw('{not json');
+    expect(tryParseRaw(r)).toBe(r);
+  });
+
+  it('a non-object root is left unchanged', () => {
+    const r = raw('[1,2,3]');
+    expect(tryParseRaw(r)).toBe(r);
+  });
+
+  it('a clause §2 still cannot model (e.g. $elemMatch) is left content-equivalent (still raw)', () => {
+    const result = tryParseRaw(raw('{"items":{"$elemMatch":{"sku":1}}}'));
+    expect(result.kind).toBe('raw');
+  });
+});
+
+// ─── Fast-check: generalizing §3b's fixpoint claim beyond the hand-picked
+// CORPUS (§2, §3b) ───────────────────────────────────────────────────────────
+//
+// The hand-checked `fixpoint` describe block above proves the fixpoint
+// property for a fixed, curated list of inputs — exactly the kind of gap
+// mutation testing can't close, since it only strengthens assertions against
+// inputs someone already wrote. These two properties re-run parseFilter's
+// own claims ("Total on any valid JSON object", §3b's fixpoint guarantee)
+// against generated input shapes nobody hand-picked.
+
+describe('parseFilter/printFilter — fast-check: totality + fixpoint (§2, §3b)', () => {
+  // Recognized value sentinels (§2b) — generated as real EJSON-sentinel
+  // shapes so the operator/value-guessing paths (guessValue, guessSentinelOnly)
+  // get exercised, not just the plain-scalar paths.
+  const sentinelValue = fc.oneof(
+    fc.string().map((s) => ({ $oid: s })),
+    fc.string().map((s) => ({ $date: s })),
+    fc.string().map((s) => ({ $numberLong: s })),
+    fc.string().map((s) => ({ $numberDecimal: s })),
+    fc.string().map((s) => ({ $regex: s })),
+  );
+  const scalarValue = fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null));
+  const representableArrayElement = fc.oneof(scalarValue, sentinelValue);
+  const fieldValue = fc.oneof(
+    scalarValue,
+    sentinelValue,
+    fc.array(representableArrayElement, { maxLength: 4 }),
+  );
+  const singleOp = fc.constantFrom(
+    '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$all', '$exists', '$size',
+  );
+  // A single-key operator map is always in SPLITTABLE_OPS's trivial case
+  // (keys.length === 1 skips the allowlist check entirely, §2a) — realistic
+  // shape for what a field predicate actually looks like on the wire.
+  const fieldPredicate = fc.oneof(
+    fieldValue, // implicit $eq
+    fc.dictionary(singleOp, fieldValue, { minKeys: 1, maxKeys: 1 }),
+  );
+  const fieldName = fc.string({ minLength: 1, maxLength: 8 }).filter((s) => !s.startsWith('$'));
+  const filterClause = fc.dictionary(fieldName, fieldPredicate, { maxKeys: 4 });
+
+  // Totally free-form JSON objects too — parseFilter's docstring claims
+  // totality on ANY valid JSON object, not just filter-shaped ones. fc.jsonValue
+  // only produces real JSON types (no NaN/Infinity/undefined), matching what
+  // JSON.parse actually hands parseFilter in production.
+  const arbitraryJsonObject = fc.dictionary(fc.string({ maxLength: 10 }), fc.jsonValue({ maxDepth: 2 }), {
+    maxKeys: 5,
+  });
+
+  const anyInput = fc.oneof(filterClause, arbitraryJsonObject);
+
+  it('parseFilter never fails on a JSON object, regardless of shape', () => {
+    fc.assert(
+      fc.property(anyInput, (obj) => {
+        const result = parseFilter(JSON.stringify(obj));
+        expect(result.ok).toBe(true);
+      }),
+    );
+  });
+
+  it('printFilter is a fixpoint after one normalization pass, for generated input', () => {
+    fc.assert(
+      fc.property(anyInput, (obj) => {
+        const parsed1 = parseFilter(JSON.stringify(obj));
+        expect(parsed1.ok).toBe(true);
+        if (!parsed1.ok) return;
+        const printed1 = printFilter(parsed1.root);
+        // Skip (not pass) a non-printable generated input: fc.pre excludes this
+        // run from the requested count instead of counting it as a vacuous
+        // success, and fast-check itself fails loudly if too few runs qualify.
+        fc.pre(printed1.ok);
+        if (!printed1.ok) return;
+        const parsed2 = parseFilter(printed1.json);
+        expect(parsed2.ok).toBe(true);
+        if (!parsed2.ok) return;
+        const printed2 = printFilter(parsed2.root);
+        expect(printed2.ok).toBe(true);
+        if (!printed2.ok) return;
+        expect(printed2.json).toBe(printed1.json);
+      }),
+    );
+  });
+});

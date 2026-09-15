@@ -1,0 +1,336 @@
+import React from 'react';
+import { ActionIcon, Button, Group, Tooltip } from '@mantine/core';
+import { themeVars } from '../../theme/themeVars';
+import { I } from '../../icons';
+import { api, getErrorMessage } from '../../api/atelier';
+import type { ShellOutputEvent } from '@shared/types';
+
+const MAX_BUFFER_BYTES = 200_000;
+
+interface Props {
+  connectionId: string;
+  /** Forwarded so the pane header can show context. */
+  connectionName: string | null;
+  /** CSS height value. Omit to fill the available space (e.g. when placed
+   *  inside a react-resizable-panels Panel). Defaults to '100%'. */
+  height?: number | string;
+  onClose: () => void;
+}
+
+type StartState =
+  | { kind: 'idle' }
+  | { kind: 'starting' }
+  | { kind: 'ready'; sessionId: string }
+  | { kind: 'error'; message: string };
+
+type ShellAction =
+  | { type: 'idle' }
+  | { type: 'starting' }
+  | { type: 'ready'; sessionId: string }
+  | { type: 'error'; message: string };
+
+function shellReducer(_: StartState, action: ShellAction): StartState {
+  switch (action.type) {
+    case 'idle':     return { kind: 'idle' };
+    case 'starting': return { kind: 'starting' };
+    case 'ready':    return { kind: 'ready', sessionId: action.sessionId };
+    case 'error':    return { kind: 'error', message: action.message };
+  }
+}
+
+/**
+ * Bottom pane hosting an in-process JavaScript REPL with a Mongo driver
+ * context. Streams stdout into a rolling buffer; forwards each entered line
+ * to the session's stdin.
+ */
+export function MongoShellPane({ connectionId, connectionName, height, onClose }: Props) {
+  const T = themeVars;
+  const [state, dispatch] = React.useReducer(shellReducer, { kind: 'idle' } satisfies StartState);
+  const [buffer, setBuffer] = React.useState('');
+  const [input, setInput] = React.useState('');
+  const outputRef = React.useRef<HTMLPreElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Append output, capping the buffer at MAX_BUFFER_BYTES. Drop-from-front
+  // policy so a runaway query never pegs renderer memory — the user can
+  // always scroll back through recent output, just not all of it.
+  const append = React.useCallback((chunk: string) => {
+    setBuffer((prev) => {
+      const next = prev + chunk;
+      if (next.length <= MAX_BUFFER_BYTES) return next;
+      return next.slice(next.length - MAX_BUFFER_BYTES);
+    });
+  }, []);
+
+  // Subscribe to output events for the duration of the pane's lifetime.
+  // Filtering by sessionId happens here so events from a stale session
+  // (after restart) don't bleed into the new buffer.
+  const sessionIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const unsubscribe = api.mshell.onOutput((evt: ShellOutputEvent) => {
+      if (evt.sessionId !== sessionIdRef.current) return;
+      if (evt.kind === 'exit') {
+        append('\n[shell session ended]\n');
+        dispatch({ type: 'idle' });
+        sessionIdRef.current = null;
+        return;
+      }
+      if (evt.data) append(evt.data);
+    });
+    return unsubscribe;
+  }, [append]);
+
+  // Auto-scroll to bottom on new output.
+  React.useEffect(() => {
+    const el = outputRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [buffer]);
+
+  // Auto-start when the pane mounts, the connection changes, or the user
+  // clicks Restart (`restartNonce` ticks). The IIFE awaits a microtask
+  // before calling setState so this complies with the
+  // react-hooks/set-state-in-effect rule (no synchronous setState in an
+  // effect body).
+  const [restartNonce, setRestartNonce] = React.useState(0);
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      dispatch({ type: 'starting' });
+      setBuffer('');
+      try {
+        const info = await api.mshell.start({ connectionId });
+        if (cancelled) {
+          void api.mshell.stop({ sessionId: info.sessionId }).catch(() => {});
+          return;
+        }
+        sessionIdRef.current = info.sessionId;
+        dispatch({ type: 'ready', sessionId: info.sessionId });
+        queueMicrotask(() => inputRef.current?.focus());
+      } catch (err) {
+        if (cancelled) return;
+        dispatch({
+          type: 'error',
+          message: getErrorMessage(err, 'failed to start shell'),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      const id = sessionIdRef.current;
+      sessionIdRef.current = null;
+      if (id) void api.mshell.stop({ sessionId: id }).catch(() => {});
+    };
+  }, [connectionId, restartNonce]);
+
+  // Up/Down arrow command history. Capped to prevent unbounded growth on
+  // long sessions; consecutive duplicates collapse so a repeat-Enter user
+  // doesn't pollute the buffer. `historyIndex === null` means "live edit"
+  // (user typing fresh); a non-null index points at the slot they're
+  // currently navigating.
+  const HISTORY_LIMIT = 200;
+  const historyRef = React.useRef<string[]>([]);
+  const [historyIndex, setHistoryIndex] = React.useState<number | null>(null);
+  // Captures the user's in-progress edit when they Up-arrow into history
+  // so the original text is restored if they Down-arrow back past the
+  // newest entry. Without this, the buffer would always reset to empty.
+  const liveBufferRef = React.useRef('');
+
+  const submitLine = () => {
+    if (state.kind !== 'ready') return;
+    // Trim before checking and dispatching: whitespace-only commands
+    // shouldn't pollute history or get sent to the REPL as no-ops.
+    const line = input.trim();
+    if (line.length > 0) {
+      const hist = historyRef.current;
+      if (hist[hist.length - 1] !== line) {
+        hist.push(line);
+        if (hist.length > HISTORY_LIMIT) hist.shift();
+      }
+    }
+    setHistoryIndex(null);
+    liveBufferRef.current = '';
+    setInput('');
+    if (line.length === 0) return;
+    // The REPL doesn't echo stdin — paint what the user typed locally so
+    // they see their own command in the transcript.
+    append(`> ${line}\n`);
+    void api.mshell.write({ sessionId: state.sessionId, data: line + '\n' }).catch(() => {});
+  };
+
+  const navigateHistory = (direction: 'up' | 'down') => {
+    const hist = historyRef.current;
+    if (hist.length === 0) return;
+    if (direction === 'up') {
+      // Stash the live buffer on first step into history so Down past
+      // newest can restore it.
+      if (historyIndex === null) liveBufferRef.current = input;
+      const next = historyIndex === null ? hist.length - 1 : Math.max(0, historyIndex - 1);
+      setHistoryIndex(next);
+      setInput(hist[next] ?? '');
+    } else {
+      if (historyIndex === null) return;
+      const next = historyIndex + 1;
+      if (next >= hist.length) {
+        // Stepped past the newest entry — return to the live edit buffer.
+        setHistoryIndex(null);
+        setInput(liveBufferRef.current);
+      } else {
+        setHistoryIndex(next);
+        setInput(hist[next] ?? '');
+      }
+    }
+  };
+
+  const handleStop = async () => {
+    const id = sessionIdRef.current;
+    if (id) await api.mshell.stop({ sessionId: id }).catch(() => {});
+  };
+
+  const handleRestart = () => {
+    setRestartNonce((n) => n + 1);
+  };
+
+  return (
+    <div
+      data-testid="mongo-shell-pane"
+      style={{
+        height: height ?? '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        borderTop: `1px solid ${T.border}`,
+        background: T.surface,
+        flexShrink: 0,
+        overflow: 'hidden',
+      }}
+    >
+      <Group
+        gap={8}
+        wrap="nowrap"
+        style={{
+          padding: '4px 10px',
+          borderBottom: `1px solid ${T.border}`,
+          fontSize: 11,
+          color: T.textMuted,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {I.terminal}
+          <span style={{ fontWeight: 600, color: T.text }}>mongosh</span>
+        </span>
+        {connectionName && <span>· {connectionName}</span>}
+        <span style={{ flex: 1 }} />
+        <Tooltip label="Restart shell" withArrow>
+          <Button
+            variant="default"
+            size="compact-xs"
+            onClick={handleRestart}
+            disabled={state.kind === 'starting'}
+          >
+            Restart
+          </Button>
+        </Tooltip>
+        <Tooltip label="Stop shell" withArrow>
+          <Button
+            variant="default"
+            size="compact-xs"
+            onClick={() => void handleStop()}
+            disabled={state.kind !== 'ready'}
+          >
+            Stop
+          </Button>
+        </Tooltip>
+        <Tooltip label="Close" withArrow>
+          <ActionIcon
+            variant="default"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close shell pane"
+          >
+            {I.close}
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+
+      <pre
+        ref={outputRef}
+        data-testid="mongo-shell-output"
+        style={{
+          flex: 1,
+          margin: 0,
+          padding: '8px 10px',
+          overflowY: 'auto',
+          background: T.bg,
+          color: T.text,
+          fontSize: 12,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {state.kind === 'starting' && '[starting shell…]\n'}
+        {state.kind === 'error' && `[error] ${state.message}\n`}
+        {buffer}
+      </pre>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '4px 10px',
+          borderTop: `1px solid ${T.border}`,
+          background: T.surfaceRaised,
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            color: T.textMuted,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: 12,
+            marginRight: 6,
+          }}
+        >
+          ›
+        </span>
+        <input
+          ref={inputRef}
+          aria-label="Mongo shell input"
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            // Any manual edit drops us out of history navigation back to
+            // the live buffer.
+            if (historyIndex !== null) setHistoryIndex(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              submitLine();
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              navigateHistory('up');
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              navigateHistory('down');
+            }
+          }}
+          disabled={state.kind !== 'ready'}
+          placeholder={state.kind === 'ready' ? '' : 'starting…'}
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: T.text,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: 12,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+

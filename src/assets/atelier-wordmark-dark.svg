@@ -1,0 +1,11 @@
+<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="L'Atelier ligature wordmark">
+  <!-- Wordmark: bold L + violet dot + light Atelier. The weight contrast is the
+       typographic play — the L "owns" the brand, Atelier is the airy descriptor. -->
+  <g font-family="Inter, 'SF Pro Display', system-ui, -apple-system, sans-serif"
+     fill="#1a1a2e">
+    <text x="40" y="148" font-weight="900" font-size="140" letter-spacing="-3">L</text>
+    <text x="148" y="148" font-weight="300" font-size="140" letter-spacing="-3">Atelier</text>
+  </g>
+  <!-- The violet dot, sized and placed where an apostrophe would sit -->
+  <circle cx="128" cy="60" r="9" fill="#7c6af7"/>
+</svg>

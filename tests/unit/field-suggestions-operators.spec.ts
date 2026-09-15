@@ -1,0 +1,52 @@
+import { describe, it, expect } from 'vitest';
+import { OPERATORS } from '../../src/features/fieldSuggestions/operators';
+import { operatorSource } from '../../src/features/fieldSuggestions/sources/operatorSource';
+import type { SuggestionContext } from '../../src/features/fieldSuggestions/types';
+
+function ctx(overrides: Partial<SuggestionContext> = {}): SuggestionContext {
+  return {
+    connectionId: 'c1',
+    dbName: 'db',
+    collection: 'coll',
+    ...overrides,
+  };
+}
+
+describe('operatorSource', () => {
+  it('returns one suggestion per catalog entry', () => {
+    const out = operatorSource(ctx());
+    expect(Array.isArray(out)).toBe(true);
+    const arr = out as Array<{ kind: string; name: string }>;
+    expect(arr.length).toBe(OPERATORS.length);
+    expect(arr.every((s) => s.kind === 'operator')).toBe(true);
+  });
+
+  it('every operator name starts with $', () => {
+    for (const op of OPERATORS) {
+      expect(op.name.startsWith('$')).toBe(true);
+    }
+  });
+
+  it('includes core operators across classes', () => {
+    const names = new Set(OPERATORS.map((o) => o.name));
+    for (const expected of ['$eq', '$ne', '$gt', '$sum', '$match', '$group', '$concat', '$set']) {
+      expect(names.has(expected)).toBe(true);
+    }
+  });
+
+  it('tags source = "operators"', () => {
+    const out = operatorSource(ctx()) as Array<{ source: string }>;
+    expect(out.every((s) => s.source === 'operators')).toBe(true);
+  });
+
+  it('flags off-context entries when operatorContext is set', () => {
+    const out = operatorSource(ctx({ operatorContext: 'matchKey' })) as Array<{
+      name: string;
+      offContext: boolean;
+    }>;
+    const eq = out.find((s) => s.name === '$eq');
+    const sum = out.find((s) => s.name === '$sum');
+    expect(eq?.offContext).toBe(false);
+    expect(sum?.offContext).toBe(true);
+  });
+});

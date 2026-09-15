@@ -1,0 +1,624 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { IpcApi } from '@shared/ipc';
+import { act, renderHook, waitFor } from '../helpers/render';
+import { useQueryRunner } from '../../src/pages/Workspace/useQueryRunner';
+import type { RunnerTarget } from '../../src/pages/Workspace/useQueryRunner';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import type { CollectionTabState } from '@shared/types';
+
+function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
+  return {
+    view: 'Tree',
+    builder: {
+      projection: [],
+      sort: '',
+      limit: '',
+    },
+    queryRaw: '{}',
+    page: 0,
+    pageSize: 50,
+    activeBuilderTab: 'Builder',
+    ...overrides,
+  };
+}
+
+function makeTarget(stateOverrides: Partial<CollectionTabState> = {}): RunnerTarget {
+  return {
+    id: 't1',
+    connectionId: 'c1',
+    dbName: 'app',
+    collection: 'users',
+    state: makeState(stateOverrides),
+  };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+describe('useQueryRunner', () => {
+  it('success path: posts findResult into patchCollectionState as EJSON-aware documents', async () => {
+    const documents = [
+      { _id: { $oid: 'a'.repeat(24) }, name: 'alice' },
+    ];
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents,
+      durationMs: 12,
+      hasMore: false,
+    }));
+    installAtelierMock({
+      query: { find: findSpy, count: async () => ({ count: 1 }) },
+    });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget(),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy).toHaveBeenCalledTimes(1);
+    // First patch is the lastRun update with the returned documents
+    const lastRunCall = patch.mock.calls.find(
+      (c) => c[1].lastRun !== undefined,
+    );
+    expect(lastRunCall).toBeDefined();
+    expect(lastRunCall?.[1].lastRun.documents).toBe(documents);
+    expect(lastRunCall?.[1].lastRun.durationMs).toBe(12);
+    // EJSON sentinel survives unchanged (renderer parses at the wire edge,
+    // not in the runner — sentinel objects pass through as-is).
+    const sentinelDoc = lastRunCall?.[1].lastRun.documents[0] as { _id: { $oid: string } };
+    expect(sentinelDoc._id.$oid).toBe('a'.repeat(24));
+  });
+
+  it('count side-fires after find and patches totalCount', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 5,
+      hasMore: false,
+    }));
+    const countSpy = vi.fn(async () => ({ count: 42 }));
+    installAtelierMock({
+      query: { find: findSpy, count: countSpy },
+    });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget(),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+    // count is fire-and-forget — wait for the patch
+    await waitFor(() => {
+      const countCall = patch.mock.calls.find(
+        (c) => c[1].totalCount !== undefined,
+      );
+      expect(countCall).toBeDefined();
+      expect(countCall?.[1].totalCount).toBe(42);
+    });
+    expect(countSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('stale count from older run is ignored when a newer run completes first', async () => {
+    // Two pending count promises: the first run's count resolves AFTER the
+    // second run's count. Without the runToken guard, the late count would
+    // clobber totalCount with the older value (1) instead of the newer (2).
+    let resolveCount1: ((value: { count: number }) => void) | undefined;
+    let resolveCount2: ((value: { count: number }) => void) | undefined;
+    const countPromise1 = new Promise<{ count: number }>((res) => {
+      resolveCount1 = res;
+    });
+    const countPromise2 = new Promise<{ count: number }>((res) => {
+      resolveCount2 = res;
+    });
+    const countSpy = vi
+      .fn<() => Promise<{ count: number }>>()
+      .mockImplementationOnce(() => countPromise1)
+      .mockImplementationOnce(() => countPromise2);
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({
+      query: { find: findSpy, count: countSpy },
+    });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget(),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    // First run completes the find (count still pending).
+    await act(async () => {
+      await result.current.run();
+    });
+    // Second run completes the find (its count still pending too).
+    await act(async () => {
+      await result.current.run();
+    });
+    // Newer run's count resolves first → totalCount = 2.
+    await act(async () => {
+      resolveCount2!({ count: 2 });
+      await countPromise2;
+    });
+    // Older run's count resolves later → must be discarded.
+    await act(async () => {
+      resolveCount1!({ count: 1 });
+      await countPromise1;
+    });
+
+    const totalPatches = patch.mock.calls.filter(
+      (c) => c[1].totalCount !== undefined,
+    );
+    expect(totalPatches.length).toBe(1);
+    expect(totalPatches[0][1].totalCount).toBe(2);
+  });
+
+  it('a run for a different target does not discard this target\'s own pending count', async () => {
+    // runTokenRef used to be a single global counter — starting target B's
+    // run bumped it, so target A's still-in-flight count failed its
+    // freshness check even though nothing about A itself went stale.
+    let resolveCountA: ((value: { count: number }) => void) | undefined;
+    const countPromiseA = new Promise<{ count: number }>((res) => {
+      resolveCountA = res;
+    });
+    const countSpy = vi
+      .fn<() => Promise<{ count: number }>>()
+      .mockImplementationOnce(() => countPromiseA)
+      .mockImplementationOnce(async () => ({ count: 99 }));
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({
+      query: { find: findSpy, count: countSpy },
+    });
+
+    const patch = vi.fn();
+    const targetA = makeTarget(); // 't1'
+    const targetB = { ...makeTarget(), id: 't2' };
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: targetA,
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    // A's run starts: find resolves, count stays pending.
+    await act(async () => {
+      await result.current.run();
+    });
+    // B's run starts and fully resolves (find + count) before A's count does.
+    await act(async () => {
+      await result.current.run(undefined, targetB);
+    });
+
+    expect(countSpy).toHaveBeenCalledTimes(2);
+    const bTotalPatch = patch.mock.calls.find(
+      (c) => c[0] === 't2' && c[1].totalCount !== undefined,
+    );
+    expect(bTotalPatch?.[1].totalCount).toBe(99);
+
+    // A's count finally resolves — must still land, not be discarded.
+    await act(async () => {
+      resolveCountA!({ count: 7 });
+      await countPromiseA;
+    });
+
+    const aTotalPatch = patch.mock.calls.find(
+      (c) => c[0] === 't1' && c[1].totalCount !== undefined,
+    );
+    expect(aTotalPatch).toBeDefined();
+    expect(aTotalPatch?.[1].totalCount).toBe(7);
+  });
+
+  it('error path: writes lastRun.error and keeps previous documents visible', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => {
+      throw Object.assign(new Error('boom'), { code: 'INTERNAL' });
+    });
+    installAtelierMock({
+      query: { find: findSpy, count: async () => ({ count: 0 }) },
+    });
+
+    const previousDocs = [{ _id: 'old' }];
+    const patch = vi.fn();
+    const target = makeTarget({
+      lastRun: {
+        documents: previousDocs,
+        durationMs: 1,
+        ranAt: new Date().toISOString(),
+      },
+    });
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: target,
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    const errCall = patch.mock.calls.find((c) => c[1].lastRun?.error);
+    expect(errCall).toBeDefined();
+    expect(errCall?.[1].lastRun.error.code).toBe('INTERNAL');
+    // Stale docs remain visible per W06 §5.
+    expect(errCall?.[1].lastRun.documents).toBe(previousDocs);
+  });
+
+  it('pagination override merges into state — page used by skip computation', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 3,
+      hasMore: false,
+    }));
+    installAtelierMock({
+      query: { find: findSpy, count: async () => ({ count: 0 }) },
+    });
+
+    const patch = vi.fn();
+    const target = makeTarget({ page: 0, pageSize: 50 });
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: target,
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      // Page 3 override — skip should be 3 * 50 = 150, even though target's
+      // state still says page=0.
+      await result.current.run({ page: 3 });
+    });
+
+    expect(findSpy).toHaveBeenCalledTimes(1);
+    expect(findSpy.mock.calls[0][0].skip).toBe(150);
+    expect(findSpy.mock.calls[0][0].limit).toBe(50);
+  });
+
+  it('past-cap short-circuit: limit=0 skips the find and patches empty result', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 0, hasMore: false }));
+    installAtelierMock({
+      query: { find: findSpy, count: async () => ({ count: 0 }) },
+    });
+
+    const patch = vi.fn();
+    // userLimit=10 with page=1, pageSize=50 → skip=50 > 10 → past cap.
+    const target = makeTarget({
+      page: 1,
+      pageSize: 50,
+      builder: {
+        projection: [],
+        sort: '',
+        limit: '10',
+      },
+    });
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: target,
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy).not.toHaveBeenCalled();
+    const emptyCall = patch.mock.calls.find(
+      (c) => c[1].lastRun?.documents?.length === 0 && c[1].totalCount === 10,
+    );
+    expect(emptyCall).toBeDefined();
+  });
+
+  it('records a session event with queryRunKey when a recorder is supplied', async () => {
+    installAtelierMock({
+      query: {
+        find: async () => ({ documents: [], durationMs: 5, hasMore: false }),
+        count: async () => ({ count: 0 }),
+      },
+    });
+
+    const patch = vi.fn();
+    const recordEvent = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget(),
+        patchCollectionState: patch,
+        recordSessionEvent: recordEvent,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(recordEvent).toHaveBeenCalledTimes(1);
+    expect(recordEvent.mock.calls[0][0]).toBe('queryRun');
+    expect(typeof recordEvent.mock.calls[0][1]).toBe('string');
+  });
+
+  it('no-op when target is null', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 0, hasMore: false }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: null,
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(findSpy).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  // X14 §2. The textarea's blur covers the surfaces with a box to
+  // leave; this covers the Run paths that have none — auto-run on tab open,
+  // the palette's `query.run`, post-write re-runs — which is what makes
+  // "`queryRaw` never holds Shell Syntax after a blur *or a Run*" true rather
+  // than nearly true.
+  it('repairs Shell Syntax on a run with no textarea to blur', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget({ queryRaw: '{age: {$gt: 60}}' }),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    // The repaired text both reached Mongo and was written back to the tab.
+    expect(findSpy.mock.calls[0]?.[0].filter).toBe('{"age": {"$gt": 60}}');
+    expect(patch.mock.calls.some((c) => c[1].queryRaw === '{"age": {"$gt": 60}}')).toBe(true);
+  });
+
+  it('leaves a strictly-parsing filter untouched on a run', async () => {
+    const HAND_ARRANGED = '{ "b" : 1,   "a" : 2 }';
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget({ queryRaw: HAND_ARRANGED }),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy.mock.calls[0]?.[0].filter).toBe(HAND_ARRANGED);
+    expect(patch.mock.calls.some((c) => c[1].queryRaw !== undefined)).toBe(false);
+  });
+
+  // X14 §3 — the second of the two layers. The button gate judges
+  // what the blur committed; this judges what it just repaired, and both run
+  // `sortProblem` / `projectionProblem` on post-repair text, so the two can't
+  // disagree. Covers the paths with no field to blur: auto-run on tab open,
+  // the palette's `query.run`, post-write re-runs.
+  it('repairs a Shell Syntax sort and raw projection on a run with no field to blur', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget({
+          builder: { projection: [], sort: '{name: 1}', limit: '', projectionRaw: '{_id: 0}' },
+        }),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy.mock.calls[0]?.[0].sort).toBe('{"name": 1}');
+    expect(findSpy.mock.calls[0]?.[0].projection).toBe('{"_id": 0}');
+    // One patch carrying both, not one per field — `patchCollectionState` is
+    // not a functional updater, so a second call in the same tick would
+    // clobber the first.
+    const builderPatch = patch.mock.calls.find((c) => c[1].builder !== undefined)?.[1].builder;
+    expect(builderPatch).toMatchObject({ sort: '{"name": 1}', projectionRaw: '{"_id": 0}' });
+  });
+
+  it('leaves a strictly-parsing sort and raw projection untouched on a run', async () => {
+    const HAND_SORT = '{ "b" : 1,   "a" : 2 }';
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget({
+          builder: { projection: [], sort: HAND_SORT, limit: '', projectionRaw: '{"_id":0}' },
+        }),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy.mock.calls[0]?.[0].sort).toBe(HAND_SORT);
+    expect(patch.mock.calls.some((c) => c[1].builder !== undefined)).toBe(false);
+  });
+
+  // Blank stays blank: the transform reports empty input as `failed`, which
+  // must commit nothing rather than read as an error.
+  // Review finding — the in-flight guard used to be a single boolean shared by
+  // every target. A pinned drawer's post-write refresh of tab A (explicit
+  // target) would silently no-op whenever the focused tab B happened to have
+  // its own find in flight.
+  it('an explicit-target refresh is not blocked by another target already in flight', async () => {
+    let resolveFindB: ((v: Awaited<ReturnType<IpcApi['query']['find']>>) => void) | undefined;
+    const pendingFindB = new Promise<Awaited<ReturnType<IpcApi['query']['find']>>>((res) => {
+      resolveFindB = res;
+    });
+    const findSpy = vi
+      .fn<IpcApi['query']['find']>()
+      .mockImplementationOnce(() => pendingFindB)
+      .mockImplementationOnce(async () => ({ documents: [], durationMs: 1, hasMore: false }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const targetA = makeTarget(); // 't1' — the pinned drawer's target
+    const targetB = { ...makeTarget(), id: 't2' };
+
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: targetB, patchCollectionState: patch, loadingDelayMs: 0 }),
+    );
+
+    // B's own run starts (implicitly, via `active`) and stays in flight.
+    let runBPromise: Promise<void> = Promise.resolve();
+    act(() => {
+      runBPromise = result.current.run();
+    });
+
+    // A's explicit-target refresh must still execute while B is running.
+    await act(async () => {
+      await result.current.run(undefined, targetA);
+    });
+
+    expect(findSpy).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveFindB!({ documents: [], durationMs: 1, hasMore: false });
+      await runBPromise;
+    });
+  });
+
+  // Review finding — `isLoading` used to be one flag shared by every target. A
+  // background refresh of an unfocused tab would flip the focused tab's
+  // loading overlay even though the focused tab wasn't running anything.
+  it('isLoading stays scoped to the active target', async () => {
+    let resolveFind: ((v: Awaited<ReturnType<IpcApi['query']['find']>>) => void) | undefined;
+    const pending = new Promise<Awaited<ReturnType<IpcApi['query']['find']>>>((res) => {
+      resolveFind = res;
+    });
+    const findSpy = vi.fn<IpcApi['query']['find']>(() => pending);
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const targetA = makeTarget(); // 't1' — background target (pinned drawer)
+    const targetB = { ...makeTarget(), id: 't2' }; // focused tab
+
+    const { result, rerender } = renderHook(
+      ({ active }: { active: RunnerTarget }) =>
+        useQueryRunner({ active, patchCollectionState: patch, loadingDelayMs: 0 }),
+      { initialProps: { active: targetB } },
+    );
+
+    let runPromise: Promise<void> = Promise.resolve();
+    act(() => {
+      runPromise = result.current.run(undefined, targetA);
+    });
+    // Let the 0ms loading-delay timer fire for A's run.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // B is focused and idle — must not show loading for A's background run.
+    expect(result.current.isLoading).toBe(false);
+
+    // Focus moves to A — the same in-flight run now reads as loading.
+    rerender({ active: targetA });
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      resolveFind!({ documents: [], durationMs: 1, hasMore: false });
+      await runPromise;
+    });
+  });
+
+  it('does not patch a blank sort or an absent raw projection on a run', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [],
+      durationMs: 1,
+      hasMore: false,
+    }));
+    installAtelierMock({ query: { find: findSpy, count: async () => ({ count: 0 }) } });
+
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget(),
+        patchCollectionState: patch,
+        loadingDelayMs: 0,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(findSpy.mock.calls[0]?.[0].sort).toBeUndefined();
+    expect(patch.mock.calls.some((c) => c[1].builder !== undefined)).toBe(false);
+  });
+});

@@ -1,0 +1,127 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface Logger {
+  debug: (tag: string, msg: string, data?: unknown) => void;
+  info:  (tag: string, msg: string, data?: unknown) => void;
+  warn:  (tag: string, msg: string, data?: unknown) => void;
+  error: (tag: string, msg: string, data?: unknown) => void;
+}
+
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 10, info: 20, warn: 30, error: 40,
+};
+
+/**
+ * Field names whose value is replaced with '<redacted>' before serialisation.
+ * Matched case-insensitively against object keys at any nesting depth.
+ */
+const REDACTED_KEYS = new Set(['password', 'pwd', 'sshpassword', 'sshpassphrase']);
+
+const REDACTED_PLACEHOLDER = '<redacted>';
+const CIRCULAR_PLACEHOLDER = '[Circular]';
+const IN_PROGRESS = Symbol('in-progress');
+
+export function redactSecrets<T>(value: T): T {
+  return walk(value, new Map()) as T;
+}
+
+// Maps each object to its redacted output so a shared (non-cyclic) reference
+// resolves to the same sanitized clone on every visit, instead of the
+// original, unredacted object. While an object is still being walked its
+// entry holds IN_PROGRESS, so a true cycle back to an ancestor resolves to a
+// circular marker rather than infinite-recursing or leaking the original.
+function walk(value: unknown, seen: Map<object, unknown>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  const obj = value as object;
+  if (seen.has(obj)) {
+    const cached = seen.get(obj);
+    return cached === IN_PROGRESS ? CIRCULAR_PLACEHOLDER : cached;
+  }
+  seen.set(obj, IN_PROGRESS);
+
+  let result: unknown;
+  if (Array.isArray(value)) {
+    result = value.map((v) => walk(v, seen));
+  } else {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (REDACTED_KEYS.has(k.toLowerCase())) {
+        out[k] = REDACTED_PLACEHOLDER;
+      } else {
+        out[k] = walk(v, seen);
+      }
+    }
+    result = out;
+  }
+  seen.set(obj, result);
+  return result;
+}
+
+function todayStamp(d = new Date()): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function pruneOldLogs(dir: string, retentionDays: number): void {
+  try {
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith('mongolab.') || !name.endsWith('.log')) continue;
+      const full = path.join(dir, name);
+      const stat = fs.statSync(full);
+      if (stat.mtimeMs < cutoff) fs.unlinkSync(full);
+    }
+  } catch {
+    // best-effort; never block startup
+  }
+}
+
+export function createLogger(userDataDir: string, opts: {
+  level?: LogLevel;
+  retentionDays?: number;
+  toStderr?: boolean;
+} = {}): Logger {
+  // Defaults to the quiet level on purpose. `ipc.req` logs the pre-validation
+  // payload of every channel — documents, filters, shell input — so a debug
+  // default leaks user data to disk for anyone who forgets to pass a level.
+  // Whoever wants the verbose level has to ask for it; forgetting is safe.
+  const level = opts.level ?? 'info';
+  const retention = opts.retentionDays ?? 7;
+  const toStderr = opts.toStderr ?? true;
+
+  const logsDir = path.join(userDataDir, 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+  pruneOldLogs(logsDir, retention);
+
+  const filePath = () => path.join(logsDir, `mongolab.${todayStamp()}.log`);
+
+  function write(lvl: LogLevel, tag: string, msg: string, data?: unknown): void {
+    if (LEVEL_ORDER[lvl] < LEVEL_ORDER[level]) return;
+    const line = {
+      t: new Date().toISOString(),
+      level: lvl,
+      tag,
+      msg,
+      ...(data !== undefined ? { data: redactSecrets(data) } : {}),
+    };
+    const serialized = JSON.stringify(line) + '\n';
+    try {
+      fs.appendFileSync(filePath(), serialized);
+    } catch {
+      // ignore disk errors; logging must never crash the app
+    }
+    if (toStderr) process.stderr.write(serialized);
+  }
+
+  return {
+    debug: (tag, msg, data) => write('debug', tag, msg, data),
+    info:  (tag, msg, data) => write('info',  tag, msg, data),
+    warn:  (tag, msg, data) => write('warn',  tag, msg, data),
+    error: (tag, msg, data) => write('error', tag, msg, data),
+  };
+}

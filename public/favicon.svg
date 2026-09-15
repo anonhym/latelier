@@ -1,0 +1,16 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="L'Atelier ligature icon">
+  <!-- Direction A — The Ligature
+       Dark rounded square. Bold L + violet dot (the stylized apostrophe) + bold A.
+       A self-contained monogram. -->
+  <rect width="256" height="256" rx="56" fill="#1a1a2e"/>
+
+  <!-- The L and A as a near-monogram, dot replacing the apostrophe -->
+  <g font-family="Inter, 'SF Pro Display', system-ui, -apple-system, sans-serif"
+     font-weight="900" font-size="148" fill="#e8e0ff" text-anchor="middle">
+    <text x="84" y="180">L</text>
+    <text x="180" y="180">A</text>
+  </g>
+
+  <!-- Violet dot — sits at cap-height between the two letters -->
+  <circle cx="132" cy="74" r="11" fill="#7c6af7"/>
+</svg>

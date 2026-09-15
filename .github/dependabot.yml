@@ -1,0 +1,18 @@
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Every `uses:` in .github/workflows is pinned to a commit SHA rather than a
+  # tag, because a tag is mutable and a compromised action rewrites it. That
+  # trade is only safe with something moving the pins forward — an unattended
+  # pin is a dependency frozen at whatever was current the day it was written.
+  # Dependabot rewrites both the SHA and the trailing version comment.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

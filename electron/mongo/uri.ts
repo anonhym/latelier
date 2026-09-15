@@ -1,0 +1,141 @@
+import type { MongoClientOptions } from 'mongodb';
+import type { Connection } from '@shared/types';
+
+/**
+ * Build a mongodb:// or mongodb+srv:// URI from a saved Connection plus an
+ * optional plaintext password. Never logs plaintext; never throws on missing
+ * password (caller handles).
+ */
+export function buildUri(c: Connection, password?: string): string {
+  const scheme = c.connectionType === 'srv' ? 'mongodb+srv' : 'mongodb';
+
+  // Userinfo
+  let userinfo = '';
+  if (c.authMech !== 'none' && c.authUsername) {
+    const user = encodeURIComponent(c.authUsername);
+    const pass = password ? ':' + encodeURIComponent(password) : '';
+    userinfo = `${user}${pass}@`;
+  }
+
+  // Defensive: sanitize whatever landed in the host field. Users occasionally
+  // paste full URIs, trailing slashes, or a port into this input.
+  const cleanHost = sanitizeHost(c.host);
+  const hostport =
+    c.connectionType === 'srv'
+      ? cleanHost // SRV never carries a port
+      : `${cleanHost}:${c.port}`;
+
+  // Path / default database — strip any junk (/, leading whitespace) the user
+  // might have typed.
+  const cleanDb = (c.defaultDb ?? '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+  const pathPart = cleanDb ? `/${encodeURIComponent(cleanDb)}` : '/';
+
+  const params = new URLSearchParams();
+  if (c.authDatabase) params.set('authSource', c.authDatabase);
+  switch (c.authMech) {
+    case 'scram256':
+      params.set('authMechanism', 'SCRAM-SHA-256');
+      break;
+    case 'scram1':
+      params.set('authMechanism', 'SCRAM-SHA-1');
+      break;
+    case 'x509':
+      params.set('authMechanism', 'MONGODB-X509');
+      break;
+    case 'awsiam':
+      params.set('authMechanism', 'MONGODB-AWS');
+      break;
+    case 'default':
+      // Omit authMechanism so the driver negotiates via SASL saslSupportedMechs.
+      break;
+    case 'none':
+      break;
+  }
+  if (c.advanced.readPreference) {
+    params.set('readPreference', c.advanced.readPreference);
+  }
+  if (c.advanced.appName) {
+    params.set('appName', c.advanced.appName);
+  }
+  if (c.advanced.directConnection) {
+    params.set('directConnection', 'true');
+  }
+  // TLS: SRV implies TLS on the server side but we still emit `tls=true` for
+  // explicitness so operators reading the URI don't have to know the rule.
+  if (c.tls.enabled) params.set('tls', 'true');
+  else params.set('tls', 'false');
+  if (c.tls.enabled && !c.tls.verify) {
+    params.set('tlsAllowInvalidCertificates', 'true');
+  }
+
+  const qs = params.toString();
+  return `${scheme}://${userinfo}${hostport}${pathPart}${qs ? '?' + qs : ''}`;
+}
+
+/**
+ * Build the option bag that accompanies the URI. Some fields (tlsCAFile,
+ * tlsCertificateKeyFile, maxPoolSize, timeouts) are not representable in the
+ * URI syntax and must be passed here.
+ */
+/**
+ * Extract just the host from whatever the user typed into the Host field.
+ * Input like `mongodb+srv://user@cluster.mongodb.net:27017/db?opt=1`
+ * becomes `cluster.mongodb.net`.
+ *
+ * Uses the WHATWG URL parser (the same authority-parsing algorithm the real
+ * driver's connection-string parser builds on) instead of hand-rolled
+ * `indexOf('@')` string surgery. That matters because naive @-splitting
+ * gets the userinfo/host boundary wrong whenever the pasted text also
+ * contains a `#` fragment or more than one `@` — both were exploitable:
+ * a fragment-decorated host (`good.com#@evil.com`) resolved to the wrong
+ * host, and a double-`@` paste (`user@evil.com@good.com`) left an embedded
+ * `@` in the output that a downstream parser reinterpreted as real
+ * userinfo, smuggling an attacker-controlled username onto the wire.
+ * `URL#hostname` can never contain `@`, `/`, `?`, or `#` — those characters
+ * terminate the authority component by definition — so taking only that
+ * component structurally rules out both classes of bug regardless of how
+ * many separators the input contains.
+ */
+function sanitizeHost(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  const hasScheme = /^mongodb(\+srv)?:\/\//.test(trimmed);
+  try {
+    return new URL(hasScheme ? trimmed : `mongodb://${trimmed}`).hostname;
+  } catch {
+    // Not parseable as a URL at all (e.g. stray whitespace). Fall back to
+    // manual stripping, still cutting `/?#` before splitting on the LAST
+    // `@` so we never emit an embedded separator into the output.
+    const noScheme = trimmed.replace(/^mongodb(\+srv)?:\/\//, '');
+    const authority = noScheme.split(/[/?#]/, 1)[0] ?? '';
+    const atIdx = authority.lastIndexOf('@');
+    const host = atIdx === -1 ? authority : authority.slice(atIdx + 1);
+    return host.replace(/:\d+$/, '');
+  }
+}
+
+/**
+ * Strip `username:password` from a `mongodb://` / `mongodb+srv://` URI so it
+ * can be safely logged.
+ */
+export function redactUriUserInfo(uri: string): string {
+  return uri.replace(/\/\/[^@/]*@/, '//<redacted>@');
+}
+
+export function buildOptions(c: Connection): MongoClientOptions {
+  const opts: MongoClientOptions = {
+    connectTimeoutMS: c.advanced.connectTimeoutMs,
+    socketTimeoutMS: c.advanced.socketTimeoutMs,
+    serverSelectionTimeoutMS: c.advanced.serverSelectionTimeoutMs,
+    maxPoolSize: c.advanced.maxPoolSize,
+  };
+  if (c.tls.enabled) {
+    opts.tls = true;
+    if (!c.tls.verify) opts.tlsAllowInvalidCertificates = true;
+    if (c.tls.caPath) opts.tlsCAFile = c.tls.caPath;
+    if (c.tls.clientCertPath) opts.tlsCertificateKeyFile = c.tls.clientCertPath;
+  } else {
+    opts.tls = false;
+  }
+  return opts;
+}

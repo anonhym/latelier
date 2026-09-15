@@ -1,0 +1,202 @@
+import React from 'react';
+import { AppShell } from '@mantine/core';
+import { themeVars } from '../../theme/themeVars';
+import { isKnownNotConnected } from '../../state/connections';
+import { confirmDestructive } from '../../utils/confirm';
+import type { WorkspaceTab, ConnectionSummary } from '@shared/types';
+import type { WorkspaceTabsState } from '../../state/workspaceTabs';
+import { ConnectionSwitcher, type ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
+import { TitleBar } from './TitleBar';
+import { TabStrip } from './TabStrip';
+import { ResizeHandle } from './ResizeHandle';
+import { DividerNotch } from './DividerNotch';
+import { DbCollectionNavigator, type NavigatorOpenInput } from './DbCollectionNavigator';
+import { useSettings } from '../SettingsContext';
+import { usePaletteApi } from '../../commands/CommandPalette';
+import { useHints } from '../../hints/HintsContext';
+import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
+import { useConnectionDialogs } from './useConnectionDialogs';
+
+// Returns a fragment: AppShell places .Header/.Navbar/.Main by CSS grid on direct children, so a wrapper here would break layout.
+export interface ShellSectionProps {
+  dark: boolean;
+  toggle: () => void;
+  focusedConnection: ConnectionSummary | null;
+  switcherProps: Omit<ConnectionSwitcherProps, 'variant'>;
+  settings: ReturnType<typeof useSettings>;
+  palette: ReturnType<typeof usePaletteApi>;
+  shellOpen: boolean;
+  setShellOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  tabs: WorkspaceTabsState;
+  connections: ConnectionSummary[];
+  connectionsWithTabs: Set<string>;
+  active: WorkspaceTab | null;
+  scratchConnectionId: string | null;
+  hints: ReturnType<typeof useHints>;
+  openConnection: (id: string) => void;
+  setNewTabOpen: (open: boolean) => void;
+  panelPrefs: ReturnType<typeof useWorkspacePanelPrefs>;
+  connectionDialogs: ReturnType<typeof useConnectionDialogs>;
+}
+
+export function ShellSection({
+  dark,
+  toggle,
+  focusedConnection,
+  switcherProps,
+  settings,
+  palette,
+  shellOpen,
+  setShellOpen,
+  tabs,
+  connections,
+  connectionsWithTabs,
+  active,
+  scratchConnectionId,
+  hints,
+  openConnection,
+  setNewTabOpen,
+  panelPrefs,
+  connectionDialogs,
+}: ShellSectionProps) {
+  const T = themeVars;
+  const { sidebarCollapsed, toggleSidebar, leftWidth, setLeftWidth, commitLeftWidth } = panelPrefs;
+  const { openEditConnectionModal, requestDisconnect } = connectionDialogs;
+
+  return (
+    <>
+      <AppShell.Header
+        withBorder={false}
+        style={{ display: 'flex', flexDirection: 'column', background: 'transparent' }}
+      >
+        <TitleBar
+          dark={dark}
+          toggle={toggle}
+          connectionName={focusedConnection?.name ?? null}
+          connectionSlot={<ConnectionSwitcher {...switcherProps} />}
+          onOpenSettings={settings.open}
+          onOpenPalette={palette.toggle}
+          shellOpen={shellOpen}
+          shellAvailable={!!focusedConnection}
+          onToggleShell={() => setShellOpen((v) => !v)}
+        />
+        <TabStrip
+          tabs={tabs.tabs}
+          connections={connections}
+          activeId={tabs.activeId}
+          onOpenNewScript={() => {
+            if (!scratchConnectionId) return;
+            void tabs.openScript({ connectionId: scratchConnectionId });
+          }}
+          onActivate={(id) => {
+            if (id !== tabs.activeId) hints.recordSessionEvent('tabSwitch', '*');
+            // Clicking a dormant tab is the wake gesture: connect its Connection, same as clicking the navigator root.
+            const target = tabs.tabs.find((t) => t.id === id);
+            if (target) {
+              const conn = connections.find((c) => c.id === target.connectionId);
+              if (isKnownNotConnected(conn)) openConnection(target.connectionId);
+            }
+            void tabs.setActive(id);
+          }}
+          onClose={(id) => {
+            const t = tabs.tabs.find((x) => x.id === id);
+            if (t?.kind === 'collection' && t.state.aggregation?.dirty) {
+              void confirmDestructive({
+                title: 'Discard unsaved pipeline changes?',
+                body: 'This tab has pipeline edits that have not been saved. Closing it discards them.',
+                confirmLabel: 'Discard and close',
+              }).then((proceed) => {
+                if (proceed) void tabs.close(id);
+              });
+              return;
+            }
+            void tabs.close(id);
+          }}
+          onReorder={(ids) => void tabs.reorder(ids)}
+          onOpenNew={() => setNewTabOpen(true)}
+          onTogglePin={(id) => {
+            const t = tabs.tabs.find((x) => x.id === id);
+            if (t) void tabs.setPinned(id, !t.pinned);
+          }}
+        />
+      </AppShell.Header>
+
+      {/* DO NOT set `position` on AppShell.Navbar — Mantine's fixed-mode `top` offset becomes a layout shift under `position: relative`. Wrap the resize handle in an inner relative div instead. */}
+      {/* `minHeight: 0` is load-bearing: without it the row inflates to the tree's full min-content height instead of scrolling internally. */}
+      <AppShell.Navbar withBorder={false} style={{ minHeight: 0, minWidth: 0 }}>
+        <div
+          style={{
+            position: 'relative',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'visible',
+            background: T.surface,
+            borderRight: `1px solid ${T.border}`,
+          }}
+        >
+          {!sidebarCollapsed && (
+            <>
+              <DbCollectionNavigator
+                connections={connections}
+                connectionsWithTabs={connectionsWithTabs}
+                focusedConnectionId={focusedConnection?.id ?? null}
+                activeDbName={active?.dbName ?? null}
+                activeCollection={active?.collection ?? null}
+                onOpenCollection={(input: NavigatorOpenInput, opts) =>
+                  void tabs.openCollection({ ...input, reuseExisting: opts.reuseExisting })
+                }
+                onOpenAggregation={(input: NavigatorOpenInput) =>
+                  void tabs.openAggregation(input)
+                }
+                onEditConnection={openEditConnectionModal}
+                onDisconnect={requestDisconnect}
+                onCollectionDropped={(connectionId, dbName, collection) => {
+                  void tabs.closeForNamespace({ connectionId, dbName, collection });
+                }}
+                onDatabaseDropped={(connectionId, dbName) => {
+                  void tabs.closeForNamespace({ connectionId, dbName });
+                }}
+                onCollectionRenamed={(connectionId, dbName, oldName, newName) => {
+                  void tabs.retargetCollection({
+                    connectionId,
+                    dbName,
+                    collection: oldName,
+                    newCollection: newName,
+                  });
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: 4,
+                  zIndex: 3,
+                  display: 'flex',
+                }}
+              >
+                <ResizeHandle
+                  edge="left"
+                  value={leftWidth}
+                  min={160}
+                  max={560}
+                  onChange={setLeftWidth}
+                  onCommit={commitLeftWidth}
+                  ariaLabel="Resize navigator"
+                />
+              </div>
+            </>
+          )}
+          <DividerNotch
+            side="right"
+            collapsed={sidebarCollapsed}
+            onClick={toggleSidebar}
+            ariaLabel={sidebarCollapsed ? 'Open navigator' : 'Collapse navigator'}
+          />
+        </div>
+      </AppShell.Navbar>
+    </>
+  );
+}

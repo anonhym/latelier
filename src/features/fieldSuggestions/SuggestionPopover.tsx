@@ -1,0 +1,268 @@
+import React from 'react';
+import { themeVars } from '../../theme/themeVars';
+import { useRovingHighlight } from '../../hooks/useRovingHighlight';
+import { CLASS_BADGE, findOperatorDocs } from './operators';
+import { OperatorDocPanel } from './OperatorDocPanel';
+import { OPERATOR_PANEL_SIZE, placeFloatingPanel } from './placement';
+import type { Suggestion } from './types';
+
+function labelFor(s: Suggestion): string {
+  if (s.kind === 'field') return s.path;
+  if (s.kind === 'operator') return s.name;
+  return s.display;
+}
+
+/**
+ * The symbol and English name for an operator row (ADR 0004), as one string:
+ * `> greater than`, or just `is one of` where the operator has no symbol.
+ *
+ * Only the query operators carry these, so a stage row is unchanged.
+ */
+function nameFor(s: Suggestion): string {
+  if (s.kind !== 'operator' || !s.label) return '';
+  return s.symbol ? `${s.symbol} ${s.label}` : s.label;
+}
+
+function badgeFor(s: Suggestion): string {
+  if (s.kind === 'field') return s.type ?? '';
+  if (s.kind === 'operator') return CLASS_BADGE[s.class] ?? s.class;
+  return s.type ?? '';
+}
+
+interface Props {
+  items: Suggestion[];
+  anchorRef: React.RefObject<HTMLElement | null>;
+  /**
+   * Element that receives keyboard navigation (arrows/Enter/Tab/Escape).
+   * Defaults to `anchorRef`. Set separately when the anchor is a zero-size
+   * position marker and the focusable input is elsewhere (e.g., a textarea).
+   */
+  keyboardRef?: React.RefObject<HTMLElement | null>;
+  onSelect: (s: Suggestion) => void;
+  onClose: () => void;
+  /** When false, the component renders nothing. */
+  open: boolean;
+}
+
+export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onClose, open }: Props) {
+  const T = themeVars;
+  const { index: highlight, setIndex: setHighlight, move: moveHighlight } =
+    useRovingHighlight(items.length);
+  const [pos, setPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
+  const [panelPos, setPanelPos] = React.useState<{ top: number; left: number } | null>(null);
+  const listboxRef = React.useRef<HTMLDivElement>(null);
+  const panelId = React.useId();
+
+  // Whether the user has actually walked the list with the arrow keys.
+  //
+  // The highlight starts at 0 so there's always something to show, but an
+  // auto-highlight the user never asked for must not swallow Enter: WAI-ARIA's
+  // combobox pattern (`aria-autocomplete="list"`) has Enter commit the typed
+  // text unless an option is *actively* selected. Without this, typing a
+  // complete `{ name: 1 }` into the query bar's projection and pressing Enter
+  // committed `{ name: 1 }_id` — the popover took the key first and pasted
+  // whatever happened to rank first. Tab is deliberately still unconditional:
+  // it means "complete this", and there's nothing else it could mean here.
+  //
+  // Reset on close and on every new `items` identity — `useSuggestions`
+  // rebuilds the list when the token changes, so typing another character
+  // stands the user's selection down along with the ranking it was made in.
+  // Adjusted during render rather than in an effect (React's "adjust state
+  // when a prop changes"), the same shape `QueryBar`'s `advancedSync` uses:
+  // an effect would let one keystroke's stale `engaged` reach a keydown.
+  const [engaged, setEngaged] = React.useState(false);
+  const [engagedFor, setEngagedFor] = React.useState({ items, open });
+  if (engagedFor.items !== items || engagedFor.open !== open) {
+    setEngagedFor({ items, open });
+    if (engaged) setEngaged(false);
+  }
+
+  // Position below the anchor on open / resize.
+  React.useEffect(() => {
+    if (!open) return;
+    const el = anchorRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setPos({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 180) });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, anchorRef]);
+
+  // Keyboard navigation bound to the anchor element so focus can stay on the input.
+  React.useEffect(() => {
+    if (!open) return;
+    const el = (keyboardRef ?? anchorRef).current;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!open) return;
+      if (items.length === 0 && e.key !== 'Escape') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setEngaged(true);
+        moveHighlight(1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setEngaged(true);
+        moveHighlight(-1);
+      } else if (e.key === 'Tab' || (e.key === 'Enter' && engaged)) {
+        const pick = items[highlight];
+        if (pick) {
+          e.preventDefault();
+          onSelect(pick);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    el.addEventListener('keydown', onKey);
+    return () => el.removeEventListener('keydown', onKey);
+  }, [open, items, highlight, engaged, moveHighlight, anchorRef, keyboardRef, onSelect, onClose]);
+
+  // Resolve the docs entry for the highlighted item, if any.
+  const current = items[highlight];
+  const docOp = React.useMemo(() => {
+    if (!current || current.kind !== 'operator') return null;
+    return findOperatorDocs(current.name, current.class);
+  }, [current]);
+  const showPanel = !!docOp && !!docOp.description;
+
+  // Position the side panel once the listbox renders. Highlight changes don't
+  // move the listbox, so they're intentionally not in the deps.
+  React.useEffect(() => {
+    if (!open || !showPanel || !pos) return;
+    const box = listboxRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const p = placeFloatingPanel(
+      { top: box.top, left: box.left, width: box.width, height: box.height },
+      OPERATOR_PANEL_SIZE,
+      'right',
+    );
+    setPanelPos((prev) =>
+      prev && prev.top === p.top && prev.left === p.left
+        ? prev
+        : { top: p.top, left: p.left },
+    );
+  }, [open, showPanel, pos, items.length]);
+
+  if (!open || items.length === 0 || !pos) return null;
+
+  return (
+    <>
+      <div
+        ref={listboxRef}
+        role="listbox"
+        aria-label="Field suggestions"
+        onMouseDown={(e) => e.preventDefault()}
+        style={{
+          position: 'fixed',
+          top: pos.top,
+          left: pos.left,
+          minWidth: pos.width,
+          maxWidth: 320,
+          maxHeight: 240,
+          overflowY: 'auto',
+          background: T.surface,
+          border: `1px solid ${T.borderMed}`,
+          borderRadius: T.rs,
+          boxShadow: T.shadow,
+          zIndex: 1000,
+          padding: '2px 0',
+        }}
+      >
+        {items.map((s, i) => {
+          const label = labelFor(s);
+          const name = nameFor(s);
+          const badge = badgeFor(s);
+          const active = i === highlight;
+          const describedBy =
+            active && showPanel && s.kind === 'operator' ? panelId : undefined;
+          return (
+            <div
+              key={`${s.kind}:${label}:${i}`}
+              role="option"
+              // W15 §5 — `aria-selected` follows what Enter will do,
+              // not what is tinted. Enter was made to refuse an auto-highlight
+              // the user never chose, but every row still announced itself as
+              // selected, so a screen-reader user was told an option was
+              // selected while Enter deliberately passed it by. The
+              // background stays on the highlighted row regardless — it means
+              // "Enter would land here if you chose it", which is true — but
+              // the ARIA state is only claimed once `engaged` makes it so.
+              // Hovering sets `highlight` and not `engaged` on purpose:
+              // making hover engage would re-arm Enter and undo that fix, so a
+              // hovered row reads unselected while a click still selects it.
+              aria-selected={active && engaged}
+              aria-describedby={describedBy}
+              onMouseEnter={() => setHighlight(i)}
+              onClick={() => onSelect(s)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '4px 10px',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                background: active ? T.accentSoft : 'transparent',
+                color: T.text,
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {label}
+              </span>
+              {name && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: T.textMuted,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    marginLeft: 'auto',
+                  }}
+                >
+                  {name}
+                </span>
+              )}
+              {badge && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: T.textGhost,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    flexShrink: 0,
+                  }}
+                >
+                  {badge}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {showPanel && panelPos && (
+        <div
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
+            zIndex: 1001,
+          }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <OperatorDocPanel op={docOp} variant="side" id={panelId} />
+        </div>
+      )}
+    </>
+  );
+}
