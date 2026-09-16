@@ -61,7 +61,20 @@ const NODE_LABELS: Record<string, string> = {
  * `err.pos`, which is what `index` already carries.
  */
 function stripAcornPosition(message: string | undefined): string | undefined {
-  return message?.replace(/\s*\(\d+:\d+\)\s*$/, '');
+  // `trimEnd()` first, then a pattern whose only variable-length part is a
+  // single optional space: `/\s*\(\d+:\d+\)\s*$/` had two unbounded `\s*`
+  // runs and an unanchored start, which backtracks super-linearly (S8786).
+  // acorn's own format is `message (line:col)`, one space, no trailing blanks.
+  //
+  // That last clause is why `trimEnd()` and the `?.` both carry surviving
+  // mutants: acorn never emits a trailing blank and never throws without a
+  // message, so swapping `trimEnd` for `trimStart` or dropping the optional
+  // chaining cannot change any reachable result. Both are kept because the
+  // `\s*$` they replaced did handle that shape, and dropping them would be a
+  // quiet behaviour regression rather than a simplification. The intended
+  // behaviour is pinned in `redos-rewrites.property.spec.ts`; no assertion is
+  // bolted on here to force an unkillable mutant red.
+  return message?.trimEnd().replace(/ ?\(\d+:\d+\)$/, '');
 }
 
 /**
@@ -306,7 +319,10 @@ function regexText(regex: { pattern: string; flags: string }, start: number): st
       start,
     );
   }
-  const options = [...regex.flags].sort().join('');
+  // Code-unit order, not `localeCompare`: these flags go out as canonical
+  // EJSON, and a locale-dependent order would make the same regex serialize
+  // differently on different machines.
+  const options = [...regex.flags].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('');
   return `{"$regularExpression":{"pattern":${JSON.stringify(regex.pattern)},"options":${JSON.stringify(options)}}}`;
 }
 

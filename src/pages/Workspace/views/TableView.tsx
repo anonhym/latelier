@@ -148,6 +148,7 @@ function TableCell({
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState('');
   const commitGuardRef = React.useRef(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
   // Index-virtualization rebinds this same TableCell instance to a different
   // document when the array swaps mid-edit; without cancelling here, the
@@ -188,6 +189,14 @@ function TableCell({
     actions.updateField?.(doc, fieldPath, draft);
   };
 
+  // S9379 — an `autoFocus` attribute is a Sonar finding regardless of intent;
+  // this is the same "focus the input once it mounts" behaviour without it.
+  // Only runs when `editing` flips true, which only happens from the user's
+  // own pencil click, so it never steals focus mid-typing elsewhere.
+  React.useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     const payload: DraggedField = { field: fieldPath, value };
     e.dataTransfer.setData(DRAGGED_FIELD_MIME, JSON.stringify(payload));
@@ -201,6 +210,10 @@ function TableCell({
 
   return (
     <div
+      // Part of the grid: `gridcell` is what makes the row's `role="row"`
+      // valid, and unlike `option` it is free to hold the drag, copy and
+      // inline-edit controls this cell owns.
+      role="gridcell"
       draggable={draggable && !editing}
       onDragStart={draggable && !editing ? handleDragStart : undefined}
       onDoubleClick={(e) => {
@@ -251,7 +264,7 @@ function TableCell({
     >
       {editing ? (
         <input
-          autoFocus
+          ref={inputRef}
           aria-label={`Edit ${fieldPath}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -430,7 +443,10 @@ interface TableRowProps {
   deepPaths: Set<string>;
   fieldCopiedPath: string | null;
   refsByField?: Map<string, ReferenceRule>;
-  onSelect: (e: React.MouseEvent, idx: number) => void;
+  // Widened from React.MouseEvent so a keyboard Enter/Space on the row can
+  // drive the same selection logic as a click — both event types carry
+  // metaKey/ctrlKey, which is all this reads.
+  onSelect: (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => void;
   onCopyCell: (text: string, cellKey: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
@@ -450,6 +466,10 @@ interface TableRowProps {
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
 }
 
+// `ariaAttributes` is intentionally not destructured off the row props.
+// react-window offers `role="listitem"` + posinset/setsize to pair with the
+// `role="list"` it puts on its own container; this table is a grid, and a
+// `listitem` between the grid and its rows would break the rows' ownership.
 function TableRowImpl({
   index,
   style,
@@ -480,6 +500,8 @@ function TableRowImpl({
 
   return (
     <div
+      // No role here on purpose — see the note on this function's props. The
+      // grid's row and index attributes are set on the strip below.
       data-selected={isSelected}
       style={{
         ...style,
@@ -490,7 +512,26 @@ function TableRowImpl({
           : 'var(--atelier-surface)',
       }}
     >
+      {/* S6848 — this strip behaves like a selectable row (click selects,
+          ⌘/Ctrl+click multi-selects) while wrapping other real interactive
+          controls: draggable cells, the expand chevron, the edit affordances.
+          `role="option"` was the first attempt and was wrong: `option` is
+          "children presentational" in ARIA, so it may not contain any of
+          those, and it needs a `listbox` parent this never had.
+
+          `row` inside `role="grid"` is the pattern for exactly this — a data
+          table whose cells hold controls. `row` is not children
+          presentational, so the cell controls stay exposed, and
+          `aria-selected` is valid on it. `aria-rowindex` is 1-based and
+          counts the header, so the first document row is 2.
+
+          tabIndex={-1}: virtualization still mounts 40+ rows with overscan, so
+          no row may be a tab stop. Moving focus between them is #20. */}
       <div
+        role="row"
+        aria-rowindex={index + 2}
+        aria-selected={isSelected}
+        tabIndex={-1}
         style={{
           display: 'flex',
           alignItems: 'stretch',
@@ -499,10 +540,22 @@ function TableRowImpl({
           fontFamily: 'monospace',
         }}
         onClick={(e) => onSelect(e, index)}
+        onKeyDown={(e) => {
+          // Nested native buttons (expand chevron, cell edit/expand
+          // affordances) also bubble their Enter/Space keydown up here —
+          // without this guard, tabbing to one of them and pressing Enter
+          // would both run its own action AND select the row.
+          if (e.target !== e.currentTarget) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          onSelect(e, index);
+        }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
-            data columns. */}
+            data columns. A `gridcell` like the rest, so the row owns nothing
+            but cells. */}
         <div
+          role="gridcell"
           style={{
             width: GUTTER_WIDTH,
             minWidth: GUTTER_WIDTH,
@@ -586,6 +639,12 @@ function TableRowImpl({
       {isExpanded && isRecord(doc) && (
         <div
           data-expanded-doc-section="true"
+          // Same ancestor role TreeView's expand panel carries, for the same
+          // reason: `DocFieldTree`'s rows are `role="treeitem"`, and a
+          // `treeitem` without a `tree` ancestor fails axe's
+          // aria-required-parent. Both call sites of the shared component
+          // need it, not just the one in TreeView.
+          role="tree"
           style={{
             padding: '0 0 10px 0',
             borderTop: '1px solid var(--atelier-border)',
@@ -801,8 +860,20 @@ export function TableView({
   React.useEffect(() => {
     if (!fieldContextMenu) return;
     const handler = () => setFieldContextMenu(null);
+    // Escape listens on the window, next to the click-outside dismiss, rather
+    // than as an `onKeyDown` on the menu itself. The menu opens from a
+    // `contextmenu` event and nothing focuses it, so a keydown handler on that
+    // element would never receive one — dead code that a test firing directly
+    // at the node would still report as working.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFieldContextMenu(null);
+    };
     window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [fieldContextMenu]);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
@@ -896,14 +967,23 @@ export function TableView({
   React.useEffect(() => {
     if (!contextMenu) return;
     const handler = () => setContextMenu(null);
+    // See the field menu above: Escape has to be a window listener, because
+    // nothing ever gives this menu focus.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
     window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [contextMenu]);
 
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
   // toggles the row into/out of a multi-row selection for the bulk-action bar.
   const handleSelect = React.useCallback(
-    (e: React.MouseEvent, idx: number) => {
+    (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
       else selection.selectOnly(idx);
     },
@@ -1036,58 +1116,20 @@ export function TableView({
           const dir = col.kind === 'field' ? ownGet(sortMap, col.field) : undefined;
           const indicator = dir === 1 ? '↑' : dir === -1 ? '↓' : null;
           const label = col.kind === 'field' ? col.field : col.label ?? col.path;
-          return (
-            <div
-              key={col.field}
-              onClick={
-                sortable
-                  ? (e) => {
-                      // Ignore clicks that started on the resize gutter
-                      // (the resize-handle child stops propagation, but be
-                      // defensive against drift between dev/test envs).
-                      if ((e.target as HTMLElement).dataset.resizeHandle === '1') return;
-                      onSortField?.(col.field);
-                    }
-                  : undefined
-              }
-              title={
-                sortable
-                  ? (dir === 1
-                      ? `Sorted ascending — click for descending`
-                      : dir === -1
-                        ? `Sorted descending — click to clear`
-                        : `Click to sort by ${label}`) +
-                    (multiFieldSort
-                      ? ' (replaces the whole multi-field sort — edit it in the query bar’s sort field)'
-                      : '')
-                  : col.kind === 'computed'
-                    ? label
-                    : undefined
-              }
-              data-testid={`table-header-${col.field}`}
-              style={{
-                width: w,
-                minWidth: w,
-                maxWidth: w,
-                borderBottom: '1px solid var(--atelier-border)',
-                borderRight: '1px solid var(--atelier-border)',
-                padding: '5px 8px',
-                textAlign: 'left',
-                fontWeight: 600,
-                color: dir ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
-                fontSize: 11,
-                position: 'relative',
-                userSelect: 'none',
-                overflow: 'hidden',
-                whiteSpace: 'nowrap',
-                textOverflow: 'ellipsis',
-                boxSizing: 'border-box',
-                cursor: sortable ? 'pointer' : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
+          const headerTitle = sortable
+            ? (dir === 1
+                ? `Sorted ascending — click for descending`
+                : dir === -1
+                  ? `Sorted descending — click to clear`
+                  : `Click to sort by ${label}`) +
+              (multiFieldSort
+                ? ' (replaces the whole multi-field sort — edit it in the query bar’s sort field)'
+                : '')
+            : col.kind === 'computed'
+              ? label
+              : undefined;
+          const labelContent = (
+            <>
               <span
                 style={{
                   flex: 1,
@@ -1106,10 +1148,102 @@ export function TableView({
                   {indicator}
                 </span>
               )}
+            </>
+          );
+          return (
+            <div
+              key={col.field}
+              title={headerTitle}
+              data-testid={`table-header-${col.field}`}
+              style={{
+                width: w,
+                minWidth: w,
+                maxWidth: w,
+                borderBottom: '1px solid var(--atelier-border)',
+                borderRight: '1px solid var(--atelier-border)',
+                // Padding moves onto the <button> below when sortable, so
+                // its hit area covers the whole cell edge-to-edge.
+                padding: sortable ? 0 : '5px 8px',
+                textAlign: 'left',
+                fontWeight: 600,
+                color: dir ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
+                fontSize: 11,
+                position: 'relative',
+                userSelect: 'none',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
+                boxSizing: 'border-box',
+                cursor: sortable ? 'pointer' : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {/* S6848 — the old fix wrapped a plain onClick div around the
+                  label + resize handle. Instead, only the label + indicator
+                  (the part that actually sorts) becomes a native <button>;
+                  the resize handle stays a sibling, never a descendant of
+                  the button, since a <div> inside a <button> is an invalid
+                  content model. This gets native Enter/Space for free. */}
+              {sortable ? (
+                <button
+                  type="button"
+                  onClick={() => onSortField?.(col.field)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '5px 8px',
+                    margin: 0,
+                    border: 'none',
+                    background: 'none',
+                    font: 'inherit',
+                    color: 'inherit',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {labelContent}
+                </button>
+              ) : (
+                labelContent
+              )}
+              {/* S6848 — a drag-only resize affordance has no discrete
+                  "action" to run on Enter/Space the way a button does, so
+                  the honest keyboard equivalent is the ARIA "window
+                  splitter" pattern: role="separator" + arrow-key resize,
+                  reusing the same 60px floor as the mouse drag.
+
+                  This trades S6848 for S6845 ("`tabIndex` should only be
+                  declared on interactive elements"), and that second finding
+                  is accepted rather than fixed. A focusable `separator` IS
+                  interactive — it is the role W3C's APG specifies for exactly
+                  this widget, with `tabindex="0"`, `aria-valuenow` and
+                  arrow-key resize. S6845's notion of "interactive" is a fixed
+                  list that predates the splitter pattern and does not include
+                  `separator`. Dropping the `tabIndex` to satisfy it would
+                  delete the only keyboard path to resizing a column, which is
+                  the opposite of what either rule is for. */}
               <div
                 data-resize-handle="1"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize ${label} column`}
+                aria-valuenow={w}
+                aria-valuemin={60}
+                tabIndex={0}
                 onMouseDown={(e) => handleResizeMouseDown(e, col.field)}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const delta = e.key === 'ArrowRight' ? 10 : -10;
+                  onColumnResize(col.field, Math.max(60, propWidth(col.field) + delta));
+                }}
                 style={{
                   position: 'absolute',
                   right: 0,
@@ -1126,6 +1260,14 @@ export function TableView({
       </div>
 
       <List<TableRowProps>
+        // react-window labels its own container `role="list"`, which is the
+        // wrong context for the rows below and leaves them with no valid
+        // parent. `grid` is the required one, and `aria-rowcount` is how a
+        // virtualized grid reports a total larger than what is mounted (+1
+        // for the header row).
+        role="grid"
+        aria-label="Documents"
+        aria-rowcount={documents.length + 1}
         rowComponent={TableRow as typeof TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}
@@ -1140,7 +1282,20 @@ export function TableView({
 
       {/* Cell-level context menu (doc-aware — Edit/Delete included). */}
       {contextMenu && (
+        // S6848 — this div's onClick only stops propagation so a click
+        // inside the menu doesn't hit the window-level "click outside
+        // closes" listener above; every action lives on the real <button>s
+        // inside, already natively keyboard-operable. role="group", not
+        // "menu", which would need role="menuitem" on all six children.
+        //
+        // Escape is not handled here. The menu opens from a `contextmenu`
+        // event and nothing focuses it, so an `onKeyDown` on this element
+        // would never fire for a keyboard user — it lives on the window,
+        // beside the click-outside dismiss.
         <div
+          role="group"
+          aria-label="Cell actions"
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'fixed',
@@ -1310,7 +1465,12 @@ export function TableView({
           path only — no Edit/Delete, matching the Tree view's nested-field
           menu). */}
       {fieldContextMenu && (
+        // S6848 — same reasoning as the cell-level menu above, Escape
+        // included: it is a window listener, not an onKeyDown here.
         <div
+          role="group"
+          aria-label="Field actions"
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'fixed',

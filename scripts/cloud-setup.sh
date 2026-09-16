@@ -26,7 +26,7 @@ apt-get install -y --no-install-recommends \
 # Node 24. The VM ships 20/21/22 via nvm; pin to match CI (and better-sqlite3's
 # `engines: node >=22`) before installing.
 for d in "$NVM_DIR" /usr/local/nvm /usr/local/share/nvm /root/.nvm /opt/nvm; do
-  if [ -s "$d/nvm.sh" ]; then export NVM_DIR="$d"; . "$d/nvm.sh"; break; fi
+  if [[ -s "$d/nvm.sh" ]]; then export NVM_DIR="$d"; . "$d/nvm.sh"; break; fi
 done
 if command -v nvm >/dev/null 2>&1; then
   nvm install 24 || true
@@ -38,7 +38,7 @@ fi
 # what the CLI's own resolver prefers (npx on npm 11 hits the arborist crash).
 # The index itself is gitignored, so scripts/gitnexus-autoindex.mjs
 # builds it in the background on the first cloud session.
-npm i -g gitnexus || true
+npm i -g gitnexus --ignore-scripts || true
 
 # ...and then onto a PATH the session actually has. `nvm use 24` above moved
 # the global prefix under /opt/nvm/versions/node/<ver>/lib/node_modules, but
@@ -49,7 +49,7 @@ npm i -g gitnexus || true
 # PATH in both shells. Running under either Node is fine: gitnexus declares
 # `engines: node >=22` and the VM's non-nvm Node is 22.22.2.
 gn="$(npm root -g 2>/dev/null)/gitnexus/dist/cli/index.js"
-if [ -f "$gn" ]; then
+if [[ -f "$gn" ]]; then
   ln -sf "$gn" /usr/local/bin/gitnexus
 else
   echo "WARNING: gitnexus not found at $gn — CLI and .mcp.json will not resolve"
@@ -60,8 +60,8 @@ fi
 # documented, so find it rather than assume.
 pkg=$(find /home /workspace /root /srv -maxdepth 4 -name package.json \
         -not -path '*/node_modules/*' 2>/dev/null | head -1)
-if [ -n "$pkg" ]; then
-  cd "$(dirname "$pkg")" && npm ci || true
+if [[ -n "$pkg" ]]; then
+  cd "$(dirname "$pkg")" && npm ci --ignore-scripts || true
 fi
 
 # Plugin marketplaces, pre-seeded.
@@ -89,7 +89,7 @@ for spec in "ponytail=https://github.com/DietrichGebert/ponytail" \
   name="${spec%%=*}"
   url="${spec#*=}"
   dest="$MARKETPLACE_DIR/$name"
-  if [ -d "$dest/.git" ]; then
+  if [[ -d "$dest/.git" ]]; then
     git -C "$dest" fetch --depth 1 origin HEAD && \
       git -C "$dest" reset --hard FETCH_HEAD || true
   else
@@ -97,7 +97,7 @@ for spec in "ponytail=https://github.com/DietrichGebert/ponytail" \
   fi
   # A marketplace without this manifest will not load; say so rather than
   # leaving behind the same silent no-op this block exists to fix.
-  [ -f "$dest/.claude-plugin/marketplace.json" ] || \
+  [[ -f "$dest/.claude-plugin/marketplace.json" ]] || \
     echo "WARNING: $name cloned without .claude-plugin/marketplace.json — plugin will not load"
 done
 

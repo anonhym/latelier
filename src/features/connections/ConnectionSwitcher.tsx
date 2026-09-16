@@ -142,6 +142,15 @@ function ConnectionRow({
     <div
       id={optionId}
       role="option"
+      // Combobox pattern: this row is never a tab stop of its own. Focus
+      // stays on the search field; the highlight roves via
+      // `aria-activedescendant` (see the file header). tabIndex={-1}, not
+      // 0 — 0 would add nine rows to the tab order and fight the search
+      // field for the highlight. The row-action buttons rendered below
+      // are real `<button>`s and keep their own tab stops regardless — an
+      // ancestor's tabIndex={-1} doesn't remove descendants from the tab
+      // order.
+      tabIndex={-1}
       aria-label={conn.name}
       // `aria-selected` is the Connection that is *connected*, the listbox's
       // value — not the keyboard highlight. The highlight is the search

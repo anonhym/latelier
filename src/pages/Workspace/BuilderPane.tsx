@@ -564,8 +564,8 @@ function CondRow({
         />
         {showOpDocs && (
           <OperatorTooltip name={node.op} prefClass="query" placement="below">
-            <span
-              tabIndex={0}
+            <button
+              type="button"
               aria-label={`Documentation for ${node.op}`}
               style={{
                 display: 'inline-flex',
@@ -575,6 +575,10 @@ function CondRow({
                 height: 18,
                 borderRadius: '50%',
                 border: `1px solid ${T.border}`,
+                background: 'none',
+                padding: 0,
+                margin: 0,
+                font: 'inherit',
                 color: T.textGhost,
                 fontSize: 10,
                 fontWeight: 600,
@@ -584,7 +588,7 @@ function CondRow({
               }}
             >
               ?
-            </span>
+            </button>
           </OperatorTooltip>
         )}
         <RowMenu
@@ -1492,6 +1496,17 @@ function BuilderPaneInner({
   };
 
   return (
+    // S6848 is accepted here, not fixed. This div carries `onKeyDown` and
+    // nothing else — no `onClick`, no `role`, no `tabIndex` — so it is never a
+    // focus target and cannot be mistaken for a control. It exists to scope the
+    // Cmd/Ctrl+Enter Run shortcut to this drawer, catching the event as it
+    // bubbles from whichever natively-focusable descendant (a tab, a TextInput,
+    // the filter textarea) actually has focus. The rule's stated harm — that a
+    // keyboard user cannot reach the handler — is inverted here: focus is
+    // already inside by design. Both offered fixes make it worse. `role="button"`
+    // on a container holding a tablist and several inputs is invalid nested-
+    // interactive ARIA, and a bare `tabIndex={0}` adds a tab stop that does
+    // nothing. Same pattern, same accept, in ScriptTab.tsx.
     <div
       onKeyDown={handleDrawerKeyDown}
       style={{

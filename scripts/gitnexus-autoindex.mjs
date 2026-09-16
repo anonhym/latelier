@@ -26,6 +26,16 @@
  * — this is advisory, not blocking. Skips silently when the repo has no
  * index yet, so a fresh clone doesn't pay for a full first analysis it
  * never asked for.
+ *
+ * `git` and `npx` below are resolved through PATH on purpose, and SonarCloud's
+ * S4036 findings on those three spawns are accepted rather than fixed. Neither
+ * binary has a stable absolute path across macOS, the cloud container and a
+ * contributor's machine, and `gitnexus` is a global install with no entry under
+ * `node_modules` to resolve. This runs as a SessionStart hook inside the
+ * developer's own interactive shell with their own privileges — it inherits the
+ * exact PATH every other command they type already uses, so pinning it here
+ * would protect nothing. `scripts/run-tests.mjs` is the opposite case and does
+ * resolve its binary, because vitest is a locked local dependency.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';

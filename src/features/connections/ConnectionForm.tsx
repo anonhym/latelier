@@ -364,14 +364,21 @@ function GeneralTab({
           <Field label="Color">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {COLORS.map((c) => (
-                <div
+                <button
                   key={c}
+                  type="button"
+                  // COLORS is bare hex, so this is the honest accessible
+                  // name available — not pretty, but truthful.
+                  aria-label={`Color ${c}`}
+                  aria-pressed={form.color === c}
                   onClick={() => set('color', c)}
                   style={{
-                    width: 22, height: 22, borderRadius: '50%', background: c,
+                    padding: 0, margin: 0, font: 'inherit', textAlign: 'left',
+                    width: 22, height: 22, borderRadius: '50%',
                     cursor: 'pointer',
                     border: form.color === c ? `2px solid ${T.text}` : `2px solid transparent`,
                     boxSizing: 'border-box',
+                    background: c,
                   }}
                 />
               ))}

@@ -271,4 +271,62 @@ describe('DetailPanel Collections', () => {
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(listDatabases.mock.calls.length).toBeGreaterThan(initialCalls));
   });
+
+  // The db header used to be a bare `<div onClick>` — a mouse-only control.
+  // Now that it's a real `<button>`, Enter/Space activate it for free; this
+  // pins that the a11y fix (S6848) actually bought keyboard users something,
+  // not just a quieter linter.
+  it('expands a db section with the keyboard, not just a click', async () => {
+    const listCollections = vi.fn(async ({ dbName }: { dbName: string }) => {
+      if (dbName !== 'beta') return [];
+      return [
+        { name: 'widgets', type: 'collection' as const, documentCount: 1,
+          sizeBytes: 512, indexCount: 1, capped: false },
+      ];
+    });
+    installAtelierMock({
+      mongo: {
+        status: async (id) => ({ id, status: 'connected', serverVersion: '7.0.0' }),
+        connect: async (id) => ({ id, status: 'connected' }),
+        disconnect: async (id) => ({ id }),
+        ping: async () => ({ roundTripMs: 1 }),
+        serverInfo: async () => ({
+          version: '7.0.5', uptimeSeconds: 0,
+          connectionsCurrent: 0, connectionsAvailable: 0,
+          opcountersPerSec: 0, databaseCount: 3, dataSizeBytes: 0,
+          storageSizeBytes: 0, indexCount: 0, topology: 'Single',
+          serverStatsAvailable: true,
+        }),
+        onStatus: () => () => { /* ok */ },
+      },
+      meta: {
+        // >2 dbs so none auto-expand on load — the keypress below has to be
+        // what drives expansion.
+        listDatabases: async () => [
+          { name: 'alpha', sizeOnDisk: 0, empty: false },
+          { name: 'beta', sizeOnDisk: 0, empty: false },
+          { name: 'gamma', sizeOnDisk: 0, empty: false },
+        ],
+        listCollections,
+      },
+      prefs: {
+        get: async () => null,
+        set: async (_k, v) => v,
+      },
+    });
+    renderDetail(baseConn);
+    await userEvent.click(screen.getByText('Collections'));
+    const betaHeader = await screen.findByRole('button', { name: /beta/ });
+
+    expect(betaHeader.getAttribute('aria-expanded')).toBe('false');
+    betaHeader.focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(betaHeader.getAttribute('aria-expanded')).toBe('true');
+    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'beta',
+    }));
+    await screen.findByText('widgets');
+  });
 });

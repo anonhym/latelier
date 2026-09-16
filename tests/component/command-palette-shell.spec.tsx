@@ -86,9 +86,10 @@ describe('<CommandPalette>', () => {
     const perform = vi.fn();
     render(harness(<RegisterTest perform={perform} />));
     act(() => dispatchToggle());
-    fireEvent.keyDown(screen.getByRole('dialog').querySelector('[role="option"]')!, {
-      key: 'Enter',
-    });
+    // Keyboard nav is bound to the search input, not the dialog or the
+    // option rows (combobox pattern — see CommandPalette.tsx) — Enter is
+    // fired where a real keyboard user would have focus.
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
     expect(perform).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).not.toBeTruthy();
   });

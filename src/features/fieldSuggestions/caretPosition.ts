@@ -50,7 +50,7 @@ export function getCaretRect(
   const taRect = textarea.getBoundingClientRect();
   const top = taRect.top + (markerRect.top - mirrorRect.top) - textarea.scrollTop;
   const left = taRect.left + (markerRect.left - mirrorRect.left) - textarea.scrollLeft;
-  const height = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2 || 16;
+  const height = Number.parseFloat(cs.lineHeight) || Number.parseFloat(cs.fontSize) * 1.2 || 16;
 
   return { top, left, height };
 }

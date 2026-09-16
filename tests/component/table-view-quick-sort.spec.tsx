@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '../helpers/render';
+import { fireEvent, render, screen, within } from '../helpers/render';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type {
@@ -72,7 +72,10 @@ describe('TableView — quick sort', () => {
     const onSortField = vi.fn();
     renderTable('', onSortField);
 
-    fireEvent.click(screen.getByTestId('table-header-name'));
+    // The sort click handler lives on the nested <button> now (S6848 —
+    // native element gets native Enter/Space for free), not on the
+    // data-testid'd cell wrapper itself.
+    fireEvent.click(within(screen.getByTestId('table-header-name')).getByRole('button'));
     expect(onSortField).toHaveBeenCalledWith('name');
   });
 
@@ -317,5 +320,30 @@ describe('TableView — a sort on a column named after an Object.prototype membe
     const header = screen.getByTestId('table-header-constructor');
     expect(header.textContent).not.toContain('↑');
     expect(header.textContent).not.toContain('↓');
+  });
+});
+
+// S6848 — the resize handle is a drag-only affordance with no discrete
+// click action, so its keyboard equivalent is arrow-key resize (the ARIA
+// "window splitter" pattern) rather than an Enter/Space action.
+describe('TableView — header column resize handle keyboard equivalent', () => {
+  it('ArrowRight/ArrowLeft on the resize handle grow/shrink the column, clamped to the same 60px floor as the mouse drag', () => {
+    const onColumnResize = vi.fn();
+    render(
+      <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+        <TableView
+          documents={[{ _id: '1', name: 'a' }]}
+          onColumnResize={onColumnResize}
+          columns={{ name: { width: 65 } }}
+        />
+      </CollectionWorkspaceProvider>,
+    );
+    const handle = within(screen.getByTestId('table-header-name')).getByRole('separator');
+
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(onColumnResize).toHaveBeenCalledWith('name', 75);
+
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(onColumnResize).toHaveBeenCalledWith('name', 60); // clamped, not 55
   });
 });

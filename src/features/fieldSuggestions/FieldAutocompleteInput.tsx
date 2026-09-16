@@ -71,8 +71,11 @@ function computeToken(
     const afterIdx = after.indexOf(',');
     const end = afterIdx === -1 ? value.length : caret + afterIdx;
     const raw = value.slice(startBefore, end);
-    const lpad = raw.match(/^\s*/)?.[0].length ?? 0;
-    const rpad = raw.match(/\s*$/)?.[0].length ?? 0;
+    // `trimStart`/`trimEnd` rather than `/^\s*/` and `/\s*$/`: the trailing
+    // one has an unanchored start over `\s*`, so a run of spaces in a typed
+    // field costs O(n^2) (S8786). These are linear and say the same thing.
+    const lpad = raw.length - raw.trimStart().length;
+    const rpad = raw.length - raw.trimEnd().length;
     return {
       token: raw.slice(lpad, raw.length - rpad),
       start: startBefore + lpad,

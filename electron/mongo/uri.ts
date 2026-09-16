@@ -2,6 +2,32 @@ import type { MongoClientOptions } from 'mongodb';
 import type { Connection } from '@shared/types';
 
 /**
+ * Strip leading and trailing `/` from a user-typed default database.
+ *
+ * An index walk rather than `.replace(/^\/+/, '').replace(/\/+$/, '')`: the
+ * trailing half of that pair has an unanchored start over `\/+`, so a value
+ * that is a long run of slashes followed by anything else costs O(n^2) to
+ * reject (S8786). This field comes straight off the connection form.
+ *
+ * Both bounds checks carry equivalent mutants that stryker cannot kill, and no
+ * test should be contorted to pretend otherwise. `start < end` -> `start <= end`
+ * and `end > start` -> `end >= start` both still terminate, because the extra
+ * iteration indexes past the walked range and compares `undefined` to `'/'`;
+ * and replacing either with `true` leaves the same `undefined` guard. Verified
+ * exhaustively over every arrangement of `/`, a letter and a space up to
+ * length 6 (1093 inputs): all four mutants agree with this function on every
+ * one, including the `slice(start, end)` cases where `end` ends up below
+ * `start` and slice clamps to ''.
+ */
+function stripSlashes(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '/') start += 1;
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
+}
+
+/**
  * Build a mongodb:// or mongodb+srv:// URI from a saved Connection plus an
  * optional plaintext password. Never logs plaintext; never throws on missing
  * password (caller handles).
@@ -27,7 +53,7 @@ export function buildUri(c: Connection, password?: string): string {
 
   // Path / default database — strip any junk (/, leading whitespace) the user
   // might have typed.
-  const cleanDb = (c.defaultDb ?? '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+  const cleanDb = stripSlashes(c.defaultDb ?? '').trim();
   const pathPart = cleanDb ? `/${encodeURIComponent(cleanDb)}` : '/';
 
   const params = new URLSearchParams();

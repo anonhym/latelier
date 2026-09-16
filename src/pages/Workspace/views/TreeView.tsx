@@ -199,6 +199,22 @@ function DocRowImpl({
       {/* Collapsed row */}
       <div
         onClick={handleRowClick}
+        // Keyboard path is independent of handleRowClick (which reads
+        // metaKey/ctrlKey off a MouseEvent for ⌘/Ctrl+click-to-select — a
+        // mouse-only gesture). Guarded so a keydown bubbling up from a
+        // nested control (the expand button, edit/delete) doesn't also
+        // toggle the row — that button already has its own native Enter/
+        // Space handling.
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === ' ') e.preventDefault();
+            onRowExpand(docId, !isExpanded);
+          }
+        }}
+        role="treeitem"
+        aria-expanded={isExpanded}
+        tabIndex={-1}
         title="Click to expand · ⌘/Ctrl+click to select"
         style={{
           display: 'flex',
@@ -254,12 +270,12 @@ function DocRowImpl({
           previewFields={previewFields}
         />
 
-        <div
-          style={{ display: 'flex', gap: 4, flexShrink: 0 }}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
           <button
-            onClick={() => onEditDoc(doc)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditDoc(doc);
+            }}
             title="Edit document"
             style={{
               background: 'none',
@@ -275,7 +291,10 @@ function DocRowImpl({
             {I.edit}
           </button>
           <button
-            onClick={() => onDeleteDoc(doc)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteDoc(doc);
+            }}
             title="Delete document"
             style={{
               background: 'none',
@@ -302,6 +321,11 @@ function DocRowImpl({
       {isExpanded && isRecord(doc) && (
         <div
           data-expanded-doc-section="true"
+          // Ancestor role for DocFieldTree's `treeitem` rows below (axe's
+          // aria-required-parent). The rows render as a flat sibling list,
+          // not nested per depth, so this isn't a fully-conformant ARIA
+          // tree — it's the minimum that satisfies the treeitem/tree pairing.
+          role="tree"
           style={{
             padding: '0 0 10px 0',
             borderTop: '1px solid var(--atelier-border)',
@@ -591,6 +615,11 @@ export function TreeView({
         }}
       >
         <List<DocRowProps>
+          // react-window labels its own container `role="list"`, which leaves
+          // the `role="treeitem"` rows below with no valid parent (axe's
+          // aria-required-parent). `tree` is the one they need.
+          role="tree"
+          aria-label="Documents"
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRow as typeof DocRowImpl}
           rowCount={documents.length}
@@ -637,7 +666,6 @@ export function TreeView({
       </div>
       {contextMenu && (
         <div
-          onClick={(e) => e.stopPropagation()}
           style={{
             position: 'fixed',
             top: contextMenu.y,
@@ -653,7 +681,8 @@ export function TreeView({
         >
           {contextMenu.value !== undefined && (
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 void copyToClipboard(
                   valueToClipboardText(contextMenu.value),
                   'Value copied to the clipboard.',
@@ -676,7 +705,8 @@ export function TreeView({
             </button>
           )}
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               void copyToClipboard(
                 contextMenu.fieldPath,
                 'Field name copied to the clipboard.',
@@ -700,7 +730,8 @@ export function TreeView({
           {!meta.isReadOnly && contextMenu.value !== undefined && (
             <button
               disabled={!filterBarValid}
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 void handleAddToFilter(contextMenu.fieldPath, contextMenu.value);
                 setContextMenu(null);
               }}

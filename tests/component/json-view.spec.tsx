@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render } from '../helpers/render';
+import { render, screen, within } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type {
@@ -104,5 +104,12 @@ describe('JsonView — rendering', () => {
     // EJSON canonical output must surface the type tags as text.
     expect(container.textContent).toContain('$oid');
     expect(container.textContent).toContain('$date');
+  });
+
+  it('the Select button carries no nested interactive controls (nested-interactive / S6852)', () => {
+    const docs = [{ _id: 1, name: 'alpha' }];
+    renderJson(docs);
+    const selectBtn = screen.getByRole('button', { name: 'Select document' });
+    expect(within(selectBtn).queryAllByRole('button')).toHaveLength(0);
   });
 });

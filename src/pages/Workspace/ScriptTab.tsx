@@ -149,6 +149,11 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
   );
 
   return (
+    // S6848 accepted, not fixed — same keyboard-shortcut delegation pattern as
+    // BuilderPane's filter drawer, where the reasoning is written out in full.
+    // `onKeyDown` with no `onClick`, `role` or `tabIndex`: the Cmd/Ctrl+Enter
+    // Run shortcut is caught as it bubbles from the title input or the editor,
+    // both of which are natively focusable.
     <div
       onKeyDown={onTabKeyDown}
       style={{

@@ -152,7 +152,7 @@ export function compileFindOptions(state: BuilderState): CompiledFindOptions {
   }
 
   // Mongo treats `.limit(0)` as unlimited; collapse non-finite/zero/negative to null.
-  const parsedLimit = state.limit.trim() ? parseInt(state.limit.trim(), 10) : null;
+  const parsedLimit = state.limit.trim() ? Number.parseInt(state.limit.trim(), 10) : null;
   const limit =
     parsedLimit !== null && Number.isFinite(parsedLimit) && parsedLimit > 0
       ? parsedLimit
@@ -213,7 +213,7 @@ export function classifySort(
 export function limitWarning(raw: string): string | null {
   const text = raw.trim();
   if (!text) return null;
-  const parsed = parseInt(text, 10);
+  const parsed = Number.parseInt(text, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return `"${text}" is not a positive number — running with no limit.`;
   }

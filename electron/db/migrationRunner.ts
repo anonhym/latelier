@@ -22,11 +22,14 @@ export function loadMigrations(): Migration[] {
 
   const out: Migration[] = [];
   for (const [pathname, mod] of Object.entries(modules)) {
-    const match = pathname.match(/(\d+)-[^/]+\.sql$/);
-    if (!match) continue;
+    // Match on the basename with an anchored prefix rather than on the whole
+    // path with `(\d+)-[^/]+\.sql$` — `[^/]+` and `\.sql$` overlap, so that
+    // pattern backtracks super-linearly (S8786).
+    const name = pathname.slice(pathname.lastIndexOf('/') + 1);
+    const match = /^(\d+)-/.exec(name);
+    if (!match || !name.endsWith('.sql')) continue;
     const version = Number(match[1]);
     const sql = typeof mod === 'string' ? mod : (mod as RawModule).default;
-    const name = pathname.slice(pathname.lastIndexOf('/') + 1);
     out.push({ version, name, sql });
   }
   out.sort((a, b) => a.version - b.version);

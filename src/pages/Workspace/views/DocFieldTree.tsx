@@ -144,6 +144,22 @@ function FieldNodeImpl({
         draggable={draggable}
         onDragStart={draggable ? handleDragStart : undefined}
         onClick={rowClickable ? () => onToggle(path) : undefined}
+        // Guarded so a keydown bubbling from the nested expand button
+        // doesn't also fire this handler and cancel the toggle out.
+        onKeyDown={
+          rowClickable
+            ? (e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  if (e.key === ' ') e.preventDefault();
+                  onToggle(path);
+                }
+              }
+            : undefined
+        }
+        role="treeitem"
+        aria-expanded={isExpandable ? isExpanded : undefined}
+        tabIndex={-1}
         onDoubleClick={(e) => {
           e.stopPropagation();
           onCopy(path, value);

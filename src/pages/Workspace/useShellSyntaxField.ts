@@ -19,8 +19,12 @@ export function useShellSyntaxField(opts: {
   commit?: (repaired: string) => void;
   /** A second rule applied to already-repaired text, after the transform's
    *  own refusal — e.g. `filterProblem`. Omit where the caller ORs the two
-   *  itself at render (sort). */
-  then?: (repaired: string) => string | null;
+   *  itself at render (sort).
+   *
+   *  Named `thenCheck` rather than `then`: an options object carrying a `then`
+   *  method is a thenable, so `await`ing or resolving one anywhere downstream
+   *  would call it with `(resolve, reject)` instead of the repaired text. */
+  thenCheck?: (repaired: string) => string | null;
 }): {
   /** Live, recomputed each render from `value`. Serves the drawers' Save gate. */
   outcome: RepairOutcome;
@@ -46,7 +50,7 @@ export function useShellSyntaxField(opts: {
   /** Repair and set the refusal, but commit nothing. */
   repairNow: () => { text: string; outcome: RepairOutcome };
 } {
-  const { value, commit, then } = opts;
+  const { value, commit, thenCheck } = opts;
 
   // Memoized on `value`, not recomputed per render: the drawers need this
   // live off the uncommitted buffer, but QueryBar mounts three of these and
@@ -65,7 +69,7 @@ export function useShellSyntaxField(opts: {
   // refusal wins, is identical.
   const settle = (doCommit: boolean): { text: string; outcome: RepairOutcome } => {
     const result = repairOnCommit(value, doCommit ? (commit ?? (() => {})) : () => {});
-    setRefusal(refusalMessage(value, result.outcome) ?? (then ? then(result.text) : null));
+    setRefusal(refusalMessage(value, result.outcome) ?? (thenCheck ? thenCheck(result.text) : null));
     return result;
   };
 
