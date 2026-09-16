@@ -74,7 +74,7 @@ const BaseInputShape = {
 function applyCrossFieldRules(
   data: Partial<ConnectionInput>,
   ctx: z.RefinementCtx,
-  opts: { mode: 'create' | 'update'; existingPasswordStored?: boolean } = { mode: 'create' },
+  opts: { mode: 'create' | 'update'; existingPasswordStored?: boolean },
 ): void {
   // 1. SCRAM (and 'default', which negotiates SCRAM) require a username and
   //    (on create) a password.
