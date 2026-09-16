@@ -1176,7 +1176,18 @@ export function TableView({
                   "action" to run on Enter/Space the way a button does, so
                   the honest keyboard equivalent is the ARIA "window
                   splitter" pattern: role="separator" + arrow-key resize,
-                  reusing the same 60px floor as the mouse drag. */}
+                  reusing the same 60px floor as the mouse drag.
+
+                  This trades S6848 for S6845 ("`tabIndex` should only be
+                  declared on interactive elements"), and that second finding
+                  is accepted rather than fixed. A focusable `separator` IS
+                  interactive — it is the role W3C's APG specifies for exactly
+                  this widget, with `tabindex="0"`, `aria-valuenow` and
+                  arrow-key resize. S6845's notion of "interactive" is a fixed
+                  list that predates the splitter pattern and does not include
+                  `separator`. Dropping the `tabIndex` to satisfy it would
+                  delete the only keyboard path to resizing a column, which is
+                  the opposite of what either rule is for. */}
               <div
                 data-resize-handle="1"
                 role="separator"
