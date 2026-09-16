@@ -121,6 +121,31 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(onToggleEnabled).toHaveBeenCalledWith(7);
   });
 
+  it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', () => {
+    const onToggleActive = vi.fn<NonNullable<AccordionProps['onToggleActive']>>();
+    const { container } = renderAccordion([stage({ id: 7, op: '$match', enabled: true })], {
+      onToggleActive,
+    });
+    const header = container.querySelector('[data-testid="stage-row-7"] [role="button"]')!;
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.keyDown(header, { key: 'Enter' });
+    expect(onToggleActive).toHaveBeenCalledWith(7);
+  });
+
+  it('does not also toggle the stage when Enter is pressed on a control inside the header', () => {
+    // The header row is `role="button"` with its own Enter handler, and it
+    // contains the ON/OFF switch and the move / duplicate / delete buttons.
+    // A keydown on any of those bubbles to the row, so without the
+    // `e.target !== e.currentTarget` guard one Enter press both activates the
+    // button and toggles the stage open — the button appears to do nothing.
+    const onToggleActive = vi.fn<NonNullable<AccordionProps['onToggleActive']>>();
+    renderAccordion([stage({ id: 7, op: '$match', enabled: true })], { onToggleActive });
+
+    fireEvent.keyDown(screen.getByText('ON'), { key: 'Enter', bubbles: true });
+    expect(onToggleActive).not.toHaveBeenCalled();
+  });
+
   it('disables move-up on the first stage and move-down on the last', () => {
     renderAccordion([
       stage({ id: 1, op: '$match' }),

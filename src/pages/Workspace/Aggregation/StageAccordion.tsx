@@ -94,7 +94,6 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
   const customInputRef = React.useRef<HTMLInputElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const [panelPos, setPanelPos] = React.useState<{ top: number; left: number } | null>(null);
-
   const close = () => {
     setOpen(false);
     setQuery('');
@@ -249,7 +248,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                   }}
                 />
               </div>
-              <div role="listbox" style={{ maxHeight: 280, overflowY: 'auto' }}>
+              <div role="listbox" tabIndex={0} style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {filtered.length === 0 && (
                   <div style={{ padding: '10px', fontSize: 11, color: T.textMuted, textAlign: 'center' }}>
                     No stages match “{query}”
@@ -264,6 +263,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                       key={op}
                       role="option"
                       aria-selected={active}
+                      tabIndex={-1}
                       onMouseEnter={() => setFocusIdx(idx)}
                       onClick={() => pick(op)}
                       style={{
@@ -363,23 +363,44 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
       )}
       {open && !customMode && panelPos && focusedDoc?.description && (
         <div
+          // A positioning box, nothing more: the note, its label and the id
+          // `aria-describedby` points at all live on OperatorDocPanel's own
+          // root. `presentation` says that honestly and is not inherited, so
+          // the note and its link stay exposed. The mousedown is swallowed so
+          // it never reaches an outer click-outside listener — without it,
+          // clicking the panel's "Learn more" link closes the picker first.
+          role="presentation"
+          onMouseDown={(e) => e.stopPropagation()}
           style={{
             position: 'fixed',
             top: panelPos.top,
             left: panelPos.left,
             zIndex: 201,
           }}
-          onMouseDown={(e) => e.stopPropagation()}
         >
           <OperatorDocPanel op={focusedDoc} variant="side" />
         </div>
       )}
       {open && (
         <div
+          // A click-catcher, not a control. `role="button"` here would have
+          // announced a full-screen button to every screen-reader user and,
+          // because `button` is on jsx-a11y's tabbable list, traded S6848 for
+          // S6852 unless it also took a tab stop covering the whole viewport.
+          // `aria-hidden` is the truth: Escape from the search input is the
+          // keyboard path, so nothing is lost by hiding a mouse-only overlay.
+          aria-hidden="true"
           style={{ position: 'fixed', inset: 0, zIndex: 199 }}
           onClick={(e) => {
             e.stopPropagation();
             close();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              if (e.key === ' ') e.preventDefault();
+              e.stopPropagation();
+              close();
+            }
           }}
         />
       )}
@@ -494,7 +515,6 @@ function StageRow({
   }, []);
   const dirtyRef = React.useRef(false);
   const idleTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Read via getter closures (mirrors ScriptEditor's own `getCollections`
   // ref pattern) so the completion source stays fresh across an in-place op
   // change or connection swap without rebuilding the CodeMirror view.
@@ -635,7 +655,20 @@ function StageRow({
         </div>
       )}
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={active}
         onClick={onToggleActive}
+        onKeyDown={(e) => {
+          // This row holds the op picker, the ON/OFF switch and the move /
+          // duplicate / delete buttons. Without this guard, Enter on any of
+          // them fires that button AND toggles the stage in the same press.
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === ' ') e.preventDefault();
+            onToggleActive();
+          }
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -646,9 +679,16 @@ function StageRow({
         }}
       >
         <span
+          // Mouse-only by nature: HTML5 drag has no keyboard equivalent, and
+          // the Move up / Move down buttons in this same row are the keyboard
+          // path. So it is hidden from assistive tech rather than dressed up
+          // as a button — an `aria-label` on a span with no role is ignored
+          // anyway. The click handler exists only to stop a stray click on the
+          // handle bubbling to the header row and toggling the stage.
+          aria-hidden="true"
           data-testid={`stage-drag-handle-${stage.id}`}
           draggable
-          aria-label={`Drag to reorder stage ${index + 1}`}
+          onClick={(e) => e.stopPropagation()}
           title="Drag to reorder"
           onDragStart={(e) => {
             // Firefox refuses to initiate an HTML5 drag unless dataTransfer
@@ -658,7 +698,6 @@ function StageRow({
           }}
           onDragEnd={onGripDragEnd}
           style={{ color: T.textGhost, display: 'flex', cursor: 'grab' }}
-          onClick={(e) => e.stopPropagation()}
         >
           {I.drag}
         </span>
@@ -667,34 +706,35 @@ function StageRow({
         >
           {index + 1}
         </span>
-        <span onClick={(e) => e.stopPropagation()}>
-          <StageOpPicker
-            onPick={onChangeOp}
-            align="left"
-            renderTrigger={(_open, toggle) => (
-              <OperatorTooltip name={stage.op} prefClass="stage" placement="right">
-                <button
-                  onClick={toggle}
-                  aria-label={`Change operator for stage ${index + 1} (currently ${stage.op})`}
-                  style={{
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    padding: '2px 7px',
-                    borderRadius: T.rx,
-                    background: c.bg,
-                    color: c.text,
-                    flexShrink: 0,
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {stage.op}
-                </button>
-              </OperatorTooltip>
-            )}
-          />
-        </span>
+        <StageOpPicker
+          onPick={onChangeOp}
+          align="left"
+          renderTrigger={(_open, toggle) => (
+            <OperatorTooltip name={stage.op} prefClass="stage" placement="right">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle();
+                }}
+                aria-label={`Change operator for stage ${index + 1} (currently ${stage.op})`}
+                style={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: T.rx,
+                  background: c.bg,
+                  color: c.text,
+                  flexShrink: 0,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {stage.op}
+              </button>
+            </OperatorTooltip>
+          )}
+        />
         {!isKnownOp(stage.op) && (
           <span
             title="Unknown operator — server will decide"
@@ -738,10 +778,13 @@ function StageRow({
             {stale ? ' ⚠' : ''}
           </span>
         )}
-        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           <Tooltip label={stage.enabled ? 'Disable' : 'Enable'} withArrow>
             <button
-              onClick={onToggleEnabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleEnabled();
+              }}
               aria-label={stage.enabled ? 'Disable stage' : 'Enable stage'}
               style={{
                 fontSize: 9,
@@ -762,7 +805,10 @@ function StageRow({
               variant="subtle"
               color="gray"
               size="sm"
-              onClick={onMoveUp}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveUp();
+              }}
               disabled={index === 0}
               aria-label="Move stage up"
             >
@@ -774,7 +820,10 @@ function StageRow({
               variant="subtle"
               color="gray"
               size="sm"
-              onClick={onMoveDown}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDown();
+              }}
               disabled={index === total - 1}
               aria-label="Move stage down"
             >
@@ -786,7 +835,10 @@ function StageRow({
               variant="subtle"
               color="gray"
               size="sm"
-              onClick={onDuplicate}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDuplicate();
+              }}
               aria-label="Duplicate stage"
             >
               {I.copy}
@@ -797,7 +849,10 @@ function StageRow({
               variant="subtle"
               color="gray"
               size="sm"
-              onClick={onRemove}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
               aria-label="Delete stage"
             >
               {I.trash}

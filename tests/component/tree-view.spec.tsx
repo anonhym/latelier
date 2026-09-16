@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '../helpers/render';
+import { render, screen } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type {
@@ -121,5 +122,25 @@ describe('TreeView — rendering and interaction', () => {
     // Expanded view shows the full key list including `_id`
     expect(container.textContent).toContain('visibleField');
     expect(container.textContent).toContain('yes');
+  });
+
+  // S6848 a11y fix (row now carries role="treeitem"/tabIndex/onKeyDown for
+  // "Click to expand"): the row's onKeyDown must ignore a keydown that
+  // bubbles up from the nested expand button, or Enter on that button would
+  // call onRowExpand twice (once from the button's own click, once from the
+  // row) and net out to a no-op instead of expanding.
+  it('pressing Enter on the expand button expands exactly once, not twice', async () => {
+    const docs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' },
+    ];
+    const onRowExpand = vi.fn();
+    renderTree(docs, { onRowExpand });
+
+    const btn = screen.getByRole('button', { name: 'Expand document' });
+    btn.focus();
+    await userEvent.keyboard('{Enter}');
+
+    expect(onRowExpand).toHaveBeenCalledTimes(1);
+    expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439011', true);
   });
 });

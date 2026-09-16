@@ -225,10 +225,15 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
   };
 
   return (
-    <div onKeyDown={onKeyDown}>
+    // Plain grouping wrapper — no handler of its own (S6848). Keyboard nav
+    // is bound to the search input below, the one element that ever holds
+    // focus here (SpotlightSearch passes onKeyDown through to the native
+    // <input> it renders).
+    <div>
       <SpotlightSearch
         placeholder="Search actions, connections…"
         aria-label="Search commands"
+        onKeyDown={onKeyDown}
       />
       <SpotlightActionsList>
         {ranked.length === 0 ? (

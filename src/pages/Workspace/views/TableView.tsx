@@ -148,6 +148,7 @@ function TableCell({
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState('');
   const commitGuardRef = React.useRef(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
   // Index-virtualization rebinds this same TableCell instance to a different
   // document when the array swaps mid-edit; without cancelling here, the
@@ -187,6 +188,14 @@ function TableCell({
     if (draft === value) return; // unchanged — AC: no IPC call
     actions.updateField?.(doc, fieldPath, draft);
   };
+
+  // S9379 — an `autoFocus` attribute is a Sonar finding regardless of intent;
+  // this is the same "focus the input once it mounts" behaviour without it.
+  // Only runs when `editing` flips true, which only happens from the user's
+  // own pencil click, so it never steals focus mid-typing elsewhere.
+  React.useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     const payload: DraggedField = { field: fieldPath, value };
@@ -251,7 +260,7 @@ function TableCell({
     >
       {editing ? (
         <input
-          autoFocus
+          ref={inputRef}
           aria-label={`Edit ${fieldPath}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -430,7 +439,10 @@ interface TableRowProps {
   deepPaths: Set<string>;
   fieldCopiedPath: string | null;
   refsByField?: Map<string, ReferenceRule>;
-  onSelect: (e: React.MouseEvent, idx: number) => void;
+  // Widened from React.MouseEvent so a keyboard Enter/Space on the row can
+  // drive the same selection logic as a click — both event types carry
+  // metaKey/ctrlKey, which is all this reads.
+  onSelect: (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => void;
   onCopyCell: (text: string, cellKey: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
@@ -453,6 +465,7 @@ interface TableRowProps {
 function TableRowImpl({
   index,
   style,
+  ariaAttributes,
   documents,
   columns,
   widths,
@@ -480,6 +493,7 @@ function TableRowImpl({
 
   return (
     <div
+      {...ariaAttributes}
       data-selected={isSelected}
       style={{
         ...style,
@@ -490,7 +504,18 @@ function TableRowImpl({
           : 'var(--atelier-surface)',
       }}
     >
+      {/* S6848 — this strip behaves like a selectable list option (click
+          selects, ⌘/Ctrl+click multi-selects), but it wraps other real
+          interactive controls (draggable cells, the expand/edit buttons) so
+          it can't become a native <button>. role="option" + aria-selected
+          is the closest native semantic. tabIndex={-1}: this is a
+          many-row composite widget (virtualized, but overscan can still
+          mount 40+ rows at once), so every row must NOT be a tab stop —
+          see the report for the roving-tabindex driver this still needs. */}
       <div
+        role="option"
+        aria-selected={isSelected}
+        tabIndex={-1}
         style={{
           display: 'flex',
           alignItems: 'stretch',
@@ -499,6 +524,16 @@ function TableRowImpl({
           fontFamily: 'monospace',
         }}
         onClick={(e) => onSelect(e, index)}
+        onKeyDown={(e) => {
+          // Nested native buttons (expand chevron, cell edit/expand
+          // affordances) also bubble their Enter/Space keydown up here —
+          // without this guard, tabbing to one of them and pressing Enter
+          // would both run its own action AND select the row.
+          if (e.target !== e.currentTarget) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          onSelect(e, index);
+        }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
             data columns. */}
@@ -586,6 +621,12 @@ function TableRowImpl({
       {isExpanded && isRecord(doc) && (
         <div
           data-expanded-doc-section="true"
+          // Same ancestor role TreeView's expand panel carries, for the same
+          // reason: `DocFieldTree`'s rows are `role="treeitem"`, and a
+          // `treeitem` without a `tree` ancestor fails axe's
+          // aria-required-parent. Both call sites of the shared component
+          // need it, not just the one in TreeView.
+          role="tree"
           style={{
             padding: '0 0 10px 0',
             borderTop: '1px solid var(--atelier-border)',
@@ -903,7 +944,7 @@ export function TableView({
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
   // toggles the row into/out of a multi-row selection for the bulk-action bar.
   const handleSelect = React.useCallback(
-    (e: React.MouseEvent, idx: number) => {
+    (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
       else selection.selectOnly(idx);
     },
@@ -1036,58 +1077,20 @@ export function TableView({
           const dir = col.kind === 'field' ? ownGet(sortMap, col.field) : undefined;
           const indicator = dir === 1 ? '↑' : dir === -1 ? '↓' : null;
           const label = col.kind === 'field' ? col.field : col.label ?? col.path;
-          return (
-            <div
-              key={col.field}
-              onClick={
-                sortable
-                  ? (e) => {
-                      // Ignore clicks that started on the resize gutter
-                      // (the resize-handle child stops propagation, but be
-                      // defensive against drift between dev/test envs).
-                      if ((e.target as HTMLElement).dataset.resizeHandle === '1') return;
-                      onSortField?.(col.field);
-                    }
-                  : undefined
-              }
-              title={
-                sortable
-                  ? (dir === 1
-                      ? `Sorted ascending — click for descending`
-                      : dir === -1
-                        ? `Sorted descending — click to clear`
-                        : `Click to sort by ${label}`) +
-                    (multiFieldSort
-                      ? ' (replaces the whole multi-field sort — edit it in the query bar’s sort field)'
-                      : '')
-                  : col.kind === 'computed'
-                    ? label
-                    : undefined
-              }
-              data-testid={`table-header-${col.field}`}
-              style={{
-                width: w,
-                minWidth: w,
-                maxWidth: w,
-                borderBottom: '1px solid var(--atelier-border)',
-                borderRight: '1px solid var(--atelier-border)',
-                padding: '5px 8px',
-                textAlign: 'left',
-                fontWeight: 600,
-                color: dir ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
-                fontSize: 11,
-                position: 'relative',
-                userSelect: 'none',
-                overflow: 'hidden',
-                whiteSpace: 'nowrap',
-                textOverflow: 'ellipsis',
-                boxSizing: 'border-box',
-                cursor: sortable ? 'pointer' : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
+          const headerTitle = sortable
+            ? (dir === 1
+                ? `Sorted ascending — click for descending`
+                : dir === -1
+                  ? `Sorted descending — click to clear`
+                  : `Click to sort by ${label}`) +
+              (multiFieldSort
+                ? ' (replaces the whole multi-field sort — edit it in the query bar’s sort field)'
+                : '')
+            : col.kind === 'computed'
+              ? label
+              : undefined;
+          const labelContent = (
+            <>
               <span
                 style={{
                   flex: 1,
@@ -1106,10 +1109,91 @@ export function TableView({
                   {indicator}
                 </span>
               )}
+            </>
+          );
+          return (
+            <div
+              key={col.field}
+              title={headerTitle}
+              data-testid={`table-header-${col.field}`}
+              style={{
+                width: w,
+                minWidth: w,
+                maxWidth: w,
+                borderBottom: '1px solid var(--atelier-border)',
+                borderRight: '1px solid var(--atelier-border)',
+                // Padding moves onto the <button> below when sortable, so
+                // its hit area covers the whole cell edge-to-edge.
+                padding: sortable ? 0 : '5px 8px',
+                textAlign: 'left',
+                fontWeight: 600,
+                color: dir ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
+                fontSize: 11,
+                position: 'relative',
+                userSelect: 'none',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
+                boxSizing: 'border-box',
+                cursor: sortable ? 'pointer' : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {/* S6848 — the old fix wrapped a plain onClick div around the
+                  label + resize handle. Instead, only the label + indicator
+                  (the part that actually sorts) becomes a native <button>;
+                  the resize handle stays a sibling, never a descendant of
+                  the button, since a <div> inside a <button> is an invalid
+                  content model. This gets native Enter/Space for free. */}
+              {sortable ? (
+                <button
+                  type="button"
+                  onClick={() => onSortField?.(col.field)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '5px 8px',
+                    margin: 0,
+                    border: 'none',
+                    background: 'none',
+                    font: 'inherit',
+                    color: 'inherit',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {labelContent}
+                </button>
+              ) : (
+                labelContent
+              )}
+              {/* S6848 — a drag-only resize affordance has no discrete
+                  "action" to run on Enter/Space the way a button does, so
+                  the honest keyboard equivalent is the ARIA "window
+                  splitter" pattern: role="separator" + arrow-key resize,
+                  reusing the same 60px floor as the mouse drag. */}
               <div
                 data-resize-handle="1"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize ${label} column`}
+                aria-valuenow={w}
+                aria-valuemin={60}
+                tabIndex={0}
                 onMouseDown={(e) => handleResizeMouseDown(e, col.field)}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const delta = e.key === 'ArrowRight' ? 10 : -10;
+                  onColumnResize(col.field, Math.max(60, propWidth(col.field) + delta));
+                }}
                 style={{
                   position: 'absolute',
                   right: 0,
@@ -1140,8 +1224,21 @@ export function TableView({
 
       {/* Cell-level context menu (doc-aware — Edit/Delete included). */}
       {contextMenu && (
+        // S6848 — this div's onClick only stops propagation so a click
+        // inside the menu doesn't hit the window-level "click outside
+        // closes" listener below; every action lives on the real <button>s
+        // inside, already natively keyboard-operable. role="group" (not
+        // "menu", which would need role="menuitem" on all six children) +
+        // Escape-to-close is the one keyboard behaviour this wrapper is
+        // missing.
         <div
+          role="group"
+          aria-label="Cell actions"
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setContextMenu(null);
+          }}
           style={{
             position: 'fixed',
             top: contextMenu.y,
@@ -1310,8 +1407,15 @@ export function TableView({
           path only — no Edit/Delete, matching the Tree view's nested-field
           menu). */}
       {fieldContextMenu && (
+        // S6848 — same reasoning as the cell-level menu above.
         <div
+          role="group"
+          aria-label="Field actions"
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setFieldContextMenu(null);
+          }}
           style={{
             position: 'fixed',
             top: fieldContextMenu.y,

@@ -115,8 +115,11 @@ async function openViaPalette(name: string) {
   fireEvent.change(screen.getByLabelText('Search commands'), {
     target: { value: `Open connection → ${name}` },
   });
-  const item = await screen.findByText(`Open connection → ${name}`);
-  fireEvent.keyDown(item, { key: 'Enter' });
+  await screen.findByText(`Open connection → ${name}`);
+  // Keyboard nav is bound to the search input, not the option row
+  // (combobox pattern — see CommandPalette.tsx) — Enter is fired where a
+  // real keyboard user would have focus.
+  fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
 }
 
 async function openSwitcher() {

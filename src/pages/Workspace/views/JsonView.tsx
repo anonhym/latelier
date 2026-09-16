@@ -213,6 +213,24 @@ function DocCard({
   return (
     <div
       onClick={() => onToggle(idx)}
+      // Guarded so a keydown bubbling from a nested action button doesn't
+      // also toggle selection.
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.key === ' ') e.preventDefault();
+          onToggle(idx);
+        }
+      }}
+      role="button"
+      aria-pressed={isSelected}
+      // `0`, not `-1`. Roving tabindex is the right pattern for an `option` or
+      // a `treeitem` whose container drives focus, but `button` is on
+      // jsx-a11y's tabbable list, so `role="button"` with `-1` trades one
+      // finding (S6848) for another (S6852) — and selecting a document would
+      // still be unreachable by keyboard. The collapsible node at :111 already
+      // sets the precedent, with far more tab stops than there are cards.
+      tabIndex={0}
       style={{
         border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
         borderRadius: 'var(--atelier-radius-sm)',
@@ -222,12 +240,12 @@ function DocCard({
         position: 'relative',
       }}
     >
-      <div
-        style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
         <button
-          onClick={() => onCopy(doc, idx)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCopy(doc, idx);
+          }}
           title="Copy JSON"
           style={{
             background: 'var(--atelier-surface)',
@@ -245,7 +263,10 @@ function DocCard({
           {isCopied ? I.check : I.copy}
         </button>
         <button
-          onClick={() => onEdit(doc)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(doc);
+          }}
           title="Edit"
           style={{
             background: 'var(--atelier-surface)',
@@ -261,7 +282,10 @@ function DocCard({
           {I.edit}
         </button>
         <button
-          onClick={() => onDelete(doc)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(doc);
+          }}
           title="Delete"
           style={{
             background: 'var(--atelier-surface)',
