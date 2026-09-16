@@ -32,7 +32,13 @@ export function queryRunKey(input: QueryRunKeyInput): string {
   const raw = input.projectionRaw?.trim();
   const proj = raw
     ? `r${SEP}${raw}`
-    : `m${SEP}${(input.projection ?? []).slice().sort().join(SEP)}`;
+    : `m${SEP}${(input.projection ?? [])
+        .slice()
+        // Code-unit order, not `localeCompare`: this is a cache key, so the
+        // same projection has to produce the same key on every machine, and
+        // collation varies with the host locale.
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+        .join(SEP)}`;
   return [
     input.connectionId,
     input.dbName,

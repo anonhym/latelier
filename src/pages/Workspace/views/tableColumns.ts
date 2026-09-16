@@ -21,7 +21,7 @@ export function deriveColumns(documents: unknown[]): string[] {
     }
   }
 
-  return ['_id', ...nonId.sort()];
+  return ['_id', ...nonId.sort((a, b) => a.localeCompare(b))];
 }
 
 /**

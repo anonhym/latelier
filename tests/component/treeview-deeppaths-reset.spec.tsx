@@ -136,9 +136,10 @@ describe('TreeView — deepPaths resets when documents change', () => {
     expect(queryByText('sentinelA:')).toBeNull();
   });
 
-  it('does not crash when documents prop reference changes with the same shape', () => {
+  it('keeps the row rendered when the documents prop is a new array of the same shape', () => {
     const docs = [{ _id: 'a', x: 1 }];
-    const { rerender } = renderTree(docs, 'a');
+    const { rerender, queryByText } = renderTree(docs, 'a');
+    expect(queryByText('x:')).not.toBeNull();
     rerender(
       <Wrap>
         <TreeView
@@ -149,6 +150,9 @@ describe('TreeView — deepPaths resets when documents change', () => {
         />
       </Wrap>,
     );
-    // No throw, no React warnings — smoke test.
+    // The reset effect keys on `documents`, so a new array reference fires it.
+    // Clearing `deepPaths` must not take the row's own fields down with it —
+    // `expandedRows` is the prop that governs those, and it did not change.
+    expect(queryByText('x:')).not.toBeNull();
   });
 });

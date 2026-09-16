@@ -225,7 +225,7 @@ export function useShellSyntaxField(opts: {
   /** A second rule applied to already-repaired text, after the transform's own
    *  refusal and never collapsed into the same sentence — e.g. `filterProblem`.
    *  Omit where the caller ORs the two itself at render (sort). */
-  then?: (repaired: string) => string | null;
+  thenCheck?: (repaired: string) => string | null;
 }): {
   /** Live, recomputed each render from `value`. Serves the drawers' Save gate. */
   outcome: RepairOutcome;
