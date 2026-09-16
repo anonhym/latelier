@@ -631,3 +631,33 @@ describe('repairToCanonicalEjson — exact refusal reasons', () => {
     });
   });
 });
+
+describe('acorn position suffix and regex flag order', () => {
+  // `stripAcornPosition` exists because acorn appends `(line:col)` to its
+  // message, counting columns from 0, while the refusal the user reads derives
+  // its own position from `index`, counting from 1. Left in, the sentence
+  // carried two positions disagreeing by one. Nothing asserted the strip until
+  // now — the mutation run showed every mutant of that line surviving.
+  it.each([
+    ['{a: }', 4],
+    ['{a: 1', 5],
+  ])('strips acorn\'s own (line:col) from the refusal for %j', (shell, index) => {
+    const outcome = repairToCanonicalEjson(shell);
+    expect(outcome).toEqual({ kind: 'failed', reason: 'Unexpected token', index });
+    // The position the user sees comes from `index`, never from the message.
+    expect(outcome.kind === 'failed' && outcome.reason).not.toMatch(/\(\d+:\d+\)/);
+  });
+
+  // The flags are sorted so the same regex serializes identically everywhere.
+  // Deliberately not `localeCompare` — this is canonical EJSON on the wire, and
+  // collation is host-dependent.
+  it('serializes regex flags in a fixed order however they were written', () => {
+    const mi = mustRepair('{a: /x/mi}');
+    expect(mi).toBe(mustRepair('{a: /x/im}'));
+    expect(mi).toContain('"options":"im"');
+  });
+
+  it('keeps that order for three flags', () => {
+    expect(mustRepair('{a: /x/smi}')).toContain('"options":"ims"');
+  });
+});

@@ -65,6 +65,15 @@ function stripAcornPosition(message: string | undefined): string | undefined {
   // single optional space: `/\s*\(\d+:\d+\)\s*$/` had two unbounded `\s*`
   // runs and an unanchored start, which backtracks super-linearly (S8786).
   // acorn's own format is `message (line:col)`, one space, no trailing blanks.
+  //
+  // That last clause is why `trimEnd()` and the `?.` both carry surviving
+  // mutants: acorn never emits a trailing blank and never throws without a
+  // message, so swapping `trimEnd` for `trimStart` or dropping the optional
+  // chaining cannot change any reachable result. Both are kept because the
+  // `\s*$` they replaced did handle that shape, and dropping them would be a
+  // quiet behaviour regression rather than a simplification. The intended
+  // behaviour is pinned in `redos-rewrites.property.spec.ts`; no assertion is
+  // bolted on here to force an unkillable mutant red.
   return message?.trimEnd().replace(/ ?\(\d+:\d+\)$/, '');
 }
 
