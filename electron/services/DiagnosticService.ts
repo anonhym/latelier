@@ -90,7 +90,11 @@ export class DiagnosticService {
   }
 
   defaultFilename(): string {
-    const now = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
+    // `slice(0, 19)` drops the `.sssZ` tail. The `/\..+$/` it replaces had an
+    // unanchored start over an unbounded `.+`, which backtracks super-linearly
+    // (S8786) — irrelevant on a 24-character ISO string, but the slice is both
+    // shorter and linear.
+    const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     return `mongolab-diagnostic-${now}.json`;
   }
 

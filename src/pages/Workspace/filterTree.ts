@@ -442,7 +442,10 @@ function condValueProblem(node: CondNode): string | null {
   if (
     node.valType === 'decimal' &&
     isScalarNumeric &&
-    !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(node.value.trim())
+    // `\d+(\.\d*)?` accepts exactly what `\d+\.?\d*` did, but the two digit
+    // runs can no longer be re-split against each other on a long numeric
+    // string — that ambiguity is the super-linear backtracking in S8786.
+    !/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(node.value.trim())
   ) {
     return 'Decimal value must be a number';
   }

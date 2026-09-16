@@ -61,7 +61,11 @@ const NODE_LABELS: Record<string, string> = {
  * `err.pos`, which is what `index` already carries.
  */
 function stripAcornPosition(message: string | undefined): string | undefined {
-  return message?.replace(/\s*\(\d+:\d+\)\s*$/, '');
+  // `trimEnd()` first, then a pattern whose only variable-length part is a
+  // single optional space: `/\s*\(\d+:\d+\)\s*$/` had two unbounded `\s*`
+  // runs and an unanchored start, which backtracks super-linearly (S8786).
+  // acorn's own format is `message (line:col)`, one space, no trailing blanks.
+  return message?.trimEnd().replace(/ ?\(\d+:\d+\)$/, '');
 }
 
 /**
