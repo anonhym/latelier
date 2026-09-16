@@ -177,7 +177,7 @@ function QueryBarInner({
   // preventDefaults its `onMouseDown` (`SuggestionPopover.tsx:152`), so
   // picking a suggestion never blurs the textarea in the first place.
   //
-  // X14 §5 — `then: filterProblem` is the document rule, applied after the
+  // X14 §5 — `thenCheck: filterProblem` is the document rule, applied after the
   // transform's own refusal and never collapsed into the same sentence — the
   // hook's own ordering rule. The message is held in state and set at the
   // conversion point, not derived per keystroke: `Notice` is a `role="alert"`,
@@ -185,7 +185,7 @@ function QueryBarInner({
   const filterField = useShellSyntaxField({
     value: queryRaw,
     commit: (next) => onPatch({ queryRaw: next }),
-    then: filterProblem,
+    thenCheck: filterProblem,
   });
 
   const handleBlur = () => {

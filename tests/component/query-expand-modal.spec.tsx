@@ -33,6 +33,15 @@ const draft = () => screen.getByTestId('query-expand-textarea') as HTMLTextAreaE
 const applyButton = () => screen.getByTestId('query-expand-apply');
 
 describe('QueryExpandModal — Shell Syntax', () => {
+  // Was a plain `autoFocus` attribute (typescript:S9379); now a ref + effect.
+  // Pin the one behaviour that swap has to preserve: opening the modal lands
+  // the caret in the textarea without the user having to click into it.
+  it('focuses the textarea on open', () => {
+    renderModal('{}');
+
+    expect(document.activeElement).toBe(draft());
+  });
+
   it('opens seeded with a pretty-printed repair of a Shell Syntax filter', () => {
     // The point of the popup is room to read, so the seed is re-indented as
     // well as repaired — the small bar's single line is not what should

@@ -42,7 +42,10 @@ function readStdin() {
 
 function extractImports(source) {
   const out = new Set();
-  const re = /(?:^|\n)\s*import\s+(?:[\s\S]*?)\s*from\s*['"]([^'"]+)['"]/g;
+  // `[^'"]*?` rather than `[\s\S]*?`: an import clause never contains a quote,
+  // so bounding it there stops the lazy run from scanning past the `from`
+  // string it is supposed to stop before (S8786).
+  const re = /(?:^|\n)\s*import\s+[^'"]*?\s*from\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(source))) out.add(m[1]);
   const reDyn = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;

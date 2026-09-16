@@ -30,7 +30,7 @@ export function parseColor(color: string): RGBA {
             .map((c) => c + c)
             .join('')
         : hex[1];
-    const n = parseInt(hexStr, 16);
+    const n = Number.parseInt(hexStr, 16);
     return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255, a: 1 };
   }
 

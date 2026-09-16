@@ -437,12 +437,15 @@ function CollectionsTab({ conn, runtime }: {
             : null;
           return (
             <div key={db.name}>
-              <div
+              <button
+                type="button"
                 onClick={() => toggleDb(db.name)}
+                aria-expanded={open}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                   padding: '9px 16px', borderBottom: `1px solid ${T.border}`,
-                  background: T.surface,
+                  background: T.surface, border: 'none', margin: 0, width: '100%',
+                  font: 'inherit', color: 'inherit', textAlign: 'left',
                 }}
               >
                 <span style={{ color: T.textGhost, display: 'flex' }}>{open ? I.chevD : I.chevR}</span>
@@ -451,7 +454,7 @@ function CollectionsTab({ conn, runtime }: {
                 <span style={{ fontSize: 11, color: T.textMuted }}>
                   {db.sizeOnDisk === undefined ? '—' : humanBytes(db.sizeOnDisk)}
                 </span>
-              </div>
+              </button>
               {open && (
                 <div style={{ borderBottom: `1px solid ${T.border}` }}>
                   {!entry && (

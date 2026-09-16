@@ -90,7 +90,11 @@ export class DiagnosticService {
   }
 
   defaultFilename(): string {
-    const now = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
+    // `slice(0, 19)` drops the `.sssZ` tail. The `/\..+$/` it replaces had an
+    // unanchored start over an unbounded `.+`, which backtracks super-linearly
+    // (S8786) — irrelevant on a 24-character ISO string, but the slice is both
+    // shorter and linear.
+    const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     return `mongolab-diagnostic-${now}.json`;
   }
 
@@ -131,7 +135,10 @@ export class DiagnosticService {
     }
     const files = entries
       .filter((n) => n.startsWith('mongolab.') && n.endsWith('.log'))
-      .sort() // ISO date in filename — lexical sort is chronological
+      // ISO date in the filename, so code-unit order IS chronological order.
+      // Deliberately not `localeCompare`: its collation is locale-dependent,
+      // and which files survive the `slice` below must not be.
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       .slice(-this.maxLogFiles);
 
     const out: Record<string, string> = {};

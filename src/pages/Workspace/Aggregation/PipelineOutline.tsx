@@ -125,13 +125,21 @@ export function PipelineOutline({
               <div style={{ display: 'flex', justifyContent: 'center', height: 12 }}>
                 <div style={{ borderLeft: `1.5px dashed ${T.border}`, height: '100%' }} />
               </div>
-              <div
+              <button
+                type="button"
                 onClick={() => onSelect(stage.id)}
+                aria-label={`Jump to stage ${idx + 1} (${stage.op})`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 7,
+                  width: '100%',
                   padding: '5px 12px',
+                  margin: 0,
+                  border: 'none',
+                  font: 'inherit',
+                  color: 'inherit',
+                  textAlign: 'left',
                   cursor: 'pointer',
                   opacity: stage.enabled ? 1 : 0.5,
                   background: activeId === stage.id ? T.accentSoft : 'transparent',
@@ -190,7 +198,7 @@ export function PipelineOutline({
                     {stale ? ' ⚠' : ''}
                   </span>
                 )}
-              </div>
+              </button>
             </div>
           );
         })}

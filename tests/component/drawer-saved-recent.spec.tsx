@@ -172,7 +172,10 @@ describe('W15 §13.4 — a Recent row shows what was queried', () => {
     });
     renderRecent();
 
-    await screen.findByText('no stored query');
+    expect(await screen.findByText('no stored query')).toBeTruthy();
+    // And it says so instead of rendering an empty or invented filter: the
+    // row carries no `$`-prefixed operator text at all.
+    expect(screen.queryByText(/\$/)).toBeNull();
   });
 });
 

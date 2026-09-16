@@ -179,7 +179,7 @@ function isoDate(obj: Record<string, unknown>): { $date: string } | null {
   const ms =
     typeof inner === 'object' && inner !== null && typeof (inner as { $numberLong?: unknown }).$numberLong === 'string'
       ? Number((inner as { $numberLong: string }).$numberLong)
-      : NaN;
+      : Number.NaN;
   try {
     return { $date: new Date(ms).toISOString() };
   } catch {

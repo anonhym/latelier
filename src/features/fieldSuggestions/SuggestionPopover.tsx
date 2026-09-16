@@ -159,6 +159,12 @@ export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onC
       <div
         ref={listboxRef}
         role="listbox"
+        // Combobox pattern (see the file header): DOM focus stays on the
+        // input, this listbox is only ever reached via aria-activedescendant.
+        // tabIndex={-1}, not 0 — 0 would put the popover in the tab order,
+        // and tabbing out of the input would land inside a listbox that
+        // closes on blur.
+        tabIndex={-1}
         aria-label="Field suggestions"
         onMouseDown={(e) => e.preventDefault()}
         style={{
@@ -188,6 +194,9 @@ export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onC
             <div
               key={`${s.kind}:${label}:${i}`}
               role="option"
+              // Same reasoning as the listbox above: rows are never a tab
+              // stop, only ever reached via aria-activedescendant.
+              tabIndex={-1}
               // W15 §5 — `aria-selected` follows what Enter will do,
               // not what is tinted. Enter was made to refuse an auto-highlight
               // the user never chose, but every row still announced itself as
@@ -252,6 +261,17 @@ export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onC
       </div>
       {showPanel && panelPos && (
         <div
+          // Positioning box only — the doc content underneath already
+          // carries its own `role="note"` + `aria-label` (OperatorDocPanel),
+          // so this wrapper has nothing of its own to announce.
+          // `presentation` isn't inherited by descendants (unlike
+          // `aria-hidden`), so that note and its "Learn more" link stay
+          // exposed. The mousedown guard is not decorative: this panel can
+          // contain a real `<a>` (OperatorDocPanel's "Learn more"), and
+          // without preventDefault, mousedown on it would blur the query
+          // input and unmount the popover before the click ever lands
+          // (see `QueryBar.tsx`'s note on the sibling listbox guard above).
+          role="presentation"
           style={{
             position: 'fixed',
             top: panelPos.top,

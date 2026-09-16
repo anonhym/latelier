@@ -255,11 +255,11 @@ function helpText(): string {
 // and a trailing semicolon. The bare-name capture group rejects whitespace
 // and quote characters so `use "foo` (unbalanced) doesn't slip through.
 const SHELL_SUGAR: ReadonlyArray<readonly [RegExp, string]> = [
-  [/^[ \t]*use[ \t]+"([^"\s]+)"[ \t]*;?[ \t]*$/m, 'use("$1")'],
-  [/^[ \t]*use[ \t]+'([^'\s]+)'[ \t]*;?[ \t]*$/m, 'use("$1")'],
-  [/^[ \t]*use[ \t]+([^\s"';]+)[ \t]*;?[ \t]*$/m, 'use("$1")'],
-  [/^[ \t]*show[ \t]+(?:dbs|databases)[ \t]*;?[ \t]*$/m, 'await __shellShow("dbs")'],
-  [/^[ \t]*show[ \t]+(?:collections|tables)[ \t]*;?[ \t]*$/m, 'await __shellShow("collections")'],
+  [/^[ \t]*use[ \t]+"([^"\s]+)"[ \t]*(?:;[ \t]*)?$/m, 'use("$1")'],
+  [/^[ \t]*use[ \t]+'([^'\s]+)'[ \t]*(?:;[ \t]*)?$/m, 'use("$1")'],
+  [/^[ \t]*use[ \t]+([^\s"';]+)[ \t]*(?:;[ \t]*)?$/m, 'use("$1")'],
+  [/^[ \t]*show[ \t]+(?:dbs|databases)[ \t]*(?:;[ \t]*)?$/m, 'await __shellShow("dbs")'],
+  [/^[ \t]*show[ \t]+(?:collections|tables)[ \t]*(?:;[ \t]*)?$/m, 'await __shellShow("collections")'],
 ];
 
 function rewriteShellSugar(line: string): string {

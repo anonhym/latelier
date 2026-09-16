@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { withTimeout } from '../../electron/utils/withTimeout';
 
 describe('withTimeout', () => {
@@ -24,7 +24,18 @@ describe('withTimeout', () => {
   });
 
   it('clears the timer when the promise resolves first', async () => {
-    // smoke-test: no unhandled timer leaks — vitest would flag.
-    await withTimeout(Promise.resolve('done'), 60_000, 'fallback');
+    // The `finally` block is the whole point: without it a 60-second timer
+    // stays armed after the winning promise has already resolved, which is
+    // what kept the Electron main process alive past a fast health check.
+    // `getTimerCount` observes that directly; the old version of this test
+    // only ran the function and asserted nothing.
+    vi.useFakeTimers();
+    try {
+      const v = await withTimeout(Promise.resolve('done'), 60_000, 'fallback');
+      expect(v).toBe('done');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
