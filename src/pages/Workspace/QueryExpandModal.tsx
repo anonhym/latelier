@@ -33,7 +33,7 @@ function formatForDisplay(text: string): string {
 export function QueryExpandModal({ queryRaw, onApply, onClose }: QueryExpandModalProps) {
   const T = themeVars;
   const [draft, setDraft] = React.useState(() => formatForDisplay(queryRaw));
-  const shell = useShellSyntaxField({ value: draft, commit: setDraft, then: filterProblem });
+  const shell = useShellSyntaxField({ value: draft, commit: setDraft, thenCheck: filterProblem });
 
   const apply = () => {
     const { text, outcome } = shell.commitNow();

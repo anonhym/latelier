@@ -269,7 +269,7 @@ function WorkspaceInner() {
         }
       }
     }
-    return Array.from(seen).sort();
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [activeCollection?.state.lastRun?.documents]);
 
   const previewConfigureWhen =

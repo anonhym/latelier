@@ -104,7 +104,9 @@ describe('OutputPanel — rendering and view switching', () => {
 
     fireEvent.click(screen.getByText('Copy').closest('button')!);
 
-    await screen.findByText(/Output copied to the clipboard/);
+    expect(await screen.findByText(/Output copied to the clipboard/)).toBeTruthy();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Could not copy to the clipboard/)).toBeNull();
   });
 
   it('reports a rejected copy rather than claiming success', async () => {

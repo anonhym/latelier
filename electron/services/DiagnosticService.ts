@@ -131,7 +131,10 @@ export class DiagnosticService {
     }
     const files = entries
       .filter((n) => n.startsWith('mongolab.') && n.endsWith('.log'))
-      .sort() // ISO date in filename — lexical sort is chronological
+      // ISO date in the filename, so code-unit order IS chronological order.
+      // Deliberately not `localeCompare`: its collation is locale-dependent,
+      // and which files survive the `slice` below must not be.
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       .slice(-this.maxLogFiles);
 
     const out: Record<string, string> = {};

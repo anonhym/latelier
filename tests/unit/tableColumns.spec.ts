@@ -4,6 +4,7 @@ import {
   reorder,
   getValueAtPath,
   orderFields,
+  deriveColumns,
 } from '../../src/pages/Workspace/views/tableColumns';
 import type { TableColumnConfig } from '@shared/types';
 
@@ -180,5 +181,30 @@ describe('getValueAtPath', () => {
       expect(getValueAtPath(doc, 'tags.1')).toBe('b');
       expect(getValueAtPath(doc, 'tags.2')).toBe('c');
     });
+  });
+});
+
+describe('deriveColumns field ordering', () => {
+  // `nonId.sort()` with no compare function orders by UTF-16 code unit, which
+  // puts every capitalised field ahead of every lowercase one: `Name`, `Zip`,
+  // `age`. That reads as two separate alphabets in the column chooser. The
+  // explicit `localeCompare` comparator is what interleaves them, and this
+  // pins it — a revert to a bare `.sort()` fails here, not silently in the UI.
+  it('alphabetises case-insensitively rather than by code unit', () => {
+    expect(deriveColumns([{ _id: 1, Zip: 1, age: 1, Name: 1, _tag: 1 }])).toEqual([
+      '_id',
+      '_tag',
+      'age',
+      'Name',
+      'Zip',
+    ]);
+  });
+
+  it('keeps _id first whatever the other fields sort to', () => {
+    expect(deriveColumns([{ Aa: 1, _id: 1 }])[0]).toBe('_id');
+  });
+
+  it('unions fields across documents without duplicating', () => {
+    expect(deriveColumns([{ _id: 1, b: 1 }, { _id: 2, a: 1, b: 2 }])).toEqual(['_id', 'a', 'b']);
   });
 });

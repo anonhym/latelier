@@ -306,7 +306,10 @@ function regexText(regex: { pattern: string; flags: string }, start: number): st
       start,
     );
   }
-  const options = [...regex.flags].sort().join('');
+  // Code-unit order, not `localeCompare`: these flags go out as canonical
+  // EJSON, and a locale-dependent order would make the same regex serialize
+  // differently on different machines.
+  const options = [...regex.flags].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('');
   return `{"$regularExpression":{"pattern":${JSON.stringify(regex.pattern)},"options":${JSON.stringify(options)}}}`;
 }
 
