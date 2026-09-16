@@ -46,7 +46,7 @@ jobs:
 
       # See ci.yml for why we use `npm install` over `npm ci`.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       # No project-managed ABI rebuild step: better-sqlite3 13 is an N-API
       # addon whose prebuilt binary serves every Node/Electron ABI.

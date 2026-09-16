@@ -68,7 +68,7 @@ jobs:
       # which never lands in the lockfile from a macOS resolve). `npm install`
       # tolerates the gap and resolves them on Linux; `npm ci` refuses.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       # electron's bundled installer downloads the release zip fine, but its
       # extract-zip step silently no-ops on this runner (Node 24 / ubuntu-latest):
@@ -80,7 +80,7 @@ jobs:
         run: |
           ver=$(node -p "require('./node_modules/electron/package.json').version")
           zip="electron-v${ver}-linux-x64.zip"
-          curl -fsSL --retry 3 -o "/tmp/${zip}" \
+          curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 -o "/tmp/${zip}" \
             "https://github.com/electron/electron/releases/download/v${ver}/${zip}"
           rm -rf node_modules/electron/dist
           unzip -q "/tmp/${zip}" -d node_modules/electron/dist
@@ -154,7 +154,7 @@ jobs:
       # which never lands in the lockfile from a macOS resolve). `npm install`
       # tolerates the gap and resolves them on Linux; `npm ci` refuses.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       # electron's bundled installer downloads the release zip fine, but its
       # extract-zip step silently no-ops on this runner (Node 24 / ubuntu-latest):
@@ -166,7 +166,7 @@ jobs:
         run: |
           ver=$(node -p "require('./node_modules/electron/package.json').version")
           zip="electron-v${ver}-linux-x64.zip"
-          curl -fsSL --retry 3 -o "/tmp/${zip}" \
+          curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 -o "/tmp/${zip}" \
             "https://github.com/electron/electron/releases/download/v${ver}/${zip}"
           rm -rf node_modules/electron/dist
           unzip -q "/tmp/${zip}" -d node_modules/electron/dist
@@ -176,7 +176,7 @@ jobs:
             || { echo "::error::electron binary missing after unzip"; exit 1; }
 
       - name: Install Playwright system deps
-        run: npx playwright install-deps
+        run: ./node_modules/.bin/playwright install-deps
 
       - name: Run E2E
         # Electron needs an X server on Linux even when launched

@@ -12,8 +12,21 @@
  * (non-zero exit) instead of running forever or being silently killed.
  */
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 
 const PROJECTS = ['unit', 'integration', 'component'];
+
+// Resolve vitest's own entry point rather than shelling out to `npx vitest`.
+// `npx` is looked up on PATH — a writable directory ahead of the real npm bin
+// wins the lookup — and it will happily fetch vitest from the registry when the
+// local install is missing. Running the lockfile-pinned file under this Node
+// removes both. Resolution goes through `package.json` (the only path vitest's
+// `exports` map publishes besides its API entries) and then its own `bin` entry,
+// so a bin rename is followed rather than hard-coded. `createRequire` is needed
+// because ESM has no `require.resolve`.
+const vitestManifest = createRequire(import.meta.url).resolve('vitest/package.json');
+const VITEST_BIN = join(dirname(vitestManifest), createRequire(vitestManifest)('./package.json').bin.vitest);
 
 // A hang detector, not a performance budget. The hang sits at 0% CPU
 // with no worker children and never finishes, so a generous ceiling catches it
@@ -28,7 +41,7 @@ const PROJECTS = ['unit', 'integration', 'component'];
 const TIMEOUT_MS = 15 * 60 * 1000;
 
 for (const project of PROJECTS) {
-  const result = spawnSync('npx', ['vitest', 'run', '--project', project], {
+  const result = spawnSync(process.execPath, [VITEST_BIN, 'run', '--project', project], {
     stdio: 'inherit',
     timeout: TIMEOUT_MS,
     killSignal: 'SIGKILL',
