@@ -62,11 +62,19 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `npm install` rather than `npm ci`: the lockfile is generated on
-      # macOS dev machines and skips transitive deps of Linux-only platform
-      # binaries (e.g., `@rolldown/binding-linux-*` pulls `@emnapi/*@1.10.0`
-      # which never lands in the lockfile from a macOS resolve). `npm install`
-      # tolerates the gap and resolves them on Linux; `npm ci` refuses.
+      # `npm ci`, not `npm install`: it fails the job when the lockfile and
+      # package.json disagree instead of quietly resolving something else, and
+      # it is what S8543 asks for. An older comment here claimed `npm ci`
+      # refuses on this runner because the lockfile is resolved on macOS and
+      # skips the transitive deps of Linux-only platform binaries. That is no
+      # longer true — checked on ubuntu-latest before this change, not assumed.
+      #
+      # `--ignore-scripts` (S6505) defers exactly one thing: mongodb-memory-server
+      # pre-downloading mongod, which it fetches lazily on first use instead.
+      # Nothing else in the tree declares an install hook that matters here —
+      # electron 44 has none at all, and the Electron binary is unzipped by hand
+      # in the next step precisely because its own installer no-ops on this
+      # runner.
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
@@ -148,11 +156,19 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `npm install` rather than `npm ci`: the lockfile is generated on
-      # macOS dev machines and skips transitive deps of Linux-only platform
-      # binaries (e.g., `@rolldown/binding-linux-*` pulls `@emnapi/*@1.10.0`
-      # which never lands in the lockfile from a macOS resolve). `npm install`
-      # tolerates the gap and resolves them on Linux; `npm ci` refuses.
+      # `npm ci`, not `npm install`: it fails the job when the lockfile and
+      # package.json disagree instead of quietly resolving something else, and
+      # it is what S8543 asks for. An older comment here claimed `npm ci`
+      # refuses on this runner because the lockfile is resolved on macOS and
+      # skips the transitive deps of Linux-only platform binaries. That is no
+      # longer true — checked on ubuntu-latest before this change, not assumed.
+      #
+      # `--ignore-scripts` (S6505) defers exactly one thing: mongodb-memory-server
+      # pre-downloading mongod, which it fetches lazily on first use instead.
+      # Nothing else in the tree declares an install hook that matters here —
+      # electron 44 has none at all, and the Electron binary is unzipped by hand
+      # in the next step precisely because its own installer no-ops on this
+      # runner.
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
