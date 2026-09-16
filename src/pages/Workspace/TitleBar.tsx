@@ -55,7 +55,6 @@ export function TitleBar({
         gap={6}
         wrap="nowrap"
         style={{
-          flex: 1,
           minWidth: 0,
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}
@@ -66,6 +65,10 @@ export function TitleBar({
           </span>
         )}
       </Group>
+      {/* Plain drag spacer, not a no-drag Group — the Connection Switcher
+          used to sit in a flex:1 no-drag Group, which made the whole
+          middle of the bar (not just the button) undraggable. */}
+      <div style={{ flex: 1 }} />
       <Tooltip label="Search actions (⌘K)" withArrow>
         <Button
           variant="default"
