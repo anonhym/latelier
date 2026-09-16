@@ -51,8 +51,11 @@ describe('TroubleshootingPaletteCommand', () => {
       target: { value: 'troubleshoot' },
     });
 
-    const item = await screen.findByText('Open connection troubleshooting');
-    fireEvent.keyDown(item, { key: 'Enter' });
+    await screen.findByText('Open connection troubleshooting');
+    // Keyboard nav is bound to the search input, not the option row
+    // (combobox pattern — see CommandPalette.tsx) — Enter is fired where a
+    // real keyboard user would have focus.
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
 
     // Drawer renders the unknown recipe.
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());

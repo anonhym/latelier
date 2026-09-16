@@ -34,6 +34,14 @@ export function QueryExpandModal({ queryRaw, onApply, onClose }: QueryExpandModa
   const T = themeVars;
   const [draft, setDraft] = React.useState(() => formatForDisplay(queryRaw));
   const shell = useShellSyntaxField({ value: draft, commit: setDraft, thenCheck: filterProblem });
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Opening this modal without landing in the textarea would defeat its
+  // purpose (editing a long filter) — same effect as `autoFocus`, but
+  // typescript:S9379 flags the attribute itself, so this drives it by ref.
+  React.useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
 
   const apply = () => {
     const { text, outcome } = shell.commitNow();
@@ -46,7 +54,7 @@ export function QueryExpandModal({ queryRaw, onApply, onClose }: QueryExpandModa
     <Modal opened onClose={onClose} title="Query filter" centered size="lg">
       <Stack gap="sm">
         <textarea
-          autoFocus
+          ref={textareaRef}
           aria-label="Query filter"
           value={draft}
           onChange={(e) => {

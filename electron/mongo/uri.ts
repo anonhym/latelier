@@ -8,6 +8,16 @@ import type { Connection } from '@shared/types';
  * trailing half of that pair has an unanchored start over `\/+`, so a value
  * that is a long run of slashes followed by anything else costs O(n^2) to
  * reject (S8786). This field comes straight off the connection form.
+ *
+ * Both bounds checks carry equivalent mutants that stryker cannot kill, and no
+ * test should be contorted to pretend otherwise. `start < end` -> `start <= end`
+ * and `end > start` -> `end >= start` both still terminate, because the extra
+ * iteration indexes past the walked range and compares `undefined` to `'/'`;
+ * and replacing either with `true` leaves the same `undefined` guard. Verified
+ * exhaustively over every arrangement of `/`, a letter and a space up to
+ * length 6 (1093 inputs): all four mutants agree with this function on every
+ * one, including the `slice(start, end)` cases where `end` ends up below
+ * `start` and slice clamps to ''.
  */
 function stripSlashes(value: string): string {
   let start = 0;

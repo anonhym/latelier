@@ -311,6 +311,34 @@ describe('TableView — rendering and interaction', () => {
       expect(getByTitle(/Drag to add "name/).textContent).not.toContain('Copied');
     });
 
+    // S6848 fixes — the row strip, resize handle, and context menus became
+    // keyboard-operable non-native elements (role + tabIndex + onKeyDown).
+    it('Enter on the row strip selects the row, same as a click', () => {
+      const docs = [{ _id: 1, name: 'a' }];
+      const { container } = renderTable(docs);
+      const row = container.querySelector('[data-selected]')!;
+      const strip = container.querySelector('[role="option"]')!;
+      expect(row.getAttribute('data-selected')).toBe('false');
+
+      fireEvent.keyDown(strip, { key: 'Enter' });
+      expect(row.getAttribute('data-selected')).toBe('true');
+    });
+
+    // The regression this guard exists for: without `e.target !==
+    // e.currentTarget`, Enter on a nested native button (which also bubbles
+    // its keydown up to the strip) would both run its own action AND select
+    // the row it lives in.
+    it('Enter on the expand chevron expands the row but does not also select it', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }];
+      const onRowExpand = vi.fn();
+      const { container } = renderTable(docs, { onRowExpand });
+      const row = container.querySelector('[data-selected]')!;
+      const chevron = container.querySelector('[aria-label="Expand document"]')!;
+
+      fireEvent.keyDown(chevron, { key: 'Enter' });
+      expect(row.getAttribute('data-selected')).toBe('false');
+    });
+
     it('drag start on a cell sets the DRAGGED_FIELD_MIME payload', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
       const { getByTitle } = renderTable(docs);
@@ -332,6 +360,17 @@ describe('TableView — rendering and interaction', () => {
       fireEvent.contextMenu(cell);
       expect(getByText('Copy value')).toBeTruthy();
       expect(getByText('Copy field path')).toBeTruthy();
+    });
+
+    it('Escape closes the cell context menu', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const { getByTitle, getByText, queryByText } = renderTable(docs);
+      const cell = getByTitle(/Drag to add "name/);
+      fireEvent.contextMenu(cell);
+      const menu = getByText('Copy value').closest('[role="group"]')!;
+
+      fireEvent.keyDown(menu, { key: 'Escape' });
+      expect(queryByText('Copy value')).toBeNull();
     });
 
     it('resize handle is still present on a column header', () => {
