@@ -171,6 +171,14 @@ Not gates — obligations that travel with the change. Deliberately its own sect
 - Prefer editing existing files to creating new ones; spec-driven development means most new code has a spec slot it belongs in.
 - Migrations beyond 003 go in new files (`004-...sql`), never edit existing ones.
 - The `SECRET_INPUT` comment tag on an IPC channel is load-bearing — `npm run audit:ipc` enforces that only allow-listed channels carry the tag. Add to `scripts/ipc-secret-allowlist.txt` before tagging a new one. The check scans `electron/**` only and keys off the tag, so an untagged channel taking a plaintext secret passes silently — tagging is on you, not the script.
+- Sort strings with an explicit `.localeCompare()` compare function; a bare `.sort()` on strings is locale-unsafe.
+- Never give a plain object a `then` key/method — it becomes an accidental thenable and breaks under `await`/`Promise.resolve()`.
+- Avoid regexes with nested quantifiers (`(a+)+`, `(.*)+`); they backtrack superlinearly (ReDoS). Take special care when the regex runs on user- or attacker-controlled input (URIs, user-typed filters).
+- A click handler on a non-interactive element (`div`/`span`) needs a native element instead, or a `role` + keyboard handling + `tabIndex` — the a11y bar for every interactive control in the UI.
+- CI/shell steps that run `npm install`/`npx` pass `--ignore-scripts` when install-time scripts aren't needed, and pin exact dependency/action versions instead of tags.
+- Use `Number.parseInt`/`Number.parseFloat`/`Number.NaN`, not the bare globals.
+- Every test carries at least one assertion.
+- `UPDATE schema_version SET version = N` in a migration looks like a missing-WHERE bug but isn't — `schema_version` is a singleton one-row table by design. Don't "fix" it by adding a meaningless `WHERE`.
 
 ## About the generated GitNexus section below
 
