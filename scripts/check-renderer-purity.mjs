@@ -42,12 +42,27 @@ function readStdin() {
 
 function extractImports(source) {
   const out = new Set();
-  // `[^'"]*?` rather than `[\s\S]*?`: an import clause never contains a quote,
-  // so bounding it there stops the lazy run from scanning past the `from`
-  // string it is supposed to stop before (S8786).
-  const re = /(?:^|\n)\s*import\s+[^'"]*?\s*from\s*['"]([^'"]+)['"]/g;
+  // Anchored on `from` + the quote, rather than trying to span the import
+  // clause. Spanning it needs a lazy run, and every bound for that run is
+  // wrong in one direction or the other: `[\s\S]*?` backtracks super-linearly
+  // (S8786), while `[^'"]*?` silently stops matching as soon as the clause
+  // holds a quote — which `// don't remove` above a member does, hiding the
+  // import from this guard entirely. Fail-open in a check that refuses
+  // forbidden imports is the worst outcome available, so neither is used.
+  //
+  // This form is linear (the only variable part sits between two literals) and
+  // strictly catches more: `export { x } from 'fs'` re-exports Node into the
+  // renderer exactly like an import and was never matched before.
+  //
+  // It can over-match — a comment reading `copied from 'fs'` registers as an
+  // import — and that direction is deliberate. A false refusal is visible and
+  // arguable; a false pass ships `fs` into the renderer bundle.
   let m;
-  while ((m = re.exec(source))) out.add(m[1]);
+  const reFrom = /\bfrom\s*['"]([^'"]+)['"]/g;
+  while ((m = reFrom.exec(source))) out.add(m[1]);
+  // Side-effect imports carry no `from`: `import 'some/polyfill'`.
+  const reBare = /\bimport\s*['"]([^'"]+)['"]/g;
+  while ((m = reBare.exec(source))) out.add(m[1]);
   const reDyn = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   while ((m = reDyn.exec(source))) out.add(m[1]);
   const reReq = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;

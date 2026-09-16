@@ -842,8 +842,20 @@ export function TableView({
   React.useEffect(() => {
     if (!fieldContextMenu) return;
     const handler = () => setFieldContextMenu(null);
+    // Escape listens on the window, next to the click-outside dismiss, rather
+    // than as an `onKeyDown` on the menu itself. The menu opens from a
+    // `contextmenu` event and nothing focuses it, so a keydown handler on that
+    // element would never receive one — dead code that a test firing directly
+    // at the node would still report as working.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFieldContextMenu(null);
+    };
     window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [fieldContextMenu]);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
@@ -937,8 +949,17 @@ export function TableView({
   React.useEffect(() => {
     if (!contextMenu) return;
     const handler = () => setContextMenu(null);
+    // See the field menu above: Escape has to be a window listener, because
+    // nothing ever gives this menu focus.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
     window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [contextMenu]);
 
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
@@ -1237,19 +1258,19 @@ export function TableView({
       {contextMenu && (
         // S6848 — this div's onClick only stops propagation so a click
         // inside the menu doesn't hit the window-level "click outside
-        // closes" listener below; every action lives on the real <button>s
-        // inside, already natively keyboard-operable. role="group" (not
-        // "menu", which would need role="menuitem" on all six children) +
-        // Escape-to-close is the one keyboard behaviour this wrapper is
-        // missing.
+        // closes" listener above; every action lives on the real <button>s
+        // inside, already natively keyboard-operable. role="group", not
+        // "menu", which would need role="menuitem" on all six children.
+        //
+        // Escape is not handled here. The menu opens from a `contextmenu`
+        // event and nothing focuses it, so an `onKeyDown` on this element
+        // would never fire for a keyboard user — it lives on the window,
+        // beside the click-outside dismiss.
         <div
           role="group"
           aria-label="Cell actions"
           tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setContextMenu(null);
-          }}
           style={{
             position: 'fixed',
             top: contextMenu.y,
@@ -1418,15 +1439,13 @@ export function TableView({
           path only — no Edit/Delete, matching the Tree view's nested-field
           menu). */}
       {fieldContextMenu && (
-        // S6848 — same reasoning as the cell-level menu above.
+        // S6848 — same reasoning as the cell-level menu above, Escape
+        // included: it is a window listener, not an onKeyDown here.
         <div
           role="group"
           aria-label="Field actions"
           tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setFieldContextMenu(null);
-          }}
           style={{
             position: 'fixed',
             top: fieldContextMenu.y,

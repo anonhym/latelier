@@ -367,10 +367,30 @@ describe('TableView — rendering and interaction', () => {
       const { getByTitle, getByText, queryByText } = renderTable(docs);
       const cell = getByTitle(/Drag to add "name/);
       fireEvent.contextMenu(cell);
-      const menu = getByText('Copy value').closest('[role="group"]')!;
+      expect(getByText('Copy value')).toBeTruthy();
 
-      fireEvent.keyDown(menu, { key: 'Escape' });
+      // Fired at the window, not at the menu node. The menu opens from a
+      // `contextmenu` event and nothing focuses it, so a keydown dispatched
+      // straight at the element proves only that a handler exists — it is a
+      // path no keyboard user can take. An earlier version of this test did
+      // exactly that and passed against a handler that could never fire.
+      fireEvent.keyDown(window, { key: 'Escape' });
       expect(queryByText('Copy value')).toBeNull();
+    });
+
+    it('Escape closes the field context menu from an expanded row', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, visibleField: 'yes' }];
+      const { container, getByText, queryByText } = renderTable(docs, {
+        expandedRows: { '507f1f77bcf86cd799439011': true },
+      });
+      // The field menu is a second, independently-registered window listener;
+      // the cell menu passing says nothing about this one.
+      const fieldRow = container.querySelector('[role="treeitem"]')!;
+      fireEvent.contextMenu(fieldRow);
+      expect(getByText('Copy field path')).toBeTruthy();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(queryByText('Copy field path')).toBeNull();
     });
 
     it('resize handle is still present on a column header', () => {
