@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, screen, act } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
+import { render, fireEvent, screen, within, act } from '../helpers/render';
 import { Int32, Long } from 'bson';
 import { StageAccordion } from '../../src/pages/Workspace/Aggregation/StageAccordion';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -121,29 +122,43 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(onToggleEnabled).toHaveBeenCalledWith(7);
   });
 
-  it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', () => {
+  it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', async () => {
     const onToggleActive = vi.fn<NonNullable<AccordionProps['onToggleActive']>>();
     const { container } = renderAccordion([stage({ id: 7, op: '$match', enabled: true })], {
       onToggleActive,
     });
-    const header = container.querySelector('[data-testid="stage-row-7"] [role="button"]')!;
+    // S6852 fix: the row itself is a plain div now (see StageAccordion.tsx);
+    // the accessible leaf is the summary-text <button> carrying aria-expanded.
+    const header = container.querySelector(
+      '[data-testid="stage-row-7"] button[aria-expanded]',
+    ) as HTMLElement;
     expect(header.getAttribute('aria-expanded')).toBe('false');
 
-    fireEvent.keyDown(header, { key: 'Enter' });
+    // A real <button>'s Enter-activates-click is native browser behavior that
+    // raw fireEvent.keyDown doesn't simulate in jsdom; userEvent does.
+    header.focus();
+    await userEvent.keyboard('{Enter}');
     expect(onToggleActive).toHaveBeenCalledWith(7);
   });
 
   it('does not also toggle the stage when Enter is pressed on a control inside the header', () => {
-    // The header row is `role="button"` with its own Enter handler, and it
-    // contains the ON/OFF switch and the move / duplicate / delete buttons.
-    // A keydown on any of those bubbles to the row, so without the
-    // `e.target !== e.currentTarget` guard one Enter press both activates the
-    // button and toggles the stage open — the button appears to do nothing.
+    // The header row is a plain div with no keydown handler of its own (see
+    // StageAccordion.tsx) — the ON/OFF switch, move / duplicate / delete
+    // buttons and the expand/collapse button are all siblings, not nested
+    // inside one another, so nothing on this row can double-fire anymore.
     const onToggleActive = vi.fn<NonNullable<AccordionProps['onToggleActive']>>();
     renderAccordion([stage({ id: 7, op: '$match', enabled: true })], { onToggleActive });
 
     fireEvent.keyDown(screen.getByText('ON'), { key: 'Enter', bubbles: true });
     expect(onToggleActive).not.toHaveBeenCalled();
+  });
+
+  it('the expand/collapse button contains no nested interactive controls (nested-interactive / S6852)', () => {
+    const { container } = renderAccordion([stage({ id: 7, op: '$match', enabled: true })]);
+    const header = container.querySelector(
+      '[data-testid="stage-row-7"] button[aria-expanded]',
+    ) as HTMLElement;
+    expect(within(header).queryAllByRole('button')).toHaveLength(0);
   });
 
   it('disables move-up on the first stage and move-down on the last', () => {

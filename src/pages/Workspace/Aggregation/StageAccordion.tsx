@@ -655,20 +655,18 @@ function StageRow({
         </div>
       )}
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={active}
+        // `group`, deliberately not `button` — see the same choice on
+        // JsonView's DocCard for the full reasoning. Short version: `button`
+        // is "children presentational" and this row holds the op picker, the
+        // ON/OFF switch and the move / duplicate / delete buttons, which such
+        // a role may not contain. `group` is not children presentational, so
+        // they stay exposed, and it still satisfies S6848 — that rule wants a
+        // role, not specifically an interactive one.
+        //
+        // The keyboard path is the summary-text button below, which is a leaf.
+        role="group"
+        aria-label={`Stage ${index + 1}${stage.op ? `: ${stage.op}` : ''}`}
         onClick={onToggleActive}
-        onKeyDown={(e) => {
-          // This row holds the op picker, the ON/OFF switch and the move /
-          // duplicate / delete buttons. Without this guard, Enter on any of
-          // them fires that button AND toggles the stage in the same press.
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            if (e.key === ' ') e.preventDefault();
-            onToggleActive();
-          }
-        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -749,18 +747,35 @@ function StageRow({
             Unknown op
           </span>
         )}
-        <span
+        {/* The accessible leaf for expand/collapse (S6852 — see the row div's
+            comment above): only the summary text becomes a real <button>,
+            same shape as the sortable column header in TableView.tsx. */}
+        <button
+          type="button"
+          aria-expanded={active}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleActive();
+          }}
           style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            margin: 0,
+            font: 'inherit',
+            textAlign: 'left',
+            cursor: 'pointer',
             fontSize: 11.5,
             color: bodyErr ? T.red : T.textMuted,
             flex: 1,
+            minWidth: 0,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}
         >
           {bodyErr ? '(invalid)' : summary}
-        </span>
+        </button>
         {typeof count === 'number' && (
           <span
             style={{

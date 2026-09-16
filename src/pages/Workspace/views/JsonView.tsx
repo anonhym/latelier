@@ -213,24 +213,23 @@ function DocCard({
   return (
     <div
       onClick={() => onToggle(idx)}
-      // Guarded so a keydown bubbling from a nested action button doesn't
-      // also toggle selection.
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          if (e.key === ' ') e.preventDefault();
-          onToggle(idx);
-        }
-      }}
-      role="button"
-      aria-pressed={isSelected}
-      // `0`, not `-1`. Roving tabindex is the right pattern for an `option` or
-      // a `treeitem` whose container drives focus, but `button` is on
-      // jsx-a11y's tabbable list, so `role="button"` with `-1` trades one
-      // finding (S6848) for another (S6852) — and selecting a document would
-      // still be unreachable by keyboard. The collapsible node at :111 already
-      // sets the precedent, with far more tab stops than there are cards.
-      tabIndex={0}
+      // `group`, deliberately not `button`. `button` is "children
+      // presentational" in ARIA, and this card holds real <button>s — the
+      // corner actions below, and the JSON body's own collapse toggles at
+      // :111 via HighlightedJson — which such a role may not contain at any
+      // depth (axe's nested-interactive). `group` is not children
+      // presentational, so the controls inside stay exposed, and it is honest:
+      // this is a document and the things you can do to it.
+      //
+      // It also keeps S6848 closed. That rule wants a role on an element with
+      // a handler, not specifically an interactive one — the `role="group"`
+      // context menus in TableView carry an onClick and came back clean on the
+      // #18 scan. So the wide-area click survives without either finding.
+      //
+      // The keyboard path is the dedicated Select button below, which is a
+      // leaf; this div is mouse convenience on top of it.
+      role="group"
+      aria-label={`Document ${idx + 1}`}
       style={{
         border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
         borderRadius: 'var(--atelier-radius-sm)',
@@ -241,6 +240,30 @@ function DocCard({
       }}
     >
       <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(idx);
+          }}
+          aria-pressed={isSelected}
+          aria-label={isSelected ? 'Deselect document' : 'Select document'}
+          title={isSelected ? 'Deselect document' : 'Select document'}
+          style={{
+            background: isSelected ? 'var(--atelier-accent-soft)' : 'var(--atelier-surface)',
+            border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
+            borderRadius: 'var(--atelier-radius-xs)',
+            padding: '2px 5px',
+            margin: 0,
+            font: 'inherit',
+            cursor: 'pointer',
+            color: isSelected ? 'var(--atelier-accent)' : 'var(--atelier-text-ghost)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {I.check}
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();

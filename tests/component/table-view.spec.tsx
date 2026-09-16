@@ -317,7 +317,9 @@ describe('TableView — rendering and interaction', () => {
       const docs = [{ _id: 1, name: 'a' }];
       const { container } = renderTable(docs);
       const row = container.querySelector('[data-selected]')!;
-      const strip = container.querySelector('[role="option"]')!;
+      // `role="row"` inside the grid — `option` was the first attempt and is
+      // invalid here, since it may not contain the cells' own controls.
+      const strip = container.querySelector('[role="row"]')!;
       expect(row.getAttribute('data-selected')).toBe('false');
 
       fireEvent.keyDown(strip, { key: 'Enter' });

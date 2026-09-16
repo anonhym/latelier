@@ -615,6 +615,11 @@ export function TreeView({
         }}
       >
         <List<DocRowProps>
+          // react-window labels its own container `role="list"`, which leaves
+          // the `role="treeitem"` rows below with no valid parent (axe's
+          // aria-required-parent). `tree` is the one they need.
+          role="tree"
+          aria-label="Documents"
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRow as typeof DocRowImpl}
           rowCount={documents.length}

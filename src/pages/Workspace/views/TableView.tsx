@@ -210,6 +210,10 @@ function TableCell({
 
   return (
     <div
+      // Part of the grid: `gridcell` is what makes the row's `role="row"`
+      // valid, and unlike `option` it is free to hold the drag, copy and
+      // inline-edit controls this cell owns.
+      role="gridcell"
       draggable={draggable && !editing}
       onDragStart={draggable && !editing ? handleDragStart : undefined}
       onDoubleClick={(e) => {
@@ -462,10 +466,13 @@ interface TableRowProps {
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
 }
 
+// `ariaAttributes` is intentionally not destructured off the row props.
+// react-window offers `role="listitem"` + posinset/setsize to pair with the
+// `role="list"` it puts on its own container; this table is a grid, and a
+// `listitem` between the grid and its rows would break the rows' ownership.
 function TableRowImpl({
   index,
   style,
-  ariaAttributes,
   documents,
   columns,
   widths,
@@ -493,7 +500,8 @@ function TableRowImpl({
 
   return (
     <div
-      {...ariaAttributes}
+      // No role here on purpose — see the note on this function's props. The
+      // grid's row and index attributes are set on the strip below.
       data-selected={isSelected}
       style={{
         ...style,
@@ -504,16 +512,24 @@ function TableRowImpl({
           : 'var(--atelier-surface)',
       }}
     >
-      {/* S6848 — this strip behaves like a selectable list option (click
-          selects, ⌘/Ctrl+click multi-selects), but it wraps other real
-          interactive controls (draggable cells, the expand/edit buttons) so
-          it can't become a native <button>. role="option" + aria-selected
-          is the closest native semantic. tabIndex={-1}: this is a
-          many-row composite widget (virtualized, but overscan can still
-          mount 40+ rows at once), so every row must NOT be a tab stop —
-          see the report for the roving-tabindex driver this still needs. */}
+      {/* S6848 — this strip behaves like a selectable row (click selects,
+          ⌘/Ctrl+click multi-selects) while wrapping other real interactive
+          controls: draggable cells, the expand chevron, the edit affordances.
+          `role="option"` was the first attempt and was wrong: `option` is
+          "children presentational" in ARIA, so it may not contain any of
+          those, and it needs a `listbox` parent this never had.
+
+          `row` inside `role="grid"` is the pattern for exactly this — a data
+          table whose cells hold controls. `row` is not children
+          presentational, so the cell controls stay exposed, and
+          `aria-selected` is valid on it. `aria-rowindex` is 1-based and
+          counts the header, so the first document row is 2.
+
+          tabIndex={-1}: virtualization still mounts 40+ rows with overscan, so
+          no row may be a tab stop. Moving focus between them is #20. */}
       <div
-        role="option"
+        role="row"
+        aria-rowindex={index + 2}
         aria-selected={isSelected}
         tabIndex={-1}
         style={{
@@ -536,8 +552,10 @@ function TableRowImpl({
         }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
-            data columns. */}
+            data columns. A `gridcell` like the rest, so the row owns nothing
+            but cells. */}
         <div
+          role="gridcell"
           style={{
             width: GUTTER_WIDTH,
             minWidth: GUTTER_WIDTH,
@@ -1242,6 +1260,14 @@ export function TableView({
       </div>
 
       <List<TableRowProps>
+        // react-window labels its own container `role="list"`, which is the
+        // wrong context for the rows below and leaves them with no valid
+        // parent. `grid` is the required one, and `aria-rowcount` is how a
+        // virtualized grid reports a total larger than what is mounted (+1
+        // for the header row).
+        role="grid"
+        aria-label="Documents"
+        aria-rowcount={documents.length + 1}
         rowComponent={TableRow as typeof TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}
