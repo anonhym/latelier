@@ -190,12 +190,8 @@ describe('IndexesTab — render', () => {
     await userEvent.click(screen.getByText('Drop').closest('button')!);
 
     await waitFor(() => expect(screen.queryByText('email_unique')).toBeNull());
-    // Documents current behaviour rather than asserting it is correct.
-    // Tracked as #74, a blocker of the X19 epic (#51) — on a base-branch run
-    // a discovery blocks the base -> main PR, not the ticket that found it.
-    // Flip this assertion once #74 gives the drop flow a focus target that
-    // survives the row's removal; it goes red by construction when it does.
-    expect(document.activeElement).toBe(document.body);
+    // #74 fixed this — focus now lands on the tab's scroll region, not <body>.
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Indexes' }));
   });
 
   it('persists the selected target via prefs.set', async () => {

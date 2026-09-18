@@ -42,10 +42,16 @@ import React from 'react';
  *   that surface's own `FocusTrap` for a coin-flip winner. Same reason to wrap
  *   the gesture here rather than the unmount.
  *
- * Wrap the *dismiss* paths only — Mantine's `onClose` prop plus any Cancel or
- * Close button. Success paths (`onDropped`, `onSaved`, `onInserted`) are the
- * handoff case above, and after a drop or a rename the trigger is usually a row
- * that no longer exists.
+ * Wrap the *dismiss* paths — Mantine's `onClose` prop plus any Cancel or
+ * Close button — unconditionally. A success path (`onDropped`, `onSaved`,
+ * `onInserted`) is the handoff case above by default, because after a drop
+ * or a rename the trigger is usually a row that no longer exists — but it
+ * may be wrapped too, on its own separate call, when the caller passes an
+ * explicit `returnFocusTo` that outlives the mutation. #74 is the precedent:
+ * `IndexesTab`'s `DropConfirmDialog` and `UsersTab`'s `DropUserDialog` each
+ * make two calls — one for `onCancel` using the render-time captured trigger
+ * (still there after a Cancel), and a second for `onDropped` passing the
+ * tab's scroll region as `returnFocusTo` (the row isn't, after a drop).
  */
 export function useDialogFocusReturn(
   onClose: () => void,
