@@ -92,6 +92,18 @@ export function useMenuFocus(
   menu: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean } | null,
   close: () => void,
 ): void {
+  // Mutation review — `React.useRef(false)` → `React.useRef(true)` survives
+  // (equivalent, not untested): the dismiss effect below resets this to
+  // `false` at the top of its body on every render where `menu` is truthy,
+  // i.e. every open, and every one of this hook's three call sites starts
+  // `menu` at `null` (`React.useState<...>(null)`) — so the one render
+  // where the initial value could matter is the very first one, with
+  // `menu` still `null`. On that render the *other* effect below also runs
+  // its "closed" branch (`if (!suppressRef.current) returnFocusToRef.current?.focus()`),
+  // but `returnFocusToRef.current` is still its own initial `null` too (no
+  // menu has ever opened to set it) — so `null?.focus()` is a no-op
+  // regardless of which way `suppressRef` starts. The initial value is
+  // provably unobservable from either effect.
   const suppressRef = React.useRef(false);
   const returnFocusToRef = React.useRef<HTMLElement | null>(null);
 
@@ -103,12 +115,37 @@ export function useMenuFocus(
     suppressRef.current = false;
     const onClick = () => {
       const el = document.activeElement;
+      // Mutation review — `el !== null` → `true` survives (equivalent, not
+      // untested): per the DOM spec, `document.activeElement` is `null`
+      // only for a document with no browsing context / no body at all
+      // (e.g. mid-navigation); it defaults to `document.body` — never
+      // `null` — the moment a body exists, which it always does by the
+      // time this listener can run. The check documents the spec-true
+      // case rather than one this app can ever actually observe.
       suppressRef.current =
         el !== null && el !== document.body && !menuRef.current?.contains(el);
       close();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Mutation review — this reset survives deletion today (every
+      // *human* Escape reaches here through the same synchronous handler
+      // that already computed a fresh `suppressRef` on the open, or none
+      // at all), but it is kept deliberately rather than ceded: `close()`
+      // is invoked from a native `window` listener, not a React synthetic
+      // event, so React 18 auto-batches the resulting state update instead
+      // of flushing it synchronously — the menu stays mounted and both
+      // listeners stay attached until the following microtask. A keydown
+      // dispatched programmatically within that same window (nothing a
+      // human produces, but a scripted or replayed interaction can) would
+      // still reach this same `onKey` while a prior click's `suppressRef =
+      // true` is live, and without this line it would suppress an Escape
+      // that must never be suppressed. Cheap to keep, load-bearing under a
+      // plausible-if-rare interleaving — #60 kept its index-keyed row
+      // comparator checks unreachable-today for the same reason (blocked
+      // on the open #82, not yet resolved either way), rather than delete
+      // them, specifically so a later fix elsewhere can't silently turn
+      // into a regression.
       suppressRef.current = false;
       close();
     };

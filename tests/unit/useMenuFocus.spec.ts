@@ -295,5 +295,108 @@ describe('useMenuFocus', () => {
       await user.keyboard('{Escape}');
       expect(document.activeElement).toBe(trigger);
     });
+
+    // Mutation review — `if (e.key !== 'Escape') return;` had no test that
+    // a non-Escape key does nothing: typing a letter with a menu open must
+    // not close it.
+    it('a non-Escape key does not close the menu', async () => {
+      const user = userEvent.setup();
+      const { container } = mountMenu();
+      const trigger = mountTrigger();
+      const close = vi.fn();
+
+      renderHook(() =>
+        useMenuFocus({ current: container }, { returnFocusTo: trigger }, close),
+      );
+
+      await user.keyboard('a');
+
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    // Mutation review — nothing asserted that the dismiss effect's cleanup
+    // actually removes the `window` listeners on close. Without it (or with
+    // either `removeEventListener` call given the wrong event name), a
+    // stale listener outlives the menu and a later click or keydown calls
+    // `close` again.
+    it('removes both window listeners once the menu closes, so neither a later click nor a later Escape calls close again', () => {
+      const { container } = mountMenu();
+      const trigger = mountTrigger();
+      const close = vi.fn();
+
+      const { rerender } = renderHook<void, Props>(
+        ({ menu }) => useMenuFocus({ current: container }, menu, close),
+        { initialProps: { menu: { returnFocusTo: trigger }, close } },
+      );
+
+      rerender({ menu: null, close });
+      close.mockClear();
+
+      window.dispatchEvent(new MouseEvent('click'));
+      expect(close).not.toHaveBeenCalled();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    // Mutation review — `!menuRef.current?.contains(el)` survived deletion
+    // with the full suite green. It is the exact branch that makes a click
+    // landing inside the menu (an item click that bubbles, or one that
+    // doesn't get stopped) not count as "outside": with the clause gone,
+    // `document.activeElement` sitting inside the menu at click time would
+    // wrongly suppress the restore instead of letting it run.
+    it('does not suppress the restore when document.activeElement is inside the menu container at click time', () => {
+      const { container, button } = mountMenu();
+      const trigger = mountTrigger();
+      let menu: Menu = { returnFocusTo: trigger };
+      const close = () => {
+        menu = null;
+        rerender({ menu, close });
+      };
+
+      const { rerender } = renderHook<void, Props>(
+        ({ menu: m }) => useMenuFocus({ current: container }, m, close),
+        { initialProps: { menu, close } },
+      );
+
+      button.focus();
+      window.dispatchEvent(new MouseEvent('click'));
+
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    // Mutation review — `menuRef.current?.contains` → `menuRef.current.contains`
+    // (optional chaining removed) survived. `menuRef.current` genuinely can
+    // be `null` while this listener is still live: React nulls a removed
+    // element's ref during commit, but this effect's own cleanup (which
+    // removes the `window` listener) doesn't run until the later passive-
+    // effect flush — a native click landing in that gap would hit a `null`
+    // `menuRef.current`. `document.activeElement` must be a real non-`<body>`
+    // element here, or the earlier `el !== document.body` check would
+    // short-circuit before ever reaching `.contains`.
+    //
+    // `expect(() => dispatchEvent(...)).not.toThrow()` cannot see this: per
+    // the DOM spec, an exception thrown inside an event listener never
+    // propagates back through `dispatchEvent` — the listener is invoked
+    // inside a try/catch that reports the exception globally instead (a
+    // synchronous `error` event on `window`, jsdom included). Capturing
+    // that `error` event is the only way to observe the crash from here.
+    it('does not throw when a window click fires while the menu ref is null', () => {
+      const trigger = mountTrigger();
+      const focusedElsewhere = mountTrigger();
+      focusedElsewhere.focus();
+
+      renderHook(() => useMenuFocus({ current: null }, { returnFocusTo: trigger }, () => {}));
+
+      const onError = vi.fn();
+      window.addEventListener('error', onError);
+      try {
+        window.dispatchEvent(new MouseEvent('click'));
+      } finally {
+        window.removeEventListener('error', onError);
+      }
+
+      expect(onError).not.toHaveBeenCalled();
+    });
   });
 });
