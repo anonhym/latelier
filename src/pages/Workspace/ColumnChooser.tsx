@@ -14,6 +14,7 @@ import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { deriveColumns, orderFields } from './views/tableColumns';
+import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
 
 /**
@@ -82,10 +83,10 @@ export function ColumnChooser() {
   // once `orderedFields` reflects the real reorder, redirects focus to the
   // still-enabled sibling button on that same row.
   const buttonRefs = React.useRef(new Map<string, { up: HTMLButtonElement | null; down: HTMLButtonElement | null }>());
-  const pendingMoveRef = React.useRef<{ field: string; direction: 'up' | 'down' } | null>(null);
+  const pendingMoveRef = React.useRef<{ field: string; direction: MoveDirection } | null>(null);
   const [announcement, setAnnouncement] = React.useState('');
 
-  const requestMove = (field: string, index: number, direction: 'up' | 'down') => {
+  const requestMove = (field: string, index: number, direction: MoveDirection) => {
     const to = direction === 'up' ? index - 1 : index + 1;
     if (to < 0 || to >= orderedFields.length) return;
     pendingMoveRef.current = { field, direction };
@@ -101,18 +102,10 @@ export function ColumnChooser() {
     if (newIndex === -1) return;
     const refs = buttonRefs.current.get(pending.field);
     if (!refs) return;
-    const landedAtTop = newIndex === 0;
-    const landedAtBottom = newIndex === orderedFields.length - 1;
-    if (pending.direction === 'up' && landedAtTop) {
-      refs.down?.focus();
-    } else if (pending.direction === 'down' && landedAtBottom) {
-      refs.up?.focus();
-    } else {
-      refs[pending.direction]?.focus();
-    }
+    refs[focusTargetAfterMove(pending.direction, newIndex, orderedFields.length)]?.focus();
   }, [orderedFields]);
 
-  const setButtonRef = (field: string, which: 'up' | 'down') => (el: HTMLButtonElement | null) => {
+  const setButtonRef = (field: string, which: MoveDirection) => (el: HTMLButtonElement | null) => {
     const entry = buttonRefs.current.get(field) ?? { up: null, down: null };
     entry[which] = el;
     buttonRefs.current.set(field, entry);
@@ -145,7 +138,17 @@ export function ColumnChooser() {
   const hiddenCount = hidden.size;
 
   return (
-    <Popover position="bottom-end" shadow="md" withinPortal>
+    <Popover
+      position="bottom-end"
+      shadow="md"
+      withinPortal
+      // The dropdown unmounts on close but `announcement` lives out here, so
+      // without this the live region is reborn already holding the last
+      // move's sentence. `aria-live` only announces mutations, never the
+      // content a region mounts with, so that text is never spoken — it just
+      // sits in the accessibility tree describing a move from last time.
+      onChange={(opened) => { if (!opened) setAnnouncement(''); }}
+    >
       <Popover.Target>
         <Button
           variant="default"

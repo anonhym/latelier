@@ -27,6 +27,7 @@
     "src/pages/Workspace/collectionPatches.ts",
     "src/pages/Workspace/navigatorTreeReducer.ts",
     "src/pages/Workspace/resizeKeyStep.ts",
+    "src/pages/Workspace/columnReorderFocus.ts",
     "src/pages/Workspace/filterTree.ts",
     "src/pages/Workspace/legacyBuilder.ts",
     "src/pages/Workspace/views/tableColumns.ts",

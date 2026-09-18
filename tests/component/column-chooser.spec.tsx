@@ -245,7 +245,34 @@ describe('ColumnChooser', () => {
 
     await userEvent.click(getByRole('button', { name: 'Move apple down' }));
 
-    expect(getByText(/apple moved to position 3 of 3/i)).toBeTruthy();
+    const region = getByText(/apple moved to position 3 of 3/i);
+    expect(region).toBeTruthy();
+    // The text alone proves nothing: without the attribute the region is
+    // silent and the whole announcement is dead, with every other test here
+    // still green. Assert the mechanism, not just the string.
+    expect(region.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('does not carry a stale announcement into the next time the chooser is opened', async () => {
+    // The dropdown unmounts on close (Mantine's Popover is not keepMounted
+    // here), but `announcement` lives in ColumnChooser, which stays mounted.
+    // So the region comes back already holding the last move's sentence.
+    // `aria-live` announces *mutations*, never the content a region is born
+    // with, so that text is never spoken — it just sits in the accessibility
+    // tree describing something the user did before they closed the panel.
+    const patchWith = vi.fn();
+    const state = baseState();
+    const { getByRole, queryByText } = renderChooser(state, { patchWith });
+    const trigger = getByRole('button', { name: /columns/i });
+
+    fireEvent.click(trigger);
+    await userEvent.click(getByRole('button', { name: 'Move apple down' }));
+    expect(queryByText(/apple moved to position 3 of 3/i)).toBeTruthy();
+
+    fireEvent.click(trigger); // close
+    fireEvent.click(trigger); // reopen
+
+    expect(queryByText(/apple moved to position/i)).toBeNull();
   });
 
   // Applies a mocked patchWith's captured updater to `state` and re-renders
