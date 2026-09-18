@@ -64,6 +64,118 @@ const DOC = { _id: { $oid: DOC_OID }, name: 'alpha' };
 // Expansion state is keyed by `getFullDocId` (the full `$oid`), not the
 // short 8-char label the collapsed row displays — see `docId.ts`.
 const EXPANDED = { [DOC_OID]: true };
+// A second field, for the #87 replacement test below — one Shift+F10 on
+// "name" then another on "role", with no close in between.
+const DOC2 = { ...DOC, role: 'admin' };
+// A second document, for #87's cell-level-menu replacement test — a
+// different row's cell, right-clicked with no close in between.
+const DOC_B = { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'bravo' };
+
+/** The `DocFieldTree` panel — `useMenuFocus`'s `returnFocusTo` target for
+ *  both views' field menu. Module-scope: shared by `describeFieldMenuKeyboardAndFocusReturn`
+ *  and `describeMenuFocusOnDismiss` below. */
+function fieldTreeOf(container: HTMLElement): HTMLElement {
+  return container.querySelector('[data-expanded-doc-section="true"]') as HTMLElement;
+}
+
+/**
+ * X19 #87 — shared coverage for dismissing one of the three hand-rolled
+ * menus behind `useMenuFocus`, parameterized per call site since each opens
+ * differently and returns focus to a different container. The assertions
+ * are identical everywhere — acceptance box 5, "one mechanism, not one per
+ * menu" — only how each site opens/targets differs.
+ */
+function describeMenuFocusOnDismiss(opts: {
+  mount: () => { container: HTMLElement };
+  target: (container: HTMLElement) => HTMLElement;
+  /** Right-clicks the `index`-th of two distinct openable items. */
+  openMouse: (container: HTMLElement, index: 0 | 1) => Promise<void>;
+  /** Focuses the widget, then Shift+F10, opening on the first item. */
+  openKeyboard: (container: HTMLElement) => Promise<void>;
+  /** Label of a menu item that both acts and closes the menu. */
+  activateItemLabel: string;
+}): void {
+  describe('focus on dismiss (#87)', () => {
+    it('clicking a focusable control while the menu is open leaves focus on that control', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.click(elsewhere);
+
+      await waitFor(() => expect(document.activeElement).toBe(elsewhere));
+      elsewhere.remove();
+    });
+
+    it('clicking empty space still closes the menu and restores focus rather than stranding it on <body>', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      const plain = document.createElement('div');
+      document.body.appendChild(plain);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.click(plain);
+
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(target);
+      });
+      plain.remove();
+    });
+
+    it('activating a menu item still returns focus', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openMouse(container, 0);
+
+      await user.click(await screen.findByText(opts.activateItemLabel));
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    it('Escape restores focus after a mouse open', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    it('Escape restores focus after a keyboard open', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openKeyboard(container);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    // #87's second facet (a second right-click on a different cell/field,
+    // no close in between, must never restore the *previous* menu's target)
+    // is deliberately NOT re-asserted here with a `focus` spy. Measured: a
+    // right-click on a non-focusable row already makes jsdom's own
+    // mousedown-focusing-steps call `.focus()` on this same target (the
+    // nearest focusable ancestor) before `useMenuFocus` ever runs — exactly
+    // the masking `useMenuDismiss`'s #87 comment describes for the mouse
+    // path. A spy at this level counts that native call as well as any of
+    // the hook's own, so it cannot isolate the hook's behavior. `useMenuFocus.spec.ts`'s
+    // `renderHook` tests own this acceptance box instead, against a bare
+    // ref with no browser click involved.
+  });
+}
 
 // "Add to filter" confirms before patching whenever the Filter/Builder tab
 // is open (the default in `makeState` below), since the drawer mounted
@@ -92,9 +204,8 @@ function describeFieldMenuKeyboardAndFocusReturn(
 ): void {
   // "name" is also a table *column*, whose cell carries the same "Drag to
   // add" title as the field-tree row — so the row query is scoped to the
-  // field-tree panel rather than the whole document, for both views.
-  const fieldTreeOf = (container: HTMLElement) =>
-    container.querySelector('[data-expanded-doc-section="true"]') as HTMLElement;
+  // field-tree panel (module-scope `fieldTreeOf`) rather than the whole
+  // document, for both views.
   const rowOf = (container: HTMLElement) =>
     within(fieldTreeOf(container)).getByTitle(/Drag to add "name/);
 
@@ -283,6 +394,26 @@ describe(' "Add to filter" on the field-tree context menu', () => {
     });
 
     describeFieldMenuKeyboardAndFocusReturn(mount);
+
+    describeMenuFocusOnDismiss({
+      mount: () => mount({ doc: DOC2 }),
+      target: fieldTreeOf,
+      openMouse: async (container, index) => {
+        const fieldName = index === 0 ? 'name' : 'role';
+        await userEvent.setup().pointer({
+          keys: '[MouseRight]',
+          target: within(fieldTreeOf(container)).getByTitle(
+            new RegExp(`Drag to add "${fieldName}`),
+          ),
+        });
+      },
+      openKeyboard: async (container) => {
+        const user = userEvent.setup();
+        await user.click(fieldTreeOf(container));
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+      },
+      activateItemLabel: 'Copy value',
+    });
   });
 
   describe('TableView', () => {
@@ -371,6 +502,26 @@ describe(' "Add to filter" on the field-tree context menu', () => {
     });
 
     describeFieldMenuKeyboardAndFocusReturn(mount);
+
+    describeMenuFocusOnDismiss({
+      mount: () => mount({ doc: DOC2 }),
+      target: fieldTreeOf,
+      openMouse: async (container, index) => {
+        const fieldName = index === 0 ? 'name' : 'role';
+        await userEvent.setup().pointer({
+          keys: '[MouseRight]',
+          target: within(fieldTreeOf(container)).getByTitle(
+            new RegExp(`Drag to add "${fieldName}`),
+          ),
+        });
+      },
+      openKeyboard: async (container) => {
+        const user = userEvent.setup();
+        await user.click(fieldTreeOf(container));
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+      },
+      activateItemLabel: 'Copy value',
+    });
   });
 
   describe('TableView cell-level menu', () => {
@@ -384,6 +535,9 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       actions?: Partial<CollectionWorkspaceActions>;
       meta?: Partial<CollectionWorkspaceMeta>;
       doc?: Record<string, unknown>;
+      // #87 — a second row, for the replacement test: right-click "name" on
+      // row 0, then again on row 1, with no close in between.
+      docs?: Record<string, unknown>[];
     } = {}) {
       const actions = makeActions(opts.actions);
       return {
@@ -395,7 +549,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
             meta={makeMeta(opts.meta)}
           >
             <TableView
-              documents={[opts.doc ?? DOC]}
+              documents={opts.docs ?? [opts.doc ?? DOC]}
               onColumnResize={() => {}}
               expandedRows={{}}
               onRowExpand={() => {}}
@@ -450,6 +604,26 @@ describe(' "Add to filter" on the field-tree context menu', () => {
 
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
+    });
+
+    describeMenuFocusOnDismiss({
+      mount: () => mount({ docs: [DOC, DOC_B] }),
+      target: () => screen.getByRole('grid', { name: 'Documents' }),
+      openMouse: async (container, index) => {
+        const cells = within(container).getAllByTitle(/Drag to add "name/);
+        await userEvent.setup().pointer({ keys: '[MouseRight]', target: cells[index] });
+      },
+      openKeyboard: async (container) => {
+        const user = userEvent.setup();
+        const row = within(container)
+          .getAllByTitle(/Drag to add "name/)[0]
+          .closest('[role="row"]') as HTMLElement;
+        await user.click(row);
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+      },
+      // "Edit" (not "Copy value"/"Add to filter") — always rendered
+      // regardless of which field/value the right-clicked cell carries.
+      activateItemLabel: 'Edit',
     });
   });
 

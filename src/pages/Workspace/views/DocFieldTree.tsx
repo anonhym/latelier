@@ -84,9 +84,9 @@ export function TypeBadge({ type }: { type: DisplayType }) {
  * `FieldNode`'s own mouse-driven `onContextMenu` can't reach `DocFieldTree`'s
  * roving-focus container, so it can't supply `returnFocusTo` itself —
  * `DocFieldTree` injects that (and `focusMenuOnOpen`, keyboard-open only) in
- * the wrapper it hands down to `FieldNode` instead. See
- * `useKeyboardMenuFocus`'s docstring for why `focusMenuOnOpen` has to stay
- * keyboard-only even though `returnFocusTo` is now set on both paths.
+ * the wrapper it hands down to `FieldNode` instead. See `useMenuFocus`'s
+ * docstring for why `focusMenuOnOpen` has to stay keyboard-only even though
+ * `returnFocusTo` is now set on both paths.
  */
 export interface FieldMenuOpenPayload {
   anchor: { x: number; y: number };

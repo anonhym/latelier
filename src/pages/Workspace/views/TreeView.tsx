@@ -7,8 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
-import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
+import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -457,12 +456,11 @@ export function TreeView({
     value: unknown;
     // #68/#69 — `DocFieldTree` sets `returnFocusTo` on both the mouse and
     // keyboard open paths, `focusMenuOnOpen` only on the keyboard one. See
-    // `useKeyboardMenuFocus`'s docstring.
+    // `useMenuFocus`'s docstring.
     returnFocusTo?: HTMLElement | null;
     focusMenuOnOpen?: boolean;
   } | null>(null);
   const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
-  useKeyboardMenuFocus(fieldMenuRef, contextMenu);
   // Memoized so `?? {}` doesn't allocate a fresh object every render, which
   // would cascade into the rowProps useMemo below.
   const expandedRows = React.useMemo(
@@ -533,9 +531,9 @@ export function TreeView({
 
   // #68 — this menu previously had no Escape path at all, only
   // click-outside; a keyboard-opened menu with no keyboard way out would
-  // fail #68's own acceptance. `useMenuDismiss` owns both halves.
+  // fail #68's own acceptance. `useMenuFocus` owns dismiss and focus both.
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
-  useMenuDismiss(!!contextMenu, closeContextMenu);
+  useMenuFocus(fieldMenuRef, contextMenu, closeContextMenu);
 
   // Virtualize the outer doc list with react-window v2. Collapsed rows are
   // ~44px; expanded rows grow with field count. useDynamicRowHeight observes

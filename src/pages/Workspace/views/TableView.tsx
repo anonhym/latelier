@@ -7,8 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
-import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
+import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
@@ -813,12 +812,11 @@ export function TableView({
     // somewhere to send focus back to instead of stranding it on `<body>`.
     returnFocusTo?: HTMLElement | null;
     // #69 — grabbing focus *into* the menu on open stays keyboard-only; see
-    // `useKeyboardMenuFocus`'s docstring for why `returnFocusTo` alone isn't
-    // enough to decide that.
+    // `useMenuFocus`'s docstring for why `returnFocusTo` alone isn't enough
+    // to decide that.
     focusMenuOnOpen?: boolean;
   } | null>(null);
   const cellMenuRef = React.useRef<HTMLDivElement | null>(null);
-  useKeyboardMenuFocus(cellMenuRef, contextMenu);
   const [copiedCell, setCopiedCell] = React.useState<string | null>(null);
 
   // Badge, not toast — a toast per cell copy would be noise; a failed copy toasts instead.
@@ -886,7 +884,6 @@ export function TableView({
     focusMenuOnOpen?: boolean;
   } | null>(null);
   const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
-  useKeyboardMenuFocus(fieldMenuRef, fieldContextMenu);
   const handleOpenFieldMenu = React.useCallback(
     ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
       setFieldContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
@@ -927,7 +924,7 @@ export function TableView({
     [state.queryRaw, state.activeBuilderTab, actions],
   );
   const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
-  useMenuDismiss(!!fieldContextMenu, closeFieldContextMenu);
+  useMenuFocus(fieldMenuRef, fieldContextMenu, closeFieldContextMenu);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
@@ -1018,7 +1015,7 @@ export function TableView({
   };
 
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
-  useMenuDismiss(!!contextMenu, closeContextMenu);
+  useMenuFocus(cellMenuRef, contextMenu, closeContextMenu);
 
   // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to
@@ -1449,8 +1446,9 @@ export function TableView({
         // window, beside the click-outside dismiss, so it fires the same way
         // whether or not this div happens to hold focus right now. A mouse
         // open still never focuses it; a keyboard open does, via
-        // `useKeyboardMenuFocus` (#55) — which is also what returns focus to
-        // the grid once the window listener calls `setContextMenu(null)`.
+        // `useMenuFocus` (#55/#87) — which is also what returns focus to the
+        // grid once the window listener calls `setContextMenu(null)`, unless
+        // the click that dismissed it landed on another focusable control.
         <div
           ref={cellMenuRef}
           role="group"

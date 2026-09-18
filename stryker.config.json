@@ -19,7 +19,7 @@
     "electron/mongo/uri-parse.ts",
     "src/hooks/useRovingHighlight.ts",
     "src/hooks/useRovingFocus.ts",
-    "src/hooks/useKeyboardMenuFocus.ts",
+    "src/hooks/useMenuFocus.ts",
     "src/utils/contextMenuKey.ts",
     "src/pages/Workspace/views/docFieldFlatten.ts",
     "src/pages/Workspace/builder.ts",
