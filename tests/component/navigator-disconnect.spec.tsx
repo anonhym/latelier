@@ -120,8 +120,8 @@ describe('DbCollectionNavigator — context-menu Disconnect', () => {
  * defect class, and belongs to this ticket rather than that file's existing
  * cases, so it lives here instead of extending an unrelated ticket's file.
  */
-describe('DbCollectionNavigator — context-menu Disconnect returns focus to the row', () => {
-  it('cancelling the confirm dialog opened from the context menu returns focus to the row, not <body>', async () => {
+describe('DbCollectionNavigator — context-menu Disconnect returns focus to the tree', () => {
+  it('cancelling the confirm dialog opened from the context menu returns focus to the tree, not <body>', async () => {
     installAtelierMock({
       tabs: { list: async () => [] },
       conn: { list: async () => [connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' })] },
@@ -145,6 +145,12 @@ describe('DbCollectionNavigator — context-menu Disconnect returns focus to the
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod"?' });
     await user.click(within(dialog).getByText('Cancel'));
 
-    await waitFor(() => expect(document.activeElement).toBe(row));
+    // #58 — the trigger `onDisconnect` is handed is the tree container now,
+    // not the row (see `navigator-context-menu-focus.spec.tsx`'s header
+    // comment: a row has no `tabIndex` any more, so it's no longer a
+    // `.focus()` target at all).
+    const tree = screen.getByRole('tree');
+    await waitFor(() => expect(document.activeElement).toBe(tree));
+    expect(tree.getAttribute('aria-activedescendant')).toBe(row.id);
   });
 });
