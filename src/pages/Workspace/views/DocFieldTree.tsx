@@ -361,6 +361,15 @@ function FieldNodeImpl({
   );
 }
 
+/**
+ * #60 — is `activePath` this node's own row, or any row below it? Paths are
+ * built by dot-joining each level (`FieldNodeImpl`'s recursion below), so a
+ * descendant's path is always this one plus a `.` and more.
+ */
+function activeCoversSubtree(activePath: string | null, path: string): boolean {
+  return activePath !== null && (activePath === path || activePath.startsWith(`${path}.`));
+}
+
 export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   // Cheap identity checks first.
   if (
@@ -385,11 +394,25 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   const wasCopied = prev.copiedPath === prev.path;
   const isCopied = next.copiedPath === next.path;
   if (wasCopied !== isCopied) return false;
-  // #60 — same idiom as copiedPath above, not an identity check: only
-  // matters if this row just became / stopped being the active one.
-  const wasActive = prev.activePath === prev.path;
-  const isActive = next.activePath === next.path;
-  if (wasActive !== isActive) return false;
+  // #60 — a "did THIS row's own flag change" check is not enough, and review
+  // caught it. A `FieldNode` renders its expanded children itself, so each
+  // child's `activePath` comes from *this* node's render. When the active row
+  // moves between two children of the same node, this node's own flag is
+  // false both before and after, a path-only check skips its render, and the
+  // children keep the stale value — the outline stops moving. `{ a: { b, c } }`
+  // with `a` expanded is the smallest case: `a` is neither `a.b` nor `a.c`.
+  //
+  // So: re-render when the active row changed AND it was, or now is, inside
+  // this node's subtree. Same descendant-prefix idiom as the `expandedPaths`
+  // branch below, and it still leaves untouched every node the active row
+  // neither left nor entered.
+  if (
+    prev.activePath !== next.activePath &&
+    (activeCoversSubtree(prev.activePath, next.path) ||
+      activeCoversSubtree(next.activePath, next.path))
+  ) {
+    return false;
+  }
   // expandedPaths Set identity changes on every toggle, but most FieldNodes
   // are unaffected. Skip render if neither THIS path's expansion changed nor
   // (when expanded) any descendant path's expansion changed.

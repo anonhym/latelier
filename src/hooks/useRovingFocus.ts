@@ -131,7 +131,12 @@ export function useRovingFocus({
 
   return {
     activeIndex: index,
-    highlightIndex: focused ? index : -1,
+    // The `count === 0` arm matches `activeId` and `aria-activedescendant`
+    // below rather than leaning on callers: with no rows, `index` is 0, not
+    // -1, so a focused empty widget would nominate row 0. No caller renders a
+    // row at index 0 while `count` is 0 today, so nothing paints — but the
+    // three values on these lines should agree about what "empty" means.
+    highlightIndex: count === 0 || !focused ? -1 : index,
     activeId: count === 0 ? undefined : rowId(index),
     rowId,
     setActiveIndex: setIndex,

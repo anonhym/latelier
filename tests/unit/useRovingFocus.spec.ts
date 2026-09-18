@@ -158,6 +158,15 @@ describe('useRovingFocus', () => {
       expect(result.current.highlightIndex).toBe(-1);
     });
 
+    it('stays -1 for an empty list even while the container has focus', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 0, idPrefix: 'row-' }));
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      expect(result.current.highlightIndex).toBe(-1);
+      // `activeIndex` is 0 here, not -1 — the two are deliberately different
+      // values, and this is the case that shows it.
+      expect(result.current.activeIndex).toBe(0);
+    });
+
     it('ignores a focus/blur whose target is not the container itself', () => {
       const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
       act(() => result.current.containerProps.onFocus(focusEvent({ sameTarget: false })));

@@ -170,4 +170,37 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
 
     expectActiveRowOutlineLifecycle(tree, rows, { key: 'ArrowDown', from: 0, to: 1 });
   });
+
+  // Found in review. The test above uses a flat document, where every row is
+  // a direct child of `DocFieldTree` and reads `activePath` straight from the
+  // top — no memo boundary in between. A nested document puts a `FieldNode`
+  // between the tree and the rows that matter, and that node's own comparator
+  // decides whether its children ever see the new `activePath`. `{ a: { b, c } }`
+  // is the smallest case that crosses the boundary twice: the first ArrowDown
+  // flips node `a`'s own active flag (so it re-renders either way), the second
+  // does not — `a`'s path is neither `a.b` nor `a.c` — which is exactly when a
+  // path-only comparator skips the render its children needed.
+  it('moves the outline between two children of the same expanded node', async () => {
+    const { container } = renderFieldTree(
+      { a: { b: 1, c: 2 } },
+      { expandedPaths: new Set(['doc1::a']) },
+    );
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    // Attribute selector, not `#id`: these ids carry `::` and `.`, which a
+    // CSS id selector reads as a pseudo-element and a class.
+    const rowFor = (path: string) =>
+      container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+
+    expect(rowFor('a.b')).not.toBeNull();
+    expect(rowFor('a.c')).not.toBeNull();
+
+    tree.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(rowFor('a.b').style.outline).toContain('2px');
+
+    await userEvent.keyboard('{ArrowDown}');
+    expect(tree.getAttribute('aria-activedescendant')).toBe('field-row-doc1::a.c');
+    expect(rowFor('a.c').style.outline).toContain('2px');
+    expect(rowFor('a.b').style.outline).not.toContain('2px');
+  });
 });
