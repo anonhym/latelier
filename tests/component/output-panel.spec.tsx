@@ -214,4 +214,25 @@ describe('OutputPanel resize keyboard support (#56)', () => {
     expect(handle.getAttribute('aria-valuenow')).toBe('260');
     expect(document.activeElement).toBe(handle);
   });
+
+  // `aria-valuemax` is metadata, not the clamp itself — `clampHeight` reads
+  // `window.innerHeight` fresh on every drag/keypress regardless, so a resize
+  // mid-interaction always clamps correctly either way. This only pins that
+  // the *displayed* bound doesn't go stale when nothing else re-renders.
+  it('updates aria-valuemax when the window resizes while nothing else changes', () => {
+    const originalInnerHeight = window.innerHeight;
+    try {
+      render(<ControlledOutputPanel />);
+      const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+      const before = handle.getAttribute('aria-valuemax');
+
+      Object.defineProperty(window, 'innerHeight', { value: 2000, configurable: true });
+      fireEvent(window, new Event('resize'));
+
+      expect(handle.getAttribute('aria-valuemax')).toBe(String(Math.floor(2000 * 0.7)));
+      expect(handle.getAttribute('aria-valuemax')).not.toBe(before);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+    }
+  });
 });

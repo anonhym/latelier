@@ -60,6 +60,18 @@ export function OutputPanel({
   const [errDetails, setErrDetails] = React.useState(false);
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
 
+  // `maxHeight()` reads `window.innerHeight` fresh on every call, so the
+  // clamp itself is always correct at interaction time (drag/keyboard both
+  // call it live). Without this, only the *displayed* `aria-valuemax` would
+  // go stale — stuck at whatever it was on the last render — if the window
+  // is resized while the separator holds focus and nothing else re-renders.
+  const [ariaMaxHeight, setAriaMaxHeight] = React.useState(maxHeight);
+  React.useEffect(() => {
+    const onResize = () => setAriaMaxHeight(maxHeight());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const onMouseDown = (e: React.MouseEvent) => {
     dragRef.current = { startY: e.clientY, startH: height };
     const onMove = (ev: MouseEvent) => {
@@ -139,7 +151,7 @@ export function OutputPanel({
         aria-label="Resize output panel"
         aria-valuenow={height}
         aria-valuemin={MIN_HEIGHT}
-        aria-valuemax={maxHeight()}
+        aria-valuemax={ariaMaxHeight}
         style={{
           height: 6,
           cursor: 'ns-resize',

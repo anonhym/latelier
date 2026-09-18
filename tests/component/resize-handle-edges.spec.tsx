@@ -107,12 +107,14 @@ function ControlledResizeHandle({
   min,
   max,
   onCommit,
+  ariaLabel = 'Resize reference drawer',
 }: {
   edge: 'left' | 'right' | 'top' | 'bottom';
   initial: number;
   min: number;
   max: number;
   onCommit: (next: number) => void;
+  ariaLabel?: string;
 }) {
   const [value, setValue] = useState(initial);
   return (
@@ -123,7 +125,7 @@ function ControlledResizeHandle({
       max={max}
       onChange={setValue}
       onCommit={onCommit}
-      ariaLabel="Resize reference drawer"
+      ariaLabel={ariaLabel}
     />
   );
 }
@@ -139,25 +141,54 @@ describe('ResizeHandle keyboard resize (#56)', () => {
     expect(document.activeElement).toBe(handle);
   });
 
-  it('ArrowLeft/ArrowRight resize by the shared step and commit immediately, keeping focus', async () => {
+  it('edge="right": ArrowLeft grows the drawer and ArrowRight shrinks it — inverted to agree with the mouse drag — and commits immediately, keeping focus', async () => {
     const user = userEvent.setup();
     const onCommit = vi.fn();
     render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={onCommit} />);
     const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
     await user.tab();
 
-    await user.keyboard('{ArrowLeft}');
+    // Dragging right shrinks a right-edge panel (the mouse test above), so
+    // ArrowRight — the "toward the panel" key — must shrink it too.
+    await user.keyboard('{ArrowRight}');
     expect(handle.getAttribute('aria-valuenow')).toBe('370');
     expect(onCommit).toHaveBeenLastCalledWith(370);
     expect(document.activeElement).toBe(handle);
 
-    await user.keyboard('{ArrowRight}{ArrowRight}');
+    // And ArrowLeft — "away from the panel" — grows it, twice over.
+    await user.keyboard('{ArrowLeft}{ArrowLeft}');
     expect(handle.getAttribute('aria-valuenow')).toBe('390');
     expect(onCommit).toHaveBeenLastCalledWith(390);
     expect(document.activeElement).toBe(handle);
   });
 
-  it('Home and End jump to the bounds and stay clamped and focused past them', async () => {
+  it('edge="left": ArrowRight grows the navigator and ArrowLeft shrinks it — not inverted', async () => {
+    const user = userEvent.setup();
+    const onCommit = vi.fn();
+    render(
+      <ControlledResizeHandle
+        edge="left"
+        initial={206}
+        min={160}
+        max={560}
+        onCommit={onCommit}
+        ariaLabel="Resize navigator"
+      />,
+    );
+    const handle = screen.getByRole('separator', { name: 'Resize navigator' });
+    await user.tab();
+
+    await user.keyboard('{ArrowRight}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('216');
+    expect(onCommit).toHaveBeenLastCalledWith(216);
+
+    await user.keyboard('{ArrowLeft}{ArrowLeft}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('196');
+    expect(onCommit).toHaveBeenLastCalledWith(196);
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('Home and End jump to the bounds regardless of edge, and stay clamped and focused past them', async () => {
     const user = userEvent.setup();
     render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={vi.fn()} />);
     const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
@@ -165,14 +196,17 @@ describe('ResizeHandle keyboard resize (#56)', () => {
 
     await user.keyboard('{Home}');
     expect(handle.getAttribute('aria-valuenow')).toBe('160');
-    // Past the bound: still clamped at min, not below it.
-    await user.keyboard('{ArrowLeft}');
+    // Past the bound: for edge="right", ArrowRight is the shrinking key, so
+    // it's the one that must stay clamped at min rather than go negative.
+    await user.keyboard('{ArrowRight}');
     expect(handle.getAttribute('aria-valuenow')).toBe('160');
     expect(document.activeElement).toBe(handle);
 
     await user.keyboard('{End}');
     expect(handle.getAttribute('aria-valuenow')).toBe('560');
-    await user.keyboard('{ArrowRight}');
+    // And ArrowLeft is the growing key here, so it's the one that must stay
+    // clamped at max rather than overshoot it.
+    await user.keyboard('{ArrowLeft}');
     expect(handle.getAttribute('aria-valuenow')).toBe('560');
     expect(document.activeElement).toBe(handle);
   });
@@ -185,5 +219,51 @@ describe('ResizeHandle keyboard resize (#56)', () => {
     expect(handle.style.background).toBe('transparent');
     await user.tab();
     expect(handle.style.background).not.toBe('transparent');
+  });
+
+  /**
+   * `left`/`right` were the only edges either drag or Arrow keys were ever
+   * tested against — `top`/`bottom` are unused in production today, but a
+   * regression here would be just as latent as the one this closes (mouse
+   * and keyboard disagreeing on which physical direction grows the panel).
+   * Each case drags 40px in the negative screen direction (up/left) and
+   * presses the one Arrow key that means the same physical direction, then
+   * asserts they moved the tracked value the same way — the exact shape
+   * used to find and confirm the fix.
+   */
+  const EDGE_CASES: ReadonlyArray<{
+    edge: 'left' | 'right' | 'top' | 'bottom';
+    key: '{ArrowLeft}' | '{ArrowUp}';
+    expectedDrag: number;
+    expectedArrow: number;
+  }> = [
+    { edge: 'left', key: '{ArrowLeft}', expectedDrag: 260, expectedArrow: 290 },
+    { edge: 'right', key: '{ArrowLeft}', expectedDrag: 340, expectedArrow: 310 },
+    { edge: 'top', key: '{ArrowUp}', expectedDrag: 340, expectedArrow: 310 },
+    { edge: 'bottom', key: '{ArrowUp}', expectedDrag: 260, expectedArrow: 290 },
+  ];
+
+  EDGE_CASES.forEach(({ edge, key, expectedDrag, expectedArrow }) => {
+    it(`edge="${edge}": dragging up/left and pressing ${key} move the value the same direction`, async () => {
+      const user = userEvent.setup();
+
+      const onChangeDrag = vi.fn();
+      const { unmount } = render(
+        <ResizeHandle edge={edge} value={300} min={100} max={600} onChange={onChangeDrag} ariaLabel="probe" />,
+      );
+      const dragHandle = screen.getByRole('separator', { name: 'probe' });
+      drag(dragHandle, 500, 460); // 40px negative (up for vertical, left for horizontal)
+      expect(onChangeDrag).toHaveBeenLastCalledWith(expectedDrag);
+      unmount();
+
+      render(<ControlledResizeHandle edge={edge} initial={300} min={100} max={600} onCommit={vi.fn()} ariaLabel="probe" />);
+      const arrowHandle = screen.getByRole('separator', { name: 'probe' });
+      await user.tab();
+      await user.keyboard(key);
+      expect(arrowHandle.getAttribute('aria-valuenow')).toBe(String(expectedArrow));
+
+      // The actual regression check: both moved off 300 in the same direction.
+      expect(Math.sign(expectedDrag - 300)).toBe(Math.sign(expectedArrow - 300));
+    });
   });
 });
