@@ -276,93 +276,97 @@ async function expectActiveDescendantExists(tree: HTMLElement, expected: string)
   expect(document.getElementById(expected)).not.toBeNull();
 }
 
+/**
+ * One shape per dialog: open the row's context menu, pick the item, fill the
+ * dialog's one textbox, submit, then assert focus is back on the tree and
+ * `aria-activedescendant` names a live row. Parameterized for the same reason
+ * the cancel cases above are — four inlined copies measured 18.8% duplicated
+ * lines against SonarCloud's 3% new-code gate.
+ *
+ * `setActive` is the per-case difference that matters: it plays the parent's
+ * half of the contract after the mutation (see `mountNavigator`). Freezing it
+ * instead is what made the reverted box-2 heuristic look necessary.
+ */
+const successCases: {
+  label: string;
+  row: string;
+  item: string;
+  textbox: string;
+  type: string;
+  submit: string;
+  /** What the parent does to the active namespace once the mutation lands. */
+  setActive: Partial<DbCollectionNavigatorProps>;
+  expected: string;
+  why: string;
+}[] = [
+  {
+    label: 'Drop collection',
+    row: 'nav-coll-shop-orders',
+    item: 'Drop collection',
+    textbox: 'Confirm collection name',
+    type: 'orders',
+    submit: 'Drop',
+    setActive: { activeCollection: undefined },
+    expected: 'navigator-row-conn:c1',
+    why: '`closeForNamespace` closes the dropped collection\'s tab.',
+  },
+  {
+    label: 'Drop database',
+    row: 'nav-db-shop',
+    item: 'Drop database',
+    textbox: 'Confirm database name',
+    type: 'shop',
+    submit: 'Drop database',
+    setActive: { activeDbName: undefined, activeCollection: undefined },
+    expected: 'navigator-row-conn:c1',
+    why: '`closeForNamespace({ connectionId, dbName })` closes every tab in the dropped db.',
+  },
+  {
+    label: 'Rename collection',
+    row: 'nav-coll-shop-orders',
+    item: 'Rename collection',
+    textbox: 'New name',
+    type: 'archive',
+    submit: 'Rename',
+    setActive: { activeCollection: 'archive' },
+    expected: 'navigator-row-coll:c1:shop:archive',
+    why: '`retargetCollection` points the tab at the new name, so the active row follows the rename.',
+  },
+  {
+    label: 'Create collection',
+    row: 'nav-db-shop',
+    item: 'Create collection',
+    textbox: 'Collection name',
+    type: 'logs',
+    submit: 'Create collection',
+    setActive: {},
+    expected: 'navigator-row-db:c1:shop',
+    why: 'A create removes nothing, so the parent leaves the active namespace alone and the db row the menu was opened on is still there.',
+  },
+];
+
 describe('DbCollectionNavigator — context-menu dialogs return focus to the tree on success', () => {
-  it('Drop collection: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
-    statefulMocks();
-    const { setActive } = mountNavigator();
-    await screen.findByText('orders');
+  for (const c of successCases) {
+    // Kill line: in that dialog, revert `finish()` to the raw success callback.
+    // Red is `expected <body>... to be <div role="tree">` — focus stranded.
+    it(`${c.label}: success returns focus to the tree, and aria-activedescendant names a row that exists`, async () => {
+      statefulMocks();
+      const { setActive } = mountNavigator();
+      await screen.findByText('orders');
 
-    const user = userEvent.setup();
-    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
-    await user.click(await screen.findByRole('menuitem', { name: 'Drop collection' }));
-    const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByRole('textbox', { name: 'Confirm collection name' }), 'orders');
-    await user.click(within(dialog).getByRole('button', { name: 'Drop' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      const user = userEvent.setup();
+      fireEvent.contextMenu(screen.getByTestId(c.row));
+      await user.click(await screen.findByRole('menuitem', { name: c.item }));
+      const dialog = await screen.findByRole('dialog');
+      await user.type(within(dialog).getByRole('textbox', { name: c.textbox }), c.type);
+      await user.click(within(dialog).getByRole('button', { name: c.submit }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    const tree = screen.getByRole('tree');
-    await waitFor(() => expect(document.activeElement).toBe(tree));
+      const tree = screen.getByRole('tree');
+      await waitFor(() => expect(document.activeElement).toBe(tree));
 
-    // The parent closes the dropped namespace's tab (`closeForNamespace`), so
-    // `activeCollection` goes away with it.
-    setActive({ activeCollection: undefined });
-    await expectActiveDescendantExists(tree, 'navigator-row-conn:c1');
-  });
-
-  it('Drop database: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
-    statefulMocks();
-    const { setActive } = mountNavigator();
-    await screen.findByText('orders');
-
-    const user = userEvent.setup();
-    fireEvent.contextMenu(screen.getByTestId('nav-db-shop'));
-    await user.click(await screen.findByRole('menuitem', { name: 'Drop database' }));
-    const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByRole('textbox', { name: 'Confirm database name' }), 'shop');
-    await user.click(within(dialog).getByRole('button', { name: 'Drop database' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    const tree = screen.getByRole('tree');
-    await waitFor(() => expect(document.activeElement).toBe(tree));
-
-    // `closeForNamespace({ connectionId, dbName })` closes every tab in the
-    // dropped database, so both props go.
-    setActive({ activeDbName: undefined, activeCollection: undefined });
-    await expectActiveDescendantExists(tree, 'navigator-row-conn:c1');
-  });
-
-  it('Rename collection: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
-    statefulMocks();
-    const { setActive } = mountNavigator();
-    await screen.findByText('orders');
-
-    const user = userEvent.setup();
-    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
-    await user.click(await screen.findByRole('menuitem', { name: 'Rename collection' }));
-    const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByRole('textbox', { name: 'New name' }), 'archive');
-    await user.click(within(dialog).getByRole('button', { name: 'Rename' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    const tree = screen.getByRole('tree');
-    await waitFor(() => expect(document.activeElement).toBe(tree));
-
-    // `retargetCollection` points the tab at the new name, so the active
-    // collection follows the rename rather than vanishing.
-    setActive({ activeCollection: 'archive' });
-    await expectActiveDescendantExists(tree, 'navigator-row-coll:c1:shop:archive');
-  });
-
-  it('Create collection: success returns focus to the tree, and aria-activedescendant still names the row the menu was opened from', async () => {
-    statefulMocks();
-    mountNavigator();
-    await screen.findByText('orders');
-
-    const dbRow = screen.getByTestId('nav-db-shop');
-    const user = userEvent.setup();
-    fireEvent.contextMenu(dbRow);
-    await user.click(await screen.findByRole('menuitem', { name: 'Create collection' }));
-    const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByRole('textbox', { name: 'Collection name' }), 'logs');
-    await user.click(within(dialog).getByRole('button', { name: 'Create collection' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    const tree = screen.getByRole('tree');
-    await waitFor(() => expect(document.activeElement).toBe(tree));
-    // Creating a collection doesn't remove the db row the menu was opened on,
-    // so this one holds even without the `DbCollectionNavigator.tsx` fix —
-    // included for box 4's per-dialog coverage, not as a box-2 regression test.
-    expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-db:c1:shop');
-  });
-
+      setActive(c.setActive);
+      await expectActiveDescendantExists(tree, c.expected);
+    });
+  }
 });
