@@ -74,6 +74,85 @@ async function confirmAdd() {
   fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
 }
 
+/**
+ * X19 #68/#69 — `TreeView` and `TableView` reach the *same* field menu: both
+ * render a `DocFieldTree`, and the menu belongs to that tree, not to either
+ * view. The two copies of this block were identical apart from which view
+ * `mount` rendered, and SonarCloud measured the file at 47.9% duplication.
+ * Declared once here and called from inside each view's own `describe`, so
+ * each still runs against its own mount.
+ *
+ * `userEvent`, not `fireEvent`, per #68's own acceptance — `fireEvent` does
+ * no focus management at all, which is how #20's defect survived 48 passing
+ * tests. The one `fireEvent.keyDown` below is deliberate: the ContextMenu
+ * key has no `userEvent` spelling.
+ */
+function describeFieldMenuKeyboardAndFocusReturn(
+  mount: () => { container: HTMLElement },
+): void {
+  // "name" is also a table *column*, whose cell carries the same "Drag to
+  // add" title as the field-tree row — so the row query is scoped to the
+  // field-tree panel rather than the whole document, for both views.
+  const fieldTreeOf = (container: HTMLElement) =>
+    container.querySelector('[data-expanded-doc-section="true"]') as HTMLElement;
+  const rowOf = (container: HTMLElement) =>
+    within(fieldTreeOf(container)).getByTitle(/Drag to add "name/);
+
+  describe('keyboard open and focus return (#68/#69)', () => {
+    it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
+      const user = userEvent.setup();
+      const { container } = mount();
+      const fieldTree = fieldTreeOf(container);
+
+      await user.click(fieldTree);
+      await user.keyboard('{Shift>}{F10}{/Shift}');
+
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+      expect(screen.getByText('Copy field path')).toBeTruthy();
+      expect(screen.getByText('Add to filter')).toBeTruthy();
+      // Focus entered the menu on open — keyboard-only (#69), unlike the
+      // mouse path below.
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+      );
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(fieldTree));
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      const { container } = mount();
+
+      fireEvent.keyDown(fieldTreeOf(container), { key: 'ContextMenu' });
+
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+    });
+
+    // #69 — one mechanism for both open paths: a right-click still does not
+    // grab focus into the menu, but Escape now has somewhere real to send
+    // focus back to instead of stranding it on `<body>`.
+    it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
+      const user = userEvent.setup();
+      const { container } = mount();
+      const fieldTree = fieldTreeOf(container);
+
+      await user.pointer({ keys: '[MouseRight]', target: rowOf(container) });
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+      // Unchanged from before #69: a mouse open does not steal focus.
+      expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(fieldTree);
+      });
+    });
+  });
+}
+
+
 describe(' "Add to filter" on the field-tree context menu', () => {
   // Mantine's notification queue is a module-level singleton, not
   // component state — a toast fired in one test otherwise lingers into the
@@ -203,72 +282,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       expect(actions.patch).not.toHaveBeenCalled();
     });
 
-    // #68/#69 — the field menu was reachable only by right-click; this
-    // covers the keyboard-open path plus the shared focus-return mechanism
-    // for both open paths. `userEvent`, not `fireEvent`, per #68's own
-    // acceptance — `fireEvent` does no focus management, which is how #20's
-    // defect survived 48 passing tests.
-    describe('keyboard open and focus return (#68/#69)', () => {
-      it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
-        const user = userEvent.setup();
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-
-        await user.click(fieldTree);
-        await user.keyboard('{Shift>}{F10}{/Shift}');
-
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-        expect(screen.getByText('Copy field path')).toBeTruthy();
-        expect(screen.getByText('Add to filter')).toBeTruthy();
-        // Focus entered the menu on open — a keyboard-open-only behaviour
-        // (#69), unlike the mouse path covered below.
-        await waitFor(() =>
-          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
-        );
-
-        await user.keyboard('{Escape}');
-
-        await waitFor(() => expect(document.activeElement).toBe(fieldTree));
-      });
-
-      it('the ContextMenu key opens the same menu', async () => {
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-
-        fireEvent.keyDown(fieldTree, { key: 'ContextMenu' });
-
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-      });
-
-      // #69 — one mechanism for both open paths: a right-click still
-      // doesn't grab focus into the menu (right-click behaviour is
-      // otherwise unchanged), but Escape now has somewhere real to send
-      // focus back to instead of stranding it on `<body>`.
-      it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
-        const user = userEvent.setup();
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-        const row = screen.getByTitle(/Drag to add "name/);
-
-        await user.pointer({ keys: '[MouseRight]', target: row });
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-        // Unchanged from before #69: a mouse open doesn't steal focus.
-        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
-
-        await user.keyboard('{Escape}');
-
-        await waitFor(() => {
-          expect(document.activeElement).not.toBe(document.body);
-          expect(document.activeElement).toBe(fieldTree);
-        });
-      });
-    });
+    describeFieldMenuKeyboardAndFocusReturn(mount);
   });
 
   describe('TableView', () => {
@@ -356,62 +370,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       expect(actions.patch).not.toHaveBeenCalled();
     });
 
-    // #68/#69 — same coverage as TreeView's block above, for the field menu
-    // reached from an expanded row's panel rather than the tree.
-    describe('keyboard open and focus return (#68/#69)', () => {
-      it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
-        const user = userEvent.setup();
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-
-        await user.click(fieldTree);
-        await user.keyboard('{Shift>}{F10}{/Shift}');
-
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-        expect(screen.getByText('Copy field path')).toBeTruthy();
-        expect(screen.getByText('Add to filter')).toBeTruthy();
-        await waitFor(() =>
-          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
-        );
-
-        await user.keyboard('{Escape}');
-
-        await waitFor(() => expect(document.activeElement).toBe(fieldTree));
-      });
-
-      it('the ContextMenu key opens the same menu', async () => {
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-
-        fireEvent.keyDown(fieldTree, { key: 'ContextMenu' });
-
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-      });
-
-      it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
-        const user = userEvent.setup();
-        const { container } = mount();
-        const fieldTree = container.querySelector(
-          '[data-expanded-doc-section="true"]',
-        ) as HTMLElement;
-        const row = fieldTreeRow(container);
-
-        await user.pointer({ keys: '[MouseRight]', target: row });
-        expect(await screen.findByText('Copy value')).toBeTruthy();
-        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
-
-        await user.keyboard('{Escape}');
-
-        await waitFor(() => {
-          expect(document.activeElement).not.toBe(document.body);
-          expect(document.activeElement).toBe(fieldTree);
-        });
-      });
-    });
+    describeFieldMenuKeyboardAndFocusReturn(mount);
   });
 
   describe('TableView cell-level menu', () => {

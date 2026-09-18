@@ -7,6 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
+import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
 import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
@@ -925,24 +926,8 @@ export function TableView({
     },
     [state.queryRaw, state.activeBuilderTab, actions],
   );
-  React.useEffect(() => {
-    if (!fieldContextMenu) return;
-    const handler = () => setFieldContextMenu(null);
-    // Escape listens on the window, next to the click-outside dismiss, rather
-    // than as an `onKeyDown` on the menu itself. The menu opens from a
-    // `contextmenu` event and nothing focuses it, so a keydown handler on that
-    // element would never receive one — dead code that a test firing directly
-    // at the node would still report as working.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFieldContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [fieldContextMenu]);
+  const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
+  useMenuDismiss(!!fieldContextMenu, closeFieldContextMenu);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
@@ -1032,21 +1017,8 @@ export function TableView({
     window.addEventListener('mouseup', onUp);
   };
 
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    // See the field menu above: Escape has to be a window listener, because
-    // nothing ever gives this menu focus.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
+  useMenuDismiss(!!contextMenu, closeContextMenu);
 
   // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to

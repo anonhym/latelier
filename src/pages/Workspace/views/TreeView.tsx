@@ -8,6 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
+import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -530,25 +531,11 @@ export function TreeView({
     [state.queryRaw, state.activeBuilderTab, actions],
   );
 
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    // #68 — this menu previously had no Escape path at all (only
-    // click-outside); a keyboard-opened menu with no way to close it via
-    // keyboard would fail #68's own acceptance. Same window-listener
-    // reasoning as `TableView`'s hand-rolled menus: nothing gives this menu
-    // real DOM focus (see `useKeyboardMenuFocus` above for the one thing
-    // that does, for a keyboard open), so `onKeyDown` here would never fire.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
+  // #68 — this menu previously had no Escape path at all, only
+  // click-outside; a keyboard-opened menu with no keyboard way out would
+  // fail #68's own acceptance. `useMenuDismiss` owns both halves.
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
+  useMenuDismiss(!!contextMenu, closeContextMenu);
 
   // Virtualize the outer doc list with react-window v2. Collapsed rows are
   // ~44px; expanded rows grow with field count. useDynamicRowHeight observes
