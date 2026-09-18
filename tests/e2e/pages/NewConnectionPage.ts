@@ -29,9 +29,16 @@ export class NewConnectionPage {
   // editing (NewConnection.tsx returns to the deep detail screen on edit).
   get backLink() { return this.win.getByRole('button', { name: /^(Data View|Connection)$/ }); }
 
-  /** Click a form tab by name ('General' | 'Auth' | 'TLS' | 'SSH' | 'Advanced'). */
+  /**
+   * Click a form tab by name ('General' | 'Auth' | 'TLS' | 'SSH' | 'Advanced').
+   *
+   * `role: 'tab'`, not `'button'`: X19/#59 made this strip a real tablist, so
+   * the elements that used to answer to `getByRole('button')` no longer do.
+   * Three e2e tests timed out here before this was updated — the component
+   * suite could not see it, because the break is in this page object.
+   */
   async clickTab(name: string) {
-    await this.win.getByRole('button', { name, exact: true }).first().click();
+    await this.win.getByRole('tab', { name, exact: true }).first().click();
   }
 
   /** Select a connection type option by visible text (e.g., 'Standard (mongodb://)') */
