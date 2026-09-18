@@ -206,6 +206,38 @@ function describeMenuFocusOnDismiss(opts: {
   });
 }
 
+/**
+ * X19 #87 — `TreeView` and `TableView` reach the *same* field menu (both
+ * render a `DocFieldTree`), so both open it and return focus to it exactly
+ * alike. Only `mount` differs. Declared once for the same reason
+ * `describeFieldMenuKeyboardAndFocusReturn` below is: the two copies were
+ * byte-identical and SonarCloud measured the PR's new code at 6.1%
+ * duplication against a 3% gate.
+ */
+function describeFieldMenuFocusOnDismiss(
+  mount: (opts: { doc: Record<string, unknown> }) => { container: HTMLElement },
+): void {
+  describeMenuFocusOnDismiss({
+    mount: () => mount({ doc: DOC2 }),
+    target: fieldTreeOf,
+    openMouse: async (container, index) => {
+      const fieldName = index === 0 ? 'name' : 'role';
+      await userEvent.setup().pointer({
+        keys: '[MouseRight]',
+        target: within(fieldTreeOf(container)).getByTitle(
+          new RegExp(`Drag to add "${fieldName}`),
+        ),
+      });
+    },
+    openKeyboard: async (container) => {
+      const user = userEvent.setup();
+      await user.click(fieldTreeOf(container));
+      await user.keyboard('{Shift>}{F10}{/Shift}');
+    },
+    activateItemLabel: 'Copy value',
+  });
+}
+
 // "Add to filter" confirms before patching whenever the Filter/Builder tab
 // is open (the default in `makeState` below), since the drawer mounted
 // there can hold local-only edits the tab state doesn't know about. Every
@@ -424,25 +456,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
 
     describeFieldMenuKeyboardAndFocusReturn(mount);
 
-    describeMenuFocusOnDismiss({
-      mount: () => mount({ doc: DOC2 }),
-      target: fieldTreeOf,
-      openMouse: async (container, index) => {
-        const fieldName = index === 0 ? 'name' : 'role';
-        await userEvent.setup().pointer({
-          keys: '[MouseRight]',
-          target: within(fieldTreeOf(container)).getByTitle(
-            new RegExp(`Drag to add "${fieldName}`),
-          ),
-        });
-      },
-      openKeyboard: async (container) => {
-        const user = userEvent.setup();
-        await user.click(fieldTreeOf(container));
-        await user.keyboard('{Shift>}{F10}{/Shift}');
-      },
-      activateItemLabel: 'Copy value',
-    });
+    describeFieldMenuFocusOnDismiss(mount);
   });
 
   describe('TableView', () => {
@@ -532,25 +546,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
 
     describeFieldMenuKeyboardAndFocusReturn(mount);
 
-    describeMenuFocusOnDismiss({
-      mount: () => mount({ doc: DOC2 }),
-      target: fieldTreeOf,
-      openMouse: async (container, index) => {
-        const fieldName = index === 0 ? 'name' : 'role';
-        await userEvent.setup().pointer({
-          keys: '[MouseRight]',
-          target: within(fieldTreeOf(container)).getByTitle(
-            new RegExp(`Drag to add "${fieldName}`),
-          ),
-        });
-      },
-      openKeyboard: async (container) => {
-        const user = userEvent.setup();
-        await user.click(fieldTreeOf(container));
-        await user.keyboard('{Shift>}{F10}{/Shift}');
-      },
-      activateItemLabel: 'Copy value',
-    });
+    describeFieldMenuFocusOnDismiss(mount);
   });
 
   describe('TableView cell-level menu', () => {
