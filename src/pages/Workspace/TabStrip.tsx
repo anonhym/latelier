@@ -64,9 +64,9 @@ export function TabStrip({
     tabId: string;
     x: number;
     y: number;
-    // #55 — set only for a keyboard open (Shift+F10 / ContextMenu key), so
-    // `ContextMenu` hands focus back to the tab; `undefined` for a
-    // mouse-driven right-click leaves that path unchanged.
+    // #55/#69 — set for both a keyboard open (Shift+F10 / ContextMenu key)
+    // and a mouse-driven right-click, so `ContextMenu` always has somewhere
+    // to hand focus back to on close instead of stranding it on `<body>`.
     returnFocusTo?: HTMLElement | null;
   } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => new Set());
@@ -323,7 +323,16 @@ export function TabStrip({
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
+                    // #69 — same target the keyboard path above uses: the
+                    // tab is right-clicked while it already has (or is) the
+                    // sensible focus-return element, so Escape/click-away no
+                    // longer strands focus on `<body>` after a right-click.
+                    setMenu({
+                      tabId: tab.id,
+                      x: e.clientX,
+                      y: e.clientY,
+                      returnFocusTo: e.currentTarget,
+                    });
                   }}
                   role="tab"
                   aria-selected={active}

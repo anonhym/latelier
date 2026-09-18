@@ -6,6 +6,7 @@ import type { ReferenceRule } from '@shared/types';
 import { ReferenceChip } from '../../../features/references/ReferenceChip';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { flattenVisibleFieldRows, type FlatFieldRow } from './docFieldFlatten';
+import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 
 // Shared FIELD | VALUE | TYPE column layout — the Tree view's expanded-row
 // header (TreeView's sticky overlay) and the Table view's row-expand panel
@@ -73,6 +74,28 @@ export function TypeBadge({ type }: { type: DisplayType }) {
   );
 }
 
+/**
+ * #68/#69 — payload a field row's context-menu open hands upward. `anchor`
+ * replaces a raw `React.MouseEvent` so a keyboard open (no mouse event at
+ * all) can produce the exact same shape as a right-click — see
+ * `anchorFromRect`/`isContextMenuKey` in `utils/contextMenuKey.ts`.
+ *
+ * Split into two interfaces rather than one with optional fields: a
+ * `FieldNode`'s own mouse-driven `onContextMenu` can't reach `DocFieldTree`'s
+ * roving-focus container, so it can't supply `returnFocusTo` itself —
+ * `DocFieldTree` injects that (and `focusMenuOnOpen`, keyboard-open only) in
+ * the wrapper it hands down to `FieldNode` instead. See
+ * `useKeyboardMenuFocus`'s docstring for why `focusMenuOnOpen` has to stay
+ * keyboard-only even though `returnFocusTo` is now set on both paths.
+ */
+export interface FieldMenuOpenPayload {
+  anchor: { x: number; y: number };
+  fieldPath: string;
+  value: unknown;
+  returnFocusTo: HTMLElement | null;
+  focusMenuOnOpen?: boolean;
+}
+
 interface FieldNodeProps {
   name: string;
   value: unknown;
@@ -85,7 +108,9 @@ interface FieldNodeProps {
   onToggle: (path: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  onOpenMenu: (e: React.MouseEvent, fieldPath: string, value: unknown) => void;
+  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` (and, for
+  // its own keyboard path, `focusMenuOnOpen`) before this reaches the caller.
+  onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => void;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -206,7 +231,7 @@ function FieldNodeImpl({
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onOpenMenu(e, fieldPath, value);
+          onOpenMenu({ anchor: { x: e.clientX, y: e.clientY }, fieldPath, value });
         }}
         title={
           draggable
@@ -442,7 +467,9 @@ export interface DocFieldTreeProps {
   onToggle: (path: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  onOpenMenu: (e: React.MouseEvent, fieldPath: string, value: unknown) => void;
+  // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
+  // keyboard open (no `MouseEvent`) and a mouse open converge on one shape.
+  onOpenMenu: (payload: FieldMenuOpenPayload) => void;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -509,6 +536,24 @@ export function DocFieldTree({
   // for free — no extra guard needed.
   const highlightRow = flatRows[roving.highlightIndex] as FlatFieldRow | undefined;
 
+  // #68 — the focus-return target for both a keyboard-opened field menu and
+  // (#69) a mouse-opened one: this container already carries `tabIndex={0}`
+  // (see the `role="tree"` div below) and, unlike a row, never unmounts out
+  // from under a click.
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Injects `returnFocusTo` before handing a mouse-driven open up to the
+  // caller — a `FieldNode`'s own `onContextMenu` can't reach `containerRef`
+  // itself. `focusMenuOnOpen` is left unset here, so this stays a no-op for
+  // the "no forced refocus on a mouse-opened menu" behaviour the caller's
+  // hand-rolled menus already have — only the keyboard branch below sets it.
+  const handleOpenMenu = React.useCallback(
+    (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => {
+      onOpenMenu({ ...payload, returnFocusTo: containerRef.current });
+    },
+    [onOpenMenu],
+  );
+
   // Found in review: a click needs to make the clicked row the roving index
   // too (even a non-expandable leaf, which has no `onToggle` of its own), or
   // the next Arrow key jumps from wherever the highlight was sitting rather
@@ -532,6 +577,23 @@ export function DocFieldTree({
       // tree itself has focus toggles the active row — one bubbling up from
       // a nested control (the expand button) is that control's own action.
       if (e.target !== e.currentTarget) return;
+      // #68 — Shift+F10 / ContextMenu key: open the field menu for the
+      // active row. Order matches `TableView`'s `handleGridKeyDown`: after
+      // the own-target guard, before Enter/Space.
+      if (isContextMenuKey(e)) {
+        if (!activeRow) return;
+        e.preventDefault();
+        const rowEl = document.getElementById(fieldRowDomId(activeRow.path));
+        if (!rowEl) return;
+        onOpenMenu({
+          anchor: anchorFromRect(rowEl.getBoundingClientRect()),
+          fieldPath: activeRow.fieldPath,
+          value: activeRow.value,
+          returnFocusTo: containerRef.current,
+          focusMenuOnOpen: true,
+        });
+        return;
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (!activeRow?.expandable) return;
       if (e.key === ' ') e.preventDefault();
@@ -540,7 +602,7 @@ export function DocFieldTree({
     // `roving` itself is a fresh object every render; depend on the one
     // function this actually calls instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, activeRow, onToggle],
+    [roving.onKeyDown, activeRow, onToggle, onOpenMenu],
   );
 
   return (
@@ -551,6 +613,7 @@ export function DocFieldTree({
       // needs the roving-focus container to be the same element and the two
       // call sites had grown byte-for-byte identical copies of it.
       data-expanded-doc-section="true"
+      ref={containerRef}
       role="tree"
       tabIndex={roving.containerProps.tabIndex}
       aria-activedescendant={activeRow ? fieldRowDomId(activeRow.path) : undefined}
@@ -595,7 +658,7 @@ export function DocFieldTree({
           onToggle={onToggle}
           copiedPath={copiedPath}
           onCopy={onCopy}
-          onOpenMenu={onOpenMenu}
+          onOpenMenu={handleOpenMenu}
           refsByField={refsByField}
           onRefHover={onRefHover}
           onRefHoverLeave={onRefHoverLeave}

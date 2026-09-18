@@ -276,6 +276,22 @@ describe('the tab strip groups tabs by Connection', () => {
       expect(document.activeElement).not.toBe(document.body);
       expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
     });
+
+    // #69 — the mouse path (`onContextMenu`) used to leave `returnFocusTo`
+    // unset, so a right-click-opened menu closed without restoring focus
+    // anywhere. It now passes `e.currentTarget` (the tab itself), same as
+    // the keyboard path above.
+    it('a right-click-opened menu closes and returns focus to the tab, not <body>', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+      const bravo = tab('bravo');
+
+      fireEvent.contextMenu(bravo);
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Pin tab' }));
+
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(bravo);
+    });
   });
 
   it('reorders a tab dropped on a sibling of its own Connection', async () => {

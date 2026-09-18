@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { notifications } from '@mantine/notifications';
 import { render, fireEvent, screen, waitFor, within } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
@@ -201,6 +202,73 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
     });
+
+    // #68/#69 — the field menu was reachable only by right-click; this
+    // covers the keyboard-open path plus the shared focus-return mechanism
+    // for both open paths. `userEvent`, not `fireEvent`, per #68's own
+    // acceptance — `fireEvent` does no focus management, which is how #20's
+    // defect survived 48 passing tests.
+    describe('keyboard open and focus return (#68/#69)', () => {
+      it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
+        const user = userEvent.setup();
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+
+        await user.click(fieldTree);
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+        expect(screen.getByText('Copy field path')).toBeTruthy();
+        expect(screen.getByText('Add to filter')).toBeTruthy();
+        // Focus entered the menu on open — a keyboard-open-only behaviour
+        // (#69), unlike the mouse path covered below.
+        await waitFor(() =>
+          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+        );
+
+        await user.keyboard('{Escape}');
+
+        await waitFor(() => expect(document.activeElement).toBe(fieldTree));
+      });
+
+      it('the ContextMenu key opens the same menu', async () => {
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+
+        fireEvent.keyDown(fieldTree, { key: 'ContextMenu' });
+
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+      });
+
+      // #69 — one mechanism for both open paths: a right-click still
+      // doesn't grab focus into the menu (right-click behaviour is
+      // otherwise unchanged), but Escape now has somewhere real to send
+      // focus back to instead of stranding it on `<body>`.
+      it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
+        const user = userEvent.setup();
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+        const row = screen.getByTitle(/Drag to add "name/);
+
+        await user.pointer({ keys: '[MouseRight]', target: row });
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+        // Unchanged from before #69: a mouse open doesn't steal focus.
+        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+
+        await user.keyboard('{Escape}');
+
+        await waitFor(() => {
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(fieldTree);
+        });
+      });
+    });
   });
 
   describe('TableView', () => {
@@ -286,6 +354,63 @@ describe(' "Add to filter" on the field-tree context menu', () => {
 
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
+    });
+
+    // #68/#69 — same coverage as TreeView's block above, for the field menu
+    // reached from an expanded row's panel rather than the tree.
+    describe('keyboard open and focus return (#68/#69)', () => {
+      it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
+        const user = userEvent.setup();
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+
+        await user.click(fieldTree);
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+        expect(screen.getByText('Copy field path')).toBeTruthy();
+        expect(screen.getByText('Add to filter')).toBeTruthy();
+        await waitFor(() =>
+          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+        );
+
+        await user.keyboard('{Escape}');
+
+        await waitFor(() => expect(document.activeElement).toBe(fieldTree));
+      });
+
+      it('the ContextMenu key opens the same menu', async () => {
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+
+        fireEvent.keyDown(fieldTree, { key: 'ContextMenu' });
+
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+      });
+
+      it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
+        const user = userEvent.setup();
+        const { container } = mount();
+        const fieldTree = container.querySelector(
+          '[data-expanded-doc-section="true"]',
+        ) as HTMLElement;
+        const row = fieldTreeRow(container);
+
+        await user.pointer({ keys: '[MouseRight]', target: row });
+        expect(await screen.findByText('Copy value')).toBeTruthy();
+        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+
+        await user.keyboard('{Escape}');
+
+        await waitFor(() => {
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(fieldTree);
+        });
+      });
     });
   });
 

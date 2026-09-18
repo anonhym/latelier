@@ -31,9 +31,12 @@ export interface ContextMenuState {
   y: number;
   items: ContextMenuItem[];
   /**
-   * X19/#55 — real DOM focus lived here when the menu opened via keyboard
-   * (Shift+F10 / the ContextMenu key); set only by a keyboard-open call site,
-   * left `undefined` for a mouse-driven right-click so that path is unchanged.
+   * X19/#55/#69 — where to send real DOM focus back to when this menu
+   * closes. Originally set only by a keyboard-open call site (Shift+F10 /
+   * the ContextMenu key); #69 has every call site set it on a mouse-driven
+   * right-click too, since a right-click's own focus origin (or the widget
+   * it belongs to) is just as restorable a target — see each call site's own
+   * comment for what it passes and why.
    *
    * Mantine's own `returnFocus` can't do this: it hangs off `useFocusReturn`'s
    * `useDidUpdate([opened, ...])`, which only fires on a *transition* of
