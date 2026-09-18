@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import {
   DbCollectionNavigator,
   type DbCollectionNavigatorProps,
@@ -278,6 +279,48 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     fireEvent.keyDown(tree(), { key: 'ArrowRight' });
     expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
     expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // #58 — the roving highlight already worked (the tests above); nothing told
+  // assistive tech it moved. `aria-activedescendant` on the container, naming
+  // a real per-row DOM `id`, is the missing half.
+  it('keyboard: aria-activedescendant names the focused row as Down moves it', () => {
+    mockTree();
+    mount();
+
+    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Prod
+    expect(tree().getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+    expect(root('Prod').id).toBe('navigator-row-conn:c1');
+
+    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Staging
+    expect(tree().getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+    expect(root('Staging').id).toBe('navigator-row-conn:c2');
+  });
+
+  // #58 — a row used to carry `tabIndex={-1}`, which the HTML focusing-steps
+  // algorithm still treats as click-focusable even though it's excluded from
+  // Tab order. `userEvent.click` (not `fireEvent.click`, which does no focus
+  // management at all — see the CLAUDE.md/#20 note on this exact trap) moves
+  // real focus, so this is the only kind of click that can catch the bug.
+  it('click on a row keeps real focus on the tree container and sets the row active', async () => {
+    mockTree();
+    mount();
+    const treeEl = tree();
+
+    // Clicking a Connection root also expands it (existing accordion
+    // behaviour above), so wait for its one database to mount before
+    // reading the flat row order below.
+    await userEvent.setup().click(root('Staging'));
+    await screen.findByTestId('nav-db-shop');
+
+    expect(document.activeElement).toBe(treeEl);
+    expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+
+    // The next Arrow key continues from the row just clicked (Staging), not
+    // from wherever the highlight was sitting before — its own newly
+    // revealed "shop" database is the very next row.
+    fireEvent.keyDown(treeEl, { key: 'ArrowDown' });
+    expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-db:c2:shop');
   });
 
   it('keyboard: Left from a database row lands on that database’s own root, not the first one', async () => {

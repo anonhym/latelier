@@ -23,6 +23,15 @@ import {
  * `userEvent.click` on the menu item is load-bearing: `fireEvent.click` focuses
  * nothing, so the capture would be `<body>` from the start and the test would
  * pass without ever reproducing the defect.
+ *
+ * #58 — the trigger these dialogs get handed changed from the row to the tree
+ * container. Rows no longer carry a `tabIndex` (real focus lives on the
+ * container; a row is only ever named via `aria-activedescendant` — see
+ * `DbCollectionNavigator.tsx`'s `onRowContextMenu`), and a plain `<div>` with
+ * no `tabIndex` is not a `.focus()` target at all, so keeping `menuTrigger` as
+ * the row would silently reproduce the exact `<body>` bug this file exists to
+ * catch. What still must hold: focus returns *inside the tree* and
+ * `aria-activedescendant` still names the row the menu was opened from.
  */
 
 function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
@@ -71,7 +80,7 @@ async function openThenCancel(rowTestId: string, item: string, cancel: string) {
   await user.click(screen.getByRole('button', { name: cancel }));
 }
 
-describe('DbCollectionNavigator — context-menu dialogs return focus to the row', () => {
+describe('DbCollectionNavigator — context-menu dialogs return focus to the tree', () => {
   /**
    * MUTATION TARGET — drop `returnFocusTo={menuTrigger}` from any of the four
    * dialogs below and its case goes red on `<body>`.
@@ -84,7 +93,7 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the row
   ];
 
   for (const [label, row, item, cancel] of cases) {
-    it(`${label} returns focus to the row it was opened from`, async () => {
+    it(`${label} returns focus to the tree, still naming the row it was opened from`, async () => {
       baseMocks();
       mountNavigator();
       await screen.findByText('orders');
@@ -92,24 +101,30 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the row
       const rowEl = screen.getByTestId(row);
       await openThenCancel(row, item, cancel);
 
-      await waitFor(() => expect(document.activeElement).toBe(rowEl));
+      const tree = screen.getByRole('tree');
+      await waitFor(() => expect(document.activeElement).toBe(tree));
+      expect(tree.getAttribute('aria-activedescendant')).toBe(rowEl.id);
     });
   }
 
   /**
    * The connection row's "Edit connection" goes through `Workspace.tsx` rather
-   * than a navigator-owned dialog, so it carries the row out as an argument.
+   * than a navigator-owned dialog, so it carries a focus-return target out as
+   * an argument — the tree container, same as the four dialogs above, and not
+   * the row (which can unmount out from under a virtualized scroll and is no
+   * longer a `.focus()` target at all).
    */
-  it('hands the connection row out with "Edit connection"', async () => {
+  it('hands the tree container out with "Edit connection"', async () => {
     baseMocks();
     const onEditConnection = vi.fn();
     mountNavigator({ onEditConnection });
     await screen.findByText('orders');
 
     const rowEl = screen.getByTestId('nav-connection');
+    const tree = screen.getByRole('tree');
     fireEvent.contextMenu(rowEl);
     await userEvent.setup().click(screen.getByRole('menuitem', { name: 'Edit connection' }));
 
-    expect(onEditConnection).toHaveBeenCalledWith('c1', rowEl);
+    expect(onEditConnection).toHaveBeenCalledWith('c1', tree);
   });
 });
