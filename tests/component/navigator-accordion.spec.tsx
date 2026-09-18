@@ -341,6 +341,94 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(screen.queryByTestId('nav-db-shop')).toBeNull();
   });
 
+  // #55 — the shared ContextMenu had no keyboard open path. Shift+F10 and the
+  // dedicated ContextMenu key are the platform conventions for "open the
+  // context menu for the focused thing".
+  describe('keyboard: opening the context menu (#55)', () => {
+    async function focusOrdersRow() {
+      mockTree();
+      mount({ focusedConnectionId: 'c1', activeDbName: 'shop', activeCollection: 'orders' });
+      const rowEl = await screen.findByTestId('nav-coll-shop-orders');
+      const treeEl = tree();
+      await waitFor(() => expect(treeEl.getAttribute('aria-activedescendant')).toBe(rowEl.id));
+      return { rowEl, treeEl };
+    }
+
+    it('Shift+F10 opens the menu for the focused row', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: true });
+
+      expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+
+      expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+    });
+
+    it('F10 without Shift does not open the menu', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: false });
+
+      expect(screen.queryByRole('menuitem', { name: 'Rename collection' })).toBeNull();
+    });
+
+    it('anchors the menu to the focused row, not a stale {0,0}', async () => {
+      const { rowEl, treeEl } = await focusOrdersRow();
+      vi.spyOn(rowEl, 'getBoundingClientRect').mockReturnValue({
+        left: 42,
+        bottom: 84,
+        top: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 42,
+        y: 84,
+        toJSON: () => {},
+      } as DOMRect);
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Rename collection' });
+
+      const anchor = screen.getByTestId('context-menu-anchor');
+      expect(anchor.style.left).toBe('42px');
+      expect(anchor.style.top).toBe('84px');
+    });
+
+    it('focus enters the menu on open and Escape returns it to the tree', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Rename collection' });
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
+
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await waitFor(() => expect(document.activeElement).toBe(treeEl));
+    });
+
+    it('right-click behaviour is unchanged — a mouse-opened menu closes without forcing focus', async () => {
+      const { rowEl } = await focusOrdersRow();
+
+      fireEvent.contextMenu(rowEl);
+      // "Copy name" has no follow-on dialog, unlike Rename/Drop — a plain
+      // close is the only way to see whether *this* menu's own close path
+      // forces a refocus, independent of whatever a dialog's own autoFocus
+      // would do afterward.
+      const item = await screen.findByRole('menuitem', { name: 'Copy name' });
+      fireEvent.click(item);
+
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+  });
+
   it('marks the active namespace only under the Focused Tab’s own Connection', async () => {
     // Both servers have a shop.orders. The Focused Tab is on Prod, so
     // Staging's identically-named collection is a different collection and

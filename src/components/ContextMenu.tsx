@@ -17,6 +17,21 @@ export interface ContextMenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /**
+   * X19/#55 — real DOM focus lived here when the menu opened via keyboard
+   * (Shift+F10 / the ContextMenu key); set only by a keyboard-open call site,
+   * left `undefined` for a mouse-driven right-click so that path is unchanged.
+   *
+   * Mantine's own `returnFocus` can't do this: it hangs off `useFocusReturn`'s
+   * `useDidUpdate([opened, ...])`, which only fires on a *transition* of
+   * `opened`. This component always mounts with `opened` hard-coded `true`
+   * and is dismissed by unmounting entirely (the caller nulls its `menu`
+   * state) rather than by flipping `opened` to `false` — so that transition
+   * never happens and `useFocusReturn` silently never captures or restores
+   * anything (verified against `@mantine/hooks`' `use-focus-return` source).
+   * Restoring it here ourselves is the only way it happens at all.
+   */
+  returnFocusTo?: HTMLElement | null;
 }
 
 interface ContextMenuProps {
@@ -29,10 +44,15 @@ interface ContextMenuProps {
 // the cursor coordinates. Mantine's Floating UI integration handles
 // viewport-edge auto-flipping, outside-click dismissal, and ESC.
 export function ContextMenu({ menu, onClose }: ContextMenuProps) {
+  const handleClose = () => {
+    onClose();
+    menu.returnFocusTo?.focus();
+  };
   return (
-    <Menu opened onClose={onClose} position="bottom-start" shadow="md" width={200}>
+    <Menu opened onClose={handleClose} position="bottom-start" shadow="md" width={200}>
       <Menu.Target>
         <div
+          data-testid="context-menu-anchor"
           style={{
             position: 'fixed',
             top: menu.y,
@@ -57,7 +77,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
               onClick={() => {
                 if (it.disabled) return;
                 it.onClick();
-                onClose();
+                handleClose();
               }}
             >
               {it.label}

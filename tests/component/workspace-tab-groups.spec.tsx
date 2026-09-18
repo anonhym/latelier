@@ -178,6 +178,46 @@ describe('the tab strip groups tabs by Connection', () => {
     expect(within(tab('xray')).getByLabelText('Read-only')).toBeTruthy();
   });
 
+  // #55 — the shared ContextMenu had no keyboard open path; TabStrip is one
+  // of its two real call sites (the other is DbCollectionNavigator) and each
+  // tab is already its own focusable element, so `e.currentTarget` doubles as
+  // both the anchor and the focus-return target.
+  describe('keyboard: opening the tab context menu (#55)', () => {
+    it('Shift+F10 opens the menu for that tab', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+
+      fireEvent.keyDown(tab('bravo'), { key: 'F10', shiftKey: true });
+
+      expect(await screen.findByRole('menuitem', { name: 'Pin tab' })).toBeTruthy();
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+
+      fireEvent.keyDown(tab('bravo'), { key: 'ContextMenu' });
+
+      expect(await screen.findByRole('menuitem', { name: 'Pin tab' })).toBeTruthy();
+    });
+
+    it('focus enters the menu on open and Escape returns it to the tab', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+      const bravo = tab('bravo');
+
+      fireEvent.keyDown(bravo, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Pin tab' });
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
+
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await waitFor(() => expect(document.activeElement).toBe(bravo));
+    });
+  });
+
   it('reorders a tab dropped on a sibling of its own Connection', async () => {
     mountTwoConnections();
     await waitFor(() => expect(tabOrder()).toHaveLength(4));

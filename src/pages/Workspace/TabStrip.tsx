@@ -6,6 +6,7 @@ import { ContextMenu } from '../../components/ContextMenu';
 import type { ConnectionSummary, WorkspaceTab } from '@shared/types';
 import { groupTabsByConnection } from './tabGroups';
 import { isDormant } from '../../state/connections';
+import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
 
 interface TabStripProps {
   tabs: WorkspaceTab[];
@@ -59,7 +60,15 @@ export function TabStrip({
   const T = themeVars;
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [dragOverId, setDragOverId] = React.useState<string | null>(null);
-  const [menu, setMenu] = React.useState<{ tabId: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = React.useState<{
+    tabId: string;
+    x: number;
+    y: number;
+    // #55 — set only for a keyboard open (Shift+F10 / ContextMenu key), so
+    // `ContextMenu` hands focus back to the tab; `undefined` for a
+    // mouse-driven right-click leaves that path unchanged.
+    returnFocusTo?: HTMLElement | null;
+  } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => new Set());
   const stripRef = React.useRef<HTMLDivElement>(null);
 
@@ -292,6 +301,16 @@ export function TabStrip({
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onActivate(tab.id);
+                    } else if (isContextMenuKey(e)) {
+                      // #55 — the tab is already the widget's own focusable
+                      // element (unlike the grid/tree surfaces), so it is
+                      // both the anchor and the focus-return target.
+                      e.preventDefault();
+                      setMenu({
+                        tabId: tab.id,
+                        ...anchorFromRect(e.currentTarget.getBoundingClientRect()),
+                        returnFocusTo: e.currentTarget,
+                      });
                     }
                   }}
                   onContextMenu={(e) => {
@@ -409,6 +428,7 @@ export function TabStrip({
           menu={{
             x: menu.x,
             y: menu.y,
+            returnFocusTo: menu.returnFocusTo,
             items: [
               {
                 kind: 'item',
