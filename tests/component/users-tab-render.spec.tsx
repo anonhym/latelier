@@ -217,8 +217,10 @@ describe('UsersTab — render', () => {
 
     await waitFor(() => expect(screen.queryByText('reader')).toBeNull());
     // Documents current behaviour rather than asserting it is correct.
-    // Tracked as #74 (blocks this ticket, #54); flip this assertion once #74
-    // gives the drop flow a focus target that survives the row's removal.
+    // Tracked as #74, a blocker of the X19 epic (#51) — on a base-branch run
+    // a discovery blocks the base -> main PR, not the ticket that found it.
+    // Flip this assertion once #74 gives the drop flow a focus target that
+    // survives the row's removal; it goes red by construction when it does.
     expect(document.activeElement).toBe(document.body);
   });
 

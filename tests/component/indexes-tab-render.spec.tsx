@@ -29,6 +29,25 @@ function renderTab() {
   );
 }
 
+/**
+ * The one database + collection every IndexesTab test mounts against. Hoisted
+ * because three tests needed it verbatim — an exact 11-line repeat is the
+ * shape that took the SonarCloud duplication gate to 10.9% on this stack (#72).
+ */
+const ALPHA_PEOPLE_META = {
+  listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
+  listCollections: async () => [
+    {
+      name: 'people',
+      type: 'collection' as const,
+      documentCount: 0,
+      sizeBytes: 0,
+      indexCount: 1,
+      capped: false,
+    },
+  ],
+};
+
 const ID_INDEX: IndexInfo = {
   name: '_id_',
   key: [{ field: '_id', direction: 1 }],
@@ -114,19 +133,7 @@ describe('IndexesTab — render', () => {
 
   it('expands the row drill-down on click and shows version + usage detail', async () => {
     installAtelierMock({
-      meta: {
-        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
-        listCollections: async () => [
-          {
-            name: 'people',
-            type: 'collection' as const,
-            documentCount: 0,
-            sizeBytes: 0,
-            indexCount: 1,
-            capped: false,
-          },
-        ],
-      },
+      meta: ALPHA_PEOPLE_META,
       index: {
         list: async () => [
           {
@@ -150,19 +157,7 @@ describe('IndexesTab — render', () => {
 
   it('is keyboard-operable: Enter and Space toggle aria-expanded, and focus stays on the toggle', async () => {
     installAtelierMock({
-      meta: {
-        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
-        listCollections: async () => [
-          {
-            name: 'people',
-            type: 'collection' as const,
-            documentCount: 0,
-            sizeBytes: 0,
-            indexCount: 1,
-            capped: false,
-          },
-        ],
-      },
+      meta: ALPHA_PEOPLE_META,
       index: { list: async () => [UNIQUE_INDEX] },
     });
 
@@ -174,19 +169,7 @@ describe('IndexesTab — render', () => {
   it('does not strand focus on <body> when the expanded index is dropped', async () => {
     let dropped = false;
     installAtelierMock({
-      meta: {
-        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
-        listCollections: async () => [
-          {
-            name: 'people',
-            type: 'collection' as const,
-            documentCount: 0,
-            sizeBytes: 0,
-            indexCount: 1,
-            capped: false,
-          },
-        ],
-      },
+      meta: ALPHA_PEOPLE_META,
       index: {
         list: async () => (dropped ? [] : [UNIQUE_INDEX]),
         drop: async () => {
@@ -208,8 +191,10 @@ describe('IndexesTab — render', () => {
 
     await waitFor(() => expect(screen.queryByText('email_unique')).toBeNull());
     // Documents current behaviour rather than asserting it is correct.
-    // Tracked as #74 (blocks this ticket, #54); flip this assertion once #74
-    // gives the drop flow a focus target that survives the row's removal.
+    // Tracked as #74, a blocker of the X19 epic (#51) — on a base-branch run
+    // a discovery blocks the base -> main PR, not the ticket that found it.
+    // Flip this assertion once #74 gives the drop flow a focus target that
+    // survives the row's removal; it goes red by construction when it does.
     expect(document.activeElement).toBe(document.body);
   });
 
