@@ -47,17 +47,30 @@ import React from 'react';
  * | a non-focusable child of a focusable ancestor | the ancestor | suppress |
  *
  * A click on a menu item lands inside the menu (`menuRef.current.contains`),
- * so it is never treated as "outside" and the restore still runs on close —
- * which is also what a click that bubbles up from an item's own `onClick`
- * (already closing the menu synchronously) needs.
+ * so it is never treated as "outside" and the restore still runs on close.
+ * In practice every item stops propagation (per-button or on the menu's own
+ * container — see each call site), so an item click never actually reaches
+ * this hook's `window` listener at all: the item's own `onClick` closes the
+ * menu directly (`setContextMenu(null)`), which is exactly why the reset
+ * below matters — that close path never runs `onClick` and so never gets a
+ * chance to recompute `suppressRef` itself.
  *
  * `suppressRef` is reset to `false` at the top of the dismiss effect's body,
  * which only runs when `menu` is truthy (open, including a replacement) —
  * the `if (!menu) return` guard above it means a close (`menu` -> `null`)
  * skips the reset entirely, so the value the click handler just set survives
- * into the focus effect's body that runs in the same commit. Resetting here,
- * rather than trusting a maybe-suppressed close to clear it, is what keeps a
- * suppressed close -> reopen -> Escape sequence able to restore again.
+ * into the focus effect's body that runs in the same commit. Without this
+ * reset: open a menu, suppress a close with an outside click (leaving
+ * `suppressRef` `true`), reopen the menu, then activate an item — that
+ * item's direct `setContextMenu(null)` never touches `suppressRef`, so the
+ * stale `true` survives and strands focus on the just-activated item
+ * instead of restoring it. (An Escape-terminated version of that same
+ * sequence is not a counterexample: `onKey` clears `suppressRef` itself
+ * before calling `close()`, so it would "work" with or without this reset —
+ * see `useMenuFocus.spec.ts`'s Escape test for why that one doesn't prove
+ * this line is needed, and `add-to-filter-menu.spec.tsx`'s
+ * "a suppressed close does not strand focus after the menu reopens and an
+ * item is activated" for the one that does.)
  *
  * `close` must be stable (every call site wraps it in `useCallback` with an
  * empty dependency array — see `useMenuDismiss`'s old docstring for why),

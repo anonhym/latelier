@@ -163,6 +163,35 @@ function describeMenuFocusOnDismiss(opts: {
       await waitFor(() => expect(document.activeElement).toBe(target));
     });
 
+    // #87 review finding — a suppressed close leaves `suppressRef.current`
+    // `true`. Escape and an outside click both recompute or clear it
+    // themselves on their own next run, but item activation does neither:
+    // React flushes the `setContextMenu(null)` from the item's own `onClick`
+    // synchronously, which tears the dismiss effect down (removing the
+    // `window` click listener) before the *same* click finishes bubbling to
+    // `window` — so `onClick` never runs a second time to recompute the
+    // flag. Without the reset-on-open in `useMenuFocus`, the stale `true`
+    // from the earlier suppressed close survives into this reopen and
+    // strands focus on the activated item instead of restoring it.
+    it('a suppressed close does not strand focus after the menu reopens and an item is activated', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+      await user.click(elsewhere); // suppressed close
+      await waitFor(() => expect(document.activeElement).toBe(elsewhere));
+
+      await opts.openMouse(container, 0);
+      await user.click(await screen.findByText(opts.activateItemLabel));
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+      elsewhere.remove();
+    });
+
     // #87's second facet (a second right-click on a different cell/field,
     // no close in between, must never restore the *previous* menu's target)
     // is deliberately NOT re-asserted here with a `focus` spy. Measured: a

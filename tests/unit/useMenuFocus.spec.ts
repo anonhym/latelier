@@ -272,8 +272,18 @@ describe('useMenuFocus', () => {
       await user.keyboard('{Escape}');
       expect(document.activeElement).toBe(trigger);
 
-      // A suppressed close → reopen → Escape must still restore: the flag
-      // set by a prior outside click must not leak across a fresh open.
+      // A suppressed close, followed by a reopen, followed by Escape, still
+      // restores — but this does NOT on its own prove the reopen resets
+      // `suppressRef`. `onKey` clears the flag itself (`suppressRef.current
+      // = false` before calling `close()`), so this sequence passes the
+      // same way whether or not the reopen's own reset exists — it
+      // exercises Escape's own override, not the reset-on-open. The reset
+      // is pinned instead by the component-level "a suppressed close does
+      // not strand focus after the menu reopens and an item is activated"
+      // test (`add-to-filter-menu.spec.tsx`), whose close path — an item's
+      // own `onClick` calling `setContextMenu(null)` directly — does not
+      // recompute the flag the way `onKey`/`onClick` do, so it is the one
+      // path that actually depends on the reopen clearing it.
       elsewhere.focus();
       menu = { returnFocusTo: trigger };
       rerender({ menu, close });
@@ -281,7 +291,7 @@ describe('useMenuFocus', () => {
       expect(document.activeElement).toBe(elsewhere);
 
       menu = { returnFocusTo: trigger };
-      rerender({ menu, close }); // reopen resets the suppression flag
+      rerender({ menu, close });
       await user.keyboard('{Escape}');
       expect(document.activeElement).toBe(trigger);
     });
