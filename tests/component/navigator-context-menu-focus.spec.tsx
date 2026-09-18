@@ -34,8 +34,8 @@ import {
  * `aria-activedescendant` still names the row the menu was opened from.
  */
 
-function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
-  const baseProps: DbCollectionNavigatorProps = {
+function navProps(props: Partial<DbCollectionNavigatorProps> = {}): DbCollectionNavigatorProps {
+  return {
     connectionsWithTabs: new Set(),
     connections: [connectionFixture({ id: 'c1', name: 'Prod' })],
     focusedConnectionId: 'c1',
@@ -45,7 +45,23 @@ function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
     onOpenAggregation: vi.fn(),
     ...props,
   };
-  return render(<DbCollectionNavigator {...baseProps} />);
+}
+
+function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
+  const result = render(<DbCollectionNavigator {...navProps(props)} />);
+  return {
+    ...result,
+    /**
+     * #89 — re-render with changed `activeDbName`/`activeCollection`, the way
+     * the real parent does. `ShellSection` wires `onCollectionDropped` /
+     * `onDatabaseDropped` to `tabs.closeForNamespace` and `onCollectionRenamed`
+     * to `tabs.retargetCollection`, so a successful mutation always moves the
+     * active tab off the namespace it just changed. A test that holds these
+     * props static is testing a state the app never durably reaches.
+     */
+    setActive: (next: Partial<DbCollectionNavigatorProps>) =>
+      result.rerender(<DbCollectionNavigator {...navProps({ ...props, ...next })} />),
+  };
 }
 
 function baseMocks() {
@@ -202,44 +218,34 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
  * asks for and because it's the trajectory a real user produces, not because
  * `fireEvent` would falsely pass here.
  *
- * Box 2 (`aria-activedescendant` still names a row that exists) rides along:
- * `openMenuFor` sets `focusedId` to the row the menu was opened on, and nothing
- * in `useNavigatorDialogs`'s success handlers touched it. `DbCollectionNavigator`'s
- * reconciliation effect *did* already re-point `focusedId` when it went stale,
- * but its fallback was `activeId ?? rows[0]?.id`, unconditionally trusting
- * `activeId` (`coll:<conn>:<db>:<activeCollection>` from props) even once that
- * exact row was the one just dropped/renamed out of `rows`. Since `activeId` is
- * a template string built from props, not a lookup, it stays non-null forever —
- * `rows[0]` was never reached, `focusedId` calcified on a row that can never
- * come back, and `aria-activedescendant` (which only renders when
- * `rows.find(...)` succeeds — see `activeDescendantId`) went from naming the
- * dropped row to naming nothing at all: the attribute disappears, not a
- * dangling reference. Fixed in `DbCollectionNavigator.tsx` by no longer trusting
- * a stale `activeId` — but *only* once there's enough information to call it
- * confirmed gone rather than merely not loaded in yet, or unreachable because
- * the connection is down: distrust requires the connection to be `connected`,
- * its db list loaded, and (if the active db itself still exists) that db's
- * collections loaded too — checked at the db level rather than the specific
- * collection's own cache entry, because a *dropped database* never gets
- * `loadColls` called for it again and that entry would otherwise stay "not
- * loaded" forever. Two regressions this guarded against on the way here:
- *  - A plain "does `activeId` exist in `rows` right now" check, with no
- *    "not loaded yet" exception, broke seven cases in
- *    `navigator-accordion.spec.tsx` that rely on the original optimistic
- *    first-load behaviour (a fresh tab's `activeId` doesn't exist in `rows`
- *    for the one render before its db/colls finish loading) — caught by
- *    running the full component project, not just this file.
- *  - A first attempt at that exception — trust `activeId` until it's been
- *    "seen" valid once, then never again once it disappears — broke
- *    disconnect/reconnect: a disconnect makes `activeId`'s row vanish from
- *    `rows` too (same as a drop, from `rows`' point of view), so "seen, now
- *    gone" fired there as well and reconnect never got the active collection
- *    focused again. The full component project did *not* catch this one —
- *    nothing in the suite drove a disconnect/reconnect cycle with a live
- *    active collection — it surfaced only from a hand-built repro, which is
- *    now the "reconnecting after a disconnect" case below. The connection-
- *    status check (`activeConnConnected`) is what actually tells the two
- *    apart; that case's kill line is turning it into `true` unconditionally.
+ * Box 2 (`aria-activedescendant` still names a row that exists) rides along,
+ * and needed no production code. It looks broken if you hold `activeDbName` /
+ * `activeCollection` static across the mutation: `activeId`
+ * (`coll:<conn>:<db>:<activeCollection>`) is a template string built from
+ * props, not a lookup, so it stays non-null even once that exact row has been
+ * dropped out of `rows`. The reconciliation effect's `activeId ?? rows[0]?.id`
+ * then never reaches `rows[0]`, and `aria-activedescendant` — which only
+ * renders once `rows.find(...)` succeeds, see `activeDescendantId` — goes
+ * absent rather than dangling.
+ *
+ * The app never durably reaches that state, because those props are not
+ * static: `ShellSection` wires `onCollectionDropped`/`onDatabaseDropped` to
+ * `tabs.closeForNamespace` and `onCollectionRenamed` to
+ * `tabs.retargetCollection`, so a successful mutation always moves the active
+ * tab off the namespace it just changed, and `activeId` stops naming the
+ * missing row on the very next render. Measured against unmodified
+ * `DbCollectionNavigator.tsx` for all three mutations — collection drop and
+ * database drop both land on `navigator-row-conn:c1`, rename follows the tab
+ * to `navigator-row-coll:c1:shop:archive`, every one of them an element that
+ * exists in the DOM.
+ *
+ * So these cases drive the parent's half of the contract through `setActive`
+ * rather than freezing it. A version of this file that left the props static
+ * did make a 28-line "is `activeId` confirmed gone" heuristic in
+ * `DbCollectionNavigator.tsx` go green — but it was guarding a state only the
+ * test produced, and it regressed seven `navigator-accordion.spec.tsx` cases
+ * and then disconnect/reconnect on the way. Reverted; the assertion below
+ * checks the id names a live element, which is what box 2 actually asks for.
  *
  * Box 3 (mechanism is `useDialogFocusReturn` with an explicit `returnFocusTo`,
  * not a hand-rolled `.focus()`) is satisfied structurally by the two-hook-call
@@ -259,10 +265,21 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
  * caller opens one of these dialogs some other way), but has no independent
  * red state to point at here.
  */
+/**
+ * #89 box 2 — `aria-activedescendant` must name a row that *exists*, not merely
+ * be present. `activeDescendantId` only renders once `rows.find(...)` succeeds,
+ * so a stale id shows up as the attribute going absent rather than dangling;
+ * asserting both catches either failure.
+ */
+async function expectActiveDescendantExists(tree: HTMLElement, expected: string) {
+  await waitFor(() => expect(tree.getAttribute('aria-activedescendant')).toBe(expected));
+  expect(document.getElementById(expected)).not.toBeNull();
+}
+
 describe('DbCollectionNavigator — context-menu dialogs return focus to the tree on success', () => {
   it('Drop collection: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
     statefulMocks();
-    mountNavigator();
+    const { setActive } = mountNavigator();
     await screen.findByText('orders');
 
     const user = userEvent.setup();
@@ -275,17 +292,16 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
 
     const tree = screen.getByRole('tree');
     await waitFor(() => expect(document.activeElement).toBe(tree));
-    // `orders` is gone; the reconciliation effect falls all the way back to
-    // `rows[0]` — the connection row, the one thing guaranteed to survive any
-    // drop — rather than calcifying on the now-nonexistent `activeId`.
-    await waitFor(() =>
-      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1'),
-    );
+
+    // The parent closes the dropped namespace's tab (`closeForNamespace`), so
+    // `activeCollection` goes away with it.
+    setActive({ activeCollection: undefined });
+    await expectActiveDescendantExists(tree, 'navigator-row-conn:c1');
   });
 
   it('Drop database: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
     statefulMocks();
-    mountNavigator();
+    const { setActive } = mountNavigator();
     await screen.findByText('orders');
 
     const user = userEvent.setup();
@@ -298,14 +314,16 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
 
     const tree = screen.getByRole('tree');
     await waitFor(() => expect(document.activeElement).toBe(tree));
-    await waitFor(() =>
-      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1'),
-    );
+
+    // `closeForNamespace({ connectionId, dbName })` closes every tab in the
+    // dropped database, so both props go.
+    setActive({ activeDbName: undefined, activeCollection: undefined });
+    await expectActiveDescendantExists(tree, 'navigator-row-conn:c1');
   });
 
   it('Rename collection: success returns focus to the tree, and aria-activedescendant falls back to a row that exists', async () => {
     statefulMocks();
-    mountNavigator();
+    const { setActive } = mountNavigator();
     await screen.findByText('orders');
 
     const user = userEvent.setup();
@@ -318,12 +336,11 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
 
     const tree = screen.getByRole('tree');
     await waitFor(() => expect(document.activeElement).toBe(tree));
-    // The old `coll:...:orders` id is gone (renamed to `archive`); `activeId`
-    // still names the pre-rename collection (props don't change under this
-    // test), so the fallback to `rows[0]` is exercised here too.
-    await waitFor(() =>
-      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1'),
-    );
+
+    // `retargetCollection` points the tab at the new name, so the active
+    // collection follows the rename rather than vanishing.
+    setActive({ activeCollection: 'archive' });
+    await expectActiveDescendantExists(tree, 'navigator-row-coll:c1:shop:archive');
   });
 
   it('Create collection: success returns focus to the tree, and aria-activedescendant still names the row the menu was opened from', async () => {
@@ -348,56 +365,4 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
     expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-db:c1:shop');
   });
 
-  /**
-   * Not one of the four dialogs — pins the box-2 fix itself against a second
-   * regression it caused on the way to landing (see this describe block's
-   * header comment). `DbCollectionNavigator`'s reconciliation effect must
-   * distrust a stale `activeId` once it's *confirmed* gone (a drop/rename),
-   * but a disconnect also makes `activeId`'s row vanish from `rows` — and
-   * that one must NOT be treated as "gone for good": reconnecting should put
-   * `aria-activedescendant` back on the active collection, not strand it on
-   * the `rows[0]` fallback forever. Kill line: `activeConnConnected` — the
-   * connection-status check `DbCollectionNavigator.tsx`'s reconciliation
-   * effect uses — hardcoded to `true`. Red: `expected
-   * "navigator-row-conn:c1" to be "navigator-row-coll:c1:shop:orders"`.
-   */
-  it('reconnecting after a disconnect puts aria-activedescendant back on the active collection, not the fallback row', async () => {
-    statefulMocks();
-    const { rerender } = mountNavigator({ connectionsWithTabs: new Set(['c1']) });
-    await screen.findByText('orders');
-
-    const tree = screen.getByRole('tree');
-    await waitFor(() =>
-      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-coll:c1:shop:orders'),
-    );
-
-    rerender(
-      <DbCollectionNavigator
-        connectionsWithTabs={new Set(['c1'])}
-        connections={[connectionFixture({ id: 'c1', name: 'Prod', status: 'disconnected' })]}
-        focusedConnectionId="c1"
-        activeDbName="shop"
-        activeCollection="orders"
-        onOpenCollection={vi.fn()}
-        onOpenAggregation={vi.fn()}
-      />,
-    );
-    await waitFor(() => expect(screen.queryByTestId('nav-coll-shop-orders')).toBeNull());
-
-    rerender(
-      <DbCollectionNavigator
-        connectionsWithTabs={new Set(['c1'])}
-        connections={[connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' })]}
-        focusedConnectionId="c1"
-        activeDbName="shop"
-        activeCollection="orders"
-        onOpenCollection={vi.fn()}
-        onOpenAggregation={vi.fn()}
-      />,
-    );
-    await screen.findByTestId('nav-coll-shop-orders');
-    await waitFor(() =>
-      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-coll:c1:shop:orders'),
-    );
-  });
 });
