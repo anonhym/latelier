@@ -29,8 +29,12 @@ export function DropCollectionConfirm({
   onDropped,
   returnFocusTo,
 }: DropCollectionConfirmProps) {
-  // Dismiss paths only — the success callback hands off elsewhere.
+  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a drop, unlike #74's tabs which had nothing to
+  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // own `onClose`, so one hook can't serve two different close reasons.
   const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  const finish = useDialogFocusReturn(onDropped, returnFocusTo);
   const [typed, setTyped] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -42,7 +46,7 @@ export function DropCollectionConfirm({
     setError(null);
     try {
       await api.collection.drop({ connectionId, dbName, collection });
-      onDropped();
+      finish();
     } catch (err) {
       setError(getErrorMessage(err, 'Drop failed'));
     } finally {

@@ -68,7 +68,6 @@ export function CreateCollectionDrawer({
   onCreated,
   returnFocusTo,
 }: CreateCollectionDrawerProps) {
-  // Dismiss paths only — `onCreated` hands off to the refreshed tree.
   const close = useDialogFocusReturn(onCancel, returnFocusTo);
   const [dbNameInput, setDbNameInput] = React.useState('');
   const [name, setName] = React.useState('');
@@ -135,6 +134,15 @@ export function CreateCollectionDrawer({
     if (discard) close();
   };
 
+  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a create, unlike #74's tabs which had nothing to
+  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // own `onClose`, so one hook can't serve two different close reasons.
+  const finish = useDialogFocusReturn(
+    () => onCreated({ dbName: effectiveDbName, name: trimmedName }),
+    returnFocusTo,
+  );
+
   const submit = async () => {
     if (!canSubmit) return;
     setError(null);
@@ -199,7 +207,7 @@ export function CreateCollectionDrawer({
         collection: trimmedName,
         options,
       });
-      onCreated({ dbName: effectiveDbName, name: trimmedName });
+      finish();
     } catch (err) {
       setError(getErrorMessage(err, 'Create collection failed'));
     } finally {
