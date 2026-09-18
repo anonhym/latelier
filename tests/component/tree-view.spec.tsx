@@ -1,12 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '../helpers/render';
+import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 const noop = () => {};
@@ -22,30 +19,6 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function emptyActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    ...overrides,
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderTree(documents: unknown[], opts: {
   expanded?: Record<string, true>;
   previewFields?: string[] | null;
@@ -56,8 +29,8 @@ function renderTree(documents: unknown[], opts: {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions(opts.actions)}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions(opts.actions)}
+        meta={emptyWorkspaceMeta()}
       >
         <TreeView
           documents={documents}

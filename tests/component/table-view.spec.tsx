@@ -1,15 +1,21 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, fireEvent, screen, waitFor, within, act } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+  act,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
 import { DRAGGED_FIELD_MIME, cycleSortField } from '../../src/pages/Workspace/builder';
 
@@ -50,30 +56,6 @@ function emptyState(overrides: Partial<CollectionTabState> = {}): CollectionTabS
   };
 }
 
-function emptyActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    ...overrides,
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderTable(
   docs: unknown[],
   extra: {
@@ -89,8 +71,8 @@ function renderTable(
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions(extra.actions)}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions(extra.actions)}
+        meta={emptyWorkspaceMeta()}
       >
         <TableView
           documents={docs}
@@ -139,7 +121,7 @@ function renderStatefulTable(initial: CollectionTabState) {
       });
     };
     return (
-      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyMeta()}>
+      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
         <ColumnChooser />
         <TableView
           documents={documents}
@@ -395,7 +377,7 @@ describe('TableView — rendering and interaction', () => {
     it('sort indicator renders when a header is the active sort field', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
       const { getByTestId } = render(
-        <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+        <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
           <TableView
             documents={docs}
             onColumnResize={vi.fn()}
@@ -496,38 +478,37 @@ describe('TableView — rendering and interaction', () => {
   // arrow/Home/End move `aria-activedescendant` between mounted rows instead
   // of putting every row in the tab order.
   describe('roving focus (#20)', () => {
+    // #72 — the four tests below all mounted the same 3-doc grid; the setup
+    // was byte-identical each time (SonarCloud flagged it as a self-
+    // duplicate). One fixture and one helper, kept behind the describe so it
+    // can't leak into the Enter-selection tests below, which need their own
+    // doc shapes.
+    const THREE_DOCS = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+    function renderGrid() {
+      const { container } = renderTable(THREE_DOCS);
+      return { container, grid: container.querySelector('[role="grid"]')! };
+    }
+
     it('the grid is a tab stop and names row 0 as the active descendant', () => {
-      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
-      const { container } = renderTable(docs);
-      const grid = container.querySelector('[role="grid"]')!;
+      const { container, grid } = renderGrid();
 
       expect(grid.getAttribute('tabindex')).toBe('0');
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
       expect(container.querySelector('#table-row-0')).not.toBeNull();
     });
 
-    it('ArrowDown moves the active descendant to the next row', () => {
-      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
-      const { container } = renderTable(docs);
-      const grid = container.querySelector('[role="grid"]')!;
+    it.each([
+      { key: 'ArrowDown', description: 'ArrowDown moves the active descendant to the next row', expected: 'table-row-1' },
+      { key: 'ArrowUp', description: 'ArrowUp from row 0 wraps to the last row', expected: 'table-row-2' },
+    ])('$description', ({ key, expected }) => {
+      const { grid } = renderGrid();
 
-      fireEvent.keyDown(grid, { key: 'ArrowDown' });
-      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
-    });
-
-    it('ArrowUp from row 0 wraps to the last row', () => {
-      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
-      const { container } = renderTable(docs);
-      const grid = container.querySelector('[role="grid"]')!;
-
-      fireEvent.keyDown(grid, { key: 'ArrowUp' });
-      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
+      fireEvent.keyDown(grid, { key });
+      expect(grid.getAttribute('aria-activedescendant')).toBe(expected);
     });
 
     it('End jumps to the last row, Home jumps back to the first', () => {
-      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
-      const { container } = renderTable(docs);
-      const grid = container.querySelector('[role="grid"]')!;
+      const { grid } = renderGrid();
 
       fireEvent.keyDown(grid, { key: 'End' });
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
@@ -736,7 +717,7 @@ describe('TableView — rendering and interaction', () => {
       function Harness() {
         const [sort, setSort] = React.useState('');
         return (
-          <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+          <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
             <TableView
               documents={[{ _id: 1, name: 'alpha' }]}
               onColumnResize={vi.fn()}

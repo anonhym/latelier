@@ -54,6 +54,9 @@ describe('useRovingHighlight', () => {
     expect(result.current.index).toBe(1);
   });
 
+  // The clamp invariant: a highlight must never name a row that filtering
+  // (or an external delete) has removed, even though nothing explicitly
+  // reset it when the list shrank.
   it('clamps a standing highlight when count shrinks out from under it', () => {
     const { result, rerender } = renderHook(({ count }) => useRovingHighlight(count), {
       initialProps: { count: 5 },
@@ -78,6 +81,10 @@ describe('useRovingHighlight', () => {
   });
 
   it('move() computes from the clamped index, not a stale raw one', () => {
+    // Standing highlight at the last row of a 5-item list; the list then
+    // shrinks to 2 without an explicit reset (e.g. an external delete).
+    // The clamped index is 1 (last row of 2) — moving forward from *that*
+    // must wrap to 0, not to whatever raw-index-mod-2 would have produced.
     const { result, rerender } = renderHook(({ count }) => useRovingHighlight(count), {
       initialProps: { count: 5 },
     });

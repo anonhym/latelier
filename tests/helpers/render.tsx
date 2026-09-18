@@ -2,7 +2,7 @@
 // Test-only helper: Fast-Refresh's "one component per file" rule doesn't
 // apply to test infrastructure that isn't loaded by Vite.
 import { type ReactNode } from 'react';
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import {
   render as rtlRender,
@@ -18,6 +18,10 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { Notifications } from '@mantine/notifications';
 import { mantineTheme } from '../../src/theme/mantineTheme';
+import type {
+  CollectionWorkspaceActions,
+  CollectionWorkspaceMeta,
+} from '../../src/pages/Workspace/context';
 
 // X12 Phase 1: component tests render bare components that now reach for
 // MantineProvider via Mantine's primitives. Wrap every render in the same
@@ -159,6 +163,50 @@ export async function expectSeparatorResizesPanel(
   expect(handle.getAttribute('aria-valuenow')).toBe(opts.afterShrink);
   expect(panel.style.height).toBe(`${opts.afterShrink}px`);
   expect(document.activeElement).toBe(handle);
+}
+
+/**
+ * #72 — byte-identical in `tree-view.spec.tsx` and `table-view.spec.tsx`
+ * (SonarCloud flagged the pair as duplicated). Every field is a stub;
+ * override individual actions with `overrides` the way both call sites did.
+ */
+export function emptyWorkspaceActions(
+  overrides: Partial<CollectionWorkspaceActions> = {},
+): CollectionWorkspaceActions {
+  return {
+    patch: vi.fn(),
+    patchWith: vi.fn(),
+    run: vi.fn(),
+    openEdit: vi.fn(),
+    openDelete: vi.fn(),
+    openDeleteAll: vi.fn(),
+    openInsert: vi.fn(),
+    openSave: vi.fn(),
+    ...overrides,
+  };
+}
+
+/** #72 — see `emptyWorkspaceActions` above; same duplicate pair. */
+export function emptyWorkspaceMeta(): CollectionWorkspaceMeta {
+  return {
+    connectionId: 'c1',
+    dbName: 'app',
+    collection: 'orders',
+    tabId: 't1',
+    isLoading: false,
+  };
+}
+
+/**
+ * #72 — `DbCollectionNavigator`'s root row, by the name a person reads on
+ * it. Byte-identical in `navigator-accordion.spec.tsx` and
+ * `navigator-disconnect.spec.tsx` (SonarCloud flagged the pair).
+ */
+export function navigatorRoot(name: string): HTMLElement {
+  const rows = screen.getAllByTestId('nav-connection');
+  const hit = rows.find((r) => within(r).queryByText(name));
+  if (!hit) throw new Error(`no navigator root named ${name}`);
+  return hit;
 }
 
 export * from '@testing-library/react';

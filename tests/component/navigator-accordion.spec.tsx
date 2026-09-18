@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import { render, screen, within, fireEvent, act, waitFor, navigatorRoot } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import {
   DbCollectionNavigator,
@@ -54,13 +54,9 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-/** The root row for a Connection, by the name a person reads on it. */
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
+// #72 — was a local copy identical to navigator-disconnect.spec.tsx's own;
+// SonarCloud flagged the pair. Now shared, see `navigatorRoot`'s own doc.
+const root = navigatorRoot;
 
 /** The spine is a border on the row wrapper, so read the wrapper's style. */
 const spineOf = (el: HTMLElement) => el.parentElement?.getAttribute('style') ?? '';
@@ -251,34 +247,45 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
   });
 
+  // #72 — the two tests below were flagged as a self-duplicate: same
+  // "press keys, assert which root is expanded" shape, just with different
+  // keys/roots each time. `press`/`expectExpanded` name the shape once; the
+  // key sequence and expected root stay literal at each call site.
+  function press(key: string): void {
+    fireEvent.keyDown(tree(), { key });
+  }
+  function expectExpanded(name: string, expanded: boolean): void {
+    expect(root(name).getAttribute('aria-expanded')).toBe(String(expanded));
+  }
+
   it('keyboard: Down/Up walk the roots and Enter opens the one in focus', async () => {
     mockTree();
     mount();
 
-    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Prod
-    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Staging
-    fireEvent.keyDown(tree(), { key: 'Enter' });
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('false');
+    press('ArrowDown'); // Prod
+    press('ArrowDown'); // Staging
+    press('Enter');
+    expectExpanded('Staging', true);
+    expectExpanded('Prod', false);
 
-    fireEvent.keyDown(tree(), { key: 'ArrowUp' }); // back to Prod
-    fireEvent.keyDown(tree(), { key: 'Enter' });
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
+    press('ArrowUp'); // back to Prod
+    press('Enter');
+    expectExpanded('Prod', true);
+    expectExpanded('Staging', false);
   });
 
   it('keyboard: Home/End reach the first and last root, and Right expands one', () => {
     mockTree();
     mount();
 
-    fireEvent.keyDown(tree(), { key: 'End' });
-    fireEvent.keyDown(tree(), { key: 'ArrowRight' });
-    expect(root('Archive').getAttribute('aria-expanded')).toBe('true');
+    press('End');
+    press('ArrowRight');
+    expectExpanded('Archive', true);
 
-    fireEvent.keyDown(tree(), { key: 'Home' });
-    fireEvent.keyDown(tree(), { key: 'ArrowRight' });
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
+    press('Home');
+    press('ArrowRight');
+    expectExpanded('Prod', true);
+    expectExpanded('Archive', false);
   });
 
   // #58 — the roving highlight already worked (the tests above); nothing told
