@@ -16,6 +16,7 @@ import {
 } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
+import { DisclosureToggle } from '../components/DisclosureToggle';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import { ownGet } from '../utils/ownProperty';
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
@@ -460,10 +461,7 @@ export function IndexesTab({
                       style={{ cursor: 'pointer' }}
                     >
                       <Table.Td>
-                        <Group gap={6} wrap="nowrap">
-                          <span style={{ color: T.textGhost, display: 'flex', flexShrink: 0 }}>
-                            {isOpen ? I.chevD : I.chevR}
-                          </span>
+                        <DisclosureToggle open={isOpen}>
                           <span
                             style={{
                               fontFamily: 'monospace',
@@ -476,7 +474,7 @@ export function IndexesTab({
                           >
                             {idx.name}
                           </span>
-                        </Group>
+                        </DisclosureToggle>
                       </Table.Td>
                       <Table.Td>
                         <Text

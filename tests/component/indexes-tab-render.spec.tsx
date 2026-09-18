@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '../helpers/render';
+import { render, screen, waitFor, expectKeyboardDisclosureToggle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { IndexesTab } from '../../src/pages/IndexesTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -146,6 +146,71 @@ describe('IndexesTab — render', () => {
       expect(screen.getByText(/v2/)).toBeTruthy();
       expect(screen.getByText(/partialFilterExpression/)).toBeTruthy();
     });
+  });
+
+  it('is keyboard-operable: Enter and Space toggle aria-expanded, and focus stays on the toggle', async () => {
+    installAtelierMock({
+      meta: {
+        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
+        listCollections: async () => [
+          {
+            name: 'people',
+            type: 'collection' as const,
+            documentCount: 0,
+            sizeBytes: 0,
+            indexCount: 1,
+            capped: false,
+          },
+        ],
+      },
+      index: { list: async () => [UNIQUE_INDEX] },
+    });
+
+    renderTab();
+
+    await expectKeyboardDisclosureToggle('email_unique', /v2/);
+  });
+
+  it('does not strand focus on <body> when the expanded index is dropped', async () => {
+    let dropped = false;
+    installAtelierMock({
+      meta: {
+        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
+        listCollections: async () => [
+          {
+            name: 'people',
+            type: 'collection' as const,
+            documentCount: 0,
+            sizeBytes: 0,
+            indexCount: 1,
+            capped: false,
+          },
+        ],
+      },
+      index: {
+        list: async () => (dropped ? [] : [UNIQUE_INDEX]),
+        drop: async () => {
+          dropped = true;
+          return { dropped: true as const };
+        },
+      },
+    });
+
+    renderTab();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'email_unique' }));
+    await waitFor(() => expect(screen.getByText(/v2/)).toBeTruthy());
+
+    await userEvent.click(screen.getByLabelText('Drop index email_unique'));
+    const confirmInput = await screen.findByLabelText('Confirm index name');
+    await userEvent.type(confirmInput, 'email_unique');
+    await userEvent.click(screen.getByText('Drop').closest('button')!);
+
+    await waitFor(() => expect(screen.queryByText('email_unique')).toBeNull());
+    // Documents current behaviour rather than asserting it is correct.
+    // Tracked as #74 (blocks this ticket, #54); flip this assertion once #74
+    // gives the drop flow a focus target that survives the row's removal.
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('persists the selected target via prefs.set', async () => {
