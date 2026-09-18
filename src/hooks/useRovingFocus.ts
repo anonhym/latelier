@@ -30,6 +30,13 @@ export interface RovingFocus {
   activeId: string | undefined;
   /** The DOM id a row at this index must carry. */
   rowId: (index: number) => string;
+  /**
+   * Jump the active row directly, bypassing Arrow/Home/End — for a click on
+   * row N, so the next Arrow key continues from the row just clicked rather
+   * than from wherever the highlight was sitting before. Delegates straight
+   * to `useRovingHighlight`'s own `setIndex`; never reimplemented here.
+   */
+  setActiveIndex: (index: number) => void;
   /** Spread onto the container element. */
   containerProps: {
     tabIndex: 0;
@@ -95,6 +102,7 @@ export function useRovingFocus({
     activeIndex: index,
     activeId: count === 0 ? undefined : rowId(index),
     rowId,
+    setActiveIndex: setIndex,
     containerProps: {
       tabIndex: 0,
       'aria-activedescendant': count === 0 ? undefined : rowId(index),

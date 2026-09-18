@@ -97,6 +97,11 @@ interface FieldNodeProps {
   // `FieldNode` further down may not re-render for, but never changes a
   // row's own `path`.
   rowId: (path: string) => string;
+  // #20 — found in review: a click needs to make the clicked row the roving
+  // index too (even a non-expandable leaf, which has no `onToggle` action of
+  // its own), or the next Arrow key jumps from wherever the highlight was
+  // sitting rather than from the row just clicked.
+  onActivate: (path: string) => void;
 }
 
 function FieldNodeImpl({
@@ -115,6 +120,7 @@ function FieldNodeImpl({
   onRefHoverLeave,
   onRefOpen,
   rowId,
+  onActivate,
 }: FieldNodeProps) {
   const dv = toDisplayValue(value);
   const isExpandable = dv.type === 'object' || dv.type === 'array';
@@ -160,24 +166,31 @@ function FieldNodeImpl({
       <div
         draggable={draggable}
         onDragStart={draggable ? handleDragStart : undefined}
-        onClick={rowClickable ? () => onToggle(path) : undefined}
-        // Guarded so a keydown bubbling from the nested expand button
-        // doesn't also fire this handler and cancel the toggle out.
-        onKeyDown={
-          rowClickable
-            ? (e) => {
-                if (e.target !== e.currentTarget) return;
-                if (e.key === 'Enter' || e.key === ' ') {
-                  if (e.key === ' ') e.preventDefault();
-                  onToggle(path);
-                }
-              }
-            : undefined
-        }
+        // Always marks the clicked row active (even a non-expandable leaf,
+        // which has no toggle of its own) — found in review: without this,
+        // a click left the roving index sitting wherever it was before, so
+        // the next Arrow key jumped from there instead of from the row just
+        // clicked. No `tabIndex` on this row at all (see below) — #20
+        // originally left `tabIndex={-1}` plus a matching keydown guard
+        // here, but review found any declared `tabIndex` (negative
+        // included) makes an element click-focusable per the HTML
+        // focusing-steps algorithm, even though it's excluded from Tab
+        // order. That left real DOM focus on the row after a click, so the
+        // next Arrow/Home/End reached this tree's own `onKeyDown` with
+        // `e.target` = this row rather than the tree, and its own-target
+        // guard swallowed it. Removing `tabIndex` lets a click's focusing
+        // steps walk up to the nearest focusable ancestor — the tree
+        // itself — instead, which is what makes this row's former
+        // Enter/Space handler dead code (a keydown can only ever target an
+        // element that can hold real focus): deleted, in favour of the
+        // tree-level handling in `DocFieldTree` below.
+        onClick={() => {
+          onActivate(path);
+          if (rowClickable) onToggle(path);
+        }}
         id={rowId(path)}
         role="treeitem"
         aria-expanded={isExpandable ? isExpanded : undefined}
-        tabIndex={-1}
         onDoubleClick={(e) => {
           e.stopPropagation();
           onCopy(path, value);
@@ -324,6 +337,7 @@ function FieldNodeImpl({
             onRefHoverLeave={onRefHoverLeave}
             onRefOpen={onRefOpen}
             rowId={rowId}
+            onActivate={onActivate}
           />
         ))}
     </>
@@ -345,7 +359,8 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
     prev.onRefHover !== next.onRefHover ||
     prev.onRefHoverLeave !== next.onRefHoverLeave ||
     prev.onRefOpen !== next.onRefOpen ||
-    prev.rowId !== next.rowId
+    prev.rowId !== next.rowId ||
+    prev.onActivate !== next.onActivate
   ) {
     return false;
   }
@@ -445,6 +460,21 @@ export function DocFieldTree({
   });
   const activeRow = flatRows[roving.activeIndex] as FlatFieldRow | undefined;
 
+  // Found in review: a click needs to make the clicked row the roving index
+  // too (even a non-expandable leaf, which has no `onToggle` of its own), or
+  // the next Arrow key jumps from wherever the highlight was sitting rather
+  // than from the row just clicked.
+  const handleActivate = React.useCallback(
+    (path: string) => {
+      const idx = flatRows.findIndex((r) => r.path === path);
+      if (idx >= 0) roving.setActiveIndex(idx);
+    },
+    // `roving` itself is a fresh object every render; depend on the one
+    // function this actually calls instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [flatRows, roving.setActiveIndex],
+  );
+
   const handleTreeKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {
       roving.onKeyDown(e);
@@ -458,7 +488,10 @@ export function DocFieldTree({
       if (e.key === ' ') e.preventDefault();
       onToggle(activeRow.path);
     },
-    [roving, activeRow, onToggle],
+    // `roving` itself is a fresh object every render; depend on the one
+    // function this actually calls instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roving.onKeyDown, activeRow, onToggle],
   );
 
   return (
@@ -517,6 +550,7 @@ export function DocFieldTree({
           onRefHoverLeave={onRefHoverLeave}
           onRefOpen={onRefOpen}
           rowId={fieldRowDomId}
+          onActivate={handleActivate}
         />
       ))}
     </div>

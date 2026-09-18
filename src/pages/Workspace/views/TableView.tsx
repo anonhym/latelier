@@ -531,16 +531,27 @@ function TableRowImpl({
           `aria-selected` is valid on it. `aria-rowindex` is 1-based and
           counts the header, so the first document row is 2.
 
-          tabIndex={-1}: virtualization still mounts 40+ rows with overscan, so
-          no row may be a tab stop. #20 gives the grid itself the single tab
-          stop and points at the active row via `id` + the grid's
-          `aria-activedescendant`, set in `TableView` below. */}
+          No `tabIndex` at all: a plain `div` with none is already out of
+          both the Tab order AND click-focusable — #20 originally left
+          `tabIndex={-1}` here on the theory that only *sequential* focus
+          needed excluding, but the HTML focusing-steps algorithm treats any
+          declared `tabIndex` (negative included) as making the element
+          focusable via a real click, which review caught: clicking a row
+          left real DOM focus sitting on it, so the next Arrow/Home/End
+          reached the grid's `onKeyDown` with `e.target` = this row instead
+          of the grid itself, and its own-target guard swallowed every one
+          of them. Removing it lets a click's focusing steps walk up to the
+          nearest focusable ancestor instead, which is the grid — exactly
+          where #20's design already wanted real focus to live. The grid's
+          `aria-activedescendant` (set in `TableView` below) still points at
+          this row via its `id`; `handleSelect` also moves the roving index
+          here on click, so a click and the next Arrow agree on which row is
+          active. */}
       <div
         id={rowId(index)}
         role="row"
         aria-rowindex={index + 2}
         aria-selected={isSelected}
-        tabIndex={-1}
         style={{
           display: 'flex',
           alignItems: 'stretch',
@@ -549,16 +560,6 @@ function TableRowImpl({
           fontFamily: 'monospace',
         }}
         onClick={(e) => onSelect(e, index)}
-        onKeyDown={(e) => {
-          // Nested native buttons (expand chevron, cell edit/expand
-          // affordances) also bubble their Enter/Space keydown up here —
-          // without this guard, tabbing to one of them and pressing Enter
-          // would both run its own action AND select the row.
-          if (e.target !== e.currentTarget) return;
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          onSelect(e, index);
-        }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
             data columns. A `gridcell` like the rest, so the row owns nothing
@@ -977,14 +978,42 @@ export function TableView({
     };
   }, [contextMenu]);
 
+  // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
+  // (via `useRovingFocus`) owns which row is "active" and this wires it to
+  // the DOM: a stable `id` per row (set on TableRow above) named by the
+  // grid's `aria-activedescendant`, kept in sync with react-window's
+  // mounted range by scrolling to the row in the same key handler that
+  // moves the index — see `useRovingFocus`'s own docstring for why that has
+  // to be one operation, not two. Declared before `handleSelect` below,
+  // which needs `roving.setActiveIndex`.
+  const listRef = useListRef(null);
+  const roving = useRovingFocus({
+    count: documents.length,
+    idPrefix: 'table-row-',
+    resetKey: documents,
+    scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
+  });
+
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
   // toggles the row into/out of a multi-row selection for the bulk-action bar.
+  // Also makes the clicked row the roving-focus target — found in review: a
+  // clicked row (`tabIndex={-1}` used to make it click-focusable per the HTML
+  // focusing-steps algorithm — since removed, see the row strip's own
+  // comment) would otherwise leave the highlight sitting wherever it was
+  // before the click, so the next Arrow key would jump from there instead of
+  // from the row the user just clicked.
   const handleSelect = React.useCallback(
     (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
       else selection.selectOnly(idx);
+      roving.setActiveIndex(idx);
     },
-    [selection],
+    // `roving` itself is a fresh object every render; depend on the one
+    // function this actually calls (stable per `useRovingFocus`) so this
+    // callback — and everything memoized against it, like `rowProps` below
+    // — doesn't get a new identity on every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, roving.setActiveIndex],
   );
 
   const handleContextMenu = React.useCallback(
@@ -1006,35 +1035,25 @@ export function TableView({
   // than assuming a fixed height (mirrors TreeView).
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 24 });
 
-  // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
-  // (via `useRovingFocus`) owns which row is "active" and this wires it to
-  // the DOM: a stable `id` per row (set on TableRow above) named by the
-  // grid's `aria-activedescendant`, kept in sync with react-window's
-  // mounted range by scrolling to the row in the same key handler that
-  // moves the index — see `useRovingFocus`'s own docstring for why that has
-  // to be one operation, not two.
-  const listRef = useListRef(null);
-  const roving = useRovingFocus({
-    count: documents.length,
-    idPrefix: 'table-row-',
-    resetKey: documents,
-    scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
-  });
   const handleGridKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {
       roving.onKeyDown(e);
       if (e.defaultPrevented) return;
-      // Mirrors the row strip's own guard (`TableRowImpl`'s onKeyDown) at
-      // the grid level: only Enter/Space typed while the grid itself has
-      // focus selects the active row — one bubbling up from a nested
-      // button (edit/expand/inline-edit) is that control's own action.
+      // Only Enter/Space typed while the grid itself has real DOM focus
+      // selects the active row — one bubbling up from a nested button
+      // (edit/expand/inline-edit) is that control's own action. Rows are no
+      // longer focusable at all (see the row strip's own comment), so this
+      // is now the ONLY place that guard can matter.
       if (e.target !== e.currentTarget) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (documents.length === 0) return;
       e.preventDefault();
       handleSelect(e, roving.activeIndex);
     },
-    [roving, documents.length, handleSelect],
+    // `roving` itself is a fresh object every render (see `handleSelect`
+    // above) — depend on the two members this actually reads instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roving.onKeyDown, roving.activeIndex, documents.length, handleSelect],
   );
 
   const rowProps = React.useMemo<TableRowProps>(

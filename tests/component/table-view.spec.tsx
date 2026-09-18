@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor, within, act } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
@@ -311,21 +312,6 @@ describe('TableView — rendering and interaction', () => {
       expect(getByTitle(/Drag to add "name/).textContent).not.toContain('Copied');
     });
 
-    // S6848 fixes — the row strip, resize handle, and context menus became
-    // keyboard-operable non-native elements (role + tabIndex + onKeyDown).
-    it('Enter on the row strip selects the row, same as a click', () => {
-      const docs = [{ _id: 1, name: 'a' }];
-      const { container } = renderTable(docs);
-      const row = container.querySelector('[data-selected]')!;
-      // `role="row"` inside the grid — `option` was the first attempt and is
-      // invalid here, since it may not contain the cells' own controls.
-      const strip = container.querySelector('[role="row"]')!;
-      expect(row.getAttribute('data-selected')).toBe('false');
-
-      fireEvent.keyDown(strip, { key: 'Enter' });
-      expect(row.getAttribute('data-selected')).toBe('true');
-    });
-
     // The regression this guard exists for: without `e.target !==
     // e.currentTarget`, Enter on a nested native button (which also bubbles
     // its keydown up to the strip) would both run its own action AND select
@@ -571,14 +557,45 @@ describe('TableView — rendering and interaction', () => {
       expect(row.getAttribute('data-selected')).toBe('false');
     });
 
-    it('the existing per-row Enter-to-select behaviour still works unchanged', () => {
-      const docs = [{ _id: 1, name: 'a' }];
+    // Found in review: `tabIndex={-1}` on the row strip excludes it from
+    // *sequential* (Tab) focus but leaves it click-focusable per the HTML
+    // focusing-steps algorithm. `fireEvent.click` (used everywhere else in
+    // this file) does no focus management at all, so nothing here had ever
+    // caught a real click actually moving DOM focus onto the row — only
+    // `userEvent`'s `click` walks up to the nearest focusable ancestor the
+    // way a real browser does, which is why this needs it specifically:
+    // once focus is truly on the row, every later keydown reaches the grid
+    // with `e.target` = the row, `e.currentTarget` = the grid, and
+    // `useRovingFocus`'s own-target guard swallows it — Arrow/Home/End all
+    // go dead until focus is moved again by hand.
+    it('a real click on a row does not trap focus there — ArrowDown still moves the grid afterward', async () => {
+      const user = userEvent.setup();
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
       const { container } = renderTable(docs);
-      const strip = container.querySelector('[role="row"]')!;
-      const row = container.querySelector('[data-selected]')!;
+      const grid = container.querySelector('[role="grid"]')!;
+      const strip = container.querySelectorAll('[role="row"]')[0] as HTMLElement;
 
-      fireEvent.keyDown(strip, { key: 'Enter' });
-      expect(row.getAttribute('data-selected')).toBe('true');
+      await user.click(strip);
+      await user.keyboard('{ArrowDown}');
+
+      expect(document.activeElement).toBe(grid);
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+    });
+
+    // Clicking a row should also make it the roving-focus target, so the
+    // very next Arrow moves from the row just clicked — not from wherever
+    // the highlight happened to be sitting before.
+    it('clicking row 2 makes it the active row — ArrowDown moves to row 3, not row 1', async () => {
+      const user = userEvent.setup();
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      const strip = container.querySelectorAll('[role="row"]')[1] as HTMLElement;
+
+      await user.click(strip);
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+      await user.keyboard('{ArrowDown}');
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
     });
   });
 });

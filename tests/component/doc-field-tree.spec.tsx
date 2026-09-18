@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
 
 function renderFieldTree(
@@ -113,5 +114,48 @@ describe('DocFieldTree — roving focus (#20)', () => {
 
     fireEvent.keyDown(chevron, { key: 'Enter' });
     expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  // Found in review: `tabIndex={-1}` excludes a row from Tab order but (per
+  // the HTML focusing-steps algorithm) leaves it click-focusable —
+  // `fireEvent.click` above does no focus management at all, which is why
+  // this needs `userEvent`'s click specifically, the one that walks up to
+  // the nearest focusable ancestor like a real browser.
+  it('a real click on a field row does not trap focus there — ArrowDown still moves the tree afterward', async () => {
+    const user = userEvent.setup();
+    const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
+    const tree = container.querySelector('[role="tree"]')!;
+    const rows = container.querySelectorAll('[role="treeitem"]');
+
+    await user.click(rows[0]);
+    await user.keyboard('{ArrowDown}');
+
+    expect(document.activeElement).toBe(tree);
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
+  });
+
+  it('clicking field row 2 makes it the active row — ArrowDown moves to row 3, not row 1', async () => {
+    const user = userEvent.setup();
+    const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
+    const tree = container.querySelector('[role="tree"]')!;
+    const rows = container.querySelectorAll('[role="treeitem"]');
+
+    await user.click(rows[1]);
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
+    await user.keyboard('{ArrowDown}');
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[2].id);
+  });
+
+  // Non-expandable leaf rows have no `onToggle` action, but a click on one
+  // must still hand it real focus's substitute (the roving index) — not
+  // just expandable rows.
+  it('clicking a non-expandable leaf row still makes it the active row', async () => {
+    const user = userEvent.setup();
+    const { container } = renderFieldTree({ a: 1, b: 2 });
+    const tree = container.querySelector('[role="tree"]')!;
+    const rows = container.querySelectorAll('[role="treeitem"]');
+
+    await user.click(rows[1]);
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
   });
 });

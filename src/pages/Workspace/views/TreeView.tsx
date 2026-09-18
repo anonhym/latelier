@@ -147,6 +147,10 @@ interface DocRowProps {
   // #20 — stable per-row DOM id so the tree's `aria-activedescendant` (set
   // by `useRovingFocus` in the component below) always names a real element.
   rowId: (index: number) => string;
+  // #20 — found in review: a click needs to make the clicked row the roving
+  // index too, or the next Arrow key jumps from wherever the highlight was
+  // sitting rather than from the row just clicked.
+  setActiveIndex: (index: number) => void;
 }
 
 function DocRowImpl({
@@ -171,6 +175,7 @@ function DocRowImpl({
   onRefHoverLeave,
   onRefOpen,
   rowId,
+  setActiveIndex,
 }: RowComponentProps<DocRowProps>) {
   const doc = documents[index];
   const docId = getFullDocId(doc);
@@ -179,6 +184,7 @@ function DocRowImpl({
   const isSelected = indices.has(index);
 
   const handleRowClick = (e: React.MouseEvent) => {
+    setActiveIndex(index);
     if (e.metaKey || e.ctrlKey) {
       onToggleSelect(index);
       onSelect(doc);
@@ -202,26 +208,27 @@ function DocRowImpl({
           : '3px solid transparent',
       }}
     >
-      {/* Collapsed row */}
+      {/* Collapsed row. No `tabIndex` at all — #20 originally left
+          `tabIndex={-1}` here, but review found that any declared
+          `tabIndex` (negative included) is enough to make an element
+          click-focusable per the HTML focusing-steps algorithm, even though
+          it's excluded from *sequential* (Tab) focus. A click was leaving
+          real DOM focus on the row, so the next Arrow/Home/End reached the
+          tree's own `onKeyDown` with `e.target` = this row rather than the
+          tree, and its own-target guard swallowed it. Removing `tabIndex`
+          lets a click's focusing steps walk up to the nearest focusable
+          ancestor — the tree itself — instead, which is what makes this
+          row's own former Enter/Space handler dead code (a keydown can only
+          ever target an element that can hold real focus): deleted, along
+          with the guard it needed, in favour of the tree-level handling in
+          `TreeView` below, which now also gets a plain click's
+          `setActiveIndex(index)` so the next Arrow continues from the row
+          just clicked. */}
       <div
         onClick={handleRowClick}
-        // Keyboard path is independent of handleRowClick (which reads
-        // metaKey/ctrlKey off a MouseEvent for ⌘/Ctrl+click-to-select — a
-        // mouse-only gesture). Guarded so a keydown bubbling up from a
-        // nested control (the expand button, edit/delete) doesn't also
-        // toggle the row — that button already has its own native Enter/
-        // Space handling.
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            if (e.key === ' ') e.preventDefault();
-            onRowExpand(docId, !isExpanded);
-          }
-        }}
         id={rowId(index)}
         role="treeitem"
         aria-expanded={isExpanded}
-        tabIndex={-1}
         title="Click to expand · ⌘/Ctrl+click to select"
         style={{
           display: 'flex',
@@ -385,7 +392,8 @@ const DocRow = React.memo(DocRowImpl, (prev, next) => {
     prev.onRefHover === next.onRefHover &&
     prev.onRefHoverLeave === next.onRefHoverLeave &&
     prev.onRefOpen === next.onRefOpen &&
-    prev.rowId === next.rowId
+    prev.rowId === next.rowId &&
+    prev.setActiveIndex === next.setActiveIndex
   );
 });
 
@@ -555,6 +563,7 @@ export function TreeView({
       onRefHoverLeave,
       onRefOpen,
       rowId: roving.rowId,
+      setActiveIndex: roving.setActiveIndex,
     }),
     [
       documents,
@@ -576,6 +585,7 @@ export function TreeView({
       onRefHoverLeave,
       onRefOpen,
       roving.rowId,
+      roving.setActiveIndex,
     ],
   );
 
