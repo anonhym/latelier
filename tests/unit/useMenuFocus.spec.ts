@@ -330,7 +330,10 @@ describe('useMenuFocus', () => {
       );
 
       rerender({ menu: null, close });
-      close.mockClear();
+      // Closing alone must not call `close` — only the `onClick`/`onKey`
+      // closures ever do. Asserted rather than cleared away, so a future
+      // change that fires it during the transition is caught here.
+      expect(close).not.toHaveBeenCalled();
 
       window.dispatchEvent(new MouseEvent('click'));
       expect(close).not.toHaveBeenCalled();
@@ -366,14 +369,29 @@ describe('useMenuFocus', () => {
     });
 
     // Mutation review — `menuRef.current?.contains` → `menuRef.current.contains`
-    // (optional chaining removed) survived. `menuRef.current` genuinely can
-    // be `null` while this listener is still live: React nulls a removed
-    // element's ref during commit, but this effect's own cleanup (which
-    // removes the `window` listener) doesn't run until the later passive-
-    // effect flush — a native click landing in that gap would hit a `null`
-    // `menuRef.current`. `document.activeElement` must be a real non-`<body>`
-    // element here, or the earlier `el !== document.body` check would
-    // short-circuit before ever reaching `.contains`.
+    // (optional chaining removed) survived. What this test pins is the
+    // invariant "a window click must not throw when `menuRef.current` is
+    // `null`", and the `{ current: null }` below is a *constructed* input,
+    // not a shape the real call sites reproduce: all three menu divs are
+    // rendered under the same `menu &&` guard that makes `menu` truthy
+    // (`TreeView.tsx:745`, `TableView.tsx:1438`, `TableView.tsx:1625`), and
+    // React attaches refs during commit, before any passive effect — so no
+    // `useEffect` here can observe `menu` truthy with the ref still `null`
+    // on a real mount.
+    //
+    // The optional chaining is kept as a guard, not as dead defensiveness:
+    // on the *unmount* path React nulls the ref during commit while this
+    // effect's cleanup (which removes the `window` listener) is a passive
+    // effect that flushes afterwards, so a click landing between the two
+    // would reach a live listener with a `null` ref. That ordering is the
+    // documented React scheduling model, but it was NOT reproduced here —
+    // `@testing-library/react` wraps renders in `act()`, which flushes
+    // passive effects synchronously and closes the gap. Treat it as the
+    // reason the guard is cheap to keep, not as a measured behavior.
+    //
+    // `document.activeElement` must be a real non-`<body>` element here, or
+    // the earlier `el !== document.body` check would short-circuit before
+    // ever reaching `.contains`.
     //
     // `expect(() => dispatchEvent(...)).not.toThrow()` cannot see this: per
     // the DOM spec, an exception thrown inside an event listener never
