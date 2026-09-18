@@ -2,6 +2,8 @@
 // Test-only helper: Fast-Refresh's "one component per file" rule doesn't
 // apply to test infrastructure that isn't loaded by Vite.
 import { type ReactNode } from 'react';
+import { expect } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import {
   render as rtlRender,
   renderHook as rtlRenderHook,
@@ -81,6 +83,33 @@ export function titleBar(): ReturnType<typeof within> {
     );
   }
   return within(row);
+}
+
+/**
+ * X19 #54 — asserts the shared `DisclosureToggle` shape used by IndexesTab
+ * and UsersTab: `aria-expanded` toggles on both Enter and Space, the detail
+ * content behind `detailMatcher` follows it, and focus never leaves the
+ * toggle across either interaction. One helper rather than copying this
+ * block into both spec files — see indexes-tab-render.spec.tsx and
+ * users-tab-render.spec.tsx.
+ */
+export async function expectKeyboardDisclosureToggle(
+  toggleName: string,
+  detailMatcher: RegExp,
+): Promise<void> {
+  const toggle = await screen.findByRole('button', { name: toggleName });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+  toggle.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByText(detailMatcher)).toBeTruthy();
+  expect(document.activeElement).toBe(toggle);
+
+  await userEvent.keyboard('[Space]');
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByText(detailMatcher)).toBeNull();
+  expect(document.activeElement).toBe(toggle);
 }
 
 export * from '@testing-library/react';

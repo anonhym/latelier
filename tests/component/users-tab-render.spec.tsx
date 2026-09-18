@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '../helpers/render';
+import { render, screen, waitFor, expectKeyboardDisclosureToggle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { UsersTab } from '../../src/pages/UsersTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -177,6 +177,51 @@ describe('UsersTab — render', () => {
       expect(screen.getByText(/Mechanisms/)).toBeTruthy();
       expect(screen.getByText(/customData/)).toBeTruthy();
     });
+  });
+
+  it('is keyboard-operable: Enter and Space toggle aria-expanded, and focus stays on the toggle', async () => {
+    installAtelierMock({
+      conn: { get: async () => makeFullConn() },
+      meta: { listDatabases: async () => [{ name: 'myapp', sizeOnDisk: 0, empty: false }] },
+      user: { list: async () => [READER] },
+    });
+
+    renderTab();
+
+    await expectKeyboardDisclosureToggle('reader', /Mechanisms/);
+  });
+
+  it('does not strand focus on <body> when the expanded user is dropped', async () => {
+    let dropped = false;
+    installAtelierMock({
+      conn: { get: async () => makeFullConn() },
+      meta: { listDatabases: async () => [{ name: 'myapp', sizeOnDisk: 0, empty: false }] },
+      user: {
+        list: async () => (dropped ? [] : [READER]),
+        drop: async () => {
+          dropped = true;
+          return { dropped: true as const };
+        },
+      },
+    });
+
+    renderTab();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'reader' }));
+    await waitFor(() => expect(screen.getByText(/Mechanisms/)).toBeTruthy());
+
+    await userEvent.click(screen.getByLabelText('Drop user reader'));
+    const confirmInput = await screen.findByLabelText('Confirm username');
+    await userEvent.type(confirmInput, 'reader');
+    await userEvent.click(screen.getByText('Drop').closest('button')!);
+
+    await waitFor(() => expect(screen.queryByText('reader')).toBeNull());
+    // Documents current behaviour rather than asserting it is correct.
+    // Tracked as #74, a blocker of the X19 epic (#51) — on a base-branch run
+    // a discovery blocks the base -> main PR, not the ticket that found it.
+    // Flip this assertion once #74 gives the drop flow a focus target that
+    // survives the row's removal; it goes red by construction when it does.
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('shows the UNAUTHORIZED-specific banner when user:list throws', async () => {

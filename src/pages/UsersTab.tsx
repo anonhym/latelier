@@ -16,6 +16,7 @@ import {
 } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
+import { DisclosureToggle } from '../components/DisclosureToggle';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import type { DbInfo } from '@shared/ipc';
 import type {
@@ -368,20 +369,19 @@ export function UsersTab({
                     >
                       <Table.Td>
                         <Group gap={6} wrap="nowrap">
-                          <span style={{ color: T.textGhost, display: 'flex', flexShrink: 0 }}>
-                            {open ? I.chevD : I.chevR}
-                          </span>
-                          <span
-                            style={{
-                              fontFamily: 'monospace',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              color: T.text,
-                            }}
-                          >
-                            {u.username}
-                          </span>
+                          <DisclosureToggle open={open}>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                color: T.text,
+                              }}
+                            >
+                              {u.username}
+                            </span>
+                          </DisclosureToggle>
                           {isSelf && (
                             <RoleBadge label="this connection" tone="accent" />
                           )}
