@@ -6,7 +6,15 @@
 // `actions.patch` / `meta.isReadOnly`, which is all this handler touches.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { notifications } from '@mantine/notifications';
-import { render, fireEvent, screen, waitFor, within } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
@@ -33,31 +41,15 @@ function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabSt
   };
 }
 
+// `expandBuilder` is optional on `CollectionWorkspaceActions` and the shared
+// stub leaves it out, but "Add to filter" calls it to reveal the collapsed
+// builder pane — so it stays wired here, ahead of `overrides` so a test can
+// still swap it for its own spy.
 function makeActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    expandBuilder: vi.fn(),
-    ...overrides,
-  };
+  return emptyWorkspaceActions({ expandBuilder: vi.fn(), ...overrides });
 }
 
-function makeMeta(overrides: Partial<CollectionWorkspaceMeta> = {}): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...overrides,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 const DOC_OID = '507f1f77bcf86cd799439011';
 const DOC = { _id: { $oid: DOC_OID }, name: 'alpha' };
