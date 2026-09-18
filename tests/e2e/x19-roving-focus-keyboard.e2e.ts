@@ -51,12 +51,13 @@ async function tabUntilFocused(
 }
 
 /**
- * #72 — the two tests below both open the same seeded table before doing
- * their own thing with it; this was a byte-identical block (SonarCloud
- * flagged it as a self-duplicate) apart from the connection name. Pure
- * mechanical hoist: same awaits, same order, nothing added or dropped —
- * each test still does its own post-open assertions (the grid-visibility
- * check below is only in the first test, deliberately).
+ * #72 — the tests below all open the same seeded table before doing their
+ * own thing with it; this was a byte-identical block (SonarCloud flagged it
+ * as a self-duplicate) apart from the connection name. Pure mechanical
+ * hoist: same awaits, same order, nothing added or dropped — each test
+ * still does its own post-open assertions (the grid-visibility check is
+ * only in the first test, deliberately). `withRovingFocusTable` below wraps
+ * this together with everything that surrounds it.
  */
 async function openSeededRovingFocusTable(
   win: Page,
@@ -86,6 +87,32 @@ async function openSeededRovingFocusTable(
 }
 
 /**
+ * #60 — `openSeededRovingFocusTable` above hoisted the *seeding*; everything
+ * around it stayed copied. By the third test the memory server, the app
+ * window, the `domcontentloaded` wait and the `expectConsoleClean` wrapper
+ * were a third identical prologue, and SonarCloud flagged the span. Same
+ * mechanical hoist as #72's: same awaits, same order, nothing added or
+ * dropped. Each test keeps its own visibility assertions afterwards — the
+ * first one asserts more than the other two, deliberately.
+ */
+async function withRovingFocusTable(
+  connectionName: string,
+  body: (ctx: { win: Page; grid: Locator; row: (i: number) => Locator }) => Promise<void>,
+): Promise<void> {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      const { grid, row } = await openSeededRovingFocusTable(win, host, port, connectionName);
+      await body({ win, grid, row });
+    });
+  });
+}
+
+/**
  * #20's roving-focus driver, driven with the keyboard alone against a real
  * Electron window and a real `mongodb-memory-server` — no `.click()` once
  * the grid itself is reached.
@@ -100,83 +127,74 @@ async function openSeededRovingFocusTable(
  * seeds enough documents that some are provably unmounted at rest, then
  * proves the newly-active one is mounted and on-screen after moving to it.
  */
-test('table roving focus: keyboard-only navigation, including a row virtualization forces unmounted', async () => {
-  const { host, port } = await startMemoryServer();
+test('table roving focus: keyboard-only navigation, including a row virtualization forces unmounted', async () =>
+  withRovingFocusTable('Roving Focus Target', async ({ win, grid, row }) => {
+    await expect(grid).toBeVisible({ timeout: 8000 });
 
-  await withApp(async (app) => {
-    const win = await app.firstWindow();
-    await win.waitForLoadState('domcontentloaded');
+    // Confirms the query actually returned and rendered rows before the
+    // "row 49 isn't mounted" premise below is asserted — otherwise that
+    // assertion would trivially pass against an empty, not-yet-loaded grid.
+    await expect(row(0)).toBeVisible({ timeout: 8000 });
 
-    await expectConsoleClean(win, async () => {
-      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Roving Focus Target');
-      await expect(grid).toBeVisible({ timeout: 8000 });
+    // 1. The grid is reachable by Tab, and nothing with role="row" ever
+    // takes focus along the way — exactly one tab stop for the widget.
+    const { reached, sawRoles } = await tabUntilFocused(win, grid, 60);
+    expect(reached).toBe(true);
+    expect(sawRoles).not.toContain('row');
+    await expect(grid).toBeFocused();
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
 
-      // Confirms the query actually returned and rendered rows before the
-      // "row 49 isn't mounted" premise below is asserted — otherwise that
-      // assertion would trivially pass against an empty, not-yet-loaded grid.
-      await expect(row(0)).toBeVisible({ timeout: 8000 });
+    // Confirm the premise the virtualization assertion below depends on,
+    // rather than assuming it: with 50 docs seeded, the last row must NOT
+    // be mounted at rest. If this fails, the window/row-height math this
+    // file's docs comment above relies on no longer holds — DOC_COUNT (or
+    // the window size) needs revisiting, not the assertion below deleted.
+    await expect(row(DOC_COUNT - 1)).toHaveCount(0);
 
-      // 1. The grid is reachable by Tab, and nothing with role="row" ever
-      // takes focus along the way — exactly one tab stop for the widget.
-      const { reached, sawRoles } = await tabUntilFocused(win, grid, 60);
-      expect(reached).toBe(true);
-      expect(sawRoles).not.toContain('row');
-      await expect(grid).toBeFocused();
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+    // 2. ArrowDown moves the active descendant one row at a time.
+    await win.keyboard.press('ArrowDown');
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
+    await win.keyboard.press('ArrowUp');
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
 
-      // Confirm the premise the virtualization assertion below depends on,
-      // rather than assuming it: with 50 docs seeded, the last row must NOT
-      // be mounted at rest. If this fails, the window/row-height math this
-      // file's docs comment above relies on no longer holds — DOC_COUNT (or
-      // the window size) needs revisiting, not the assertion below deleted.
-      await expect(row(DOC_COUNT - 1)).toHaveCount(0);
+    // 3. End jumps to the last row — the virtualization case. The row
+    // must exist in the DOM (react-window actually scrolled to mount it,
+    // not just moved an index that names nothing) — a dropped or
+    // made-async `scrollToRow` call would leave it absent instead.
+    //
+    // KNOWN GAP (found by this test, not asserted here): on THIS first
+    // jump — 47 intervening rows have never been rendered, so
+    // `useDynamicRowHeight` (TableView.tsx) still has each of them at its
+    // 24px default estimate — `scrollToRow({index: 49, align: 'auto'})`
+    // computes its target offset from those estimates and the row lands
+    // ~17px past the bottom of the window (confirmed via
+    // getBoundingClientRect: row bottom 842 vs. a 800px-tall window),
+    // clipped more than half off-screen. A second `scrollToRow` to the
+    // same row (after the first pass has measured everything in between)
+    // lands it flush with the bottom instead. `Home` below, jumping back
+    // to row 0 — already measured during initial render — does not hit
+    // this, which is why its `toBeInViewport` assertion holds. Not fixed
+    // here: out of this ticket's file scope (`useRovingFocus.ts`/
+    // `TableView.tsx`) and reported instead.
+    await win.keyboard.press('End');
+    await expect(grid).toHaveAttribute('aria-activedescendant', `table-row-${DOC_COUNT - 1}`);
+    await expect(row(DOC_COUNT - 1)).toBeVisible({ timeout: 5000 });
 
-      // 2. ArrowDown moves the active descendant one row at a time.
-      await win.keyboard.press('ArrowDown');
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
-      await win.keyboard.press('ArrowUp');
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+    // Home jumps back to the first row, scrolling it back into view too —
+    // and, unlike End above, row 0 was already measured, so this is the
+    // clean case: fully mounted AND fully back on-screen.
+    await win.keyboard.press('Home');
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+    await expect(row(0)).toBeInViewport();
 
-      // 3. End jumps to the last row — the virtualization case. The row
-      // must exist in the DOM (react-window actually scrolled to mount it,
-      // not just moved an index that names nothing) — a dropped or
-      // made-async `scrollToRow` call would leave it absent instead.
-      //
-      // KNOWN GAP (found by this test, not asserted here): on THIS first
-      // jump — 47 intervening rows have never been rendered, so
-      // `useDynamicRowHeight` (TableView.tsx) still has each of them at its
-      // 24px default estimate — `scrollToRow({index: 49, align: 'auto'})`
-      // computes its target offset from those estimates and the row lands
-      // ~17px past the bottom of the window (confirmed via
-      // getBoundingClientRect: row bottom 842 vs. a 800px-tall window),
-      // clipped more than half off-screen. A second `scrollToRow` to the
-      // same row (after the first pass has measured everything in between)
-      // lands it flush with the bottom instead. `Home` below, jumping back
-      // to row 0 — already measured during initial render — does not hit
-      // this, which is why its `toBeInViewport` assertion holds. Not fixed
-      // here: out of this ticket's file scope (`useRovingFocus.ts`/
-      // `TableView.tsx`) and reported instead.
-      await win.keyboard.press('End');
-      await expect(grid).toHaveAttribute('aria-activedescendant', `table-row-${DOC_COUNT - 1}`);
-      await expect(row(DOC_COUNT - 1)).toBeVisible({ timeout: 5000 });
-
-      // Home jumps back to the first row, scrolling it back into view too —
-      // and, unlike End above, row 0 was already measured, so this is the
-      // clean case: fully mounted AND fully back on-screen.
-      await win.keyboard.press('Home');
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
-      await expect(row(0)).toBeInViewport();
-
-      // 4. Enter on the grid itself selects the active row (`aria-selected`
-      // on the row itself) — no click, no per-row focus, just the
-      // container's own key handling acting on whichever row is active.
-      await win.keyboard.press('ArrowDown');
-      await win.keyboard.press('Enter');
-      await expect(row(1)).toHaveAttribute('aria-selected', 'true');
-      await expect(row(0)).toHaveAttribute('aria-selected', 'false');
-    });
-  });
-});
+    // 4. Enter on the grid itself selects the active row (`aria-selected`
+    // on the row itself) — no click, no per-row focus, just the
+    // container's own key handling acting on whichever row is active.
+    await win.keyboard.press('ArrowDown');
+    await win.keyboard.press('Enter');
+    await expect(row(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(row(0)).toHaveAttribute('aria-selected', 'false');
+  }));
 
 /**
  * Found in review, and only a real browser exposes it honestly: a `<div
@@ -190,28 +208,19 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
  * again by hand. Playwright's `.click()` drives Chromium's actual focusing
  * steps, so this is the one place that regression can be caught for real.
  */
-test('table roving focus: a real click does not trap focus on the row — ArrowDown still moves the grid afterward', async () => {
-  const { host, port } = await startMemoryServer();
+test('table roving focus: a real click does not trap focus on the row — ArrowDown still moves the grid afterward', async () =>
+  withRovingFocusTable('Click Focus Target', async ({ win, grid, row }) => {
+    await expect(row(0)).toBeVisible({ timeout: 8000 });
 
-  await withApp(async (app) => {
-    const win = await app.firstWindow();
-    await win.waitForLoadState('domcontentloaded');
+    // The click also makes row 1 the active row — not just clickable —
+    // so the very next Arrow continues from there, not from row 0.
+    await row(1).click();
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
 
-    await expectConsoleClean(win, async () => {
-      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Click Focus Target');
-      await expect(row(0)).toBeVisible({ timeout: 8000 });
-
-      // The click also makes row 1 the active row — not just clickable —
-      // so the very next Arrow continues from there, not from row 0.
-      await row(1).click();
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
-
-      await win.keyboard.press('ArrowDown');
-      await expect(grid).toBeFocused();
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-2');
-    });
-  });
-});
+    await win.keyboard.press('ArrowDown');
+    await expect(grid).toBeFocused();
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-2');
+  }));
 
 /**
  * X19 #60 — `table-view.spec.tsx` already proves the active-row outline is
@@ -220,38 +229,29 @@ test('table roving focus: a real click does not trap focus on the row — ArrowD
  * Only a real window's `getComputedStyle` closes that gap, and only a real
  * `ArrowDown` proves the paint moves rather than sticking to row 0.
  */
-test('table roving focus: the active row\'s outline is actually painted, and moves with the arrow keys', async () => {
-  const { host, port } = await startMemoryServer();
+test('table roving focus: the active row\'s outline is actually painted, and moves with the arrow keys', async () =>
+  withRovingFocusTable('Outline Paint Target', async ({ win, grid, row }) => {
+    await expect(row(0)).toBeVisible({ timeout: 8000 });
 
-  await withApp(async (app) => {
-    const win = await app.firstWindow();
-    await win.waitForLoadState('domcontentloaded');
+    // No outline anywhere before the grid has focus. `outline-width`
+    // itself is the wrong property to assert "no outline" with — unlike
+    // `border-width`, a browser's computed `outline-width` does NOT
+    // collapse to 0 when `outline-style` is `none` (confirmed against
+    // this real Chromium: it reported "3px", the platform default
+    // `medium`, even with no `outline` style ever set). `outline-style`
+    // is the property that actually reflects whether anything paints.
+    await expect(row(0)).toHaveCSS('outline-style', 'none');
 
-    await expectConsoleClean(win, async () => {
-      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Outline Paint Target');
-      await expect(row(0)).toBeVisible({ timeout: 8000 });
+    const { reached } = await tabUntilFocused(win, grid, 60);
+    expect(reached).toBe(true);
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+    await expect(row(0)).toHaveCSS('outline-style', 'solid');
+    await expect(row(0)).toHaveCSS('outline-width', '2px');
+    await expect(row(1)).toHaveCSS('outline-style', 'none');
 
-      // No outline anywhere before the grid has focus. `outline-width`
-      // itself is the wrong property to assert "no outline" with — unlike
-      // `border-width`, a browser's computed `outline-width` does NOT
-      // collapse to 0 when `outline-style` is `none` (confirmed against
-      // this real Chromium: it reported "3px", the platform default
-      // `medium`, even with no `outline` style ever set). `outline-style`
-      // is the property that actually reflects whether anything paints.
-      await expect(row(0)).toHaveCSS('outline-style', 'none');
-
-      const { reached } = await tabUntilFocused(win, grid, 60);
-      expect(reached).toBe(true);
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
-      await expect(row(0)).toHaveCSS('outline-style', 'solid');
-      await expect(row(0)).toHaveCSS('outline-width', '2px');
-      await expect(row(1)).toHaveCSS('outline-style', 'none');
-
-      await win.keyboard.press('ArrowDown');
-      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
-      await expect(row(1)).toHaveCSS('outline-style', 'solid');
-      await expect(row(1)).toHaveCSS('outline-width', '2px');
-      await expect(row(0)).toHaveCSS('outline-style', 'none');
-    });
-  });
-});
+    await win.keyboard.press('ArrowDown');
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
+    await expect(row(1)).toHaveCSS('outline-style', 'solid');
+    await expect(row(1)).toHaveCSS('outline-width', '2px');
+    await expect(row(0)).toHaveCSS('outline-style', 'none');
+  }));
