@@ -112,4 +112,53 @@ export async function expectKeyboardDisclosureToggle(
   expect(document.activeElement).toBe(toggle);
 }
 
+/**
+ * X19 #56 — the two `role="separator"` assertions that three resize specs
+ * (output-panel, script-tab, resize-handle-edges) had written out verbatim.
+ *
+ * Both take the *physical* arrow keys, never an `edge` or an axis. Which
+ * arrow grows and which shrinks is exactly what went wrong twice on this
+ * ticket; if these helpers derived the keys the way `ResizeHandle` does,
+ * the two would share a derivation and no test could ever catch an
+ * inversion again. The call site states the keys, the helper owns only the
+ * clamp/step/focus mechanics.
+ */
+export async function expectSeparatorClampedAtBounds(
+  handle: HTMLElement,
+  opts: { min: string; max: string; shrinkKey: string; growKey: string },
+): Promise<void> {
+  await userEvent.keyboard('{Home}');
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.min);
+  await userEvent.keyboard(opts.shrinkKey);
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.min);
+  expect(document.activeElement).toBe(handle);
+
+  await userEvent.keyboard('{End}');
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.max);
+  await userEvent.keyboard(opts.growKey);
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.max);
+  expect(document.activeElement).toBe(handle);
+}
+
+/**
+ * One press of `growKey`, then two of `shrinkKey`, asserting `aria-valuenow`
+ * and the panel's real inline height stay in step with each other — a value
+ * that moves without the panel following it is the failure this catches.
+ */
+export async function expectSeparatorResizesPanel(
+  handle: HTMLElement,
+  panel: HTMLElement,
+  opts: { growKey: string; shrinkKey: string; afterGrow: string; afterShrink: string },
+): Promise<void> {
+  await userEvent.keyboard(opts.growKey);
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.afterGrow);
+  expect(panel.style.height).toBe(`${opts.afterGrow}px`);
+  expect(document.activeElement).toBe(handle);
+
+  await userEvent.keyboard(`${opts.shrinkKey}${opts.shrinkKey}`);
+  expect(handle.getAttribute('aria-valuenow')).toBe(opts.afterShrink);
+  expect(panel.style.height).toBe(`${opts.afterShrink}px`);
+  expect(document.activeElement).toBe(handle);
+}
+
 export * from '@testing-library/react';

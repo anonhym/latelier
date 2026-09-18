@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, screen } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  expectSeparatorClampedAtBounds,
+  expectSeparatorResizesPanel,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { OutputPanel } from '../../src/pages/Workspace/Aggregation/OutputPanel';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -168,15 +174,12 @@ describe('OutputPanel resize keyboard support (#56)', () => {
     const panel = handle.parentElement as HTMLElement;
     await user.tab();
 
-    await user.keyboard('{ArrowUp}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('270');
-    expect(panel.style.height).toBe('270px');
-    expect(document.activeElement).toBe(handle);
-
-    await user.keyboard('{ArrowDown}{ArrowDown}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('250');
-    expect(panel.style.height).toBe('250px');
-    expect(document.activeElement).toBe(handle);
+    await expectSeparatorResizesPanel(handle, panel, {
+      growKey: '{ArrowUp}',
+      shrinkKey: '{ArrowDown}',
+      afterGrow: '270',
+      afterShrink: '250',
+    });
   });
 
   it('Home and End reach the real bounds and stay clamped and focused past them', async () => {
@@ -188,17 +191,12 @@ describe('OutputPanel resize keyboard support (#56)', () => {
     const maxHeight = Math.floor(window.innerHeight * 0.7);
     await user.tab();
 
-    await user.keyboard('{Home}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('120');
-    await user.keyboard('{ArrowDown}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('120');
-    expect(document.activeElement).toBe(handle);
-
-    await user.keyboard('{End}');
-    expect(handle.getAttribute('aria-valuenow')).toBe(String(maxHeight));
-    await user.keyboard('{ArrowUp}');
-    expect(handle.getAttribute('aria-valuenow')).toBe(String(maxHeight));
-    expect(document.activeElement).toBe(handle);
+    await expectSeparatorClampedAtBounds(handle, {
+      min: '120',
+      max: String(maxHeight),
+      shrinkKey: '{ArrowDown}',
+      growKey: '{ArrowUp}',
+    });
   });
 
   it('Enter resets to the default height, the keyboard equivalent of the double-click reset', async () => {

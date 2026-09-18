@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { IpcApi } from '@shared/ipc';
-import { render, screen, fireEvent, waitFor } from '../helpers/render';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  expectSeparatorClampedAtBounds,
+  expectSeparatorResizesPanel,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
@@ -320,15 +327,12 @@ describe('ScriptTab result-panel resize keyboard support (#56)', () => {
     await user.tab({ shift: true });
     expect(document.activeElement).toBe(handle);
 
-    await user.keyboard('{ArrowUp}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('250');
-    expect(panel.style.height).toBe('250px');
-    expect(document.activeElement).toBe(handle);
-
-    await user.keyboard('{ArrowDown}{ArrowDown}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('230');
-    expect(panel.style.height).toBe('230px');
-    expect(document.activeElement).toBe(handle);
+    await expectSeparatorResizesPanel(handle, panel, {
+      growKey: '{ArrowUp}',
+      shrinkKey: '{ArrowDown}',
+      afterGrow: '250',
+      afterShrink: '230',
+    });
   });
 
   it('Home and End reach the bounds and stay clamped and focused past them', async () => {
@@ -339,16 +343,11 @@ describe('ScriptTab result-panel resize keyboard support (#56)', () => {
     await user.click(screen.getByRole('button', { name: 'Tree' }));
     await user.tab({ shift: true });
 
-    await user.keyboard('{Home}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('80');
-    await user.keyboard('{ArrowDown}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('80');
-    expect(document.activeElement).toBe(handle);
-
-    await user.keyboard('{End}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('800');
-    await user.keyboard('{ArrowUp}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('800');
-    expect(document.activeElement).toBe(handle);
+    await expectSeparatorClampedAtBounds(handle, {
+      min: '80',
+      max: '800',
+      shrinkKey: '{ArrowDown}',
+      growKey: '{ArrowUp}',
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '../helpers/render';
+import { render, screen, fireEvent, expectSeparatorClampedAtBounds } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { ResizeHandle } from '../../src/pages/Workspace/ResizeHandle';
 
@@ -194,21 +194,16 @@ describe('ResizeHandle keyboard resize (#56)', () => {
     const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
     await user.tab();
 
-    await user.keyboard('{Home}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('160');
-    // Past the bound: for edge="right", ArrowRight is the shrinking key, so
-    // it's the one that must stay clamped at min rather than go negative.
-    await user.keyboard('{ArrowRight}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('160');
-    expect(document.activeElement).toBe(handle);
-
-    await user.keyboard('{End}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('560');
-    // And ArrowLeft is the growing key here, so it's the one that must stay
-    // clamped at max rather than overshoot it.
-    await user.keyboard('{ArrowLeft}');
-    expect(handle.getAttribute('aria-valuenow')).toBe('560');
-    expect(document.activeElement).toBe(handle);
+    // For edge="right" the arrows are inverted: ArrowRight shrinks, so it is
+    // the one that must stay clamped at min rather than go negative, and
+    // ArrowLeft grows, so it is the one that must not overshoot max. Stated
+    // here rather than derived in the helper — see its docstring.
+    await expectSeparatorClampedAtBounds(handle, {
+      min: '160',
+      max: '560',
+      shrinkKey: '{ArrowRight}',
+      growKey: '{ArrowLeft}',
+    });
   });
 
   it('shows a focus indicator on keyboard focus, not just on hover', async () => {
