@@ -48,12 +48,14 @@ import React from 'react';
  *
  * A click on a menu item lands inside the menu (`menuRef.current.contains`),
  * so it is never treated as "outside" and the restore still runs on close.
- * In practice every item stops propagation (per-button or on the menu's own
- * container — see each call site), so an item click never actually reaches
- * this hook's `window` listener at all: the item's own `onClick` closes the
- * menu directly (`setContextMenu(null)`), which is exactly why the reset
- * below matters — that close path never runs `onClick` and so never gets a
- * chance to recompute `suppressRef` itself.
+ * In practice a click never reaches this hook's `window` listener at all:
+ * `TableView`'s cell and field menus stop propagation on the menu's own
+ * wrapper div (`TableView.tsx`'s `onClick={(e) => e.stopPropagation()}`,
+ * not on each item), while `TreeView`'s field menu has each item call
+ * `e.stopPropagation()` itself — either way, the item's own `onClick`
+ * closes the menu directly (`setContextMenu(null)`), which is exactly why
+ * the reset below matters — that close path never runs this hook's
+ * `onClick` and so never gets a chance to recompute `suppressRef` itself.
  *
  * `suppressRef` is reset to `false` at the top of the dismiss effect's body,
  * which only runs when `menu` is truthy (open, including a replacement) —
