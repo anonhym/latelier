@@ -597,6 +597,100 @@ describe('TableView — rendering and interaction', () => {
       await user.keyboard('{ArrowDown}');
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
     });
+
+    // #55 — the shared ContextMenu had no keyboard open path; this cell menu
+    // is TableView's own hand-rolled one (not the shared `ContextMenu`
+    // component), so it needs its own keyboard trigger and focus management.
+    describe('keyboard: opening the context menu (#55)', () => {
+      it('Shift+F10 opens the menu for the active row, with Edit/Delete reachable', async () => {
+        const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+        const { container, getByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'F10', shiftKey: true });
+
+        expect(await screen.findByText('Edit')).toBeTruthy();
+        expect(getByText('Delete')).toBeTruthy();
+      });
+
+      it('the ContextMenu key opens the same menu', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+
+        expect(await screen.findByText('Edit')).toBeTruthy();
+      });
+
+      it('F10 without Shift does not open the menu', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container, queryByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'F10', shiftKey: false });
+
+        expect(queryByText('Edit')).toBeNull();
+      });
+
+      it('anchors the menu to the active row, not a stale {0,0}', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+        const row = container.querySelector('#table-row-0')!;
+        vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+          left: 42,
+          bottom: 84,
+          top: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          x: 42,
+          y: 84,
+          toJSON: () => {},
+        } as DOMRect);
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+
+        const menu = await screen.findByRole('group', { name: 'Cell actions' });
+        expect(menu.style.left).toBe('42px');
+        expect(menu.style.top).toBe('84px');
+      });
+
+      it('focus enters the menu on open and Escape returns it to the grid', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+        await screen.findByRole('group', { name: 'Cell actions' });
+        await waitFor(() =>
+          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+        );
+
+        // Same window-level Escape listener as the existing mouse-opened
+        // menu (`:869`/`:973`) — must not regress it.
+        fireEvent.keyDown(window, { key: 'Escape' });
+
+        await waitFor(() => expect(document.activeElement).toBe(grid));
+      });
+
+      it('right-click behaviour is unchanged — no forced refocus on a mouse-opened menu', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { getByTitle, getByText } = renderTable(docs);
+        const cell = getByTitle(/Drag to add "name/);
+
+        fireEvent.contextMenu(cell);
+        expect(getByText('Edit')).toBeTruthy();
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+        // Pre-existing behaviour (see the "Escape closes the cell context
+        // menu" test above): nothing focuses this menu for a mouse open, so
+        // there is nothing guaranteeing where focus lands — only that the
+        // menu itself is gone.
+        expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
+      });
+    });
   });
 });
 

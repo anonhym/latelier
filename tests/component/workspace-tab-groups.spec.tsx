@@ -178,6 +178,106 @@ describe('the tab strip groups tabs by Connection', () => {
     expect(within(tab('xray')).getByLabelText('Read-only')).toBeTruthy();
   });
 
+  // #55 — the shared ContextMenu had no keyboard open path; TabStrip is one
+  // of its two real call sites (the other is DbCollectionNavigator) and each
+  // tab is already its own focusable element, so `e.currentTarget` doubles as
+  // both the anchor and the focus-return target.
+  describe('keyboard: opening the tab context menu (#55)', () => {
+    it('Shift+F10 opens the menu for that tab', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+
+      fireEvent.keyDown(tab('bravo'), { key: 'F10', shiftKey: true });
+
+      expect(await screen.findByRole('menuitem', { name: 'Pin tab' })).toBeTruthy();
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+
+      fireEvent.keyDown(tab('bravo'), { key: 'ContextMenu' });
+
+      expect(await screen.findByRole('menuitem', { name: 'Pin tab' })).toBeTruthy();
+    });
+
+    it('focus enters the menu on open and Escape returns it to the tab', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+      const bravo = tab('bravo');
+
+      fireEvent.keyDown(bravo, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Pin tab' });
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
+
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await waitFor(() => expect(document.activeElement).toBe(bravo));
+    });
+
+    // Close, unlike Pin/Unpin, destroys `returnFocusTo`'s own DOM node (the
+    // tab element itself) once `tabs.close` resolves and the tab unmounts.
+    // Focusing a detached node is a silent no-op, so the browser drops focus
+    // to `<body>` — reproduced here before the fix by pointing at the strip
+    // container instead.
+    it('Close tab does not drop focus to the body', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+      const bravo = tab('bravo');
+
+      fireEvent.keyDown(bravo, { key: 'ContextMenu' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Close tab' }));
+
+      await waitFor(() => expect(tabOrder()).toHaveLength(3));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
+    });
+
+    // The closed tab was the last one on screen — nothing to its right to
+    // (mis)focus instead, and the strip container must still be there.
+    it('Close tab still lands focus somewhere sensible when it was the last tab', async () => {
+      mountTwoConnections();
+      await waitFor(() => expect(tabOrder()).toHaveLength(4));
+      const yankee = tab('yankee');
+
+      fireEvent.keyDown(yankee, { key: 'ContextMenu' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Close tab' }));
+
+      await waitFor(() => expect(tabOrder()).toHaveLength(3));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
+    });
+
+    // Closing the only open tab empties the strip entirely — the container
+    // is the only thing left that could possibly hold focus.
+    it('Close tab does not drop focus to the body when it was the only tab', async () => {
+      installAtelierMock({
+        ...multiConnectionMock({
+          connections: [{ id: 'c1', name: 'Prod' }],
+          tabs: [{ id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true }],
+        }),
+      });
+      render(
+        <MemoryRouter initialEntries={['/workspace']}>
+          <Workspace />
+        </MemoryRouter>,
+      );
+      await waitFor(() => expect(tabOrder()).toHaveLength(1));
+      const alpha = tab('alpha');
+
+      fireEvent.keyDown(alpha, { key: 'ContextMenu' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Close tab' }));
+
+      // `getAllByRole` throws on zero matches — the strip is genuinely empty
+      // now, so this reads the tab count without that throw.
+      await waitFor(() => expect(strip().queryAllByRole('tab')).toHaveLength(0));
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
+    });
+  });
+
   it('reorders a tab dropped on a sibling of its own Connection', async () => {
     mountTwoConnections();
     await waitFor(() => expect(tabOrder()).toHaveLength(4));

@@ -10,6 +10,19 @@ export type ContextMenuItem =
       disabled?: boolean;
       disabledTitle?: string;
       destructive?: boolean;
+      /**
+       * X19/#70 — overrides `ContextMenuState.returnFocusTo` for this one
+       * item. `returnFocusTo` is picked once, at menu-open time, as "the
+       * widget's own focusable element" — right for most items, but wrong
+       * for one that goes on to destroy that exact element (e.g. TabStrip's
+       * "Close tab", which unmounts the tab `returnFocusTo` points at).
+       * A thunk, not a value: the override is typically a ref (e.g.
+       * `stripRef.current`), and `react-hooks/refs` (rightly) refuses a
+       * `.current` read during render — this defers it to click time,
+       * the same as `onClick` itself. Unset falls back to
+       * `menu.returnFocusTo`, so every existing call site is unaffected.
+       */
+      focusReturnTo?: () => HTMLElement | null;
     }
   | { kind: 'sep' };
 
@@ -17,6 +30,21 @@ export interface ContextMenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /**
+   * X19/#55 — real DOM focus lived here when the menu opened via keyboard
+   * (Shift+F10 / the ContextMenu key); set only by a keyboard-open call site,
+   * left `undefined` for a mouse-driven right-click so that path is unchanged.
+   *
+   * Mantine's own `returnFocus` can't do this: it hangs off `useFocusReturn`'s
+   * `useDidUpdate([opened, ...])`, which only fires on a *transition* of
+   * `opened`. This component always mounts with `opened` hard-coded `true`
+   * and is dismissed by unmounting entirely (the caller nulls its `menu`
+   * state) rather than by flipping `opened` to `false` — so that transition
+   * never happens and `useFocusReturn` silently never captures or restores
+   * anything (verified against `@mantine/hooks`' `use-focus-return` source).
+   * Restoring it here ourselves is the only way it happens at all.
+   */
+  returnFocusTo?: HTMLElement | null;
 }
 
 interface ContextMenuProps {
@@ -29,10 +57,20 @@ interface ContextMenuProps {
 // the cursor coordinates. Mantine's Floating UI integration handles
 // viewport-edge auto-flipping, outside-click dismissal, and ESC.
 export function ContextMenu({ menu, onClose }: ContextMenuProps) {
+  // `??`, not a default parameter. A per-item `focusReturnTo` thunk that
+  // returns `null` (its ref not yet attached) would satisfy a default
+  // parameter — defaults only fill in for `undefined` — and silently focus
+  // nothing, which is the exact `<body>` bug #70 was fixing. Coalescing
+  // falls back to the menu-wide target instead.
+  const handleClose = (focusTo?: HTMLElement | null) => {
+    onClose();
+    (focusTo ?? menu.returnFocusTo)?.focus();
+  };
   return (
-    <Menu opened onClose={onClose} position="bottom-start" shadow="md" width={200}>
+    <Menu opened onClose={handleClose} position="bottom-start" shadow="md" width={200}>
       <Menu.Target>
         <div
+          data-testid="context-menu-anchor"
           style={{
             position: 'fixed',
             top: menu.y,
@@ -54,10 +92,18 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
               disabled={it.disabled}
               color={it.destructive ? 'red' : undefined}
               title={it.disabled ? it.disabledTitle : undefined}
+              // X19/#70 — Mantine's own item click also auto-closes the menu
+              // (`closeOnItemClick`, default true), calling `onClose` a
+              // second time with none of our arguments. Harmless when every
+              // item shares one `returnFocusTo`, but that second, bare call
+              // would re-focus `menu.returnFocusTo` and clobber a per-item
+              // `focusReturnTo` override. `handleClose` below is the only
+              // close this menu needs.
+              closeMenuOnClick={false}
               onClick={() => {
                 if (it.disabled) return;
                 it.onClick();
-                onClose();
+                handleClose(it.focusReturnTo?.());
               }}
             >
               {it.label}

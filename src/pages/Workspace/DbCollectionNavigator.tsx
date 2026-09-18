@@ -26,6 +26,7 @@ import { useNavigatorDialogs } from './useNavigatorDialogs';
 import { useNavigatorTree } from './useNavigatorTree';
 import { emptyCache } from './navigatorTreeReducer';
 import { ownGet } from '../../utils/ownProperty';
+import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
 
 export interface NavigatorOpenInput {
   connectionId: string;
@@ -667,6 +668,18 @@ export function DbCollectionNavigator({
     const idx = focusedId ? rows.findIndex((r) => r.id === focusedId) : -1;
     const row = idx >= 0 ? rows[idx] : null;
 
+    // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row.
+    // Anchored to its bounding rect (mounted, since it's the active
+    // descendant), not a stale cursor position.
+    if (isContextMenuKey(e)) {
+      if (!row) return;
+      e.preventDefault();
+      const rowEl = document.getElementById(navigatorRowDomId(row.id));
+      if (!rowEl) return;
+      openMenuFor(row, anchorFromRect(rowEl.getBoundingClientRect()), { viaKeyboard: true });
+      return;
+    }
+
     switch (e.key) {
       case 'ArrowDown': {
         e.preventDefault();
@@ -890,29 +903,51 @@ export function DbCollectionNavigator({
     return items;
   }, [refreshAll, onEditConnection, onDisconnect, disconnect, reconnect]);
 
-  const onRowContextMenu = React.useCallback((e: React.MouseEvent, row: TreeRow) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setFocusedId(row.id);
-    // #58 — used to be `e.currentTarget` (the row itself). Rows no longer
-    // carry a `tabIndex` (see ConnectionRow/DbRow/CollRow below), so a row
-    // is not a valid `.focus()` target any more — `useDialogFocusReturn`
-    // would silently no-op and drop focus to `<body>`. The tree container
-    // is the one thing here that always holds real focus and always stays
-    // mounted (a row can scroll out of the virtualized window and unmount),
-    // so it's what every dialog this menu can open — and `onEditConnection`/
-    // `onDisconnect`, which hand `trigger` on to `Workspace.tsx` — return
-    // focus to. `focusedId` (set just above) still names the right row, so
-    // `aria-activedescendant` keeps pointing at it.
-    const trigger = treeRef.current;
-    setMenuTrigger(trigger);
-    let items: MenuItem[] = [];
-    if (row.kind === 'coll') items = buildCollMenu(row);
-    else if (row.kind === 'db') items = buildDbMenu(row);
-    else if (row.kind === 'connection') items = buildConnectionMenu(row, trigger);
-    if (items.length === 0) return;
-    setMenu({ x: e.clientX, y: e.clientY, items });
-  }, [setMenuTrigger, buildCollMenu, buildDbMenu, buildConnectionMenu, setMenu]);
+  // #55 — shared by the mouse (`onRowContextMenu`) and keyboard
+  // (Shift+F10 / ContextMenu key, in `onKeyDown` above) open paths; only the
+  // anchor coordinate and whether to hand `ContextMenu` a `returnFocusTo`
+  // differ between them.
+  const openMenuFor = React.useCallback(
+    (row: TreeRow, anchor: { x: number; y: number }, opts: { viaKeyboard?: boolean } = {}) => {
+      setFocusedId(row.id);
+      // #58 — used to be `e.currentTarget` (the row itself). Rows no longer
+      // carry a `tabIndex` (see ConnectionRow/DbRow/CollRow below), so a row
+      // is not a valid `.focus()` target any more — `useDialogFocusReturn`
+      // would silently no-op and drop focus to `<body>`. The tree container
+      // is the one thing here that always holds real focus and always stays
+      // mounted (a row can scroll out of the virtualized window and unmount),
+      // so it's what every dialog this menu can open — and `onEditConnection`/
+      // `onDisconnect`, which hand `trigger` on to `Workspace.tsx` — return
+      // focus to. `focusedId` (set just above) still names the right row, so
+      // `aria-activedescendant` keeps pointing at it.
+      const trigger = treeRef.current;
+      setMenuTrigger(trigger);
+      let items: MenuItem[] = [];
+      if (row.kind === 'coll') items = buildCollMenu(row);
+      else if (row.kind === 'db') items = buildDbMenu(row);
+      else if (row.kind === 'connection') items = buildConnectionMenu(row, trigger);
+      if (items.length === 0) return;
+      setMenu({
+        ...anchor,
+        items,
+        // Only a keyboard open needs `ContextMenu` to hand focus back —
+        // see `ContextMenuState.returnFocusTo`'s own docstring for why
+        // Mantine can't do this itself. A mouse-driven open leaves this
+        // `undefined` so right-click behaviour is unchanged.
+        returnFocusTo: opts.viaKeyboard ? trigger : undefined,
+      });
+    },
+    [setMenuTrigger, buildCollMenu, buildDbMenu, buildConnectionMenu, setMenu],
+  );
+
+  const onRowContextMenu = React.useCallback(
+    (e: React.MouseEvent, row: TreeRow) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenuFor(row, { x: e.clientX, y: e.clientY });
+    },
+    [openMenuFor],
+  );
 
   const spineFor = React.useCallback(
     (conn: ConnectionSummary) =>

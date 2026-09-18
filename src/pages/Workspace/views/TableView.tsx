@@ -7,6 +7,8 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
+import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
+import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -754,7 +756,14 @@ export function TableView({
     field: string | null;
     value: unknown;
     hasValue: boolean;
+    // #55 — set only by the keyboard-open path (Shift+F10 / ContextMenu key);
+    // `useKeyboardMenuFocus` reads its presence to decide whether to move
+    // focus in and back out. `undefined` for a mouse-driven right-click, so
+    // that path is unchanged.
+    returnFocusTo?: HTMLElement | null;
   } | null>(null);
+  const cellMenuRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardMenuFocus(cellMenuRef, contextMenu);
   const [copiedCell, setCopiedCell] = React.useState<string | null>(null);
 
   // Badge, not toast — a toast per cell copy would be noise; a failed copy toasts instead.
@@ -1045,15 +1054,35 @@ export function TableView({
       // longer focusable at all (see the row strip's own comment), so this
       // is now the ONLY place that guard can matter.
       if (e.target !== e.currentTarget) return;
+      // #55 — Shift+F10 / ContextMenu key: open the (doc-level) cell menu for
+      // the active row. No specific field/value — `field: null` is exactly
+      // what a right-click on the row background (rather than a cell) would
+      // pass, so Copy value/Copy field path correctly don't render while
+      // Edit/Duplicate/Delete do.
+      if (isContextMenuKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
+        if (!rowEl) return;
+        setContextMenu({
+          ...anchorFromRect(rowEl.getBoundingClientRect()),
+          doc: documents[roving.activeIndex],
+          field: null,
+          value: undefined,
+          hasValue: false,
+          returnFocusTo: listRef.current?.element ?? null,
+        });
+        return;
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (documents.length === 0) return;
       e.preventDefault();
       handleSelect(e, roving.activeIndex);
     },
     // `roving` itself is a fresh object every render (see `handleSelect`
-    // above) — depend on the two members this actually reads instead.
+    // above) — depend on the members this actually reads instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, documents.length, handleSelect],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef],
   );
 
   const rowProps = React.useMemo<TableRowProps>(
@@ -1342,11 +1371,14 @@ export function TableView({
         // inside, already natively keyboard-operable. role="group", not
         // "menu", which would need role="menuitem" on all six children.
         //
-        // Escape is not handled here. The menu opens from a `contextmenu`
-        // event and nothing focuses it, so an `onKeyDown` on this element
-        // would never fire for a keyboard user — it lives on the window,
-        // beside the click-outside dismiss.
+        // Escape is not handled on this element itself — it lives on the
+        // window, beside the click-outside dismiss, so it fires the same way
+        // whether or not this div happens to hold focus right now. A mouse
+        // open still never focuses it; a keyboard open does, via
+        // `useKeyboardMenuFocus` (#55) — which is also what returns focus to
+        // the grid once the window listener calls `setContextMenu(null)`.
         <div
+          ref={cellMenuRef}
           role="group"
           aria-label="Cell actions"
           tabIndex={-1}
