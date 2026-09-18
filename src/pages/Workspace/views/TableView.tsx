@@ -34,6 +34,7 @@ import {
   deriveColumns,
   resolveColumns,
   getValueAtPath,
+  ariaSortFor,
   type ResolvedColumn,
 } from './tableColumns';
 
@@ -149,6 +150,7 @@ function TableCell({
   const draggable = value !== undefined;
   const [hovered, setHovered] = React.useState(false);
   const [expandOpen, setExpandOpen] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState('');
   const commitGuardRef = React.useRef(false);
@@ -168,7 +170,14 @@ function TableCell({
     }
   }
 
-  const affordanceVisible = hovered || expandOpen;
+  // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
+  // `onFocus`/`onBlur` here (React routes both through native `focusin`/
+  // `focusout`, which bubble) act like CSS `:focus-within` on this cell —
+  // real CSS was tried first, but jsdom's `getComputedStyle` doesn't apply
+  // stylesheet rules at all, only inline `style`, so a CSS-only fix would be
+  // unverifiable by the component tests this needs (confirmed against a
+  // real jsdom probe, not assumed).
+  const affordanceVisible = hovered || expandOpen || focused;
 
   const canInlineEdit = editable && !meta.isReadOnly && typeof actions.updateField === 'function';
 
@@ -233,6 +242,8 @@ function TableCell({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={{
         width,
         minWidth: width,
@@ -1145,8 +1156,16 @@ export function TableView({
       }}
     >
       {/* Header — sits above the List inside the same horizontal scroll
-          container so columns stay aligned when the user scrolls right. */}
+          container so columns stay aligned when the user scrolls right.
+          #53 — `role="row"` so its `columnheader` children below are valid.
+          It's a DOM sibling of the grid below (sticky positioning needs it
+          outside the scrolling/virtualized body), not a descendant, so
+          `aria-owns` on the grid (below) is what tells assistive tech this
+          is still the grid's first row rather than an orphaned `row`. */}
       <div
+        id="table-header-row"
+        role="row"
+        aria-rowindex={1}
         style={{
           display: 'flex',
           background: 'var(--atelier-surface)',
@@ -1158,8 +1177,11 @@ export function TableView({
         }}
       >
         {/* Gutter — keeps the header aligned with the body's fixed expand
-            column, and hosts the table-level sort note. */}
+            column, and hosts the table-level sort note. `columnheader` to
+            match its row's required-owned-elements, same as the data
+            columns below (#53). */}
         <div
+          role="columnheader"
           style={{
             width: GUTTER_WIDTH,
             minWidth: GUTTER_WIDTH,
@@ -1231,6 +1253,8 @@ export function TableView({
           return (
             <div
               key={col.field}
+              role="columnheader"
+              aria-sort={ariaSortFor(sortable, dir)}
               title={headerTitle}
               data-testid={`table-header-${col.field}`}
               style={{
@@ -1346,6 +1370,10 @@ export function TableView({
         role="grid"
         aria-label="Documents"
         aria-rowcount={documents.length + 1}
+        // #53 — the sticky header row lives outside this element in the DOM
+        // (see the comment above it), so `aria-owns` is what makes it the
+        // grid's first row for assistive tech instead of an orphaned `row`.
+        aria-owns="table-header-row"
         // #20 — the grid is the widget's only tab stop; see `roving` above.
         listRef={listRef}
         tabIndex={roving.containerProps.tabIndex}

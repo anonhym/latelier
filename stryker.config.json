@@ -28,6 +28,7 @@
     "src/pages/Workspace/navigatorTreeReducer.ts",
     "src/pages/Workspace/filterTree.ts",
     "src/pages/Workspace/legacyBuilder.ts",
+    "src/pages/Workspace/views/tableColumns.ts",
     "src/utils/displayValue.ts",
     "src/utils/shellSyntax.ts",
     "electron/log.ts",

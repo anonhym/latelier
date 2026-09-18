@@ -1,5 +1,6 @@
 import { isRecord } from '../../../utils/displayValue';
 import type { TableColumnConfig } from '@shared/types';
+import type { SortDir } from '../builder';
 
 /**
  * Schema-derived field list — scans the first 50 documents, keeping `_id`
@@ -129,6 +130,24 @@ export function reorder<T>(list: T[], from: number, to: number): T[] {
  * No expression evaluation — accessor-only, per the ticket's scope guard.
  */
 const ARRAY_INDEX_RE = /^(?:0|[1-9]\d*)$/;
+
+/**
+ * `aria-sort` for a Table header cell (#53). A non-sortable column (a
+ * computed accessor column, or a plain column when the view has no
+ * `onSortField` at all) gets `undefined` — no attribute at all — rather than
+ * `'none'`, which ARIA reserves for a sortable-but-currently-unsorted column.
+ * Collapsing those two into one value would tell assistive tech every column
+ * is sortable.
+ */
+export function ariaSortFor(
+  sortable: boolean,
+  dir: SortDir | undefined,
+): 'ascending' | 'descending' | 'none' | undefined {
+  if (!sortable) return undefined;
+  if (dir === 1) return 'ascending';
+  if (dir === -1) return 'descending';
+  return 'none';
+}
 
 export function getValueAtPath(doc: unknown, path: string): unknown {
   const segments = path.split('.');
