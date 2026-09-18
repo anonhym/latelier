@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, waitFor } from '../helpers/render';
+import { render, screen, within, fireEvent, waitFor, navigatorRoot } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
@@ -46,12 +46,9 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
+// #72 — was a local copy identical to navigator-accordion.spec.tsx's own;
+// SonarCloud flagged the pair. Now shared, see `navigatorRoot`'s own doc.
+const root = navigatorRoot;
 
 afterEach(() => {
   uninstallAtelierMock();

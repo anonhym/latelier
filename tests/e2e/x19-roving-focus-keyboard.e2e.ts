@@ -51,6 +51,41 @@ async function tabUntilFocused(
 }
 
 /**
+ * #72 — the two tests below both open the same seeded table before doing
+ * their own thing with it; this was a byte-identical block (SonarCloud
+ * flagged it as a self-duplicate) apart from the connection name. Pure
+ * mechanical hoist: same awaits, same order, nothing added or dropped —
+ * each test still does its own post-open assertions (the grid-visibility
+ * check below is only in the first test, deliberately).
+ */
+async function openSeededRovingFocusTable(
+  win: Page,
+  host: string,
+  port: number,
+  connectionName: string,
+): Promise<{ grid: Locator; row: (i: number) => Locator }> {
+  await seedActiveConnectionWithDocs(
+    win,
+    { ...baseConnInput(host, port), name: connectionName },
+    { dbName: 'shop', collection: 'orders', docs: orderDocs() },
+  );
+  await expectStatusDot(win, connectionName, 'connected');
+
+  const ws = new WorkspacePage(win);
+  await ws.openCollectionFromNavigator('shop', 'orders');
+  // Setup only — running the query and switching view are not the
+  // feature under test, so a click here doesn't undercut "keyboard-only"
+  // below, matching `conn-switcher-keyboard.e2e.ts`'s own convention of
+  // clicking to reach the widget, then going keyboard-only once there.
+  await ws.queryBarRunButton.click();
+  await ws.viewTableButton.click();
+
+  const grid = win.getByRole('grid', { name: 'Documents' });
+  const row = (i: number) => win.locator(`#table-row-${i}`);
+  return { grid, row };
+}
+
+/**
  * #20's roving-focus driver, driven with the keyboard alone against a real
  * Electron window and a real `mongodb-memory-server` — no `.click()` once
  * the grid itself is reached.
@@ -73,26 +108,9 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
     await win.waitForLoadState('domcontentloaded');
 
     await expectConsoleClean(win, async () => {
-      await seedActiveConnectionWithDocs(
-        win,
-        { ...baseConnInput(host, port), name: 'Roving Focus Target' },
-        { dbName: 'shop', collection: 'orders', docs: orderDocs() },
-      );
-      await expectStatusDot(win, 'Roving Focus Target', 'connected');
-
-      const ws = new WorkspacePage(win);
-      await ws.openCollectionFromNavigator('shop', 'orders');
-      // Setup only — running the query and switching view are not the
-      // feature under test, so a click here doesn't undercut "keyboard-only"
-      // below, matching `conn-switcher-keyboard.e2e.ts`'s own convention of
-      // clicking to reach the widget, then going keyboard-only once there.
-      await ws.queryBarRunButton.click();
-      await ws.viewTableButton.click();
-
-      const grid = win.getByRole('grid', { name: 'Documents' });
+      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Roving Focus Target');
       await expect(grid).toBeVisible({ timeout: 8000 });
 
-      const row = (i: number) => win.locator(`#table-row-${i}`);
       // Confirms the query actually returned and rendered rows before the
       // "row 49 isn't mounted" premise below is asserted — otherwise that
       // assertion would trivially pass against an empty, not-yet-loaded grid.
@@ -180,20 +198,7 @@ test('table roving focus: a real click does not trap focus on the row — ArrowD
     await win.waitForLoadState('domcontentloaded');
 
     await expectConsoleClean(win, async () => {
-      await seedActiveConnectionWithDocs(
-        win,
-        { ...baseConnInput(host, port), name: 'Click Focus Target' },
-        { dbName: 'shop', collection: 'orders', docs: orderDocs() },
-      );
-      await expectStatusDot(win, 'Click Focus Target', 'connected');
-
-      const ws = new WorkspacePage(win);
-      await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.queryBarRunButton.click();
-      await ws.viewTableButton.click();
-
-      const grid = win.getByRole('grid', { name: 'Documents' });
-      const row = (i: number) => win.locator(`#table-row-${i}`);
+      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Click Focus Target');
       await expect(row(0)).toBeVisible({ timeout: 8000 });
 
       // The click also makes row 1 the active row — not just clickable —
