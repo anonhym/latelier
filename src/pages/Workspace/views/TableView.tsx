@@ -173,10 +173,17 @@ function TableCell({
   // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
   // `onFocus`/`onBlur` here (React routes both through native `focusin`/
   // `focusout`, which bubble) act like CSS `:focus-within` on this cell —
-  // real CSS was tried first, but jsdom's `getComputedStyle` doesn't apply
-  // stylesheet rules at all, only inline `style`, so a CSS-only fix would be
-  // unverifiable by the component tests this needs (confirmed against a
-  // real jsdom probe, not assumed).
+  // real CSS was tried first and rejected for a narrower reason than an
+  // earlier version of this comment claimed. jsdom's `getComputedStyle` *does*
+  // apply stylesheet rules — a probe in this project's own component project
+  // returned the stylesheet's value, not the CSS default. What it does not
+  // reflect is dynamic pseudo-class state: with `.cell:focus-within .aff
+  // { opacity: 1 }` mounted and the button focused, `cell.matches
+  // (':focus-within')` is `true` while `getComputedStyle(btn).opacity` stays
+  // at the unfocused value. So a `:focus-within` fix would be unverifiable by
+  // the component tests this project requires. React's inline `style` prop
+  // cannot express a pseudo-class either, and this file uses no stylesheet, so
+  // the CSS route would also mean introducing a styling mechanism for one cell.
   const affordanceVisible = hovered || expandOpen || focused;
 
   const canInlineEdit = editable && !meta.isReadOnly && typeof actions.updateField === 'function';
@@ -1161,7 +1168,16 @@ export function TableView({
           It's a DOM sibling of the grid below (sticky positioning needs it
           outside the scrolling/virtualized body), not a descendant, so
           `aria-owns` on the grid (below) is what tells assistive tech this
-          is still the grid's first row rather than an orphaned `row`. */}
+          is still the grid's first row rather than an orphaned `row`.
+
+          Two residuals, both recorded rather than fixed. ARIA places an
+          `aria-owns` target last in accessibility-tree traversal order
+          regardless of `aria-rowindex`, so some assistive tech may reach this
+          header after the body rows even though it announces as row 1 — the
+          sticky-header-must-be-a-sibling constraint leaves no better option.
+          And the id is a constant: `TableView` has one call site today
+          (`ResultViewer.tsx`), so two instances cannot collide, but a split or
+          compare view mounting two would need it made unique. */}
       <div
         id="table-header-row"
         role="row"
