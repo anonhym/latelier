@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, fireEvent } from '../helpers/render';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -181,5 +182,155 @@ describe('ColumnChooser', () => {
     fireEvent.drop(handles[2]);
 
     expect(patchWith).not.toHaveBeenCalled();
+  });
+
+  // #57 — keyboard reorder path. orderedFields for baseState() is
+  // ['_id', 'apple', 'banana'].
+
+  it('exposes a Move up/down button pair per field, labelled with the field name', () => {
+    const { getByRole } = renderChooser(baseState());
+    fireEvent.click(getByRole('button', { name: /columns/i }));
+
+    expect(getByRole('button', { name: 'Move apple up' })).toBeTruthy();
+    expect(getByRole('button', { name: 'Move apple down' })).toBeTruthy();
+  });
+
+  it('disables the first field\'s "up" and the last field\'s "down", not just no-ops them', () => {
+    const { getByRole } = renderChooser(baseState());
+    fireEvent.click(getByRole('button', { name: /columns/i }));
+
+    expect((getByRole('button', { name: 'Move _id up' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((getByRole('button', { name: 'Move banana down' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((getByRole('button', { name: 'Move _id down' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect((getByRole('button', { name: 'Move banana up' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('clicking "Move down" on the first field calls patchWith with it moved to index 1', () => {
+    const patchWith = vi.fn();
+    const state = baseState();
+    const { getByRole } = renderChooser(state, { patchWith });
+    fireEvent.click(getByRole('button', { name: /columns/i }));
+
+    fireEvent.click(getByRole('button', { name: 'Move _id down' }));
+
+    expect(patchWith).toHaveBeenCalledTimes(1);
+    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
+    const patch = fn(state);
+    expect(patch.columnConfig?.order).toEqual(['apple', '_id', 'banana']);
+  });
+
+  it('clicking "Move up" on the last field calls patchWith with it moved earlier', () => {
+    const patchWith = vi.fn();
+    const state = baseState();
+    const { getByRole } = renderChooser(state, { patchWith });
+    fireEvent.click(getByRole('button', { name: /columns/i }));
+
+    fireEvent.click(getByRole('button', { name: 'Move banana up' }));
+
+    expect(patchWith).toHaveBeenCalledTimes(1);
+    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
+    const patch = fn(state);
+    expect(patch.columnConfig?.order).toEqual(['_id', 'banana', 'apple']);
+  });
+
+  it('announces the move outcome via a polite live region', async () => {
+    const patchWith = vi.fn();
+    const state = baseState();
+    const { getByRole, getByText } = renderChooser(state, { patchWith });
+    fireEvent.click(getByRole('button', { name: /columns/i }));
+
+    await userEvent.click(getByRole('button', { name: 'Move apple down' }));
+
+    expect(getByText(/apple moved to position 3 of 3/i)).toBeTruthy();
+  });
+
+  // Applies a mocked patchWith's captured updater to `state` and re-renders
+  // with the result — the two focus-trap tests below both need a *real*
+  // reorder committed to props, since ColumnChooser derives order from
+  // props alone and the mocked patchWith never updates anything on its own.
+  function rerenderAfterMove(
+    ctx: ReturnType<typeof renderChooser>,
+    state: CollectionTabState,
+    patchWith: ReturnType<typeof vi.fn>,
+  ) {
+    const fn = patchWith.mock.calls[patchWith.mock.calls.length - 1][0] as (
+      s: CollectionTabState,
+    ) => Partial<CollectionTabState>;
+    const nextState = { ...state, ...fn(state) };
+    ctx.rerender(
+      <CollectionWorkspaceProvider state={nextState} actions={ctx.actions} meta={baseMeta()}>
+        <ColumnChooser />
+      </CollectionWorkspaceProvider>,
+    );
+  }
+
+  it('is operable with the keyboard alone: Tab reaches the buttons and Enter moves repeatedly', async () => {
+    // Acceptance criterion 1 is "every field can be moved up and down with
+    // the keyboard alone", and every other test here drives the buttons with
+    // a click. #20 shipped a critical focus defect precisely because all 48
+    // of its tests used the wrong event, so this one uses only keys: Tab to
+    // reach the control, Enter to press it, and a *second* Enter without
+    // re-focusing — which only works if the focus redirect leaves the user
+    // standing on a button that still moves the same field.
+    const patchWith = vi.fn();
+    const state = baseState();
+    const ctx = renderChooser(state, { patchWith });
+    fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
+
+    const target = ctx.getByRole('button', { name: 'Move _id down' });
+    let reached = false;
+    for (let i = 0; i < 12 && !reached; i += 1) {
+      await userEvent.tab();
+      reached = document.activeElement === target;
+    }
+    expect(reached).toBe(true);
+
+    await userEvent.keyboard('{Enter}');
+    expect(patchWith).toHaveBeenCalledTimes(1);
+    rerenderAfterMove(ctx, state, patchWith);
+
+    // _id is now at index 1 of ['apple', '_id', 'banana']. A second Enter
+    // with no intervening Tab or click must move it again.
+    const moved = { ...state, ...(patchWith.mock.calls[0][0] as
+      (s: CollectionTabState) => Partial<CollectionTabState>)(state) };
+    await userEvent.keyboard('{Enter}');
+    expect(patchWith).toHaveBeenCalledTimes(2);
+    const second = (patchWith.mock.calls[1][0] as
+      (s: CollectionTabState) => Partial<CollectionTabState>)(moved);
+    expect(second.columnConfig?.order).toEqual(['apple', 'banana', '_id']);
+  });
+
+  it('moving a field to the top shifts focus to its own "down" button, never to <body>', async () => {
+    const patchWith = vi.fn();
+    const state = baseState();
+    const ctx = renderChooser(state, { patchWith });
+    fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
+
+    await userEvent.click(ctx.getByRole('button', { name: 'Move apple up' }));
+    rerenderAfterMove(ctx, state, patchWith);
+
+    const appleDown = ctx.getByRole('button', { name: 'Move apple down' });
+    expect(document.activeElement).toBe(appleDown);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('moving a field to the bottom shifts focus to its own "up" button, never to <body>', async () => {
+    const patchWith = vi.fn();
+    const state = baseState();
+    const ctx = renderChooser(state, { patchWith });
+    fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
+
+    await userEvent.click(ctx.getByRole('button', { name: 'Move apple down' }));
+    rerenderAfterMove(ctx, state, patchWith);
+
+    const appleUp = ctx.getByRole('button', { name: 'Move apple up' });
+    expect(document.activeElement).toBe(appleUp);
+    expect(document.activeElement).not.toBe(document.body);
   });
 });

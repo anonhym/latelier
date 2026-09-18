@@ -1,5 +1,14 @@
 import React from 'react';
-import { ActionIcon, Badge, Button, Checkbox, Popover, Stack, TextInput } from '@mantine/core';
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Checkbox,
+  Popover,
+  Stack,
+  TextInput,
+  VisuallyHidden,
+} from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
@@ -64,6 +73,50 @@ export function ColumnChooser() {
   };
 
   const dragIndex = React.useRef<number | null>(null);
+
+  // Keyboard reorder path (#57): same `moveField` entry point as onDrop, plus
+  // focus management drag never needed. Moving a field to an end disables
+  // the button the user just pressed (acceptance: disabled, not a no-op) —
+  // a disabled focused button drops focus to <body> (the #55/#70 defect), so
+  // `pendingMoveRef` records which button was pressed and a layout effect,
+  // once `orderedFields` reflects the real reorder, redirects focus to the
+  // still-enabled sibling button on that same row.
+  const buttonRefs = React.useRef(new Map<string, { up: HTMLButtonElement | null; down: HTMLButtonElement | null }>());
+  const pendingMoveRef = React.useRef<{ field: string; direction: 'up' | 'down' } | null>(null);
+  const [announcement, setAnnouncement] = React.useState('');
+
+  const requestMove = (field: string, index: number, direction: 'up' | 'down') => {
+    const to = direction === 'up' ? index - 1 : index + 1;
+    if (to < 0 || to >= orderedFields.length) return;
+    pendingMoveRef.current = { field, direction };
+    setAnnouncement(`${field} moved to position ${to + 1} of ${orderedFields.length}`);
+    moveField(index, to);
+  };
+
+  React.useLayoutEffect(() => {
+    const pending = pendingMoveRef.current;
+    if (!pending) return;
+    pendingMoveRef.current = null;
+    const newIndex = orderedFields.indexOf(pending.field);
+    if (newIndex === -1) return;
+    const refs = buttonRefs.current.get(pending.field);
+    if (!refs) return;
+    const landedAtTop = newIndex === 0;
+    const landedAtBottom = newIndex === orderedFields.length - 1;
+    if (pending.direction === 'up' && landedAtTop) {
+      refs.down?.focus();
+    } else if (pending.direction === 'down' && landedAtBottom) {
+      refs.up?.focus();
+    } else {
+      refs[pending.direction]?.focus();
+    }
+  }, [orderedFields]);
+
+  const setButtonRef = (field: string, which: 'up' | 'down') => (el: HTMLButtonElement | null) => {
+    const entry = buttonRefs.current.get(field) ?? { up: null, down: null };
+    entry[which] = el;
+    buttonRefs.current.set(field, entry);
+  };
 
   const trimmedNewPath = newPath.trim();
   const isDuplicatePath = computed.some((c) => c.path === trimmedNewPath);
@@ -147,10 +200,33 @@ export function ColumnChooser() {
                   onChange={() => toggleHidden(field)}
                   style={{ flex: 1 }}
                 />
+                <ActionIcon
+                  size="xs"
+                  variant="subtle"
+                  aria-label={`Move ${field} up`}
+                  disabled={index === 0}
+                  ref={setButtonRef(field, 'up')}
+                  onClick={() => requestMove(field, index, 'up')}
+                >
+                  {I.chevU}
+                </ActionIcon>
+                <ActionIcon
+                  size="xs"
+                  variant="subtle"
+                  aria-label={`Move ${field} down`}
+                  disabled={index === orderedFields.length - 1}
+                  ref={setButtonRef(field, 'down')}
+                  onClick={() => requestMove(field, index, 'down')}
+                >
+                  {I.chevD}
+                </ActionIcon>
               </div>
             ))}
           </Stack>
         )}
+        {/* `aria-live`: announces a keyboard reorder's result, which is
+            otherwise silent to anyone not watching the list (#57). */}
+        <VisuallyHidden aria-live="polite">{announcement}</VisuallyHidden>
 
         {computed.length > 0 && (
           <Stack gap={4} mt="xs" style={{ minWidth: 200 }}>
