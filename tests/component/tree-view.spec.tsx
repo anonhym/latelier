@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '../helpers/render';
+import { render, screen, fireEvent } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -142,5 +142,99 @@ describe('TreeView — rendering and interaction', () => {
 
     expect(onRowExpand).toHaveBeenCalledTimes(1);
     expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439011', true);
+  });
+
+  // #20 — roving focus: the tree itself is the widget's only tab stop.
+  describe('roving focus (#20)', () => {
+    const threeDocs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' },
+      { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'b' },
+      { _id: { $oid: '507f1f77bcf86cd799439013' }, name: 'c' },
+    ];
+
+    it('the tree is a tab stop and names row 0 as the active descendant', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      expect(tree.getAttribute('tabindex')).toBe('0');
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-0');
+      expect(container.querySelector('#tree-row-0')).not.toBeNull();
+    });
+
+    it('ArrowDown/ArrowUp move the active descendant and wrap at both ends', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+
+      fireEvent.keyDown(tree, { key: 'ArrowUp' });
+      fireEvent.keyDown(tree, { key: 'ArrowUp' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+    });
+
+    it('Home/End jump to the first/last row', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'End' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+      fireEvent.keyDown(tree, { key: 'Home' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-0');
+    });
+
+    it('Enter on the tree itself expands the active row', () => {
+      const onRowExpand = vi.fn();
+      const { container } = renderTree(threeDocs, { onRowExpand });
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      fireEvent.keyDown(tree, { key: 'Enter' });
+
+      expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439012', true);
+    });
+
+    // Mirrors the existing per-row guard test above, at the container level:
+    // Enter bubbling from a nested button must not also expand the row.
+    it('Enter bubbling up from a nested button does not double-expand', async () => {
+      const onRowExpand = vi.fn();
+      renderTree([threeDocs[0]], { onRowExpand });
+
+      const btn = screen.getByRole('button', { name: 'Expand document' });
+      btn.focus();
+      await userEvent.keyboard('{Enter}');
+
+      expect(onRowExpand).toHaveBeenCalledTimes(1);
+    });
+
+    // Found in review: `tabIndex={-1}` excludes the row from Tab order but
+    // (per the HTML focusing-steps algorithm) leaves it click-focusable —
+    // `fireEvent.click` elsewhere in this file does no focus management at
+    // all, which is why this needs `userEvent`'s click specifically, the one
+    // that walks up to the nearest focusable ancestor like a real browser.
+    it('a real click on a row does not trap focus there — ArrowDown still moves the tree afterward', async () => {
+      const user = userEvent.setup();
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+      const rows = container.querySelectorAll('[role="treeitem"]');
+
+      await user.click(rows[0]);
+      await user.keyboard('{ArrowDown}');
+
+      expect(document.activeElement).toBe(tree);
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+    });
+
+    it('clicking row 2 makes it the active row — ArrowDown moves to row 3, not row 1', async () => {
+      const user = userEvent.setup();
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+      const rows = container.querySelectorAll('[role="treeitem"]');
+
+      await user.click(rows[1]);
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+      await user.keyboard('{ArrowDown}');
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+    });
   });
 });

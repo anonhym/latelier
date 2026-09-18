@@ -3,8 +3,10 @@ import { notify } from '../../../theme/notifications';
 import {
   List,
   useDynamicRowHeight,
+  useListRef,
   type RowComponentProps,
 } from 'react-window';
+import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -142,6 +144,13 @@ interface DocRowProps {
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
+  // #20 — stable per-row DOM id so the tree's `aria-activedescendant` (set
+  // by `useRovingFocus` in the component below) always names a real element.
+  rowId: (index: number) => string;
+  // #20 — found in review: a click needs to make the clicked row the roving
+  // index too, or the next Arrow key jumps from wherever the highlight was
+  // sitting rather than from the row just clicked.
+  setActiveIndex: (index: number) => void;
 }
 
 function DocRowImpl({
@@ -165,6 +174,8 @@ function DocRowImpl({
   onRefHover,
   onRefHoverLeave,
   onRefOpen,
+  rowId,
+  setActiveIndex,
 }: RowComponentProps<DocRowProps>) {
   const doc = documents[index];
   const docId = getFullDocId(doc);
@@ -173,6 +184,7 @@ function DocRowImpl({
   const isSelected = indices.has(index);
 
   const handleRowClick = (e: React.MouseEvent) => {
+    setActiveIndex(index);
     if (e.metaKey || e.ctrlKey) {
       onToggleSelect(index);
       onSelect(doc);
@@ -196,25 +208,27 @@ function DocRowImpl({
           : '3px solid transparent',
       }}
     >
-      {/* Collapsed row */}
+      {/* Collapsed row. No `tabIndex` at all — #20 originally left
+          `tabIndex={-1}` here, but review found that any declared
+          `tabIndex` (negative included) is enough to make an element
+          click-focusable per the HTML focusing-steps algorithm, even though
+          it's excluded from *sequential* (Tab) focus. A click was leaving
+          real DOM focus on the row, so the next Arrow/Home/End reached the
+          tree's own `onKeyDown` with `e.target` = this row rather than the
+          tree, and its own-target guard swallowed it. Removing `tabIndex`
+          lets a click's focusing steps walk up to the nearest focusable
+          ancestor — the tree itself — instead, which is what makes this
+          row's own former Enter/Space handler dead code (a keydown can only
+          ever target an element that can hold real focus): deleted, along
+          with the guard it needed, in favour of the tree-level handling in
+          `TreeView` below, which now also gets a plain click's
+          `setActiveIndex(index)` so the next Arrow continues from the row
+          just clicked. */}
       <div
         onClick={handleRowClick}
-        // Keyboard path is independent of handleRowClick (which reads
-        // metaKey/ctrlKey off a MouseEvent for ⌘/Ctrl+click-to-select — a
-        // mouse-only gesture). Guarded so a keydown bubbling up from a
-        // nested control (the expand button, edit/delete) doesn't also
-        // toggle the row — that button already has its own native Enter/
-        // Space handling.
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            if (e.key === ' ') e.preventDefault();
-            onRowExpand(docId, !isExpanded);
-          }
-        }}
+        id={rowId(index)}
         role="treeitem"
         aria-expanded={isExpanded}
-        tabIndex={-1}
         title="Click to expand · ⌘/Ctrl+click to select"
         style={{
           display: 'flex',
@@ -317,35 +331,24 @@ function DocRowImpl({
           TreeView pins a clone of this header to the top of the
           scroll viewport while the expanded section is in view — needed
           because react-window v2 positions rows with `transform: translateY`,
-          which prevents native `position: sticky` from escaping the row. */}
+          which prevents native `position: sticky` from escaping the row.
+          `DocFieldTree` owns its own `role="tree"`/`data-expanded-doc-section`
+          wrapper (the sticky-header effect below still finds it by that
+          attribute) and, since #20, its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
-        <div
-          data-expanded-doc-section="true"
-          // Ancestor role for DocFieldTree's `treeitem` rows below (axe's
-          // aria-required-parent). The rows render as a flat sibling list,
-          // not nested per depth, so this isn't a fully-conformant ARIA
-          // tree — it's the minimum that satisfies the treeitem/tree pairing.
-          role="tree"
-          style={{
-            padding: '0 0 10px 0',
-            borderTop: '1px solid var(--atelier-border)',
-            background: 'var(--atelier-surface)',
-          }}
-        >
-          <DocFieldTree
-            doc={doc}
-            docId={docId}
-            expandedPaths={deepPaths}
-            onToggle={toggleDeepPath}
-            copiedPath={copiedPath}
-            onCopy={handleCopy}
-            onOpenMenu={handleOpenMenu}
-            refsByField={refsByField}
-            onRefHover={onRefHover}
-            onRefHoverLeave={onRefHoverLeave}
-            onRefOpen={onRefOpen}
-          />
-        </div>
+        <DocFieldTree
+          doc={doc}
+          docId={docId}
+          expandedPaths={deepPaths}
+          onToggle={toggleDeepPath}
+          copiedPath={copiedPath}
+          onCopy={handleCopy}
+          onOpenMenu={handleOpenMenu}
+          refsByField={refsByField}
+          onRefHover={onRefHover}
+          onRefHoverLeave={onRefHoverLeave}
+          onRefOpen={onRefOpen}
+        />
       )}
     </div>
   );
@@ -388,7 +391,9 @@ const DocRow = React.memo(DocRowImpl, (prev, next) => {
     prev.handleOpenMenu === next.handleOpenMenu &&
     prev.onRefHover === next.onRefHover &&
     prev.onRefHoverLeave === next.onRefHoverLeave &&
-    prev.onRefOpen === next.onRefOpen
+    prev.onRefOpen === next.onRefOpen &&
+    prev.rowId === next.rowId &&
+    prev.setActiveIndex === next.setActiveIndex
   );
 });
 
@@ -506,6 +511,36 @@ export function TreeView({
   // no library-side scroll correction on resize.
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 44 });
 
+  // #20 — the tree is the widget's single tab stop; see `TableView`'s
+  // identical wiring (and `useRovingFocus`'s docstring) for why the scroll
+  // has to happen synchronously with the index change.
+  const listRef = useListRef(null);
+  const roving = useRovingFocus({
+    count: documents.length,
+    idPrefix: 'tree-row-',
+    resetKey: documents,
+    scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
+  });
+  const handleTreeKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      roving.onKeyDown(e);
+      if (e.defaultPrevented) return;
+      // Only Enter/Space typed while the tree itself has focus expands the
+      // active row — one bubbling up from a nested button (expand/edit/
+      // delete) is that control's own action. This guard used to be
+      // mirrored on DocRow itself; that copy went when the rows stopped
+      // being focusable, so this is now the only one.
+      if (e.target !== e.currentTarget) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (documents.length === 0) return;
+      if (e.key === ' ') e.preventDefault();
+      const doc = documents[roving.activeIndex];
+      const docId = getFullDocId(doc);
+      onRowExpand(docId, !ownGet(expandedRows, docId));
+    },
+    [roving, documents, expandedRows, onRowExpand],
+  );
+
   // Memoize so react-window receives a stable rowProps reference. A fresh
   // object literal on every render would re-trigger every visible DocRow
   // (TableView already does this; TreeView and JsonView were the laggards).
@@ -529,6 +564,8 @@ export function TreeView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      rowId: roving.rowId,
+      setActiveIndex: roving.setActiveIndex,
     }),
     [
       documents,
@@ -549,6 +586,8 @@ export function TreeView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      roving.rowId,
+      roving.setActiveIndex,
     ],
   );
 
@@ -620,6 +659,11 @@ export function TreeView({
           // aria-required-parent). `tree` is the one they need.
           role="tree"
           aria-label="Documents"
+          // #20 — the tree is the widget's only tab stop; see `roving` above.
+          listRef={listRef}
+          tabIndex={roving.containerProps.tabIndex}
+          aria-activedescendant={roving.containerProps['aria-activedescendant']}
+          onKeyDown={handleTreeKeyDown}
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRow as typeof DocRowImpl}
           rowCount={documents.length}

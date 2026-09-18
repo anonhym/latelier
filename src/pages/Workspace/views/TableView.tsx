@@ -3,8 +3,10 @@ import { notify } from '../../../theme/notifications';
 import {
   List,
   useDynamicRowHeight,
+  useListRef,
   type RowComponentProps,
 } from 'react-window';
+import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -447,6 +449,9 @@ interface TableRowProps {
   // drive the same selection logic as a click — both event types carry
   // metaKey/ctrlKey, which is all this reads.
   onSelect: (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => void;
+  // #20 — stable per-row DOM id so the grid's `aria-activedescendant` (set
+  // by `useRovingFocus` in the component below) always names a real element.
+  rowId: (index: number) => string;
   onCopyCell: (text: string, cellKey: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
@@ -492,6 +497,7 @@ function TableRowImpl({
   onRefHover,
   onRefHoverLeave,
   onRefOpen,
+  rowId,
 }: RowComponentProps<TableRowProps>) {
   const doc = documents[index];
   const isSelected = indices.has(index);
@@ -525,13 +531,27 @@ function TableRowImpl({
           `aria-selected` is valid on it. `aria-rowindex` is 1-based and
           counts the header, so the first document row is 2.
 
-          tabIndex={-1}: virtualization still mounts 40+ rows with overscan, so
-          no row may be a tab stop. Moving focus between them is #20. */}
+          No `tabIndex` at all: a plain `div` with none is already out of
+          both the Tab order AND click-focusable — #20 originally left
+          `tabIndex={-1}` here on the theory that only *sequential* focus
+          needed excluding, but the HTML focusing-steps algorithm treats any
+          declared `tabIndex` (negative included) as making the element
+          focusable via a real click, which review caught: clicking a row
+          left real DOM focus sitting on it, so the next Arrow/Home/End
+          reached the grid's `onKeyDown` with `e.target` = this row instead
+          of the grid itself, and its own-target guard swallowed every one
+          of them. Removing it lets a click's focusing steps walk up to the
+          nearest focusable ancestor instead, which is the grid — exactly
+          where #20's design already wanted real focus to live. The grid's
+          `aria-activedescendant` (set in `TableView` below) still points at
+          this row via its `id`; `handleSelect` also moves the roving index
+          here on click, so a click and the next Arrow agree on which row is
+          active. */}
       <div
+        id={rowId(index)}
         role="row"
         aria-rowindex={index + 2}
         aria-selected={isSelected}
-        tabIndex={-1}
         style={{
           display: 'flex',
           alignItems: 'stretch',
@@ -540,16 +560,6 @@ function TableRowImpl({
           fontFamily: 'monospace',
         }}
         onClick={(e) => onSelect(e, index)}
-        onKeyDown={(e) => {
-          // Nested native buttons (expand chevron, cell edit/expand
-          // affordances) also bubble their Enter/Space keydown up here —
-          // without this guard, tabbing to one of them and pressing Enter
-          // would both run its own action AND select the row.
-          if (e.target !== e.currentTarget) return;
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          onSelect(e, index);
-        }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
             data columns. A `gridcell` like the rest, so the row owns nothing
@@ -634,37 +644,24 @@ function TableRowImpl({
         })}
       </div>
 
-      {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree
-          the Tree view renders, via the shared `DocFieldTree`. */}
+      {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree the
+          Tree view renders, via the shared `DocFieldTree`, which owns its
+          own `role="tree"`/`data-expanded-doc-section` wrapper and (#20)
+          its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
-        <div
-          data-expanded-doc-section="true"
-          // Same ancestor role TreeView's expand panel carries, for the same
-          // reason: `DocFieldTree`'s rows are `role="treeitem"`, and a
-          // `treeitem` without a `tree` ancestor fails axe's
-          // aria-required-parent. Both call sites of the shared component
-          // need it, not just the one in TreeView.
-          role="tree"
-          style={{
-            padding: '0 0 10px 0',
-            borderTop: '1px solid var(--atelier-border)',
-            background: 'var(--atelier-surface)',
-          }}
-        >
-          <DocFieldTree
-            doc={doc}
-            docId={docId}
-            expandedPaths={deepPaths}
-            onToggle={toggleDeepPath}
-            copiedPath={fieldCopiedPath}
-            onCopy={handleCopyField}
-            onOpenMenu={handleOpenFieldMenu}
-            refsByField={refsByField}
-            onRefHover={onRefHover}
-            onRefHoverLeave={onRefHoverLeave}
-            onRefOpen={onRefOpen}
-          />
-        </div>
+        <DocFieldTree
+          doc={doc}
+          docId={docId}
+          expandedPaths={deepPaths}
+          onToggle={toggleDeepPath}
+          copiedPath={fieldCopiedPath}
+          onCopy={handleCopyField}
+          onOpenMenu={handleOpenFieldMenu}
+          refsByField={refsByField}
+          onRefHover={onRefHover}
+          onRefHoverLeave={onRefHoverLeave}
+          onRefOpen={onRefOpen}
+        />
       )}
     </div>
   );
@@ -690,7 +687,8 @@ const TableRow = React.memo(TableRowImpl, (prev, next) => {
     prev.handleOpenFieldMenu !== next.handleOpenFieldMenu ||
     prev.onRefHover !== next.onRefHover ||
     prev.onRefHoverLeave !== next.onRefHoverLeave ||
-    prev.onRefOpen !== next.onRefOpen
+    prev.onRefOpen !== next.onRefOpen ||
+    prev.rowId !== next.rowId
   ) {
     return false;
   }
@@ -980,14 +978,42 @@ export function TableView({
     };
   }, [contextMenu]);
 
+  // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
+  // (via `useRovingFocus`) owns which row is "active" and this wires it to
+  // the DOM: a stable `id` per row (set on TableRow above) named by the
+  // grid's `aria-activedescendant`, kept in sync with react-window's
+  // mounted range by scrolling to the row in the same key handler that
+  // moves the index — see `useRovingFocus`'s own docstring for why that has
+  // to be one operation, not two. Declared before `handleSelect` below,
+  // which needs `roving.setActiveIndex`.
+  const listRef = useListRef(null);
+  const roving = useRovingFocus({
+    count: documents.length,
+    idPrefix: 'table-row-',
+    resetKey: documents,
+    scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
+  });
+
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
   // toggles the row into/out of a multi-row selection for the bulk-action bar.
+  // Also makes the clicked row the roving-focus target — found in review: a
+  // clicked row (`tabIndex={-1}` used to make it click-focusable per the HTML
+  // focusing-steps algorithm — since removed, see the row strip's own
+  // comment) would otherwise leave the highlight sitting wherever it was
+  // before the click, so the next Arrow key would jump from there instead of
+  // from the row the user just clicked.
   const handleSelect = React.useCallback(
     (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
       else selection.selectOnly(idx);
+      roving.setActiveIndex(idx);
     },
-    [selection],
+    // `roving` itself is a fresh object every render; depend on the one
+    // function this actually calls (stable per `useRovingFocus`) so this
+    // callback — and everything memoized against it, like `rowProps` below
+    // — doesn't get a new identity on every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, roving.setActiveIndex],
   );
 
   const handleContextMenu = React.useCallback(
@@ -1008,6 +1034,27 @@ export function TableView({
   // Row-expand makes rows variable-height; measure each rendered row rather
   // than assuming a fixed height (mirrors TreeView).
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 24 });
+
+  const handleGridKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      roving.onKeyDown(e);
+      if (e.defaultPrevented) return;
+      // Only Enter/Space typed while the grid itself has real DOM focus
+      // selects the active row — one bubbling up from a nested button
+      // (edit/expand/inline-edit) is that control's own action. Rows are no
+      // longer focusable at all (see the row strip's own comment), so this
+      // is now the ONLY place that guard can matter.
+      if (e.target !== e.currentTarget) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (documents.length === 0) return;
+      e.preventDefault();
+      handleSelect(e, roving.activeIndex);
+    },
+    // `roving` itself is a fresh object every render (see `handleSelect`
+    // above) — depend on the two members this actually reads instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roving.onKeyDown, roving.activeIndex, documents.length, handleSelect],
+  );
 
   const rowProps = React.useMemo<TableRowProps>(
     () => ({
@@ -1030,6 +1077,7 @@ export function TableView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      rowId: roving.rowId,
     }),
     [
       documents,
@@ -1051,6 +1099,7 @@ export function TableView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      roving.rowId,
     ],
   );
 
@@ -1268,6 +1317,11 @@ export function TableView({
         role="grid"
         aria-label="Documents"
         aria-rowcount={documents.length + 1}
+        // #20 — the grid is the widget's only tab stop; see `roving` above.
+        listRef={listRef}
+        tabIndex={roving.containerProps.tabIndex}
+        aria-activedescendant={roving.containerProps['aria-activedescendant']}
+        onKeyDown={handleGridKeyDown}
         rowComponent={TableRow as typeof TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}
