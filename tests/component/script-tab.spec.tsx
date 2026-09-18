@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { IpcApi } from '@shared/ipc';
 import { render, screen, fireEvent, waitFor } from '../helpers/render';
-import type { ScriptTab as ScriptTabModel } from '@shared/types';
+import userEvent from '@testing-library/user-event';
+import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 
@@ -261,5 +263,92 @@ describe('ScriptTab', () => {
     // JsonView pretty-prints the doc inside a card
     expect(container.textContent).toContain('"label"');
     expect(container.textContent).toContain('singleton');
+  });
+});
+
+/**
+ * `onPatch` is how the real app feeds a committed height back in as the next
+ * `resultPanelHeight` prop. A `vi.fn()` spy can't prove `aria-valuenow`
+ * tracks that round trip, so this wrapper actually does it.
+ */
+function ControlledScriptTab({ initial }: { initial: ScriptTabModel }) {
+  const [t, setT] = useState(initial);
+  const onPatch = (patch: Partial<ScriptTabState>) =>
+    setT((prev) => ({ ...prev, state: { ...prev.state, ...patch } }));
+  return <ScriptTab tab={t} onPatch={onPatch} />;
+}
+
+describe('ScriptTab result-panel resize keyboard support (#56)', () => {
+  function renderWithResult() {
+    installAtelierMock();
+    return render(
+      <ControlledScriptTab
+        initial={tab({
+          state: {
+            title: 'My script',
+            source: 'db.users.find()',
+            maxTimeMs: 60_000,
+            resultPanelHeight: 240,
+            lastResult: { valueJson: '[{"a":1}]', printBuffer: '', durationMs: 1 },
+          },
+        })}
+      />,
+    );
+  }
+
+  it('is reachable in the tab order right after the result panel content', async () => {
+    const user = userEvent.setup();
+    renderWithResult();
+    const handle = screen.getByRole('separator', { name: 'Resize result panel' });
+    // Landing on the handle by tabbing *forward* would first have to pass
+    // through the CodeMirror editor, whose own Tab keymap (indentWithTab)
+    // intercepts the key for indentation — not a resize-separator concern.
+    // Tabbing *backward* from the first focusable result-view control proves
+    // the same sequential-order membership without that detour.
+    await user.click(screen.getByRole('button', { name: 'Tree' }));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('ArrowUp/ArrowDown resize the result panel and keep aria-valuenow and the real height in sync', async () => {
+    const user = userEvent.setup();
+    renderWithResult();
+    const handle = screen.getByRole('separator', { name: 'Resize result panel' });
+    const panel = handle.nextElementSibling as HTMLElement;
+
+    await user.click(screen.getByRole('button', { name: 'Tree' }));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('250');
+    expect(panel.style.height).toBe('250px');
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('230');
+    expect(panel.style.height).toBe('230px');
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('Home and End reach the bounds and stay clamped and focused past them', async () => {
+    const user = userEvent.setup();
+    renderWithResult();
+    const handle = screen.getByRole('separator', { name: 'Resize result panel' });
+
+    await user.click(screen.getByRole('button', { name: 'Tree' }));
+    await user.tab({ shift: true });
+
+    await user.keyboard('{Home}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('80');
+    await user.keyboard('{ArrowDown}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('80');
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{End}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('800');
+    await user.keyboard('{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('800');
+    expect(document.activeElement).toBe(handle);
   });
 });

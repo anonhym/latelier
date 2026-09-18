@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { ResizeHandle } from '../../src/pages/Workspace/ResizeHandle';
 
 /**
@@ -90,5 +92,98 @@ describe('ResizeHandle edges', () => {
     drag(handle, 1400, 500);
     expect(onChange).toHaveBeenLastCalledWith(560);
     expect(onCommit).toHaveBeenLastCalledWith(560);
+  });
+});
+
+/**
+ * `value`/`onChange` are controlled — a bare `vi.fn()` spy proves a callback
+ * fired, not that `aria-valuenow` moved. This wrapper feeds `onChange` back
+ * into real state so the assertions below are on the rendered attribute,
+ * the thing #56 says the old tests never checked.
+ */
+function ControlledResizeHandle({
+  edge,
+  initial,
+  min,
+  max,
+  onCommit,
+}: {
+  edge: 'left' | 'right' | 'top' | 'bottom';
+  initial: number;
+  min: number;
+  max: number;
+  onCommit: (next: number) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  return (
+    <ResizeHandle
+      edge={edge}
+      value={value}
+      min={min}
+      max={max}
+      onChange={setValue}
+      onCommit={onCommit}
+      ariaLabel="Resize reference drawer"
+    />
+  );
+}
+
+describe('ResizeHandle keyboard resize (#56)', () => {
+  it('is reachable by Tab alone', async () => {
+    const user = userEvent.setup();
+    render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={vi.fn()} />);
+    const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('ArrowLeft/ArrowRight resize by the shared step and commit immediately, keeping focus', async () => {
+    const user = userEvent.setup();
+    const onCommit = vi.fn();
+    render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={onCommit} />);
+    const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
+    await user.tab();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('370');
+    expect(onCommit).toHaveBeenLastCalledWith(370);
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('390');
+    expect(onCommit).toHaveBeenLastCalledWith(390);
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('Home and End jump to the bounds and stay clamped and focused past them', async () => {
+    const user = userEvent.setup();
+    render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={vi.fn()} />);
+    const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
+    await user.tab();
+
+    await user.keyboard('{Home}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('160');
+    // Past the bound: still clamped at min, not below it.
+    await user.keyboard('{ArrowLeft}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('160');
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{End}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('560');
+    await user.keyboard('{ArrowRight}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('560');
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('shows a focus indicator on keyboard focus, not just on hover', async () => {
+    const user = userEvent.setup();
+    render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={vi.fn()} />);
+    const handle = screen.getByRole('separator', { name: 'Resize reference drawer' });
+
+    expect(handle.style.background).toBe('transparent');
+    await user.tab();
+    expect(handle.style.background).not.toBe('transparent');
   });
 });

@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { OutputPanel } from '../../src/pages/Workspace/Aggregation/OutputPanel';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { notifications } from '@mantine/notifications';
@@ -123,5 +125,93 @@ describe('OutputPanel — rendering and view switching', () => {
   it('shows the Running… overlay when running is true', () => {
     const { container } = renderPanel({ running: true, lastRun: { ...runMeta, rows: [], durationMs: 0 } });
     expect(container.textContent).toContain('Running');
+  });
+});
+
+/**
+ * `height` is controlled by the caller (AggregationTab, in the real app).
+ * A `vi.fn()` spy on `onHeightChange` can't prove `aria-valuenow` tracks a
+ * keyboard resize, so this wrapper feeds it back into real state.
+ */
+function ControlledOutputPanel() {
+  const [height, setHeight] = useState(260);
+  return (
+    <OutputPanel
+      height={height}
+      view="Tree"
+      lastRun={undefined}
+      running={false}
+      pipelineName={null}
+      onHeightChange={setHeight}
+      onHeightCommit={() => {}}
+      onViewChange={() => {}}
+      onSaveAsCollection={() => {}}
+    />
+  );
+}
+
+describe('OutputPanel resize keyboard support (#56)', () => {
+  it('is reachable by Tab alone', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('ArrowUp/ArrowDown resize the panel and keep aria-valuenow and the real height in sync', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    const panel = handle.parentElement as HTMLElement;
+    await user.tab();
+
+    await user.keyboard('{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('270');
+    expect(panel.style.height).toBe('270px');
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('250');
+    expect(panel.style.height).toBe('250px');
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('Home and End reach the real bounds and stay clamped and focused past them', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    // Same 0.7-of-viewport ceiling `clampHeight` uses — not hardcoded here,
+    // so this doesn't drift if jsdom's default viewport size ever changes.
+    const maxHeight = Math.floor(window.innerHeight * 0.7);
+    await user.tab();
+
+    await user.keyboard('{Home}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('120');
+    await user.keyboard('{ArrowDown}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('120');
+    expect(document.activeElement).toBe(handle);
+
+    await user.keyboard('{End}');
+    expect(handle.getAttribute('aria-valuenow')).toBe(String(maxHeight));
+    await user.keyboard('{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe(String(maxHeight));
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('Enter resets to the default height, the keyboard equivalent of the double-click reset', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    await user.tab();
+
+    await user.keyboard('{ArrowUp}{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('280');
+
+    await user.keyboard('{Enter}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('260');
+    expect(document.activeElement).toBe(handle);
   });
 });

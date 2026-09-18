@@ -1,5 +1,6 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
+import { resizeKeyStep } from './resizeKeyStep';
 
 interface ResizeHandleProps {
   /**
@@ -35,6 +36,7 @@ export function ResizeHandle({
   const T = themeVars;
   const [hover, setHover] = React.useState(false);
   const [active, setActive] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
 
   const horizontal = edge === 'left' || edge === 'right';
 
@@ -72,7 +74,24 @@ export function ResizeHandle({
     window.addEventListener('mouseup', onUp);
   };
 
-  const visible = hover || active;
+  // Keyboard equivalent of the drag above. `value`/`min`/`max` are already
+  // the props the mouse path clamps against, so the shared step helper needs
+  // no extra wiring here (see `resizeKeyStep.ts`) — a key it doesn't own
+  // (anything but Arrow/Home/End) comes back `null` and is left to bubble.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const next = resizeKeyStep(e.key, horizontal ? 'horizontal' : 'vertical', value, min, max);
+    if (next === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onChange(next);
+    onCommit?.(next);
+  };
+
+  // Mousedown above calls `preventDefault()`, which blocks the browser's
+  // default click-to-focus step — so `focused` only ever goes true from Tab,
+  // and this can safely double as the keyboard-modality indicator without a
+  // `:focus-visible` selector (inline styles can't express one).
+  const visible = hover || active || focused;
 
   return (
     <div
@@ -82,9 +101,13 @@ export function ResizeHandle({
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onKeyDown={onKeyDown}
       style={{
         ...(horizontal ? { width: 4 } : { height: 4 }),
         flexShrink: 0,

@@ -6,6 +6,7 @@ import { Button, Group, SegmentedControl } from '@mantine/core';
 import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { api } from '../../../api/atelier';
+import { resizeKeyStep } from '../resizeKeyStep';
 
 interface OutputPanelProps {
   height: number;
@@ -22,9 +23,12 @@ interface OutputPanelProps {
 const DEFAULT_HEIGHT = 260;
 const MIN_HEIGHT = 120;
 
+function maxHeight(): number {
+  return Math.floor(window.innerHeight * 0.7);
+}
+
 function clampHeight(px: number): number {
-  const max = Math.floor(window.innerHeight * 0.7);
-  return Math.max(MIN_HEIGHT, Math.min(max, px));
+  return Math.max(MIN_HEIGHT, Math.min(maxHeight(), px));
 }
 
 /**
@@ -79,6 +83,23 @@ export function OutputPanel({
     onHeightCommit();
   };
 
+  // Keyboard equivalent of both the drag and the double-click reset above.
+  // Arrow/Home/End resize by the same shared step every separator in the app
+  // uses; Enter is the reset, since double-click has no other keyboard analog.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onDoubleClick();
+      return;
+    }
+    const next = resizeKeyStep(e.key, 'vertical', height, MIN_HEIGHT, maxHeight());
+    if (next === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onHeightChange(next);
+    onHeightCommit();
+  };
+
   const rows = lastRun?.rows ?? [];
   const err = lastRun?.error;
 
@@ -112,8 +133,13 @@ export function OutputPanel({
       <div
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
+        onKeyDown={onKeyDown}
+        tabIndex={0}
         role="separator"
         aria-label="Resize output panel"
+        aria-valuenow={height}
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={maxHeight()}
         style={{
           height: 6,
           cursor: 'ns-resize',

@@ -14,7 +14,7 @@ import { ejsonStringify } from '../../utils/ejson';
 import { isRecord } from '../../utils/displayValue';
 import { ownSet } from '../../utils/ownProperty';
 import { ResultViewer } from './ResultViewer';
-import { useResizableSplit } from './useResizableSplit';
+import { useResizableSplit, MIN_RESULT_HEIGHT, MAX_RESULT_HEIGHT } from './useResizableSplit';
 import { CollectionWorkspaceProvider } from './CollectionWorkspaceProvider';
 import type {
   CollectionWorkspaceActions,
@@ -48,7 +48,7 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
   const state = tab.state;
   const hasFirstRun = !!(state.lastResult || state.lastError);
   const persistedHeight = state.resultPanelHeight ?? DEFAULT_RESULT_HEIGHT;
-  const { resultPanelHeight, onResizeStart } = useResizableSplit({
+  const { resultPanelHeight, onResizeStart, onKeyDown: onResizeKeyDown } = useResizableSplit({
     persistedHeight,
     hasContent: hasFirstRun || running,
     collapsedHeight: COLLAPSED_RESULT_HEIGHT,
@@ -238,6 +238,8 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
       {showResizeHandle && (
         <div
           onMouseDown={onResizeStart}
+          onKeyDown={onResizeKeyDown}
+          tabIndex={0}
           style={{
             height: 4,
             cursor: 'ns-resize',
@@ -245,6 +247,9 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
             flexShrink: 0,
           }}
           aria-label="Resize result panel"
+          aria-valuenow={resultPanelHeight}
+          aria-valuemin={MIN_RESULT_HEIGHT}
+          aria-valuemax={MAX_RESULT_HEIGHT}
           role="separator"
         />
       )}
