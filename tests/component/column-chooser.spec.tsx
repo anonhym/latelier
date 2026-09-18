@@ -211,32 +211,30 @@ describe('ColumnChooser', () => {
     );
   });
 
-  it('clicking "Move down" on the first field calls patchWith with it moved to index 1', () => {
-    const patchWith = vi.fn();
-    const state = baseState();
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /columns/i }));
+  // Both directions reach `moveField` and produce the order the user asked
+  // for. Parameterised rather than written out twice — two 15-line near-copies
+  // is what took SonarCloud's new-duplication gate to 12.7% here, the same
+  // shape that blocked #56.
+  const MOVE_CASES: ReadonlyArray<{ button: string; order: string[] }> = [
+    { button: 'Move _id down', order: ['apple', '_id', 'banana'] },
+    { button: 'Move banana up', order: ['_id', 'banana', 'apple'] },
+  ];
 
-    fireEvent.click(getByRole('button', { name: 'Move _id down' }));
+  MOVE_CASES.forEach(({ button, order }) => {
+    it(`"${button}" patches the order to ${order.join(', ')}`, () => {
+      const patchWith = vi.fn();
+      const state = baseState();
+      const { getByRole } = renderChooser(state, { patchWith });
+      fireEvent.click(getByRole('button', { name: /columns/i }));
 
-    expect(patchWith).toHaveBeenCalledTimes(1);
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(state);
-    expect(patch.columnConfig?.order).toEqual(['apple', '_id', 'banana']);
-  });
+      fireEvent.click(getByRole('button', { name: button }));
 
-  it('clicking "Move up" on the last field calls patchWith with it moved earlier', () => {
-    const patchWith = vi.fn();
-    const state = baseState();
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /columns/i }));
-
-    fireEvent.click(getByRole('button', { name: 'Move banana up' }));
-
-    expect(patchWith).toHaveBeenCalledTimes(1);
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(state);
-    expect(patch.columnConfig?.order).toEqual(['_id', 'banana', 'apple']);
+      expect(patchWith).toHaveBeenCalledTimes(1);
+      const fn = patchWith.mock.calls[0][0] as (
+        s: CollectionTabState,
+      ) => Partial<CollectionTabState>;
+      expect(fn(state).columnConfig?.order).toEqual(order);
+    });
   });
 
   it('announces the move outcome via a polite live region', async () => {
@@ -306,31 +304,34 @@ describe('ColumnChooser', () => {
     expect(second.columnConfig?.order).toEqual(['apple', 'banana', '_id']);
   });
 
-  it('moving a field to the top shifts focus to its own "down" button, never to <body>', async () => {
-    const patchWith = vi.fn();
-    const state = baseState();
-    const ctx = renderChooser(state, { patchWith });
-    fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
+  /**
+   * The end-of-list focus trap. Pressing the button that carries a field to an
+   * end disables that very button, and a disabled button cannot hold focus —
+   * without a redirect `document.activeElement` really does become `<body>`
+   * (verified by disabling the redirect and watching both cases redden), which
+   * is the defect #55 and #70 fixed elsewhere.
+   *
+   * `pressed` and `keepsFocus` are named per case rather than derived, so the
+   * fact that "up to the top hands focus to *down*" stays stated in the test
+   * instead of being recomputed the same way the component computes it.
+   */
+  const FOCUS_CASES: ReadonlyArray<{ end: string; pressed: string; keepsFocus: string }> = [
+    { end: 'top', pressed: 'Move apple up', keepsFocus: 'Move apple down' },
+    { end: 'bottom', pressed: 'Move apple down', keepsFocus: 'Move apple up' },
+  ];
 
-    await userEvent.click(ctx.getByRole('button', { name: 'Move apple up' }));
-    rerenderAfterMove(ctx, state, patchWith);
+  FOCUS_CASES.forEach(({ end, pressed, keepsFocus }) => {
+    it(`moving a field to the ${end} leaves focus on "${keepsFocus}", never on <body>`, async () => {
+      const patchWith = vi.fn();
+      const state = baseState();
+      const ctx = renderChooser(state, { patchWith });
+      fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
 
-    const appleDown = ctx.getByRole('button', { name: 'Move apple down' });
-    expect(document.activeElement).toBe(appleDown);
-    expect(document.activeElement).not.toBe(document.body);
-  });
+      await userEvent.click(ctx.getByRole('button', { name: pressed }));
+      rerenderAfterMove(ctx, state, patchWith);
 
-  it('moving a field to the bottom shifts focus to its own "up" button, never to <body>', async () => {
-    const patchWith = vi.fn();
-    const state = baseState();
-    const ctx = renderChooser(state, { patchWith });
-    fireEvent.click(ctx.getByRole('button', { name: /columns/i }));
-
-    await userEvent.click(ctx.getByRole('button', { name: 'Move apple down' }));
-    rerenderAfterMove(ctx, state, patchWith);
-
-    const appleUp = ctx.getByRole('button', { name: 'Move apple up' });
-    expect(document.activeElement).toBe(appleUp);
-    expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(ctx.getByRole('button', { name: keepsFocus }));
+      expect(document.activeElement).not.toBe(document.body);
+    });
   });
 });
