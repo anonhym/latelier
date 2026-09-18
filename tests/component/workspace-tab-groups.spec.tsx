@@ -247,6 +247,7 @@ describe('the tab strip groups tabs by Connection', () => {
 
       await waitFor(() => expect(tabOrder()).toHaveLength(3));
       expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
     });
 
     // Closing the only open tab empties the strip entirely — the container
@@ -273,6 +274,7 @@ describe('the tab strip groups tabs by Connection', () => {
       // now, so this reads the tab count without that throw.
       await waitFor(() => expect(strip().queryAllByRole('tab')).toHaveLength(0));
       expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
     });
   });
 

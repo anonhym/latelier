@@ -57,9 +57,14 @@ interface ContextMenuProps {
 // the cursor coordinates. Mantine's Floating UI integration handles
 // viewport-edge auto-flipping, outside-click dismissal, and ESC.
 export function ContextMenu({ menu, onClose }: ContextMenuProps) {
-  const handleClose = (focusTo: HTMLElement | null | undefined = menu.returnFocusTo) => {
+  // `??`, not a default parameter. A per-item `focusReturnTo` thunk that
+  // returns `null` (its ref not yet attached) would satisfy a default
+  // parameter — defaults only fill in for `undefined` — and silently focus
+  // nothing, which is the exact `<body>` bug #70 was fixing. Coalescing
+  // falls back to the menu-wide target instead.
+  const handleClose = (focusTo?: HTMLElement | null) => {
     onClose();
-    focusTo?.focus();
+    (focusTo ?? menu.returnFocusTo)?.focus();
   };
   return (
     <Menu opened onClose={handleClose} position="bottom-start" shadow="md" width={200}>
