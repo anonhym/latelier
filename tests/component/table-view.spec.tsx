@@ -11,7 +11,7 @@ import type {
   CollectionWorkspaceMeta,
 } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
-import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
+import { DRAGGED_FIELD_MIME, cycleSortField } from '../../src/pages/Workspace/builder';
 
 // jsdom doesn't implement clipboard by default; stub so copyToClipboard
 // doesn't throw when rendered.
@@ -81,12 +81,15 @@ function renderTable(
     columnConfig?: CollectionTabState['columnConfig'];
     expandedRows?: Record<string, boolean>;
     onRowExpand?: (docId: string, expanded: boolean) => void;
+    actions?: Partial<CollectionWorkspaceActions>;
+    sort?: string;
+    onSortField?: (field: string) => void;
   } = {},
 ) {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
+        actions={emptyActions(extra.actions)}
         meta={emptyMeta()}
       >
         <TableView
@@ -96,6 +99,8 @@ function renderTable(
           columnConfig={extra.columnConfig}
           expandedRows={extra.expandedRows}
           onRowExpand={extra.onRowExpand ?? vi.fn()}
+          sort={extra.sort}
+          onSortField={extra.onSortField}
         />
       </CollectionWorkspaceProvider>
   );
@@ -573,7 +578,11 @@ describe('TableView — rendering and interaction', () => {
       const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
       const { container } = renderTable(docs);
       const grid = container.querySelector('[role="grid"]')!;
-      const strip = container.querySelectorAll('[role="row"]')[0] as HTMLElement;
+      // Scoped to the grid, not `container` — #53 gives the sticky header
+      // row its own `role="row"` too (for its `columnheader` children), and
+      // it's a DOM sibling of the grid, not a descendant, so this excludes
+      // it without depending on index order.
+      const strip = grid.querySelectorAll('[role="row"]')[0] as HTMLElement;
 
       await user.click(strip);
       await user.keyboard('{ArrowDown}');
@@ -590,7 +599,8 @@ describe('TableView — rendering and interaction', () => {
       const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
       const { container } = renderTable(docs);
       const grid = container.querySelector('[role="grid"]')!;
-      const strip = container.querySelectorAll('[role="row"]')[1] as HTMLElement;
+      // Scoped to the grid — see the note in the previous test.
+      const strip = grid.querySelectorAll('[role="row"]')[1] as HTMLElement;
 
       await user.click(strip);
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
@@ -690,6 +700,152 @@ describe('TableView — rendering and interaction', () => {
         // menu itself is gone.
         expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
       });
+    });
+  });
+
+  // #53 — the sort mechanism (a real <button>) already worked; the sorted
+  // header cell just never said so to assistive tech, and the hover-gated
+  // pencil/expand affordances were invisible to a keyboard user who tabbed
+  // onto them.
+  describe('aria-sort and focus-visible affordances (#53)', () => {
+    it('a sortable column header is a columnheader with aria-sort="none" while unsorted', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const { getByTestId } = renderTable(docs, { onSortField: vi.fn() });
+      const header = getByTestId('table-header-name');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('carries aria-sort="ascending" or "descending" for the actively sorted column', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const ascending = renderTable(docs, { onSortField: vi.fn(), sort: '{"name":1}' });
+      expect(within(ascending.container).getByTestId('table-header-name').getAttribute('aria-sort')).toBe(
+        'ascending',
+      );
+      ascending.unmount();
+
+      const descending = renderTable(docs, { onSortField: vi.fn(), sort: '{"name":-1}' });
+      expect(within(descending.container).getByTestId('table-header-name').getAttribute('aria-sort')).toBe(
+        'descending',
+      );
+    });
+
+    it('keyboard-activating the sort button cycles aria-sort ascending -> descending -> none', async () => {
+      const user = userEvent.setup();
+      function Harness() {
+        const [sort, setSort] = React.useState('');
+        return (
+          <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+            <TableView
+              documents={[{ _id: 1, name: 'alpha' }]}
+              onColumnResize={vi.fn()}
+              onSortField={(field) => setSort((s) => cycleSortField(s, field))}
+              sort={sort}
+            />
+          </CollectionWorkspaceProvider>
+        );
+      }
+      const { getByTestId, getByRole } = render(<Harness />);
+      const header = getByTestId('table-header-name');
+      const sortButton = getByRole('button', { name: 'name' });
+
+      expect(header.getAttribute('aria-sort')).toBe('none');
+      sortButton.focus();
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('ascending');
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('descending');
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('a non-sortable computed column header is still a columnheader but carries no aria-sort', () => {
+      const docs = [{ _id: 1, address: { city: 'Springfield' } }];
+      const columnConfig: CollectionTabState['columnConfig'] = {
+        computed: [{ id: 'computed:address.city', path: 'address.city' }],
+      };
+      const { getByTestId } = renderTable(docs, { onSortField: vi.fn(), columnConfig });
+      const header = getByTestId('table-header-computed:address.city');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.hasAttribute('aria-sort')).toBe(false);
+    });
+
+    it('a column with no onSortField at all is a columnheader with no aria-sort (view has sorting disabled)', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const { getByTestId } = renderTable(docs);
+      const header = getByTestId('table-header-name');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.hasAttribute('aria-sort')).toBe(false);
+    });
+
+    it('a column hidden via the column chooser renders no header at all — no orphaned aria-sort', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const columnConfig: CollectionTabState['columnConfig'] = { hidden: ['name'] };
+      const { queryByTestId } = renderTable(docs, {
+        onSortField: vi.fn(),
+        sort: '{"name":1}',
+        columnConfig,
+      });
+
+      expect(queryByTestId('table-header-name')).toBeNull();
+    });
+
+    it('focusing the expand-cell affordance makes it visible (WCAG 2.4.11), not just present', () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const { getByTitle } = renderTable(docs);
+      const cell = getByTitle(/Drag to add "note/);
+      const expandBtn = within(cell).getByRole('button', { name: 'Expand cell value' }) as HTMLElement;
+
+      // Baseline: nothing hovered/focused yet — the affordance exists (it's
+      // always mounted) but is not visible. Asserting only `toBeTruthy()` on
+      // the button, as the pre-existing expand test does, would pass whether
+      // or not this fix is applied — the button is real either way. Opacity
+      // is the actual property the hover path already drives (:171/:358), so
+      // it's the one a focus path has to drive too.
+      expect(expandBtn.style.opacity).toBe('0');
+      expect(expandBtn.style.pointerEvents).toBe('none');
+
+      // The button is already a real tab stop (never `tabIndex={-1}`), so
+      // this reproduces exactly what a keyboard user tabbing onto it does.
+      // `fireEvent.focus`, not a raw `.focus()` call: the visibility flip is
+      // a React state update inside the `onFocus` handler this cell's
+      // wrapping `gridcell` div carries, and only `fireEvent` wraps native
+      // event dispatch in `act()` so that update is flushed before the next
+      // assertion runs — a bare `element.focus()` schedules the same update
+      // but leaves it unflushed, which is a false negative, not proof the
+      // fix is missing (confirmed against a real probe: logging inside the
+      // handler shows it firing either way; only the flushed DOM differs).
+      fireEvent.focus(expandBtn);
+
+      expect(expandBtn.style.opacity).toBe('1');
+      expect(expandBtn.style.pointerEvents).toBe('auto');
+    });
+
+    it('blurring the expand-cell affordance hides it again (not stuck visible)', () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const { getByTitle } = renderTable(docs);
+      const cell = getByTitle(/Drag to add "note/);
+      const expandBtn = within(cell).getByRole('button', { name: 'Expand cell value' }) as HTMLElement;
+
+      fireEvent.focus(expandBtn);
+      expect(expandBtn.style.opacity).toBe('1');
+      fireEvent.blur(expandBtn);
+      expect(expandBtn.style.opacity).toBe('0');
+    });
+
+    it('tabbing onto the edit-cell pencil affordance makes it visible', () => {
+      const docs = [{ _id: 1, status: 'pending' }];
+      const { getByTitle } = renderTable(docs, { actions: { updateField: vi.fn() } });
+      const cell = getByTitle(/Drag to add "status/);
+      const editBtn = within(cell).getByRole('button', { name: 'Edit cell value' }) as HTMLElement;
+
+      expect(editBtn.style.opacity).toBe('0');
+      fireEvent.focus(editBtn);
+      expect(editBtn.style.opacity).toBe('1');
+      expect(editBtn.style.pointerEvents).toBe('auto');
     });
   });
 });

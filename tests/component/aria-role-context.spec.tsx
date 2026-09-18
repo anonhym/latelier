@@ -73,13 +73,24 @@ function wrap(view: CollectionTabState['view'], node: React.ReactNode) {
   );
 }
 
-/** Nearest ancestor carrying an explicit role — generic elements are transparent. */
+/**
+ * Nearest ancestor carrying an explicit role — generic elements are
+ * transparent. Falls back to `aria-owns` (#53): a sticky/virtualized header
+ * row can be a DOM *sibling* of its grid rather than a descendant, and
+ * `aria-owns` is ARIA's own mechanism for declaring that logical parentage
+ * without moving anything in the DOM — a plain ancestor walk alone can't see
+ * it, so this checks for an `aria-owns` reference before giving up.
+ */
 function nearestRoleAncestor(el: Element): string | null {
   let cur = el.parentElement;
   while (cur) {
     const role = cur.getAttribute('role');
     if (role) return role;
     cur = cur.parentElement;
+  }
+  if (el.id) {
+    const owner = el.ownerDocument.querySelector(`[aria-owns~="${el.id}"]`);
+    if (owner) return owner.getAttribute('role');
   }
   return null;
 }
@@ -94,8 +105,11 @@ describe('required role context', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(nearestRoleAncestor(row)).toBe('grid');
-      // A row owns cells, not arbitrary content.
-      expect(row.querySelectorAll('[role="gridcell"]').length).toBeGreaterThan(0);
+      // A row owns cells, not arbitrary content — the header row's are
+      // `columnheader` (#53), every other row's are `gridcell`.
+      expect(
+        row.querySelectorAll('[role="gridcell"], [role="columnheader"]').length,
+      ).toBeGreaterThan(0);
     }
   });
 
