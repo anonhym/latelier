@@ -195,7 +195,6 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
     const list = screen.getByRole('tablist', { name: 'Connection settings' });
     const tabs = within(list).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual(['General', 'Auth', 'TLS', 'SSH', 'Advanced']);
-    expect(tabs.every((t) => list.contains(t))).toBe(true);
 
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
     for (const t of tabs.slice(1)) expect(t.getAttribute('aria-selected')).toBe('false');
