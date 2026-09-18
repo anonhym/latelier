@@ -500,6 +500,87 @@ describe('TableView — rendering and interaction', () => {
       expect(headers.some((h) => h.textContent?.includes('address.city'))).toBe(true);
     });
   });
+
+  // #20 — roving focus: the grid itself is the widget's only tab stop, and
+  // arrow/Home/End move `aria-activedescendant` between mounted rows instead
+  // of putting every row in the tab order.
+  describe('roving focus (#20)', () => {
+    it('the grid is a tab stop and names row 0 as the active descendant', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+
+      expect(grid.getAttribute('tabindex')).toBe('0');
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+      expect(container.querySelector('#table-row-0')).not.toBeNull();
+    });
+
+    it('ArrowDown moves the active descendant to the next row', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+    });
+
+    it('ArrowUp from row 0 wraps to the last row', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+
+      fireEvent.keyDown(grid, { key: 'ArrowUp' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
+    });
+
+    it('End jumps to the last row, Home jumps back to the first', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+
+      fireEvent.keyDown(grid, { key: 'End' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
+      fireEvent.keyDown(grid, { key: 'Home' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+    });
+
+    it('Enter on the grid itself selects the active row', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      const rows = container.querySelectorAll('[data-selected]');
+
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      fireEvent.keyDown(grid, { key: 'Enter' });
+
+      expect(rows[0].getAttribute('data-selected')).toBe('false');
+      expect(rows[1].getAttribute('data-selected')).toBe('true');
+    });
+
+    // The mutation this guards against: dropping `e.target !== e.currentTarget`
+    // at the grid level would make Enter on the row's own nested expand
+    // button ALSO select the active row (mirrors the pre-existing guard on
+    // the row strip's own onKeyDown, at the grid's level instead).
+    it('Enter bubbling up from a nested button does not select the active row', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }];
+      const { container } = renderTable(docs);
+      const chevron = container.querySelector('[aria-label="Expand document"]')!;
+      const row = container.querySelector('[data-selected]')!;
+
+      fireEvent.keyDown(chevron, { key: 'Enter' });
+      expect(row.getAttribute('data-selected')).toBe('false');
+    });
+
+    it('the existing per-row Enter-to-select behaviour still works unchanged', () => {
+      const docs = [{ _id: 1, name: 'a' }];
+      const { container } = renderTable(docs);
+      const strip = container.querySelector('[role="row"]')!;
+      const row = container.querySelector('[data-selected]')!;
+
+      fireEvent.keyDown(strip, { key: 'Enter' });
+      expect(row.getAttribute('data-selected')).toBe('true');
+    });
+  });
 });
 
 function clipboardWriteTextWasCalled(): boolean {
