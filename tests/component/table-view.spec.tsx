@@ -100,16 +100,11 @@ function renderStatefulTable(initial: CollectionTabState) {
   function Harness() {
     const [state, setState] = React.useState(initial);
     const actions = React.useMemo<CollectionWorkspaceActions>(
-      () => ({
-        patch: (p) => setState((s) => ({ ...s, ...p })),
-        patchWith: (fn) => setState((s) => ({ ...s, ...fn(s) })),
-        run: vi.fn(),
-        openEdit: vi.fn(),
-        openDelete: vi.fn(),
-        openDeleteAll: vi.fn(),
-        openInsert: vi.fn(),
-        openSave: vi.fn(),
-      }),
+      () =>
+        emptyWorkspaceActions({
+          patch: (p) => setState((s) => ({ ...s, ...p })),
+          patchWith: (fn) => setState((s) => ({ ...s, ...fn(s) })),
+        }),
       [],
     );
     const documents = state.lastRun?.documents ?? [];

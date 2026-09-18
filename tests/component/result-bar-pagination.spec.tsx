@@ -1,12 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '../helpers/render';
+import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 interface BarStateOverride {
@@ -47,23 +43,8 @@ function makeState(o: BarStateOverride): CollectionTabState {
 }
 
 function renderBar(overrides: BarStateOverride = {}) {
-  const actions: CollectionWorkspaceActions = {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-  const meta: CollectionWorkspaceMeta = {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: overrides.isLoading ?? false,
-  };
+  const actions = emptyWorkspaceActions();
+  const meta = emptyWorkspaceMeta({ isLoading: overrides.isLoading ?? false });
   render(
       <CollectionWorkspaceProvider
         state={makeState(overrides)}

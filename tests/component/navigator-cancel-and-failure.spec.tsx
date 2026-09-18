@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import { render, screen, within, fireEvent, act, waitFor, navigatorRoot } from '../helpers/render';
 import {
   DbCollectionNavigator,
   type DbCollectionNavigatorProps,
@@ -47,12 +47,7 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
+const root = navigatorRoot;
 
 /**
  * Every failure panel on screen, keyed by the Connection it says it belongs
