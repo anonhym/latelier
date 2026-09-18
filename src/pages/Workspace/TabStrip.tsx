@@ -165,6 +165,10 @@ export function TabStrip({
       ref={stripRef}
       role="tablist"
       aria-label="Open tabs"
+      // -1: a keyboard-menu close (see the `returnFocusTo` comment below)
+      // needs this container to be a valid `.focus()` target, but it is not
+      // itself a roving-tabindex stop — the tabs are.
+      tabIndex={-1}
       style={{
         height: 34,
         display: 'flex',
@@ -304,7 +308,11 @@ export function TabStrip({
                     } else if (isContextMenuKey(e)) {
                       // #55 — the tab is already the widget's own focusable
                       // element (unlike the grid/tree surfaces), so it is
-                      // both the anchor and the focus-return target.
+                      // both the anchor and the default focus-return target —
+                      // right for Pin/Unpin and for Escape/click-outside,
+                      // which leave this exact tab in place. Close tab is the
+                      // one item that destroys it; see its own
+                      // `focusReturnTo` override below.
                       e.preventDefault();
                       setMenu({
                         tabId: tab.id,
@@ -439,6 +447,15 @@ export function TabStrip({
                 kind: 'item',
                 label: 'Close tab',
                 onClick: () => onClose(menu.tabId),
+                // #70 — overrides `menu.returnFocusTo` (the tab itself):
+                // Close destroys that exact DOM node, once `tabs.close`
+                // resolves and the tab unmounts, so focusing it is a silent
+                // no-op and focus drops to <body>. The strip container is
+                // the one thing that survives — for the tab that closed,
+                // the last tab, and the only tab alike. A thunk (not
+                // `stripRef.current` directly) — see `focusReturnTo`'s own
+                // docstring for why a bare ref read here is refused at lint.
+                focusReturnTo: () => stripRef.current,
               },
             ],
           }}

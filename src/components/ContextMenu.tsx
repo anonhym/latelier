@@ -10,6 +10,19 @@ export type ContextMenuItem =
       disabled?: boolean;
       disabledTitle?: string;
       destructive?: boolean;
+      /**
+       * X19/#70 — overrides `ContextMenuState.returnFocusTo` for this one
+       * item. `returnFocusTo` is picked once, at menu-open time, as "the
+       * widget's own focusable element" — right for most items, but wrong
+       * for one that goes on to destroy that exact element (e.g. TabStrip's
+       * "Close tab", which unmounts the tab `returnFocusTo` points at).
+       * A thunk, not a value: the override is typically a ref (e.g.
+       * `stripRef.current`), and `react-hooks/refs` (rightly) refuses a
+       * `.current` read during render — this defers it to click time,
+       * the same as `onClick` itself. Unset falls back to
+       * `menu.returnFocusTo`, so every existing call site is unaffected.
+       */
+      focusReturnTo?: () => HTMLElement | null;
     }
   | { kind: 'sep' };
 
@@ -44,9 +57,9 @@ interface ContextMenuProps {
 // the cursor coordinates. Mantine's Floating UI integration handles
 // viewport-edge auto-flipping, outside-click dismissal, and ESC.
 export function ContextMenu({ menu, onClose }: ContextMenuProps) {
-  const handleClose = () => {
+  const handleClose = (focusTo: HTMLElement | null | undefined = menu.returnFocusTo) => {
     onClose();
-    menu.returnFocusTo?.focus();
+    focusTo?.focus();
   };
   return (
     <Menu opened onClose={handleClose} position="bottom-start" shadow="md" width={200}>
@@ -74,10 +87,18 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
               disabled={it.disabled}
               color={it.destructive ? 'red' : undefined}
               title={it.disabled ? it.disabledTitle : undefined}
+              // X19/#70 — Mantine's own item click also auto-closes the menu
+              // (`closeOnItemClick`, default true), calling `onClose` a
+              // second time with none of our arguments. Harmless when every
+              // item shares one `returnFocusTo`, but that second, bare call
+              // would re-focus `menu.returnFocusTo` and clobber a per-item
+              // `focusReturnTo` override. `handleClose` below is the only
+              // close this menu needs.
+              closeMenuOnClick={false}
               onClick={() => {
                 if (it.disabled) return;
                 it.onClick();
-                handleClose();
+                handleClose(it.focusReturnTo?.());
               }}
             >
               {it.label}

@@ -416,6 +416,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
 
     it('right-click behaviour is unchanged — a mouse-opened menu closes without forcing focus', async () => {
       const { rowEl } = await focusOrdersRow();
+      const focusBefore = document.activeElement;
 
       fireEvent.contextMenu(rowEl);
       // "Copy name" has no follow-on dialog, unlike Rename/Drop — a plain
@@ -426,6 +427,10 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       fireEvent.click(item);
 
       expect(screen.queryByRole('menu')).toBeNull();
+      // The name's claim: `returnFocusTo` is `undefined` for a mouse open
+      // (`openMenuFor`'s `viaKeyboard` is false), so closing must leave
+      // focus exactly where it was — not just close the menu.
+      expect(document.activeElement).toBe(focusBefore);
     });
   });
 
