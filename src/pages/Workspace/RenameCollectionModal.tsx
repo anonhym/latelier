@@ -23,8 +23,6 @@ export function RenameCollectionModal({
   onRenamed,
   returnFocusTo,
 }: RenameCollectionModalProps) {
-  // Dismiss paths only — the success callback hands off elsewhere.
-  const close = useDialogFocusReturn(onCancel, returnFocusTo);
   const [newName, setNewName] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -32,13 +30,20 @@ export function RenameCollectionModal({
   const trimmed = newName.trim();
   const canSubmit = trimmed.length > 0 && trimmed !== collection;
 
+  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a rename, unlike #74's tabs which had nothing to
+  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // own `onClose`, so one hook can't serve two different close reasons.
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  const finish = useDialogFocusReturn(() => onRenamed(trimmed), returnFocusTo);
+
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.collection.rename({ connectionId, dbName, collection, newName: trimmed });
-      onRenamed(trimmed);
+      finish();
     } catch (err) {
       setError(getErrorMessage(err, 'Rename failed'));
     } finally {

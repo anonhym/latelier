@@ -600,6 +600,34 @@ export function DbCollectionNavigator({
       focusedConnectionId && activeDbName && activeCollection
         ? `coll:${focusedConnectionId}:${activeDbName}:${activeCollection}`
         : null;
+    // #89 — whether we have *complete enough* information to say `activeId`
+    // is confirmed gone, as opposed to merely not loaded in yet or
+    // unreachable because the connection is down. Those last two must still
+    // fall back to trusting `activeId` unconditionally (the original
+    // behaviour): a disconnect/reconnect cycle needs `focusedId` to snap
+    // back onto the active collection once it reloads, and nothing here can
+    // tell "will reappear" apart from "gone forever" other than by waiting
+    // for a real answer. Checked at the db level, not the collection's own
+    // `colls` entry: a *dropped database* never gets `loadColls` called for
+    // it again (it's not in the reloaded `dbs` list), so its `colls` cache
+    // entry would stay stuck at "not yet loaded" forever and this would
+    // never fire for that case if it depended on that alone.
+    const activeConnConnected =
+      !!focusedConnectionId &&
+      connections.find((c) => c.id === focusedConnectionId)?.status === 'connected';
+    const activeCache = focusedConnectionId ? ownGet(caches, focusedConnectionId) : null;
+    const activeDbsLoaded = !!activeCache && activeCache.dbs !== null;
+    const activeDbExists =
+      activeDbsLoaded && !!activeDbName && !!activeCache!.dbs!.some((d) => d.name === activeDbName);
+    const activeDbCollsLoaded =
+      activeDbExists && !!activeDbName && ownGet(activeCache!.colls, activeDbName) != null;
+    const activeIdConfirmedGone =
+      !!activeId &&
+      activeConnConnected &&
+      activeDbsLoaded &&
+      (!activeDbExists || activeDbCollsLoaded) &&
+      !rows.some((r) => r.id === activeId);
+
     const focusedStillVisible = focusedId
       ? rows.some((r) => r.id === focusedId)
       : false;
@@ -608,10 +636,19 @@ export function DbCollectionNavigator({
     queueMicrotask(() => {
       setFocusedId((prev) => {
         if (prev && rows.some((r) => r.id === prev)) return prev;
-        return activeId ?? rows[0]?.id ?? null;
+        // `activeId` is a template string built from props, not a lookup, so
+        // it stays truthy even once its own row is the one just
+        // dropped/renamed out of `rows` (e.g. dropping the active tab's own
+        // collection from the navigator). Trusting it unconditionally here
+        // meant `rows[0]` was never reached and `focusedId` calcified on a
+        // row that can never come back — `aria-activedescendant` (which only
+        // renders once `rows.find` succeeds, see `activeDescendantId` below)
+        // went from naming the dropped row to naming nothing at all.
+        if (activeId && !activeIdConfirmedGone) return activeId;
+        return rows[0]?.id ?? null;
       });
     });
-  }, [rows, focusedId, focusedConnectionId, activeDbName, activeCollection]);
+  }, [rows, focusedId, focusedConnectionId, activeDbName, activeCollection, connections, caches]);
 
   React.useEffect(() => {
     if (!focusedConnectionId || !activeDbName || !activeCollection) return;
