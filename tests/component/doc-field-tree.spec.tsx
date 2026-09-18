@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '../helpers/render';
+import { render, fireEvent, expectActiveRowOutlineLifecycle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
 
@@ -157,5 +157,17 @@ describe('DocFieldTree — roving focus (#20)', () => {
 
     await user.click(rows[1]);
     expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
+  });
+});
+
+// #60 — the active row is announced (aria-activedescendant, #20) but was
+// never drawn. Asserts the real inline outline, not an attribute.
+describe('DocFieldTree — active-row visual highlight (#60)', () => {
+  it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+    const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    const rows = () => Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+
+    expectActiveRowOutlineLifecycle(tree, rows, { key: 'ArrowDown', from: 0, to: 1 });
   });
 });

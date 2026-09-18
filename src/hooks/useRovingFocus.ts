@@ -26,6 +26,18 @@ export interface UseRovingFocusOptions {
 export interface RovingFocus {
   /** Index of the row `aria-activedescendant` currently names. */
   activeIndex: number;
+  /**
+   * #60 — the row to paint the visual active-row treatment on, or `-1` to
+   * paint none. Deliberately not the same value as `activeIndex`: a
+   * screen reader hears `aria-activedescendant` whether or not the
+   * container has real DOM focus (it's just an ARIA attribute, always
+   * present once there's a row to name), but a *sighted* highlight that
+   * stayed lit with focus elsewhere in the app would look like a stuck,
+   * meaningless row — so this collapses to `-1` whenever the container
+   * itself doesn't have focus, while `activeIndex` (read by Enter/Space
+   * handling) must keep naming a real row even then.
+   */
+  highlightIndex: number;
   /** `undefined` when `count` is 0 — nothing to name. */
   activeId: string | undefined;
   /** The DOM id a row at this index must carry. */
@@ -41,6 +53,8 @@ export interface RovingFocus {
   containerProps: {
     tabIndex: 0;
     'aria-activedescendant': string | undefined;
+    onFocus: (e: React.FocusEvent) => void;
+    onBlur: (e: React.FocusEvent) => void;
   };
   /**
    * Handles ArrowUp/ArrowDown/Home/End by moving the active row via
@@ -64,6 +78,23 @@ export function useRovingFocus({
 }: UseRovingFocusOptions): RovingFocus {
   const { index, setIndex, move } = useRovingHighlight(count, resetKey);
   const rowId = React.useCallback((i: number) => `${idPrefix}${i}`, [idPrefix]);
+
+  // #60 — tracks real DOM focus on the container so `highlightIndex` can
+  // collapse to `-1` while it's elsewhere, without touching `activeIndex`
+  // (see that field's docstring on `RovingFocus`). Guarded the same way
+  // `onKeyDown` already documents: React's `onFocus`/`onBlur` map to
+  // `focusin`/`focusout`, which bubble, so without the own-target check,
+  // a nested row control (an expand button, a whole nested `DocFieldTree`)
+  // taking focus would light up this container too.
+  const [focused, setFocused] = React.useState(false);
+  const handleFocus = React.useCallback((e: React.FocusEvent) => {
+    if (e.target !== e.currentTarget) return;
+    setFocused(true);
+  }, []);
+  const handleBlur = React.useCallback((e: React.FocusEvent) => {
+    if (e.target !== e.currentTarget) return;
+    setFocused(false);
+  }, []);
 
   const onKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {
@@ -100,12 +131,15 @@ export function useRovingFocus({
 
   return {
     activeIndex: index,
+    highlightIndex: focused ? index : -1,
     activeId: count === 0 ? undefined : rowId(index),
     rowId,
     setActiveIndex: setIndex,
     containerProps: {
       tabIndex: 0,
       'aria-activedescendant': count === 0 ? undefined : rowId(index),
+      onFocus: handleFocus,
+      onBlur: handleBlur,
     },
     onKeyDown,
   };

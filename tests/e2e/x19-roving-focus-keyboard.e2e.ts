@@ -212,3 +212,46 @@ test('table roving focus: a real click does not trap focus on the row — ArrowD
     });
   });
 });
+
+/**
+ * X19 #60 — `table-view.spec.tsx` already proves the active-row outline is
+ * set as an inline style; that's the source of truth for whether the code
+ * decided to paint it, but it's not proof the browser actually paints it.
+ * Only a real window's `getComputedStyle` closes that gap, and only a real
+ * `ArrowDown` proves the paint moves rather than sticking to row 0.
+ */
+test('table roving focus: the active row\'s outline is actually painted, and moves with the arrow keys', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      const { grid, row } = await openSeededRovingFocusTable(win, host, port, 'Outline Paint Target');
+      await expect(row(0)).toBeVisible({ timeout: 8000 });
+
+      // No outline anywhere before the grid has focus. `outline-width`
+      // itself is the wrong property to assert "no outline" with — unlike
+      // `border-width`, a browser's computed `outline-width` does NOT
+      // collapse to 0 when `outline-style` is `none` (confirmed against
+      // this real Chromium: it reported "3px", the platform default
+      // `medium`, even with no `outline` style ever set). `outline-style`
+      // is the property that actually reflects whether anything paints.
+      await expect(row(0)).toHaveCSS('outline-style', 'none');
+
+      const { reached } = await tabUntilFocused(win, grid, 60);
+      expect(reached).toBe(true);
+      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+      await expect(row(0)).toHaveCSS('outline-style', 'solid');
+      await expect(row(0)).toHaveCSS('outline-width', '2px');
+      await expect(row(1)).toHaveCSS('outline-style', 'none');
+
+      await win.keyboard.press('ArrowDown');
+      await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-1');
+      await expect(row(1)).toHaveCSS('outline-style', 'solid');
+      await expect(row(1)).toHaveCSS('outline-width', '2px');
+      await expect(row(0)).toHaveCSS('outline-style', 'none');
+    });
+  });
+});

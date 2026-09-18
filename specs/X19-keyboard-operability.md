@@ -170,6 +170,9 @@ Per composite widget (grid, tree, tablist, listbox):
 - [ ] The active child is scrolled into view when it moves.
 - [ ] The active child is identified to assistive tech — `aria-activedescendant`
       on the container, or real focus on the child.
+- [ ] The active child is visible without a screen reader, not only announced —
+      distinct from the selected treatment, and meeting WCAG 1.4.11 non-text
+      contrast against the surfaces it can sit on.
 
 ## 5. Verification — mutation, not green
 

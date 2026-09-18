@@ -102,6 +102,12 @@ interface FieldNodeProps {
   // its own), or the next Arrow key jumps from wherever the highlight was
   // sitting rather than from the row just clicked.
   onActivate: (path: string) => void;
+  // #60 — the path of the row the container's `highlightIndex` currently
+  // names, or `null` when the tree doesn't have focus (or has no rows).
+  // Compared against this node's own `path` — not an index, since this tree
+  // is keyed by path (see `rowId`'s docstring above) — to decide whether to
+  // paint the active-row outline.
+  activePath: string | null;
 }
 
 function FieldNodeImpl({
@@ -121,11 +127,13 @@ function FieldNodeImpl({
   onRefOpen,
   rowId,
   onActivate,
+  activePath,
 }: FieldNodeProps) {
   const dv = toDisplayValue(value);
   const isExpandable = dv.type === 'object' || dv.type === 'array';
   const isExpanded = isExpandable && expandedPaths.has(path);
   const isCopied = copiedPath === path;
+  const isActive = path === activePath;
   const rule = refsByField?.get(fieldPath);
 
   const childEntries: Array<[string, unknown]> = React.useMemo(() => {
@@ -219,6 +227,14 @@ function FieldNodeImpl({
           background: isCopied ? 'var(--atelier-accent)' : undefined,
           color: isCopied ? '#fff' : undefined,
           transition: 'background 120ms',
+          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // Driven by `path`, not a CSS descendant selector off the outer
+          // Table/Tree grid's `aria-activedescendant` — this tree mounts
+          // *inside* an expanded outer row, and a descendant selector would
+          // paint this tree's active row even while the outer grid, not this
+          // tree, has focus.
+          outline: isActive ? '2px solid var(--atelier-accent)' : undefined,
+          outlineOffset: isActive ? '-2px' : undefined,
         }}
       >
         {isCopied ? (
@@ -338,6 +354,7 @@ function FieldNodeImpl({
             onRefOpen={onRefOpen}
             rowId={rowId}
             onActivate={onActivate}
+            activePath={activePath}
           />
         ))}
     </>
@@ -368,6 +385,11 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   const wasCopied = prev.copiedPath === prev.path;
   const isCopied = next.copiedPath === next.path;
   if (wasCopied !== isCopied) return false;
+  // #60 — same idiom as copiedPath above, not an identity check: only
+  // matters if this row just became / stopped being the active one.
+  const wasActive = prev.activePath === prev.path;
+  const isActive = next.activePath === next.path;
+  if (wasActive !== isActive) return false;
   // expandedPaths Set identity changes on every toggle, but most FieldNodes
   // are unaffected. Skip render if neither THIS path's expansion changed nor
   // (when expanded) any descendant path's expansion changed.
@@ -459,6 +481,10 @@ export function DocFieldTree({
     },
   });
   const activeRow = flatRows[roving.activeIndex] as FlatFieldRow | undefined;
+  // #60 — `flatRows[-1]` is `undefined`, which is exactly what makes
+  // `highlightIndex`'s `-1` (no container focus) mean "paint nothing" here
+  // for free — no extra guard needed.
+  const highlightRow = flatRows[roving.highlightIndex] as FlatFieldRow | undefined;
 
   // Found in review: a click needs to make the clicked row the roving index
   // too (even a non-expandable leaf, which has no `onToggle` of its own), or
@@ -505,6 +531,8 @@ export function DocFieldTree({
       role="tree"
       tabIndex={roving.containerProps.tabIndex}
       aria-activedescendant={activeRow ? fieldRowDomId(activeRow.path) : undefined}
+      onFocus={roving.containerProps.onFocus}
+      onBlur={roving.containerProps.onBlur}
       onKeyDown={handleTreeKeyDown}
       style={{
         padding: '0 0 10px 0',
@@ -551,6 +579,7 @@ export function DocFieldTree({
           onRefOpen={onRefOpen}
           rowId={fieldRowDomId}
           onActivate={handleActivate}
+          activePath={highlightRow?.path ?? null}
         />
       ))}
     </div>

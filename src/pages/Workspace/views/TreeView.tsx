@@ -129,6 +129,14 @@ interface DocRowProps {
   expandedRows: Record<string, boolean>;
   /** Selected row indices (T0.4 — index-based, shared across Table/Tree/JSON). */
   indices: Set<number>;
+  /**
+   * #60 — the row `useRovingFocus`'s `highlightIndex` currently names, or
+   * `-1` when the tree doesn't have focus. Compared against a row's own
+   * `index` to decide whether it paints the active-row outline — a
+   * different channel from `indices` (selection), so a row can be active,
+   * selected, both, or neither, and each combination reads distinctly.
+   */
+  activeIndex: number;
   deepPaths: Set<string>;
   copiedPath: string | null;
   previewFields?: string[] | null;
@@ -159,6 +167,7 @@ function DocRowImpl({
   documents,
   expandedRows,
   indices,
+  activeIndex,
   deepPaths,
   copiedPath,
   previewFields,
@@ -182,6 +191,7 @@ function DocRowImpl({
   const shortId = getDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
   const isSelected = indices.has(index);
+  const isActive = index === activeIndex;
 
   const handleRowClick = (e: React.MouseEvent) => {
     setActiveIndex(index);
@@ -239,6 +249,12 @@ function DocRowImpl({
           fontSize: 12,
           minHeight: 44,
           userSelect: 'none',
+          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // Inset outline, a different channel from the selected
+          // background/left-border above it, so active-and-selected still
+          // reads as both.
+          outline: isActive ? '2px solid var(--atelier-accent)' : undefined,
+          outlineOffset: isActive ? '-2px' : undefined,
         }}
       >
         <button
@@ -362,6 +378,14 @@ const DocRow = React.memo(DocRowImpl, (prev, next) => {
   const docId = getFullDocId(nextDoc);
   if (ownGet(prev.expandedRows, docId) !== ownGet(next.expandedRows, docId)) return false;
   if (prev.indices.has(prev.index) !== next.indices.has(next.index)) return false;
+  // #60 — index-keyed like the selection check above. Same measured caveat
+  // as `TableRow`'s copy of this line: every check below the
+  // `prev.style !== next.style` guard at the top is unreachable in effect,
+  // because react-window hands each row a brand-new `style` object whenever
+  // it rebuilds its row array. Filed as its own issue; the check stays
+  // because it becomes correctness-load-bearing the moment that guard stops
+  // short-circuiting.
+  if ((prev.activeIndex === prev.index) !== (next.activeIndex === next.index)) return false;
   if (prev.copiedPath !== next.copiedPath) {
     const prefix = `${docId}::`;
     const prevHere = prev.copiedPath?.startsWith(prefix) ?? false;
@@ -549,6 +573,7 @@ export function TreeView({
       documents,
       expandedRows,
       indices: selection.indices,
+      activeIndex: roving.highlightIndex,
       deepPaths,
       copiedPath,
       previewFields,
@@ -572,6 +597,7 @@ export function TreeView({
       expandedRows,
       selection.indices,
       selection.toggle,
+      roving.highlightIndex,
       deepPaths,
       copiedPath,
       previewFields,
@@ -663,6 +689,8 @@ export function TreeView({
           listRef={listRef}
           tabIndex={roving.containerProps.tabIndex}
           aria-activedescendant={roving.containerProps['aria-activedescendant']}
+          onFocus={roving.containerProps.onFocus}
+          onBlur={roving.containerProps.onBlur}
           onKeyDown={handleTreeKeyDown}
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRow as typeof DocRowImpl}

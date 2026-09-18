@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+  expectActiveRowOutlineLifecycle,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -208,6 +216,67 @@ describe('TreeView — rendering and interaction', () => {
       expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
       await user.keyboard('{ArrowDown}');
       expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+    });
+  });
+
+  // #60 — the active row is announced (aria-activedescendant, #20) but was
+  // never drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight (#60)', () => {
+    const threeDocs = [
+      { _id: 1, name: 'a' },
+      { _id: 2, name: 'b' },
+      { _id: 3, name: 'c' },
+    ];
+
+    it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+      const rows = () => Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+
+      expectActiveRowOutlineLifecycle(tree, rows, { key: 'ArrowDown', from: 0, to: 1 });
+    });
+
+    it('a selected-and-active row shows both treatments; selected-but-not-active shows only the background/left-border', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+      const row1 = container.querySelector('#tree-row-1') as HTMLElement;
+
+      fireEvent.click(row1, { metaKey: true }); // ⌘+click selects row 1 and makes it the active row too.
+      act(() => tree.focus());
+
+      const outer1 = row1.parentElement!;
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).toContain('2px');
+
+      // Move the active row off row 1 — it stays selected, but the outline
+      // must follow the active index, leaving only the background/border.
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).not.toContain('2px');
+      expect(outer1.style.background).toContain('accent-soft');
+      expect(outer1.style.borderLeft).toContain('accent');
+
+      const row2 = container.querySelector('#tree-row-2') as HTMLElement;
+      expect(row2.style.outline).toContain('2px');
+    });
+
+    // The whole reason for driving the highlight from React instead of a
+    // CSS descendant selector (`DocFieldTree` mounts *inside* an expanded
+    // outer row — see `TreeView.tsx:337`): a descendant selector keyed off
+    // the outer tree's own `aria-activedescendant`/focus would paint this
+    // nested tree's row too, even though the nested tree itself never had
+    // focus. This test fails against that implementation.
+    it("an expanded row's nested DocFieldTree never receives the outer tree's active-row outline", () => {
+      const { container } = renderTree(threeDocs, { expanded: { '1': true } });
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+
+      act(() => tree.focus());
+
+      const outlined = Array.from(container.querySelectorAll<HTMLElement>('*')).filter((el) =>
+        el.style.outline?.includes('2px'),
+      );
+      expect(outlined).toHaveLength(1);
+      expect(outlined[0].id).toBe('tree-row-0');
     });
   });
 });

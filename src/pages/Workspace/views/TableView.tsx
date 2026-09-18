@@ -460,6 +460,14 @@ interface TableRowProps {
   columns: ResolvedColumn[];
   widths: Record<string, number>;
   indices: Set<number>;
+  /**
+   * #60 — the row `useRovingFocus`'s `highlightIndex` currently names, or
+   * `-1` when the grid doesn't have focus. Compared against a row's own
+   * `index` to decide whether it paints the active-row outline — a
+   * different channel from `indices` (selection), so a row can be active,
+   * selected, both, or neither, and each combination reads distinctly.
+   */
+  activeIndex: number;
   copiedCell: string | null;
   expandedRows: Record<string, boolean>;
   deepPaths: Set<string>;
@@ -502,6 +510,7 @@ function TableRowImpl({
   columns,
   widths,
   indices,
+  activeIndex,
   copiedCell,
   expandedRows,
   deepPaths,
@@ -521,6 +530,7 @@ function TableRowImpl({
 }: RowComponentProps<TableRowProps>) {
   const doc = documents[index];
   const isSelected = indices.has(index);
+  const isActive = index === activeIndex;
   const docId = getFullDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
 
@@ -578,6 +588,13 @@ function TableRowImpl({
           cursor: 'pointer',
           fontSize: 11,
           fontFamily: 'monospace',
+          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // An inset outline (paints on top, reserves no layout space) so it
+          // never shifts the row, and it's a different channel from the
+          // selected background above it, so active-and-selected still
+          // reads as both.
+          outline: isActive ? '2px solid var(--atelier-accent)' : undefined,
+          outlineOffset: isActive ? '-2px' : undefined,
         }}
         onClick={(e) => onSelect(e, index)}
       >
@@ -714,6 +731,23 @@ const TableRow = React.memo(TableRowImpl, (prev, next) => {
   }
 
   if (prev.indices.has(prev.index) !== next.indices.has(next.index)) return false;
+
+  // #60 — index-keyed like the selection check above, not a bare
+  // `prev.activeIndex !== next.activeIndex`, which would re-render every
+  // mounted row on each arrow press instead of only the two that change.
+  //
+  // Measured caveat: today this line changes nothing, and neither does any
+  // other check below the `prev.style !== next.style` guard at the top.
+  // react-window rebuilds its row array inside a `useMemo` keyed on
+  // `rowProps`, and every rebuilt row gets a brand-new inline `style`
+  // object — probed directly: on a `rowProps` change the comparator ran for
+  // all 5 mounted rows and `prev.style === next.style` was false for every
+  // one. So the top guard already returns false for every row, every time.
+  // Filed as its own issue; the check stays because it becomes
+  // correctness-load-bearing the moment that guard stops short-circuiting —
+  // without it, a working comparator would skip the re-render that moves
+  // the outline.
+  if ((prev.activeIndex === prev.index) !== (next.activeIndex === next.index)) return false;
 
   if (prev.copiedCell !== next.copiedCell) {
     const prefix = `${next.index}:`;
@@ -1109,6 +1143,7 @@ export function TableView({
       columns,
       widths,
       indices: selection.indices,
+      activeIndex: roving.highlightIndex,
       copiedCell,
       expandedRows,
       deepPaths,
@@ -1131,6 +1166,7 @@ export function TableView({
       columns,
       widths,
       selection.indices,
+      roving.highlightIndex,
       copiedCell,
       expandedRows,
       deepPaths,
@@ -1394,6 +1430,8 @@ export function TableView({
         listRef={listRef}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
+        onFocus={roving.containerProps.onFocus}
+        onBlur={roving.containerProps.onBlur}
         onKeyDown={handleGridKeyDown}
         rowComponent={TableRow as typeof TableRowImpl}
         rowCount={documents.length}
