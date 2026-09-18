@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '../helpers/render';
+import { render, fireEvent, expectActiveRowOutlineLifecycle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
 
@@ -157,5 +157,50 @@ describe('DocFieldTree — roving focus (#20)', () => {
 
     await user.click(rows[1]);
     expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
+  });
+});
+
+// #60 — the active row is announced (aria-activedescendant, #20) but was
+// never drawn. Asserts the real inline outline, not an attribute.
+describe('DocFieldTree — active-row visual highlight (#60)', () => {
+  it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+    const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    const rows = () => Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+
+    expectActiveRowOutlineLifecycle(tree, rows, { key: 'ArrowDown', from: 0, to: 1 });
+  });
+
+  // Found in review. The test above uses a flat document, where every row is
+  // a direct child of `DocFieldTree` and reads `activePath` straight from the
+  // top — no memo boundary in between. A nested document puts a `FieldNode`
+  // between the tree and the rows that matter, and that node's own comparator
+  // decides whether its children ever see the new `activePath`. `{ a: { b, c } }`
+  // is the smallest case that crosses the boundary twice: the first ArrowDown
+  // flips node `a`'s own active flag (so it re-renders either way), the second
+  // does not — `a`'s path is neither `a.b` nor `a.c` — which is exactly when a
+  // path-only comparator skips the render its children needed.
+  it('moves the outline between two children of the same expanded node', async () => {
+    const { container } = renderFieldTree(
+      { a: { b: 1, c: 2 } },
+      { expandedPaths: new Set(['doc1::a']) },
+    );
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    // Attribute selector, not `#id`: these ids carry `::` and `.`, which a
+    // CSS id selector reads as a pseudo-element and a class.
+    const rowFor = (path: string) =>
+      container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+
+    expect(rowFor('a.b')).not.toBeNull();
+    expect(rowFor('a.c')).not.toBeNull();
+
+    tree.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(rowFor('a.b').style.outline).toContain('2px');
+
+    await userEvent.keyboard('{ArrowDown}');
+    expect(tree.getAttribute('aria-activedescendant')).toBe('field-row-doc1::a.c');
+    expect(rowFor('a.c').style.outline).toContain('2px');
+    expect(rowFor('a.b').style.outline).not.toContain('2px');
   });
 });

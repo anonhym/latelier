@@ -5,6 +5,8 @@ import { type ReactNode } from 'react';
 import { expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import {
+  act,
+  fireEvent,
   render as rtlRender,
   renderHook as rtlRenderHook,
   screen,
@@ -163,6 +165,39 @@ export async function expectSeparatorResizesPanel(
   expect(handle.getAttribute('aria-valuenow')).toBe(opts.afterShrink);
   expect(panel.style.height).toBe(`${opts.afterShrink}px`);
   expect(document.activeElement).toBe(handle);
+}
+
+/**
+ * X19 #60 — the active-row outline lifecycle common to every roving-focus
+ * widget's spec (`TableView`'s grid, `TreeView`'s tree, `DocFieldTree`'s own
+ * tree): no row carries the outline before the container has focus, the row
+ * at `from` gains it once the container does, `key` moves it from `from` to
+ * `to`, and blurring the container clears it again.
+ *
+ * Asserts the real inline style (`el.style.outline`), never an attribute —
+ * an attribute-only assertion cannot go red when the paint itself is
+ * deleted, which is exactly how #56 shipped. Takes `key`/`from`/`to` as
+ * explicit parameters rather than deriving them from the widget under test,
+ * so the test states what it expects instead of recomputing the code's own
+ * index arithmetic and agreeing with a bug.
+ */
+export function expectActiveRowOutlineLifecycle(
+  container: HTMLElement,
+  rows: () => HTMLElement[],
+  opts: { key: string; from: number; to: number },
+): void {
+  expect(rows().some((r) => r.style.outline.includes('2px'))).toBe(false);
+
+  act(() => container.focus());
+  expect(document.activeElement).toBe(container);
+  expect(rows()[opts.from].style.outline).toContain('2px');
+
+  fireEvent.keyDown(container, { key: opts.key });
+  expect(rows()[opts.from].style.outline).not.toContain('2px');
+  expect(rows()[opts.to].style.outline).toContain('2px');
+
+  act(() => container.blur());
+  expect(rows()[opts.to].style.outline).not.toContain('2px');
 }
 
 /**

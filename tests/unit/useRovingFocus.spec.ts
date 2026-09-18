@@ -36,6 +36,16 @@ function keyEvent(
   } as unknown as React.KeyboardEvent;
 }
 
+/** A minimal stand-in for React.FocusEvent — only the fields onFocus/onBlur read. */
+function focusEvent(opts: { sameTarget?: boolean } = {}): React.FocusEvent {
+  const sameTarget = opts.sameTarget ?? true;
+  const target = {};
+  return {
+    target: sameTarget ? target : {},
+    currentTarget: target,
+  } as unknown as React.FocusEvent;
+}
+
 describe('useRovingFocus', () => {
   it('starts on row 0 with a matching aria-activedescendant', () => {
     const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
@@ -121,6 +131,51 @@ describe('useRovingFocus', () => {
     );
     act(() => result.current.onKeyDown(keyEvent('ArrowUp')));
     expect(scrollToIndex).toHaveBeenCalledWith(2);
+  });
+
+  // #60 — highlightIndex drives the visual active-row treatment; it must
+  // track real container focus separately from activeIndex (which Enter/
+  // Space handling reads and must never see go to -1).
+  describe('highlightIndex (#60)', () => {
+    it('is -1 before the container has focus', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
+      expect(result.current.highlightIndex).toBe(-1);
+    });
+
+    it('equals activeIndex once the container gains focus, and follows it', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      expect(result.current.highlightIndex).toBe(0);
+      act(() => result.current.onKeyDown(keyEvent('ArrowDown')));
+      expect(result.current.highlightIndex).toBe(result.current.activeIndex);
+      expect(result.current.highlightIndex).toBe(1);
+    });
+
+    it('returns to -1 on blur', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      act(() => result.current.containerProps.onBlur(focusEvent()));
+      expect(result.current.highlightIndex).toBe(-1);
+    });
+
+    it('stays -1 for an empty list even while the container has focus', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 0, idPrefix: 'row-' }));
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      expect(result.current.highlightIndex).toBe(-1);
+      // `activeIndex` is 0 here, not -1 — the two are deliberately different
+      // values, and this is the case that shows it.
+      expect(result.current.activeIndex).toBe(0);
+    });
+
+    it('ignores a focus/blur whose target is not the container itself', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
+      act(() => result.current.containerProps.onFocus(focusEvent({ sameTarget: false })));
+      expect(result.current.highlightIndex).toBe(-1);
+
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      act(() => result.current.containerProps.onBlur(focusEvent({ sameTarget: false })));
+      expect(result.current.highlightIndex).toBe(0);
+    });
   });
 
   it('rowId/activeId reflect the current idPrefix', () => {

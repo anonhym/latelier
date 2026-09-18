@@ -9,6 +9,7 @@ import {
   act,
   emptyWorkspaceActions,
   emptyWorkspaceMeta,
+  expectActiveRowOutlineLifecycle,
 } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
@@ -681,6 +682,64 @@ describe('TableView — rendering and interaction', () => {
         // menu itself is gone.
         expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
       });
+    });
+  });
+
+  // #60 — the active row is announced (aria-activedescendant, #20) but was
+  // never drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight (#60)', () => {
+    it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+      const rows = () => Array.from(grid.querySelectorAll<HTMLElement>('[role="row"]'));
+
+      expectActiveRowOutlineLifecycle(grid, rows, { key: 'ArrowDown', from: 0, to: 1 });
+    });
+
+    it('a selected-and-active row shows both treatments; selected-but-not-active shows only the background', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+      const strip1 = grid.querySelectorAll('[role="row"]')[1] as HTMLElement;
+
+      fireEvent.click(strip1); // selects row 1 and makes it the active row too.
+      act(() => grid.focus());
+
+      const row1 = container.querySelector('#table-row-1') as HTMLElement;
+      const outer1 = row1.parentElement!;
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).toContain('2px');
+
+      // Move the active row off row 1 — it stays selected, but the outline
+      // must follow the active index, leaving only the background behind.
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).not.toContain('2px');
+      expect(outer1.style.background).toContain('accent-soft');
+
+      const row2 = container.querySelector('#table-row-2') as HTMLElement;
+      expect(row2.style.outline).toContain('2px');
+    });
+
+    // The whole reason for driving the highlight from React instead of a
+    // CSS descendant selector (`DocFieldTree` mounts *inside* an expanded
+    // outer row — see `TableView.tsx:670`): a descendant selector keyed off
+    // the outer grid's own `aria-activedescendant`/focus would paint this
+    // nested tree's row too, even though the nested tree itself never had
+    // focus. This test fails against that implementation.
+    it('an expanded row\'s nested DocFieldTree never receives the outer grid\'s active-row outline', () => {
+      const docs = [{ _id: 1, a: 1, b: 2 }, { _id: 2, a: 3, b: 4 }];
+      const { container } = renderTable(docs, { expandedRows: { '1': true } });
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+      act(() => grid.focus());
+
+      const outlined = Array.from(container.querySelectorAll<HTMLElement>('*')).filter((el) =>
+        el.style.outline?.includes('2px'),
+      );
+      expect(outlined).toHaveLength(1);
+      expect(outlined[0].id).toBe('table-row-0');
     });
   });
 
