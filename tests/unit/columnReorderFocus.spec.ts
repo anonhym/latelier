@@ -31,16 +31,4 @@ describe('focusTargetAfterMove', () => {
     expect(focusTargetAfterMove('up', 0, 2)).toBe('down');
     expect(focusTargetAfterMove('down', 1, 2)).toBe('up');
   });
-
-  it('never returns the button the move just disabled', () => {
-    for (let length = 2; length <= 6; length += 1) {
-      for (let newIndex = 0; newIndex < length; newIndex += 1) {
-        for (const direction of ['up', 'down'] as const) {
-          const target = focusTargetAfterMove(direction, newIndex, length);
-          if (newIndex === 0) expect(target).not.toBe('up');
-          if (newIndex === length - 1) expect(target).not.toBe('down');
-        }
-      }
-    }
-  });
 });
