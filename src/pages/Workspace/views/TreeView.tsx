@@ -525,9 +525,11 @@ export function TreeView({
     (e: React.KeyboardEvent) => {
       roving.onKeyDown(e);
       if (e.defaultPrevented) return;
-      // Mirrors DocRow's own guard: only Enter/Space typed while the tree
-      // itself has focus expands the active row — one bubbling up from a
-      // nested button (expand/edit/delete) is that control's own action.
+      // Only Enter/Space typed while the tree itself has focus expands the
+      // active row — one bubbling up from a nested button (expand/edit/
+      // delete) is that control's own action. This guard used to be
+      // mirrored on DocRow itself; that copy went when the rows stopped
+      // being focusable, so this is now the only one.
       if (e.target !== e.currentTarget) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (documents.length === 0) return;
