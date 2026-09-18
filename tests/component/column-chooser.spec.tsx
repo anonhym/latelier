@@ -1,12 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, fireEvent } from '../helpers/render';
+import { render, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 function baseState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
@@ -29,34 +26,14 @@ function baseState(overrides: Partial<CollectionTabState> = {}): CollectionTabSt
   };
 }
 
-function baseMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderChooser(
   state: CollectionTabState,
   actionOverrides: Partial<CollectionWorkspaceActions> = {},
 ) {
-  const actions: CollectionWorkspaceActions = {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    ...actionOverrides,
-  };
+  const actions = emptyWorkspaceActions(actionOverrides);
   return {
     ...render(
-      <CollectionWorkspaceProvider state={state} actions={actions} meta={baseMeta()}>
+      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
         <ColumnChooser />
       </CollectionWorkspaceProvider>,
     ),
@@ -289,7 +266,7 @@ describe('ColumnChooser', () => {
     ) => Partial<CollectionTabState>;
     const nextState = { ...state, ...fn(state) };
     ctx.rerender(
-      <CollectionWorkspaceProvider state={nextState} actions={ctx.actions} meta={baseMeta()}>
+      <CollectionWorkspaceProvider state={nextState} actions={ctx.actions} meta={emptyWorkspaceMeta()}>
         <ColumnChooser />
       </CollectionWorkspaceProvider>,
     );

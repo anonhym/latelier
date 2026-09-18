@@ -1,13 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, within } from '../helpers/render';
+import { render, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 /**
@@ -43,23 +39,6 @@ function state(view: CollectionTabState['view']): CollectionTabState {
   };
 }
 
-function actions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function meta(): CollectionWorkspaceMeta {
-  return { connectionId: 'c1', dbName: 'app', collection: 'orders', tabId: 't1', isLoading: false };
-}
-
 const DOCS = [
   { _id: 'a1', name: 'alpha', nested: { deep: 'v' } },
   { _id: 'b2', name: 'beta', nested: { deep: 'w' } },
@@ -67,7 +46,7 @@ const DOCS = [
 
 function wrap(view: CollectionTabState['view'], node: React.ReactNode) {
   return render(
-    <CollectionWorkspaceProvider state={state(view)} actions={actions()} meta={meta()}>
+    <CollectionWorkspaceProvider state={state(view)} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
       {node}
     </CollectionWorkspaceProvider>,
   );

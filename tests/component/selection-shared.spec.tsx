@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '../helpers/render';
+import { act, fireEvent, render, renderHook, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { useRowSelection } from '../../src/pages/Workspace/resultSelection';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState, LastRun } from '@shared/types';
 
 const noop = () => {};
@@ -42,32 +38,11 @@ function makeState(view: CollectionTabState['view'], lastRun: LastRun): Collecti
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function makeMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 function Viewer({ state }: { state: CollectionTabState }) {
   return (
-    <CollectionWorkspaceProvider state={state} actions={makeActions()} meta={makeMeta()}>
+    <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions()} meta={makeMeta()}>
       <ResultViewer>
         <ResultViewer.SelectionBar onDeleteSelected={vi.fn()} />
         <ResultViewer.Body onClearFilter={noop} onColumnResize={noop} onRowExpand={noop} />

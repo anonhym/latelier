@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 /**
@@ -33,35 +34,12 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function emptyActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function Wrap({ children }: { children: React.ReactNode }) {
   return (
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
       >
         {children}
       </CollectionWorkspaceProvider>

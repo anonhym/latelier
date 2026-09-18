@@ -1,6 +1,15 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+  act,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type {
@@ -37,17 +46,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function emptyMeta(overrides: Partial<CollectionWorkspaceMeta> = {}): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...overrides,
-  };
-}
-
 function stateWithDocs(
   docs: unknown[],
   overrides: Partial<CollectionTabState> = {},
@@ -65,12 +63,48 @@ function stateWithDocs(
 }
 
 /**
- * Harness whose `updateField` mirrors Workspace.tsx's real implementation
- * (`buildIdFilter` -> `api.doc.updateOne` -> refresh callback on success,
- * `notify.error` on failure) — a noop spy would only prove the affordance
- * renders, not the `$set` shape or the error-feedback path (T2.6 plan
- * validation: "real/stateful actions object, not a noop spy").
+ * `updateField` mirrors Workspace.tsx's real implementation (`buildIdFilter`
+ * -> `api.doc.updateOne` -> refresh callback on success, `notify.error` on
+ * failure) — a noop spy would only prove the affordance renders, not the
+ * `$set` shape or the error-feedback path (T2.6 plan validation:
+ * "real/stateful actions object, not a noop spy").
+ *
+ * #72 — both harnesses below had their own byte-identical copy of this.
+ * They differed in one respect: the rerenderable harness hardcoded
+ * `openDuplicate: vi.fn()` rather than honouring `opts`. Unifying on
+ * `opts.openDuplicate ?? vi.fn()` changes nothing today — that harness's
+ * `opts` has no `openDuplicate` to pass — and is the behaviour you would
+ * want the day it gains one.
  */
+function inlineEditActions(opts: {
+  onRefresh?: () => void;
+  openDuplicate?: (doc: unknown) => void;
+}): CollectionWorkspaceActions {
+  return emptyWorkspaceActions({
+    updateField: (doc, fieldPath, newValue) => {
+      const filterJson = buildIdFilter(doc);
+      if (filterJson === null) {
+        notify.error('Cannot edit a document without an _id');
+        return;
+      }
+      const updateJson = ejsonStringify({ $set: { [fieldPath]: newValue } });
+      api.doc
+        .updateOne({
+          connectionId: 'c1',
+          dbName: 'app',
+          collection: 'orders',
+          filterJson,
+          updateJson,
+        })
+        .then(() => opts.onRefresh?.())
+        .catch((e: unknown) => {
+          notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });
+        });
+    },
+    openDuplicate: opts.openDuplicate ?? vi.fn(),
+  });
+}
+
 function renderInlineEditHarness(
   docs: unknown[],
   opts: {
@@ -81,45 +115,12 @@ function renderInlineEditHarness(
   } = {},
 ) {
   function Harness() {
-    const actions = React.useMemo<CollectionWorkspaceActions>(
-      () => ({
-        patch: vi.fn(),
-        patchWith: vi.fn(),
-        run: vi.fn(),
-        openEdit: vi.fn(),
-        openDelete: vi.fn(),
-        openDeleteAll: vi.fn(),
-        openInsert: vi.fn(),
-        openSave: vi.fn(),
-        updateField: (doc, fieldPath, newValue) => {
-          const filterJson = buildIdFilter(doc);
-          if (filterJson === null) {
-            notify.error('Cannot edit a document without an _id');
-            return;
-          }
-          const updateJson = ejsonStringify({ $set: { [fieldPath]: newValue } });
-          api.doc
-            .updateOne({
-              connectionId: 'c1',
-              dbName: 'app',
-              collection: 'orders',
-              filterJson,
-              updateJson,
-            })
-            .then(() => opts.onRefresh?.())
-            .catch((e: unknown) => {
-              notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });
-            });
-        },
-        openDuplicate: opts.openDuplicate ?? vi.fn(),
-      }),
-      [],
-    );
+    const actions = React.useMemo<CollectionWorkspaceActions>(() => inlineEditActions(opts), []);
     return (
       <CollectionWorkspaceProvider
         state={stateWithDocs(docs)}
         actions={actions}
-        meta={emptyMeta(opts.metaOverrides)}
+        meta={emptyWorkspaceMeta(opts.metaOverrides)}
       >
         <TableView
           documents={docs}
@@ -149,45 +150,12 @@ function renderRerenderableInlineEditHarness(
   } = {},
 ) {
   function Harness({ docs }: { docs: unknown[] }) {
-    const actions = React.useMemo<CollectionWorkspaceActions>(
-      () => ({
-        patch: vi.fn(),
-        patchWith: vi.fn(),
-        run: vi.fn(),
-        openEdit: vi.fn(),
-        openDelete: vi.fn(),
-        openDeleteAll: vi.fn(),
-        openInsert: vi.fn(),
-        openSave: vi.fn(),
-        updateField: (doc, fieldPath, newValue) => {
-          const filterJson = buildIdFilter(doc);
-          if (filterJson === null) {
-            notify.error('Cannot edit a document without an _id');
-            return;
-          }
-          const updateJson = ejsonStringify({ $set: { [fieldPath]: newValue } });
-          api.doc
-            .updateOne({
-              connectionId: 'c1',
-              dbName: 'app',
-              collection: 'orders',
-              filterJson,
-              updateJson,
-            })
-            .then(() => opts.onRefresh?.())
-            .catch((e: unknown) => {
-              notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });
-            });
-        },
-        openDuplicate: vi.fn(),
-      }),
-      [],
-    );
+    const actions = React.useMemo<CollectionWorkspaceActions>(() => inlineEditActions(opts), []);
     return (
       <CollectionWorkspaceProvider
         state={stateWithDocs(docs)}
         actions={actions}
-        meta={emptyMeta(opts.metaOverrides)}
+        meta={emptyWorkspaceMeta(opts.metaOverrides)}
       >
         <TableView documents={docs} onColumnResize={vi.fn()} onRowExpand={vi.fn()} />
       </CollectionWorkspaceProvider>

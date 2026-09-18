@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen } from '../helpers/render';
+import { fireEvent, render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 let originalClipboard: Clipboard | undefined;
@@ -51,29 +48,7 @@ function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabSt
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function makeMeta(overrides: Partial<CollectionWorkspaceMeta> = {}): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...overrides,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 function renderBar(
   onDeleteSelected: (docs: unknown[]) => void,
@@ -82,7 +57,7 @@ function renderBar(
   return render(
     <CollectionWorkspaceProvider
       state={makeState()}
-      actions={makeActions()}
+      actions={emptyWorkspaceActions()}
       meta={makeMeta(metaOverrides)}
     >
       <ResultViewer>
@@ -146,7 +121,7 @@ describe('SelectionActionBar', () => {
       },
     });
     const { container } = render(
-      <CollectionWorkspaceProvider state={state} actions={makeActions()} meta={makeMeta()}>
+      <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions()} meta={makeMeta()}>
         <ResultViewer>
           <ResultViewer.SelectionBar onDeleteSelected={onDeleteSelected} />
           <ResultViewer.Json />

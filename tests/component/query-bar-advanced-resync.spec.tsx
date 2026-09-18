@@ -1,11 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent, within } from '../helpers/render';
+import { describe, it, expect } from 'vitest';
+import { render, fireEvent, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions, CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { BuilderState, CollectionTabState } from '@shared/types';
 
 /**
@@ -41,27 +38,10 @@ function makeState(builder: BuilderState = b(), queryRaw = '{}'): CollectionTabS
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
+const makeActions = emptyWorkspaceActions;
 
 function makeMeta(tabId: string, collection: string): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection,
-    tabId,
-    isLoading: false,
-  };
+  return emptyWorkspaceMeta({ tabId, collection });
 }
 
 // `actions` is optional so the earlier fixtures stay as they were; the

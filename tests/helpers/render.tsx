@@ -221,14 +221,22 @@ export function emptyWorkspaceActions(
   };
 }
 
-/** #72 — see `emptyWorkspaceActions` above; same duplicate pair. */
-export function emptyWorkspaceMeta(): CollectionWorkspaceMeta {
+/**
+ * #72 — see `emptyWorkspaceActions` above; same duplicate pair. `overrides`
+ * carries the same defaults every local copy of this stub had picked
+ * (`c1`/`app`/`orders`/`t1`), so a call site that varied one field keeps
+ * varying exactly that field.
+ */
+export function emptyWorkspaceMeta(
+  overrides: Partial<CollectionWorkspaceMeta> = {},
+): CollectionWorkspaceMeta {
   return {
     connectionId: 'c1',
     dbName: 'app',
     collection: 'orders',
     tabId: 't1',
     isLoading: false,
+    ...overrides,
   };
 }
 
