@@ -113,6 +113,40 @@ The hook is pure arithmetic — fast and deterministic. Ticket 1 therefore:
 That is the CLAUDE.md-sanctioned path for the file, not an expansion of scope:
 the hook is about to become load-bearing for three more surfaces.
 
+## 3. What the audit got wrong
+
+`docs/UX-AUDIT.md` §N2 listed nine surfaces. Two read-only surveys against the
+tree found **five of them already fixed**, and one describing a control that
+does not exist. Recorded here because the audit file is not being rewritten, and
+the next person to read §N2 will otherwise re-derive this.
+
+| Audit item | Reality |
+| --- | --- |
+| Aggregation stages can't be opened | **Fixed.** `StageAccordion.tsx` header is `role="group"` with a real `<button aria-expanded>` leaf; `PipelineOutline.tsx` rows are real buttons. Both covered by tests. |
+| ConnectionForm TLS/verify/direct toggles | **Fixed.** Real `<button role="switch" aria-checked>`, with a comment recording the old `<div onClick>` defect. |
+| ConnectionForm colour swatches | **Fixed.** `<button aria-label aria-pressed>`. |
+| BuilderPane sub-tabs | **Fixed.** Mantine `Tabs`; `drawer-tablist.spec.tsx` asserts roles, roving and ArrowRight. |
+| Main pane splits mouse-only | **Fixed**, and out of scope. `react-resizable-panels`' own handle; `separator-highlight.e2e.ts` proves Tab + ArrowLeft moves `aria-valuenow`. |
+| TableView sort headers are `div onClick` | **Half stale.** Already a real `<button>`; only `aria-sort` was missing (#53). |
+| "Projection chips convey state by colour only" | **No such control.** Grep finds one stale comment and no element. Projection is a text field with a text `Badge`. Dropped. |
+
+The lesson for the next epic sliced from an audit: **verify each surface against
+the tree before filing a ticket for it.** More than half of this one was already
+done, and one item was fiction.
+
+## 3b. The other four patterns
+
+§2 covers roving focus in full because it carried the first ticket. The rest are
+specified in their tickets rather than restated here — each carries its own
+design, acceptance criteria and test position:
+
+| Pattern | Surfaces | Ticket |
+| --- | --- | --- |
+| Disclosure | IndexesTab / UsersTab detail rows | #54 |
+| Separator with a value | `ResizeHandle` ×2, `ScriptTab`, `OutputPanel` | #56 |
+| Reorder without a pointer | `ColumnChooser` | #57 |
+| Tablist | `ConnectionForm`'s own tab strip | #59 |
+
 ## 4. Acceptance criteria
 
 Per interactive control this spec touches:
@@ -161,6 +195,60 @@ array and is hardened to 90%+ before its ticket merges.** A roving-focus driver
 (Arrow/Home/End/wrap/clamp) is exactly the shape of module that belongs there,
 and it will have fast unit-test coverage, so the "slow or non-deterministic
 coverage" disqualifier in CLAUDE.md does not apply.
+
+## 6. What implementing this actually cost
+
+Recorded because the estimate was wrong in an instructive direction.
+
+The epic was sliced at **8 tickets**. Implementing four of them produced **nine
+more issues**, none of which the audit named:
+
+| Found by | Issue |
+| --- | --- |
+| implementing #20 | #60 — the active row is announced but never drawn |
+| the e2e for #20 | #62 — `End` mounts the last row but lands it clipped off-screen |
+| reviewing #20 | #63 — click-then-arrow proven in a real browser for one view only |
+| reviewing #20 | #64 — `TreeView`'s key handler defeats its own `useCallback` |
+| implementing #58 | #66 — arrow keys land on rows with no id and no focus treatment |
+| implementing #55 | #68 — `DocFieldTree`'s field menu is still right-click-only |
+| implementing #55 | #69 — right-click + Escape strands focus on `<body>` |
+| gate runs | #71 — an order-dependent e2e flake |
+| merging | #72 — the SonarCloud duplication gate |
+
+### The defect this epic kept re-finding
+
+**`tabIndex={-1}` on a row is a trap.** It excludes an element from *sequential*
+Tab order but leaves it **click-focusable** per the HTML focusing-steps
+algorithm. A click then puts real DOM focus on a row that virtualization can
+unmount mid-scroll, and every later keydown reaches the container with
+`e.target !== e.currentTarget`, where the guard swallows it. Arrows die from the
+first click.
+
+#20 and #58 both shipped it and both had to have it removed. In #20 it survived
+48 tests and a 93.66% mutation score, because **every test drove
+`fireEvent.keyDown` on the container**, where the precondition holds by
+construction — and `fireEvent` does no focus management at all.
+
+Two corollaries, both learned the hard way:
+
+- **Removing `tabIndex` is not free.** In #58 it invalidated the context-menu
+  focus return, which called `.focus()` on the row. Six dialog flows would have
+  silently dropped focus to `<body>`.
+- **The focus-return target must survive the action.** In #55, `TabStrip`
+  returned focus to the tab, and the same menu's *Close tab* destroys it.
+
+### What the gates did not catch
+
+All four tickets passed tsc, lint, the full suite, the mutation threshold and
+e2e — and three of them still contained a focus defect found only by review.
+
+Mutation testing proves the assertions are load-bearing. It cannot tell you an
+interaction was never exercised. Every one of these was found by asking *"what
+happens after the user does the destructive thing?"* — click the row, close the
+dialog, delete the tab.
+
+**So: any ticket touching a row, cell or list item checks for the `tabIndex`
+trap, and tests focus with `userEvent`, never `fireEvent`.**
 
 ## 7. Definition of done
 
