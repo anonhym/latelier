@@ -9,6 +9,7 @@ function renderFieldTree(
     docId?: string;
     expandedPaths?: Set<string>;
     onToggle?: (path: string) => void;
+    onOpenMenu?: (...args: unknown[]) => void;
   } = {},
 ) {
   return render(
@@ -19,7 +20,7 @@ function renderFieldTree(
       onToggle={opts.onToggle ?? vi.fn()}
       copiedPath={null}
       onCopy={vi.fn()}
-      onOpenMenu={vi.fn()}
+      onOpenMenu={opts.onOpenMenu ?? vi.fn()}
     />,
   );
 }
@@ -202,5 +203,111 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
     expect(tree.getAttribute('aria-activedescendant')).toBe('field-row-doc1::a.c');
     expect(rowFor('a.c').style.outline).toContain('2px');
     expect(rowFor('a.b').style.outline).not.toContain('2px');
+  });
+});
+
+// #68/#69 — the field menu (Copy value / Copy field path / Add to filter)
+// was reachable only by right-click; this covers the keyboard-open path this
+// component now owns, and the mouse-path payload shape #69 needs both to
+// share.
+describe('DocFieldTree — field menu open payload (#68/#69)', () => {
+  function stubActiveRowRect(container: HTMLElement, path: string, rect: Partial<DOMRect>) {
+    const el = container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      bottom: 0,
+      top: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+      ...rect,
+    } as DOMRect);
+    return el;
+  }
+
+  it('Shift+F10 opens the menu for the active field row, anchored to its bounding rect', () => {
+    const onOpenMenu = vi.fn();
+    const { container } = renderFieldTree({ a: 1, b: 2 }, { onOpenMenu });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    stubActiveRowRect(container, 'a', { left: 42, bottom: 84 });
+
+    fireEvent.keyDown(tree, { key: 'F10', shiftKey: true });
+
+    expect(onOpenMenu).toHaveBeenCalledWith({
+      anchor: { x: 42, y: 84 },
+      fieldPath: 'a',
+      value: 1,
+      returnFocusTo: tree,
+      focusMenuOnOpen: true,
+    });
+  });
+
+  it('the ContextMenu key opens the same menu, for whichever row is active', () => {
+    const onOpenMenu = vi.fn();
+    const { container } = renderFieldTree({ a: 1, b: 'two' }, { onOpenMenu });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // active row is now "b"
+    stubActiveRowRect(container, 'b', { left: 5, bottom: 10 });
+
+    fireEvent.keyDown(tree, { key: 'ContextMenu' });
+
+    expect(onOpenMenu).toHaveBeenCalledWith({
+      anchor: { x: 5, y: 10 },
+      fieldPath: 'b',
+      value: 'two',
+      returnFocusTo: tree,
+      focusMenuOnOpen: true,
+    });
+  });
+
+  it('F10 without Shift does not open the menu', () => {
+    const onOpenMenu = vi.fn();
+    const { container } = renderFieldTree({ a: 1 }, { onOpenMenu });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+
+    fireEvent.keyDown(tree, { key: 'F10', shiftKey: false });
+
+    expect(onOpenMenu).not.toHaveBeenCalled();
+  });
+
+  it('opens the menu for a field nested inside an expanded parent', () => {
+    const onOpenMenu = vi.fn();
+    const { container } = renderFieldTree(
+      { nested: { x: 1 } },
+      { expandedPaths: new Set(['doc1::nested']), onOpenMenu },
+    );
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // active row is now "nested.x"
+    stubActiveRowRect(container, 'nested.x', { left: 1, bottom: 2 });
+
+    fireEvent.keyDown(tree, { key: 'ContextMenu' });
+
+    expect(onOpenMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ fieldPath: 'nested.x', value: 1 }),
+    );
+  });
+
+  // A mouse-driven open can't reach the tree's own container ref (it fires
+  // from a `FieldNode` deep in the recursion) — `DocFieldTree` injects
+  // `returnFocusTo` on the way up. `focusMenuOnOpen` stays unset: a
+  // right-click still shouldn't steal focus into the menu (#69's own
+  // "right-click behaviour is otherwise unchanged" requirement).
+  it('a right-click on a field row gets returnFocusTo but not focusMenuOnOpen', () => {
+    const onOpenMenu = vi.fn();
+    const { container } = renderFieldTree({ a: 1 }, { onOpenMenu });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    const row = container.querySelector('[id="field-row-doc1::a"]')! as HTMLElement;
+
+    fireEvent.contextMenu(row, { clientX: 7, clientY: 9 });
+
+    expect(onOpenMenu).toHaveBeenCalledWith({
+      anchor: { x: 7, y: 9 },
+      fieldPath: 'a',
+      value: 1,
+      returnFocusTo: tree,
+    });
   });
 });

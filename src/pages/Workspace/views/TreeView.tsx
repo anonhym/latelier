@@ -7,6 +7,8 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
+import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
+import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -17,7 +19,7 @@ import { condFromDragged } from '../builder';
 import { useCollectionWorkspace } from '../context';
 import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
-import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE } from './DocFieldTree';
+import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
 
 interface TreeViewProps {
@@ -148,7 +150,7 @@ interface DocRowProps {
   onToggleSelect: (index: number) => void;
   toggleDeepPath: (path: string) => void;
   handleCopy: (path: string, value: unknown) => void;
-  handleOpenMenu: (e: React.MouseEvent, fieldPath: string, value: unknown) => void;
+  handleOpenMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
@@ -453,7 +455,14 @@ export function TreeView({
     y: number;
     fieldPath: string;
     value: unknown;
+    // #68/#69 — `DocFieldTree` sets `returnFocusTo` on both the mouse and
+    // keyboard open paths, `focusMenuOnOpen` only on the keyboard one. See
+    // `useKeyboardMenuFocus`'s docstring.
+    returnFocusTo?: HTMLElement | null;
+    focusMenuOnOpen?: boolean;
   } | null>(null);
+  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardMenuFocus(fieldMenuRef, contextMenu);
   // Memoized so `?? {}` doesn't allocate a fresh object every render, which
   // would cascade into the rowProps useMemo below.
   const expandedRows = React.useMemo(
@@ -481,8 +490,8 @@ export function TreeView({
   }, []);
 
   const handleOpenMenu = React.useCallback(
-    (e: React.MouseEvent, fieldPath: string, value: unknown) => {
-      setContextMenu({ x: e.clientX, y: e.clientY, fieldPath, value });
+    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+      setContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
     },
     [],
   );
@@ -522,12 +531,11 @@ export function TreeView({
     [state.queryRaw, state.activeBuilderTab, actions],
   );
 
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
-  }, [contextMenu]);
+  // #68 — this menu previously had no Escape path at all, only
+  // click-outside; a keyboard-opened menu with no keyboard way out would
+  // fail #68's own acceptance. `useMenuDismiss` owns both halves.
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
+  useMenuDismiss(!!contextMenu, closeContextMenu);
 
   // Virtualize the outer doc list with react-window v2. Collapsed rows are
   // ~44px; expanded rows grow with field count. useDynamicRowHeight observes
@@ -738,6 +746,9 @@ export function TreeView({
       </div>
       {contextMenu && (
         <div
+          ref={fieldMenuRef}
+          role="group"
+          aria-label="Field actions"
           style={{
             position: 'fixed',
             top: contextMenu.y,

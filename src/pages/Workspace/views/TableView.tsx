@@ -7,6 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
+import { useMenuDismiss } from '../../../hooks/useMenuDismiss';
 import { useKeyboardMenuFocus } from '../../../hooks/useKeyboardMenuFocus';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
@@ -28,7 +29,7 @@ import { copyToClipboard } from '../../../utils/clipboard';
 import { useCollectionWorkspace } from '../context';
 import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
-import { DocFieldTree } from './DocFieldTree';
+import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getFullDocId, isInlineEditable } from './docId';
 import {
   deriveColumns,
@@ -493,7 +494,7 @@ interface TableRowProps {
   onRowExpand: (docId: string, expanded: boolean) => void;
   toggleDeepPath: (path: string) => void;
   handleCopyField: (path: string, value: unknown) => void;
-  handleOpenFieldMenu: (e: React.MouseEvent, fieldPath: string, value: unknown) => void;
+  handleOpenFieldMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
@@ -808,11 +809,13 @@ export function TableView({
     field: string | null;
     value: unknown;
     hasValue: boolean;
-    // #55 — set only by the keyboard-open path (Shift+F10 / ContextMenu key);
-    // `useKeyboardMenuFocus` reads its presence to decide whether to move
-    // focus in and back out. `undefined` for a mouse-driven right-click, so
-    // that path is unchanged.
+    // #55/#69 — set by both open paths now, so Escape/click-away always has
+    // somewhere to send focus back to instead of stranding it on `<body>`.
     returnFocusTo?: HTMLElement | null;
+    // #69 — grabbing focus *into* the menu on open stays keyboard-only; see
+    // `useKeyboardMenuFocus`'s docstring for why `returnFocusTo` alone isn't
+    // enough to decide that.
+    focusMenuOnOpen?: boolean;
   } | null>(null);
   const cellMenuRef = React.useRef<HTMLDivElement | null>(null);
   useKeyboardMenuFocus(cellMenuRef, contextMenu);
@@ -876,10 +879,17 @@ export function TableView({
     y: number;
     fieldPath: string;
     value: unknown;
+    // #68/#69 — same split as the cell menu above: `returnFocusTo` is set on
+    // both the mouse and keyboard open paths (`DocFieldTree` injects it),
+    // `focusMenuOnOpen` only on the keyboard one.
+    returnFocusTo?: HTMLElement | null;
+    focusMenuOnOpen?: boolean;
   } | null>(null);
+  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
+  useKeyboardMenuFocus(fieldMenuRef, fieldContextMenu);
   const handleOpenFieldMenu = React.useCallback(
-    (e: React.MouseEvent, fieldPath: string, value: unknown) => {
-      setFieldContextMenu({ x: e.clientX, y: e.clientY, fieldPath, value });
+    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+      setFieldContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
     },
     [],
   );
@@ -916,24 +926,8 @@ export function TableView({
     },
     [state.queryRaw, state.activeBuilderTab, actions],
   );
-  React.useEffect(() => {
-    if (!fieldContextMenu) return;
-    const handler = () => setFieldContextMenu(null);
-    // Escape listens on the window, next to the click-outside dismiss, rather
-    // than as an `onKeyDown` on the menu itself. The menu opens from a
-    // `contextmenu` event and nothing focuses it, so a keydown handler on that
-    // element would never receive one — dead code that a test firing directly
-    // at the node would still report as working.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFieldContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [fieldContextMenu]);
+  const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
+  useMenuDismiss(!!fieldContextMenu, closeFieldContextMenu);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
@@ -1023,21 +1017,8 @@ export function TableView({
     window.addEventListener('mouseup', onUp);
   };
 
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    // See the field menu above: Escape has to be a window listener, because
-    // nothing ever gives this menu focus.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
+  useMenuDismiss(!!contextMenu, closeContextMenu);
 
   // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to
@@ -1087,9 +1068,19 @@ export function TableView({
         hasValue: boolean;
       },
     ) => {
-      setContextMenu({ x: e.clientX, y: e.clientY, ...payload });
+      // #69 — same restore-on-close target the keyboard path uses below, so
+      // Escape/click-away no longer strands focus on `<body>` after a
+      // right-click. `focusMenuOnOpen` stays unset: a mouse open still
+      // doesn't grab focus into the menu, only Escape now has somewhere to
+      // send it back to.
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        ...payload,
+        returnFocusTo: listRef.current?.element ?? null,
+      });
     },
-    [],
+    [listRef],
   );
 
   // Row-expand makes rows variable-height; measure each rendered row rather
@@ -1123,6 +1114,7 @@ export function TableView({
           value: undefined,
           hasValue: false,
           returnFocusTo: listRef.current?.element ?? null,
+          focusMenuOnOpen: true,
         });
         return;
       }
@@ -1636,6 +1628,7 @@ export function TableView({
         // S6848 — same reasoning as the cell-level menu above, Escape
         // included: it is a window listener, not an onKeyDown here.
         <div
+          ref={fieldMenuRef}
           role="group"
           aria-label="Field actions"
           tabIndex={-1}

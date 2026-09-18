@@ -421,23 +421,39 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       await waitFor(() => expect(document.activeElement).toBe(treeEl));
     });
 
-    it('right-click behaviour is unchanged — a mouse-opened menu closes without forcing focus', async () => {
-      const { rowEl } = await focusOrdersRow();
-      const focusBefore = document.activeElement;
+    // #69 — this used to assert the bug: `openMenuFor`'s mouse path left
+    // `returnFocusTo` `undefined`, so closing a right-click-opened menu
+    // stranded focus on `<body>` (`focusBefore`, here, since nothing had
+    // focus yet). `openMenuFor` now sets `returnFocusTo: trigger` (the tree)
+    // on both open paths, so closing restores focus there instead.
+    it('a right-click-opened menu closes and returns focus to the tree, not <body>', async () => {
+      const { treeEl, rowEl } = await focusOrdersRow();
 
       fireEvent.contextMenu(rowEl);
       // "Copy name" has no follow-on dialog, unlike Rename/Drop — a plain
       // close is the only way to see whether *this* menu's own close path
-      // forces a refocus, independent of whatever a dialog's own autoFocus
+      // restores focus, independent of whatever a dialog's own autoFocus
       // would do afterward.
       const item = await screen.findByRole('menuitem', { name: 'Copy name' });
       fireEvent.click(item);
 
       expect(screen.queryByRole('menu')).toBeNull();
-      // The name's claim: `returnFocusTo` is `undefined` for a mouse open
-      // (`openMenuFor`'s `viaKeyboard` is false), so closing must leave
-      // focus exactly where it was — not just close the menu.
-      expect(document.activeElement).toBe(focusBefore);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(treeEl);
+    });
+
+    // Mantine's own `FocusTrap` grabs focus into the menu on any open,
+    // mouse or keyboard, independent of `returnFocusTo` — so #69's fix
+    // (setting `returnFocusTo` on the mouse path too) only changes what
+    // happens on *close*. This is the one thing #69 says must stay true.
+    it('right-click still opens without a pointer-driven focus change of its own — Mantine grabs it either way', async () => {
+      const { rowEl } = await focusOrdersRow();
+
+      fireEvent.contextMenu(rowEl);
+
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
     });
   });
 

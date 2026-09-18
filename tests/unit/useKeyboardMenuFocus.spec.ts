@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // Same jsdom-opt-in as useRovingFocus.spec.ts: this hook has real branching
-// (`if (!menu?.returnFocusTo) return;`) and its coverage is a `renderHook`
-// against plain `document.createElement` nodes — fast and deterministic, no
-// full component mount needed.
+// (`if (!menu?.returnFocusTo) return;`, `if (focusMenuOnOpen) ...`) and its
+// coverage is a `renderHook` against plain `document.createElement` nodes —
+// fast and deterministic, no full component mount needed.
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '../helpers/render';
 import { useKeyboardMenuFocus } from '../../src/hooks/useKeyboardMenuFocus';
@@ -60,26 +60,72 @@ describe('useKeyboardMenuFocus', () => {
     expect(document.activeElement).not.toBe(button);
   });
 
-  it('focuses the menu\'s first button on a keyboard-driven open', () => {
+  it('focuses the menu\'s first button when focusMenuOnOpen is set (a keyboard-driven open)', () => {
     const { container, button } = mountMenu();
     const trigger = mountTrigger();
     trigger.focus();
 
-    renderHook(() => useKeyboardMenuFocus({ current: container }, { returnFocusTo: trigger }));
+    renderHook(() =>
+      useKeyboardMenuFocus(
+        { current: container },
+        { returnFocusTo: trigger, focusMenuOnOpen: true },
+      ),
+    );
 
     expect(document.activeElement).toBe(button);
   });
 
-  it('returns focus to returnFocusTo once the menu closes', () => {
+  // #69 — `returnFocusTo` is now set on a mouse-driven right-click too (so
+  // Escape/click-away has somewhere to restore focus to), but that open
+  // itself must not steal focus into the menu the way a keyboard open does.
+  // `focusMenuOnOpen` is the flag that keeps those two independent.
+  it('does not grab focus into the menu when focusMenuOnOpen is unset, even with returnFocusTo present (a mouse-driven right-click)', () => {
+    const { container, button } = mountMenu();
+    const trigger = mountTrigger();
+    trigger.focus();
+
+    renderHook(() =>
+      useKeyboardMenuFocus({ current: container }, { returnFocusTo: trigger }),
+    );
+
+    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).not.toBe(button);
+  });
+
+  it('returns focus to returnFocusTo once a keyboard-opened menu closes', () => {
     const { container, button } = mountMenu();
     const trigger = mountTrigger();
 
-    type Props = { menu: { returnFocusTo?: HTMLElement | null } | null };
+    type Props = {
+      menu: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean } | null;
+    };
+    const { rerender } = renderHook<void, Props>(
+      ({ menu }) => useKeyboardMenuFocus({ current: container }, menu),
+      { initialProps: { menu: { returnFocusTo: trigger, focusMenuOnOpen: true } } },
+    );
+    expect(document.activeElement).toBe(button);
+
+    rerender({ menu: null });
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // #69's actual fix, at this hook's own level: a mouse-driven open never
+  // grabs focus into the menu (previous test), but closing it still must
+  // restore focus — this is the half that used to strand it on `<body>`.
+  it('returns focus to returnFocusTo once a mouse-opened menu closes, despite never having grabbed it', () => {
+    const { container } = mountMenu();
+    const trigger = mountTrigger();
+    trigger.focus();
+
+    type Props = {
+      menu: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean } | null;
+    };
     const { rerender } = renderHook<void, Props>(
       ({ menu }) => useKeyboardMenuFocus({ current: container }, menu),
       { initialProps: { menu: { returnFocusTo: trigger } } },
     );
-    expect(document.activeElement).toBe(button);
+    expect(document.activeElement).toBe(trigger);
 
     rerender({ menu: null });
 
@@ -93,7 +139,12 @@ describe('useKeyboardMenuFocus', () => {
     const trigger = mountTrigger();
 
     expect(() =>
-      renderHook(() => useKeyboardMenuFocus({ current: null }, { returnFocusTo: trigger })),
+      renderHook(() =>
+        useKeyboardMenuFocus(
+          { current: null },
+          { returnFocusTo: trigger, focusMenuOnOpen: true },
+        ),
+      ),
     ).not.toThrow();
   });
 
@@ -105,7 +156,12 @@ describe('useKeyboardMenuFocus', () => {
     const trigger = mountTrigger();
 
     expect(() =>
-      renderHook(() => useKeyboardMenuFocus({ current: container }, { returnFocusTo: trigger })),
+      renderHook(() =>
+        useKeyboardMenuFocus(
+          { current: container },
+          { returnFocusTo: trigger, focusMenuOnOpen: true },
+        ),
+      ),
     ).not.toThrow();
   });
 });

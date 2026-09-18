@@ -676,7 +676,7 @@ export function DbCollectionNavigator({
       e.preventDefault();
       const rowEl = document.getElementById(navigatorRowDomId(row.id));
       if (!rowEl) return;
-      openMenuFor(row, anchorFromRect(rowEl.getBoundingClientRect()), { viaKeyboard: true });
+      openMenuFor(row, anchorFromRect(rowEl.getBoundingClientRect()));
       return;
     }
 
@@ -903,12 +903,12 @@ export function DbCollectionNavigator({
     return items;
   }, [refreshAll, onEditConnection, onDisconnect, disconnect, reconnect]);
 
-  // #55 — shared by the mouse (`onRowContextMenu`) and keyboard
+  // #55/#69 — shared by the mouse (`onRowContextMenu`) and keyboard
   // (Shift+F10 / ContextMenu key, in `onKeyDown` above) open paths; only the
-  // anchor coordinate and whether to hand `ContextMenu` a `returnFocusTo`
-  // differ between them.
+  // anchor coordinate differs between them now — both hand `ContextMenu` the
+  // same `returnFocusTo` (see below).
   const openMenuFor = React.useCallback(
-    (row: TreeRow, anchor: { x: number; y: number }, opts: { viaKeyboard?: boolean } = {}) => {
+    (row: TreeRow, anchor: { x: number; y: number }) => {
       setFocusedId(row.id);
       // #58 — used to be `e.currentTarget` (the row itself). Rows no longer
       // carry a `tabIndex` (see ConnectionRow/DbRow/CollRow below), so a row
@@ -930,11 +930,14 @@ export function DbCollectionNavigator({
       setMenu({
         ...anchor,
         items,
-        // Only a keyboard open needs `ContextMenu` to hand focus back —
-        // see `ContextMenuState.returnFocusTo`'s own docstring for why
-        // Mantine can't do this itself. A mouse-driven open leaves this
-        // `undefined` so right-click behaviour is unchanged.
-        returnFocusTo: opts.viaKeyboard ? trigger : undefined,
+        // #69 — set on both open paths now (`trigger` is a valid focus
+        // target for either — see the comment above), so Escape/click-away
+        // no longer strands focus on `<body>` after a right-click. Mantine's
+        // own `FocusTrap` already grabs focus into the menu on any open
+        // regardless of this field (see `ContextMenuState.returnFocusTo`'s
+        // docstring) — only the close-time restore was missing for a mouse
+        // open, and this is that.
+        returnFocusTo: trigger,
       });
     },
     [setMenuTrigger, buildCollMenu, buildDbMenu, buildConnectionMenu, setMenu],

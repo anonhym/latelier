@@ -667,7 +667,7 @@ describe('TableView — rendering and interaction', () => {
         await waitFor(() => expect(document.activeElement).toBe(grid));
       });
 
-      it('right-click behaviour is unchanged — no forced refocus on a mouse-opened menu', () => {
+      it('right-click does not force focus into the menu — unchanged from before #69', () => {
         const docs = [{ _id: 1, name: 'a' }];
         const { getByTitle, getByText } = renderTable(docs);
         const cell = getByTitle(/Drag to add "name/);
@@ -675,12 +675,29 @@ describe('TableView — rendering and interaction', () => {
         fireEvent.contextMenu(cell);
         expect(getByText('Edit')).toBeTruthy();
 
+        // A mouse open still doesn't grab focus into the menu the way a
+        // keyboard open does (`focusMenuOnOpen` stays unset on this path) —
+        // only the close-time restore below is new.
+        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+      });
+
+      // #69 — right-click open, then Escape, used to strand focus on
+      // `<body>` (nothing set `returnFocusTo` for a mouse open). Now both
+      // open paths share the same mechanism.
+      it('right-click open, then Escape, returns focus to the grid — not <body>', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container, getByTitle, getByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+        const cell = getByTitle(/Drag to add "name/);
+
+        fireEvent.contextMenu(cell);
+        expect(getByText('Edit')).toBeTruthy();
+
         fireEvent.keyDown(window, { key: 'Escape' });
-        // Pre-existing behaviour (see the "Escape closes the cell context
-        // menu" test above): nothing focuses this menu for a mouse open, so
-        // there is nothing guaranteeing where focus lands — only that the
-        // menu itself is gone.
+
         expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(grid);
       });
     });
   });

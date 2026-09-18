@@ -7,6 +7,16 @@ export interface FlatFieldRow {
   /** Whether this row can be expanded — an Enter/Space on a non-expandable
    * active row is a no-op, same as clicking one (`FieldNode`'s `rowClickable`). */
   expandable: boolean;
+  /** Dot-path of the field within the document (no docId prefix) — same
+   * value `FieldNode` computes for itself as it recurses. Carried here too
+   * (#68) so a keyboard-opened field menu can hand the same `fieldPath` to
+   * `onOpenMenu` that a mouse-opened one does, rather than re-deriving it
+   * from `path` — a `path.slice()`/split reimplementation would silently
+   * diverge from #86's known dotted-field-name collision instead of just
+   * inheriting it unchanged. */
+  fieldPath: string;
+  /** The field's own value — same reasoning as `fieldPath` above. */
+  value: unknown;
 }
 
 /**
@@ -30,20 +40,26 @@ export function flattenVisibleFieldRows(
   expandedPaths: Set<string>,
 ): FlatFieldRow[] {
   const out: FlatFieldRow[] = [];
-  const visit = (entries: Array<[string, unknown]>, parentPath: string, sep: string) => {
+  const visit = (
+    entries: Array<[string, unknown]>,
+    parentPath: string,
+    parentFieldPath: string,
+    sep: string,
+  ) => {
     for (const [name, value] of entries) {
       const path = `${parentPath}${sep}${name}`;
+      const fieldPath = parentFieldPath ? `${parentFieldPath}.${name}` : name;
       const dv = toDisplayValue(value);
       const expandable = dv.type === 'object' || dv.type === 'array';
-      out.push({ path, expandable });
+      out.push({ path, expandable, fieldPath, value });
       if (!expandable || !expandedPaths.has(path)) continue;
       if (dv.type === 'array' && Array.isArray(value)) {
-        visit(value.map((v, i): [string, unknown] => [String(i), v]), path, '.');
+        visit(value.map((v, i): [string, unknown] => [String(i), v]), path, fieldPath, '.');
       } else if (isRecord(value)) {
-        visit(Object.entries(value), path, '.');
+        visit(Object.entries(value), path, fieldPath, '.');
       }
     }
   };
-  visit(Object.entries(doc), docId, '::');
+  visit(Object.entries(doc), docId, '', '::');
   return out;
 }
