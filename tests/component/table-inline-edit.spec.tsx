@@ -70,6 +70,11 @@ function stateWithDocs(
  * "real/stateful actions object, not a noop spy").
  *
  * #72 — both harnesses below had their own byte-identical copy of this.
+ * They differed in one respect: the rerenderable harness hardcoded
+ * `openDuplicate: vi.fn()` rather than honouring `opts`. Unifying on
+ * `opts.openDuplicate ?? vi.fn()` changes nothing today — that harness's
+ * `opts` has no `openDuplicate` to pass — and is the behaviour you would
+ * want the day it gains one.
  */
 function inlineEditActions(opts: {
   onRefresh?: () => void;
