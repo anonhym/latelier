@@ -407,6 +407,11 @@ export function ConnectionSwitcher({
       // at close is ours too — after ↵ selects a row it is still on the search
       // field, and the dropdown takes it down to <body> when its exit
       // transition unmounts it (`conn-switcher-keyboard.e2e.ts`).
+      //
+      // A surface opened by the same gesture (the Edit and Expand modals) is
+      // left alone only because Mantine's `FocusTrap` claims focus on a 0ms
+      // timer, ahead of this 10ms one. A surface that took focus later than
+      // 10ms would lose it back to the trigger.
       const current = document.activeElement;
       if (current === document.body || current === activeElementAtClose) {
         triggerRef.current?.focus();
