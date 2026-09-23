@@ -5,8 +5,15 @@ export interface RovingHighlight {
   index: number;
   /** Jump straight to a row (click, hover, Home/End). */
   setIndex: (index: number) => void;
-  /** Move by `delta` from the current (already-clamped) `index`, wrapping at both ends. Returns the new index. */
+  /** Move by `delta` from the latest (clamped) highlight, wrapping at both ends. Returns the new index. */
   move: (delta: number) => number;
+}
+
+type Stored = { raw: number; key: unknown };
+
+function clampedIndex(stored: Stored, count: number, resetKey: unknown): number {
+  const raw = stored.key === resetKey ? stored.raw : 0;
+  return count === 0 ? 0 : Math.min(raw, count - 1);
 }
 
 /**
@@ -17,8 +24,8 @@ export interface RovingHighlight {
  * a manual `window`/anchor `addEventListener`) to unify that too; this hook
  * only owns "what index is highlighted right now."
  *
- * `move` computes from the current *clamped* `index`, not the raw stored
- * one — this is `ConnectionSwitcher`'s original approach (the one named
+ * `move` computes from the latest highlight a setter wrote (#126), clamped
+ * with the same rules as `index`, not from the raw stored one — this is `ConnectionSwitcher`'s original approach (the one named
  * "the better base" when this hook was extracted), which stays correct
  * even when `count` shrinks out from under a standing highlight for a
  * reason the component never sees
@@ -33,13 +40,6 @@ export interface RovingHighlight {
  * component that resets the highlight itself (an explicit `setIndex(0)`
  * alongside its own query handler).
  */
-type Stored = { raw: number; key: unknown };
-
-function clampedIndex(stored: Stored, count: number, resetKey: unknown): number {
-  const raw = stored.key === resetKey ? stored.raw : 0;
-  return count === 0 ? 0 : Math.min(raw, count - 1);
-}
-
 export function useRovingHighlight(count: number, resetKey?: unknown): RovingHighlight {
   const [state, setState] = React.useState<Stored>({ raw: 0, key: resetKey });
   const index = clampedIndex(state, count, resetKey);
