@@ -20,6 +20,7 @@ import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
+import { docKeyPrefix } from './fieldPathKey';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -388,14 +389,14 @@ const DocRow = React.memo(DocRowImpl, (prev, next) => {
   // short-circuiting.
   if ((prev.activeIndex === prev.index) !== (next.activeIndex === next.index)) return false;
   if (prev.copiedPath !== next.copiedPath) {
-    const prefix = `${docId}::`;
+    const prefix = docKeyPrefix(docId);
     const prevHere = prev.copiedPath?.startsWith(prefix) ?? false;
     const nextHere = next.copiedPath?.startsWith(prefix) ?? false;
     if (prevHere || nextHere) return false;
   }
   const isExpanded = !!ownGet(next.expandedRows, docId);
   if (isExpanded && prev.deepPaths !== next.deepPaths) {
-    const prefix = `${docId}::`;
+    const prefix = docKeyPrefix(docId);
     for (const p of prev.deepPaths) {
       if (p.startsWith(prefix) && !next.deepPaths.has(p)) return false;
     }

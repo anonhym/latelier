@@ -7,6 +7,7 @@ import { ReferenceChip } from '../../../features/references/ReferenceChip';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { flattenVisibleFieldRows, type FlatFieldRow } from './docFieldFlatten';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
+import { childKey, pathCoversSubtree, rootKey } from './fieldPathKey';
 
 // Shared FIELD | VALUE | TYPE column layout — the Tree view's expanded-row
 // header (TreeView's sticky overlay) and the Table view's row-expand panel
@@ -14,9 +15,11 @@ import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey'
 // underneath line up.
 export const DOC_FIELD_TREE_GRID_TEMPLATE = '140px 1fr 72px';
 
-// `path` already embeds `docId` (`${docId}::${field}`, then `.`-joined for
-// each nested level), so it's globally unique on its own — no need to mix
-// in anything else to make the DOM id collision-safe across documents.
+// `path` (`rootKey`/`childKey` in `fieldPathKey.ts`) embeds `docId` and
+// escapes `.`/`:`/`\` in every segment before joining, so two different
+// field paths can never collapse to the same string (#86) — it's globally
+// unique on its own, no need to mix in anything else to make the DOM id
+// collision-safe across documents.
 function fieldRowDomId(path: string): string {
   return `field-row-${path}`;
 }
@@ -365,11 +368,11 @@ function FieldNodeImpl({
       {isExpanded &&
         childEntries.map(([k, v]) => (
           <FieldNode
-            key={`${path}.${k}`}
+            key={childKey(path, k)}
             name={k}
             value={v}
             depth={depth + 1}
-            path={`${path}.${k}`}
+            path={childKey(path, k)}
             fieldPath={`${fieldPath}.${k}`}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
@@ -387,16 +390,6 @@ function FieldNodeImpl({
         ))}
     </>
   );
-}
-
-/**
- * #60 / #85 — is `target` (an `activePath` or `copiedPath`) this node's own
- * row, or any row below it? Paths are built by dot-joining each level
- * (`FieldNodeImpl`'s recursion below), so a descendant's path is always this
- * one plus a `.` and more.
- */
-function pathCoversSubtree(target: string | null, path: string): boolean {
-  return target !== null && (target === path || target.startsWith(`${path}.`));
 }
 
 export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
@@ -432,13 +425,13 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   // `copiedPath`, written to the same own-path-only idiom — same fix, reused.
   if (
     prev.activePath !== next.activePath &&
-    (pathCoversSubtree(prev.activePath, next.path) || pathCoversSubtree(next.activePath, next.path))
+    (pathCoversSubtree(next.path, prev.activePath) || pathCoversSubtree(next.path, next.activePath))
   ) {
     return false;
   }
   if (
     prev.copiedPath !== next.copiedPath &&
-    (pathCoversSubtree(prev.copiedPath, next.path) || pathCoversSubtree(next.copiedPath, next.path))
+    (pathCoversSubtree(next.path, prev.copiedPath) || pathCoversSubtree(next.path, next.copiedPath))
   ) {
     return false;
   }
@@ -656,7 +649,7 @@ export function DocFieldTree({
           name={field}
           value={val}
           depth={0}
-          path={`${docId}::${field}`}
+          path={rootKey(docId, field)}
           fieldPath={field}
           expandedPaths={expandedPaths}
           onToggle={onToggle}

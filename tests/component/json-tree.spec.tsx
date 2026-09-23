@@ -114,4 +114,35 @@ describe('JsonTree', () => {
     expect(mockedToDisplayValue.mock.calls.some((call) => call[0] === 'MARKER')).toBe(false);
     expect(mockedToDisplayValue.mock.calls.some((call) => call[0] === 3)).toBe(false);
   });
+
+  // #86 — a top-level key literally named "a.b" used to compute the same
+  // `path` as nested field `b` under top-level "a" (plain `.`-joining), so
+  // expanding one toggled the other's expansion state too.
+  it('a dotted top-level key does not share expansion state with a same-shaped nested path (#86)', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<JsonTree value={{ 'a.b': { x: 1 }, a: { b: { y: 2 } } }} />);
+
+    const rootExpandButtons = screen.getAllByRole('button', { name: 'Expand' });
+    expect(rootExpandButtons).toHaveLength(2); // "a.b" and "a"
+
+    // Expand the dotted top-level row — reveals its own child "x" only.
+    fireEvent.click(rootExpandButtons[0]);
+    expect(screen.getByText('x:')).toBeTruthy();
+    expect(screen.queryByText('b:')).toBeNull();
+
+    // Expand "a" — reveals its own child "b" (itself still collapsed).
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(screen.getByText('b:')).toBeTruthy();
+    expect(screen.queryByText('y:')).toBeNull();
+
+    // Expand nested "b" — only now does "y" appear.
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(screen.getByText('y:')).toBeTruthy();
+
+    const duplicateKeyWarning = errorSpy.mock.calls.some(
+      (call) => typeof call[0] === 'string' && call[0].includes('same key'),
+    );
+    expect(duplicateKeyWarning).toBe(false);
+    errorSpy.mockRestore();
+  });
 });

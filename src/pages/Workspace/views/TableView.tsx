@@ -30,6 +30,7 @@ import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getFullDocId, isInlineEditable } from './docId';
+import { docKeyPrefix } from './fieldPathKey';
 import {
   deriveColumns,
   resolveColumns,
@@ -770,13 +771,13 @@ const TableRow = React.memo(TableRowImpl, (prev, next) => {
   const isExpanded = !!ownGet(next.expandedRows, docId);
   if (isExpanded) {
     if (prev.fieldCopiedPath !== next.fieldCopiedPath) {
-      const prefix = `${docId}::`;
+      const prefix = docKeyPrefix(docId);
       const prevHere = prev.fieldCopiedPath?.startsWith(prefix) ?? false;
       const nextHere = next.fieldCopiedPath?.startsWith(prefix) ?? false;
       if (prevHere || nextHere) return false;
     }
     if (prev.deepPaths !== next.deepPaths) {
-      const prefix = `${docId}::`;
+      const prefix = docKeyPrefix(docId);
       for (const p of prev.deepPaths) {
         if (p.startsWith(prefix) && !next.deepPaths.has(p)) return false;
       }

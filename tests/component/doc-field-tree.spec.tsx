@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent, expectActiveRowOutlineLifecycle } from '../helpers/render';
+import { render, fireEvent, within, expectActiveRowOutlineLifecycle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
+import { flattenVisibleFieldRows } from '../../src/pages/Workspace/views/docFieldFlatten';
 
 function renderFieldTree(
   doc: Record<string, unknown>,
@@ -188,10 +189,12 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
       { expandedPaths: new Set(['doc1::a']) },
     );
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
-    // Attribute selector, not `#id`: these ids carry `::` and `.`, which a
-    // CSS id selector reads as a pseudo-element and a class.
+    // `document.getElementById`, not a CSS selector: these ids carry `::`
+    // and `.` (a `#id`/`[id="…"]` selector reads those as a pseudo-element,
+    // a class, or — once #86 started escaping segments — a CSS escape
+    // sequence), and RTL's `render` mounts into `document.body`.
     const rowFor = (path: string) =>
-      container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+      document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
 
     expect(rowFor('a.b')).not.toBeNull();
     expect(rowFor('a.c')).not.toBeNull();
@@ -226,8 +229,9 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
 // flag unchanged, the comparator skips the render, and the children keep the
 // stale mark. `{ a: { b, c } }` with `a` expanded is the smallest repro.
 describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
-  const rowFor = (container: HTMLElement, path: string) =>
-    container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+  // `document.getElementById`, not a CSS selector — see the #60 outline
+  // test's `rowFor` above for why.
+  const rowFor = (path: string) => document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
   const isMarked = (row: HTMLElement) => row.textContent?.includes('Copied') ?? false;
 
   it.each([
@@ -250,13 +254,13 @@ describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
       onOpenMenu: vi.fn(),
     };
 
-    const { container, rerender } = render(<DocFieldTree {...props} copiedPath={from} />);
-    expect(isMarked(rowFor(container, 'a.b'))).toBe(from === 'doc1::a.b');
+    const { rerender } = render(<DocFieldTree {...props} copiedPath={from} />);
+    expect(isMarked(rowFor('a.b'))).toBe(from === 'doc1::a.b');
 
     rerender(<DocFieldTree {...props} copiedPath={to} />);
 
-    expect(isMarked(rowFor(container, 'a.b'))).toBe(false);
-    expect(isMarked(rowFor(container, 'a.c'))).toBe(to === 'doc1::a.c');
+    expect(isMarked(rowFor('a.b'))).toBe(false);
+    expect(isMarked(rowFor('a.c'))).toBe(to === 'doc1::a.c');
   });
 });
 
@@ -265,8 +269,10 @@ describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
 // component now owns, and the mouse-path payload shape #69 needs both to
 // share.
 describe('DocFieldTree — field menu open payload (#68/#69)', () => {
-  function stubActiveRowRect(container: HTMLElement, path: string, rect: Partial<DOMRect>) {
-    const el = container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+  // `document.getElementById`, not a CSS selector — see the #60 outline
+  // test's `rowFor` above for why.
+  function stubActiveRowRect(path: string, rect: Partial<DOMRect>) {
+    const el = document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
     vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       bottom: 0,
@@ -286,7 +292,7 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
     const onOpenMenu = vi.fn();
     const { container } = renderFieldTree({ a: 1, b: 2 }, { onOpenMenu });
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
-    stubActiveRowRect(container, 'a', { left: 42, bottom: 84 });
+    stubActiveRowRect('a', { left: 42, bottom: 84 });
 
     fireEvent.keyDown(tree, { key: 'F10', shiftKey: true });
 
@@ -304,7 +310,7 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
     const { container } = renderFieldTree({ a: 1, b: 'two' }, { onOpenMenu });
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
     fireEvent.keyDown(tree, { key: 'ArrowDown' }); // active row is now "b"
-    stubActiveRowRect(container, 'b', { left: 5, bottom: 10 });
+    stubActiveRowRect('b', { left: 5, bottom: 10 });
 
     fireEvent.keyDown(tree, { key: 'ContextMenu' });
 
@@ -335,7 +341,7 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
     );
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
     fireEvent.keyDown(tree, { key: 'ArrowDown' }); // active row is now "nested.x"
-    stubActiveRowRect(container, 'nested.x', { left: 1, bottom: 2 });
+    stubActiveRowRect('nested.x', { left: 1, bottom: 2 });
 
     fireEvent.keyDown(tree, { key: 'ContextMenu' });
 
@@ -353,7 +359,7 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
     const onOpenMenu = vi.fn();
     const { container } = renderFieldTree({ a: 1 }, { onOpenMenu });
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
-    const row = container.querySelector('[id="field-row-doc1::a"]')! as HTMLElement;
+    const row = document.getElementById('field-row-doc1::a') as HTMLElement;
 
     fireEvent.contextMenu(row, { clientX: 7, clientY: 9 });
 
@@ -363,5 +369,95 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
       value: 1,
       returnFocusTo: tree,
     });
+  });
+});
+
+// #86 — a field named "a.b" used to compute the same identity `path` as a
+// nested field `b` under top-level "a" (`${docId}::a.b` either way), so the
+// two rows shared a DOM id, shared expansion state, and could both be
+// outlined active at once. `fieldPathKey.ts` escapes `.`/`:`/`\` in every
+// segment before joining, so they no longer collide.
+describe('DocFieldTree — dotted field name does not collide with a nested path (#86)', () => {
+  const collisionDoc = { 'a.b': { x: 1 }, a: { b: { y: 2 } } };
+
+  it('all three rows (including both colliding shapes) get distinct DOM ids', () => {
+    const { container } = renderFieldTree(collisionDoc, { expandedPaths: new Set(['doc1::a']) });
+    const rows = Array.from(container.querySelectorAll('[role="treeitem"]'));
+
+    expect(rows).toHaveLength(3);
+    const ids = rows.map((r) => r.id);
+    expect(new Set(ids).size).toBe(3);
+    // The exact #86 repro: the dotted top-level row and the nested "b" row
+    // used to both be "field-row-doc1::a.b".
+    expect(ids).toContain('field-row-doc1::a\\.b');
+    expect(ids).toContain('field-row-doc1::a.b');
+  });
+
+  it('exactly one row is outlined as active, and it is the one aria-activedescendant names', () => {
+    const { container } = renderFieldTree(collisionDoc, { expandedPaths: new Set(['doc1::a']) });
+    const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+    const rows = () => Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+
+    // Row 0 = "a.b" (root, collapsed), row 1 = "a" (root, expanded),
+    // row 2 = "a" -> "b" (nested) — the colliding shape. Stays focused
+    // throughout (unlike `expectActiveRowOutlineLifecycle`, which blurs at
+    // the end) so a third ArrowDown can land on the colliding row.
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows()[2].id);
+    const outlined = rows().filter((r) => r.style.outline.includes('2px'));
+    expect(outlined).toHaveLength(1);
+    expect(outlined[0]).toBe(rows()[2]);
+  });
+
+  it('expanding the dotted top-level row does not touch the nested "b" row\'s own expansion', () => {
+    const onToggle = vi.fn();
+    render(
+      <DocFieldTree
+        doc={collisionDoc}
+        docId="doc1"
+        expandedPaths={new Set(['doc1::a'])}
+        onToggle={onToggle}
+        copiedPath={null}
+        onCopy={vi.fn()}
+        onOpenMenu={vi.fn()}
+      />,
+    );
+    const nestedBRow = () => document.getElementById('field-row-doc1::a.b')!;
+    expect(nestedBRow().getAttribute('aria-expanded')).toBe('false');
+
+    const dottedRow = document.getElementById('field-row-doc1::a\\.b')!;
+    fireEvent.click(within(dottedRow).getByRole('button', { name: 'Expand' }));
+    expect(onToggle).toHaveBeenCalledWith('doc1::a\\.b');
+    // The nested "b" row's own expansion state is a different key entirely —
+    // toggling the dotted row's key must not have moved it.
+    expect(nestedBRow().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('a field name containing the escape character itself renders its own unambiguous row', () => {
+    const { container } = renderFieldTree({ '\\': 1, a: 2 });
+    const rows = container.querySelectorAll('[role="treeitem"]');
+
+    expect(rows).toHaveLength(2);
+    expect(new Set(Array.from(rows).map((r) => r.id)).size).toBe(2);
+  });
+});
+
+// #86 — the "one-place" cross-check: `flattenVisibleFieldRows`'s own output
+// (`tests/unit/flattenVisibleFieldRows.spec.ts`) must be exactly the set of
+// paths `DocFieldTree` actually renders, so the roving-focus flat order and
+// the real DOM never drift apart on a colliding document.
+describe('DocFieldTree — flattenVisibleFieldRows matches the rendered rows (#86)', () => {
+  it('rendered row ids equal flattenVisibleFieldRows(doc, docId, expanded).map(r => r.path)', () => {
+    const doc = { 'a.b': { x: 1 }, a: { b: { y: 2 } } };
+    const expandedPaths = new Set(['doc1::a']);
+    const { container } = renderFieldTree(doc, { expandedPaths });
+
+    const renderedIds = Array.from(container.querySelectorAll('[role="treeitem"]')).map(
+      (r) => r.id.replace(/^field-row-/, ''),
+    );
+    const flatPaths = flattenVisibleFieldRows(doc, 'doc1', expandedPaths).map((r) => r.path);
+    expect(renderedIds).toEqual(flatPaths);
   });
 });
