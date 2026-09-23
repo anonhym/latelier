@@ -5,6 +5,7 @@ import { Button, Modal, Tabs } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { api, isIpcError } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import { notify } from '../../theme/notifications';
 import type {
   ConnectionInput,
@@ -1269,9 +1270,14 @@ function ConnectionFormImpl({
             <Button variant="subtle" size="compact-xs" onClick={() => void handleTest()} leftSection={I.server}>
               {testState === 'testing' ? 'Testing…' : 'Test connection'}
             </Button>
-            <Button variant="filled" size="compact-xs" onClick={() => void handleSave()} disabled={saving}>
+            <SubmitButton
+              variant="filled"
+              size="compact-xs"
+              onClick={() => void handleSave()}
+              submitting={saving}
+            >
               {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save'}
-            </Button>
+            </SubmitButton>
           </div>
         </div>
       </div>

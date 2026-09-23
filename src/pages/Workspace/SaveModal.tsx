@@ -4,6 +4,7 @@ import { themeVars } from '../../theme/themeVars';
 import { api, getErrorMessage } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../components/SubmitButton';
 import type { BuilderState } from '@shared/types';
 
 interface SaveModalProps {
@@ -49,7 +50,8 @@ export function SaveModal({
     if (discard) close();
   };
 
-  const canSubmit = name.trim().length > 0 && !saving;
+  const fieldsValid = name.trim().length > 0;
+  const canSubmit = fieldsValid && !saving;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -200,7 +202,8 @@ export function SaveModal({
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={!fieldsValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,

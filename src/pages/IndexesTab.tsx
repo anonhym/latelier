@@ -17,6 +17,7 @@ import {
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
 import { DisclosureToggle } from '../components/DisclosureToggle';
+import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import { ownGet } from '../utils/ownProperty';
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
@@ -698,6 +699,7 @@ function CreateIndexDrawer({
   };
 
   const submit = async () => {
+    if (submitting) return;
     setError(null);
     if (ttlEnabled) {
       if (fields.length !== 1) {
@@ -916,9 +918,9 @@ function CreateIndexDrawer({
         >
           Cancel
         </Button>
-        <Button variant="filled" size="compact-xs" onClick={() => void submit()} disabled={submitting}>
+        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
           {submitting ? 'Creating…' : 'Create index'}
-        </Button>
+        </SubmitButton>
       </div>
     </Drawer>
   );
@@ -1027,7 +1029,7 @@ function DropConfirmDialog({
   const matches = typed === indexName;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -1075,9 +1077,9 @@ function DropConfirmDialog({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || submitting}>
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

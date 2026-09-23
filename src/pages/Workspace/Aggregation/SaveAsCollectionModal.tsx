@@ -4,6 +4,7 @@ import { themeVars } from '../../../theme/themeVars';
 import { api, isIpcError } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../../components/SubmitButton';
 import type { AggMergeOptions, AggSaveMode, Stage } from '@shared/types';
 
 interface Props {
@@ -69,11 +70,11 @@ export function SaveAsCollectionModal({
   // error area), and a *changed* one submitted against a confirmation the user
   // typed for a different destination. Editing it clears `confirmText` below,
   // which re-arms the type-to-confirm rather than trusting a stale one.
-  const canSubmit =
+  const fieldsValid =
     targetDb.trim().length > 0 &&
     targetColl.trim().length > 0 &&
-    confirmText.trim() === targetColl.trim() &&
-    !saving;
+    confirmText.trim() === targetColl.trim();
+  const canSubmit = fieldsValid && !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -280,7 +281,8 @@ export function SaveAsCollectionModal({
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={!fieldsValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,

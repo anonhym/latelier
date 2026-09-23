@@ -17,6 +17,7 @@ import {
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
 import { DisclosureToggle } from '../components/DisclosureToggle';
+import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import type { DbInfo } from '@shared/ipc';
 import type {
@@ -666,6 +667,7 @@ function UserDrawer({
   };
 
   const submit = async () => {
+    if (submitting) return;
     setError(null);
     if (!editing && username.trim().length === 0) {
       setError('Username is required.');
@@ -915,9 +917,9 @@ function UserDrawer({
         >
           Cancel
         </Button>
-        <Button variant="filled" size="compact-xs" onClick={() => void submit()} disabled={submitting}>
+        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
           {submitting ? 'Saving…' : editing ? 'Save user' : 'Create user'}
-        </Button>
+        </SubmitButton>
       </div>
     </Drawer>
   );
@@ -1022,7 +1024,7 @@ function DropUserDialog({
   const matches = typed === user.username;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -1070,9 +1072,9 @@ function DropUserDialog({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || submitting}>
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

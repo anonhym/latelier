@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Drawer, Group, Paper, Stack, Text } from '@mantine/core';
 import { api } from '../api/atelier';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../components/SubmitButton';
 import { InlineMarkdown } from './markdown';
 import { ACTION_LABEL, pickRecipe } from './recipes';
 import { docUrlFor } from './repoUrl';
@@ -33,7 +34,7 @@ export function TroubleshootingDrawer({
   const runAction = React.useCallback(
     async (id: SuggestedActionId) => {
       const handler = actions?.[id];
-      if (!handler) return;
+      if (!handler || pendingAction !== null) return;
       setPendingAction(id);
       let succeeded: boolean;
       try {
@@ -47,7 +48,7 @@ export function TroubleshootingDrawer({
       }
       if (succeeded) close();
     },
-    [actions, close],
+    [actions, close, pendingAction],
   );
 
   const docHref = docUrlFor(recipe.docAnchor);
@@ -110,16 +111,20 @@ export function TroubleshootingDrawer({
                 </Text>
                 {step.suggestedAction && actions?.[step.suggestedAction] && (
                   <Group justify="flex-end" mt="sm">
-                    <Button
+                    <SubmitButton
                       size="compact-xs"
                       variant="filled"
                       onClick={() => void runAction(step.suggestedAction!)}
-                      disabled={pendingAction !== null}
+                      // Only the activated step's button fakes disabled —
+                      // its siblings get the real attribute, since they were
+                      // never focused and so can't be blurred to `<body>`.
+                      disabled={pendingAction !== null && pendingAction !== step.suggestedAction}
+                      submitting={pendingAction === step.suggestedAction}
                     >
                       {pendingAction === step.suggestedAction
                         ? 'Retrying…'
                         : ACTION_LABEL[step.suggestedAction]}
-                    </Button>
+                    </SubmitButton>
                   </Group>
                 )}
               </Paper>

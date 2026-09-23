@@ -3,6 +3,7 @@ import { Drawer } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../components/SubmitButton';
 import { api } from '../../api/atelier';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable, isValidEjson } from '../../utils/ejson';
 import { isRecord } from '../../utils/displayValue';
@@ -164,6 +165,7 @@ export function EditDrawer({
   };
 
   const handleSave = async () => {
+    if (saving) return;
     // Repair in front of the shape rules, never inside them — the same
     // ordering X14 uses on the read surfaces. `submitted` is what the rest of
     // this function reads, because `setBuffer` has not rendered yet.
@@ -435,7 +437,8 @@ export function EditDrawer({
           </button>
           <button
             onClick={() => void handleSave()}
-            disabled={!isValid || saving}
+            disabled={!isValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,
