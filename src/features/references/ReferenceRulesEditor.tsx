@@ -5,6 +5,7 @@ import { Button, Modal } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
 import type {
@@ -151,7 +152,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleSave = async () => {
-    if (!form) return;
+    if (!form || saving) return;
     if (!form.sourceField || !form.targetCollection) {
       setError('Source field and target collection are required');
       return;
@@ -195,6 +196,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleDelete = async (id: string) => {
+    if (deletingId) return;
     setDeletingId(id);
     try {
       await api.refs.delete({ id });
@@ -208,6 +210,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleDetect = async () => {
+    if (detecting) return;
     setDetecting(true);
     setError(null);
     try {
@@ -290,9 +293,9 @@ export function ReferenceRulesEditor({
             >
               New rule
             </Button>
-            <Button size="compact-xs" variant="subtle" onClick={handleDetect} disabled={detecting}>
+            <SubmitButton size="compact-xs" variant="subtle" onClick={handleDetect} submitting={detecting}>
               {detecting ? 'Detecting…' : 'Detect from sample'}
-            </Button>
+            </SubmitButton>
           </div>
 
           {candidates && candidates.length > 0 && (
@@ -395,9 +398,16 @@ export function ReferenceRulesEditor({
                     <>
                       <span style={{ fontSize: 11, color: T.red }}>Delete?</span>
                       <button
+                        // #91 — stays enabled while deleting: a real
+                        // `disabled` here would blur this focused button to
+                        // `<body>` and, on a failure, never restore it.
+                        // `handleDelete`'s own `deletingId` guard (below)
+                        // is what stops a second click, same as every other
+                        // handler in this file — no separate guard here.
                         onClick={() => void handleDelete(r.id)}
                         aria-label="Confirm delete"
-                        disabled={deletingId === r.id}
+                        data-disabled={deletingId === r.id || undefined}
+                        aria-disabled={deletingId === r.id || undefined}
                         style={{
                           padding: '3px 8px',
                           fontSize: 11,
@@ -647,9 +657,9 @@ function RuleForm({
         <Button size="compact-xs" variant="subtle" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button size="compact-xs" variant="filled" onClick={onSave} disabled={saving}>
+        <SubmitButton size="compact-xs" variant="filled" onClick={onSave} submitting={saving}>
           {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
-        </Button>
+        </SubmitButton>
       </div>
     </div>
   );

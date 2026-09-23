@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 
 interface DropDatabaseConfirmProps {
   connectionId: string;
@@ -39,7 +40,7 @@ export function DropDatabaseConfirm({
   const matches = typed === dbName;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -94,15 +95,16 @@ export function DropDatabaseConfirm({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             color="red"
             size="compact-xs"
             onClick={() => void submit()}
-            disabled={!matches || submitting || readOnly}
+            disabled={!matches || readOnly}
+            submitting={submitting}
           >
             {submitting ? 'Dropping…' : 'Drop database'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 
 interface RenameCollectionModalProps {
   connectionId: string;
@@ -38,7 +39,7 @@ export function RenameCollectionModal({
   const finish = useDialogFocusReturn(() => onRenamed(trimmed), returnFocusTo);
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -84,14 +85,15 @@ export function RenameCollectionModal({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             size="compact-xs"
             onClick={() => void submit()}
-            disabled={!canSubmit || submitting}
+            disabled={!canSubmit}
+            submitting={submitting}
           >
             {submitting ? 'Renaming…' : 'Rename'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

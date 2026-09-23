@@ -69,11 +69,11 @@ export function SaveAsCollectionModal({
   // error area), and a *changed* one submitted against a confirmation the user
   // typed for a different destination. Editing it clears `confirmText` below,
   // which re-arms the type-to-confirm rather than trusting a stale one.
-  const canSubmit =
+  const fieldsValid =
     targetDb.trim().length > 0 &&
     targetColl.trim().length > 0 &&
-    confirmText.trim() === targetColl.trim() &&
-    !saving;
+    confirmText.trim() === targetColl.trim();
+  const canSubmit = fieldsValid && !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -280,7 +280,14 @@ export function SaveAsCollectionModal({
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            // #91 — only `fieldsValid` is a real `disabled`. `saving` fakes
+            // it instead: a focused submit button that goes `disabled`
+            // mid-click gets blurred to `<body>` by Chromium with no
+            // restore on failure. `submit`'s `!canSubmit` guard (which still
+            // folds in `saving`) blocks re-entry.
+            disabled={!fieldsValid}
+            data-disabled={saving || undefined}
+            aria-disabled={saving || undefined}
             style={{
               padding: '6px 14px',
               fontSize: 12,

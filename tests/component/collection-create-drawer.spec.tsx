@@ -45,6 +45,27 @@ describe('CreateCollectionDrawer — fixed dbName (navigator mode)', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ dbName: 'shop', name: 'orders' }));
   });
 
+  // #91 — `submit` had no `submitting` guard at all before; the button
+  // stayed real-enabled while submitting (SubmitButton) is what makes this
+  // guard load-bearing rather than cosmetic.
+  it('ignores a second click while a create is in flight, making one api.collection.create call', async () => {
+    let resolveCreate!: (v: { name: string }) => void;
+    const create = vi.fn(() => new Promise<{ name: string }>((r) => (resolveCreate = r)));
+    installAtelierMock({ collection: { create } });
+
+    render(
+      <CreateCollectionDrawer connectionId="c1" dbName="shop" onCancel={() => {}} onCreated={() => {}} />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Collection name'), 'orders');
+    const submit = screen.getByText('Create collection').closest('button')!;
+    await userEvent.click(submit);
+    await userEvent.click(submit);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    resolveCreate({ name: 'orders' });
+  });
+
   it('toggling capped reveals a size field and includes it in the payload', async () => {
     const calls: unknown[] = [];
     installAtelierMock({

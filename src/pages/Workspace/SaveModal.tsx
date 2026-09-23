@@ -49,7 +49,8 @@ export function SaveModal({
     if (discard) close();
   };
 
-  const canSubmit = name.trim().length > 0 && !saving;
+  const fieldsValid = name.trim().length > 0;
+  const canSubmit = fieldsValid && !saving;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -200,7 +201,14 @@ export function SaveModal({
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            // #91 — only `fieldsValid` is a real `disabled`. `saving` fakes
+            // it instead: a focused submit button that goes `disabled`
+            // mid-click gets blurred to `<body>` by Chromium with no
+            // restore on failure. `handleSubmit`'s `!canSubmit` guard (which
+            // still folds in `saving`) blocks re-entry.
+            disabled={!fieldsValid}
+            data-disabled={saving || undefined}
+            aria-disabled={saving || undefined}
             style={{
               padding: '6px 14px',
               fontSize: 12,

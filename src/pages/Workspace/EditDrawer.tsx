@@ -164,6 +164,7 @@ export function EditDrawer({
   };
 
   const handleSave = async () => {
+    if (saving) return;
     // Repair in front of the shape rules, never inside them — the same
     // ordering X14 uses on the read surfaces. `submitted` is what the rest of
     // this function reads, because `setBuffer` has not rendered yet.
@@ -435,7 +436,14 @@ export function EditDrawer({
           </button>
           <button
             onClick={() => void handleSave()}
-            disabled={!isValid || saving}
+            // #91 — only `!isValid` is a real `disabled`: a focused button
+            // that goes `disabled` mid-click gets blurred to `<body>` by
+            // Chromium and nothing restores it on a failure. `saving` fakes
+            // the same look with `data-disabled`/`aria-disabled` instead, and
+            // `handleSave`'s own guard above blocks re-entry.
+            disabled={!isValid}
+            data-disabled={saving || undefined}
+            aria-disabled={saving || undefined}
             style={{
               padding: '6px 14px',
               fontSize: 12,

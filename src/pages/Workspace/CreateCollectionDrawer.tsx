@@ -14,6 +14,7 @@ import {
 import { api, getErrorMessage } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import type {
   CollectionCreateOptions,
   ValidationAction,
@@ -144,7 +145,7 @@ export function CreateCollectionDrawer({
   );
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
     setError(null);
 
     const options: CollectionCreateOptions = {};
@@ -392,14 +393,15 @@ export function CreateCollectionDrawer({
           >
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             size="compact-xs"
             onClick={() => void submit()}
-            disabled={!canSubmit || submitting}
+            disabled={!canSubmit}
+            submitting={submitting}
           >
             {submitting ? 'Creating…' : 'Create collection'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Drawer>

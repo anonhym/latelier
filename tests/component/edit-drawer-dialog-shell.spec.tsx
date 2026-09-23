@@ -198,3 +198,43 @@ describe('EditDrawer — unsaved-changes guard (X15 T1)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe('EditDrawer — double-submit guard (#91)', () => {
+  /**
+   * #91 — the Save/Apply button is a native `<button>`, not a Mantine one,
+   * and no longer goes real-`disabled` while `saving` (only
+   * `data-disabled`/`aria-disabled` — a focused button that goes real
+   * `disabled` gets blurred to `<body>` by Chromium, with nothing to
+   * restore it on a failure). Its own attribute can no longer be what stops
+   * a second click from firing a second write — `handleSave`'s own
+   * `saving` guard has to do that job now.
+   */
+  it('a second click while a save is in flight makes only one api.doc.replace call', async () => {
+    let resolveReplace!: (v: { matchedCount: number; modifiedCount: number }) => void;
+    const replace = vi.fn(
+      () =>
+        new Promise<{ matchedCount: number; modifiedCount: number }>(
+          (r) => (resolveReplace = r),
+        ),
+    );
+    installAtelierMock({ doc: { replace } });
+
+    render(
+      <EditDrawer
+        connectionId="c1"
+        dbName="db"
+        collection="coll"
+        doc={DOC}
+        onClose={() => undefined}
+        onSaved={() => undefined}
+      />,
+    );
+
+    const save = within(drawer()).getByRole('button', { name: 'Save' });
+    fireEvent.click(save);
+    fireEvent.click(save);
+
+    expect(replace).toHaveBeenCalledTimes(1);
+    resolveReplace({ matchedCount: 1, modifiedCount: 1 });
+  });
+});

@@ -51,6 +51,34 @@ describe('RenameCollectionModal', () => {
     await waitFor(() => expect(onRenamed).toHaveBeenCalledWith('purchase_orders'));
   });
 
+  // #91 — the button stays real-enabled while submitting (SubmitButton), so
+  // the handler's own `submitting` guard is what stops a second activation
+  // from firing a second request.
+  it('ignores a second click while a rename is in flight, making one api.collection.rename call', async () => {
+    let resolveRename!: (v: { name: string }) => void;
+    const rename = vi.fn(() => new Promise<{ name: string }>((r) => (resolveRename = r)));
+    installAtelierMock({ collection: { rename } });
+
+    render(
+      <RenameCollectionModal
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        onCancel={() => {}}
+        onRenamed={() => {}}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('New name'), 'purchase_orders');
+    const submit = screen.getByText('Rename').closest('button')!;
+    await userEvent.click(submit);
+    await userEvent.click(submit);
+
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(submit.getAttribute('aria-disabled')).toBe('true');
+    resolveRename({ name: 'purchase_orders' });
+  });
+
   it('shows an inline error on CONFLICT', async () => {
     installAtelierMock({
       collection: {
