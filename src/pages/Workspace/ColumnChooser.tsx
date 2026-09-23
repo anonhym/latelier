@@ -142,6 +142,15 @@ export function ColumnChooser() {
       position="bottom-end"
       shadow="md"
       withinPortal
+      // #79 — a click that closes the popover on a non-focusable area
+      // otherwise drops focus to <body>. Mantine's own `useFocusReturn` only
+      // restores when the element focused at close is still `null`/`<body>`/
+      // itself, so a click on another control still keeps focus there. Safe
+      // here only because nothing in this dropdown autofocuses on open —
+      // Mantine captures its return target in a passive effect *after* open,
+      // so an autofocused element would win that race (see
+      // `ConnectionSwitcher`, which can't use this for that reason).
+      returnFocus
       // The dropdown unmounts on close but `announcement` lives out here, so
       // without this the live region is reborn already holding the last
       // move's sentence. `aria-live` only announces mutations, never the

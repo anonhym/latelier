@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
@@ -336,6 +337,22 @@ describe('ColumnChooser', () => {
 
       expect(document.activeElement).toBe(ctx.getByRole('button', { name: keepsFocus }));
       expect(document.activeElement).not.toBe(document.body);
+    });
+  });
+
+  // #79 — closing the popover on a click that lands on a non-focusable area
+  // used to drop focus to <body>. `returnFocus` fixes it here because
+  // nothing in this dropdown autofocuses on open (see the prop's comment).
+  // Shared with preview-picker/table-view specs — see the helper's docstring.
+  describe('focus return on close (#79)', () => {
+    itReturnsFocusToPopoverTrigger(async () => {
+      const ctx = renderChooser(baseState());
+      const trigger = ctx.getByRole('button', { name: /columns/i });
+      await userEvent.click(trigger);
+      return {
+        trigger,
+        focusInside: () => userEvent.click(ctx.getByRole('button', { name: 'Move apple down' })),
+      };
     });
   });
 });

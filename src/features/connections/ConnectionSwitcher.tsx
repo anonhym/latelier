@@ -339,7 +339,6 @@ export function ConnectionSwitcher({
   const addMode = connections.length === 0;
   const optionId = (connectionId: string) => `${baseId}-opt-${connectionId}`;
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   const wasOpenRef = React.useRef(false);
   const keyboardMoveRef = React.useRef(false);
@@ -384,15 +383,16 @@ export function ConnectionSwitcher({
   // lands back on the control they opened instead of at <body> — the top of
   // the Data View's tab order, several tab stops from where they were.
   //
-  // Not Mantine's `returnFocus`, which restores unconditionally whenever the
-  // element focused at close is still focused: closing the popover by clicking
-  // a control elsewhere in the Data View would then drag focus off that
-  // control and back to the TitleBar. The `contains` check below is the
-  // difference — we only reclaim focus that was still ours.
+  // Not Mantine's `returnFocus`, which saves its return target in a passive
+  // effect after open: the search field's `autoFocus` can win that race, and
+  // in the component suite (no transitions) it does — Mantine saves the search
+  // field and Escape lands on <body>. `ColumnChooser` & co. can use the prop
+  // because nothing in their dropdowns autofocuses.
   //
-  // Runs as an effect rather than inline in the close handler because
-  // Popover's Escape path re-focuses its own saved element synchronously right
-  // after calling `onChange` — an inline focus would be taken straight back.
+  // Deferred rather than checked in the effect body: a click on a
+  // non-focusable area closes the popover on mousedown, and Chromium's own
+  // mousedown default action blurs to <body> only *after* that — a synchronous
+  // check sees focus still in the dropdown and misses it (#79).
   React.useEffect(() => {
     if (opened) {
       wasOpenRef.current = true;
@@ -400,13 +400,19 @@ export function ConnectionSwitcher({
     }
     if (!wasOpenRef.current) return;
     wasOpenRef.current = false;
-    // Only reclaim focus nobody else has taken. Closing by clicking a control
-    // elsewhere in the Data View must leave focus on that control, not yank it
-    // back to the TitleBar. During the closing transition the dropdown is
-    // briefly still mounted and still holds focus, which counts as ours.
-    const el = document.activeElement;
-    const ours = el === null || el === document.body || !!dropdownRef.current?.contains(el);
-    if (ours) triggerRef.current?.focus();
+    const activeElementAtClose = document.activeElement;
+    const timeout = window.setTimeout(() => {
+      // Only reclaim focus nobody else has taken: a click on another control
+      // elsewhere in the Data View keeps focus there. Focus still where it was
+      // at close is ours too — after ↵ selects a row it is still on the search
+      // field, and the dropdown takes it down to <body> when its exit
+      // transition unmounts it (`conn-switcher-keyboard.e2e.ts`).
+      const current = document.activeElement;
+      if (current === document.body || current === activeElementAtClose) {
+        triggerRef.current?.focus();
+      }
+    }, 10);
+    return () => window.clearTimeout(timeout);
   }, [opened]);
 
   // Clearing on *close* rather than only on select is what makes reopening
@@ -670,7 +676,7 @@ export function ConnectionSwitcher({
           </Button>
         )}
       </Popover.Target>
-      <Popover.Dropdown p={0} ref={dropdownRef} onKeyDown={handleKeyDown}>
+      <Popover.Dropdown p={0} onKeyDown={handleKeyDown}>
         <div style={{ padding: 8, borderBottom: `1px solid ${T.border}` }}>
           <TextInput
             ref={searchRef}
