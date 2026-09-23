@@ -22,8 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-09-23
+
 ### Added
 
+- **Keyboard operability across the custom controls (N2).** Every control that
+  used to need a mouse now works from the keyboard alone:
+  - The result views (Table, Tree, and each document's field tree) and the
+    connection navigator are one tab stop each. Arrow keys, Home and End move
+    an active row that assistive tech hears through `aria-activedescendant` and
+    sighted users see as an outline. Enter activates the row, and a long jump
+    keeps the row fully in view.
+  - Context menus open with Shift+F10 or the ContextMenu key, including the
+    field menu in the document tree (Copy value, Copy field path, Add to filter).
+  - Table headers carry `aria-sort`, and their actions appear on focus as well
+    as on hover.
+  - Expandable rows in the Indexes and Users tabs, the column chooser's
+    reordering, the resize separators, and the connection form's tabs are all
+    keyboard-operable. The tabs are now a real tablist.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and pull-request templates,
   and `CODEOWNERS`.
 - Self-hosted Inter and JetBrains Mono. The app makes no third-party font
@@ -51,9 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A packaged build no longer binds Cmd/Ctrl+Shift+Alt+R to deleting the
   database** — the same unreachable `NODE_ENV` check guarded the developer
   reset shortcut.
+- Development-only: three moderate `qs` advisories that reached the lockfile
+  through Stryker are resolved with a scoped override.
 
 ### Fixed
 
+- **Focus is no longer dropped on the page body.** Closing a popover with
+  Escape, dismissing a context menu, a successful create, rename or drop in the
+  navigator and in the Indexes and Users tabs, and a failed submit whose dialog
+  stays open all leave focus on a sensible control.
+- **Double-clicking a table cell with nothing selected copied the row above.**
+  The first click's selection bar pushed the grid down between the two clicks.
+  The bar's space is now always reserved.
+- The copy-confirmation flash no longer hides the active-row outline, and its
+  mark follows the right field inside nested subtrees.
+- A field name containing a dot no longer collides with a nested field of the
+  same path in the document tree.
+- Arrow keys skip loading, empty and error placeholder rows in the navigator.
 - Actions in CI are pinned to commit SHAs rather than mutable tags.
 
 ### Removed
