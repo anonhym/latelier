@@ -204,6 +204,25 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
  * have already measured a chunk of the list), not evidence the fix holds
  * for the general case — the `End` test above is what actually proves that.
  */
+// #133 — the wheel (or PageDown) scrolls the focused grid natively, so the
+// active row can unmount. Shift+F10 used to find no row element and silently
+// do nothing; it must still open the row menu and bring the row back.
+test('table: Shift+F10 opens the row menu after the wheel scrolled the active row out', async () =>
+  withRovingFocusTable('Roving Focus Scrolled Out', async ({ win, grid, row }) => {
+    await expect(row(0)).toBeVisible({ timeout: 8000 });
+    await tabUntilFocused(win, grid, 60);
+    await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
+
+    await grid.hover();
+    await win.mouse.wheel(0, 4000);
+    await expect(row(0)).toHaveCount(0);
+    await expect(grid).toBeFocused();
+
+    await win.keyboard.press('Shift+F10');
+    await expect(win.getByRole('group', { name: 'Cell actions' })).toBeVisible();
+    await expect(row(0)).toBeInViewport();
+  }));
+
 test('table roving focus: a long ArrowDown run lands fully in the viewport, not just mounted', async () =>
   withRovingFocusTable('Roving Focus ArrowDown Run', async ({ win, grid, row }) => {
     await expect(row(0)).toBeVisible({ timeout: 8000 });

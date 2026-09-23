@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
+import { isContextMenuKey, anchorForRow } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -1063,10 +1063,15 @@ export function TableView({
       if (isContextMenuKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
+        // #133 — PageDown or the wheel can have scrolled the active row out
+        // and unmounted it: open anyway (anchored to the grid) and bring the
+        // row back into view.
         const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
-        if (!rowEl) return;
+        const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
+        if (!anchor) return;
+        if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
         setContextMenu({
-          ...anchorFromRect(rowEl.getBoundingClientRect()),
+          ...anchor,
           doc: documents[roving.activeIndex],
           field: null,
           value: undefined,

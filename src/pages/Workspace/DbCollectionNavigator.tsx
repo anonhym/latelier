@@ -26,7 +26,7 @@ import { useNavigatorDialogs } from './useNavigatorDialogs';
 import { useNavigatorTree } from './useNavigatorTree';
 import { emptyCache } from './navigatorTreeReducer';
 import { ownGet } from '../../utils/ownProperty';
-import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
+import { isContextMenuKey, anchorForRow } from '../../utils/contextMenuKey';
 
 export interface NavigatorOpenInput {
   connectionId: string;
@@ -734,15 +734,19 @@ export function DbCollectionNavigator({
     const idx = focusedId ? rows.findIndex((r) => r.id === focusedId) : -1;
     const row = idx >= 0 ? rows[idx] : null;
 
-    // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row.
-    // Anchored to its bounding rect (mounted, since it's the active
-    // descendant), not a stale cursor position.
+    // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row,
+    // anchored to its bounding rect, not a stale cursor position. #133 — the
+    // list is virtualized, and PageDown or the wheel can have scrolled that
+    // row out and unmounted it: open anyway (anchored to the tree) and bring
+    // the row back into view.
     if (isContextMenuKey(e)) {
       if (!row) return;
       e.preventDefault();
       const rowEl = document.getElementById(navigatorRowDomId(row.id));
-      if (!rowEl) return;
-      openMenuFor(row, anchorFromRect(rowEl.getBoundingClientRect()));
+      const anchor = anchorForRow(rowEl, treeRef.current);
+      if (!anchor) return;
+      if (!rowEl) listRef.current?.scrollToRow({ index: idx, align: 'auto' });
+      openMenuFor(row, anchor);
       return;
     }
 
