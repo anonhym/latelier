@@ -78,7 +78,7 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
       await op.fill('>');
       await op.press('Enter');
       await win.getByPlaceholder('value').first().fill('3');
-      await expect(win.getByRole('textbox', { name: '{}' })).toHaveValue('{"qty":{"$gt":3}}');
+      await expect(ws.queryBarTextarea).toHaveValue('{"qty":{"$gt":3}}');
       await ws.queryBarRunButton.click();
 
       // #128 — `apple-001` first: until it is gone, the rows on screen are
