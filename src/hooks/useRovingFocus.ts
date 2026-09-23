@@ -102,6 +102,18 @@ export function useRovingFocus({
   // unmounted.
   const outerFrame = React.useRef<number | null>(null);
   const innerFrame = React.useRef<number | null>(null);
+  // #62 follow-up — `count` can shrink out from under a still-pending settle
+  // (a query re-run, a filter, a delete, same "count shrinks out from under"
+  // case `useRovingHighlight.ts` already documents) before the deferred call
+  // fires. `i` was captured when it was still a valid index; by settle time
+  // it can be `>= count`, and react-window's `scrollToRow` throws
+  // `RangeError` for that. `useLayoutEffect`, not a plain assignment during
+  // render (refs are for effects/handlers, not render) — it still commits
+  // synchronously, well before either deferred rAF could fire.
+  const countRef = React.useRef(count);
+  React.useLayoutEffect(() => {
+    countRef.current = count;
+  });
   // The `!== null` guards only skip a no-op: `cancelAnimationFrame` on a
   // stale/nonexistent handle (including `null`) is a documented no-op, never
   // a throw — confirmed against jsdom directly, not assumed from the spec.
@@ -137,7 +149,7 @@ export function useRovingFocus({
         outerFrame.current = null;
         innerFrame.current = requestAnimationFrame(() => {
           innerFrame.current = null;
-          scrollToIndex?.(i);
+          if (i < countRef.current) scrollToIndex?.(i);
         });
       });
     },

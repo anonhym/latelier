@@ -192,11 +192,14 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
 /**
  * #62 — the acceptance criteria on this issue cover more than the single
  * `End` jump: "also holds for a long ArrowDown run that crosses unmeasured
- * rows". A fresh grid, so every row past the initial mounted range is
- * genuinely unmeasured (unlike the test above, where `End`/`Home` have
- * already measured a chunk of the list by the time anything else runs) —
- * this proves the fix holds for the general "long jump through
- * never-rendered rows" case, not just the one path `End` happens to take.
+ * rows". This does NOT reproduce #62 and is green before the fix too: each
+ * `ArrowDown` moves by one row, so there's never an unmeasured span for
+ * react-window's estimate to drift over — confirmed in the round that added
+ * this test, not assumed. It's a regression guard for the long-ArrowDown
+ * path specifically (a fresh grid, so every row past the initial mounted
+ * range is genuinely unmeasured, unlike the test above where `End`/`Home`
+ * have already measured a chunk of the list), not evidence the fix holds
+ * for the general case — the `End` test above is what actually proves that.
  */
 test('table roving focus: a long ArrowDown run lands fully in the viewport, not just mounted', async () =>
   withRovingFocusTable('Roving Focus ArrowDown Run', async ({ win, grid, row }) => {

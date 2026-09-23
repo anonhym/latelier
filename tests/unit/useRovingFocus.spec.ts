@@ -381,5 +381,58 @@ describe('useRovingFocus', () => {
 
       expect(scrollToIndex).toHaveBeenCalledWith(4);
     });
+
+    // #62 follow-up (reviewer-found) — `count` can shrink out from under a
+    // still-pending settle (a query re-run, a filter, a delete). `i` was a
+    // valid index when captured; by settle time it can be `>= count`, and
+    // react-window's real `scrollToRow` throws `RangeError` for that —
+    // `scrollToIndex` here mirrors that so the test would crash without the
+    // `countRef` guard.
+    it('does not replay a settle for an index the current count no longer has', () => {
+      let currentCount = 50;
+      const scrollToIndex = vi.fn((i: number) => {
+        if (i >= currentCount) throw new RangeError(`Invalid index ${i}`);
+      });
+      const { result, rerender } = renderHook(
+        ({ count }) => useRovingFocus({ count, idPrefix: 'row-', scrollToIndex }),
+        { initialProps: { count: 50 } },
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End'))); // captures i = 49, schedules its settle
+      currentCount = 10;
+      rerender({ count: 10 }); // the list shrank while that settle is still pending
+      scrollToIndex.mockClear();
+
+      expect(() => {
+        act(() => queue.flush());
+        act(() => queue.flush());
+      }).not.toThrow();
+      expect(scrollToIndex).not.toHaveBeenCalledWith(49);
+    });
+
+    // Exercises the exact boundary (`i === count`, not just `i > count`) —
+    // one document deleted rather than a whole page's worth. `i < count`
+    // and `i <= count` only disagree right at this boundary.
+    it('does not replay a settle when the count drops by exactly one', () => {
+      let currentCount = 50;
+      const scrollToIndex = vi.fn((i: number) => {
+        if (i >= currentCount) throw new RangeError(`Invalid index ${i}`);
+      });
+      const { result, rerender } = renderHook(
+        ({ count }) => useRovingFocus({ count, idPrefix: 'row-', scrollToIndex }),
+        { initialProps: { count: 50 } },
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End'))); // captures i = 49, schedules its settle
+      currentCount = 49;
+      rerender({ count: 49 }); // one document gone; 49 is now out of range
+      scrollToIndex.mockClear();
+
+      expect(() => {
+        act(() => queue.flush());
+        act(() => queue.flush());
+      }).not.toThrow();
+      expect(scrollToIndex).not.toHaveBeenCalledWith(49);
+    });
   });
 });
