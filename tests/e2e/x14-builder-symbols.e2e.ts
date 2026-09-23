@@ -48,6 +48,14 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
 
       await win.getByRole('button', { name: 'Add condition' }).click();
       await win.getByPlaceholder('field').first().fill('qty');
+      // #128 — pick the field from the suggestions, as a person would: that
+      // is what types the value as a number. A typed-only field keeps the
+      // value a string, and `{"$gt":"3"}` matches nothing.
+      await win
+        .getByRole('listbox', { name: 'Field suggestions' })
+        .getByRole('option', { name: /qty/ })
+        .first()
+        .click();
       const op = win.getByPlaceholder('$op').first();
 
       // Enter. This is what a person presses when they are done, and
@@ -70,10 +78,13 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
       await op.fill('>');
       await op.press('Enter');
       await win.getByPlaceholder('value').first().fill('3');
+      await expect(ws.queryBarTextarea).toHaveValue('{"qty":{"$gt":3}}');
       await ws.queryBarRunButton.click();
 
-      await expect(win.getByText('banana-002')).toBeVisible();
+      // #128 — `apple-001` first: until it is gone, the rows on screen are
+      // still the previous, unfiltered result, which also shows `banana-002`.
       await expect(win.getByText('apple-001')).toHaveCount(0);
+      await expect(win.getByText('banana-002')).toBeVisible();
     });
   });
 });
