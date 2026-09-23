@@ -233,6 +233,10 @@ describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
   it.each([
     { name: 'moves between two children of the same expanded node', from: 'doc1::a.b', to: 'doc1::a.c' },
     { name: 'clears when copiedPath resets to null', from: 'doc1::a.b', to: null },
+    // Entering from nothing: only the *new* value is set, so this is the case
+    // that exercises `next.copiedPath` on its own (the move case also needs it,
+    // at the child that gains the mark).
+    { name: 'appears when copiedPath is set from null', from: null, to: 'doc1::a.c' },
   ])('$name', ({ from, to }) => {
     // Callbacks MUST stay the same instances across the rerender — a fresh
     // vi.fn() per render would make the comparator's identity check return
@@ -247,7 +251,7 @@ describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
     };
 
     const { container, rerender } = render(<DocFieldTree {...props} copiedPath={from} />);
-    expect(isMarked(rowFor(container, 'a.b'))).toBe(true);
+    expect(isMarked(rowFor(container, 'a.b'))).toBe(from === 'doc1::a.b');
 
     rerender(<DocFieldTree {...props} copiedPath={to} />);
 
