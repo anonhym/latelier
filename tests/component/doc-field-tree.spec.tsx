@@ -219,6 +219,47 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
   });
 });
 
+// #85 — `copiedPath` was written to the same own-path-only idiom `activePath`
+// had (#60), and has the same bug: a `FieldNode` renders its expanded
+// children itself, so moving `copiedPath` between two children of the same
+// node — or clearing it while a nested row is marked — leaves that node's own
+// flag unchanged, the comparator skips the render, and the children keep the
+// stale mark. `{ a: { b, c } }` with `a` expanded is the smallest repro.
+describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
+  const rowFor = (container: HTMLElement, path: string) =>
+    container.querySelector(`[id="field-row-doc1::${path}"]`) as HTMLElement;
+  const isMarked = (row: HTMLElement) => row.textContent?.includes('Copied') ?? false;
+
+  it.each([
+    { name: 'moves between two children of the same expanded node', from: 'doc1::a.b', to: 'doc1::a.c' },
+    { name: 'clears when copiedPath resets to null', from: 'doc1::a.b', to: null },
+    // Entering from nothing: only the *new* value is set, so this is the case
+    // that exercises `next.copiedPath` on its own (the move case also needs it,
+    // at the child that gains the mark).
+    { name: 'appears when copiedPath is set from null', from: null, to: 'doc1::a.c' },
+  ])('$name', ({ from, to }) => {
+    // Callbacks MUST stay the same instances across the rerender — a fresh
+    // vi.fn() per render would make the comparator's identity check return
+    // false for an unrelated reason, and the test would pass against the bug.
+    const props = {
+      doc: { a: { b: 1, c: 2 } },
+      docId: 'doc1',
+      expandedPaths: new Set(['doc1::a']),
+      onToggle: vi.fn(),
+      onCopy: vi.fn(),
+      onOpenMenu: vi.fn(),
+    };
+
+    const { container, rerender } = render(<DocFieldTree {...props} copiedPath={from} />);
+    expect(isMarked(rowFor(container, 'a.b'))).toBe(from === 'doc1::a.b');
+
+    rerender(<DocFieldTree {...props} copiedPath={to} />);
+
+    expect(isMarked(rowFor(container, 'a.b'))).toBe(false);
+    expect(isMarked(rowFor(container, 'a.c'))).toBe(to === 'doc1::a.c');
+  });
+});
+
 // #68/#69 — the field menu (Copy value / Copy field path / Add to filter)
 // was reachable only by right-click; this covers the keyboard-open path this
 // component now owns, and the mouse-path payload shape #69 needs both to
