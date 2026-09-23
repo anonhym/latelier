@@ -39,11 +39,14 @@ test('double-clicking a cell with no prior selection copies that cell, not the r
       );
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.queryBarRunButton.click();
+      // The auto-run on open is the only query run. A second Run click used to
+      // land its result mid-test on a slow CI runner, replacing `documents`
+      // and resetting the active row (PR #122's shard 4).
       await ws.viewTableButton.click();
 
       const grid = win.getByRole('grid', { name: 'Documents' });
       await expect(grid).toBeVisible({ timeout: 8000 });
+      await expect(win.locator('#table-row-1')).toBeVisible({ timeout: 8000 });
 
       // A sentinel proves the eventual clipboard read reflects this
       // dblclick, not a stale value left over from setup.

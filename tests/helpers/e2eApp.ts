@@ -24,7 +24,7 @@ export function freshUserData(): string {
 }
 
 export async function launchApp(userDataDir: string): Promise<ElectronApplication> {
-  return electron.launch({
+  const app = await electron.launch({
     args: [path.resolve(here, '../..', 'dist-electron/main.js')],
     env: {
       ...process.env,
@@ -32,6 +32,22 @@ export async function launchApp(userDataDir: string): Promise<ElectronApplicatio
       NODE_ENV: 'test',
     },
   });
+  // A test instance never shows its window (`electron/main.ts`). macOS still
+  // renders a hidden window, but Linux under xvfb (CI) backgrounds it.
+  // Measured on CI (PR #122): 0 of 49 `setTimeout(0)` callbacks ran in 3s,
+  // one scroll event fired for a full scroll, and a CSS transition never
+  // advanced. Turning background throttling off brought the timers back but
+  // not the frames, so on Linux the window is also shown, inactive: under
+  // xvfb nothing pops up, and inactive means no `focus` event (which
+  // `src/state/connections.ts` refetches on). macOS keeps it hidden.
+  await app.firstWindow();
+  await app.evaluate(({ BrowserWindow }, showOnLinux) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.setBackgroundThrottling(false);
+      if (showOnLinux) w.showInactive();
+    }
+  }, process.platform === 'linux');
+  return app;
 }
 
 /**

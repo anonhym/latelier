@@ -57,7 +57,9 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       );
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.queryBarRunButton.click();
+      // The auto-run on open is the only query run. A second Run click used to
+      // land its result mid-test on a slow CI runner, replacing `documents`
+      // and resetting the active row (PR #122's shard 4).
       await ws.viewTableButton.click();
 
       // --- ColumnChooser: uncontrolled Popover, `returnFocus` fix. ---
