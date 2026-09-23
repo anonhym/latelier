@@ -72,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The title bar drags the window across its whole empty middle again.** The
+  connection switcher's wrapper was `flex: 1` and `no-drag` at once, so only a
+  narrow strip of the bar could drag the window.
 - **Focus is no longer dropped on the page body.** Closing a popover with
   Escape, dismissing a context menu, a successful create, rename or drop in the
   navigator and in the Indexes and Users tabs, and a failed submit whose dialog
