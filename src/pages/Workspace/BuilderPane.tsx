@@ -546,6 +546,7 @@ function CondRow({
           open={opPopoverOpen}
           items={opSuggestionItems}
           anchorRef={opInputRef}
+          label="Operator suggestions"
           onSelect={(s) => {
             if (s.kind === 'operator') {
               // The popover blurs the input on its way out, so the blur
