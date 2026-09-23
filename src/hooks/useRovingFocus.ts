@@ -251,13 +251,11 @@ export function useRovingFocus({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          move(1);
-          scrollThenSettle((index + 1) % count);
+          scrollThenSettle(move(1));
           return;
         case 'ArrowUp':
           e.preventDefault();
-          move(-1);
-          scrollThenSettle((index - 1 + count) % count);
+          scrollThenSettle(move(-1));
           return;
         case 'Home':
           e.preventDefault();
@@ -282,7 +280,7 @@ export function useRovingFocus({
           return;
       }
     },
-    [count, index, move, setIndex, scrollThenSettle],
+    [count, move, setIndex, scrollThenSettle],
   );
 
   return {
