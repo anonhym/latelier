@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseColor, relativeLuminance, blend, contrastRatio } from '../../src/theme/contrast';
+import {
+  parseColor,
+  relativeLuminance,
+  blend,
+  contrastRatio,
+  type RGB,
+} from '../../src/theme/contrast';
 
 // Parses the live src/index.css theme blocks — the source of truth — rather
 // than duplicating token literals in the test, so a future token edit that
@@ -105,4 +111,35 @@ describe('contrast.ts helpers', () => {
   it('contrastRatio of black on white is 21:1', () => {
     expect(contrastRatio({ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 })).toBeCloseTo(21, 1);
   });
+});
+
+// X19 #83 — the #60 active-row outline is `2px solid var(--atelier-accent)`.
+// It has to clear WCAG 1.4.11 (non-text contrast, >= 3:1) against every
+// *plain* background a row can show behind that outline band — the copy-flash
+// itself is handled separately (`backgroundClip: 'content-box'` on
+// TableCell/FieldNode keeps the flash off that band; see
+// `x19-copy-flash-outline.e2e.ts`), so what's left underneath is always one
+// of these. Read from the row-background rules in TableView.tsx/
+// TreeView.tsx/DocFieldTree.tsx: zebra rows are `--atelier-surface` /
+// `--atelier-surface-raised`, and a selected row is the translucent
+// `--atelier-accent-soft` painted over `--atelier-surface`.
+describe('active-row outline contrast against every plain row surface (WCAG 1.4.11, X19 #83)', () => {
+  for (const [themeName, theme] of Object.entries(THEMES)) {
+    const accent = parseColor(readVar(theme.block, '--atelier-accent'));
+    const surface = parseColor(readVar(theme.block, '--atelier-surface'));
+    const surfaceRaised = parseColor(readVar(theme.block, '--atelier-surface-raised'));
+    const accentSoft = parseColor(readVar(theme.block, '--atelier-accent-soft'));
+
+    const rowBackgrounds: Record<string, RGB> = {
+      '--atelier-surface': surface,
+      '--atelier-surface-raised': surfaceRaised,
+      '--atelier-accent-soft over --atelier-surface (selected row)': blend(accentSoft, surface),
+    };
+
+    for (const [bgName, bg] of Object.entries(rowBackgrounds)) {
+      it(`${themeName}: --atelier-accent (outline) over ${bgName} clears 3:1`, () => {
+        expect(contrastRatio(accent, bg)).toBeGreaterThanOrEqual(3);
+      });
+    }
+  }
 });

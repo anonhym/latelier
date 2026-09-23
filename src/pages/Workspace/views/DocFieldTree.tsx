@@ -250,6 +250,7 @@ function FieldNodeImpl({
           cursor: rowClickable ? 'pointer' : 'grab',
           userSelect: 'none',
           background: isCopied ? 'var(--atelier-accent)' : undefined,
+          backgroundClip: isCopied ? 'content-box' : undefined,
           color: isCopied ? '#fff' : undefined,
           transition: 'background 120ms',
           // #60 — sighted-visible counterpart to `aria-activedescendant`.

@@ -264,6 +264,7 @@ function TableCell({
         textOverflow: 'ellipsis',
         cursor: draggable ? 'grab' : 'default',
         background: isCopied ? 'var(--atelier-accent)' : undefined,
+        backgroundClip: isCopied ? 'content-box' : undefined,
         transition: 'background 120ms',
         color: isCopied
           ? '#fff'
