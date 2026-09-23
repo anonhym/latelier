@@ -175,12 +175,15 @@ describe('DocFieldTree — scroll on arrow keys (#119)', () => {
     const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
     const raf = vi.spyOn(window, 'requestAnimationFrame');
 
-    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    try {
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
 
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(raf).not.toHaveBeenCalled();
-    scrollIntoView.mockRestore();
-    raf.mockRestore();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(raf).not.toHaveBeenCalled();
+    } finally {
+      scrollIntoView.mockRestore();
+      raf.mockRestore();
+    }
   });
 });
 
