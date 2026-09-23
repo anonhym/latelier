@@ -80,6 +80,20 @@ describe('SelectionActionBar', () => {
     expect(container.textContent).not.toContain('selected');
   });
 
+  // #106 — jsdom has no layout, so this can't measure the reserved height;
+  // it only guards that the strip stays mounted (with no count inside) so a
+  // future change can't go back to mounting/unmounting the whole bar.
+  it('#106 — the strip stays mounted with no selection, just without a count', () => {
+    const { container } = renderBar(vi.fn());
+    expect(container.querySelector('[data-testid="selection-bar"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="selection-bar-count"]')).toBeNull();
+  });
+
+  it('#106 — read-only still renders nothing at all, strip included', () => {
+    const { container } = renderBar(vi.fn(), { isReadOnly: true });
+    expect(container.querySelector('[data-testid="selection-bar"]')).toBeNull();
+  });
+
   it('AC2 — shows the selection count once a row is selected', () => {
     const { container } = renderBar(vi.fn());
     selectFirstCard();
