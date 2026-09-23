@@ -35,6 +35,55 @@ if (typeof window.matchMedia !== 'function') {
 }
 
 describe('useRovingHighlight', () => {
+  // #126 — two key events can reach a handler before React commits the
+  // first one (seen on CI: the second press re-computed from the same
+  // render-time index and one step was lost). Each call below comes from
+  // one captured closure, inside one `act`, so no re-render happens between.
+  describe('several updates before one re-render (#126)', () => {
+    it('two move(1) calls both count', () => {
+      const { result } = renderHook(() => useRovingHighlight(5));
+      const { move } = result.current;
+      act(() => {
+        move(1);
+        move(1);
+      });
+      expect(result.current.index).toBe(2);
+    });
+
+    it('setIndex then move moves from the index just set', () => {
+      const { result } = renderHook(() => useRovingHighlight(5));
+      const { setIndex, move } = result.current;
+      act(() => {
+        setIndex(3);
+        move(1);
+      });
+      expect(result.current.index).toBe(4);
+    });
+
+    it('move wraps against the current count after the list shrinks, not the first render\'s', () => {
+      const { result, rerender } = renderHook(({ count }) => useRovingHighlight(count), {
+        initialProps: { count: 5 },
+      });
+      act(() => result.current.setIndex(2));
+      rerender({ count: 3 });
+      act(() => {
+        result.current.move(1);
+      });
+      expect(result.current.index).toBe(0);
+    });
+
+    it('move returns the index it moved to, wrapping included', () => {
+      const { result } = renderHook(() => useRovingHighlight(3));
+      const { move } = result.current;
+      const seen: number[] = [];
+      act(() => {
+        seen.push(move(1), move(1), move(1), move(-1));
+      });
+      expect(seen).toEqual([1, 2, 0, 2]);
+      expect(result.current.index).toBe(2);
+    });
+  });
+
   it('starts at index 0', () => {
     const { result } = renderHook(() => useRovingHighlight(5));
     expect(result.current.index).toBe(0);

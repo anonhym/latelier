@@ -129,6 +129,23 @@ describe('useRovingFocus', () => {
     expect(scrollToIndex).toHaveBeenCalledWith(2);
   });
 
+  // #126 — two ArrowDowns handled before a re-render (one captured closure,
+  // one `act`) must advance two rows and scroll to each, not scroll to row 1
+  // twice.
+  it('two ArrowDowns before a re-render advance two rows and scroll to each', () => {
+    const scrollToIndex = vi.fn();
+    const { result } = renderHook(() =>
+      useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex, settle: false }),
+    );
+    const { onKeyDown } = result.current;
+    act(() => {
+      onKeyDown(keyEvent('ArrowDown'));
+      onKeyDown(keyEvent('ArrowDown'));
+    });
+    expect(scrollToIndex.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+    expect(result.current.activeIndex).toBe(2);
+  });
+
   it('calls scrollToIndex with the wrapped-backward target on ArrowUp', () => {
     const scrollToIndex = vi.fn();
     const { result } = renderHook(() =>
