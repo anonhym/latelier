@@ -65,6 +65,15 @@ export interface UseRovingFocusOptions {
    * (content that's always fully mounted).
    */
   scrollToIndex?: (index: number) => void;
+  /**
+   * #119 — after the synchronous scroll, keep re-scrolling each frame until
+   * the `${idPrefix}${index}` row is fully in view (see `scrollThenSettle`).
+   * That exists for react-window's estimated row heights. Pass `false` from
+   * a non-virtualized caller whose `scrollToIndex` is already exact, or
+   * whose rows don't carry `${idPrefix}${index}` ids (DocFieldTree): the
+   * check could never see those settle. Default `true`.
+   */
+  settle?: boolean;
 }
 
 export interface RovingFocus {
@@ -119,6 +128,7 @@ export function useRovingFocus({
   idPrefix,
   resetKey,
   scrollToIndex,
+  settle = true,
 }: UseRovingFocusOptions): RovingFocus {
   const { index, setIndex, move } = useRovingHighlight(count, resetKey);
   const rowId = React.useCallback((i: number) => `${idPrefix}${i}`, [idPrefix]);
@@ -193,10 +203,12 @@ export function useRovingFocus({
   const scrollThenSettle = React.useCallback(
     (i: number) => {
       cancelPendingSettle();
-      // No `scrollToIndex` (DocFieldTree) means nothing to converge —
-      // schedule no frames at all rather than looping to no effect.
+      // No `scrollToIndex` means nothing to scroll; `settle: false` means
+      // the one synchronous scroll is already exact. Either way, schedule
+      // no frames at all.
       if (!scrollToIndex) return;
       scrollToIndex(i);
+      if (!settle) return;
 
       let framesLeft = MAX_SETTLE_FRAMES;
       const scheduleCheck = () => {
@@ -211,7 +223,7 @@ export function useRovingFocus({
       };
       scheduleCheck();
     },
-    [scrollToIndex, cancelPendingSettle, rowId],
+    [scrollToIndex, settle, cancelPendingSettle, rowId],
   );
 
   // #60 — tracks real DOM focus on the container so `highlightIndex` can

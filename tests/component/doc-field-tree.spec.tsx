@@ -165,6 +165,25 @@ describe('DocFieldTree — roving focus (#20)', () => {
 
 // #60 — the active row is announced (aria-activedescendant, #20) but was
 // never drawn. Asserts the real inline outline, not an attribute.
+// #119 review — DocFieldTree isn't virtualized, so one `scrollIntoView` per
+// move is exact. It must not enter `useRovingFocus`'s settle loop, which
+// can't find its path-keyed rows and would re-scroll for 60 frames per key.
+describe('DocFieldTree — scroll on arrow keys (#119)', () => {
+  it('ArrowDown scrolls the new row into view once and schedules no animation frame', () => {
+    const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
+    const tree = container.querySelector('[role="tree"]')!;
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(raf).not.toHaveBeenCalled();
+    scrollIntoView.mockRestore();
+    raf.mockRestore();
+  });
+});
+
 describe('DocFieldTree — active-row visual highlight (#60)', () => {
   it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
     const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });

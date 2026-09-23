@@ -526,6 +526,10 @@ export function DocFieldTree({
       const path = flatRows[i]?.path;
       if (path) document.getElementById(fieldRowDomId(path))?.scrollIntoView({ block: 'nearest' });
     },
+    // #119 — `scrollIntoView` on a mounted row is exact, and these rows are
+    // keyed by path, not `${idPrefix}${i}`, so the settle loop has nothing
+    // to converge on and could never see it done.
+    settle: false,
   });
   const activeRow = flatRows[roving.activeIndex] as FlatFieldRow | undefined;
   // #60 — `flatRows[-1]` is `undefined`, which is exactly what makes

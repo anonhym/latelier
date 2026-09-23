@@ -570,6 +570,23 @@ describe('useRovingFocus', () => {
       expect(queue.pending()).toBe(0);
     });
 
+    // #119 review — a non-virtualized caller (DocFieldTree) scrolls exactly
+    // with one `scrollIntoView`, and its rows don't carry `${idPrefix}${i}`
+    // ids, so the geometry check could never see it settle and would spin
+    // to the frame cap on every arrow key.
+    it('settle: false scrolls once, synchronously, and schedules no frame', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex, settle: false }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End')));
+
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+      expect(scrollToIndex).toHaveBeenCalledWith(4);
+      expect(queue.pending()).toBe(0);
+    });
+
     // Guards against a stale closure: a broken dependency array on
     // `scrollThenSettle` would keep calling the `scrollToIndex` captured at
     // first render even after the caller passed a new one in.
