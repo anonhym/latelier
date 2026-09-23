@@ -160,32 +160,25 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
     // 3. End jumps to the last row — the virtualization case. The row
     // must exist in the DOM (react-window actually scrolled to mount it,
     // not just moved an index that names nothing) — a dropped or
-    // made-async `scrollToRow` call would leave it absent instead.
-    //
-    // KNOWN GAP (found by this test, not asserted here): on THIS first
-    // jump — 47 intervening rows have never been rendered, so
-    // `useDynamicRowHeight` (TableView.tsx) still has each of them at its
-    // 24px default estimate — `scrollToRow({index: 49, align: 'auto'})`
-    // computes its target offset from those estimates and the row lands
-    // ~17px past the bottom of the window (confirmed via
-    // getBoundingClientRect: row bottom 842 vs. a 800px-tall window),
-    // clipped more than half off-screen. A second `scrollToRow` to the
-    // same row (after the first pass has measured everything in between)
-    // lands it flush with the bottom instead. `Home` below, jumping back
-    // to row 0 — already measured during initial render — does not hit
-    // this, which is why its `toBeInViewport` assertion holds. Not fixed
-    // here: out of this ticket's file scope (`useRovingFocus.ts`/
-    // `TableView.tsx`) and reported instead.
+    // made-async `scrollToRow` call would leave it absent instead. #62 —
+    // it must also land fully on-screen, not merely mounted: on the first
+    // jump, 47 intervening rows have never rendered, so
+    // `useDynamicRowHeight` (TableView.tsx) still has each at its 24px
+    // default estimate, and `scrollToRow({index: 49, align: 'auto'})`
+    // computes its target offset from those estimates — landing the row
+    // clipped off the bottom. `toBeInViewport({ ratio: 1 })` is the
+    // regression test for that: `toBeVisible` alone would pass against a
+    // half-clipped row.
     await win.keyboard.press('End');
     await expect(grid).toHaveAttribute('aria-activedescendant', `table-row-${DOC_COUNT - 1}`);
-    await expect(row(DOC_COUNT - 1)).toBeVisible({ timeout: 5000 });
+    await expect(row(DOC_COUNT - 1)).toBeInViewport({ ratio: 1 });
 
     // Home jumps back to the first row, scrolling it back into view too —
     // and, unlike End above, row 0 was already measured, so this is the
     // clean case: fully mounted AND fully back on-screen.
     await win.keyboard.press('Home');
     await expect(grid).toHaveAttribute('aria-activedescendant', 'table-row-0');
-    await expect(row(0)).toBeInViewport();
+    await expect(row(0)).toBeInViewport({ ratio: 1 });
 
     // 4. Enter on the grid itself selects the active row (`aria-selected`
     // on the row itself) — no click, no per-row focus, just the
@@ -195,6 +188,73 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
     await expect(row(1)).toHaveAttribute('aria-selected', 'true');
     await expect(row(0)).toHaveAttribute('aria-selected', 'false');
   }));
+
+/**
+ * #62 — the acceptance criteria on this issue cover more than the single
+ * `End` jump: "also holds for a long ArrowDown run that crosses unmeasured
+ * rows". A fresh grid, so every row past the initial mounted range is
+ * genuinely unmeasured (unlike the test above, where `End`/`Home` have
+ * already measured a chunk of the list by the time anything else runs) —
+ * this proves the fix holds for the general "long jump through
+ * never-rendered rows" case, not just the one path `End` happens to take.
+ */
+test('table roving focus: a long ArrowDown run lands fully in the viewport, not just mounted', async () =>
+  withRovingFocusTable('Roving Focus ArrowDown Run', async ({ win, grid, row }) => {
+    await expect(row(0)).toBeVisible({ timeout: 8000 });
+    await tabUntilFocused(win, grid, 60);
+    await expect(grid).toBeFocused();
+
+    for (let i = 0; i < DOC_COUNT - 1; i++) {
+      await win.keyboard.press('ArrowDown');
+    }
+    await expect(grid).toHaveAttribute('aria-activedescendant', `table-row-${DOC_COUNT - 1}`);
+    await expect(row(DOC_COUNT - 1)).toBeInViewport({ ratio: 1 });
+  }));
+
+/**
+ * #62 — `TreeView.tsx` wires the identical `useDynamicRowHeight` +
+ * `scrollToRow({ align: 'auto' })` pattern through the same
+ * `useRovingFocus` driver as `TableView`, so the fix belongs in the shared
+ * hook rather than either view. This proves it actually holds there too,
+ * not just in the view the issue happened to be filed against.
+ */
+test('tree roving focus: End lands the last row fully in the viewport', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Roving Focus Tree' },
+        { dbName: 'shop', collection: 'orders', docs: orderDocs() },
+      );
+      await expectStatusDot(win, 'Roving Focus Tree', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await ws.queryBarRunButton.click();
+      await ws.viewTreeButton.click();
+
+      const tree = win.getByRole('tree', { name: 'Documents' });
+      const row = (i: number) => win.locator(`#tree-row-${i}`);
+      await expect(row(0)).toBeVisible({ timeout: 8000 });
+      await tabUntilFocused(win, tree, 60);
+      await expect(tree).toBeFocused();
+
+      // Collapsed rows default to 44px (`TreeView.tsx`'s own comment) in an
+      // 800px window — well short of mounting all 50, so this is the same
+      // "most rows never rendered" premise the table test confirms directly.
+      await expect(row(DOC_COUNT - 1)).toHaveCount(0);
+
+      await win.keyboard.press('End');
+      await expect(tree).toHaveAttribute('aria-activedescendant', `tree-row-${DOC_COUNT - 1}`);
+      await expect(row(DOC_COUNT - 1)).toBeInViewport({ ratio: 1 });
+    });
+  });
+});
 
 /**
  * Found in review, and only a real browser exposes it honestly: a `<div

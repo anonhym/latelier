@@ -4,7 +4,7 @@
 // this hook's key-mapping logic is pure and fast enough for Stryker's
 // per-mutant rerun, but exercising a React hook still needs a real render.
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '../helpers/render';
 import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useRovingFocus } from '../../src/hooks/useRovingFocus';
@@ -138,6 +138,18 @@ describe('useRovingFocus', () => {
     expect(scrollToIndex).toHaveBeenCalledWith(2);
   });
 
+  // #62 — Home's own case had no direct assertion (only ArrowDown/ArrowUp/End
+  // did), so nothing distinguished calling `scrollThenSettle(0)` from not
+  // calling it at all.
+  it('calls scrollToIndex with 0 on Home', () => {
+    const scrollToIndex = vi.fn();
+    const { result } = renderHook(() =>
+      useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+    );
+    act(() => result.current.onKeyDown(keyEvent('Home')));
+    expect(scrollToIndex).toHaveBeenCalledWith(0);
+  });
+
   // #60 — highlightIndex drives the visual active-row treatment; it must
   // track real container focus separately from activeIndex (which Enter/
   // Space handling reads and must never see go to -1).
@@ -191,5 +203,183 @@ describe('useRovingFocus', () => {
     expect(result.current.activeId).toBe('a-0');
     rerender({ idPrefix: 'b-' });
     expect(result.current.activeId).toBe('b-0');
+  });
+
+  // #62 — `scrollThenSettle` (the wrapper around `scrollToIndex`) schedules a
+  // deferred re-scroll two `requestAnimationFrame`s out, to land a long jump
+  // past `useDynamicRowHeight`'s estimate flush in the viewport (see the
+  // hook's own comment). These tests need per-frame control real rAF timing
+  // can't give reliably, so they swap in a manual, synchronously-flushable
+  // queue instead of `vi.useFakeTimers()` (which doesn't cover rAF at all).
+  describe('scrollThenSettle re-scroll (#62)', () => {
+    /**
+     * A fake `requestAnimationFrame`/`cancelAnimationFrame` pair. `flush`
+     * only runs callbacks queued *before* it was called and clears them
+     * first — a callback that schedules another frame (the hook's nested
+     * inner frame) lands in the fresh queue and needs a second `flush()`,
+     * matching real rAF's per-frame batching.
+     */
+    function makeFrameQueue() {
+      let nextId = 1;
+      const callbacks = new Map<number, FrameRequestCallback>();
+      return {
+        request(cb: FrameRequestCallback): number {
+          const id = nextId++;
+          callbacks.set(id, cb);
+          return id;
+        },
+        cancel(id: number): void {
+          callbacks.delete(id);
+        },
+        flush(): void {
+          const due = [...callbacks.entries()];
+          callbacks.clear();
+          for (const [, cb] of due) cb(0);
+        },
+      };
+    }
+
+    let queue: ReturnType<typeof makeFrameQueue>;
+    let originalRaf: typeof window.requestAnimationFrame;
+    let originalCaf: typeof window.cancelAnimationFrame;
+
+    // Swap in the fake queue for this block only, and hand the real pair
+    // (which may itself be `jsdomTeardown.ts`'s recording wrapper — see
+    // that file's own comment) back afterward, so its handles are recorded
+    // and swept for every other test in this file as usual.
+    beforeEach(() => {
+      queue = makeFrameQueue();
+      originalRaf = window.requestAnimationFrame;
+      originalCaf = window.cancelAnimationFrame;
+      window.requestAnimationFrame = queue.request as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = queue.cancel as typeof window.cancelAnimationFrame;
+    });
+
+    afterEach(() => {
+      window.requestAnimationFrame = originalRaf;
+      window.cancelAnimationFrame = originalCaf;
+    });
+
+    it('re-issues scrollToIndex only after both deferred frames have run', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End')));
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+      expect(scrollToIndex).toHaveBeenLastCalledWith(4);
+
+      act(() => queue.flush()); // outer frame: schedules the inner one
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+
+      act(() => queue.flush()); // inner frame: the actual re-scroll
+      expect(scrollToIndex).toHaveBeenCalledTimes(2);
+      expect(scrollToIndex).toHaveBeenLastCalledWith(4);
+    });
+
+    it('a newer jump cancels the older pending settle — the stale index is never re-scrolled to', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('Home'))); // schedules a settle(0)
+      act(() => result.current.onKeyDown(keyEvent('End'))); // must cancel it, schedule settle(4)
+      scrollToIndex.mockClear();
+
+      act(() => queue.flush());
+      act(() => queue.flush());
+
+      expect(scrollToIndex).not.toHaveBeenCalledWith(0);
+      expect(scrollToIndex).toHaveBeenCalledWith(4);
+    });
+
+    it('unmounting cancels a still-pending settle', () => {
+      const scrollToIndex = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End')));
+      act(() => unmount());
+      scrollToIndex.mockClear();
+
+      act(() => queue.flush());
+      act(() => queue.flush());
+
+      expect(scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    // The "newer jump cancels" test above never lets the older jump's *inner*
+    // frame become the pending one (End's outer frame is still what's
+    // cancelled) — this one lets End's outer frame fire first, so its inner
+    // frame is the one a following Home has to cancel.
+    it('a newer jump cancels a pending settle even once the outer frame has already fired', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End'))); // schedules End's outer frame
+      act(() => queue.flush()); // outer fires -> schedules End's inner frame
+      act(() => result.current.onKeyDown(keyEvent('Home'))); // must cancel that inner frame
+      scrollToIndex.mockClear();
+
+      act(() => queue.flush());
+      act(() => queue.flush());
+
+      expect(scrollToIndex).not.toHaveBeenCalledWith(4);
+      expect(scrollToIndex).toHaveBeenCalledWith(0);
+    });
+
+    it('does not throw when scrollToIndex is omitted, even once the deferred settle fires', () => {
+      const { result } = renderHook(() => useRovingFocus({ count: 5, idPrefix: 'row-' }));
+      act(() => result.current.onKeyDown(keyEvent('End')));
+
+      expect(() => {
+        act(() => queue.flush());
+        act(() => queue.flush());
+      }).not.toThrow();
+    });
+
+    // Guards against a stale closure: a broken dependency array on
+    // `scrollThenSettle` would keep calling the `scrollToIndex` captured at
+    // first render even after the caller passed a new one in.
+    it('picks up a scrollToIndex passed in after the initial render, not a stale one', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const { result, rerender } = renderHook(
+        ({ scrollToIndex }) => useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+        { initialProps: { scrollToIndex: first } },
+      );
+
+      rerender({ scrollToIndex: second });
+      act(() => result.current.onKeyDown(keyEvent('End')));
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledWith(4);
+    });
+
+    // Guards the other half of the same dependency array: a broken one on
+    // `cancelPendingSettle` itself would make it (and, transitively,
+    // `scrollThenSettle`) a new function every render, so an unrelated
+    // re-render (focus, here) would re-run the cleanup effect and cancel a
+    // jump that's still legitimately pending.
+    it('an unrelated re-render (focus) does not cancel a pending settle', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+
+      act(() => result.current.onKeyDown(keyEvent('End')));
+      act(() => result.current.containerProps.onFocus(focusEvent()));
+      scrollToIndex.mockClear();
+
+      act(() => queue.flush());
+      act(() => queue.flush());
+
+      expect(scrollToIndex).toHaveBeenCalledWith(4);
+    });
   });
 });

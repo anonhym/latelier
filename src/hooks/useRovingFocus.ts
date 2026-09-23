@@ -79,6 +79,71 @@ export function useRovingFocus({
   const { index, setIndex, move } = useRovingHighlight(count, resetKey);
   const rowId = React.useCallback((i: number) => `${idPrefix}${i}`, [idPrefix]);
 
+  // #62 — a long jump (Home/End, or any move past never-rendered rows) asks
+  // `scrollToIndex` to compute an offset from react-window's dynamic-height
+  // cache while most of the rows it's summing are still at their
+  // `defaultRowHeight` estimate, so the target can land clipped instead of
+  // fully in view. The first call still has to run synchronously (this
+  // docstring's own requirement — the row must exist in the DOM before
+  // `aria-activedescendant` names it); the fix is a second call once the
+  // rows the jump just mounted have reported their real measured height via
+  // `ResizeObserver` and corrected the cache. A single `requestAnimationFrame`
+  // measured too early (still using the old estimate — the mount → layout
+  // effect → `ResizeObserver` chain hadn't settled yet); two nested frames
+  // did, confirmed against a real Electron window rather than assumed.
+  // Re-running the same scroll then lands on the corrected offset. Harmless
+  // for ArrowUp/ArrowDown, which don't hit this (each step moves at most one
+  // row, so there's no unmeasured span to accumulate error over).
+  //
+  // Both pending frame ids are tracked so a newer jump — or an unmount —
+  // can cancel a still-pending settle: without this, a quick Home-then-End
+  // let Home's deferred re-scroll fire after End's jump and flick the list
+  // back to row 0, and a settle could still fire after the list itself had
+  // unmounted.
+  const outerFrame = React.useRef<number | null>(null);
+  const innerFrame = React.useRef<number | null>(null);
+  // The `!== null` guards only skip a no-op: `cancelAnimationFrame` on a
+  // stale/nonexistent handle (including `null`) is a documented no-op, never
+  // a throw — confirmed against jsdom directly, not assumed from the spec.
+  // Stryker's "always call it" mutant on either guard is genuinely
+  // equivalent for that reason; its "never call it" and "flip the check"
+  // mutants are real bugs and are covered below (a still-pending settle
+  // that a newer jump must cancel).
+  // This `useCallback`'s own `[]` closes over nothing (only stable refs), so
+  // swapping it for a hardcoded non-empty literal is also equivalent: React
+  // compares dependency arrays element-by-element with `Object.is`, and a
+  // literal is the same value on every render, so it never trips the
+  // "changed" branch any differently than `[]` does. Same reasoning applies
+  // to `handleFocus`/`handleBlur` a little further down.
+  const cancelPendingSettle = React.useCallback(() => {
+    if (outerFrame.current !== null) cancelAnimationFrame(outerFrame.current);
+    if (innerFrame.current !== null) cancelAnimationFrame(innerFrame.current);
+    outerFrame.current = null;
+    innerFrame.current = null;
+  }, []);
+  // `cancelPendingSettle`'s own deps are `[]`, so its identity is stable for
+  // the component's lifetime (React's `useCallback([])` contract) — this
+  // effect's `[cancelPendingSettle]` dep therefore never actually changes
+  // across renders, making it equivalent to `[]` here specifically. Kept
+  // for the normal reason to list a dep an effect closes over, not because
+  // this instance can behave differently.
+  React.useEffect(() => cancelPendingSettle, [cancelPendingSettle]);
+
+  const scrollThenSettle = React.useCallback(
+    (i: number) => {
+      cancelPendingSettle();
+      scrollToIndex?.(i);
+      outerFrame.current = requestAnimationFrame(() => {
+        outerFrame.current = null;
+        innerFrame.current = requestAnimationFrame(() => {
+          innerFrame.current = null;
+          scrollToIndex?.(i);
+        });
+      });
+    },
+    [scrollToIndex, cancelPendingSettle],
+  );
+
   // #60 — tracks real DOM focus on the container so `highlightIndex` can
   // collapse to `-1` while it's elsewhere, without touching `activeIndex`
   // (see that field's docstring on `RovingFocus`). Guarded the same way
@@ -105,28 +170,28 @@ export function useRovingFocus({
         case 'ArrowDown':
           e.preventDefault();
           move(1);
-          scrollToIndex?.((index + 1) % count);
+          scrollThenSettle((index + 1) % count);
           return;
         case 'ArrowUp':
           e.preventDefault();
           move(-1);
-          scrollToIndex?.((index - 1 + count) % count);
+          scrollThenSettle((index - 1 + count) % count);
           return;
         case 'Home':
           e.preventDefault();
           setIndex(0);
-          scrollToIndex?.(0);
+          scrollThenSettle(0);
           return;
         case 'End':
           e.preventDefault();
           setIndex(count - 1);
-          scrollToIndex?.(count - 1);
+          scrollThenSettle(count - 1);
           return;
         default:
           return;
       }
     },
-    [count, index, move, setIndex, scrollToIndex],
+    [count, index, move, setIndex, scrollThenSettle],
   );
 
   return {
