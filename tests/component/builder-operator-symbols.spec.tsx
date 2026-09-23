@@ -82,6 +82,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// #130 — the operator box reuses SuggestionPopover; its listbox must not
+// announce itself as the field list.
+describe('Query Builder — operator suggestions listbox (#130)', () => {
+  it('is named "Operator suggestions", not "Field suggestions"', async () => {
+    const opInput = await openConditionRow();
+
+    fireEvent.focus(opInput);
+    fireEvent.change(opInput, { target: { value: '$g' } });
+
+    expect(await screen.findByRole('listbox', { name: 'Operator suggestions' })).toBeTruthy();
+    expect(screen.queryByRole('listbox', { name: 'Field suggestions' })).toBeNull();
+  });
+});
+
 describe('Query Builder — symbolic operators', () => {
   it.each([
     ['>', '$gt'],

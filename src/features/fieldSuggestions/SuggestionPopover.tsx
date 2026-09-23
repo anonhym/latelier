@@ -42,9 +42,19 @@ interface Props {
   onClose: () => void;
   /** When false, the component renders nothing. */
   open: boolean;
+  /** #130 — the listbox's accessible name; the builder's operator box passes its own. */
+  label?: string;
 }
 
-export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onClose, open }: Props) {
+export function SuggestionPopover({
+  items,
+  anchorRef,
+  keyboardRef,
+  onSelect,
+  onClose,
+  open,
+  label = 'Field suggestions',
+}: Props) {
   const T = themeVars;
   const { index: highlight, setIndex: setHighlight, move: moveHighlight } =
     useRovingHighlight(items.length);
@@ -165,7 +175,7 @@ export function SuggestionPopover({ items, anchorRef, keyboardRef, onSelect, onC
         // and tabbing out of the input would land inside a listbox that
         // closes on blur.
         tabIndex={-1}
-        aria-label="Field suggestions"
+        aria-label={label}
         onMouseDown={(e) => e.preventDefault()}
         style={{
           position: 'fixed',
