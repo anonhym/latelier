@@ -67,7 +67,7 @@ describe('ConnectionFormModal', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
@@ -110,7 +110,7 @@ describe('ConnectionFormModal', () => {
 
     const modalNameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(modalNameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
@@ -140,7 +140,7 @@ describe('ConnectionFormModal', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     expect(screen.queryByText(/Password is required/i)).toBeNull();
 
     fireEvent.click(screen.getByText(/^Save$/));

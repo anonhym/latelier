@@ -102,7 +102,7 @@ describe('ConnectionFormModal — unsaved-changes guard', () => {
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={onClose} />);
     const name = (await nameInput()) as HTMLInputElement;
     await userEvent.type(name, 'Half typed');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     fireEvent.keyDown(document.body, { key: 'Escape' });
 
@@ -113,7 +113,7 @@ describe('ConnectionFormModal — unsaved-changes guard', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(((await nameInput()) as HTMLInputElement).value).toBe('Half typed');
     expect(
-      (screen.getByPlaceholderText(/cluster.mongodb.net/i) as HTMLInputElement).value,
+      (screen.getByPlaceholderText(/cluster\.mongodb\.net/i) as HTMLInputElement).value,
     ).toBe('localhost');
   });
 

@@ -43,7 +43,7 @@ async function openFallback() {
   render(<ConnectionForm mode="create" onSaved={vi.fn()} onCancel={vi.fn()} />);
 
   await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-  await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+  await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
   await userEvent.click(screen.getByText('Auth'));
   await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
   await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');

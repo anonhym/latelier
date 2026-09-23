@@ -47,7 +47,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
@@ -100,7 +100,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     await userEvent.click(screen.getByRole('switch', { name: 'Read-only connection' }));
 
@@ -156,7 +156,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     // Stay on General. The offending field (`password`) lives on the Auth tab,
     // so its error text is only reachable if the save handler jumps tabs for us

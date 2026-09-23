@@ -711,7 +711,7 @@ describe('ConnectionSwitcher — add/edit', () => {
     await screen.findByRole('dialog', { name: 'New Connection' });
 
     await userEvent.type(screen.getByPlaceholderText(/My MongoDB Server/i), 'Fresh');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'fresh.example.com');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'fresh.example.com');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
