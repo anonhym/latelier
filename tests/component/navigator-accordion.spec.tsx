@@ -378,12 +378,20 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       const spy = vi
         .spyOn(document, 'getElementById')
         .mockImplementation((id) => (id === rowEl.id ? null : realGet(id)));
+      // react-window's `scrollToRow` ends in `element.scrollTo(...)`. The row
+      // is already the focused one, so nothing else scrolls it back: only the
+      // handler's own `scrollToRow` can make this call.
+      const originalScrollTo = Element.prototype.scrollTo;
+      const scrollTo = vi.fn();
+      Element.prototype.scrollTo = scrollTo as unknown as typeof Element.prototype.scrollTo;
       try {
         fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: true });
 
         expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+        expect(scrollTo).toHaveBeenCalled();
       } finally {
         spy.mockRestore();
+        Element.prototype.scrollTo = originalScrollTo;
       }
     });
 
