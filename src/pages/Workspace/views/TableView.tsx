@@ -30,7 +30,6 @@ import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getFullDocId, isInlineEditable } from './docId';
-import { docKeyPrefix } from './fieldPathKey';
 import {
   deriveColumns,
   resolveColumns,
@@ -125,10 +124,10 @@ interface TableCellProps {
 /**
  * A single Table cell. Owns its own hover/popover-open/inline-edit state for
  * the click-to-expand (AC5) and inline-edit (T2.6) affordances — kept local
- * rather than lifted into `TableRow`'s props so hovering/editing one cell
- * doesn't invalidate the row's memo comparator for every other cell in the
- * row. Reads `actions`/`meta` straight off the workspace context (rather
- * than threading them through `TableRowProps`) for the same reason.
+ * rather than lifted into `TableRowImpl`'s props, since none of it is
+ * needed outside this one cell. Reads `actions`/`meta` straight off the
+ * workspace context (rather than threading them through `TableRowProps`)
+ * for the same reason.
  */
 function TableCell({
   value,
@@ -713,82 +712,35 @@ function TableRowImpl({
   );
 }
 
-// Index-keyed comparator (selection/copy-flash are index-keyed here, unlike
-// TreeView's docId-keyed `DocRow`); row-expand/deepPaths stay docId-scoped.
-const TableRow = React.memo(TableRowImpl, (prev, next) => {
-  if (prev.index !== next.index || prev.style !== next.style) return false;
-  const prevDoc = prev.documents[prev.index];
-  const nextDoc = next.documents[next.index];
-  if (prevDoc !== nextDoc) return false;
-  if (
-    prev.columns !== next.columns ||
-    prev.widths !== next.widths ||
-    prev.refsByField !== next.refsByField ||
-    prev.onSelect !== next.onSelect ||
-    prev.onCopyCell !== next.onCopyCell ||
-    prev.onContextMenu !== next.onContextMenu ||
-    prev.onRowExpand !== next.onRowExpand ||
-    prev.toggleDeepPath !== next.toggleDeepPath ||
-    prev.handleCopyField !== next.handleCopyField ||
-    prev.handleOpenFieldMenu !== next.handleOpenFieldMenu ||
-    prev.onRefHover !== next.onRefHover ||
-    prev.onRefHoverLeave !== next.onRefHoverLeave ||
-    prev.onRefOpen !== next.onRefOpen ||
-    prev.rowId !== next.rowId
-  ) {
-    return false;
-  }
-
-  if (prev.indices.has(prev.index) !== next.indices.has(next.index)) return false;
-
-  // #60 — index-keyed like the selection check above, not a bare
-  // `prev.activeIndex !== next.activeIndex`, which would re-render every
-  // mounted row on each arrow press instead of only the two that change.
-  //
-  // Measured caveat: today this line changes nothing, and neither does any
-  // other check below the `prev.style !== next.style` guard at the top.
-  // react-window rebuilds its row array inside a `useMemo` keyed on
-  // `rowProps`, and every rebuilt row gets a brand-new inline `style`
-  // object — probed directly: on a `rowProps` change the comparator ran for
-  // all 5 mounted rows and `prev.style === next.style` was false for every
-  // one. So the top guard already returns false for every row, every time.
-  // Filed as its own issue; the check stays because it becomes
-  // correctness-load-bearing the moment that guard stops short-circuiting —
-  // without it, a working comparator would skip the re-render that moves
-  // the outline.
-  if ((prev.activeIndex === prev.index) !== (next.activeIndex === next.index)) return false;
-
-  if (prev.copiedCell !== next.copiedCell) {
-    const prefix = `${next.index}:`;
-    const prevHere = prev.copiedCell?.startsWith(prefix) ?? false;
-    const nextHere = next.copiedCell?.startsWith(prefix) ?? false;
-    if (prevHere || nextHere) return false;
-  }
-
-  const docId = getFullDocId(nextDoc);
-  if (ownGet(prev.expandedRows, docId) !== ownGet(next.expandedRows, docId)) return false;
-
-  const isExpanded = !!ownGet(next.expandedRows, docId);
-  if (isExpanded) {
-    if (prev.fieldCopiedPath !== next.fieldCopiedPath) {
-      const prefix = docKeyPrefix(docId);
-      const prevHere = prev.fieldCopiedPath?.startsWith(prefix) ?? false;
-      const nextHere = next.fieldCopiedPath?.startsWith(prefix) ?? false;
-      if (prevHere || nextHere) return false;
-    }
-    if (prev.deepPaths !== next.deepPaths) {
-      const prefix = docKeyPrefix(docId);
-      for (const p of prev.deepPaths) {
-        if (p.startsWith(prefix) && !next.deepPaths.has(p)) return false;
-      }
-      for (const p of next.deepPaths) {
-        if (p.startsWith(prefix) && !prev.deepPaths.has(p)) return false;
-      }
-    }
-  }
-
-  return true;
-});
+// X19 #82 — this used to be `React.memo(TableRowImpl, comparator)` with a
+// careful index-keyed comparator (selection, copy-flash, expansion, #60
+// active row). Deleted: none of it ever ran. react-window's `List` rebuilds
+// its row array in a `useMemo` keyed on `rowProps` and hands every rebuilt
+// row a brand-new inline `style` object, so the comparator's mandatory
+// `prev.style !== next.style` top guard returned `false` for every mounted
+// row, every time — the rest of the comparator body was unreachable. See
+// #82 for the full writeup and the render-count probe that confirmed it.
+//
+// Measured before deleting, not guessed. Method: a prod build, 500 seeded
+// docs (8 fields), a 1280x800 window, 28 mounted rows x 10 columns; an
+// ArrowDown/ArrowUp keydown dispatched in-page and timed to the target
+// row's own `style` mutation via a `MutationObserver` plus a forced layout
+// read, alternating Down/Up so the mounted set stays constant, n=60-120
+// samples per run (throwaway e2e probe, deleted after use). Result: median
+// 5.3-5.5ms; p95 ranged 7.2-9.4ms across repeated runs — close to half a
+// 60Hz frame (8.3ms), not comfortably clear of it. Page size (default vs.
+// 500) didn't move the number: react-window only mounts what's in the
+// viewport, so rows-in-view x columns drives cost, not total row count.
+// Deleting is still the right call on this measurement — the median has
+// headroom, and TreeView (below) clears the threshold by an order of
+// magnitude on the same rig — but this one is a judgment call, not a clean
+// pass. If TableView picks up materially more columns or heavier cells,
+// re-measure before assuming the margin still holds; a value-based `style`
+// comparison measured 0.8ms median / 1.4ms p95 in the same conditions and
+// is the fallback if it doesn't. Every mounted row re-rendering today is
+// also what makes selection, copy-flash, expansion, and #60's active-row
+// outline repaint; removing the memo is a no-op on behaviour, just honest
+// about it.
 
 export function TableView({
   documents,
@@ -1028,7 +980,7 @@ export function TableView({
 
   // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to
-  // the DOM: a stable `id` per row (set on TableRow above) named by the
+  // the DOM: a stable `id` per row (set in `TableRowImpl` above) named by the
   // grid's `aria-activedescendant`, kept in sync with react-window's
   // mounted range by scrolling to the row in the same key handler that
   // moves the index — see `useRovingFocus`'s own docstring for why that has
@@ -1431,7 +1383,7 @@ export function TableView({
         onFocus={roving.containerProps.onFocus}
         onBlur={roving.containerProps.onBlur}
         onKeyDown={handleGridKeyDown}
-        rowComponent={TableRow as typeof TableRowImpl}
+        rowComponent={TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}
         rowProps={rowProps}
