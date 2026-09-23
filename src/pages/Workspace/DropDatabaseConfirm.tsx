@@ -95,14 +95,7 @@ export function DropDatabaseConfirm({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <SubmitButton
-            variant="filled"
-            color="red"
-            size="compact-xs"
-            onClick={() => void submit()}
-            disabled={!matches || readOnly}
-            submitting={submitting}
-          >
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || readOnly} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop database'}
           </SubmitButton>
         </Group>

@@ -7,6 +7,23 @@ type SubmitButtonProps = ButtonProps &
   };
 
 /**
+ * `data-disabled`/`aria-disabled` for a native (non-Mantine) button that
+ * needs the same fake-disabled look `SubmitButton` gives a Mantine one —
+ * see that component's doc comment for the why. Spread onto the button:
+ * `<button {...submittingProps(saving)} disabled={!isValid} .../>`.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function submittingProps(submitting: boolean): {
+  'data-disabled': true | undefined;
+  'aria-disabled': true | undefined;
+} {
+  return {
+    'data-disabled': submitting || undefined,
+    'aria-disabled': submitting || undefined,
+  };
+}
+
+/**
  * A confirm/submit button for a dialog (Modal/Drawer) that must survive its
  * own activation. Chromium blurs a focused element once it goes `disabled` —
  * moving focus to `<body>` — but not synchronously with the attribute
@@ -31,8 +48,7 @@ export function SubmitButton({ submitting, disabled, onClick, ...props }: Submit
     <Button
       {...props}
       disabled={disabled}
-      data-disabled={submitting || undefined}
-      aria-disabled={submitting || undefined}
+      {...submittingProps(submitting)}
       onClick={(e) => {
         if (submitting) {
           e.preventDefault();

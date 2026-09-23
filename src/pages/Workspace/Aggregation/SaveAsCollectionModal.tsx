@@ -4,6 +4,7 @@ import { themeVars } from '../../../theme/themeVars';
 import { api, isIpcError } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../../components/SubmitButton';
 import type { AggMergeOptions, AggSaveMode, Stage } from '@shared/types';
 
 interface Props {
@@ -280,14 +281,8 @@ export function SaveAsCollectionModal({
           </button>
           <button
             type="submit"
-            // #91 — only `fieldsValid` is a real `disabled`. `saving` fakes
-            // it instead: a focused submit button that goes `disabled`
-            // mid-click gets blurred to `<body>` by Chromium with no
-            // restore on failure. `submit`'s `!canSubmit` guard (which still
-            // folds in `saving`) blocks re-entry.
-            disabled={!fieldsValid}
-            data-disabled={saving || undefined}
-            aria-disabled={saving || undefined}
+            disabled={!fieldsValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,

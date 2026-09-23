@@ -3,6 +3,7 @@ import { Drawer } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../components/SubmitButton';
 import { api } from '../../api/atelier';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable, isValidEjson } from '../../utils/ejson';
 import { isRecord } from '../../utils/displayValue';
@@ -436,14 +437,8 @@ export function EditDrawer({
           </button>
           <button
             onClick={() => void handleSave()}
-            // #91 — only `!isValid` is a real `disabled`: a focused button
-            // that goes `disabled` mid-click gets blurred to `<body>` by
-            // Chromium and nothing restores it on a failure. `saving` fakes
-            // the same look with `data-disabled`/`aria-disabled` instead, and
-            // `handleSave`'s own guard above blocks re-entry.
-            disabled={!isValid}
-            data-disabled={saving || undefined}
-            aria-disabled={saving || undefined}
+            disabled={!isValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,

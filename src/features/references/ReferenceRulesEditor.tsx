@@ -5,7 +5,7 @@ import { Button, Modal } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
-import { SubmitButton } from '../../components/SubmitButton';
+import { SubmitButton, submittingProps } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
 import type {
@@ -398,16 +398,9 @@ export function ReferenceRulesEditor({
                     <>
                       <span style={{ fontSize: 11, color: T.red }}>Delete?</span>
                       <button
-                        // #91 — stays enabled while deleting: a real
-                        // `disabled` here would blur this focused button to
-                        // `<body>` and, on a failure, never restore it.
-                        // `handleDelete`'s own `deletingId` guard (below)
-                        // is what stops a second click, same as every other
-                        // handler in this file — no separate guard here.
-                        onClick={() => void handleDelete(r.id)}
+                        onClick={() => void handleDelete(r.id)} // #91 — see SubmitButton.tsx
                         aria-label="Confirm delete"
-                        data-disabled={deletingId === r.id || undefined}
-                        aria-disabled={deletingId === r.id || undefined}
+                        {...submittingProps(deletingId === r.id)}
                         style={{
                           padding: '3px 8px',
                           fontSize: 11,
@@ -416,6 +409,7 @@ export function ReferenceRulesEditor({
                           borderRadius: T.rx,
                           background: T.red,
                           color: '#fff',
+                          opacity: deletingId === r.id ? 0.6 : 1,
                           cursor: deletingId === r.id ? 'not-allowed' : 'pointer',
                         }}
                       >

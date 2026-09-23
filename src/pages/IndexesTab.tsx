@@ -918,12 +918,7 @@ function CreateIndexDrawer({
         >
           Cancel
         </Button>
-        <SubmitButton
-          variant="filled"
-          size="compact-xs"
-          onClick={() => void submit()}
-          submitting={submitting}
-        >
+        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
           {submitting ? 'Creating…' : 'Create index'}
         </SubmitButton>
       </div>
@@ -1082,14 +1077,7 @@ function DropConfirmDialog({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <SubmitButton
-            variant="filled"
-            color="red"
-            size="compact-xs"
-            onClick={() => void submit()}
-            disabled={!matches}
-            submitting={submitting}
-          >
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
           </SubmitButton>
         </Group>
