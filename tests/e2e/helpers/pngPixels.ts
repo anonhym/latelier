@@ -16,8 +16,11 @@ export function decodePng(buf: Buffer): { width: number; height: number; pixel: 
       height = data.readUInt32BE(4);
       const depth = data[8];
       const colorType = data[9];
-      if (depth !== 8 || (colorType !== 2 && colorType !== 6)) {
-        throw new Error(`decodePng: unsupported PNG (bit depth ${depth}, color type ${colorType})`);
+      const interlace = data[12];
+      if (depth !== 8 || (colorType !== 2 && colorType !== 6) || interlace !== 0) {
+        throw new Error(
+          `decodePng: unsupported PNG (bit depth ${depth}, color type ${colorType}, interlace ${interlace})`,
+        );
       }
       bpp = colorType === 6 ? 4 : 3;
     } else if (type === 'IDAT') idat.push(data);

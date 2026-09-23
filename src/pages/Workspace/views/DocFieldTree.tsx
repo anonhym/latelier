@@ -250,6 +250,8 @@ function FieldNodeImpl({
           cursor: rowClickable ? 'pointer' : 'grab',
           userSelect: 'none',
           background: isCopied ? 'var(--atelier-accent)' : undefined,
+          // #83 — keep the flash inside the padding: the #60 outline below is the
+          // same accent, inset 2px, and would vanish into a full-row flash.
           backgroundClip: isCopied ? 'content-box' : undefined,
           color: isCopied ? '#fff' : undefined,
           transition: 'background 120ms',
