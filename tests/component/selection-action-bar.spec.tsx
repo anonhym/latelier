@@ -80,6 +80,27 @@ describe('SelectionActionBar', () => {
     expect(container.textContent).not.toContain('selected');
   });
 
+  // #106 — jsdom has no layout, so this can't measure the rendered height;
+  // it guards that the strip stays mounted and keeps the same fixed inline
+  // height in both states. The e2e measures the real grid position.
+  it('#106 — the strip stays mounted at the same fixed height, with or without a selection', () => {
+    const { container } = renderBar(vi.fn());
+    const strip = () => container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!;
+    expect(strip()).not.toBeNull();
+    expect(container.querySelector('[data-testid="selection-bar-count"]')).toBeNull();
+    expect(strip().style.height).toBe('31px');
+    expect(strip().style.boxSizing).toBe('border-box');
+    selectFirstCard();
+    expect(container.querySelector('[data-testid="selection-bar-count"]')).not.toBeNull();
+    expect(strip().style.height).toBe('31px');
+    expect(strip().style.boxSizing).toBe('border-box');
+  });
+
+  it('#106 — read-only still renders nothing at all, strip included', () => {
+    const { container } = renderBar(vi.fn(), { isReadOnly: true });
+    expect(container.querySelector('[data-testid="selection-bar"]')).toBeNull();
+  });
+
   it('AC2 — shows the selection count once a row is selected', () => {
     const { container } = renderBar(vi.fn());
     selectFirstCard();

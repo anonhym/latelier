@@ -50,20 +50,8 @@ test('table copy flash keeps the active-row outline visible at WCAG 1.4.11 contr
       const grid = win.getByRole('grid', { name: 'Documents' });
       await expect(grid).toBeVisible({ timeout: 8000 });
 
-      // #106 — the FIRST selection made in the app mounts a "1 selected" bar
-      // above the grid and shifts everything below it mid-double-click.
-      // Select row 0 first so that shift has already happened before we act
-      // on row 1 below.
-      await win
-        .locator('#table-row-0')
-        .getByTitle(/Drag to add "name/)
-        .click({ position: { x: 12, y: 10 } });
-      await win.waitForTimeout(300);
-
       const row = win.locator('#table-row-1');
       const cell = row.getByTitle(/Drag to add "name/);
-      // The bar can mount/unmount again from the click above — re-measure
-      // right before acting on it rather than reusing an earlier box.
       const cb = (await cell.boundingBox())!;
 
       // A double-click's first click already makes row 1 the active row (see
