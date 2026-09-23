@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { childKey, docKeyPrefix, escapeKeySegment, pathCoversSubtree, rootKey } from '../../src/pages/Workspace/views/fieldPathKey';
+import { childKey, escapeKeySegment, pathCoversSubtree, rootKey } from '../../src/pages/Workspace/views/fieldPathKey';
 
 // #86 — a field row's identity key used to be built by plain concatenation
 // (`${docId}::${field}`, then `.`-joined per nested level), so a top-level
@@ -27,11 +27,6 @@ describe('fieldPathKey', () => {
   it('childKey only escapes the new segment — the parent key is already complete', () => {
     expect(childKey('doc1::a', 'b')).toBe('doc1::a.b');
     expect(childKey('doc1::a', 'b.c')).toBe('doc1::a.b\\.c');
-  });
-
-  it('docKeyPrefix matches what rootKey produces for that docId', () => {
-    expect(docKeyPrefix('doc1')).toBe('doc1::');
-    expect(rootKey('doc1', 'x').startsWith(docKeyPrefix('doc1'))).toBe(true);
   });
 
   // The #86 repro: `{ "a.b": 1, "a": { "b": 2 } }`.

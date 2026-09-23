@@ -1035,7 +1035,7 @@ export function DbCollectionNavigator({
 
   // Memoized so <List> gets the same object across renders that don't touch
   // any of these fields — a fresh literal here would re-trigger every visible
-  // row (see TableRow/DocRow's rowProps for the same fix applied earlier).
+  // row (TableView's and TreeView's rowProps are memoized the same way).
   const rowProps = React.useMemo<NavRowProps>(
     () => ({
       rows,

@@ -29,12 +29,6 @@ export function childKey(parentKey: string, name: string): string {
   return `${parentKey}.${escapeKeySegment(name)}`;
 }
 
-/** The `${docId}::` prefix `TableView`/`TreeView` match `deepPaths` and
- * `copiedPath` entries against to bulk-select every row under one document. */
-export function docKeyPrefix(docId: string): string {
-  return `${escapeKeySegment(docId)}::`;
-}
-
 /**
  * True iff `child` names `parent`'s own row or a row anywhere in its
  * subtree. `child` is nullable so callers can pass an `activePath`/

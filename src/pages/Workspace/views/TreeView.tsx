@@ -20,7 +20,6 @@ import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
-import { docKeyPrefix } from './fieldPathKey';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -372,56 +371,22 @@ function DocRowImpl({
   );
 }
 
-const DocRow = React.memo(DocRowImpl, (prev, next) => {
-  if (prev.index !== next.index || prev.style !== next.style) return false;
-  const prevDoc = prev.documents[prev.index];
-  const nextDoc = next.documents[next.index];
-  if (prevDoc !== nextDoc) return false;
-  const docId = getFullDocId(nextDoc);
-  if (ownGet(prev.expandedRows, docId) !== ownGet(next.expandedRows, docId)) return false;
-  if (prev.indices.has(prev.index) !== next.indices.has(next.index)) return false;
-  // #60 — index-keyed like the selection check above. Same measured caveat
-  // as `TableRow`'s copy of this line: every check below the
-  // `prev.style !== next.style` guard at the top is unreachable in effect,
-  // because react-window hands each row a brand-new `style` object whenever
-  // it rebuilds its row array. Filed as its own issue; the check stays
-  // because it becomes correctness-load-bearing the moment that guard stops
-  // short-circuiting.
-  if ((prev.activeIndex === prev.index) !== (next.activeIndex === next.index)) return false;
-  if (prev.copiedPath !== next.copiedPath) {
-    const prefix = docKeyPrefix(docId);
-    const prevHere = prev.copiedPath?.startsWith(prefix) ?? false;
-    const nextHere = next.copiedPath?.startsWith(prefix) ?? false;
-    if (prevHere || nextHere) return false;
-  }
-  const isExpanded = !!ownGet(next.expandedRows, docId);
-  if (isExpanded && prev.deepPaths !== next.deepPaths) {
-    const prefix = docKeyPrefix(docId);
-    for (const p of prev.deepPaths) {
-      if (p.startsWith(prefix) && !next.deepPaths.has(p)) return false;
-    }
-    for (const p of next.deepPaths) {
-      if (p.startsWith(prefix) && !prev.deepPaths.has(p)) return false;
-    }
-  }
-  return (
-    prev.previewFields === next.previewFields &&
-    prev.refsByField === next.refsByField &&
-    prev.onRowExpand === next.onRowExpand &&
-    prev.onEditDoc === next.onEditDoc &&
-    prev.onDeleteDoc === next.onDeleteDoc &&
-    prev.onSelect === next.onSelect &&
-    prev.onToggleSelect === next.onToggleSelect &&
-    prev.toggleDeepPath === next.toggleDeepPath &&
-    prev.handleCopy === next.handleCopy &&
-    prev.handleOpenMenu === next.handleOpenMenu &&
-    prev.onRefHover === next.onRefHover &&
-    prev.onRefHoverLeave === next.onRefHoverLeave &&
-    prev.onRefOpen === next.onRefOpen &&
-    prev.rowId === next.rowId &&
-    prev.setActiveIndex === next.setActiveIndex
-  );
-});
+// X19 #82 — this used to be `React.memo(DocRowImpl, comparator)` with a
+// careful docId-keyed comparator (selection, copy-flash, expansion, #60
+// active row). Deleted: none of it ever ran, for the same reason as
+// `TableView.tsx`'s `TableRowImpl` (see the comment there for the method) —
+// react-window's `List` hands every rebuilt row a brand-new inline `style`
+// object, so the comparator's mandatory `prev.style !== next.style` top
+// guard returned `false` for every mounted row, every time.
+//
+// Measured before deleting, same rig as `TableView.tsx` (prod build, 500
+// seeded docs, 1280x800 window, n=60-120 alternating ArrowDown/ArrowUp,
+// throwaway e2e probe deleted after use): 16 rows mounted, median 0.2-0.3ms
+// and p95 0.5-0.6ms per keypress — an order of magnitude under the 8.3ms
+// half-frame line, unlike Table's borderline result. No re-render cost
+// worth memoizing away here. Every mounted row re-rendering is also what
+// makes selection, copy-flash, expansion, and #60's active-row outline
+// repaint today; removing the memo is a no-op on behaviour.
 
 export function TreeView({
   documents,
@@ -700,7 +665,7 @@ export function TreeView({
           onBlur={roving.containerProps.onBlur}
           onKeyDown={handleTreeKeyDown}
           className="tree-view-no-scroll-anchor"
-          rowComponent={DocRow as typeof DocRowImpl}
+          rowComponent={DocRowImpl}
           rowCount={documents.length}
           rowHeight={rowHeight}
           rowProps={rowProps}

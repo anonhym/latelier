@@ -70,9 +70,8 @@ describe('Result selection — cross-view persistence and reset (AC5/AC6)', () =
     rerender(<Viewer state={makeState('Tree', lastRun)} />);
     expect(container.textContent).toContain('1 selected');
 
-    // Same row (by index) actually repaints as selected in Tree — pins the
-    // DocRow memo comparator's `indices.has(index)` check, not just the
-    // action bar's independent count.
+    // Same row (by index) actually repaints as selected in Tree — the row's
+    // own `data-selected`, not just the action bar's independent count.
     const rows = Array.from(container.querySelectorAll('[data-selected]'));
     const alphaRow = rows.find((el) => el.textContent?.includes('alpha'));
     const betaRow = rows.find((el) => el.textContent?.includes('beta'));
