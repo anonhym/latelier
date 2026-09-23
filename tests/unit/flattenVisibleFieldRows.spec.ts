@@ -73,4 +73,17 @@ describe('flattenVisibleFieldRows', () => {
   it('an empty document produces no rows', () => {
     expect(flattenVisibleFieldRows({}, 'doc1', new Set())).toEqual([]);
   });
+
+  // #86 — a field named "a.b" used to produce the same `path` as nested
+  // field `b` under top-level `a` (`${docId}::a.b` either way). Escaping `.`
+  // in a segment before joining (`fieldPathKey.ts`) keeps them distinct.
+  it('a field name containing a dot does not collide with a same-shaped nested path', () => {
+    const rows = flattenVisibleFieldRows({ 'a.b': 1, a: { b: 2 } }, 'doc1', new Set(['doc1::a']));
+    const paths = rows.map((r) => r.path);
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(paths).toEqual(['doc1::a\\.b', 'doc1::a', 'doc1::a.b']);
+    // `fieldPath` (the real Mongo dot-path, unescaped) is untouched by #86 —
+    // it still collides, which is a separate, out-of-scope `$getField` issue.
+    expect(rows.map((r) => r.fieldPath)).toEqual(['a.b', 'a', 'a.b']);
+  });
 });

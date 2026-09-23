@@ -1,6 +1,7 @@
 import React from 'react';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, type DisplayType, type DisplayValue } from '../../../utils/displayValue';
+import { childKey, escapeKeySegment } from '../views/fieldPathKey';
 
 // Replicated from `Workspace/views/TreeView.tsx` (kept in sync manually) so
 // both JSON-tree surfaces share the same visual vocabulary. Not imported
@@ -164,11 +165,11 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
       {isExpanded &&
         childEntries.map(([k, v]) => (
           <JsonNode
-            key={`${path}.${k}`}
+            key={childKey(path, k)}
             name={k}
             value={v}
             depth={depth + 1}
-            path={`${path}.${k}`}
+            path={childKey(path, k)}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
             highlightKeys={highlightKeys}
@@ -184,8 +185,10 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
 // on a single toggle. Skip re-render unless THIS node's own expansion state
 // changed, or (when expanded) a descendant path's expansion state changed —
 // descendant paths are always prefixed with `${path}.` since paths are built
-// by dot-joining from the root, so this also covers deeper descendants, not
-// just immediate children.
+// by dot-joining escaped segments from the root (`fieldPathKey.ts`, #86), so
+// a bare `.` at that boundary is always a real level separator, never one
+// escaped inside a name — this also covers deeper descendants, not just
+// immediate children.
 const JsonNode = React.memo(JsonNodeImpl, (prev, next) => {
   // Cheap identity checks first.
   if (
@@ -246,11 +249,11 @@ export function JsonTree({ value, highlightKeys }: JsonTreeProps) {
     <div>
       {rootEntries.map(([k, v]) => (
         <JsonNode
-          key={k}
+          key={escapeKeySegment(k)}
           name={k}
           value={v}
           depth={0}
-          path={k}
+          path={escapeKeySegment(k)}
           expandedPaths={expandedPaths}
           onToggle={onToggle}
           highlightKeys={highlightKeys}
