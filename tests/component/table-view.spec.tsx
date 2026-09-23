@@ -296,6 +296,20 @@ describe('TableView — rendering and interaction', () => {
       expect(getByTitle(/Drag to add "name/).textContent).not.toContain('Copied');
     });
 
+    // X19 #83 — the flash and the #60 active-row outline are both
+    // `var(--atelier-accent)`; clipping the flash to the content box keeps
+    // it off the 2px inset band the outline occupies. jsdom paints nothing,
+    // so this only guards the style is set — `x19-copy-flash-outline.e2e.ts`
+    // proves the pixels actually separate.
+    it('a copied cell clips its flash background to the content box (#83)', async () => {
+      const { getByTitle } = renderTable([{ _id: 1, name: 'alpha' }]);
+      const cell = getByTitle(/Drag to add "name/);
+
+      fireEvent.doubleClick(cell);
+
+      await waitFor(() => expect(cell.style.backgroundClip).toBe('content-box'));
+    });
+
     // The regression this guard exists for: without `e.target !==
     // e.currentTarget`, Enter on a nested native button (which also bubbles
     // its keydown up to the strip) would both run its own action AND select

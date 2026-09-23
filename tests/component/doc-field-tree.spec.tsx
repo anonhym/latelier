@@ -10,6 +10,7 @@ function renderFieldTree(
     expandedPaths?: Set<string>;
     onToggle?: (path: string) => void;
     onOpenMenu?: (...args: unknown[]) => void;
+    copiedPath?: string | null;
   } = {},
 ) {
   return render(
@@ -18,7 +19,7 @@ function renderFieldTree(
       docId={opts.docId ?? 'doc1'}
       expandedPaths={opts.expandedPaths ?? new Set()}
       onToggle={opts.onToggle ?? vi.fn()}
-      copiedPath={null}
+      copiedPath={opts.copiedPath ?? null}
       onCopy={vi.fn()}
       onOpenMenu={opts.onOpenMenu ?? vi.fn()}
     />,
@@ -203,6 +204,18 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
     expect(tree.getAttribute('aria-activedescendant')).toBe('field-row-doc1::a.c');
     expect(rowFor('a.c').style.outline).toContain('2px');
     expect(rowFor('a.b').style.outline).not.toContain('2px');
+  });
+
+  // X19 #83 — the flash and this outline are both `var(--atelier-accent)`;
+  // clipping the flash to the content box keeps it off the 2px inset band
+  // the outline occupies. jsdom paints nothing, so this only guards the
+  // style is set — `x19-copy-flash-outline.e2e.ts` proves the pixels
+  // actually separate.
+  it('a copied row clips its flash background to the content box (#83)', () => {
+    const { container } = renderFieldTree({ a: 1 }, { copiedPath: 'doc1::a' });
+    const row = container.querySelector('[role="treeitem"]') as HTMLElement;
+
+    expect(row.style.backgroundClip).toBe('content-box');
   });
 });
 
