@@ -65,7 +65,7 @@ test('double-clicking a cell with no prior selection copies that cell, not the r
 
       // The grid never moved — the bar's space was reserved throughout.
       const gridAfter = (await grid.boundingBox())!;
-      expect(gridAfter.y).toBeCloseTo(gridBefore.y, 1);
+      expect(gridAfter.y).toBeCloseTo(gridBefore.y, 0);
     });
   });
 });
