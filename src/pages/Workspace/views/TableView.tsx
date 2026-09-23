@@ -403,6 +403,11 @@ function TableCell({
           position="bottom-start"
           withinPortal
           shadow="md"
+          // #79 — without this, closing on a click outside a focusable
+          // element drops focus to <body>. Safe here because this dropdown
+          // has no focusable content to autofocus (see `ColumnChooser`'s
+          // comment for why an autofocus would break this).
+          returnFocus
         >
           <Popover.Target>
             <button

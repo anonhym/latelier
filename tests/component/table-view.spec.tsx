@@ -13,6 +13,7 @@ import {
 } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
+import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -898,6 +899,24 @@ describe('TableView — rendering and interaction', () => {
       fireEvent.focus(editBtn);
       expect(editBtn.style.opacity).toBe('1');
       expect(editBtn.style.pointerEvents).toBe('auto');
+    });
+  });
+
+  // #79 — closing the "Expand cell value" popover on a click that lands on a
+  // non-focusable area used to drop focus to <body>. `returnFocus` fixes it
+  // here because this dropdown has no focusable content to autofocus (see
+  // the prop's comment on `TableView.tsx`). Shared with column-chooser/
+  // preview-picker specs — see the helper's docstring.
+  describe('expand-cell popover — focus return on close (#79)', () => {
+    itReturnsFocusToPopoverTrigger(async () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const ctx = renderTable(docs);
+      const cell = ctx.getByTitle(/Drag to add "note/);
+      fireEvent.mouseEnter(cell);
+      const trigger = within(cell).getByRole('button', { name: 'Expand cell value' });
+      await userEvent.click(trigger);
+      // No focusInside: this dropdown has no focusable content.
+      return { trigger };
     });
   });
 });
