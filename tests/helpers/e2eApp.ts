@@ -24,7 +24,7 @@ export function freshUserData(): string {
 }
 
 export async function launchApp(userDataDir: string): Promise<ElectronApplication> {
-  return electron.launch({
+  const app = await electron.launch({
     args: [path.resolve(here, '../..', 'dist-electron/main.js')],
     env: {
       ...process.env,
@@ -32,6 +32,18 @@ export async function launchApp(userDataDir: string): Promise<ElectronApplicatio
       NODE_ENV: 'test',
     },
   });
+  // A test instance never shows its window (`electron/main.ts`). macOS still
+  // renders a hidden window, but Linux under xvfb (CI) backgrounds it:
+  // timers are throttled and frames stop, so rAF, scroll events and
+  // ResizeObserver stall. Measured on CI (PR #122): 0 of 49 `setTimeout(0)`
+  // callbacks ran in 3s, and one ArrowDown's render was not committed
+  // before the next key. Electron documents that disabling background
+  // throttling keeps timers running and frames drawn for the window.
+  await app.firstWindow();
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.setBackgroundThrottling(false);
+  });
+  return app;
 }
 
 /**
