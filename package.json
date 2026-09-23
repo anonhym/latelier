@@ -64,7 +64,7 @@
     "@mantine/core": "^9.5.1",
     "@mantine/form": "^9.5.1",
     "@mantine/hooks": "^9.5.1",
-    "@mantine/modals": "^9.5.1",
+    "@mantine/modals": "^9.6.1",
     "@mantine/notifications": "^9.5.1",
     "@mantine/spotlight": "^9.5.1",
     "@tabler/icons-react": "^3.46.0",
