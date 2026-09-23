@@ -74,11 +74,14 @@ async function openSeededRovingFocusTable(
 
   const ws = new WorkspacePage(win);
   await ws.openCollectionFromNavigator('shop', 'orders');
-  // Setup only — running the query and switching view are not the
-  // feature under test, so a click here doesn't undercut "keyboard-only"
-  // below, matching `conn-switcher-keyboard.e2e.ts`'s own convention of
-  // clicking to reach the widget, then going keyboard-only once there.
-  await ws.queryBarRunButton.click();
+  // Setup only — switching view is not the feature under test, so a click
+  // here doesn't undercut "keyboard-only" below, matching
+  // `conn-switcher-keyboard.e2e.ts`'s own convention of clicking to reach
+  // the widget, then going keyboard-only once there. No Run click: the
+  // auto-run on open is the only query run. A second one used to land its
+  // result mid-test on a slow CI runner, replacing `documents` and
+  // resetting the active row (PR #122's shard 4: 49 ArrowDowns ended on
+  // row 48).
   await ws.viewTableButton.click();
 
   const grid = win.getByRole('grid', { name: 'Documents' });
@@ -238,7 +241,9 @@ test('tree roving focus: End lands the last row fully in the viewport', async ()
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.queryBarRunButton.click();
+      // The auto-run on open is the only query run. A second Run click used to
+      // land its result mid-test on a slow CI runner, replacing `documents`
+      // and resetting the active row (PR #122's shard 4).
       await ws.viewTreeButton.click();
 
       const tree = win.getByRole('tree', { name: 'Documents' });

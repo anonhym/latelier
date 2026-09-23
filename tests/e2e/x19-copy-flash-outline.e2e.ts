@@ -44,11 +44,14 @@ test('table copy flash keeps the active-row outline visible at WCAG 1.4.11 contr
       );
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.queryBarRunButton.click();
+      // The auto-run on open is the only query run. A second Run click used to
+      // land its result mid-test on a slow CI runner, replacing `documents`
+      // and resetting the active row (PR #122's shard 4).
       await ws.viewTableButton.click();
 
       const grid = win.getByRole('grid', { name: 'Documents' });
       await expect(grid).toBeVisible({ timeout: 8000 });
+      await expect(win.locator('#table-row-1')).toBeVisible({ timeout: 8000 });
 
       const row = win.locator('#table-row-1');
       const cell = row.getByTitle(/Drag to add "name/);
