@@ -6,7 +6,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { renderHook } from '../helpers/render';
+import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useMenuFocus } from '../../src/hooks/useMenuFocus';
+
+// #110 — unmount and clear pending timers after each test; see
+// tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
+installJsdomTeardown();
 
 if (typeof window.matchMedia !== 'function') {
   window.matchMedia = (query: string): MediaQueryList => ({

@@ -6,7 +6,12 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '../helpers/render';
+import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useRovingFocus } from '../../src/hooks/useRovingFocus';
+
+// #110 — unmount and clear pending timers after each test; see
+// tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
+installJsdomTeardown();
 
 if (typeof window.matchMedia !== 'function') {
   window.matchMedia = (query: string): MediaQueryList => ({
