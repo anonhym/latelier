@@ -9,7 +9,12 @@
 // rerun (see `stryker.config.json`'s `mutate` array).
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '../helpers/render';
+import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useRovingHighlight } from '../../src/hooks/useRovingHighlight';
+
+// #110 — unmount and clear pending timers after each test; see
+// tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
+installJsdomTeardown();
 
 // `renderHook` wraps every hook in the app's real MantineProvider tree (see
 // tests/helpers/render.tsx) so hook specs match the runtime tree — this file
