@@ -369,6 +369,24 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
     });
 
+    // #133 — the navigator is virtualized: PageDown or the wheel can scroll
+    // the focused row out and unmount it. jsdom mounts every row, so the
+    // lookup is made to miss the way a real unmounted row would.
+    it('Shift+F10 still opens the menu when the focused row is not mounted', async () => {
+      const { rowEl, treeEl } = await focusOrdersRow();
+      const realGet = document.getElementById.bind(document);
+      const spy = vi
+        .spyOn(document, 'getElementById')
+        .mockImplementation((id) => (id === rowEl.id ? null : realGet(id)));
+      try {
+        fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: true });
+
+        expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('the ContextMenu key opens the same menu', async () => {
       const { treeEl } = await focusOrdersRow();
 

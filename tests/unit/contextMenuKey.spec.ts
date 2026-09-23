@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isContextMenuKey, anchorFromRect } from '../../src/utils/contextMenuKey';
+import { isContextMenuKey, anchorFromRect, anchorForRow } from '../../src/utils/contextMenuKey';
 
 // X19/#55 — the platform-conventional keys for "open the context menu for the
 // focused thing": the dedicated ContextMenu key, and Shift+F10. Every caller
@@ -31,5 +31,25 @@ describe('isContextMenuKey', () => {
 describe('anchorFromRect', () => {
   it('anchors at the bottom-left corner of the rect, matching the bottom-start menu position', () => {
     expect(anchorFromRect({ left: 42, bottom: 84 })).toEqual({ x: 42, y: 84 });
+  });
+});
+
+// #133 — the active row of a virtualized list can be scrolled out and
+// unmounted; the keyboard open must still land somewhere visible.
+describe('anchorForRow', () => {
+  const box = (left: number, top: number, bottom: number) => ({
+    getBoundingClientRect: () => ({ left, top, bottom }),
+  });
+
+  it("anchors at the row's bottom-left corner when the row is mounted", () => {
+    expect(anchorForRow(box(10, 20, 44), box(0, 100, 500))).toEqual({ x: 10, y: 44 });
+  });
+
+  it("falls back to the list's top-left corner when the row is not mounted", () => {
+    expect(anchorForRow(null, box(5, 100, 500))).toEqual({ x: 5, y: 100 });
+  });
+
+  it('is null when neither the row nor the list is there', () => {
+    expect(anchorForRow(null, null)).toBeNull();
   });
 });
