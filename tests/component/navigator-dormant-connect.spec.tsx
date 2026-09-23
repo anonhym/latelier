@@ -1,5 +1,12 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+  navigatorRoot,
+} from '../helpers/render';
 import {
   DbCollectionNavigator,
   type DbCollectionNavigatorProps,
@@ -47,13 +54,6 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
-
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
@@ -71,15 +71,15 @@ describe('expanding a Dormant root connects it, then expands', () => {
     });
     mount();
 
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
+    expect(navigatorRoot('Staging').getAttribute('aria-expanded')).toBe('false');
 
     await act(async () => {
-      fireEvent.click(root('Staging'));
+      fireEvent.click(navigatorRoot('Staging'));
     });
 
     // The accordion doesn't wait on the connect to settle — it opens at once,
     // same as expanding an already-connected root.
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('true');
+    expect(navigatorRoot('Staging').getAttribute('aria-expanded')).toBe('true');
     expect(connect).toHaveBeenCalledWith('c2');
   });
 
@@ -95,10 +95,10 @@ describe('expanding a Dormant root connects it, then expands', () => {
     mount();
 
     await act(async () => {
-      fireEvent.click(root('Prod'));
+      fireEvent.click(navigatorRoot('Prod'));
     });
 
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
+    expect(navigatorRoot('Prod').getAttribute('aria-expanded')).toBe('true');
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -107,14 +107,14 @@ describe('expanding a Dormant root connects it, then expands', () => {
     installAtelierMock({ mongo: { connect } });
     mount({ focusedConnectionId: 'c2' });
 
-    await waitFor(() => expect(root('Staging').getAttribute('aria-expanded')).toBe('true'));
+    await waitFor(() => expect(navigatorRoot('Staging').getAttribute('aria-expanded')).toBe('true'));
     connect.mockClear();
 
     await act(async () => {
-      fireEvent.click(root('Staging'));
+      fireEvent.click(navigatorRoot('Staging'));
     });
 
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
+    expect(navigatorRoot('Staging').getAttribute('aria-expanded')).toBe('false');
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -133,7 +133,7 @@ describe('expanding a Dormant root connects it, then expands', () => {
     fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowDown' }); // Staging
     fireEvent.keyDown(screen.getByRole('tree'), { key: 'Enter' });
 
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('true');
+    expect(navigatorRoot('Staging').getAttribute('aria-expanded')).toBe('true');
     expect(connect).toHaveBeenCalledWith('c2');
   });
 });

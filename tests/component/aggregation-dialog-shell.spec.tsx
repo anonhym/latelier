@@ -47,6 +47,19 @@ const settle = async () => {
   });
 };
 
+/**
+ * A `vi.fn()` whose promise stays pending until `resolve` is called —
+ * shared by the `SavePipelineModal`/`SaveAsCollectionModal` double-submit
+ * guard tests below (#91), so a second submit fired while the first is
+ * still in flight has something to actually be "in flight" against.
+ */
+function deferredCall<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  const spy = vi.fn(() => promise);
+  return { spy, resolve };
+}
+
 // ─── WriteStageConfirm ──────────────────────────────────────────────────
 
 describe('WriteStageConfirm — dialog shell (X15 T6)', () => {
@@ -419,6 +432,41 @@ describe('SavePipelineModal — dialog shell + guard (X15 T6)', () => {
       await settle();
       expect(created.length).toBe(0);
     });
+
+    /**
+     * #91 — the Save button is a native `type="submit"` button, and no
+     * longer goes real-`disabled` while `saving` (only
+     * `data-disabled`/`aria-disabled`). Its own attribute can no longer be
+     * what stops a second click or a second implicit form submit from
+     * firing a second `saved.create` — `submit`'s own `canSubmit` check
+     * (which still folds in `!saving`) has to do that job now.
+     */
+    it('a second submit while a save is in flight makes only one saved.create call', async () => {
+      const { spy: create, resolve } = deferredCall<unknown>();
+      installAtelierMock({ saved: { create: create as never } });
+      render(
+        <SavePipelineModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onSaved={() => undefined}
+        />,
+      );
+      fireEvent.change(nameInput(), { target: { value: 'Top skus' } });
+
+      // Captured once: the button's accessible name changes to "Saving…"
+      // after the first click, so a second `saveButton()` call (an exact
+      // name match) would throw "unable to find element" instead of
+      // re-resolving to the same node.
+      const button = saveButton();
+      fireEvent.click(button);
+      fireEvent.click(button);
+
+      expect(create).toHaveBeenCalledTimes(1);
+      resolve({});
+    });
   });
 });
 
@@ -760,6 +808,42 @@ describe('SaveAsCollectionModal — dialog shell + guard (X15 T6)', () => {
 
       await settle();
       expect(written.length).toBe(0);
+    });
+
+    /**
+     * #91 — the Confirm button is a native `type="submit"` button, and no
+     * longer goes real-`disabled` while `saving` (only
+     * `data-disabled`/`aria-disabled`). Its own attribute can no longer be
+     * what stops a second click from firing a second `agg.runAndSave` —
+     * `submit`'s own `canSubmit` check (which still folds in `!saving`) has
+     * to do that job now.
+     */
+    it('a second submit while a write is in flight makes only one agg.runAndSave call', async () => {
+      const { spy: runAndSave, resolve } = deferredCall<{ writtenCount: number }>();
+      installAtelierMock({ agg: { runAndSave: runAndSave as never } });
+      render(
+        <SaveAsCollectionModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onWritten={() => undefined}
+        />,
+      );
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccount' } });
+
+      // Captured once: the button's accessible name changes to "Writing…"
+      // after the first click, so a second `confirmButton()` call (an exact
+      // name match) would throw "unable to find element" instead of
+      // re-resolving to the same node.
+      const button = confirmButton();
+      fireEvent.click(button);
+      fireEvent.click(button);
+
+      expect(runAndSave).toHaveBeenCalledTimes(1);
+      resolve({ writtenCount: 1 });
     });
   });
 });

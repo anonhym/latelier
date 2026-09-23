@@ -77,6 +77,41 @@ describe('DeleteConfirm — single document (regression)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  // #91 — the Delete button no longer goes real-`disabled` while `loading`
+  // (only `data-disabled`/`aria-disabled` — a focused button that goes
+  // real `disabled` gets blurred to `<body>` by Chromium, with nothing to
+  // restore it on a failure). Two layers now stop a second click from
+  // firing a second `doc.deleteOne`: `SubmitButton`'s own click-swallow
+  // (the one actually reached here — this button is Mantine, not native),
+  // and `handleDelete`'s own `loading` guard behind it. This test proves
+  // the outcome, not which layer; removing `handleDelete`'s guard alone
+  // does not go red, because `SubmitButton` already catches it first.
+  it('a second click while a delete is in flight makes only one doc.deleteOne call', async () => {
+    let resolveDeleteOne!: (v: { deletedCount: number }) => void;
+    const deleteOne = vi.fn(
+      () => new Promise<{ deletedCount: number }>((r) => (resolveDeleteOne = r)),
+    );
+    installAtelierMock({ doc: { deleteOne } });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1', sku: 'a' }]}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    const deleteBtn = screen.getByRole('button', { name: 'Delete' });
+    fireEvent.click(deleteBtn);
+    fireEvent.click(deleteBtn);
+
+    expect(deleteOne).toHaveBeenCalledTimes(1);
+    resolveDeleteOne({ deletedCount: 1 });
+  });
+
   // read-only connections disable Delete outright rather than
   // letting the confirm flow run into a server-side rejection.
   it('disables Delete and never calls doc.deleteOne when readOnly is true, even on click, and shows the read-only alert', async () => {

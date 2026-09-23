@@ -4,6 +4,7 @@ import { themeVars } from '../../../theme/themeVars';
 import { api, isIpcError } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
+import { submittingProps } from '../../../components/SubmitButton';
 import type { SavedQuery, Stage } from '@shared/types';
 
 interface Props {
@@ -50,7 +51,8 @@ export function SavePipelineModal({
     if (discard) close();
   };
 
-  const canSubmit = name.trim().length > 0 && !saving;
+  const fieldsValid = name.trim().length > 0;
+  const canSubmit = fieldsValid && !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -212,7 +214,8 @@ export function SavePipelineModal({
           </button>
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={!fieldsValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            {...submittingProps(saving)}
             style={{
               padding: '6px 14px',
               fontSize: 12,

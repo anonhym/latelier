@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 
 interface RenameCollectionModalProps {
   connectionId: string;
@@ -23,8 +24,6 @@ export function RenameCollectionModal({
   onRenamed,
   returnFocusTo,
 }: RenameCollectionModalProps) {
-  // Dismiss paths only — the success callback hands off elsewhere.
-  const close = useDialogFocusReturn(onCancel, returnFocusTo);
   const [newName, setNewName] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -32,13 +31,20 @@ export function RenameCollectionModal({
   const trimmed = newName.trim();
   const canSubmit = trimmed.length > 0 && trimmed !== collection;
 
+  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a rename, unlike #74's tabs which had nothing to
+  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // own `onClose`, so one hook can't serve two different close reasons.
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  const finish = useDialogFocusReturn(() => onRenamed(trimmed), returnFocusTo);
+
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.collection.rename({ connectionId, dbName, collection, newName: trimmed });
-      onRenamed(trimmed);
+      finish();
     } catch (err) {
       setError(getErrorMessage(err, 'Rename failed'));
     } finally {
@@ -79,14 +85,15 @@ export function RenameCollectionModal({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             size="compact-xs"
             onClick={() => void submit()}
-            disabled={!canSubmit || submitting}
+            disabled={!canSubmit}
+            submitting={submitting}
           >
             {submitting ? 'Renaming…' : 'Rename'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

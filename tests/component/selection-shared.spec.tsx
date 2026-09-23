@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '../helpers/render';
+import { act, fireEvent, render, renderHook, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { useRowSelection } from '../../src/pages/Workspace/resultSelection';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState, LastRun } from '@shared/types';
 
 const noop = () => {};
@@ -42,32 +38,11 @@ function makeState(view: CollectionTabState['view'], lastRun: LastRun): Collecti
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function makeMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 function Viewer({ state }: { state: CollectionTabState }) {
   return (
-    <CollectionWorkspaceProvider state={state} actions={makeActions()} meta={makeMeta()}>
+    <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions()} meta={makeMeta()}>
       <ResultViewer>
         <ResultViewer.SelectionBar onDeleteSelected={vi.fn()} />
         <ResultViewer.Body onClearFilter={noop} onColumnResize={noop} onRowExpand={noop} />
@@ -95,9 +70,8 @@ describe('Result selection — cross-view persistence and reset (AC5/AC6)', () =
     rerender(<Viewer state={makeState('Tree', lastRun)} />);
     expect(container.textContent).toContain('1 selected');
 
-    // Same row (by index) actually repaints as selected in Tree — pins the
-    // DocRow memo comparator's `indices.has(index)` check, not just the
-    // action bar's independent count.
+    // Same row (by index) actually repaints as selected in Tree — the row's
+    // own `data-selected`, not just the action bar's independent count.
     const rows = Array.from(container.querySelectorAll('[data-selected]'));
     const alphaRow = rows.find((el) => el.textContent?.includes('alpha'));
     const betaRow = rows.find((el) => el.textContent?.includes('beta'));

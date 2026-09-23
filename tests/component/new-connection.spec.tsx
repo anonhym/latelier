@@ -133,7 +133,7 @@ describe('NewConnection (create mode)', () => {
     const input = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(input, 'X');
     // Fill host
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     fireEvent.click(screen.getByText(/Test connection/));
     await waitFor(() => expect(testSpy).toHaveBeenCalled(), { timeout: 3000 });
     await waitFor(() => {
@@ -153,7 +153,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     // Switch to Auth tab to supply a username so client-side form is otherwise populated.
     await userEvent.click(screen.getByText('Auth'));
     const usernameInput = screen.getAllByPlaceholderText('admin')[0]!;
@@ -186,7 +186,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     const usernameInput = screen.getAllByPlaceholderText('admin')[0]!;
@@ -228,7 +228,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
@@ -280,7 +280,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
@@ -310,7 +310,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
@@ -339,7 +339,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'Dup');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
@@ -362,7 +362,7 @@ describe('NewConnection (create mode)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));

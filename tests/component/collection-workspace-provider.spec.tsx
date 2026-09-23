@@ -1,10 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, renderHook } from '../helpers/render';
+import {
+  render,
+  renderHook,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
 import {
   CollectionWorkspaceProvider,
   useCollectionWorkspace,
-  type CollectionWorkspaceActions,
-  type CollectionWorkspaceMeta,
 } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
@@ -23,28 +26,11 @@ function makeState(): CollectionTabState {
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function makeMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
+// The `toBe` assertions below are on the objects this spec holds itself, so a
+// fresh object per call is exactly what they need — which is what the shared
+// factories return.
+const makeActions = emptyWorkspaceActions;
+const makeMeta = emptyWorkspaceMeta;
 
 describe('CollectionWorkspaceProvider / useCollectionWorkspace', () => {
   it('throws a clear error when used outside the provider', () => {

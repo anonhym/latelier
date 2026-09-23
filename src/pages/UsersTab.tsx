@@ -16,6 +16,8 @@ import {
 } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
+import { DisclosureToggle } from '../components/DisclosureToggle';
+import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import type { DbInfo } from '@shared/ipc';
 import type {
@@ -94,6 +96,19 @@ export function UsersTab({
     | null
   >(null);
   const [dropTarget, setDropTarget] = React.useState<UserInfo | null>(null);
+  // Captured alongside `dropTarget`, in the same click handler that sets it —
+  // reading a ref's `.current` has to happen in an event handler or effect,
+  // never during render (`react-hooks/refs`), so this can't be
+  // `scrollRegionRef.current` inline in the JSX below.
+  const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
+  // #74's focus-return target for a successful drop: the row is gone by then,
+  // but this scroll region is mounted for the tab's whole lifetime. Not the
+  // "Refresh" button, the obvious-looking alternative — it's `disabled={loading}`,
+  // and the success path kicks off a reload, so it is disabled at the exact
+  // moment focus would land there. A disabled focused button drops focus to
+  // <body> itself — the #55/#70 defect documented at ColumnChooser.tsx:78-82 —
+  // which is the bug this exists to fix.
+  const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   // Fetch full connection (auth_username / auth_database) for self-protection.
   React.useEffect(() => {
@@ -280,7 +295,13 @@ export function UsersTab({
         </Button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div
+        ref={scrollRegionRef}
+        tabIndex={-1}
+        role="region"
+        aria-label="Users"
+        style={{ flex: 1, overflowY: 'auto' }}
+      >
         {loading && !users && (
           <div style={{ padding: 20, color: T.textMuted, fontSize: 13 }}>Loading users…</div>
         )}
@@ -368,20 +389,19 @@ export function UsersTab({
                     >
                       <Table.Td>
                         <Group gap={6} wrap="nowrap">
-                          <span style={{ color: T.textGhost, display: 'flex', flexShrink: 0 }}>
-                            {open ? I.chevD : I.chevR}
-                          </span>
-                          <span
-                            style={{
-                              fontFamily: 'monospace',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              color: T.text,
-                            }}
-                          >
-                            {u.username}
-                          </span>
+                          <DisclosureToggle open={open}>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                color: T.text,
+                              }}
+                            >
+                              {u.username}
+                            </span>
+                          </DisclosureToggle>
                           {isSelf && (
                             <RoleBadge label="this connection" tone="accent" />
                           )}
@@ -452,6 +472,7 @@ export function UsersTab({
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setDropTarget(u);
+                                  setDropReturnFocus(scrollRegionRef.current);
                                 }}
                                 title="Drop"
                               >
@@ -537,6 +558,7 @@ export function UsersTab({
             setDropTarget(null);
             void loadUsers();
           }}
+          returnFocusTo={dropReturnFocus}
         />
       )}
     </div>
@@ -645,6 +667,7 @@ function UserDrawer({
   };
 
   const submit = async () => {
+    if (submitting) return;
     setError(null);
     if (!editing && username.trim().length === 0) {
       setError('Username is required.');
@@ -894,9 +917,9 @@ function UserDrawer({
         >
           Cancel
         </Button>
-        <Button variant="filled" size="compact-xs" onClick={() => void submit()} disabled={submitting}>
+        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
           {submitting ? 'Saving…' : editing ? 'Save user' : 'Create user'}
-        </Button>
+        </SubmitButton>
       </div>
     </Drawer>
   );
@@ -978,27 +1001,35 @@ function DropUserDialog({
   connectionId,
   onCancel,
   onDropped,
+  returnFocusTo,
 }: {
   user: UserInfo;
   connectionId: string;
   onCancel: () => void;
   onDropped: () => void;
+  returnFocusTo?: HTMLElement | null;
 }) {
-  // Dismiss paths only — `onDropped` refreshes a list the trigger row is
-  // gone from.
   const close = useDialogFocusReturn(onCancel);
+  // Separate call on purpose, not a shared one with `close` above: `close`
+  // keeps the render-time captured trigger — the "Drop user" `ActionIcon`
+  // still exists after a Cancel and is the better target there. `finish`
+  // needs the scroll container instead, because the row (and its ActionIcon)
+  // is gone by the time a successful drop reloads the list. This call's own
+  // `useState` capture of `document.activeElement` is dead weight since
+  // `returnFocusTo` always wins when passed — don't collapse these into one.
+  const finish = useDialogFocusReturn(onDropped, returnFocusTo);
   const [typed, setTyped] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const matches = typed === user.username;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.user.drop({ connectionId, dbName: user.db, username: user.username });
-      onDropped();
+      finish();
     } catch (err) {
       setError(isIpcError(err) ? err.message : String(err));
     } finally {
@@ -1041,9 +1072,9 @@ function DropUserDialog({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || submitting}>
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

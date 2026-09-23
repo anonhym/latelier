@@ -6,7 +6,16 @@
 // `actions.patch` / `meta.isReadOnly`, which is all this handler touches.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { notifications } from '@mantine/notifications';
-import { render, fireEvent, screen, waitFor, within } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+} from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
@@ -32,37 +41,194 @@ function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabSt
   };
 }
 
+// `expandBuilder` is optional on `CollectionWorkspaceActions` and the shared
+// stub leaves it out, but "Add to filter" calls it to reveal the collapsed
+// builder pane — so it stays wired here, ahead of `overrides` so a test can
+// still swap it for its own spy.
 function makeActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    expandBuilder: vi.fn(),
-    ...overrides,
-  };
+  return emptyWorkspaceActions({ expandBuilder: vi.fn(), ...overrides });
 }
 
-function makeMeta(overrides: Partial<CollectionWorkspaceMeta> = {}): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...overrides,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 const DOC_OID = '507f1f77bcf86cd799439011';
 const DOC = { _id: { $oid: DOC_OID }, name: 'alpha' };
 // Expansion state is keyed by `getFullDocId` (the full `$oid`), not the
 // short 8-char label the collapsed row displays — see `docId.ts`.
 const EXPANDED = { [DOC_OID]: true };
+// A second field, for the #87 replacement test below — one Shift+F10 on
+// "name" then another on "role", with no close in between.
+const DOC2 = { ...DOC, role: 'admin' };
+// A second document, for #87's cell-level-menu replacement test — a
+// different row's cell, right-clicked with no close in between.
+const DOC_B = { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'bravo' };
+
+/** The `DocFieldTree` panel — `useMenuFocus`'s `returnFocusTo` target for
+ *  both views' field menu. Module-scope: shared by `describeFieldMenuKeyboardAndFocusReturn`
+ *  and `describeMenuFocusOnDismiss` below. */
+function fieldTreeOf(container: HTMLElement): HTMLElement {
+  return container.querySelector('[data-expanded-doc-section="true"]') as HTMLElement;
+}
+
+/**
+ * X19 #87 — shared coverage for dismissing one of the three hand-rolled
+ * menus behind `useMenuFocus`, parameterized per call site since each opens
+ * differently and returns focus to a different container. The assertions
+ * are identical everywhere — acceptance box 5, "one mechanism, not one per
+ * menu" — only how each site opens/targets differs.
+ */
+function describeMenuFocusOnDismiss(opts: {
+  mount: () => { container: HTMLElement };
+  target: (container: HTMLElement) => HTMLElement;
+  /** Right-clicks the `index`-th of two distinct openable items. */
+  openMouse: (container: HTMLElement, index: 0 | 1) => Promise<void>;
+  /** Focuses the widget, then Shift+F10, opening on the first item. */
+  openKeyboard: (container: HTMLElement) => Promise<void>;
+  /** Label of a menu item that both acts and closes the menu. */
+  activateItemLabel: string;
+}): void {
+  describe('focus on dismiss (#87)', () => {
+    it('clicking a focusable control while the menu is open leaves focus on that control', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.click(elsewhere);
+
+      await waitFor(() => expect(document.activeElement).toBe(elsewhere));
+      elsewhere.remove();
+    });
+
+    it('clicking empty space still closes the menu and restores focus rather than stranding it on <body>', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      const plain = document.createElement('div');
+      document.body.appendChild(plain);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.click(plain);
+
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(target);
+      });
+      plain.remove();
+    });
+
+    it('activating a menu item still returns focus', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openMouse(container, 0);
+
+      await user.click(await screen.findByText(opts.activateItemLabel));
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    it('Escape restores focus after a mouse open', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    it('Escape restores focus after a keyboard open', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      await opts.openKeyboard(container);
+      await screen.findByText(opts.activateItemLabel);
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    });
+
+    // #87 review finding — a suppressed close leaves `suppressRef.current`
+    // `true`. Escape and an outside click both recompute or clear it
+    // themselves on their own next run, but item activation does neither:
+    // React flushes the `setContextMenu(null)` from the item's own `onClick`
+    // synchronously, which tears the dismiss effect down (removing the
+    // `window` click listener) before the *same* click finishes bubbling to
+    // `window` — so `onClick` never runs a second time to recompute the
+    // flag. Without the reset-on-open in `useMenuFocus`, the stale `true`
+    // from the earlier suppressed close survives into this reopen and
+    // strands focus on the activated item instead of restoring it.
+    it('a suppressed close does not strand focus after the menu reopens and an item is activated', async () => {
+      const user = userEvent.setup();
+      const { container } = opts.mount();
+      const target = opts.target(container);
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+
+      await opts.openMouse(container, 0);
+      await screen.findByText(opts.activateItemLabel);
+      await user.click(elsewhere); // suppressed close
+      await waitFor(() => expect(document.activeElement).toBe(elsewhere));
+
+      await opts.openMouse(container, 0);
+      await user.click(await screen.findByText(opts.activateItemLabel));
+
+      await waitFor(() => expect(document.activeElement).toBe(target));
+      elsewhere.remove();
+    });
+
+    // #87's second facet (a second right-click on a different cell/field,
+    // no close in between, must never restore the *previous* menu's target)
+    // is deliberately NOT re-asserted here with a `focus` spy. Measured: a
+    // right-click on a non-focusable row already makes jsdom's own
+    // mousedown-focusing-steps call `.focus()` on this same target (the
+    // nearest focusable ancestor) before `useMenuFocus` ever runs — exactly
+    // the masking `useMenuDismiss`'s #87 comment describes for the mouse
+    // path. A spy at this level counts that native call as well as any of
+    // the hook's own, so it cannot isolate the hook's behavior. `useMenuFocus.spec.ts`'s
+    // `renderHook` tests own this acceptance box instead, against a bare
+    // ref with no browser click involved.
+  });
+}
+
+/**
+ * X19 #87 — `TreeView` and `TableView` reach the *same* field menu (both
+ * render a `DocFieldTree`), so both open it and return focus to it exactly
+ * alike. Only `mount` differs. Declared once for the same reason
+ * `describeFieldMenuKeyboardAndFocusReturn` below is: the two copies were
+ * byte-identical and SonarCloud measured the PR's new code at 6.1%
+ * duplication against a 3% gate.
+ */
+function describeFieldMenuFocusOnDismiss(
+  mount: (opts: { doc: Record<string, unknown> }) => { container: HTMLElement },
+): void {
+  describeMenuFocusOnDismiss({
+    mount: () => mount({ doc: DOC2 }),
+    target: fieldTreeOf,
+    openMouse: async (container, index) => {
+      const fieldName = index === 0 ? 'name' : 'role';
+      await userEvent.setup().pointer({
+        keys: '[MouseRight]',
+        target: within(fieldTreeOf(container)).getByTitle(
+          new RegExp(`Drag to add "${fieldName}`),
+        ),
+      });
+    },
+    openKeyboard: async (container) => {
+      const user = userEvent.setup();
+      await user.click(fieldTreeOf(container));
+      await user.keyboard('{Shift>}{F10}{/Shift}');
+    },
+    activateItemLabel: 'Copy value',
+  });
+}
 
 // "Add to filter" confirms before patching whenever the Filter/Builder tab
 // is open (the default in `makeState` below), since the drawer mounted
@@ -72,6 +238,84 @@ const EXPANDED = { [DOC_OID]: true };
 async function confirmAdd() {
   fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
 }
+
+/**
+ * X19 #68/#69 — `TreeView` and `TableView` reach the *same* field menu: both
+ * render a `DocFieldTree`, and the menu belongs to that tree, not to either
+ * view. The two copies of this block were identical apart from which view
+ * `mount` rendered, and SonarCloud measured the file at 47.9% duplication.
+ * Declared once here and called from inside each view's own `describe`, so
+ * each still runs against its own mount.
+ *
+ * `userEvent`, not `fireEvent`, per #68's own acceptance — `fireEvent` does
+ * no focus management at all, which is how #20's defect survived 48 passing
+ * tests. The one `fireEvent.keyDown` below is deliberate: the ContextMenu
+ * key has no `userEvent` spelling.
+ */
+function describeFieldMenuKeyboardAndFocusReturn(
+  mount: () => { container: HTMLElement },
+): void {
+  // "name" is also a table *column*, whose cell carries the same "Drag to
+  // add" title as the field-tree row — so the row query is scoped to the
+  // field-tree panel (module-scope `fieldTreeOf`) rather than the whole
+  // document, for both views.
+  const rowOf = (container: HTMLElement) =>
+    within(fieldTreeOf(container)).getByTitle(/Drag to add "name/);
+
+  describe('keyboard open and focus return (#68/#69)', () => {
+    it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
+      const user = userEvent.setup();
+      const { container } = mount();
+      const fieldTree = fieldTreeOf(container);
+
+      await user.click(fieldTree);
+      await user.keyboard('{Shift>}{F10}{/Shift}');
+
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+      expect(screen.getByText('Copy field path')).toBeTruthy();
+      expect(screen.getByText('Add to filter')).toBeTruthy();
+      // Focus entered the menu on open — keyboard-only (#69), unlike the
+      // mouse path below.
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+      );
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(document.activeElement).toBe(fieldTree));
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      const { container } = mount();
+
+      fireEvent.keyDown(fieldTreeOf(container), { key: 'ContextMenu' });
+
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+    });
+
+    // #69 — one mechanism for both open paths: a right-click still does not
+    // grab focus into the menu, but Escape now has somewhere real to send
+    // focus back to instead of stranding it on `<body>`.
+    it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
+      const user = userEvent.setup();
+      const { container } = mount();
+      const fieldTree = fieldTreeOf(container);
+
+      await user.pointer({ keys: '[MouseRight]', target: rowOf(container) });
+      expect(await screen.findByText('Copy value')).toBeTruthy();
+      // Unchanged from before #69: a mouse open does not steal focus.
+      expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(fieldTree);
+      });
+    });
+  });
+}
+
 
 describe(' "Add to filter" on the field-tree context menu', () => {
   // Mantine's notification queue is a module-level singleton, not
@@ -201,6 +445,10 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
     });
+
+    describeFieldMenuKeyboardAndFocusReturn(mount);
+
+    describeFieldMenuFocusOnDismiss(mount);
   });
 
   describe('TableView', () => {
@@ -287,6 +535,10 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
     });
+
+    describeFieldMenuKeyboardAndFocusReturn(mount);
+
+    describeFieldMenuFocusOnDismiss(mount);
   });
 
   describe('TableView cell-level menu', () => {
@@ -300,6 +552,9 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       actions?: Partial<CollectionWorkspaceActions>;
       meta?: Partial<CollectionWorkspaceMeta>;
       doc?: Record<string, unknown>;
+      // #87 — a second row, for the replacement test: right-click "name" on
+      // row 0, then again on row 1, with no close in between.
+      docs?: Record<string, unknown>[];
     } = {}) {
       const actions = makeActions(opts.actions);
       return {
@@ -311,7 +566,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
             meta={makeMeta(opts.meta)}
           >
             <TableView
-              documents={[opts.doc ?? DOC]}
+              documents={opts.docs ?? [opts.doc ?? DOC]}
               onColumnResize={() => {}}
               expandedRows={{}}
               onRowExpand={() => {}}
@@ -366,6 +621,26 @@ describe(' "Add to filter" on the field-tree context menu', () => {
 
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();
+    });
+
+    describeMenuFocusOnDismiss({
+      mount: () => mount({ docs: [DOC, DOC_B] }),
+      target: () => screen.getByRole('grid', { name: 'Documents' }),
+      openMouse: async (container, index) => {
+        const cells = within(container).getAllByTitle(/Drag to add "name/);
+        await userEvent.setup().pointer({ keys: '[MouseRight]', target: cells[index] });
+      },
+      openKeyboard: async (container) => {
+        const user = userEvent.setup();
+        const row = within(container)
+          .getAllByTitle(/Drag to add "name/)[0]
+          .closest('[role="row"]') as HTMLElement;
+        await user.click(row);
+        await user.keyboard('{Shift>}{F10}{/Shift}');
+      },
+      // "Edit" (not "Copy value"/"Add to filter") — always rendered
+      // regardless of which field/value the right-clicked cell carries.
+      activateItemLabel: 'Edit',
     });
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import { render, screen, within, fireEvent, act, waitFor, navigatorRoot } from '../helpers/render';
 import {
   DbCollectionNavigator,
   type DbCollectionNavigatorProps,
@@ -47,12 +47,7 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
+const root = navigatorRoot;
 
 /**
  * Every failure panel on screen, keyed by the Connection it says it belongs
@@ -291,26 +286,31 @@ describe('DbCollectionNavigator — a failure surfaces where it happened (X16 §
     expect(rootsAndFailuresInOrder()).toEqual(['root:c1', 'root:c2', 'failure:c2']);
   });
 
-  it('keyboard: the roots stay reachable past a failure row, and Left from it lands on its own root', async () => {
-    // The failure sits under a root that need not be the expanded one, so a
-    // Left that walked to the expanded root would collapse the wrong server.
+  // #66 — a failure row is a placeholder (like a skeleton or an empty
+  // state): it carries no `id` and nothing an `aria-activedescendant` could
+  // land on, so arrow navigation now steps over it entirely instead of
+  // visiting it. This replaces the old two-hop "Down onto the failure row,
+  // then Down again" version of this same test.
+  it('keyboard: Down skips a root’s own failure row and reaches the next root directly', async () => {
     const stream = statusStream();
     installAtelierMock({ mongo: { onStatus: stream.onStatus } });
     mount({ connections: [{ ...PROD, status: 'error' }, STAGING] });
     await stream.ready();
+    await screen.findByTestId('nav-connection-error');
 
     const tree = screen.getByRole('tree');
     fireEvent.keyDown(tree, { key: 'Home' }); // Prod's root
-    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // Prod's failure row
-    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // Staging's root
+    expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+
+    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // straight to Staging's root, not Prod's failure row
+    expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+
     fireEvent.keyDown(tree, { key: 'Enter' });
     expect(root('Staging').getAttribute('aria-expanded')).toBe('true');
+    expect(root('Prod').getAttribute('aria-expanded')).toBe('false');
 
-    fireEvent.keyDown(tree, { key: 'Home' });
-    fireEvent.keyDown(tree, { key: 'ArrowDown' }); // onto the failure row
-    fireEvent.keyDown(tree, { key: 'ArrowLeft' }); // back up to Prod, not Staging
-    fireEvent.keyDown(tree, { key: 'Enter' });
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
+    // And Up from Staging's root goes straight back to Prod's, same skip.
+    fireEvent.keyDown(tree, { key: 'ArrowUp' });
+    expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
   });
 });

@@ -1,11 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '../helpers/render';
+import { fireEvent, render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState, TableColumnConfig } from '@shared/types';
 
 function emptyState(): CollectionTabState {
@@ -19,29 +15,6 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function emptyActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderTable(
   sort: string,
   onSortField?: (f: string) => void,
@@ -50,8 +23,8 @@ function renderTable(
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
       >
         <TableView
           documents={[
@@ -220,8 +193,8 @@ describe('TableView — a sort on a hidden column (W15 §3.2)', () => {
     render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
       >
         <TableView
           documents={[{ _id: '1', name: 'a' }, { _id: '2', name: 'b' }]}
@@ -289,7 +262,7 @@ describe('TableView — a header click owns up to replacing a multi-field sort',
 describe('TableView — a sort on a column named after an Object.prototype member', () => {
   function renderHostileColumn(sort: string) {
     return render(
-      <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+      <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
         <TableView
           documents={[
             { _id: '1', constructor: 'a' },
@@ -330,7 +303,7 @@ describe('TableView — header column resize handle keyboard equivalent', () => 
   it('ArrowRight/ArrowLeft on the resize handle grow/shrink the column, clamped to the same 60px floor as the mouse drag', () => {
     const onColumnResize = vi.fn();
     render(
-      <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+      <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
         <TableView
           documents={[{ _id: '1', name: 'a' }]}
           onColumnResize={onColumnResize}

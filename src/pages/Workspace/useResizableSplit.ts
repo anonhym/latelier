@@ -1,4 +1,9 @@
 import React from 'react';
+import { resizeKeyStep } from './resizeKeyStep';
+
+/** Bounds the mouse drag has always clamped to; reused for keyboard resize and aria-value*. */
+export const MIN_RESULT_HEIGHT = 80;
+export const MAX_RESULT_HEIGHT = 800;
 
 /**
  * Manages a drag-to-resize split panel.
@@ -31,7 +36,10 @@ export function useResizableSplit({
     const onMove = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const next = Math.max(80, Math.min(800, d.startH - (ev.clientY - d.startY)));
+      const next = Math.max(
+        MIN_RESULT_HEIGHT,
+        Math.min(MAX_RESULT_HEIGHT, d.startH - (ev.clientY - d.startY)),
+      );
       setLiveHeight(next);
     };
 
@@ -60,5 +68,16 @@ export function useResizableSplit({
     setIsDragging(true);
   };
 
-  return { resultPanelHeight, onResizeStart };
+  // Keyboard equivalent of the drag: each Arrow/Home/End press is a whole
+  // resize in one step, so it commits straight away rather than going
+  // through the live/commit split the drag needs for continuous movement.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const next = resizeKeyStep(e.key, 'vertical', resultPanelHeight, MIN_RESULT_HEIGHT, MAX_RESULT_HEIGHT);
+    if (next === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onCommit(next);
+  };
+
+  return { resultPanelHeight, onResizeStart, onKeyDown };
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 
 interface DropCollectionConfirmProps {
   connectionId: string;
@@ -29,20 +30,24 @@ export function DropCollectionConfirm({
   onDropped,
   returnFocusTo,
 }: DropCollectionConfirmProps) {
-  // Dismiss paths only — the success callback hands off elsewhere.
+  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a drop, unlike #74's tabs which had nothing to
+  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // own `onClose`, so one hook can't serve two different close reasons.
   const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  const finish = useDialogFocusReturn(onDropped, returnFocusTo);
   const [typed, setTyped] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const matches = typed === collection;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.collection.drop({ connectionId, dbName, collection });
-      onDropped();
+      finish();
     } catch (err) {
       setError(getErrorMessage(err, 'Drop failed'));
     } finally {
@@ -93,15 +98,9 @@ export function DropCollectionConfirm({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button
-            variant="filled"
-            color="red"
-            size="compact-xs"
-            onClick={() => void submit()}
-            disabled={!matches || submitting || readOnly}
-          >
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || readOnly} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

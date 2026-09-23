@@ -104,4 +104,36 @@ describe('ReferenceRulesEditor — delete confirm', () => {
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith({ id: 'rule-1' }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
+
+  /**
+   * #91 — Confirm delete is a native `<button>` that no longer goes
+   * real-`disabled` while deleting (only `data-disabled`/`aria-disabled` —
+   * a focused button that goes real `disabled` gets blurred to `<body>` by
+   * Chromium, with nothing to restore it on a failure). `handleDelete`'s own
+   * `deletingId` guard has to stop a second click from firing a second
+   * `api.refs.delete` now.
+   */
+  it('a second click on Confirm delete while a delete is in flight calls api.refs.delete once', async () => {
+    let resolveDelete!: () => void;
+    deleteSpy.mockImplementation(() => new Promise<void>((r) => (resolveDelete = r)));
+
+    render(
+      withTheme(
+        <ReferenceRulesEditor
+          connectionId="conn-1"
+          dbName="shop"
+          collection="orders"
+          onClose={() => {}}
+        />,
+      ),
+    );
+
+    fireEvent.click(await screen.findByLabelText('Delete rule'));
+    const confirmBtn = await screen.findByLabelText('Confirm delete');
+    fireEvent.click(confirmBtn);
+    fireEvent.click(confirmBtn);
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    resolveDelete();
+  });
 });

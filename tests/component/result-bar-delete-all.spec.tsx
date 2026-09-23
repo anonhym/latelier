@@ -1,11 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '../helpers/render';
+import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 function makeState(): CollectionTabState {
@@ -29,24 +26,8 @@ function makeState(): CollectionTabState {
 }
 
 function renderBar(metaOverrides: Partial<CollectionWorkspaceMeta> = {}) {
-  const actions: CollectionWorkspaceActions = {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-  const meta: CollectionWorkspaceMeta = {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...metaOverrides,
-  };
+  const actions = emptyWorkspaceActions();
+  const meta = emptyWorkspaceMeta(metaOverrides);
   render(
     <CollectionWorkspaceProvider state={makeState()} actions={actions} meta={meta}>
       <ResultBar />

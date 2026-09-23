@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '../helpers/render';
+import { render, screen, waitFor, expectKeyboardDisclosureToggle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { IndexesTab } from '../../src/pages/IndexesTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -28,6 +28,25 @@ function renderTab() {
       <IndexesTab conn={conn} runtime={runtime} />
   );
 }
+
+/**
+ * The one database + collection every IndexesTab test mounts against. Hoisted
+ * because three tests needed it verbatim — an exact 11-line repeat is the
+ * shape that took the SonarCloud duplication gate to 10.9% on this stack (#72).
+ */
+const ALPHA_PEOPLE_META = {
+  listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
+  listCollections: async () => [
+    {
+      name: 'people',
+      type: 'collection' as const,
+      documentCount: 0,
+      sizeBytes: 0,
+      indexCount: 1,
+      capped: false,
+    },
+  ],
+};
 
 const ID_INDEX: IndexInfo = {
   name: '_id_',
@@ -114,19 +133,7 @@ describe('IndexesTab — render', () => {
 
   it('expands the row drill-down on click and shows version + usage detail', async () => {
     installAtelierMock({
-      meta: {
-        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
-        listCollections: async () => [
-          {
-            name: 'people',
-            type: 'collection' as const,
-            documentCount: 0,
-            sizeBytes: 0,
-            indexCount: 1,
-            capped: false,
-          },
-        ],
-      },
+      meta: ALPHA_PEOPLE_META,
       index: {
         list: async () => [
           {
@@ -146,6 +153,45 @@ describe('IndexesTab — render', () => {
       expect(screen.getByText(/v2/)).toBeTruthy();
       expect(screen.getByText(/partialFilterExpression/)).toBeTruthy();
     });
+  });
+
+  it('is keyboard-operable: Enter and Space toggle aria-expanded, and focus stays on the toggle', async () => {
+    installAtelierMock({
+      meta: ALPHA_PEOPLE_META,
+      index: { list: async () => [UNIQUE_INDEX] },
+    });
+
+    renderTab();
+
+    await expectKeyboardDisclosureToggle('email_unique', /v2/);
+  });
+
+  it('does not strand focus on <body> when the expanded index is dropped', async () => {
+    let dropped = false;
+    installAtelierMock({
+      meta: ALPHA_PEOPLE_META,
+      index: {
+        list: async () => (dropped ? [] : [UNIQUE_INDEX]),
+        drop: async () => {
+          dropped = true;
+          return { dropped: true as const };
+        },
+      },
+    });
+
+    renderTab();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'email_unique' }));
+    await waitFor(() => expect(screen.getByText(/v2/)).toBeTruthy());
+
+    await userEvent.click(screen.getByLabelText('Drop index email_unique'));
+    const confirmInput = await screen.findByLabelText('Confirm index name');
+    await userEvent.type(confirmInput, 'email_unique');
+    await userEvent.click(screen.getByText('Drop').closest('button')!);
+
+    await waitFor(() => expect(screen.queryByText('email_unique')).toBeNull());
+    // #74 fixed this — focus now lands on the tab's scroll region, not <body>.
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Indexes' }));
   });
 
   it('persists the selected target via prefs.set', async () => {

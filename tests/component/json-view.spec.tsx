@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, within } from '../helpers/render';
+import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 let originalClipboard: Clipboard | undefined;
@@ -41,35 +37,12 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function emptyActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderJson(docs: unknown[]) {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
       >
         <JsonView documents={docs} />
       </CollectionWorkspaceProvider>

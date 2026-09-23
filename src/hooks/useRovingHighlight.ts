@@ -5,8 +5,15 @@ export interface RovingHighlight {
   index: number;
   /** Jump straight to a row (click, hover, Home/End). */
   setIndex: (index: number) => void;
-  /** Move by `delta` from the current (already-clamped) `index`, wrapping at both ends. */
-  move: (delta: number) => void;
+  /** Move by `delta` from the latest (clamped) highlight, wrapping at both ends. Returns the new index. */
+  move: (delta: number) => number;
+}
+
+type Stored = { raw: number; key: unknown };
+
+function clampedIndex(stored: Stored, count: number, resetKey: unknown): number {
+  const raw = stored.key === resetKey ? stored.raw : 0;
+  return count === 0 ? 0 : Math.min(raw, count - 1);
 }
 
 /**
@@ -17,8 +24,8 @@ export interface RovingHighlight {
  * a manual `window`/anchor `addEventListener`) to unify that too; this hook
  * only owns "what index is highlighted right now."
  *
- * `move` computes from the current *clamped* `index`, not the raw stored
- * one — this is `ConnectionSwitcher`'s original approach (the one named
+ * `move` computes from the latest highlight a setter wrote (#126), clamped
+ * with the same rules as `index`, not from the raw stored one — this is `ConnectionSwitcher`'s original approach (the one named
  * "the better base" when this hook was extracted), which stays correct
  * even when `count` shrinks out from under a standing highlight for a
  * reason the component never sees
@@ -34,21 +41,34 @@ export interface RovingHighlight {
  * alongside its own query handler).
  */
 export function useRovingHighlight(count: number, resetKey?: unknown): RovingHighlight {
-  const [state, setState] = React.useState<{ raw: number; key: unknown }>({ raw: 0, key: resetKey });
-  const raw = state.key === resetKey ? state.raw : 0;
-  const index = count === 0 ? 0 : Math.min(raw, count - 1);
+  const [state, setState] = React.useState<Stored>({ raw: 0, key: resetKey });
+  const index = clampedIndex(state, count, resetKey);
+
+  // #126 — the latest value either setter wrote, before React re-renders.
+  // Two key events can reach a handler before the first one's render
+  // commits (seen on CI: the second ArrowDown re-computed from the same
+  // render-time `index`, and one step was lost). `move` therefore reads
+  // this, with the same clamp and reset rules as the render above. It is
+  // written only in the setters, never during render.
+  const latest = React.useRef<Stored>(state);
 
   const setIndex = React.useCallback(
-    (next: number) => setState({ raw: next, key: resetKey }),
+    (next: number) => {
+      latest.current = { raw: next, key: resetKey };
+      setState(latest.current);
+    },
     [resetKey],
   );
 
   const move = React.useCallback(
     (delta: number) => {
-      if (count === 0) return;
-      setState({ raw: (index + delta + count) % count, key: resetKey });
+      if (count === 0) return 0;
+      const next = (clampedIndex(latest.current, count, resetKey) + delta + count) % count;
+      latest.current = { raw: next, key: resetKey };
+      setState(latest.current);
+      return next;
     },
-    [count, index, resetKey],
+    [count, resetKey],
   );
 
   return { index, setIndex, move };

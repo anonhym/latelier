@@ -1,5 +1,13 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, screen } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  expectSeparatorClampedAtBounds,
+  expectSeparatorResizesPanel,
+} from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { OutputPanel } from '../../src/pages/Workspace/Aggregation/OutputPanel';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { notifications } from '@mantine/notifications';
@@ -123,5 +131,106 @@ describe('OutputPanel — rendering and view switching', () => {
   it('shows the Running… overlay when running is true', () => {
     const { container } = renderPanel({ running: true, lastRun: { ...runMeta, rows: [], durationMs: 0 } });
     expect(container.textContent).toContain('Running');
+  });
+});
+
+/**
+ * `height` is controlled by the caller (AggregationTab, in the real app).
+ * A `vi.fn()` spy on `onHeightChange` can't prove `aria-valuenow` tracks a
+ * keyboard resize, so this wrapper feeds it back into real state.
+ */
+function ControlledOutputPanel() {
+  const [height, setHeight] = useState(260);
+  return (
+    <OutputPanel
+      height={height}
+      view="Tree"
+      lastRun={undefined}
+      running={false}
+      pipelineName={null}
+      onHeightChange={setHeight}
+      onHeightCommit={() => {}}
+      onViewChange={() => {}}
+      onSaveAsCollection={() => {}}
+    />
+  );
+}
+
+describe('OutputPanel resize keyboard support (#56)', () => {
+  it('is reachable by Tab alone', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(handle);
+  });
+
+  it('ArrowUp/ArrowDown resize the panel and keep aria-valuenow and the real height in sync', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    const panel = handle.parentElement as HTMLElement;
+    await user.tab();
+
+    await expectSeparatorResizesPanel(handle, panel, {
+      growKey: '{ArrowUp}',
+      shrinkKey: '{ArrowDown}',
+      afterGrow: '270',
+      afterShrink: '250',
+    });
+  });
+
+  it('Home and End reach the real bounds and stay clamped and focused past them', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    // Same 0.7-of-viewport ceiling `clampHeight` uses — not hardcoded here,
+    // so this doesn't drift if jsdom's default viewport size ever changes.
+    const maxHeight = Math.floor(window.innerHeight * 0.7);
+    await user.tab();
+
+    await expectSeparatorClampedAtBounds(handle, {
+      min: '120',
+      max: String(maxHeight),
+      shrinkKey: '{ArrowDown}',
+      growKey: '{ArrowUp}',
+    });
+  });
+
+  it('Enter resets to the default height, the keyboard equivalent of the double-click reset', async () => {
+    const user = userEvent.setup();
+    render(<ControlledOutputPanel />);
+    const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+    await user.tab();
+
+    await user.keyboard('{ArrowUp}{ArrowUp}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('280');
+
+    await user.keyboard('{Enter}');
+    expect(handle.getAttribute('aria-valuenow')).toBe('260');
+    expect(document.activeElement).toBe(handle);
+  });
+
+  // `aria-valuemax` is metadata, not the clamp itself — `clampHeight` reads
+  // `window.innerHeight` fresh on every drag/keypress regardless, so a resize
+  // mid-interaction always clamps correctly either way. This only pins that
+  // the *displayed* bound doesn't go stale when nothing else re-renders.
+  it('updates aria-valuemax when the window resizes while nothing else changes', () => {
+    const originalInnerHeight = window.innerHeight;
+    try {
+      render(<ControlledOutputPanel />);
+      const handle = screen.getByRole('separator', { name: 'Resize output panel' });
+      const before = handle.getAttribute('aria-valuemax');
+
+      Object.defineProperty(window, 'innerHeight', { value: 2000, configurable: true });
+      fireEvent(window, new Event('resize'));
+
+      expect(handle.getAttribute('aria-valuemax')).toBe(String(Math.floor(2000 * 0.7)));
+      expect(handle.getAttribute('aria-valuemax')).not.toBe(before);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, within, fireEvent, act, waitFor } from '../helpers/render';
+import { render, screen, within, fireEvent, act, waitFor, navigatorRoot } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import {
   DbCollectionNavigator,
   type DbCollectionNavigatorProps,
@@ -53,13 +54,9 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-/** The root row for a Connection, by the name a person reads on it. */
-function root(name: string): HTMLElement {
-  const rows = screen.getAllByTestId('nav-connection');
-  const hit = rows.find((r) => within(r).queryByText(name));
-  if (!hit) throw new Error(`no navigator root named ${name}`);
-  return hit;
-}
+// #72 — was a local copy identical to navigator-disconnect.spec.tsx's own;
+// SonarCloud flagged the pair. Now shared, see `navigatorRoot`'s own doc.
+const root = navigatorRoot;
 
 /** The spine is a border on the row wrapper, so read the wrapper's style. */
 const spineOf = (el: HTMLElement) => el.parentElement?.getAttribute('style') ?? '';
@@ -250,34 +247,87 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
   });
 
+  // #72 — the two tests below were flagged as a self-duplicate: same
+  // "press keys, assert which root is expanded" shape, just with different
+  // keys/roots each time. `press`/`expectExpanded` name the shape once; the
+  // key sequence and expected root stay literal at each call site.
+  function press(key: string): void {
+    fireEvent.keyDown(tree(), { key });
+  }
+  function expectExpanded(name: string, expanded: boolean): void {
+    expect(root(name).getAttribute('aria-expanded')).toBe(String(expanded));
+  }
+
   it('keyboard: Down/Up walk the roots and Enter opens the one in focus', async () => {
     mockTree();
     mount();
 
-    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Prod
-    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Staging
-    fireEvent.keyDown(tree(), { key: 'Enter' });
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('false');
+    press('ArrowDown'); // Prod
+    press('ArrowDown'); // Staging
+    press('Enter');
+    expectExpanded('Staging', true);
+    expectExpanded('Prod', false);
 
-    fireEvent.keyDown(tree(), { key: 'ArrowUp' }); // back to Prod
-    fireEvent.keyDown(tree(), { key: 'Enter' });
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
+    press('ArrowUp'); // back to Prod
+    press('Enter');
+    expectExpanded('Prod', true);
+    expectExpanded('Staging', false);
   });
 
   it('keyboard: Home/End reach the first and last root, and Right expands one', () => {
     mockTree();
     mount();
 
-    fireEvent.keyDown(tree(), { key: 'End' });
-    fireEvent.keyDown(tree(), { key: 'ArrowRight' });
-    expect(root('Archive').getAttribute('aria-expanded')).toBe('true');
+    press('End');
+    press('ArrowRight');
+    expectExpanded('Archive', true);
 
-    fireEvent.keyDown(tree(), { key: 'Home' });
-    fireEvent.keyDown(tree(), { key: 'ArrowRight' });
-    expect(root('Prod').getAttribute('aria-expanded')).toBe('true');
-    expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
+    press('Home');
+    press('ArrowRight');
+    expectExpanded('Prod', true);
+    expectExpanded('Archive', false);
+  });
+
+  // #58 — the roving highlight already worked (the tests above); nothing told
+  // assistive tech it moved. `aria-activedescendant` on the container, naming
+  // a real per-row DOM `id`, is the missing half.
+  it('keyboard: aria-activedescendant names the focused row as Down moves it', () => {
+    mockTree();
+    mount();
+
+    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Prod
+    expect(tree().getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+    expect(root('Prod').id).toBe('navigator-row-conn:c1');
+
+    fireEvent.keyDown(tree(), { key: 'ArrowDown' }); // Staging
+    expect(tree().getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+    expect(root('Staging').id).toBe('navigator-row-conn:c2');
+  });
+
+  // #58 — a row used to carry `tabIndex={-1}`, which the HTML focusing-steps
+  // algorithm still treats as click-focusable even though it's excluded from
+  // Tab order. `userEvent.click` (not `fireEvent.click`, which does no focus
+  // management at all — see the CLAUDE.md/#20 note on this exact trap) moves
+  // real focus, so this is the only kind of click that can catch the bug.
+  it('click on a row keeps real focus on the tree container and sets the row active', async () => {
+    mockTree();
+    mount();
+    const treeEl = tree();
+
+    // Clicking a Connection root also expands it (existing accordion
+    // behaviour above), so wait for its one database to mount before
+    // reading the flat row order below.
+    await userEvent.setup().click(root('Staging'));
+    await screen.findByTestId('nav-db-shop');
+
+    expect(document.activeElement).toBe(treeEl);
+    expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+
+    // The next Arrow key continues from the row just clicked (Staging), not
+    // from wherever the highlight was sitting before — its own newly
+    // revealed "shop" database is the very next row.
+    fireEvent.keyDown(treeEl, { key: 'ArrowDown' });
+    expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-db:c2:shop');
   });
 
   it('keyboard: Left from a database row lands on that database’s own root, not the first one', async () => {
@@ -296,6 +346,141 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(root('Staging').getAttribute('aria-expanded')).toBe('false');
     expect(root('Prod').getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByTestId('nav-db-shop')).toBeNull();
+  });
+
+  // #55 — the shared ContextMenu had no keyboard open path. Shift+F10 and the
+  // dedicated ContextMenu key are the platform conventions for "open the
+  // context menu for the focused thing".
+  describe('keyboard: opening the context menu (#55)', () => {
+    async function focusOrdersRow() {
+      mockTree();
+      mount({ focusedConnectionId: 'c1', activeDbName: 'shop', activeCollection: 'orders' });
+      const rowEl = await screen.findByTestId('nav-coll-shop-orders');
+      const treeEl = tree();
+      await waitFor(() => expect(treeEl.getAttribute('aria-activedescendant')).toBe(rowEl.id));
+      return { rowEl, treeEl };
+    }
+
+    it('Shift+F10 opens the menu for the focused row', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: true });
+
+      expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+    });
+
+    // #133 — the navigator is virtualized: PageDown or the wheel can scroll
+    // the focused row out and unmount it. jsdom mounts every row, so the
+    // lookup is made to miss the way a real unmounted row would.
+    it('Shift+F10 still opens the menu when the focused row is not mounted', async () => {
+      const { rowEl, treeEl } = await focusOrdersRow();
+      const realGet = document.getElementById.bind(document);
+      const spy = vi
+        .spyOn(document, 'getElementById')
+        .mockImplementation((id) => (id === rowEl.id ? null : realGet(id)));
+      // react-window's `scrollToRow` ends in `element.scrollTo(...)`. The row
+      // is already the focused one, so nothing else scrolls it back: only the
+      // handler's own `scrollToRow` can make this call.
+      const originalScrollTo = Element.prototype.scrollTo;
+      const scrollTo = vi.fn();
+      Element.prototype.scrollTo = scrollTo as unknown as typeof Element.prototype.scrollTo;
+      try {
+        fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: true });
+
+        expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+        expect(scrollTo).toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+        Element.prototype.scrollTo = originalScrollTo;
+      }
+    });
+
+    it('the ContextMenu key opens the same menu', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+
+      expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
+    });
+
+    it('F10 without Shift does not open the menu', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'F10', shiftKey: false });
+
+      expect(screen.queryByRole('menuitem', { name: 'Rename collection' })).toBeNull();
+    });
+
+    it('anchors the menu to the focused row, not a stale {0,0}', async () => {
+      const { rowEl, treeEl } = await focusOrdersRow();
+      vi.spyOn(rowEl, 'getBoundingClientRect').mockReturnValue({
+        left: 42,
+        bottom: 84,
+        top: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 42,
+        y: 84,
+        toJSON: () => {},
+      } as DOMRect);
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Rename collection' });
+
+      const anchor = screen.getByTestId('context-menu-anchor');
+      expect(anchor.style.left).toBe('42px');
+      expect(anchor.style.top).toBe('84px');
+    });
+
+    it('focus enters the menu on open and Escape returns it to the tree', async () => {
+      const { treeEl } = await focusOrdersRow();
+
+      fireEvent.keyDown(treeEl, { key: 'ContextMenu' });
+      await screen.findByRole('menuitem', { name: 'Rename collection' });
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
+
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await waitFor(() => expect(document.activeElement).toBe(treeEl));
+    });
+
+    // #69 — this used to assert the bug: `openMenuFor`'s mouse path left
+    // `returnFocusTo` `undefined`, so closing a right-click-opened menu
+    // stranded focus on `<body>` (`focusBefore`, here, since nothing had
+    // focus yet). `openMenuFor` now sets `returnFocusTo: trigger` (the tree)
+    // on both open paths, so closing restores focus there instead.
+    it('a right-click-opened menu closes and returns focus to the tree, not <body>', async () => {
+      const { treeEl, rowEl } = await focusOrdersRow();
+
+      fireEvent.contextMenu(rowEl);
+      // "Copy name" has no follow-on dialog, unlike Rename/Drop — a plain
+      // close is the only way to see whether *this* menu's own close path
+      // restores focus, independent of whatever a dialog's own autoFocus
+      // would do afterward.
+      const item = await screen.findByRole('menuitem', { name: 'Copy name' });
+      fireEvent.click(item);
+
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(treeEl);
+    });
+
+    // Mantine's own `FocusTrap` grabs focus into the menu on any open,
+    // mouse or keyboard, independent of `returnFocusTo` — so #69's fix
+    // (setting `returnFocusTo` on the mouse path too) only changes what
+    // happens on *close*. This is the one thing #69 says must stay true.
+    it('right-click still opens without a pointer-driven focus change of its own — Mantine grabs it either way', async () => {
+      const { rowEl } = await focusOrdersRow();
+
+      fireEvent.contextMenu(rowEl);
+
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
+    });
   });
 
   it('marks the active namespace only under the Focused Tab’s own Connection', async () => {

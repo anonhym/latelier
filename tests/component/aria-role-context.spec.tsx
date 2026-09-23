@@ -1,13 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, within } from '../helpers/render';
+import { render, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 /**
@@ -43,23 +39,6 @@ function state(view: CollectionTabState['view']): CollectionTabState {
   };
 }
 
-function actions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function meta(): CollectionWorkspaceMeta {
-  return { connectionId: 'c1', dbName: 'app', collection: 'orders', tabId: 't1', isLoading: false };
-}
-
 const DOCS = [
   { _id: 'a1', name: 'alpha', nested: { deep: 'v' } },
   { _id: 'b2', name: 'beta', nested: { deep: 'w' } },
@@ -67,19 +46,30 @@ const DOCS = [
 
 function wrap(view: CollectionTabState['view'], node: React.ReactNode) {
   return render(
-    <CollectionWorkspaceProvider state={state(view)} actions={actions()} meta={meta()}>
+    <CollectionWorkspaceProvider state={state(view)} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
       {node}
     </CollectionWorkspaceProvider>,
   );
 }
 
-/** Nearest ancestor carrying an explicit role — generic elements are transparent. */
+/**
+ * Nearest ancestor carrying an explicit role — generic elements are
+ * transparent. Falls back to `aria-owns` (#53): a sticky/virtualized header
+ * row can be a DOM *sibling* of its grid rather than a descendant, and
+ * `aria-owns` is ARIA's own mechanism for declaring that logical parentage
+ * without moving anything in the DOM — a plain ancestor walk alone can't see
+ * it, so this checks for an `aria-owns` reference before giving up.
+ */
 function nearestRoleAncestor(el: Element): string | null {
   let cur = el.parentElement;
   while (cur) {
     const role = cur.getAttribute('role');
     if (role) return role;
     cur = cur.parentElement;
+  }
+  if (el.id) {
+    const owner = el.ownerDocument.querySelector(`[aria-owns~="${el.id}"]`);
+    if (owner) return owner.getAttribute('role');
   }
   return null;
 }
@@ -94,8 +84,11 @@ describe('required role context', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(nearestRoleAncestor(row)).toBe('grid');
-      // A row owns cells, not arbitrary content.
-      expect(row.querySelectorAll('[role="gridcell"]').length).toBeGreaterThan(0);
+      // A row owns cells, not arbitrary content — the header row's are
+      // `columnheader` (#53), every other row's are `gridcell`.
+      expect(
+        row.querySelectorAll('[role="gridcell"], [role="columnheader"]').length,
+      ).toBeGreaterThan(0);
     }
   });
 

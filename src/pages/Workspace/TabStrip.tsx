@@ -6,6 +6,7 @@ import { ContextMenu } from '../../components/ContextMenu';
 import type { ConnectionSummary, WorkspaceTab } from '@shared/types';
 import { groupTabsByConnection } from './tabGroups';
 import { isDormant } from '../../state/connections';
+import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
 
 interface TabStripProps {
   tabs: WorkspaceTab[];
@@ -59,7 +60,15 @@ export function TabStrip({
   const T = themeVars;
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [dragOverId, setDragOverId] = React.useState<string | null>(null);
-  const [menu, setMenu] = React.useState<{ tabId: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = React.useState<{
+    tabId: string;
+    x: number;
+    y: number;
+    // #55/#69 — set for both a keyboard open (Shift+F10 / ContextMenu key)
+    // and a mouse-driven right-click, so `ContextMenu` always has somewhere
+    // to hand focus back to on close instead of stranding it on `<body>`.
+    returnFocusTo?: HTMLElement | null;
+  } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => new Set());
   const stripRef = React.useRef<HTMLDivElement>(null);
 
@@ -156,6 +165,10 @@ export function TabStrip({
       ref={stripRef}
       role="tablist"
       aria-label="Open tabs"
+      // -1: a keyboard-menu close (see the `returnFocusTo` comment below)
+      // needs this container to be a valid `.focus()` target, but it is not
+      // itself a roving-tabindex stop — the tabs are.
+      tabIndex={-1}
       style={{
         height: 34,
         display: 'flex',
@@ -292,11 +305,34 @@ export function TabStrip({
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onActivate(tab.id);
+                    } else if (isContextMenuKey(e)) {
+                      // #55 — the tab is already the widget's own focusable
+                      // element (unlike the grid/tree surfaces), so it is
+                      // both the anchor and the default focus-return target —
+                      // right for Pin/Unpin and for Escape/click-outside,
+                      // which leave this exact tab in place. Close tab is the
+                      // one item that destroys it; see its own
+                      // `focusReturnTo` override below.
+                      e.preventDefault();
+                      setMenu({
+                        tabId: tab.id,
+                        ...anchorFromRect(e.currentTarget.getBoundingClientRect()),
+                        returnFocusTo: e.currentTarget,
+                      });
                     }
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
+                    // #69 — same target the keyboard path above uses: the
+                    // tab is right-clicked while it already has (or is) the
+                    // sensible focus-return element, so Escape/click-away no
+                    // longer strands focus on `<body>` after a right-click.
+                    setMenu({
+                      tabId: tab.id,
+                      x: e.clientX,
+                      y: e.clientY,
+                      returnFocusTo: e.currentTarget,
+                    });
                   }}
                   role="tab"
                   aria-selected={active}
@@ -409,6 +445,7 @@ export function TabStrip({
           menu={{
             x: menu.x,
             y: menu.y,
+            returnFocusTo: menu.returnFocusTo,
             items: [
               {
                 kind: 'item',
@@ -419,6 +456,15 @@ export function TabStrip({
                 kind: 'item',
                 label: 'Close tab',
                 onClick: () => onClose(menu.tabId),
+                // #70 — overrides `menu.returnFocusTo` (the tab itself):
+                // Close destroys that exact DOM node, once `tabs.close`
+                // resolves and the tab unmounts, so focusing it is a silent
+                // no-op and focus drops to <body>. The strip container is
+                // the one thing that survives — for the tab that closed,
+                // the last tab, and the only tab alike. A thunk (not
+                // `stripRef.current` directly) — see `focusReturnTo`'s own
+                // docstring for why a bare ref read here is refused at lint.
+                focusReturnTo: () => stripRef.current,
               },
             ],
           }}

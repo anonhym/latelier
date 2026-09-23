@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import { buildIdFilter } from './views/docId';
 
 interface DeleteConfirmProps {
@@ -93,6 +94,7 @@ export function DeleteConfirm({
   }, [isMulti, connectionId, dbName, collection, matchFilterJson]);
 
   const handleDelete = async () => {
+    if (loading) return; // #91 — see SubmitButton.tsx
     setLoading(true);
     setErr(null);
     try {
@@ -139,7 +141,6 @@ export function DeleteConfirm({
 
   const deleteDisabled =
     readOnly ||
-    loading ||
     (isMulti &&
       (!matchesCollectionName ||
         countState.status !== 'ready' ||
@@ -188,15 +189,16 @@ export function DeleteConfirm({
           <Button variant="subtle" size="compact-xs" onClick={close}>
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             color="red"
             size="compact-xs"
             onClick={() => void handleDelete()}
             disabled={deleteDisabled}
+            submitting={loading}
           >
             {loading ? 'Deleting…' : 'Delete'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

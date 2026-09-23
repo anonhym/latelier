@@ -1,16 +1,25 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, fireEvent, screen, waitFor, within, act } from '../helpers/render';
+import {
+  render,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+  act,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+  expectActiveRowOutlineLifecycle,
+} from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
+import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
-import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
+import { DRAGGED_FIELD_MIME, cycleSortField } from '../../src/pages/Workspace/builder';
 
 // jsdom doesn't implement clipboard by default; stub so copyToClipboard
 // doesn't throw when rendered.
@@ -49,30 +58,6 @@ function emptyState(overrides: Partial<CollectionTabState> = {}): CollectionTabS
   };
 }
 
-function emptyActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    ...overrides,
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderTable(
   docs: unknown[],
   extra: {
@@ -80,13 +65,16 @@ function renderTable(
     columnConfig?: CollectionTabState['columnConfig'];
     expandedRows?: Record<string, boolean>;
     onRowExpand?: (docId: string, expanded: boolean) => void;
+    actions?: Partial<CollectionWorkspaceActions>;
+    sort?: string;
+    onSortField?: (field: string) => void;
   } = {},
 ) {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions()}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions(extra.actions)}
+        meta={emptyWorkspaceMeta()}
       >
         <TableView
           documents={docs}
@@ -95,6 +83,8 @@ function renderTable(
           columnConfig={extra.columnConfig}
           expandedRows={extra.expandedRows}
           onRowExpand={extra.onRowExpand ?? vi.fn()}
+          sort={extra.sort}
+          onSortField={extra.onSortField}
         />
       </CollectionWorkspaceProvider>
   );
@@ -111,16 +101,11 @@ function renderStatefulTable(initial: CollectionTabState) {
   function Harness() {
     const [state, setState] = React.useState(initial);
     const actions = React.useMemo<CollectionWorkspaceActions>(
-      () => ({
-        patch: (p) => setState((s) => ({ ...s, ...p })),
-        patchWith: (fn) => setState((s) => ({ ...s, ...fn(s) })),
-        run: vi.fn(),
-        openEdit: vi.fn(),
-        openDelete: vi.fn(),
-        openDeleteAll: vi.fn(),
-        openInsert: vi.fn(),
-        openSave: vi.fn(),
-      }),
+      () =>
+        emptyWorkspaceActions({
+          patch: (p) => setState((s) => ({ ...s, ...p })),
+          patchWith: (fn) => setState((s) => ({ ...s, ...fn(s) })),
+        }),
       [],
     );
     const documents = state.lastRun?.documents ?? [];
@@ -133,7 +118,7 @@ function renderStatefulTable(initial: CollectionTabState) {
       });
     };
     return (
-      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyMeta()}>
+      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
         <ColumnChooser />
         <TableView
           documents={documents}
@@ -311,19 +296,18 @@ describe('TableView — rendering and interaction', () => {
       expect(getByTitle(/Drag to add "name/).textContent).not.toContain('Copied');
     });
 
-    // S6848 fixes — the row strip, resize handle, and context menus became
-    // keyboard-operable non-native elements (role + tabIndex + onKeyDown).
-    it('Enter on the row strip selects the row, same as a click', () => {
-      const docs = [{ _id: 1, name: 'a' }];
-      const { container } = renderTable(docs);
-      const row = container.querySelector('[data-selected]')!;
-      // `role="row"` inside the grid — `option` was the first attempt and is
-      // invalid here, since it may not contain the cells' own controls.
-      const strip = container.querySelector('[role="row"]')!;
-      expect(row.getAttribute('data-selected')).toBe('false');
+    // X19 #83 — the flash and the #60 active-row outline are both
+    // `var(--atelier-accent)`; clipping the flash to the content box keeps
+    // it off the 2px inset band the outline occupies. jsdom paints nothing,
+    // so this only guards the style is set — `x19-copy-flash-outline.e2e.ts`
+    // proves the pixels actually separate.
+    it('a copied cell clips its flash background to the content box (#83)', async () => {
+      const { getByTitle } = renderTable([{ _id: 1, name: 'alpha' }]);
+      const cell = getByTitle(/Drag to add "name/);
 
-      fireEvent.keyDown(strip, { key: 'Enter' });
-      expect(row.getAttribute('data-selected')).toBe('true');
+      fireEvent.doubleClick(cell);
+
+      await waitFor(() => expect(cell.style.backgroundClip).toBe('content-box'));
     });
 
     // The regression this guard exists for: without `e.target !==
@@ -404,7 +388,7 @@ describe('TableView — rendering and interaction', () => {
     it('sort indicator renders when a header is the active sort field', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
       const { getByTestId } = render(
-        <CollectionWorkspaceProvider state={emptyState()} actions={emptyActions()} meta={emptyMeta()}>
+        <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
           <TableView
             documents={docs}
             onColumnResize={vi.fn()}
@@ -498,6 +482,455 @@ describe('TableView — rendering and interaction', () => {
       // Header for the computed column shows the path (no explicit label set).
       const headers = Array.from(container.querySelectorAll('[data-testid^="table-header-"]'));
       expect(headers.some((h) => h.textContent?.includes('address.city'))).toBe(true);
+    });
+  });
+
+  // #20 — roving focus: the grid itself is the widget's only tab stop, and
+  // arrow/Home/End move `aria-activedescendant` between mounted rows instead
+  // of putting every row in the tab order.
+  describe('roving focus (#20)', () => {
+    // #72 — the four tests below all mounted the same 3-doc grid; the setup
+    // was byte-identical each time (SonarCloud flagged it as a self-
+    // duplicate). One fixture and one helper, kept behind the describe so it
+    // can't leak into the Enter-selection tests below, which need their own
+    // doc shapes.
+    const THREE_DOCS = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+    function renderGrid() {
+      const { container } = renderTable(THREE_DOCS);
+      return { container, grid: container.querySelector('[role="grid"]')! };
+    }
+
+    it('the grid is a tab stop and names row 0 as the active descendant', () => {
+      const { container, grid } = renderGrid();
+
+      expect(grid.getAttribute('tabindex')).toBe('0');
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+      expect(container.querySelector('#table-row-0')).not.toBeNull();
+    });
+
+    it.each([
+      { key: 'ArrowDown', description: 'ArrowDown moves the active descendant to the next row', expected: 'table-row-1' },
+      { key: 'ArrowUp', description: 'ArrowUp from row 0 wraps to the last row', expected: 'table-row-2' },
+    ])('$description', ({ key, expected }) => {
+      const { grid } = renderGrid();
+
+      fireEvent.keyDown(grid, { key });
+      expect(grid.getAttribute('aria-activedescendant')).toBe(expected);
+    });
+
+    it('End jumps to the last row, Home jumps back to the first', () => {
+      const { grid } = renderGrid();
+
+      fireEvent.keyDown(grid, { key: 'End' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
+      fireEvent.keyDown(grid, { key: 'Home' });
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+    });
+
+    it('Enter on the grid itself selects the active row', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      const rows = container.querySelectorAll('[data-selected]');
+
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      fireEvent.keyDown(grid, { key: 'Enter' });
+
+      expect(rows[0].getAttribute('data-selected')).toBe('false');
+      expect(rows[1].getAttribute('data-selected')).toBe('true');
+    });
+
+    // The mutation this guards against: dropping `e.target !== e.currentTarget`
+    // at the grid level would make Enter on the row's own nested expand
+    // button ALSO select the active row (mirrors the pre-existing guard on
+    // the row strip's own onKeyDown, at the grid's level instead).
+    it('Enter bubbling up from a nested button does not select the active row', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }];
+      const { container } = renderTable(docs);
+      const chevron = container.querySelector('[aria-label="Expand document"]')!;
+      const row = container.querySelector('[data-selected]')!;
+
+      fireEvent.keyDown(chevron, { key: 'Enter' });
+      expect(row.getAttribute('data-selected')).toBe('false');
+    });
+
+    // Found in review: `tabIndex={-1}` on the row strip excludes it from
+    // *sequential* (Tab) focus but leaves it click-focusable per the HTML
+    // focusing-steps algorithm. `fireEvent.click` (used everywhere else in
+    // this file) does no focus management at all, so nothing here had ever
+    // caught a real click actually moving DOM focus onto the row — only
+    // `userEvent`'s `click` walks up to the nearest focusable ancestor the
+    // way a real browser does, which is why this needs it specifically:
+    // once focus is truly on the row, every later keydown reaches the grid
+    // with `e.target` = the row, `e.currentTarget` = the grid, and
+    // `useRovingFocus`'s own-target guard swallows it — Arrow/Home/End all
+    // go dead until focus is moved again by hand.
+    it('a real click on a row does not trap focus there — ArrowDown still moves the grid afterward', async () => {
+      const user = userEvent.setup();
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      // Scoped to the grid, not `container` — #53 gives the sticky header
+      // row its own `role="row"` too (for its `columnheader` children), and
+      // it's a DOM sibling of the grid, not a descendant, so this excludes
+      // it without depending on index order.
+      const strip = grid.querySelectorAll('[role="row"]')[0] as HTMLElement;
+
+      await user.click(strip);
+      await user.keyboard('{ArrowDown}');
+
+      expect(document.activeElement).toBe(grid);
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+    });
+
+    // Clicking a row should also make it the roving-focus target, so the
+    // very next Arrow moves from the row just clicked — not from wherever
+    // the highlight happened to be sitting before.
+    it('clicking row 2 makes it the active row — ArrowDown moves to row 3, not row 1', async () => {
+      const user = userEvent.setup();
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      // Scoped to the grid — see the note in the previous test.
+      const strip = grid.querySelectorAll('[role="row"]')[1] as HTMLElement;
+
+      await user.click(strip);
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+      await user.keyboard('{ArrowDown}');
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
+    });
+
+    // #55 — the shared ContextMenu had no keyboard open path; this cell menu
+    // is TableView's own hand-rolled one (not the shared `ContextMenu`
+    // component), so it needs its own keyboard trigger and focus management.
+    describe('keyboard: opening the context menu (#55)', () => {
+      it('Shift+F10 opens the menu for the active row, with Edit/Delete reachable', async () => {
+        const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+        const { container, getByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'F10', shiftKey: true });
+
+        expect(await screen.findByText('Edit')).toBeTruthy();
+        expect(getByText('Delete')).toBeTruthy();
+      });
+
+      it('the ContextMenu key opens the same menu', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+
+        expect(await screen.findByText('Edit')).toBeTruthy();
+      });
+
+      it('F10 without Shift does not open the menu', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container, queryByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'F10', shiftKey: false });
+
+        expect(queryByText('Edit')).toBeNull();
+      });
+
+      it('anchors the menu to the active row, not a stale {0,0}', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+        const row = container.querySelector('#table-row-0')!;
+        vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+          left: 42,
+          bottom: 84,
+          top: 0,
+          right: 0,
+          width: 0,
+          height: 0,
+          x: 42,
+          y: 84,
+          toJSON: () => {},
+        } as DOMRect);
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+
+        const menu = await screen.findByRole('group', { name: 'Cell actions' });
+        expect(menu.style.left).toBe('42px');
+        expect(menu.style.top).toBe('84px');
+      });
+
+      it('focus enters the menu on open and Escape returns it to the grid', async () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+        fireEvent.keyDown(grid, { key: 'ContextMenu' });
+        await screen.findByRole('group', { name: 'Cell actions' });
+        await waitFor(() =>
+          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+        );
+
+        // Same window-level Escape listener as the existing mouse-opened
+        // menu (`:869`/`:973`) — must not regress it.
+        fireEvent.keyDown(window, { key: 'Escape' });
+
+        await waitFor(() => expect(document.activeElement).toBe(grid));
+      });
+
+      it('right-click does not force focus into the menu — unchanged from before #69', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { getByTitle, getByText } = renderTable(docs);
+        const cell = getByTitle(/Drag to add "name/);
+
+        fireEvent.contextMenu(cell);
+        expect(getByText('Edit')).toBeTruthy();
+
+        // A mouse open still doesn't grab focus into the menu the way a
+        // keyboard open does (`focusMenuOnOpen` stays unset on this path) —
+        // only the close-time restore below is new.
+        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+      });
+
+      // #69 — right-click open, then Escape, used to strand focus on
+      // `<body>` (nothing set `returnFocusTo` for a mouse open). Now both
+      // open paths share the same mechanism.
+      it('right-click open, then Escape, returns focus to the grid — not <body>', () => {
+        const docs = [{ _id: 1, name: 'a' }];
+        const { container, getByTitle, getByText } = renderTable(docs);
+        const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+        const cell = getByTitle(/Drag to add "name/);
+
+        fireEvent.contextMenu(cell);
+        expect(getByText('Edit')).toBeTruthy();
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+
+        expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(grid);
+      });
+    });
+  });
+
+  // #60 — the active row is announced (aria-activedescendant, #20) but was
+  // never drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight (#60)', () => {
+    it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+      const rows = () => Array.from(grid.querySelectorAll<HTMLElement>('[role="row"]'));
+
+      expectActiveRowOutlineLifecycle(grid, rows, { key: 'ArrowDown', from: 0, to: 1 });
+    });
+
+    it('a selected-and-active row shows both treatments; selected-but-not-active shows only the background', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
+      const { container } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+      const strip1 = grid.querySelectorAll('[role="row"]')[1] as HTMLElement;
+
+      fireEvent.click(strip1); // selects row 1 and makes it the active row too.
+      act(() => grid.focus());
+
+      const row1 = container.querySelector('#table-row-1') as HTMLElement;
+      const outer1 = row1.parentElement!;
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).toContain('2px');
+
+      // Move the active row off row 1 — it stays selected, but the outline
+      // must follow the active index, leaving only the background behind.
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).not.toContain('2px');
+      expect(outer1.style.background).toContain('accent-soft');
+
+      const row2 = container.querySelector('#table-row-2') as HTMLElement;
+      expect(row2.style.outline).toContain('2px');
+    });
+
+    // The whole reason for driving the highlight from React instead of a
+    // CSS descendant selector (`DocFieldTree` mounts *inside* an expanded
+    // outer row — see `TableView.tsx:670`): a descendant selector keyed off
+    // the outer grid's own `aria-activedescendant`/focus would paint this
+    // nested tree's row too, even though the nested tree itself never had
+    // focus. This test fails against that implementation.
+    it('an expanded row\'s nested DocFieldTree never receives the outer grid\'s active-row outline', () => {
+      const docs = [{ _id: 1, a: 1, b: 2 }, { _id: 2, a: 3, b: 4 }];
+      const { container } = renderTable(docs, { expandedRows: { '1': true } });
+      const grid = container.querySelector('[role="grid"]')! as HTMLElement;
+
+      act(() => grid.focus());
+
+      const outlined = Array.from(container.querySelectorAll<HTMLElement>('*')).filter((el) =>
+        el.style.outline?.includes('2px'),
+      );
+      expect(outlined).toHaveLength(1);
+      expect(outlined[0].id).toBe('table-row-0');
+    });
+  });
+
+  // #53 — the sort mechanism (a real <button>) already worked; the sorted
+  // header cell just never said so to assistive tech, and the hover-gated
+  // pencil/expand affordances were invisible to a keyboard user who tabbed
+  // onto them.
+  describe('aria-sort and focus-visible affordances (#53)', () => {
+    it('a sortable column header is a columnheader with aria-sort="none" while unsorted', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const { getByTestId } = renderTable(docs, { onSortField: vi.fn() });
+      const header = getByTestId('table-header-name');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('carries aria-sort="ascending" or "descending" for the actively sorted column', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const ascending = renderTable(docs, { onSortField: vi.fn(), sort: '{"name":1}' });
+      expect(within(ascending.container).getByTestId('table-header-name').getAttribute('aria-sort')).toBe(
+        'ascending',
+      );
+      ascending.unmount();
+
+      const descending = renderTable(docs, { onSortField: vi.fn(), sort: '{"name":-1}' });
+      expect(within(descending.container).getByTestId('table-header-name').getAttribute('aria-sort')).toBe(
+        'descending',
+      );
+    });
+
+    it('keyboard-activating the sort button cycles aria-sort ascending -> descending -> none', async () => {
+      const user = userEvent.setup();
+      function Harness() {
+        const [sort, setSort] = React.useState('');
+        return (
+          <CollectionWorkspaceProvider state={emptyState()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
+            <TableView
+              documents={[{ _id: 1, name: 'alpha' }]}
+              onColumnResize={vi.fn()}
+              onSortField={(field) => setSort((s) => cycleSortField(s, field))}
+              sort={sort}
+            />
+          </CollectionWorkspaceProvider>
+        );
+      }
+      const { getByTestId, getByRole } = render(<Harness />);
+      const header = getByTestId('table-header-name');
+      const sortButton = getByRole('button', { name: 'name' });
+
+      expect(header.getAttribute('aria-sort')).toBe('none');
+      sortButton.focus();
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('ascending');
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('descending');
+      await user.keyboard('{Enter}');
+      expect(header.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('a non-sortable computed column header is still a columnheader but carries no aria-sort', () => {
+      const docs = [{ _id: 1, address: { city: 'Springfield' } }];
+      const columnConfig: CollectionTabState['columnConfig'] = {
+        computed: [{ id: 'computed:address.city', path: 'address.city' }],
+      };
+      const { getByTestId } = renderTable(docs, { onSortField: vi.fn(), columnConfig });
+      const header = getByTestId('table-header-computed:address.city');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.hasAttribute('aria-sort')).toBe(false);
+    });
+
+    it('a column with no onSortField at all is a columnheader with no aria-sort (view has sorting disabled)', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const { getByTestId } = renderTable(docs);
+      const header = getByTestId('table-header-name');
+
+      expect(header.getAttribute('role')).toBe('columnheader');
+      expect(header.hasAttribute('aria-sort')).toBe(false);
+    });
+
+    it('a column hidden via the column chooser renders no header at all — no orphaned aria-sort', () => {
+      const docs = [{ _id: 1, name: 'alpha' }];
+      const columnConfig: CollectionTabState['columnConfig'] = { hidden: ['name'] };
+      const { queryByTestId } = renderTable(docs, {
+        onSortField: vi.fn(),
+        sort: '{"name":1}',
+        columnConfig,
+      });
+
+      expect(queryByTestId('table-header-name')).toBeNull();
+    });
+
+    it('focusing the expand-cell affordance makes it visible (WCAG 2.4.11), not just present', () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const { getByTitle } = renderTable(docs);
+      const cell = getByTitle(/Drag to add "note/);
+      const expandBtn = within(cell).getByRole('button', { name: 'Expand cell value' }) as HTMLElement;
+
+      // Baseline: nothing hovered/focused yet — the affordance exists (it's
+      // always mounted) but is not visible. Asserting only `toBeTruthy()` on
+      // the button, as the pre-existing expand test does, would pass whether
+      // or not this fix is applied — the button is real either way. Opacity
+      // is the actual property the hover path already drives (:171/:358), so
+      // it's the one a focus path has to drive too.
+      expect(expandBtn.style.opacity).toBe('0');
+      expect(expandBtn.style.pointerEvents).toBe('none');
+
+      // The button is already a real tab stop (never `tabIndex={-1}`), so
+      // this reproduces exactly what a keyboard user tabbing onto it does.
+      // `fireEvent.focus`, not a raw `.focus()` call: the visibility flip is
+      // a React state update inside the `onFocus` handler this cell's
+      // wrapping `gridcell` div carries, and only `fireEvent` wraps native
+      // event dispatch in `act()` so that update is flushed before the next
+      // assertion runs — a bare `element.focus()` schedules the same update
+      // but leaves it unflushed, which is a false negative, not proof the
+      // fix is missing (confirmed against a real probe: logging inside the
+      // handler shows it firing either way; only the flushed DOM differs).
+      fireEvent.focus(expandBtn);
+
+      expect(expandBtn.style.opacity).toBe('1');
+      expect(expandBtn.style.pointerEvents).toBe('auto');
+    });
+
+    it('blurring the expand-cell affordance hides it again (not stuck visible)', () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const { getByTitle } = renderTable(docs);
+      const cell = getByTitle(/Drag to add "note/);
+      const expandBtn = within(cell).getByRole('button', { name: 'Expand cell value' }) as HTMLElement;
+
+      fireEvent.focus(expandBtn);
+      expect(expandBtn.style.opacity).toBe('1');
+      fireEvent.blur(expandBtn);
+      expect(expandBtn.style.opacity).toBe('0');
+    });
+
+    it('tabbing onto the edit-cell pencil affordance makes it visible', () => {
+      const docs = [{ _id: 1, status: 'pending' }];
+      const { getByTitle } = renderTable(docs, { actions: { updateField: vi.fn() } });
+      const cell = getByTitle(/Drag to add "status/);
+      const editBtn = within(cell).getByRole('button', { name: 'Edit cell value' }) as HTMLElement;
+
+      expect(editBtn.style.opacity).toBe('0');
+      fireEvent.focus(editBtn);
+      expect(editBtn.style.opacity).toBe('1');
+      expect(editBtn.style.pointerEvents).toBe('auto');
+    });
+  });
+
+  // #79 — closing the "Expand cell value" popover on a click that lands on a
+  // non-focusable area used to drop focus to <body>. `returnFocus` fixes it
+  // here because this dropdown has no focusable content to autofocus (see
+  // the prop's comment on `TableView.tsx`). Shared with column-chooser/
+  // preview-picker specs — see the helper's docstring.
+  describe('expand-cell popover — focus return on close (#79)', () => {
+    itReturnsFocusToPopoverTrigger(async () => {
+      const docs = [{ _id: 1, note: 'hello' }];
+      const ctx = renderTable(docs);
+      const cell = ctx.getByTitle(/Drag to add "note/);
+      fireEvent.mouseEnter(cell);
+      const trigger = within(cell).getByRole('button', { name: 'Expand cell value' });
+      await userEvent.click(trigger);
+      // No focusInside: this dropdown has no focusable content.
+      return { trigger };
     });
   });
 });

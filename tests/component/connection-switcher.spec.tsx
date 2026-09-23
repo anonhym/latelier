@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, titleBar, waitFor, within } from '../helpers/render';
+import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
@@ -710,7 +711,7 @@ describe('ConnectionSwitcher — add/edit', () => {
     await screen.findByRole('dialog', { name: 'New Connection' });
 
     await userEvent.type(screen.getByPlaceholderText(/My MongoDB Server/i), 'Fresh');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'fresh.example.com');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'fresh.example.com');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
@@ -1984,14 +1985,20 @@ describe('ConnectionSwitcher keyboard contract', () => {
     expect(titleBar().getByText('Prod — US East')).toBeTruthy();
   });
 
-  it('returns focus to the TitleBar Connection trigger when the popover closes', async () => {
-    mount({ focusedConnectionId: 'c1' });
-
-    const trigger = await screen.findByRole('button', { name: /Connection: Prod — US East/i });
-    await openSwitcher();
-    await userEvent.keyboard('{Escape}');
-
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  // #79 — the Escape guard already passed before this fix, since the
+  // Switcher's own (pre-existing) effect already special-cased "focus is
+  // still inside the dropdown". What it missed is a click that closes the
+  // popover on a non-focusable area: Chromium's mousedown default action
+  // blurs the search field to <body> there, and nothing recovered from it.
+  // Shared with column-chooser/preview-picker/table-view specs — see the
+  // helper's docstring.
+  describe('focus return on close (#79)', () => {
+    itReturnsFocusToPopoverTrigger(async () => {
+      mount({ focusedConnectionId: 'c1' });
+      const trigger = await screen.findByRole('button', { name: /Connection: Prod — US East/i });
+      await openSwitcher();
+      return { trigger };
+    });
   });
 
   it('lists three shortcuts in a footer, the rest taught by row-action tooltips', async () => {

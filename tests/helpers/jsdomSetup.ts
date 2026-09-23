@@ -1,6 +1,6 @@
-import { afterEach, beforeEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { beforeEach } from 'vitest';
 import { uninstallAtelierMock } from './atelierMock';
+import { installJsdomTeardown } from './jsdomTeardown';
 
 // jsdom doesn't implement ResizeObserver, and reports offsetWidth/offsetHeight
 // as 0 for every element. react-window reads both to compute the visible
@@ -102,56 +102,9 @@ beforeEach(() => {
 // priority, and the run fails as an unhandled rejection with every individual
 // test passing. It surfaces only under load, so it reads as a flake.
 //
-// Sweeping here kills the whole class — including `@mantine/notifications`'
-// 4-6s auto-close timer, which no per-component fix can reach, and including
-// components that don't exist yet.
-//
-// The handles are recorded rather than swept by id: under vitest's jsdom
-// environment `setTimeout` is Node's, which returns a `Timeout` object instead
-// of the numeric id the DOM spec promises, and `clearTimeout` will not accept
-// that object's id back. Wrapping the globals sidesteps the question.
-//
-// `vi.useFakeTimers()` swaps these wrappers out and `vi.useRealTimers()` puts
-// them back, so timers scheduled against the fake clock are simply never
-// recorded — which is correct, since restoring real timers discards them.
-const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
-const pendingFrames = new Set<number>();
-
-const nativeSetTimeout = window.setTimeout;
-const nativeSetInterval = window.setInterval;
-const nativeRequestAnimationFrame = window.requestAnimationFrame;
-
-window.setTimeout = function recordingSetTimeout(...args: Parameters<typeof nativeSetTimeout>) {
-  const handle = nativeSetTimeout.apply(window, args);
-  pendingTimers.add(handle);
-  return handle;
-} as typeof window.setTimeout;
-
-window.setInterval = function recordingSetInterval(...args: Parameters<typeof nativeSetInterval>) {
-  const handle = nativeSetInterval.apply(window, args);
-  pendingTimers.add(handle);
-  return handle;
-} as typeof window.setInterval;
-
-if (typeof nativeRequestAnimationFrame === 'function') {
-  window.requestAnimationFrame = function recordingRaf(callback: FrameRequestCallback) {
-    const handle = nativeRequestAnimationFrame.call(window, callback);
-    pendingFrames.add(handle);
-    return handle;
-  };
-}
-
-function clearPendingTimers(): void {
-  for (const handle of pendingTimers) {
-    window.clearTimeout(handle);
-    window.clearInterval(handle);
-  }
-  pendingTimers.clear();
-  for (const handle of pendingFrames) window.cancelAnimationFrame(handle);
-  pendingFrames.clear();
-}
-
-afterEach(() => {
-  cleanup();
-  clearPendingTimers();
-});
+// `installJsdomTeardown` (see tests/helpers/jsdomTeardown.ts, #110) kills the
+// whole class — including `@mantine/notifications`' 4-6s auto-close timer,
+// which no per-component fix can reach, and including components that don't
+// exist yet. The `unit` project's jsdom-opt-in hook specs call it directly,
+// since they have no setupFiles of their own.
+installJsdomTeardown();

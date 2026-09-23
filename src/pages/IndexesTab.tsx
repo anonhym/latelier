@@ -16,6 +16,8 @@ import {
 } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
+import { DisclosureToggle } from '../components/DisclosureToggle';
+import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 import { ownGet } from '../utils/ownProperty';
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
@@ -127,7 +129,20 @@ export function IndexesTab({
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [dropName, setDropName] = React.useState<string | null>(null);
+  // Captured alongside `dropName`, in the same click handler that sets it —
+  // reading a ref's `.current` has to happen in an event handler or effect,
+  // never during render (`react-hooks/refs`), so this can't be
+  // `scrollRegionRef.current` inline in the JSX below.
+  const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
   const initialPickRef = React.useRef(false);
+  // #74's focus-return target for a successful drop: the row is gone by then,
+  // but this scroll region is mounted for the tab's whole lifetime. Not the
+  // "Refresh" button, the obvious-looking alternative — it's `disabled={!target
+  // || loadingIndexes}`, and the success path kicks off a reload, so it is
+  // disabled at the exact moment focus would land there. A disabled focused
+  // button drops focus to <body> itself — the #55/#70 defect documented at
+  // ColumnChooser.tsx:78-82 — which is the bug this exists to fix.
+  const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     void api.prefs
@@ -357,7 +372,13 @@ export function IndexesTab({
         </Button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div
+        ref={scrollRegionRef}
+        tabIndex={-1}
+        role="region"
+        aria-label="Indexes"
+        style={{ flex: 1, overflowY: 'auto' }}
+      >
         {!target && (
           <div style={{ padding: 24, color: T.textMuted, fontSize: 13, textAlign: 'center' }}>
             Pick a database and collection to inspect its indexes.
@@ -415,6 +436,7 @@ export function IndexesTab({
               setDropName(null);
               void loadIndexes(target);
             }}
+            returnFocusTo={dropReturnFocus}
             connectionId={conn.id}
             dbName={target.dbName}
             collection={target.collection}
@@ -460,10 +482,7 @@ export function IndexesTab({
                       style={{ cursor: 'pointer' }}
                     >
                       <Table.Td>
-                        <Group gap={6} wrap="nowrap">
-                          <span style={{ color: T.textGhost, display: 'flex', flexShrink: 0 }}>
-                            {isOpen ? I.chevD : I.chevR}
-                          </span>
+                        <DisclosureToggle open={isOpen}>
                           <span
                             style={{
                               fontFamily: 'monospace',
@@ -476,7 +495,7 @@ export function IndexesTab({
                           >
                             {idx.name}
                           </span>
-                        </Group>
+                        </DisclosureToggle>
                       </Table.Td>
                       <Table.Td>
                         <Text
@@ -530,6 +549,7 @@ export function IndexesTab({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setDropName(idx.name);
+                                setDropReturnFocus(scrollRegionRef.current);
                               }}
                               title="Drop index"
                             >
@@ -679,6 +699,7 @@ function CreateIndexDrawer({
   };
 
   const submit = async () => {
+    if (submitting) return;
     setError(null);
     if (ttlEnabled) {
       if (fields.length !== 1) {
@@ -897,9 +918,9 @@ function CreateIndexDrawer({
         >
           Cancel
         </Button>
-        <Button variant="filled" size="compact-xs" onClick={() => void submit()} disabled={submitting}>
+        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
           {submitting ? 'Creating…' : 'Create index'}
-        </Button>
+        </SubmitButton>
       </div>
     </Drawer>
   );
@@ -983,6 +1004,7 @@ function DropConfirmDialog({
   collection,
   onCancel,
   onDropped,
+  returnFocusTo,
 }: {
   indexName: string;
   connectionId: string;
@@ -990,20 +1012,29 @@ function DropConfirmDialog({
   collection: string;
   onCancel: () => void;
   onDropped: () => void;
+  returnFocusTo?: HTMLElement | null;
 }) {
   const close = useDialogFocusReturn(onCancel);
+  // Separate call on purpose, not a shared one with `close` above: `close`
+  // keeps the render-time captured trigger — the "Drop index" `ActionIcon`
+  // still exists after a Cancel and is the better target there. `finish`
+  // needs the scroll container instead, because the row (and its ActionIcon)
+  // is gone by the time a successful drop reloads the list. This call's own
+  // `useState` capture of `document.activeElement` is dead weight since
+  // `returnFocusTo` always wins when passed — don't collapse these into one.
+  const finish = useDialogFocusReturn(onDropped, returnFocusTo);
   const [typed, setTyped] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const matches = typed === indexName;
 
   const submit = async () => {
-    if (!matches) return;
+    if (!matches || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       await api.index.drop({ connectionId, dbName, collection, name: indexName });
-      onDropped();
+      finish();
     } catch (err) {
       setError(isIpcError(err) ? err.message : String(err));
     } finally {
@@ -1046,9 +1077,9 @@ function DropConfirmDialog({
           <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
             Cancel
           </Button>
-          <Button variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches || submitting}>
+          <SubmitButton variant="filled" color="red" size="compact-xs" onClick={() => void submit()} disabled={!matches} submitting={submitting}>
             {submitting ? 'Dropping…' : 'Drop'}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Modal>

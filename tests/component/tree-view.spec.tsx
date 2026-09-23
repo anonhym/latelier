@@ -1,12 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '../helpers/render';
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  emptyWorkspaceActions,
+  emptyWorkspaceMeta,
+  expectActiveRowOutlineLifecycle,
+} from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 const noop = () => {};
@@ -22,30 +27,6 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function emptyActions(overrides: Partial<CollectionWorkspaceActions> = {}): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-    ...overrides,
-  };
-}
-
-function emptyMeta(): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-  };
-}
-
 function renderTree(documents: unknown[], opts: {
   expanded?: Record<string, true>;
   previewFields?: string[] | null;
@@ -56,8 +37,8 @@ function renderTree(documents: unknown[], opts: {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState()}
-        actions={emptyActions(opts.actions)}
-        meta={emptyMeta()}
+        actions={emptyWorkspaceActions(opts.actions)}
+        meta={emptyWorkspaceMeta()}
       >
         <TreeView
           documents={documents}
@@ -142,5 +123,160 @@ describe('TreeView — rendering and interaction', () => {
 
     expect(onRowExpand).toHaveBeenCalledTimes(1);
     expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439011', true);
+  });
+
+  // #20 — roving focus: the tree itself is the widget's only tab stop.
+  describe('roving focus (#20)', () => {
+    const threeDocs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' },
+      { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'b' },
+      { _id: { $oid: '507f1f77bcf86cd799439013' }, name: 'c' },
+    ];
+
+    it('the tree is a tab stop and names row 0 as the active descendant', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      expect(tree.getAttribute('tabindex')).toBe('0');
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-0');
+      expect(container.querySelector('#tree-row-0')).not.toBeNull();
+    });
+
+    it('ArrowDown/ArrowUp move the active descendant and wrap at both ends', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+
+      fireEvent.keyDown(tree, { key: 'ArrowUp' });
+      fireEvent.keyDown(tree, { key: 'ArrowUp' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+    });
+
+    it('Home/End jump to the first/last row', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'End' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+      fireEvent.keyDown(tree, { key: 'Home' });
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-0');
+    });
+
+    it('Enter on the tree itself expands the active row', () => {
+      const onRowExpand = vi.fn();
+      const { container } = renderTree(threeDocs, { onRowExpand });
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      fireEvent.keyDown(tree, { key: 'Enter' });
+
+      expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439012', true);
+    });
+
+    // Mirrors the existing per-row guard test above, at the container level:
+    // Enter bubbling from a nested button must not also expand the row.
+    it('Enter bubbling up from a nested button does not double-expand', async () => {
+      const onRowExpand = vi.fn();
+      renderTree([threeDocs[0]], { onRowExpand });
+
+      const btn = screen.getByRole('button', { name: 'Expand document' });
+      btn.focus();
+      await userEvent.keyboard('{Enter}');
+
+      expect(onRowExpand).toHaveBeenCalledTimes(1);
+    });
+
+    // Found in review: `tabIndex={-1}` excludes the row from Tab order but
+    // (per the HTML focusing-steps algorithm) leaves it click-focusable —
+    // `fireEvent.click` elsewhere in this file does no focus management at
+    // all, which is why this needs `userEvent`'s click specifically, the one
+    // that walks up to the nearest focusable ancestor like a real browser.
+    it('a real click on a row does not trap focus there — ArrowDown still moves the tree afterward', async () => {
+      const user = userEvent.setup();
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+      const rows = container.querySelectorAll('[role="treeitem"]');
+
+      await user.click(rows[0]);
+      await user.keyboard('{ArrowDown}');
+
+      expect(document.activeElement).toBe(tree);
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+    });
+
+    it('clicking row 2 makes it the active row — ArrowDown moves to row 3, not row 1', async () => {
+      const user = userEvent.setup();
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+      const rows = container.querySelectorAll('[role="treeitem"]');
+
+      await user.click(rows[1]);
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-1');
+      await user.keyboard('{ArrowDown}');
+      expect(tree.getAttribute('aria-activedescendant')).toBe('tree-row-2');
+    });
+  });
+
+  // #60 — the active row is announced (aria-activedescendant, #20) but was
+  // never drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight (#60)', () => {
+    const threeDocs = [
+      { _id: 1, name: 'a' },
+      { _id: 2, name: 'b' },
+      { _id: 3, name: 'c' },
+    ];
+
+    it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+      const rows = () => Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+
+      expectActiveRowOutlineLifecycle(tree, rows, { key: 'ArrowDown', from: 0, to: 1 });
+    });
+
+    it('a selected-and-active row shows both treatments; selected-but-not-active shows only the background/left-border', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+      const row1 = container.querySelector('#tree-row-1') as HTMLElement;
+
+      fireEvent.click(row1, { metaKey: true }); // ⌘+click selects row 1 and makes it the active row too.
+      act(() => tree.focus());
+
+      const outer1 = row1.parentElement!;
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).toContain('2px');
+
+      // Move the active row off row 1 — it stays selected, but the outline
+      // must follow the active index, leaving only the background/border.
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(outer1.getAttribute('data-selected')).toBe('true');
+      expect(row1.style.outline).not.toContain('2px');
+      expect(outer1.style.background).toContain('accent-soft');
+      expect(outer1.style.borderLeft).toContain('accent');
+
+      const row2 = container.querySelector('#tree-row-2') as HTMLElement;
+      expect(row2.style.outline).toContain('2px');
+    });
+
+    // The whole reason for driving the highlight from React instead of a
+    // CSS descendant selector (`DocFieldTree` mounts *inside* an expanded
+    // outer row — see `TreeView.tsx:337`): a descendant selector keyed off
+    // the outer tree's own `aria-activedescendant`/focus would paint this
+    // nested tree's row too, even though the nested tree itself never had
+    // focus. This test fails against that implementation.
+    it("an expanded row's nested DocFieldTree never receives the outer tree's active-row outline", () => {
+      const { container } = renderTree(threeDocs, { expanded: { '1': true } });
+      const tree = container.querySelector('[role="tree"]')! as HTMLElement;
+
+      act(() => tree.focus());
+
+      const outlined = Array.from(container.querySelectorAll<HTMLElement>('*')).filter((el) =>
+        el.style.outline?.includes('2px'),
+      );
+      expect(outlined).toHaveLength(1);
+      expect(outlined[0].id).toBe('tree-row-0');
+    });
   });
 });

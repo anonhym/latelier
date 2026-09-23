@@ -26,6 +26,7 @@ import { useNavigatorDialogs } from './useNavigatorDialogs';
 import { useNavigatorTree } from './useNavigatorTree';
 import { emptyCache } from './navigatorTreeReducer';
 import { ownGet } from '../../utils/ownProperty';
+import { isContextMenuKey, anchorForRow } from '../../utils/contextMenuKey';
 
 export interface NavigatorOpenInput {
   connectionId: string;
@@ -73,6 +74,12 @@ type TreeRow =
       isExpanded: boolean;
       isConnected: boolean;
       dbCount: number | null;
+      // #66 — DOM id of this root's own `conn-error` row (`connerr:`/`dberr:`),
+      // when one is present, so the row can `aria-describedby` it. A
+      // connection can only ever have one of the two at a time (the first
+      // needs `status === 'error'`, the second needs a connected, expanded
+      // root with a failed db list).
+      errorRowId: string | null;
     }
   | {
       kind: 'db';
@@ -108,6 +115,55 @@ type TreeRow =
     };
 
 type MenuItem = ContextMenuItem;
+
+// #58 — `row.id` (`conn:…`/`db:…:…`/`coll:…:…:…`) is already globally unique,
+// same reasoning as DocFieldTree's `fieldRowDomId`; just namespaced so it
+// can't collide with an unrelated `id` elsewhere on the page.
+function navigatorRowDomId(id: string): string {
+  return `navigator-row-${id}`;
+}
+
+// #66 — the only three kinds a keyboard/AT user can land on. Everything else
+// (skeleton/db-skeleton/coll-empty/db-empty/conn-error) is inert content: it
+// has no `id`, no focus treatment, and nothing to act on. Used everywhere
+// "navigable" is decided, so there's exactly one place that list can drift.
+function isNavigableRow(row: TreeRow): boolean {
+  return row.kind === 'connection' || row.kind === 'db' || row.kind === 'coll';
+}
+
+/**
+ * Nearest navigable row at-or-after (`dir` 1) or at-or-before (`dir` -1)
+ * `from`. Starting *at* `from` (not past it) makes this recover cleanly even
+ * if `focusedId` were ever somehow left pointing at a non-navigable row —
+ * the search just walks outward from wherever it is. Returns -1 when there
+ * is no navigable row in that direction.
+ */
+function nearestNavigableIndex(rows: TreeRow[], from: number, dir: 1 | -1): number {
+  for (let i = from; i >= 0 && i < rows.length; i += dir) {
+    if (isNavigableRow(rows[i])) return i;
+  }
+  return -1;
+}
+
+/**
+ * First navigable row after `idx`, without leaving the current node's own
+ * subtree — `boundaryKinds` are the row kinds that mark "back out to a
+ * sibling or ancestor" (e.g. hitting another `db` or `connection` row).
+ * Used by ArrowRight's "step into the first child": the immediate next row
+ * can be a skeleton/empty placeholder today, so a blind `rows[idx + 1]`
+ * either lands on one or skips past the whole subtree.
+ */
+function firstNavigableInSubtree(
+  rows: TreeRow[],
+  idx: number,
+  boundaryKinds: ReadonlyArray<TreeRow['kind']>,
+): number {
+  for (let i = idx + 1; i < rows.length; i += 1) {
+    if (boundaryKinds.includes(rows[i].kind)) return -1;
+    if (isNavigableRow(rows[i])) return i;
+  }
+  return -1;
+}
 
 const connExpandedKey = (id: string) => `ui.workspace.navigator.connExpanded:${id}`;
 
@@ -473,6 +529,16 @@ export function DbCollectionNavigator({
         connectionsWithTabs.has(conn.id);
       if (!hasRoot) continue;
       const isExpanded = conn.id === connectionId;
+      // #66 — computed up front so the row below can carry it: `cache` is
+      // only ever this connection's own cache when `isExpanded` (it's a
+      // single value keyed by the one open root), so `dberr` can only apply
+      // here, never to a collapsed sibling.
+      const errorRowId =
+        conn.status === 'error'
+          ? navigatorRowDomId(`connerr:${conn.id}`)
+          : isExpanded && isConnected && cache.err
+            ? navigatorRowDomId(`dberr:${conn.id}`)
+            : null;
       out.push({
         kind: 'connection',
         id: `conn:${conn.id}`,
@@ -480,6 +546,7 @@ export function DbCollectionNavigator({
         isExpanded,
         isConnected: conn.status === 'connected',
         dbCount: isExpanded && isConnected && cache.dbs ? cache.dbs.length : null,
+        errorRowId,
       });
       // A failed connect explains itself on its own root, expanded or not.
       if (conn.status === 'error') {
@@ -656,21 +723,51 @@ export function DbCollectionNavigator({
   }, [openFromRow]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // #66 — a key bubbling up from a nested real control (Retry, Cancel,
+    // Create collection, Refresh…) is that control's own action, not the
+    // tree's roving-focus navigation. Without this, an ancestor
+    // `preventDefault()` on the bubble phase cancels the button's own
+    // Enter-activates-click default action before it fires — mirrors
+    // `useRovingFocus`'s identical guard and TableView/TreeView's copy of it.
+    if (e.target !== e.currentTarget) return;
     if (rows.length === 0) return;
     const idx = focusedId ? rows.findIndex((r) => r.id === focusedId) : -1;
     const row = idx >= 0 ? rows[idx] : null;
 
+    // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row,
+    // anchored to its bounding rect, not a stale cursor position. #133 — the
+    // list is virtualized, and PageDown or the wheel can have scrolled that
+    // row out and unmounted it: open anyway (anchored to the tree) and bring
+    // the row back into view.
+    if (isContextMenuKey(e)) {
+      if (!row) return;
+      e.preventDefault();
+      const rowEl = document.getElementById(navigatorRowDomId(row.id));
+      const anchor = anchorForRow(rowEl, treeRef.current);
+      if (!anchor) return;
+      if (!rowEl) listRef.current?.scrollToRow({ index: idx, align: 'auto' });
+      openMenuFor(row, anchor);
+      return;
+    }
+
     switch (e.key) {
       case 'ArrowDown': {
         e.preventDefault();
-        const next = idx < 0 ? 0 : Math.min(rows.length - 1, idx + 1);
-        setFocusedId(rows[next].id);
+        // #66 — start the search AT `idx` (not `idx + 1`) whenever the
+        // currently focused row isn't itself navigable, so a stray
+        // placeholder focus (should never happen — see the audit at this
+        // ticket's call sites) still recovers to the nearest navigable row
+        // below it, rather than skipping one past it.
+        const from = idx < 0 ? 0 : row && isNavigableRow(row) ? idx + 1 : idx;
+        const next = nearestNavigableIndex(rows, from, 1);
+        if (next >= 0) setFocusedId(rows[next].id);
         return;
       }
       case 'ArrowUp': {
         e.preventDefault();
-        const next = idx <= 0 ? 0 : idx - 1;
-        setFocusedId(rows[next].id);
+        const from = idx < 0 ? 0 : row && isNavigableRow(row) ? idx - 1 : idx;
+        const next = nearestNavigableIndex(rows, from, -1);
+        if (next >= 0) setFocusedId(rows[next].id);
         return;
       }
       case 'ArrowRight': {
@@ -679,18 +776,16 @@ export function DbCollectionNavigator({
         if (row.kind === 'connection') {
           if (!row.isExpanded) {
             toggleConnection(row.conn.id);
-          } else if (idx < rows.length - 1) {
-            setFocusedId(rows[idx + 1].id);
+          } else {
+            const next = firstNavigableInSubtree(rows, idx, ['connection']);
+            if (next >= 0) setFocusedId(rows[next].id);
           }
         } else if (row.kind === 'db') {
           if (!row.isExpanded) {
             toggleDb(row.db.name);
-          } else if (
-            idx < rows.length - 1 &&
-            rows[idx + 1].kind !== 'db' &&
-            rows[idx + 1].kind !== 'connection'
-          ) {
-            setFocusedId(rows[idx + 1].id);
+          } else {
+            const next = firstNavigableInSubtree(rows, idx, ['db', 'connection']);
+            if (next >= 0) setFocusedId(rows[next].id);
           }
         }
         return;
@@ -698,6 +793,11 @@ export function DbCollectionNavigator({
       case 'ArrowLeft': {
         if (!row) return;
         e.preventDefault();
+        // #66 — `row` can only ever be `connection`/`db`/`coll` now (the
+        // invariant every other case here maintains), so the old
+        // `conn-error` branch and its final `else if (connectionId)`
+        // catch-all — the fallback for a placeholder having somehow been
+        // focused — are unreachable and gone.
         if (row.kind === 'connection' && row.isExpanded) {
           toggleConnection(row.conn.id);
         } else if (row.kind === 'db' && row.isExpanded) {
@@ -706,21 +806,19 @@ export function DbCollectionNavigator({
           setFocusedId(`conn:${row.connectionId}`);
         } else if (row.kind === 'coll') {
           setFocusedId(`db:${row.connectionId}:${row.dbName}`);
-        } else if (row.kind === 'conn-error') {
-          setFocusedId(`conn:${row.conn.id}`);
-        } else if (connectionId) {
-          setFocusedId(`conn:${connectionId}`);
         }
         return;
       }
       case 'Home': {
         e.preventDefault();
-        setFocusedId(rows[0].id);
+        const next = nearestNavigableIndex(rows, 0, 1);
+        if (next >= 0) setFocusedId(rows[next].id);
         return;
       }
       case 'End': {
         e.preventDefault();
-        setFocusedId(rows[rows.length - 1].id);
+        const next = nearestNavigableIndex(rows, rows.length - 1, -1);
+        if (next >= 0) setFocusedId(rows[next].id);
         return;
       }
       case 'Enter': {
@@ -740,6 +838,14 @@ export function DbCollectionNavigator({
         return;
     }
   };
+
+  // #58/#66 — the container (not a row) always holds real DOM focus; the
+  // active row is only named via `aria-activedescendant`, and only when it's
+  // `isNavigableRow` — `focusedId` can no longer land on a placeholder (see
+  // the onKeyDown audit above), but this stays defensive rather than assuming.
+  const focusedRow = focusedId ? rows.find((r) => r.id === focusedId) : undefined;
+  const activeDescendantId =
+    focusedRow && isNavigableRow(focusedRow) ? navigatorRowDomId(focusedRow.id) : undefined;
 
   const buildCollMenu = React.useCallback((
     row: Extract<TreeRow, { kind: 'coll' }>,
@@ -811,7 +917,7 @@ export function DbCollectionNavigator({
 
   const buildConnectionMenu = React.useCallback((
     row: Extract<TreeRow, { kind: 'connection' }>,
-    trigger: HTMLElement,
+    trigger: HTMLElement | null,
   ): MenuItem[] => {
     const id = row.conn.id;
     const items: MenuItem[] = [
@@ -870,19 +976,54 @@ export function DbCollectionNavigator({
     return items;
   }, [refreshAll, onEditConnection, onDisconnect, disconnect, reconnect]);
 
-  const onRowContextMenu = React.useCallback((e: React.MouseEvent, row: TreeRow) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setFocusedId(row.id);
-    const trigger = e.currentTarget as HTMLElement;
-    setMenuTrigger(trigger);
-    let items: MenuItem[] = [];
-    if (row.kind === 'coll') items = buildCollMenu(row);
-    else if (row.kind === 'db') items = buildDbMenu(row);
-    else if (row.kind === 'connection') items = buildConnectionMenu(row, trigger);
-    if (items.length === 0) return;
-    setMenu({ x: e.clientX, y: e.clientY, items });
-  }, [setMenuTrigger, buildCollMenu, buildDbMenu, buildConnectionMenu, setMenu]);
+  // #55/#69 — shared by the mouse (`onRowContextMenu`) and keyboard
+  // (Shift+F10 / ContextMenu key, in `onKeyDown` above) open paths; only the
+  // anchor coordinate differs between them now — both hand `ContextMenu` the
+  // same `returnFocusTo` (see below).
+  const openMenuFor = React.useCallback(
+    (row: TreeRow, anchor: { x: number; y: number }) => {
+      setFocusedId(row.id);
+      // #58 — used to be `e.currentTarget` (the row itself). Rows no longer
+      // carry a `tabIndex` (see ConnectionRow/DbRow/CollRow below), so a row
+      // is not a valid `.focus()` target any more — `useDialogFocusReturn`
+      // would silently no-op and drop focus to `<body>`. The tree container
+      // is the one thing here that always holds real focus and always stays
+      // mounted (a row can scroll out of the virtualized window and unmount),
+      // so it's what every dialog this menu can open — and `onEditConnection`/
+      // `onDisconnect`, which hand `trigger` on to `Workspace.tsx` — return
+      // focus to. `focusedId` (set just above) still names the right row, so
+      // `aria-activedescendant` keeps pointing at it.
+      const trigger = treeRef.current;
+      setMenuTrigger(trigger);
+      let items: MenuItem[] = [];
+      if (row.kind === 'coll') items = buildCollMenu(row);
+      else if (row.kind === 'db') items = buildDbMenu(row);
+      else if (row.kind === 'connection') items = buildConnectionMenu(row, trigger);
+      if (items.length === 0) return;
+      setMenu({
+        ...anchor,
+        items,
+        // #69 — set on both open paths now (`trigger` is a valid focus
+        // target for either — see the comment above), so Escape/click-away
+        // no longer strands focus on `<body>` after a right-click. Mantine's
+        // own `FocusTrap` already grabs focus into the menu on any open
+        // regardless of this field (see `ContextMenuState.returnFocusTo`'s
+        // docstring) — only the close-time restore was missing for a mouse
+        // open, and this is that.
+        returnFocusTo: trigger,
+      });
+    },
+    [setMenuTrigger, buildCollMenu, buildDbMenu, buildConnectionMenu, setMenu],
+  );
+
+  const onRowContextMenu = React.useCallback(
+    (e: React.MouseEvent, row: TreeRow) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenuFor(row, { x: e.clientX, y: e.clientY });
+    },
+    [openMenuFor],
+  );
 
   const spineFor = React.useCallback(
     (conn: ConnectionSummary) =>
@@ -898,7 +1039,7 @@ export function DbCollectionNavigator({
 
   // Memoized so <List> gets the same object across renders that don't touch
   // any of these fields — a fresh literal here would re-trigger every visible
-  // row (see TableRow/DocRow's rowProps for the same fix applied earlier).
+  // row (TableView's and TreeView's rowProps are memoized the same way).
   const rowProps = React.useMemo<NavRowProps>(
     () => ({
       rows,
@@ -1027,6 +1168,7 @@ export function DbCollectionNavigator({
         role="tree"
         tabIndex={0}
         aria-label="Databases and collections"
+        aria-activedescendant={activeDescendantId}
         onKeyDown={onKeyDown}
         style={{
           flex: 1,
@@ -1151,16 +1293,20 @@ function NavRowImpl({
   onRowContextMenu,
 }: RowComponentProps<NavRowProps>) {
   const row = rows[index]!;
-  const isFocused = row.id === focusedId;
+  // #66 — guarded by `isNavigableRow` too: only these three kinds carry the
+  // `id`/outline `isFocused` drives (see the `activeDescendantId` comment above).
+  const isFocused = isNavigableRow(row) && row.id === focusedId;
   let content: React.ReactNode;
   if (row.kind === 'connection') {
     content = (
       <ConnectionRow
         T={T}
+        id={navigatorRowDomId(row.id)}
         conn={row.conn}
         isConnected={row.isConnected}
         isExpanded={row.isExpanded}
         dbCount={row.dbCount}
+        errorRowId={row.errorRowId}
         isFocused={isFocused}
         onClick={() => {
           setFocusedId(row.id);
@@ -1257,6 +1403,7 @@ const NavRow = React.memo(NavRowImpl);
 function DbSkeletonRow({ T, index }: { T: Theme; index: number }) {
   return (
     <div
+      data-testid="nav-db-skeleton"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -1281,6 +1428,7 @@ function DbSkeletonRow({ T, index }: { T: Theme; index: number }) {
 function SkeletonRow({ T }: { T: Theme }) {
   return (
     <div
+      data-testid="nav-coll-skeleton"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -1319,6 +1467,7 @@ function ConnErrorRow({
 }) {
   return (
     <div
+      id={navigatorRowDomId(row.id)}
       role="alert"
       data-testid="nav-connection-error"
       data-connection-id={row.conn.id}
@@ -1362,21 +1511,26 @@ function ConnErrorRow({
 
 function ConnectionRow({
   T,
+  id,
   conn,
   isConnected,
   isExpanded,
   dbCount,
   isFocused,
+  errorRowId,
   onClick,
   onCancel,
   onContextMenu,
 }: {
   T: Theme;
+  id: string;
   conn: ConnectionSummary;
   isConnected: boolean;
   isExpanded: boolean;
   dbCount: number | null;
   isFocused: boolean;
+  /** #66 — DOM id of this root's own conn-error row, when it has one. */
+  errorRowId: string | null;
   onClick: () => void;
   onCancel: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1391,13 +1545,24 @@ function ConnectionRow({
         : 'Not connected';
   return (
     <div
+      id={id}
       role="treeitem"
       aria-level={1}
       aria-expanded={isExpanded}
       aria-label={`${conn.name}. ${statusWord}${conn.readOnly ? '. Read-only' : ''}`}
+      // #66 — names this root's own error message, when it has one, so a
+      // keyboard/AT user landed on the root (not just on the Retry button)
+      // hears why it failed, not just that it did.
+      aria-describedby={errorRowId ?? undefined}
       data-testid="nav-connection"
       data-connection-id={conn.id}
-      tabIndex={-1}
+      // #58 — no `tabIndex` here, not even -1. Per the HTML focusing-steps
+      // algorithm any declared tabindex (negative included) makes an
+      // element click-focusable, and with rows virtualized inside a
+      // react-window `<List>` a row that holds real focus can unmount
+      // mid-scroll, stranding focus on `<body>`. The container above keeps
+      // real focus and `aria-activedescendant` (computed from `focusedId`)
+      // names this row instead.
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={`Status: ${conn.status}`}
@@ -1520,11 +1685,13 @@ function DbRow({
   const barVisible = hovered || isFocused;
   return (
     <div
+      id={navigatorRowDomId(row.id)}
       role="treeitem"
       aria-level={2}
       aria-expanded={row.isExpanded}
       data-testid={`nav-db-${row.db.name}`}
-      tabIndex={-1}
+      // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
+      // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseEnter={() => setHovered(true)}
@@ -1700,11 +1867,13 @@ function CollRow({
         : I.coll;
   return (
     <div
+      id={navigatorRowDomId(row.id)}
       role="treeitem"
       aria-level={3}
       aria-selected={isActive}
       data-testid={`nav-coll-${row.dbName}-${coll.name}`}
-      tabIndex={-1}
+      // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
+      // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={coll.type === 'view' ? 'View' : coll.type === 'timeseries' ? 'Time-series' : undefined}

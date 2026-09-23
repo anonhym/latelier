@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen } from '../helpers/render';
+import { fireEvent, render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type {
-  CollectionWorkspaceActions,
-  CollectionWorkspaceMeta,
-} from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 let originalClipboard: Clipboard | undefined;
@@ -51,29 +48,7 @@ function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabSt
   };
 }
 
-function makeActions(): CollectionWorkspaceActions {
-  return {
-    patch: vi.fn(),
-    patchWith: vi.fn(),
-    run: vi.fn(),
-    openEdit: vi.fn(),
-    openDelete: vi.fn(),
-    openDeleteAll: vi.fn(),
-    openInsert: vi.fn(),
-    openSave: vi.fn(),
-  };
-}
-
-function makeMeta(overrides: Partial<CollectionWorkspaceMeta> = {}): CollectionWorkspaceMeta {
-  return {
-    connectionId: 'c1',
-    dbName: 'app',
-    collection: 'orders',
-    tabId: 't1',
-    isLoading: false,
-    ...overrides,
-  };
-}
+const makeMeta = emptyWorkspaceMeta;
 
 function renderBar(
   onDeleteSelected: (docs: unknown[]) => void,
@@ -82,7 +57,7 @@ function renderBar(
   return render(
     <CollectionWorkspaceProvider
       state={makeState()}
-      actions={makeActions()}
+      actions={emptyWorkspaceActions()}
       meta={makeMeta(metaOverrides)}
     >
       <ResultViewer>
@@ -103,6 +78,27 @@ describe('SelectionActionBar', () => {
   it('AC1 — renders nothing when no rows are selected', () => {
     const { container } = renderBar(vi.fn());
     expect(container.textContent).not.toContain('selected');
+  });
+
+  // #106 — jsdom has no layout, so this can't measure the rendered height;
+  // it guards that the strip stays mounted and keeps the same fixed inline
+  // height in both states. The e2e measures the real grid position.
+  it('#106 — the strip stays mounted at the same fixed height, with or without a selection', () => {
+    const { container } = renderBar(vi.fn());
+    const strip = () => container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!;
+    expect(strip()).not.toBeNull();
+    expect(container.querySelector('[data-testid="selection-bar-count"]')).toBeNull();
+    expect(strip().style.height).toBe('31px');
+    expect(strip().style.boxSizing).toBe('border-box');
+    selectFirstCard();
+    expect(container.querySelector('[data-testid="selection-bar-count"]')).not.toBeNull();
+    expect(strip().style.height).toBe('31px');
+    expect(strip().style.boxSizing).toBe('border-box');
+  });
+
+  it('#106 — read-only still renders nothing at all, strip included', () => {
+    const { container } = renderBar(vi.fn(), { isReadOnly: true });
+    expect(container.querySelector('[data-testid="selection-bar"]')).toBeNull();
   });
 
   it('AC2 — shows the selection count once a row is selected', () => {
@@ -146,7 +142,7 @@ describe('SelectionActionBar', () => {
       },
     });
     const { container } = render(
-      <CollectionWorkspaceProvider state={state} actions={makeActions()} meta={makeMeta()}>
+      <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions()} meta={makeMeta()}>
         <ResultViewer>
           <ResultViewer.SelectionBar onDeleteSelected={onDeleteSelected} />
           <ResultViewer.Json />

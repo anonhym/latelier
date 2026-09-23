@@ -3,8 +3,12 @@ import { notify } from '../../../theme/notifications';
 import {
   List,
   useDynamicRowHeight,
+  useListRef,
   type RowComponentProps,
 } from 'react-window';
+import { useRovingFocus } from '../../../hooks/useRovingFocus';
+import { useMenuFocus } from '../../../hooks/useMenuFocus';
+import { isContextMenuKey, anchorForRow } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -24,12 +28,13 @@ import { copyToClipboard } from '../../../utils/clipboard';
 import { useCollectionWorkspace } from '../context';
 import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
-import { DocFieldTree } from './DocFieldTree';
+import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getFullDocId, isInlineEditable } from './docId';
 import {
   deriveColumns,
   resolveColumns,
   getValueAtPath,
+  ariaSortFor,
   type ResolvedColumn,
 } from './tableColumns';
 
@@ -119,10 +124,10 @@ interface TableCellProps {
 /**
  * A single Table cell. Owns its own hover/popover-open/inline-edit state for
  * the click-to-expand (AC5) and inline-edit (T2.6) affordances — kept local
- * rather than lifted into `TableRow`'s props so hovering/editing one cell
- * doesn't invalidate the row's memo comparator for every other cell in the
- * row. Reads `actions`/`meta` straight off the workspace context (rather
- * than threading them through `TableRowProps`) for the same reason.
+ * rather than lifted into `TableRowImpl`'s props, since none of it is
+ * needed outside this one cell. Reads `actions`/`meta` straight off the
+ * workspace context (rather than threading them through `TableRowProps`)
+ * for the same reason.
  */
 function TableCell({
   value,
@@ -145,6 +150,7 @@ function TableCell({
   const draggable = value !== undefined;
   const [hovered, setHovered] = React.useState(false);
   const [expandOpen, setExpandOpen] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState('');
   const commitGuardRef = React.useRef(false);
@@ -164,7 +170,21 @@ function TableCell({
     }
   }
 
-  const affordanceVisible = hovered || expandOpen;
+  // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
+  // `onFocus`/`onBlur` here (React routes both through native `focusin`/
+  // `focusout`, which bubble) act like CSS `:focus-within` on this cell —
+  // real CSS was tried first and rejected for a narrower reason than an
+  // earlier version of this comment claimed. jsdom's `getComputedStyle` *does*
+  // apply stylesheet rules — a probe in this project's own component project
+  // returned the stylesheet's value, not the CSS default. What it does not
+  // reflect is dynamic pseudo-class state: with `.cell:focus-within .aff
+  // { opacity: 1 }` mounted and the button focused, `cell.matches
+  // (':focus-within')` is `true` while `getComputedStyle(btn).opacity` stays
+  // at the unfocused value. So a `:focus-within` fix would be unverifiable by
+  // the component tests this project requires. React's inline `style` prop
+  // cannot express a pseudo-class either, and this file uses no stylesheet, so
+  // the CSS route would also mean introducing a styling mechanism for one cell.
+  const affordanceVisible = hovered || expandOpen || focused;
 
   const canInlineEdit = editable && !meta.isReadOnly && typeof actions.updateField === 'function';
 
@@ -229,6 +249,8 @@ function TableCell({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={{
         width,
         minWidth: width,
@@ -242,6 +264,9 @@ function TableCell({
         textOverflow: 'ellipsis',
         cursor: draggable ? 'grab' : 'default',
         background: isCopied ? 'var(--atelier-accent)' : undefined,
+        // #83 — keep the flash inside the padding: the #60 active-row outline is the
+        // same accent, inset 2px, and would vanish into a full-cell flash.
+        backgroundClip: isCopied ? 'content-box' : undefined,
         transition: 'background 120ms',
         color: isCopied
           ? '#fff'
@@ -381,6 +406,11 @@ function TableCell({
           position="bottom-start"
           withinPortal
           shadow="md"
+          // #79 — without this, closing on a click outside a focusable
+          // element drops focus to <body>. Safe here because this dropdown
+          // has no focusable content to autofocus (see `ColumnChooser`'s
+          // comment for why an autofocus would break this).
+          returnFocus
         >
           <Popover.Target>
             <button
@@ -438,6 +468,14 @@ interface TableRowProps {
   columns: ResolvedColumn[];
   widths: Record<string, number>;
   indices: Set<number>;
+  /**
+   * #60 — the row `useRovingFocus`'s `highlightIndex` currently names, or
+   * `-1` when the grid doesn't have focus. Compared against a row's own
+   * `index` to decide whether it paints the active-row outline — a
+   * different channel from `indices` (selection), so a row can be active,
+   * selected, both, or neither, and each combination reads distinctly.
+   */
+  activeIndex: number;
   copiedCell: string | null;
   expandedRows: Record<string, boolean>;
   deepPaths: Set<string>;
@@ -447,6 +485,9 @@ interface TableRowProps {
   // drive the same selection logic as a click — both event types carry
   // metaKey/ctrlKey, which is all this reads.
   onSelect: (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => void;
+  // #20 — stable per-row DOM id so the grid's `aria-activedescendant` (set
+  // by `useRovingFocus` in the component below) always names a real element.
+  rowId: (index: number) => string;
   onCopyCell: (text: string, cellKey: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
@@ -460,7 +501,7 @@ interface TableRowProps {
   onRowExpand: (docId: string, expanded: boolean) => void;
   toggleDeepPath: (path: string) => void;
   handleCopyField: (path: string, value: unknown) => void;
-  handleOpenFieldMenu: (e: React.MouseEvent, fieldPath: string, value: unknown) => void;
+  handleOpenFieldMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
@@ -477,6 +518,7 @@ function TableRowImpl({
   columns,
   widths,
   indices,
+  activeIndex,
   copiedCell,
   expandedRows,
   deepPaths,
@@ -492,9 +534,11 @@ function TableRowImpl({
   onRefHover,
   onRefHoverLeave,
   onRefOpen,
+  rowId,
 }: RowComponentProps<TableRowProps>) {
   const doc = documents[index];
   const isSelected = indices.has(index);
+  const isActive = index === activeIndex;
   const docId = getFullDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
 
@@ -525,31 +569,42 @@ function TableRowImpl({
           `aria-selected` is valid on it. `aria-rowindex` is 1-based and
           counts the header, so the first document row is 2.
 
-          tabIndex={-1}: virtualization still mounts 40+ rows with overscan, so
-          no row may be a tab stop. Moving focus between them is #20. */}
+          No `tabIndex` at all: a plain `div` with none is already out of
+          both the Tab order AND click-focusable — #20 originally left
+          `tabIndex={-1}` here on the theory that only *sequential* focus
+          needed excluding, but the HTML focusing-steps algorithm treats any
+          declared `tabIndex` (negative included) as making the element
+          focusable via a real click, which review caught: clicking a row
+          left real DOM focus sitting on it, so the next Arrow/Home/End
+          reached the grid's `onKeyDown` with `e.target` = this row instead
+          of the grid itself, and its own-target guard swallowed every one
+          of them. Removing it lets a click's focusing steps walk up to the
+          nearest focusable ancestor instead, which is the grid — exactly
+          where #20's design already wanted real focus to live. The grid's
+          `aria-activedescendant` (set in `TableView` below) still points at
+          this row via its `id`; `handleSelect` also moves the roving index
+          here on click, so a click and the next Arrow agree on which row is
+          active. */}
       <div
+        id={rowId(index)}
         role="row"
         aria-rowindex={index + 2}
         aria-selected={isSelected}
-        tabIndex={-1}
         style={{
           display: 'flex',
           alignItems: 'stretch',
           cursor: 'pointer',
           fontSize: 11,
           fontFamily: 'monospace',
+          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // An inset outline (paints on top, reserves no layout space) so it
+          // never shifts the row, and it's a different channel from the
+          // selected background above it, so active-and-selected still
+          // reads as both.
+          outline: isActive ? '2px solid var(--atelier-accent)' : undefined,
+          outlineOffset: isActive ? '-2px' : undefined,
         }}
         onClick={(e) => onSelect(e, index)}
-        onKeyDown={(e) => {
-          // Nested native buttons (expand chevron, cell edit/expand
-          // affordances) also bubble their Enter/Space keydown up here —
-          // without this guard, tabbing to one of them and pressing Enter
-          // would both run its own action AND select the row.
-          if (e.target !== e.currentTarget) return;
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          onSelect(e, index);
-        }}
       >
         {/* Fixed expand gutter — independent of the (hide/reorder-able)
             data columns. A `gridcell` like the rest, so the row owns nothing
@@ -634,100 +689,58 @@ function TableRowImpl({
         })}
       </div>
 
-      {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree
-          the Tree view renders, via the shared `DocFieldTree`. */}
+      {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree the
+          Tree view renders, via the shared `DocFieldTree`, which owns its
+          own `role="tree"`/`data-expanded-doc-section` wrapper and (#20)
+          its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
-        <div
-          data-expanded-doc-section="true"
-          // Same ancestor role TreeView's expand panel carries, for the same
-          // reason: `DocFieldTree`'s rows are `role="treeitem"`, and a
-          // `treeitem` without a `tree` ancestor fails axe's
-          // aria-required-parent. Both call sites of the shared component
-          // need it, not just the one in TreeView.
-          role="tree"
-          style={{
-            padding: '0 0 10px 0',
-            borderTop: '1px solid var(--atelier-border)',
-            background: 'var(--atelier-surface)',
-          }}
-        >
-          <DocFieldTree
-            doc={doc}
-            docId={docId}
-            expandedPaths={deepPaths}
-            onToggle={toggleDeepPath}
-            copiedPath={fieldCopiedPath}
-            onCopy={handleCopyField}
-            onOpenMenu={handleOpenFieldMenu}
-            refsByField={refsByField}
-            onRefHover={onRefHover}
-            onRefHoverLeave={onRefHoverLeave}
-            onRefOpen={onRefOpen}
-          />
-        </div>
+        <DocFieldTree
+          doc={doc}
+          docId={docId}
+          expandedPaths={deepPaths}
+          onToggle={toggleDeepPath}
+          copiedPath={fieldCopiedPath}
+          onCopy={handleCopyField}
+          onOpenMenu={handleOpenFieldMenu}
+          refsByField={refsByField}
+          onRefHover={onRefHover}
+          onRefHoverLeave={onRefHoverLeave}
+          onRefOpen={onRefOpen}
+        />
       )}
     </div>
   );
 }
 
-// Index-keyed comparator (selection/copy-flash are index-keyed here, unlike
-// TreeView's docId-keyed `DocRow`); row-expand/deepPaths stay docId-scoped.
-const TableRow = React.memo(TableRowImpl, (prev, next) => {
-  if (prev.index !== next.index || prev.style !== next.style) return false;
-  const prevDoc = prev.documents[prev.index];
-  const nextDoc = next.documents[next.index];
-  if (prevDoc !== nextDoc) return false;
-  if (
-    prev.columns !== next.columns ||
-    prev.widths !== next.widths ||
-    prev.refsByField !== next.refsByField ||
-    prev.onSelect !== next.onSelect ||
-    prev.onCopyCell !== next.onCopyCell ||
-    prev.onContextMenu !== next.onContextMenu ||
-    prev.onRowExpand !== next.onRowExpand ||
-    prev.toggleDeepPath !== next.toggleDeepPath ||
-    prev.handleCopyField !== next.handleCopyField ||
-    prev.handleOpenFieldMenu !== next.handleOpenFieldMenu ||
-    prev.onRefHover !== next.onRefHover ||
-    prev.onRefHoverLeave !== next.onRefHoverLeave ||
-    prev.onRefOpen !== next.onRefOpen
-  ) {
-    return false;
-  }
-
-  if (prev.indices.has(prev.index) !== next.indices.has(next.index)) return false;
-
-  if (prev.copiedCell !== next.copiedCell) {
-    const prefix = `${next.index}:`;
-    const prevHere = prev.copiedCell?.startsWith(prefix) ?? false;
-    const nextHere = next.copiedCell?.startsWith(prefix) ?? false;
-    if (prevHere || nextHere) return false;
-  }
-
-  const docId = getFullDocId(nextDoc);
-  if (ownGet(prev.expandedRows, docId) !== ownGet(next.expandedRows, docId)) return false;
-
-  const isExpanded = !!ownGet(next.expandedRows, docId);
-  if (isExpanded) {
-    if (prev.fieldCopiedPath !== next.fieldCopiedPath) {
-      const prefix = `${docId}::`;
-      const prevHere = prev.fieldCopiedPath?.startsWith(prefix) ?? false;
-      const nextHere = next.fieldCopiedPath?.startsWith(prefix) ?? false;
-      if (prevHere || nextHere) return false;
-    }
-    if (prev.deepPaths !== next.deepPaths) {
-      const prefix = `${docId}::`;
-      for (const p of prev.deepPaths) {
-        if (p.startsWith(prefix) && !next.deepPaths.has(p)) return false;
-      }
-      for (const p of next.deepPaths) {
-        if (p.startsWith(prefix) && !prev.deepPaths.has(p)) return false;
-      }
-    }
-  }
-
-  return true;
-});
+// X19 #82 — this used to be `React.memo(TableRowImpl, comparator)` with a
+// careful index-keyed comparator (selection, copy-flash, expansion, #60
+// active row). Deleted: none of it ever ran. react-window's `List` rebuilds
+// its row array in a `useMemo` keyed on `rowProps` and hands every rebuilt
+// row a brand-new inline `style` object, so the comparator's mandatory
+// `prev.style !== next.style` top guard returned `false` for every mounted
+// row, every time — the rest of the comparator body was unreachable. See
+// #82 for the full writeup and the render-count probe that confirmed it.
+//
+// Measured before deleting, not guessed. Method: a prod build, 500 seeded
+// docs (8 fields), a 1280x800 window, 28 mounted rows x 10 columns; an
+// ArrowDown/ArrowUp keydown dispatched in-page and timed to the target
+// row's own `style` mutation via a `MutationObserver` plus a forced layout
+// read, alternating Down/Up so the mounted set stays constant, n=60-120
+// samples per run (throwaway e2e probe, deleted after use). Result: median
+// 5.3-5.5ms; p95 ranged 7.2-9.4ms across repeated runs — close to half a
+// 60Hz frame (8.3ms), not comfortably clear of it. Page size (default vs.
+// 500) didn't move the number: react-window only mounts what's in the
+// viewport, so rows-in-view x columns drives cost, not total row count.
+// Deleting is still the right call on this measurement — the median has
+// headroom, and TreeView (below) clears the threshold by an order of
+// magnitude on the same rig — but this one is a judgment call, not a clean
+// pass. If TableView picks up materially more columns or heavier cells,
+// re-measure before assuming the margin still holds; a value-based `style`
+// comparison measured 0.8ms median / 1.4ms p95 in the same conditions and
+// is the fallback if it doesn't. Every mounted row re-rendering today is
+// also what makes selection, copy-flash, expansion, and #60's active-row
+// outline repaint; removing the memo is a no-op on behaviour, just honest
+// about it.
 
 export function TableView({
   documents,
@@ -756,7 +769,15 @@ export function TableView({
     field: string | null;
     value: unknown;
     hasValue: boolean;
+    // #55/#69 — set by both open paths now, so Escape/click-away always has
+    // somewhere to send focus back to instead of stranding it on `<body>`.
+    returnFocusTo?: HTMLElement | null;
+    // #69 — grabbing focus *into* the menu on open stays keyboard-only; see
+    // `useMenuFocus`'s docstring for why `returnFocusTo` alone isn't enough
+    // to decide that.
+    focusMenuOnOpen?: boolean;
   } | null>(null);
+  const cellMenuRef = React.useRef<HTMLDivElement | null>(null);
   const [copiedCell, setCopiedCell] = React.useState<string | null>(null);
 
   // Badge, not toast — a toast per cell copy would be noise; a failed copy toasts instead.
@@ -817,10 +838,16 @@ export function TableView({
     y: number;
     fieldPath: string;
     value: unknown;
+    // #68/#69 — same split as the cell menu above: `returnFocusTo` is set on
+    // both the mouse and keyboard open paths (`DocFieldTree` injects it),
+    // `focusMenuOnOpen` only on the keyboard one.
+    returnFocusTo?: HTMLElement | null;
+    focusMenuOnOpen?: boolean;
   } | null>(null);
+  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
   const handleOpenFieldMenu = React.useCallback(
-    (e: React.MouseEvent, fieldPath: string, value: unknown) => {
-      setFieldContextMenu({ x: e.clientX, y: e.clientY, fieldPath, value });
+    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+      setFieldContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
     },
     [],
   );
@@ -857,24 +884,8 @@ export function TableView({
     },
     [state.queryRaw, state.activeBuilderTab, actions],
   );
-  React.useEffect(() => {
-    if (!fieldContextMenu) return;
-    const handler = () => setFieldContextMenu(null);
-    // Escape listens on the window, next to the click-outside dismiss, rather
-    // than as an `onKeyDown` on the menu itself. The menu opens from a
-    // `contextmenu` event and nothing focuses it, so a keydown handler on that
-    // element would never receive one — dead code that a test firing directly
-    // at the node would still report as working.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFieldContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [fieldContextMenu]);
+  const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
+  useMenuFocus(fieldMenuRef, fieldContextMenu, closeFieldContextMenu);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
@@ -964,30 +975,45 @@ export function TableView({
     window.addEventListener('mouseup', onUp);
   };
 
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
-    // See the field menu above: Escape has to be a window listener, because
-    // nothing ever gives this menu focus.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
-    };
-    window.addEventListener('click', handler);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
+  useMenuFocus(cellMenuRef, contextMenu, closeContextMenu);
+
+  // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
+  // (via `useRovingFocus`) owns which row is "active" and this wires it to
+  // the DOM: a stable `id` per row (set in `TableRowImpl` above) named by the
+  // grid's `aria-activedescendant`, kept in sync with react-window's
+  // mounted range by scrolling to the row in the same key handler that
+  // moves the index — see `useRovingFocus`'s own docstring for why that has
+  // to be one operation, not two. Declared before `handleSelect` below,
+  // which needs `roving.setActiveIndex`.
+  const listRef = useListRef(null);
+  const roving = useRovingFocus({
+    count: documents.length,
+    idPrefix: 'table-row-',
+    resetKey: documents,
+    scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
+  });
 
   // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
   // toggles the row into/out of a multi-row selection for the bulk-action bar.
+  // Also makes the clicked row the roving-focus target — found in review: a
+  // clicked row (`tabIndex={-1}` used to make it click-focusable per the HTML
+  // focusing-steps algorithm — since removed, see the row strip's own
+  // comment) would otherwise leave the highlight sitting wherever it was
+  // before the click, so the next Arrow key would jump from there instead of
+  // from the row the user just clicked.
   const handleSelect = React.useCallback(
     (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
       else selection.selectOnly(idx);
+      roving.setActiveIndex(idx);
     },
-    [selection],
+    // `roving` itself is a fresh object every render; depend on the one
+    // function this actually calls (stable per `useRovingFocus`) so this
+    // callback — and everything memoized against it, like `rowProps` below
+    // — doesn't get a new identity on every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, roving.setActiveIndex],
   );
 
   const handleContextMenu = React.useCallback(
@@ -1000,14 +1026,71 @@ export function TableView({
         hasValue: boolean;
       },
     ) => {
-      setContextMenu({ x: e.clientX, y: e.clientY, ...payload });
+      // #69 — same restore-on-close target the keyboard path uses below, so
+      // Escape/click-away no longer strands focus on `<body>` after a
+      // right-click. `focusMenuOnOpen` stays unset: a mouse open still
+      // doesn't grab focus into the menu, only Escape now has somewhere to
+      // send it back to.
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        ...payload,
+        returnFocusTo: listRef.current?.element ?? null,
+      });
     },
-    [],
+    [listRef],
   );
 
   // Row-expand makes rows variable-height; measure each rendered row rather
   // than assuming a fixed height (mirrors TreeView).
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 24 });
+
+  const handleGridKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      roving.onKeyDown(e);
+      if (e.defaultPrevented) return;
+      // Only Enter/Space typed while the grid itself has real DOM focus
+      // selects the active row — one bubbling up from a nested button
+      // (edit/expand/inline-edit) is that control's own action. Rows are no
+      // longer focusable at all (see the row strip's own comment), so this
+      // is now the ONLY place that guard can matter.
+      if (e.target !== e.currentTarget) return;
+      // #55 — Shift+F10 / ContextMenu key: open the (doc-level) cell menu for
+      // the active row. No specific field/value — `field: null` is exactly
+      // what a right-click on the row background (rather than a cell) would
+      // pass, so Copy value/Copy field path correctly don't render while
+      // Edit/Duplicate/Delete do.
+      if (isContextMenuKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        // #133 — PageDown or the wheel can have scrolled the active row out
+        // and unmounted it: open anyway (anchored to the grid) and bring the
+        // row back into view.
+        const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
+        const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
+        if (!anchor) return;
+        if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
+        setContextMenu({
+          ...anchor,
+          doc: documents[roving.activeIndex],
+          field: null,
+          value: undefined,
+          hasValue: false,
+          returnFocusTo: listRef.current?.element ?? null,
+          focusMenuOnOpen: true,
+        });
+        return;
+      }
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (documents.length === 0) return;
+      e.preventDefault();
+      handleSelect(e, roving.activeIndex);
+    },
+    // `roving` itself is a fresh object every render (see `handleSelect`
+    // above) — depend on the members this actually reads instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef],
+  );
 
   const rowProps = React.useMemo<TableRowProps>(
     () => ({
@@ -1015,6 +1098,7 @@ export function TableView({
       columns,
       widths,
       indices: selection.indices,
+      activeIndex: roving.highlightIndex,
       copiedCell,
       expandedRows,
       deepPaths,
@@ -1030,12 +1114,14 @@ export function TableView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      rowId: roving.rowId,
     }),
     [
       documents,
       columns,
       widths,
       selection.indices,
+      roving.highlightIndex,
       copiedCell,
       expandedRows,
       deepPaths,
@@ -1051,6 +1137,7 @@ export function TableView({
       onRefHover,
       onRefHoverLeave,
       onRefOpen,
+      roving.rowId,
     ],
   );
 
@@ -1067,8 +1154,25 @@ export function TableView({
       }}
     >
       {/* Header — sits above the List inside the same horizontal scroll
-          container so columns stay aligned when the user scrolls right. */}
+          container so columns stay aligned when the user scrolls right.
+          #53 — `role="row"` so its `columnheader` children below are valid.
+          It's a DOM sibling of the grid below (sticky positioning needs it
+          outside the scrolling/virtualized body), not a descendant, so
+          `aria-owns` on the grid (below) is what tells assistive tech this
+          is still the grid's first row rather than an orphaned `row`.
+
+          Two residuals, both recorded rather than fixed. ARIA places an
+          `aria-owns` target last in accessibility-tree traversal order
+          regardless of `aria-rowindex`, so some assistive tech may reach this
+          header after the body rows even though it announces as row 1 — the
+          sticky-header-must-be-a-sibling constraint leaves no better option.
+          And the id is a constant: `TableView` has one call site today
+          (`ResultViewer.tsx`), so two instances cannot collide, but a split or
+          compare view mounting two would need it made unique. */}
       <div
+        id="table-header-row"
+        role="row"
+        aria-rowindex={1}
         style={{
           display: 'flex',
           background: 'var(--atelier-surface)',
@@ -1080,8 +1184,11 @@ export function TableView({
         }}
       >
         {/* Gutter — keeps the header aligned with the body's fixed expand
-            column, and hosts the table-level sort note. */}
+            column, and hosts the table-level sort note. `columnheader` to
+            match its row's required-owned-elements, same as the data
+            columns below (#53). */}
         <div
+          role="columnheader"
           style={{
             width: GUTTER_WIDTH,
             minWidth: GUTTER_WIDTH,
@@ -1153,6 +1260,8 @@ export function TableView({
           return (
             <div
               key={col.field}
+              role="columnheader"
+              aria-sort={ariaSortFor(sortable, dir)}
               title={headerTitle}
               data-testid={`table-header-${col.field}`}
               style={{
@@ -1268,7 +1377,18 @@ export function TableView({
         role="grid"
         aria-label="Documents"
         aria-rowcount={documents.length + 1}
-        rowComponent={TableRow as typeof TableRowImpl}
+        // #53 — the sticky header row lives outside this element in the DOM
+        // (see the comment above it), so `aria-owns` is what makes it the
+        // grid's first row for assistive tech instead of an orphaned `row`.
+        aria-owns="table-header-row"
+        // #20 — the grid is the widget's only tab stop; see `roving` above.
+        listRef={listRef}
+        tabIndex={roving.containerProps.tabIndex}
+        aria-activedescendant={roving.containerProps['aria-activedescendant']}
+        onFocus={roving.containerProps.onFocus}
+        onBlur={roving.containerProps.onBlur}
+        onKeyDown={handleGridKeyDown}
+        rowComponent={TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}
         rowProps={rowProps}
@@ -1288,11 +1408,15 @@ export function TableView({
         // inside, already natively keyboard-operable. role="group", not
         // "menu", which would need role="menuitem" on all six children.
         //
-        // Escape is not handled here. The menu opens from a `contextmenu`
-        // event and nothing focuses it, so an `onKeyDown` on this element
-        // would never fire for a keyboard user — it lives on the window,
-        // beside the click-outside dismiss.
+        // Escape is not handled on this element itself — it lives on the
+        // window, beside the click-outside dismiss, so it fires the same way
+        // whether or not this div happens to hold focus right now. A mouse
+        // open still never focuses it; a keyboard open does, via
+        // `useMenuFocus` (#55/#87) — which is also what returns focus to the
+        // grid once the window listener calls `setContextMenu(null)`, unless
+        // the click that dismissed it landed on another focusable control.
         <div
+          ref={cellMenuRef}
           role="group"
           aria-label="Cell actions"
           tabIndex={-1}
@@ -1468,6 +1592,7 @@ export function TableView({
         // S6848 — same reasoning as the cell-level menu above, Escape
         // included: it is a window listener, not an onKeyDown here.
         <div
+          ref={fieldMenuRef}
           role="group"
           aria-label="Field actions"
           tabIndex={-1}

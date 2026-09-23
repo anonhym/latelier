@@ -1,10 +1,11 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { Button, Modal } from '@mantine/core';
+import { Button, Modal, Tabs } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { api, isIpcError } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import { notify } from '../../theme/notifications';
 import type {
   ConnectionInput,
@@ -1150,53 +1151,62 @@ function ConnectionFormImpl({
             : { background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r, boxShadow: T.shadow }),
           display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{
-            display: 'flex', borderBottom: `1px solid ${T.border}`,
-            padding: '0 20px',
-          }}>
-            {TABS_NC.map((t) => {
-              const active = t === tab;
-              return (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  style={{
-                    padding: '11px 14px', border: 'none', background: 'transparent',
-                    fontSize: 12, fontWeight: active ? 600 : 400,
-                    color: active ? T.text : T.textMuted,
-                    cursor: 'pointer',
-                    borderBottom: active ? `2px solid ${T.accent}` : '2px solid transparent',
-                    marginBottom: -1,
-                  }}
-                >
-                  {t}
-                </button>
-              );
-            })}
-          </div>
+          {/* X59 — this was five bare <button>s distinguished by an accent
+              bottom-border on the active one: no role, no aria-selected,
+              no aria-controls, five separate tab stops. Mantine's Tabs is
+              the tablist pattern already built (BuilderPane.tsx's drawer
+              strip uses it the same way), so this inherits arrow-key
+              roving as a single tab stop rather than hand-rolling a fifth
+              copy.
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px' }}>
-            {loading ? (
-              <div style={{ color: T.textMuted, fontSize: 13, padding: '32px 0' }}>Loading…</div>
-            ) : (
-              <>
-                {tab === 'General' && (
-                  <GeneralTab
-                    form={form}
-                    set={set}
-                    fieldErrors={fieldErrors}
-                    onPasteUri={(uri) => void handlePasteUri(uri)}
-                  />
-                )}
-                {tab === 'Auth' && (
-                  <AuthTab form={form} set={set} fieldErrors={fieldErrors} isEdit={isEdit} />
-                )}
-                {tab === 'TLS' && <TLSTab form={form} set={set} fieldErrors={fieldErrors} />}
-                {tab === 'SSH' && <SSHTab form={form} set={set} />}
-                {tab === 'Advanced' && <AdvancedTab form={form} set={set} fieldErrors={fieldErrors} />}
-              </>
-            )}
-          </div>
+              `keepMounted={false}` is load-bearing: Mantine's default keeps
+              inactive panels in the DOM, which would mount every tab's
+              fields at once instead of the one panel this file's other
+              tests (and the "jump to first offending tab" error handling)
+              expect to find alone in the document. */}
+          <Tabs
+            value={tab}
+            onChange={(v) => { if (v) setTab(v as NCTab); }}
+            keepMounted={false}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+          >
+            <Tabs.List aria-label="Connection settings" style={{ padding: '0 20px' }}>
+              {TABS_NC.map((t) => (
+                <Tabs.Tab key={t} value={t} styles={{ tab: { fontSize: 12 } }}>
+                  {t}
+                </Tabs.Tab>
+              ))}
+            </Tabs.List>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px' }}>
+              {loading ? (
+                <div style={{ color: T.textMuted, fontSize: 13, padding: '32px 0' }}>Loading…</div>
+              ) : (
+                <>
+                  <Tabs.Panel value="General">
+                    <GeneralTab
+                      form={form}
+                      set={set}
+                      fieldErrors={fieldErrors}
+                      onPasteUri={(uri) => void handlePasteUri(uri)}
+                    />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="Auth">
+                    <AuthTab form={form} set={set} fieldErrors={fieldErrors} isEdit={isEdit} />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="TLS">
+                    <TLSTab form={form} set={set} fieldErrors={fieldErrors} />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="SSH">
+                    <SSHTab form={form} set={set} />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="Advanced">
+                    <AdvancedTab form={form} set={set} fieldErrors={fieldErrors} />
+                  </Tabs.Panel>
+                </>
+              )}
+            </div>
+          </Tabs>
 
           {toast && (
             <div style={{
@@ -1260,9 +1270,14 @@ function ConnectionFormImpl({
             <Button variant="subtle" size="compact-xs" onClick={() => void handleTest()} leftSection={I.server}>
               {testState === 'testing' ? 'Testing…' : 'Test connection'}
             </Button>
-            <Button variant="filled" size="compact-xs" onClick={() => void handleSave()} disabled={saving}>
+            <SubmitButton
+              variant="filled"
+              size="compact-xs"
+              onClick={() => void handleSave()}
+              submitting={saving}
+            >
               {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save'}
-            </Button>
+            </SubmitButton>
           </div>
         </div>
       </div>

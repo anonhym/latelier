@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { ConnectionForm } from '../../src/features/connections/ConnectionForm';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -47,7 +47,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     await userEvent.click(screen.getByText('Auth'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
@@ -100,7 +100,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     await userEvent.click(screen.getByRole('switch', { name: 'Read-only connection' }));
 
@@ -156,7 +156,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster.mongodb.net/i), 'localhost');
+    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     // Stay on General. The offending field (`password`) lives on the Auth tab,
     // so its error text is only reachable if the save handler jumps tabs for us
@@ -175,6 +175,105 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
     expect(() =>
       render(<ConnectionForm mode="edit" connectionId="" onSaved={() => {}} onCancel={() => {}} />),
     ).toThrow('ConnectionForm: mode is "edit" but connectionId is ""');
+  });
+});
+
+// X59 — the General / Auth / TLS / SSH / Advanced strip was five bare
+// <button>s: no role, no aria-selected, no aria-controls, five separate
+// tab stops. Modelled on tests/component/drawer-tablist.spec.tsx:83-127,
+// which asserts the same shape for BuilderPane's Mantine-Tabs conversion.
+describe('X59 — ConnectionForm tab strip is a real tablist', () => {
+  function mountForm() {
+    installAtelierMock({});
+    return render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
+  }
+
+  it('exposes tablist / tab / aria-selected / aria-controls', async () => {
+    mountForm();
+    await screen.findByPlaceholderText(/My MongoDB Server/i);
+
+    const list = screen.getByRole('tablist', { name: 'Connection settings' });
+    const tabs = within(list).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['General', 'Auth', 'TLS', 'SSH', 'Advanced']);
+
+    expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
+    for (const t of tabs.slice(1)) expect(t.getAttribute('aria-selected')).toBe('false');
+
+    // Each tab points at the panel it governs, and the selected one's panel
+    // is really in the document.
+    for (const t of tabs) expect(t.getAttribute('aria-controls')).toBeTruthy();
+    expect(document.getElementById(tabs[0]!.getAttribute('aria-controls')!)).toBeTruthy();
+  });
+
+  it('is a single tab stop: only the selected tab is keyboard-reachable', async () => {
+    mountForm();
+    await screen.findByPlaceholderText(/My MongoDB Server/i);
+
+    const list = screen.getByRole('tablist', { name: 'Connection settings' });
+    const tabs = within(list).getAllByRole('tab');
+    // Roving tabindex — exactly one tab participates in the Tab order.
+    const reachable = tabs.filter((t) => t.getAttribute('tabindex') !== '-1');
+    expect(reachable).toHaveLength(1);
+    expect(reachable[0]!.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('ArrowRight moves selection to the next tab', async () => {
+    mountForm();
+    const general = await screen.findByRole('tab', { name: 'General' });
+    general.focus();
+    fireEvent.keyDown(general, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Auth' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe('false');
+    });
+  });
+
+  // fireEvent.keyDown proves selection moves; it does no browser focus
+  // management, so the focus claim needs userEvent to be trustworthy.
+  it('keeps focus on the newly selected tab, never falling back to the body', async () => {
+    mountForm();
+    const general = await screen.findByRole('tab', { name: 'General' });
+    await userEvent.click(general);
+    await userEvent.keyboard('{ArrowRight}');
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Auth' }));
+    });
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  // keepMounted={false} is the trap: Mantine's Tabs.Panel default keeps
+  // every inactive panel in the DOM, which would put all five tabs' fields
+  // in the document at once.
+  it('does not mount the inactive panels', async () => {
+    mountForm();
+    await screen.findByPlaceholderText(/My MongoDB Server/i);
+
+    expect(screen.queryByRole('switch', { name: 'Enable TLS / SSL' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'SSH tunnel (coming soon)' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
+    await waitFor(() => {
+      expect(screen.getByRole('switch', { name: 'Enable TLS / SSL' })).toBeTruthy();
+    });
+    // Switching away un-mounts General's panel again.
+    expect(screen.queryByPlaceholderText(/My MongoDB Server/i)).toBeNull();
+  });
+
+  it('switching tabs preserves form state exactly as typing it', async () => {
+    mountForm();
+    const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
+    await userEvent.type(nameInput, 'Prod cluster');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'General' }));
+
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe(
+        'Prod cluster',
+      );
+    });
   });
 });
 

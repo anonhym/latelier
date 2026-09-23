@@ -5,6 +5,7 @@ import { Button, Modal } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton, submittingProps } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
 import type {
@@ -151,7 +152,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleSave = async () => {
-    if (!form) return;
+    if (!form || saving) return;
     if (!form.sourceField || !form.targetCollection) {
       setError('Source field and target collection are required');
       return;
@@ -195,6 +196,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleDelete = async (id: string) => {
+    if (deletingId) return;
     setDeletingId(id);
     try {
       await api.refs.delete({ id });
@@ -208,6 +210,7 @@ export function ReferenceRulesEditor({
   };
 
   const handleDetect = async () => {
+    if (detecting) return;
     setDetecting(true);
     setError(null);
     try {
@@ -290,9 +293,9 @@ export function ReferenceRulesEditor({
             >
               New rule
             </Button>
-            <Button size="compact-xs" variant="subtle" onClick={handleDetect} disabled={detecting}>
+            <SubmitButton size="compact-xs" variant="subtle" onClick={handleDetect} submitting={detecting}>
               {detecting ? 'Detecting…' : 'Detect from sample'}
-            </Button>
+            </SubmitButton>
           </div>
 
           {candidates && candidates.length > 0 && (
@@ -395,9 +398,9 @@ export function ReferenceRulesEditor({
                     <>
                       <span style={{ fontSize: 11, color: T.red }}>Delete?</span>
                       <button
-                        onClick={() => void handleDelete(r.id)}
+                        onClick={() => void handleDelete(r.id)} // #91 — see SubmitButton.tsx
                         aria-label="Confirm delete"
-                        disabled={deletingId === r.id}
+                        {...submittingProps(deletingId === r.id)}
                         style={{
                           padding: '3px 8px',
                           fontSize: 11,
@@ -406,6 +409,7 @@ export function ReferenceRulesEditor({
                           borderRadius: T.rx,
                           background: T.red,
                           color: '#fff',
+                          opacity: deletingId === r.id ? 0.6 : 1,
                           cursor: deletingId === r.id ? 'not-allowed' : 'pointer',
                         }}
                       >
@@ -647,9 +651,9 @@ function RuleForm({
         <Button size="compact-xs" variant="subtle" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button size="compact-xs" variant="filled" onClick={onSave} disabled={saving}>
+        <SubmitButton size="compact-xs" variant="filled" onClick={onSave} submitting={saving}>
           {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
-        </Button>
+        </SubmitButton>
       </div>
     </div>
   );

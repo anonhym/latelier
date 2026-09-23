@@ -3,6 +3,7 @@ import { Alert, Button, Drawer, Group, Stack, Textarea } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
+import { SubmitButton } from '../../components/SubmitButton';
 import { ejsonParse, ejsonStringify, isValidEjson } from '../../utils/ejson';
 import { classifyInsertPayload } from '../../utils/insertPayload';
 import { useShellSyntaxField } from './useShellSyntaxField';
@@ -96,6 +97,7 @@ export function InsertDrawer({
         : 'Insert';
 
   const handleInsert = async () => {
+    if (saving) return;
     // `submitted`, not `docJson`: `setDocJson` has not rendered yet.
     const submitted = commitRepair();
     if (!canInsert || payload === null) {
@@ -190,14 +192,15 @@ export function InsertDrawer({
           <Button variant="subtle" size="compact-xs" onClick={() => void requestClose()}>
             Cancel
           </Button>
-          <Button
+          <SubmitButton
             variant="filled"
             size="compact-xs"
             onClick={() => void handleInsert()}
-            disabled={!canInsert || saving}
+            disabled={!canInsert}
+            submitting={saving}
           >
             {insertLabel}
-          </Button>
+          </SubmitButton>
         </Group>
       </Stack>
     </Drawer>
