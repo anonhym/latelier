@@ -390,12 +390,13 @@ function FieldNodeImpl({
 }
 
 /**
- * #60 — is `activePath` this node's own row, or any row below it? Paths are
- * built by dot-joining each level (`FieldNodeImpl`'s recursion below), so a
- * descendant's path is always this one plus a `.` and more.
+ * #60 / #85 — is `target` (an `activePath` or `copiedPath`) this node's own
+ * row, or any row below it? Paths are built by dot-joining each level
+ * (`FieldNodeImpl`'s recursion below), so a descendant's path is always this
+ * one plus a `.` and more.
  */
-function activeCoversSubtree(activePath: string | null, path: string): boolean {
-  return activePath !== null && (activePath === path || activePath.startsWith(`${path}.`));
+function pathCoversSubtree(target: string | null, path: string): boolean {
+  return target !== null && (target === path || target.startsWith(`${path}.`));
 }
 
 export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
@@ -418,26 +419,26 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   ) {
     return false;
   }
-  // copiedPath only matters if it just became / stopped being THIS path.
-  const wasCopied = prev.copiedPath === prev.path;
-  const isCopied = next.copiedPath === next.path;
-  if (wasCopied !== isCopied) return false;
   // #60 — a "did THIS row's own flag change" check is not enough, and review
   // caught it. A `FieldNode` renders its expanded children itself, so each
-  // child's `activePath` comes from *this* node's render. When the active row
-  // moves between two children of the same node, this node's own flag is
-  // false both before and after, a path-only check skips its render, and the
-  // children keep the stale value — the outline stops moving. `{ a: { b, c } }`
+  // child's `activePath`/`copiedPath` comes from *this* node's render. When
+  // the value moves between two children of the same node (or clears while a
+  // descendant holds it), this node's own flag is unchanged, a path-only
+  // check skips its render, and the children keep the stale value. `{ a: { b, c } }`
   // with `a` expanded is the smallest case: `a` is neither `a.b` nor `a.c`.
   //
-  // So: re-render when the active row changed AND it was, or now is, inside
-  // this node's subtree. Same descendant-prefix idiom as the `expandedPaths`
-  // branch below, and it still leaves untouched every node the active row
-  // neither left nor entered.
+  // So: re-render when the value changed AND it was, or now is, inside this
+  // node's subtree (`pathCoversSubtree`). #85 hit the identical bug on
+  // `copiedPath`, written to the same own-path-only idiom — same fix, reused.
   if (
     prev.activePath !== next.activePath &&
-    (activeCoversSubtree(prev.activePath, next.path) ||
-      activeCoversSubtree(next.activePath, next.path))
+    (pathCoversSubtree(prev.activePath, next.path) || pathCoversSubtree(next.activePath, next.path))
+  ) {
+    return false;
+  }
+  if (
+    prev.copiedPath !== next.copiedPath &&
+    (pathCoversSubtree(prev.copiedPath, next.path) || pathCoversSubtree(next.copiedPath, next.path))
   ) {
     return false;
   }
