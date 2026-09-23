@@ -6,6 +6,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Every @mantine/* package pins its siblings as an exact peer version, so a
+    # one-package bump can never `npm ci` (ERESOLVE). They must move together.
+    groups:
+      mantine:
+        patterns:
+          - "@mantine/*"
 
   # Every `uses:` in .github/workflows is pinned to a commit SHA rather than a
   # tag, because a tag is mutable and a compromised action rewrites it. That
