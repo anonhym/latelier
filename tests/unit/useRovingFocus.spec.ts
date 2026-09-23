@@ -205,19 +205,22 @@ describe('useRovingFocus', () => {
     expect(result.current.activeId).toBe('b-0');
   });
 
-  // #62 — `scrollThenSettle` (the wrapper around `scrollToIndex`) schedules a
-  // deferred re-scroll two `requestAnimationFrame`s out, to land a long jump
-  // past `useDynamicRowHeight`'s estimate flush in the viewport (see the
-  // hook's own comment). These tests need per-frame control real rAF timing
-  // can't give reliably, so they swap in a manual, synchronously-flushable
-  // queue instead of `vi.useFakeTimers()` (which doesn't cover rAF at all).
-  describe('scrollThenSettle re-scroll (#62)', () => {
+  // #119 — `scrollThenSettle` (the wrapper around `scrollToIndex`) runs a
+  // convergence loop: each animation frame, check whether the target row is
+  // now fully visible before deciding whether to re-scroll (see the hook's
+  // own comment for why #62's fixed two-frame re-scroll wasn't enough).
+  // These tests need per-frame control real rAF timing can't give reliably,
+  // so they swap in a manual, synchronously-flushable queue instead of
+  // `vi.useFakeTimers()` (which doesn't cover rAF at all).
+  describe('scrollThenSettle convergence (#119, #62)', () => {
     /**
      * A fake `requestAnimationFrame`/`cancelAnimationFrame` pair. `flush`
      * only runs callbacks queued *before* it was called and clears them
-     * first — a callback that schedules another frame (the hook's nested
-     * inner frame) lands in the fresh queue and needs a second `flush()`,
-     * matching real rAF's per-frame batching.
+     * first — a callback that schedules another frame (the loop's next
+     * iteration) lands in the fresh queue and needs a further `flush()`,
+     * matching real rAF's per-frame batching. `pending()` reports how many
+     * frames are currently queued, so a test can assert "nothing left
+     * scheduled" instead of just "no more calls happened".
      */
     function makeFrameQueue() {
       let nextId = 1;
@@ -236,8 +239,19 @@ describe('useRovingFocus', () => {
           callbacks.clear();
           for (const [, cb] of due) cb(0);
         },
+        pending(): number {
+          return callbacks.size;
+        },
       };
     }
+
+    // The loop's own cap (see `MAX_SETTLE_FRAMES` in the hook) — mirrored
+    // here rather than imported so a test can assert the exact call count at
+    // the boundary without exporting an implementation constant. Every
+    // "flush until done" loop below is bounded by this plus slack, never by
+    // a `while (pending())`: a `framesLeft -= 1` -> `+= 1` or `> 0` -> `true`
+    // mutant would otherwise turn the loop infinite and hang the run.
+    const MAX_SETTLE_FRAMES = 60;
 
     let queue: ReturnType<typeof makeFrameQueue>;
     let originalRaf: typeof window.requestAnimationFrame;
@@ -258,24 +272,236 @@ describe('useRovingFocus', () => {
     afterEach(() => {
       window.requestAnimationFrame = originalRaf;
       window.cancelAnimationFrame = originalCaf;
+      document.body.replaceChildren(); // drop any row/scroller elements a test mounted directly
     });
 
-    it('re-issues scrollToIndex only after both deferred frames have run', () => {
+    /** A rect with every `DOMRect` field defaulted to 0, `rect` overriding. */
+    function stubRect(el: HTMLElement, rect: Partial<DOMRect>): void {
+      const full = {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return this;
+        },
+        ...rect,
+      } as DOMRect;
+      vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(full);
+    }
+
+    /**
+     * Mounts a row element inside a scrollable ancestor (real DOM nodes,
+     * attached to `document.body`, cleaned up in `afterEach` above), with
+     * both elements' `getBoundingClientRect` stubbed to the given rects.
+     * `wrapper: true` inserts a plain, non-scrollable node between the row
+     * and the scroller, so the walk-up has more than one hop to make.
+     */
+    function mountRow(
+      rowId: string,
+      rowRect: Partial<DOMRect>,
+      scrollerRect: Partial<DOMRect>,
+      opts: { overflowY?: string; wrapper?: boolean } = {},
+    ): void {
+      const scroller = document.createElement('div');
+      scroller.style.overflowY = opts.overflowY ?? 'auto';
+      let parent: HTMLElement = scroller;
+      if (opts.wrapper) {
+        const wrapper = document.createElement('div');
+        scroller.appendChild(wrapper);
+        parent = wrapper;
+      }
+      const row = document.createElement('div');
+      row.id = rowId;
+      parent.appendChild(row);
+      document.body.appendChild(scroller);
+      stubRect(row, rowRect);
+      stubRect(scroller, scrollerRect);
+    }
+
+    it('re-issues scrollToIndex once per frame while the row stays off-screen, then stops once it settles', () => {
       const scrollToIndex = vi.fn();
       const { result } = renderHook(() =>
         useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
       );
-
+      // No row-4 element mounted yet, so every check reads "not visible".
       act(() => result.current.onKeyDown(keyEvent('End')));
       expect(scrollToIndex).toHaveBeenCalledTimes(1);
       expect(scrollToIndex).toHaveBeenLastCalledWith(4);
 
-      act(() => queue.flush()); // outer frame: schedules the inner one
-      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+      // Three frames of "still not visible" (advisor: N >= 2 needed to tell
+      // this apart from #62's old fixed two-frame re-scroll, which would
+      // also produce exactly 2 calls at N=1).
+      for (let frame = 0; frame < 3; frame += 1) {
+        act(() => queue.flush());
+      }
+      expect(scrollToIndex).toHaveBeenCalledTimes(4); // 1 sync + 3 re-scrolls
+      expect(queue.pending()).toBe(1); // next frame's check still scheduled
 
-      act(() => queue.flush()); // inner frame: the actual re-scroll
-      expect(scrollToIndex).toHaveBeenCalledTimes(2);
-      expect(scrollToIndex).toHaveBeenLastCalledWith(4);
+      // Now the row lands fully in view — the very next check must stop.
+      mountRow('row-4', { top: 10, bottom: 30 }, { top: 0, bottom: 100 });
+      act(() => queue.flush());
+      expect(scrollToIndex).toHaveBeenCalledTimes(4); // no extra re-scroll
+      expect(queue.pending()).toBe(0); // and nothing left scheduled
+    });
+
+    it('gives up at the frame cap for a row that never becomes visible', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+      act(() => result.current.onKeyDown(keyEvent('End'))); // row-4 never mounts
+
+      for (let frame = 0; frame < MAX_SETTLE_FRAMES + 5; frame += 1) {
+        act(() => queue.flush());
+      }
+      expect(scrollToIndex).toHaveBeenCalledTimes(1 + MAX_SETTLE_FRAMES);
+      expect(queue.pending()).toBe(0);
+    });
+
+    it('costs zero extra scrollToIndex calls when the row is already visible on frame 1', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+      mountRow('row-4', { top: 10, bottom: 30 }, { top: 0, bottom: 100 });
+
+      act(() => result.current.onKeyDown(keyEvent('End')));
+      expect(scrollToIndex).toHaveBeenCalledTimes(1); // the synchronous call
+
+      act(() => queue.flush());
+      expect(scrollToIndex).toHaveBeenCalledTimes(1); // frame 1 sees it settled — no more
+      expect(queue.pending()).toBe(0);
+    });
+
+    it('treats a missing row element as not settled and keeps re-scrolling', () => {
+      const scrollToIndex = vi.fn();
+      const { result } = renderHook(() =>
+        useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+      );
+      // row-4 is never mounted at all — getElementById returns null forever.
+      act(() => result.current.onKeyDown(keyEvent('End')));
+      act(() => queue.flush());
+      act(() => queue.flush());
+      expect(scrollToIndex).toHaveBeenCalledTimes(3);
+      expect(queue.pending()).toBe(1);
+    });
+
+    // Boundary table for `isRowFullyVisible`'s own comparison, exercised
+    // through the public loop: frame 1's decision to re-scroll or not is the
+    // only observable signal, so each case renders the hook, mounts the
+    // geometry, flushes one frame, and reads the call count.
+    describe('visibility geometry', () => {
+      it.each<{
+        name: string;
+        rowRect: Partial<DOMRect>;
+        scrollerRect: Partial<DOMRect>;
+        opts?: { overflowY?: string; wrapper?: boolean };
+        expectSettled: boolean;
+      }>([
+        {
+          name: 'top exactly at the 1px tolerance — visible',
+          rowRect: { top: -1, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: true,
+        },
+        {
+          name: 'top 1.5px past the tolerance — not visible',
+          rowRect: { top: -1.5, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: false,
+        },
+        {
+          name: 'bottom exactly at the 1px tolerance — visible',
+          rowRect: { top: 70, bottom: 101 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: true,
+        },
+        {
+          name: 'bottom 1.5px past the tolerance — not visible',
+          rowRect: { top: 70, bottom: 101.5 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: false,
+        },
+        {
+          name: 'top clipped, bottom fine — not visible (kills && -> ||)',
+          rowRect: { top: -10, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: false,
+        },
+        {
+          name: 'bottom clipped, top fine — not visible (kills && -> ||)',
+          rowRect: { top: 70, bottom: 110 },
+          scrollerRect: { top: 0, bottom: 100 },
+          expectSettled: false,
+        },
+        {
+          name: 'scroller uses overflowY: scroll rather than auto — visible',
+          rowRect: { top: 10, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          opts: { overflowY: 'scroll' },
+          expectSettled: true,
+        },
+        // Distinguishes "the 'scroll' ancestor was found and its rect used"
+        // from "no scrollable ancestor was found, so the no-scroller
+        // fallback vacuously says visible" — the row here would read as
+        // visible either way if `nearestScrollableAncestor` didn't actually
+        // recognize `overflowY: scroll` as its stop condition, since walking
+        // past it to `document.body`/`<html>` (neither scrollable) hits the
+        // same fallback. Clipping it against the real scroll ancestor's rect
+        // is the only way to tell the two apart.
+        {
+          name: 'scroller uses overflowY: scroll and clips the row — not visible',
+          rowRect: { top: -10, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          opts: { overflowY: 'scroll' },
+          expectSettled: false,
+        },
+        {
+          name: 'a non-scrollable wrapper sits between the row and its scroller — visible',
+          rowRect: { top: 10, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          opts: { wrapper: true },
+          expectSettled: true,
+        },
+        {
+          name: 'a non-scrollable wrapper sits between the row and its scroller — clipped, not visible',
+          rowRect: { top: -10, bottom: 30 },
+          scrollerRect: { top: 0, bottom: 100 },
+          opts: { wrapper: true },
+          expectSettled: false,
+        },
+      ])('$name', ({ rowRect, scrollerRect, opts, expectSettled }) => {
+        const scrollToIndex = vi.fn();
+        const { result } = renderHook(() =>
+          useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+        );
+        mountRow('row-4', rowRect, scrollerRect, opts);
+
+        act(() => result.current.onKeyDown(keyEvent('End')));
+        act(() => queue.flush());
+
+        expect(scrollToIndex).toHaveBeenCalledTimes(expectSettled ? 1 : 2);
+      });
+
+      it('no scrollable ancestor at all — treated as visible (nothing to wait for)', () => {
+        const scrollToIndex = vi.fn();
+        const { result } = renderHook(() =>
+          useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
+        );
+        const row = document.createElement('div');
+        row.id = 'row-4';
+        document.body.appendChild(row); // no scrollable parent anywhere
+
+        act(() => result.current.onKeyDown(keyEvent('End')));
+        act(() => queue.flush());
+
+        expect(scrollToIndex).toHaveBeenCalledTimes(1); // settled immediately
+      });
     });
 
     it('a newer jump cancels the older pending settle — the stale index is never re-scrolled to', () => {
@@ -309,21 +535,23 @@ describe('useRovingFocus', () => {
       act(() => queue.flush());
 
       expect(scrollToIndex).not.toHaveBeenCalled();
+      expect(queue.pending()).toBe(0);
     });
 
-    // The "newer jump cancels" test above never lets the older jump's *inner*
-    // frame become the pending one (End's outer frame is still what's
-    // cancelled) — this one lets End's outer frame fire first, so its inner
-    // frame is the one a following Home has to cancel.
-    it('a newer jump cancels a pending settle even once the outer frame has already fired', () => {
+    // The "newer jump cancels" test above cancels the settle before its
+    // first frame has fired at all — this one lets End's loop run one
+    // iteration first (so a frame has already re-scrolled once), then checks
+    // a following Home still cancels the next pending frame rather than
+    // letting it fire.
+    it('a newer jump cancels a pending settle even mid-loop, after an earlier retry already fired', () => {
       const scrollToIndex = vi.fn();
       const { result } = renderHook(() =>
         useRovingFocus({ count: 5, idPrefix: 'row-', scrollToIndex }),
       );
 
-      act(() => result.current.onKeyDown(keyEvent('End'))); // schedules End's outer frame
-      act(() => queue.flush()); // outer fires -> schedules End's inner frame
-      act(() => result.current.onKeyDown(keyEvent('Home'))); // must cancel that inner frame
+      act(() => result.current.onKeyDown(keyEvent('End'))); // schedules End's first check
+      act(() => queue.flush()); // row-4 not mounted -> re-scrolls, schedules the next check
+      act(() => result.current.onKeyDown(keyEvent('Home'))); // must cancel that pending check
       scrollToIndex.mockClear();
 
       act(() => queue.flush());
@@ -333,14 +561,13 @@ describe('useRovingFocus', () => {
       expect(scrollToIndex).toHaveBeenCalledWith(0);
     });
 
-    it('does not throw when scrollToIndex is omitted, even once the deferred settle fires', () => {
+    it('does not throw when scrollToIndex is omitted, and schedules no frame at all', () => {
       const { result } = renderHook(() => useRovingFocus({ count: 5, idPrefix: 'row-' }));
-      act(() => result.current.onKeyDown(keyEvent('End')));
 
       expect(() => {
-        act(() => queue.flush());
-        act(() => queue.flush());
+        act(() => result.current.onKeyDown(keyEvent('End')));
       }).not.toThrow();
+      expect(queue.pending()).toBe(0);
     });
 
     // Guards against a stale closure: a broken dependency array on

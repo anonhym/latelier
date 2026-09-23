@@ -1,6 +1,50 @@
 import React from 'react';
 import { useRovingHighlight } from './useRovingHighlight';
 
+// #119 — cap for `scrollThenSettle`'s convergence loop below. Frames, not
+// wall-clock time: react-window's dynamic-height cache is only corrected
+// inside a frame's rendering step (mount -> layout effect -> ResizeObserver),
+// so "elapsed ms" can't tell a slow-but-progressing settle from a stuck one —
+// a time cap would give up early under exactly the CPU load that causes the
+// bug this is fixing (#119's own repro is a 14-process `yes` load). 60 frames
+// is ~1s at 60fps; it also bounds a row that can never fully fit (taller
+// than the viewport), which would otherwise loop forever.
+const MAX_SETTLE_FRAMES = 60;
+
+// Walk up from a row element to the nearest ancestor react-window scrolls —
+// its `<List>` root always carries an inline `overflowY: 'auto'` style (see
+// react-window's own `Oe`/list-render function). Module-level: this is pure
+// DOM geometry, not hook state, and every `useRovingFocus` caller can share
+// one copy instead of a per-caller predicate (that would just be the same
+// walk copy-pasted into TableView/TreeView).
+function nearestScrollableAncestor(el: HTMLElement): HTMLElement | null {
+  let node = el.parentElement;
+  while (node) {
+    const overflowY = window.getComputedStyle(node).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+// The settle loop's stop condition: is the row fully inside its scroller's
+// visible rect, vertically? A missing row element (not yet mounted, or
+// unmounted mid-settle) counts as "not settled" — re-scroll, don't stop.
+// `TOLERANCE` absorbs subpixel rounding from layout math, not real clipping.
+function isRowFullyVisible(rowElementId: string): boolean {
+  const row = document.getElementById(rowElementId);
+  if (!row) return false;
+  const scroller = nearestScrollableAncestor(row);
+  if (!scroller) return true; // nothing scrollable above it — nothing to wait for
+  const rowRect = row.getBoundingClientRect();
+  const scrollerRect = scroller.getBoundingClientRect();
+  const TOLERANCE = 1;
+  return (
+    rowRect.top >= scrollerRect.top - TOLERANCE &&
+    rowRect.bottom <= scrollerRect.bottom + TOLERANCE
+  );
+}
+
 export interface UseRovingFocusOptions {
   /** Number of navigable rows. */
   count: number;
@@ -79,48 +123,55 @@ export function useRovingFocus({
   const { index, setIndex, move } = useRovingHighlight(count, resetKey);
   const rowId = React.useCallback((i: number) => `${idPrefix}${i}`, [idPrefix]);
 
-  // #62 — a long jump (Home/End, or any move past never-rendered rows) asks
-  // `scrollToIndex` to compute an offset from react-window's dynamic-height
-  // cache while most of the rows it's summing are still at their
-  // `defaultRowHeight` estimate, so the target can land clipped instead of
-  // fully in view. The first call still has to run synchronously (this
-  // docstring's own requirement — the row must exist in the DOM before
-  // `aria-activedescendant` names it); the fix is a second call once the
-  // rows the jump just mounted have reported their real measured height via
-  // `ResizeObserver` and corrected the cache. A single `requestAnimationFrame`
-  // measured too early (still using the old estimate — the mount → layout
-  // effect → `ResizeObserver` chain hadn't settled yet); two nested frames
-  // did, confirmed against a real Electron window rather than assumed.
-  // Re-running the same scroll then lands on the corrected offset. Harmless
-  // for ArrowUp/ArrowDown, which don't hit this (each step moves at most one
-  // row, so there's no unmeasured span to accumulate error over).
+  // #62/#119 — a long jump (Home/End, or any move past never-rendered rows)
+  // asks `scrollToIndex` to compute an offset from react-window's
+  // dynamic-height cache while most of the rows it's summing are still at
+  // their `defaultRowHeight` estimate, so the target can land clipped
+  // instead of fully in view. The first call still has to run synchronously
+  // (this docstring's own requirement — the row must exist in the DOM
+  // before `aria-activedescendant` names it); the rest is a convergence
+  // loop, one `requestAnimationFrame` at a time: check first whether the row
+  // is now fully visible (`isRowFullyVisible`, above); if not, re-scroll and
+  // check again next frame. #62's original fix re-scrolled exactly once,
+  // two frames out, on the theory that the mount -> layout effect ->
+  // `ResizeObserver` chain always settles by then — #119 found that false
+  // under CPU load (13/40 loaded e2e runs left the last row off-screen
+  // permanently), because a *stale* estimate holds perfectly still until
+  // `ResizeObserver` actually fires, so a "did the rect stop moving" or "did
+  // scrollTop stop changing" stop condition converges falsely. Checking real
+  // geometry instead means it can't declare victory on a stale reading.
+  // Harmless for ArrowUp/ArrowDown, which don't hit this (each step moves at
+  // most one row, so there's no unmeasured span to accumulate error over) —
+  // and with the check-first order, a row already visible on frame 1 costs
+  // zero extra `scrollToIndex` calls.
   //
-  // Both pending frame ids are tracked so a newer jump — or an unmount —
-  // can cancel a still-pending settle: without this, a quick Home-then-End
-  // let Home's deferred re-scroll fire after End's jump and flick the list
-  // back to row 0, and a settle could still fire after the list itself had
+  // The pending frame id is tracked so a newer jump — or an unmount — can
+  // cancel a still-pending settle: without this, a quick Home-then-End let
+  // Home's deferred re-scroll fire after End's jump and flick the list back
+  // to row 0, and a settle could still fire after the list itself had
   // unmounted.
-  const outerFrame = React.useRef<number | null>(null);
-  const innerFrame = React.useRef<number | null>(null);
+  const pendingFrame = React.useRef<number | null>(null);
   // #62 follow-up — `count` can shrink out from under a still-pending settle
   // (a query re-run, a filter, a delete, same "count shrinks out from under"
-  // case `useRovingHighlight.ts` already documents) before the deferred call
+  // case `useRovingHighlight.ts` already documents) before a deferred call
   // fires. `i` was captured when it was still a valid index; by settle time
   // it can be `>= count`, and react-window's `scrollToRow` throws
-  // `RangeError` for that. `useLayoutEffect`, not a plain assignment during
-  // render (refs are for effects/handlers, not render) — it still commits
-  // synchronously, well before either deferred rAF could fire.
+  // `RangeError` for that. Checked on every frame of the loop, not just
+  // once, since the loop can run up to `MAX_SETTLE_FRAMES` times.
+  // `useLayoutEffect`, not a plain assignment during render (refs are for
+  // effects/handlers, not render) — it still commits synchronously, well
+  // before any deferred rAF could fire.
   const countRef = React.useRef(count);
   React.useLayoutEffect(() => {
     countRef.current = count;
   });
-  // The `!== null` guards only skip a no-op: `cancelAnimationFrame` on a
+  // The `!== null` guard only skips a no-op: `cancelAnimationFrame` on a
   // stale/nonexistent handle (including `null`) is a documented no-op, never
   // a throw — confirmed against jsdom directly, not assumed from the spec.
-  // Stryker's "always call it" mutant on either guard is genuinely
-  // equivalent for that reason; its "never call it" and "flip the check"
-  // mutants are real bugs and are covered below (a still-pending settle
-  // that a newer jump must cancel).
+  // Stryker's "always call it" mutant is genuinely equivalent for that
+  // reason; its "never call it" and "flip the check" mutants are real bugs
+  // and are covered below (a still-pending settle that a newer jump must
+  // cancel).
   // This `useCallback`'s own `[]` closes over nothing (only stable refs), so
   // swapping it for a hardcoded non-empty literal is also equivalent: React
   // compares dependency arrays element-by-element with `Object.is`, and a
@@ -128,10 +179,8 @@ export function useRovingFocus({
   // "changed" branch any differently than `[]` does. Same reasoning applies
   // to `handleFocus`/`handleBlur` a little further down.
   const cancelPendingSettle = React.useCallback(() => {
-    if (outerFrame.current !== null) cancelAnimationFrame(outerFrame.current);
-    if (innerFrame.current !== null) cancelAnimationFrame(innerFrame.current);
-    outerFrame.current = null;
-    innerFrame.current = null;
+    if (pendingFrame.current !== null) cancelAnimationFrame(pendingFrame.current);
+    pendingFrame.current = null;
   }, []);
   // `cancelPendingSettle`'s own deps are `[]`, so its identity is stable for
   // the component's lifetime (React's `useCallback([])` contract) — this
@@ -144,16 +193,25 @@ export function useRovingFocus({
   const scrollThenSettle = React.useCallback(
     (i: number) => {
       cancelPendingSettle();
-      scrollToIndex?.(i);
-      outerFrame.current = requestAnimationFrame(() => {
-        outerFrame.current = null;
-        innerFrame.current = requestAnimationFrame(() => {
-          innerFrame.current = null;
-          if (i < countRef.current) scrollToIndex?.(i);
+      // No `scrollToIndex` (DocFieldTree) means nothing to converge —
+      // schedule no frames at all rather than looping to no effect.
+      if (!scrollToIndex) return;
+      scrollToIndex(i);
+
+      let framesLeft = MAX_SETTLE_FRAMES;
+      const scheduleCheck = () => {
+        pendingFrame.current = requestAnimationFrame(() => {
+          pendingFrame.current = null;
+          if (i >= countRef.current) return; // count shrunk this index out
+          if (isRowFullyVisible(rowId(i))) return; // settled
+          scrollToIndex(i);
+          framesLeft -= 1;
+          if (framesLeft > 0) scheduleCheck();
         });
-      });
+      };
+      scheduleCheck();
     },
-    [scrollToIndex, cancelPendingSettle],
+    [scrollToIndex, cancelPendingSettle, rowId],
   );
 
   // #60 — tracks real DOM focus on the container so `highlightIndex` can
@@ -196,9 +254,18 @@ export function useRovingFocus({
           return;
         case 'End':
           e.preventDefault();
+          // Stryker's `count - 1` -> `count + 1` mutant on this `setIndex`
+          // call is equivalent: `useRovingHighlight`'s `index` getter clamps
+          // via `Math.min(raw, count - 1)`, so `setIndex(count + 1)` and
+          // `setIndex(count - 1)` land on the identical clamped index —
+          // confirmed by reading that clamp, not assumed.
           setIndex(count - 1);
           scrollThenSettle(count - 1);
           return;
+        // Stryker's "drop this `return`" mutant is equivalent: it's the
+        // switch's last case and nothing follows the switch in this
+        // callback, so falling out of the switch and hitting `return` do
+        // the same thing.
         default:
           return;
       }
