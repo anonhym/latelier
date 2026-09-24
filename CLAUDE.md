@@ -152,7 +152,7 @@ The gates below are this project's bar for merging. They bind every workflow equ
 - Gitar has reviewed the head commit; every finding is fixed, answered, or filed
 - Every issue filed out of this change is closed — a discovery ships with the work that found it
 
-Pick the tier once, from the change as a whole; then no gate inside that tier is skipped because a change "probably didn't touch" that area. Docs-only — only Markdown, comments, or `specs/` — owes typecheck, lint, test, and the discovered-issues gate. Everything else, including config, `scripts/`, and CI, owes all eight. Mixed changes are code changes.
+Pick the tier once, from the change as a whole; then no gate inside that tier is skipped because a change "probably didn't touch" that area. Docs-only — Markdown files and nothing else, `specs/` included — owes only the discovered-issues gate. A comment-only edit to a source file owes typecheck, lint, test, and the discovered-issues gate. Everything else, including config, `scripts/`, and CI, owes all eight. Mixed changes are code changes.
 
 The IPC gate is two things. `npm run audit:ipc` is mechanical and narrow: it scans `electron/**` and fails only when a `SECRET_INPUT` tag names a channel outside `scripts/ipc-secret-allowlist.txt`. It cannot see an untagged secret, a tag that lives only in `shared/ipc.ts`, or a half-wired channel. The `ipc-channel-auditor` agent covers that: `shared/ipc.ts`, `electron/preload.ts`, the handler's zod schema + `router.register`, the `registerXxxChannels` call in `electron/main.ts`, the allowlist when the payload carries a secret — plus integration coverage and naming. A green script is not evidence the contract is whole.
 

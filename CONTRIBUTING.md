@@ -86,9 +86,10 @@ Two points worth calling out because they surprise people:
 - **`npm run test:mutation` is not in CI.** Neither is the `ipc-channel-auditor`
   agent. A gate that CI cannot run is still owed; someone runs it by hand.
 
-Tier is picked once, from the change as a whole. Docs-only — Markdown, comments,
-or `specs/` and nothing else — owes a subset. A change touching both docs and
-code is a code change.
+Tier is picked once, from the change as a whole. Docs-only — Markdown files and
+nothing else, `specs/` included — owes only the discovered-issues gate. A
+comment-only edit to a source file owes a subset. A change touching both docs
+and code is a code change.
 
 CI runs lint, typecheck, `audit:ipc`, the Vitest suite **and E2E** on pushes to
 `main` and on PRs targeting `main`.
