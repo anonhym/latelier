@@ -112,7 +112,8 @@ function JsonTreeNodes({
               tabIndex={0}
               onClick={toggle}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                // ⌘/Ctrl+Enter is Run (PanelBody's handler), not a toggle.
+                if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === ' ') {
                   e.preventDefault();
                   toggle(e);
                 }

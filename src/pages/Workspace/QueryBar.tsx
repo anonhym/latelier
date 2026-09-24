@@ -19,10 +19,28 @@ import { useCollectionWorkspace } from './context';
 import { api } from '../../api/atelier';
 import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import { QueryExpandModal } from './QueryExpandModal';
-import type { ExplainVerbosity } from '@shared/types';
+import type { CollectionTabState, ExplainVerbosity } from '@shared/types';
 
 interface QueryBarProps {
   suggestionContext: SuggestionContext | null;
+  /**
+   * Receives the Documents view's ⌘/Ctrl+Enter action. The key is
+   * bound once, on `PanelBody`'s panel group, so it reaches every focus in
+   * the view (a result row after a drag into the drawer, sort, projection);
+   * what it does lives here, beside the drafts it has to flush first.
+   */
+  runShortcutRef?: React.Ref<() => void>;
+}
+
+/**
+ * Why Run refuses `s`, or null when it would run. One copy for the Run
+ * tooltip and the refused-⌘↵ line, so the two can't drift.
+ */
+function runBlockReason(s: CollectionTabState): string | null {
+  if (filterProblem(s.queryRaw) !== null) return 'Invalid MQL';
+  if (sortProblem(s.builder.sort) !== null) return 'Invalid sort';
+  if (projectionProblem(s.builder) !== null) return 'Invalid projection';
+  return null;
 }
 
 import { formatProjection, isRawProjection, parseProjection } from './projection';
@@ -83,6 +101,7 @@ function Notice({ id, children }: { id?: string; children: React.ReactNode }) {
 
 function QueryBarInner({
   suggestionContext,
+  runShortcutRef,
 }: QueryBarProps) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -245,22 +264,6 @@ function QueryBarInner({
     ],
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      // Repair before the gate, not after it. `canRun` reads the *current*
-      // text, so without this ⌘↵ on `{age: {$gt: 60}}` would silently do
-      // nothing on the very syntax X14 exists to accept — the textarea still
-      // has focus, so no blur has repaired it yet. The patch lands async, so
-      // the repaired text also rides along as a `run` override.
-      const { text, outcome } = filterField.commitNow();
-      if (outcome.kind === 'failed') return;
-      if (findProblem({ ...state, queryRaw: text }) === null && !isLoading) {
-        onRun({ queryRaw: text });
-      }
-    }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onPatch({ queryRaw: e.target.value });
     // Stale complaint while the user is already fixing it; the next blur or
@@ -322,25 +325,31 @@ function QueryBarInner({
     if (result.reason === 'unmodelable') return projField.refusal ?? PROJECTION_ERRORS.unmodelable;
     return PROJECTION_ERRORS.malformed;
   }, [projClassified, projField.refusal]);
-  const commitProjection = () => {
-    if (projDraft === null) return;
+  // Settles the draft onto `base` and returns the builder it commits to —
+  // `base` itself when there is no draft, null when the draft is refused.
+  // Patches nothing: ⌘↵ folds this and the sort repair into one `builder`
+  // patch, since two in one tick would each spread the same stale builder.
+  const settleProjection = (base: CollectionTabState['builder']) => {
+    if (projDraft === null) return base;
     const { text, outcome } = projField.repairNow();
     if (outcome.kind === 'repaired') setProjDraft(text);
     const result = parseProjection(text);
+    let next: CollectionTabState['builder'];
     if (result.ok) {
-      onPatch({
-        builder: { ...state.builder, projection: result.fields, projectionRaw: undefined },
-      });
+      next = { ...base, projection: result.fields, projectionRaw: undefined };
     } else if (result.reason === 'unmodelable' && isRawProjection(text)) {
-      onPatch({
-        builder: { ...state.builder, projection: [], projectionRaw: text.trim() },
-      });
+      next = { ...base, projection: [], projectionRaw: text.trim() };
     } else {
       setProjClassified(text); // keep the draft — `projMessage` now says why
-      return;
+      return null;
     }
     setProjClassified(null);
     setProjDraft(null);
+    return next;
+  };
+  const commitProjection = () => {
+    const next = settleProjection(state.builder);
+    if (next !== null && next !== state.builder) onPatch({ builder: next });
   };
 
   // X14 §3 — the sort field's half, same glue and same conversion
@@ -372,6 +381,59 @@ function QueryBarInner({
   const handleLimitChange = (v: string) => {
     onPatch({ builder: { ...state.builder, limit: v } });
   };
+
+  // The Documents view's ⌘/Ctrl+Enter. No blur has run when a key
+  // is pressed, so every draft is repaired before the gate, never after it:
+  // gating the raw text would refuse `{age: {$gt: 60}}` or a `{name: 1}` sort
+  // that the Run button (whose click blurs first) accepts. Patches land
+  // async, so the repaired values also ride along as the `run` override.
+  //
+  // A refused press is named on `runBlocked`'s line — unless this very
+  // press raised the filter or projection Notice (`commitNow` /
+  // `settleProjection` set it just now), which already says why; a second
+  // `role="alert"` would say it twice. A Notice that was already on screen
+  // is not re-announced, so it does not count. `seq` remounts the line on
+  // every refused press so a repeat press is announced again. The line
+  // lasts until the query changes (keyed on the exact values it judged),
+  // the projection draft is edited, or the tab switches.
+  const [runBlocked, setRunBlocked] = React.useState<{
+    reason: string;
+    queryRaw: string;
+    builder: CollectionTabState['builder'];
+    seq: number;
+  } | null>(null);
+  const runFromShortcut = () => {
+    if (isLoading) return;
+    const hadFilterNotice = filterField.refusal !== null;
+    const hadProjectionNotice = projMessage !== null;
+    const filter = filterField.commitNow();
+    const sort = sortField.repairNow();
+    const withSort =
+      sort.text === state.builder.sort ? state.builder : { ...state.builder, sort: sort.text };
+    const settled = settleProjection(withSort);
+    const builder = settled ?? withSort;
+    if (builder !== state.builder) onPatch({ builder });
+    const reason =
+      settled === null
+        ? 'Invalid projection'
+        : runBlockReason({ ...state, queryRaw: filter.text, builder });
+    if (reason === null) {
+      setRunBlocked(null);
+      onRun({ queryRaw: filter.text, builder });
+      return;
+    }
+    const freshNotice =
+      (settled === null && !hadProjectionNotice) ||
+      (settled !== null && filterProblem(filter.text) !== null && !hadFilterNotice);
+    setRunBlocked((prev) =>
+      freshNotice ? null : { reason, queryRaw: filter.text, builder, seq: (prev?.seq ?? 0) + 1 },
+    );
+  };
+  React.useImperativeHandle(runShortcutRef, () => runFromShortcut);
+  const blocked =
+    runBlocked?.queryRaw === state.queryRaw && runBlocked.builder === state.builder
+      ? runBlocked
+      : null;
 
   const skipValue = state.page * state.pageSize;
   const runError = state.lastRun?.error;
@@ -422,6 +484,7 @@ function QueryBarInner({
     filterField.onChange('');
     sortField.onChange('');
     projField.onChange('');
+    setRunBlocked(null);
   } else if (advancedSync.hasAdvanced !== hasAdvanced) {
     setAdvancedSync({ tabId: meta.tabId, hasAdvanced });
     if (hasAdvanced) setAdvancedOpen(true);
@@ -480,22 +543,33 @@ function QueryBarInner({
         flexShrink: 0,
       }}
     >
-      {/* Top toolbar — Run (split) · Save · History. W15 §7.1 deletes
+      {/* Top toolbar — Save · History · Run (split). W15 §7.1 deletes
           "Set default": it wrote `query.default.<conn>.<db>.<coll>` and
           nothing anywhere read it back. Saved queries already own "reuse this
           query on this collection". */}
       <Group gap={8} wrap="nowrap" style={{ padding: '8px 12px' }}>
+        <Button variant="default" size="compact-xs" leftSection={I.save} onClick={onSave}>
+          Save
+        </Button>
+        <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
+          History
+        </Button>
+        {/* Run sits at the right end, beside the drawer, so the
+            pointer's trip from a builder row to Run is short. */}
+        <span style={{ flex: 1 }} />
+        <span
+          aria-hidden="true"
+          style={{
+            width: 1,
+            alignSelf: 'stretch',
+            background: T.border,
+            margin: '0 2px',
+          }}
+        />
+
         <Button.Group>
           <Tooltip
-            label={
-              !isValid
-                ? 'Invalid MQL'
-                : sortError
-                  ? 'Invalid sort'
-                  : projRawError
-                    ? 'Invalid projection'
-                    : 'Run (Cmd+Enter)'
-            }
+            label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
             withArrow
           >
             <Button
@@ -555,23 +629,6 @@ function QueryBarInner({
             </Menu.Dropdown>
           </Menu>
         </Button.Group>
-
-        <span
-          aria-hidden="true"
-          style={{
-            width: 1,
-            alignSelf: 'stretch',
-            background: T.border,
-            margin: '0 2px',
-          }}
-        />
-
-        <Button variant="default" size="compact-xs" leftSection={I.save} onClick={onSave}>
-          Save
-        </Button>
-        <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
-          History
-        </Button>
       </Group>
 
       {/* QUERY row — collapsible header + editable filter textarea. W13
@@ -653,7 +710,6 @@ function QueryBarInner({
             ref={textareaRef}
             value={queryRaw}
             onChange={handleChange}
-            onKeyDown={handleKeyDown}
             onKeyUp={autocomplete.probe}
             onClick={autocomplete.probe}
             onFocus={autocomplete.probe}
@@ -727,6 +783,7 @@ function QueryBarInner({
               setProjDraft(next);
               // Stale complaint while the user is already fixing it.
               setProjClassified(null);
+              setRunBlocked(null);
               projField.onChange(next);
             }}
             context={suggestionContext}
@@ -841,6 +898,10 @@ function QueryBarInner({
 
       {limitError && <Notice id="query-bar-limit-error">{limitError}</Notice>}
       </div>
+      )}
+
+      {blocked && (
+        <Notice key={blocked.seq} id="query-bar-run-blocked">Not run: {blocked.reason}</Notice>
       )}
 
       {runError && (

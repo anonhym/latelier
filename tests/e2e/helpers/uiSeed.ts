@@ -1,7 +1,8 @@
-import { type Page } from '@playwright/test';
-import { baseConnInput } from '../../helpers/e2eApp';
+import { expect, type Page } from '@playwright/test';
+import { baseConnInput, startMemoryServer, withApp } from '../../helpers/e2eApp';
 import { ConnectionSwitcherPage } from '../pages/ConnectionSwitcherPage';
-import { expectStatusDot } from './uiAsserts';
+import { WorkspacePage } from '../pages/WorkspacePage';
+import { expectConsoleClean, expectStatusDot } from './uiAsserts';
 
 type ConnInput = ReturnType<typeof baseConnInput>;
 
@@ -173,3 +174,35 @@ export async function seedActiveConnectionWithDocs(
   return created;
 }
 
+
+/**
+ * The opening most Data View tests repeat: a fresh memory server and app,
+ * `docs` seeded into `shop.orders`, that collection opened, and its auto-run
+ * rendered (`readyText` visible) before `body` drives anything — a manual Run
+ * overlapping the auto-run is dropped by the runner's single-flight guard.
+ * `body` runs inside `expectConsoleClean`.
+ */
+export async function withOpenOrders(
+  connName: string,
+  docs: unknown[],
+  readyText: string,
+  body: (win: Page, ws: WorkspacePage) => Promise<void>,
+): Promise<void> {
+  const { host, port } = await startMemoryServer();
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: connName },
+        { dbName: 'shop', collection: 'orders', docs },
+      );
+      await expectStatusDot(win, connName, 'connected');
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await expect(win.getByText(readyText)).toBeVisible({ timeout: 8000 });
+      await body(win, ws);
+    });
+  });
+}

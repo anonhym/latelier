@@ -595,6 +595,8 @@ export function DocFieldTree({
         });
         return;
       }
+      // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (!activeRow?.expandable) return;
       if (e.key === ' ') e.preventDefault();

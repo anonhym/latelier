@@ -79,6 +79,10 @@ _Avoid_: action, event, mutation, write
 **Query**:
 A read the user might want to run again. The unit of recent queries, and never an Operation — the two histories are separate on purpose.
 
+**Run**:
+Executing the Focused Tab's current Query — the Filter Bar's filter plus sort and projection — against its Collection. Always a read, never an Operation. It always includes the latest Query Builder edits; there is no separate "apply" step before it.
+_Avoid_: execute, search, apply
+
 **Audit Log**:
 The durable, per-Connection record of Operations. Survives relaunch; dies with its Connection. Distinct from the transient notification history, which records failures the user might otherwise miss and keeps nothing.
 _Avoid_: activity log, history, event log

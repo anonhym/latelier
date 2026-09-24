@@ -223,6 +223,26 @@ export function PanelBody({
     handleRefHover, handleRefHoverLeave, handleRefOpen,
   } = refDrawer;
 
+  // ⌘/Ctrl+Enter runs from anywhere in the Documents view: the query
+  // bar, a result row (where focus stays after dragging a field into the
+  // drawer), the drawer. Bound once on the panel group rather than per
+  // input; QueryBar supplies the action, and only mounts in the Documents
+  // view, so an empty ref means another view that owns its own ⌘↵
+  // (Aggregation) or has no Run (Structure). A dialog keeps its own ⌘↵ —
+  // same rule as ⌘B in Workspace.tsx; React bubbles portal events here too.
+  const runShortcutRef = React.useRef<(() => void) | null>(null);
+  const handleRunShortcut = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) {
+      return;
+    }
+    const run = runShortcutRef.current;
+    if (!run) return;
+    // Also stops a focused Run button's native Enter activation from running twice.
+    e.preventDefault();
+    run();
+  };
+
   return (
     <AppShell.Main
       style={{
@@ -308,6 +328,7 @@ export function PanelBody({
                 key={`h-${String(prefsReady)}`}
                 orientation="horizontal"
                 style={{ flex: 1, overflow: 'hidden' }}
+                onKeyDown={handleRunShortcut}
                 onLayoutChanged={(layout) => {
                   // Geometry-based guard: a state flag races toggleBuilder's synchronous collapse() call.
                   const builderPct = layout['h-builder'];
@@ -334,7 +355,10 @@ export function PanelBody({
                         previewFields={collection.activePreviewFields}
                         onPreviewFieldsChange={collection.setActivePreviewFields}
                       />
-                      <QueryBar suggestionContext={collection.suggestionContext} />
+                      <QueryBar
+                        suggestionContext={collection.suggestionContext}
+                        runShortcutRef={runShortcutRef}
+                      />
                       <ResultViewer>
                         <ResultViewer.Pagination />
                         <ResultViewer.SelectionBar onDeleteSelected={setDeleteSelected} />

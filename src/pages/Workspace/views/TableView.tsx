@@ -1081,6 +1081,8 @@ export function TableView({
         });
         return;
       }
+      // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
       if (documents.length === 0) return;
       e.preventDefault();
