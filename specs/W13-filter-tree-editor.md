@@ -428,7 +428,10 @@ results column away from the drawer. So:
   The drawer's old `isEjsonDocument`-only rule let a bad sort reach the runner.
 - **Blocked feedback.** A refused `⌘↵` shows the same reason the Run tooltip shows,
   in a `role="alert"` line under the Query Bar, cleared by the next edit or run.
-  Nothing is shown while a run is in flight.
+  Every refused press remounts the line, so a repeat press is announced again. The
+  one exception: when the press itself raises the filter or projection refusal
+  notice, that notice is the announcement and the line stays away — two alerts for
+  one press would say it twice. Nothing is shown while a run is in flight.
 
 ## 8. Persistence & migration
 

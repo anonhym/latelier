@@ -388,18 +388,24 @@ function QueryBarInner({
   // that the Run button (whose click blurs first) accepts. Patches land
   // async, so the repaired values also ride along as the `run` override.
   //
-  // A refusal the filter or projection Notice already announces returns
-  // quietly — `commitNow` / `settleProjection` just set that message, and a
-  // second `role="alert"` for the same press would say it twice. Anything
-  // else is named on `runBlocked`'s line, which lasts until the query
-  // changes (keyed on the exact values it judged) or a tab switch.
+  // A refused press is named on `runBlocked`'s line — unless this very
+  // press raised the filter or projection Notice (`commitNow` /
+  // `settleProjection` set it just now), which already says why; a second
+  // `role="alert"` would say it twice. A Notice that was already on screen
+  // is not re-announced, so it does not count. `seq` remounts the line on
+  // every refused press so a repeat press is announced again. The line
+  // lasts until the query changes (keyed on the exact values it judged),
+  // the projection draft is edited, or the tab switches.
   const [runBlocked, setRunBlocked] = React.useState<{
     reason: string;
     queryRaw: string;
     builder: CollectionTabState['builder'];
+    seq: number;
   } | null>(null);
   const runFromShortcut = () => {
     if (isLoading) return;
+    const hadFilterNotice = filterField.refusal !== null;
+    const hadProjectionNotice = projMessage !== null;
     const filter = filterField.commitNow();
     const sort = sortField.repairNow();
     const withSort =
@@ -407,21 +413,26 @@ function QueryBarInner({
     const settled = settleProjection(withSort);
     const builder = settled ?? withSort;
     if (builder !== state.builder) onPatch({ builder });
-    if (settled === null || filterProblem(filter.text) !== null) return;
-    const reason = runBlockReason({ ...state, queryRaw: filter.text, builder });
-    if (reason !== null) {
-      setRunBlocked({ reason, queryRaw: filter.text, builder });
+    const reason =
+      settled === null
+        ? 'Invalid projection'
+        : runBlockReason({ ...state, queryRaw: filter.text, builder });
+    if (reason === null) {
+      setRunBlocked(null);
+      onRun({ queryRaw: filter.text, builder });
       return;
     }
-    setRunBlocked(null);
-    onRun({ queryRaw: filter.text, builder });
+    const freshNotice =
+      (settled === null && !hadProjectionNotice) ||
+      (settled !== null && filterProblem(filter.text) !== null && !hadFilterNotice);
+    setRunBlocked((prev) =>
+      freshNotice ? null : { reason, queryRaw: filter.text, builder, seq: (prev?.seq ?? 0) + 1 },
+    );
   };
   React.useImperativeHandle(runShortcutRef, () => runFromShortcut);
-  const blockedReason =
-    runBlocked?.queryRaw === state.queryRaw &&
-    runBlocked.builder === state.builder &&
-    projDraft === null
-      ? runBlocked.reason
+  const blocked =
+    runBlocked?.queryRaw === state.queryRaw && runBlocked.builder === state.builder
+      ? runBlocked
       : null;
 
   const skipValue = state.page * state.pageSize;
@@ -772,6 +783,7 @@ function QueryBarInner({
               setProjDraft(next);
               // Stale complaint while the user is already fixing it.
               setProjClassified(null);
+              setRunBlocked(null);
               projField.onChange(next);
             }}
             context={suggestionContext}
@@ -888,8 +900,8 @@ function QueryBarInner({
       </div>
       )}
 
-      {blockedReason && (
-        <Notice id="query-bar-run-blocked">Not run: {blockedReason}</Notice>
+      {blocked && (
+        <Notice key={blocked.seq} id="query-bar-run-blocked">Not run: {blocked.reason}</Notice>
       )}
 
       {runError && (

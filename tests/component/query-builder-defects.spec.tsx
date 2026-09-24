@@ -331,10 +331,9 @@ describe('W13 §7 — single owner, single Run', () => {
     // W13 §6a freezes the drawer read-only while the bar holds invalid
     // JSON — every add/edit control is disabled, so there's no editable
     // condition row to dispatch on here. The "Filter" tab button is still
-    // inside the same root element the ⌘↵ handler is scoped to
-    // (`BuilderPane`'s outermost div, see `handleDrawerKeyDown`) and stays
-    // enabled even while frozen, so it still proves the handler is reachable
-    // — and inert — from within the drawer.
+    // inside the Documents view the ⌘↵ handler covers (`PanelBody`'s panel
+    // group) and stays enabled even while frozen, so it still proves the
+    // handler is reachable — and inert — from within the drawer.
     const { findSpy } = mountWith(makeState({ queryRaw: 'not valid json{{{' }));
 
     const runBtn = await screen.findByTestId('query-run-btn');
@@ -430,6 +429,32 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
 
     fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '{"sku": 1}' } });
     await waitFor(() => expect(screen.queryByText('Not run: Invalid sort')).toBeNull());
+  });
+
+  it('announces a repeated refused press again', async () => {
+    mountWith(makeState({ builder: { projection: [], sort: '[1,2]', limit: '' } }));
+    const sort = await screen.findByTestId('query-bar-sort');
+
+    fireEvent.keyDown(sort, cmdEnter);
+    const first = await screen.findByText('Not run: Invalid sort');
+    fireEvent.keyDown(sort, cmdEnter);
+
+    // A new alert node, not the same one re-rendered — only a fresh
+    // `role="alert"` is announced.
+    await waitFor(() => expect(screen.getByText('Not run: Invalid sort')).not.toBe(first));
+  });
+
+  it('names a refused filter whose notice was already on screen', async () => {
+    const { findSpy } = mountWith(makeState({ queryRaw: '[1,2]' }));
+    const textarea = await screen.findByTestId('query-bar-input');
+    fireEvent.blur(textarea);
+    await screen.findByText(/A filter must be a document/);
+
+    // That notice is old news by now; the press has to say something itself.
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Filter' }), cmdEnter);
+
+    expect(await screen.findByText('Not run: Invalid MQL')).toBeTruthy();
+    expect(findSpy).not.toHaveBeenCalled();
   });
 
   it('leaves ⌘↵ inside a dialog to that dialog', async () => {
