@@ -2,10 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Communication style
-
-Write every reply to the user in ASD-STE100 Simplified Technical English: short sentences, one idea per sentence, active voice, simple tenses, and the controlled STE vocabulary. This applies to normal chat replies, explanations, and summaries — not to code, file contents, commit messages, or generated documents unless the user asks for those in STE too. Technical names, code, file paths, key names, and quoted UI or error text stay in their initial form; STE allows this for Technical Names.
-
 ## When to keep going
 
 When a step doesn't need my input, keep going. Put status notes in the
