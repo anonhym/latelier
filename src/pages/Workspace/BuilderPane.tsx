@@ -11,7 +11,6 @@ import {
 import { confirmDestructive } from '../../utils/confirm';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { isEjsonDocument } from '../../utils/ejson';
 import { copyToClipboard } from '../../utils/clipboard';
 import { notify } from '../../theme/notifications';
 import {
@@ -443,7 +442,8 @@ function CondRow({
    *   this input, so it runs before React's root-delegated handler and
    *   `defaultPrevented` is already true here. Without the check, arrowing to
    *   `$in` over a typed `>` would land `$gt`.
-   * - ⌘/Ctrl+Enter, which `handleDrawerKeyDown` runs the query on. Resolving
+   * - ⌘/Ctrl+Enter, which the Documents view's tab-wide handler runs the
+   *   query on (`PanelBody`). Resolving
    *   first would show `$gt` in the box while the run still used the
    *   last-committed filter — the state has not re-rendered. Leaving it alone
    *   keeps the row visibly unfinished, which is the truth.
@@ -1474,42 +1474,8 @@ function BuilderPaneInner({
     }
   };
 
-  // W13 §7 — ⌘/Ctrl+Enter runs from any drawer input now that the drawer
-  // lost its own footer Run button. Scoped to this root: React bubbles the
-  // synthetic keydown up through every input inside the drawer and no
-  // further, so — unlike a `document`-level listener — nothing outside the
-  // drawer (a modal, another pane) can trigger it and nothing has to opt out.
-  const handleDrawerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      // Same rule as the bar's own ⌘↵ (QueryBar's `canRun`, minus the
-      // `!isLoading` half — `useQueryRunner.run` already no-ops on
-      // `runningRef.current`). Without this, a hand-typed invalid filter in
-      // the bar (Run correctly disabled) would still run from a drawer
-      // input — the same two-Runs-two-rules trap, just moved into the
-      // keyboard shortcut.
-      // Document-shaped, not merely parseable — same rule as the bar's Run
-      // and as `currentFilterJson`. `[1,2]` is parseable JSON but not a
-      // filter document, and would otherwise run from here while the
-      // button next to it stays disabled.
-      if (isEjsonDocument(state.queryRaw)) onRun();
-    }
-  };
-
   return (
-    // S6848 is accepted here, not fixed. This div carries `onKeyDown` and
-    // nothing else — no `onClick`, no `role`, no `tabIndex` — so it is never a
-    // focus target and cannot be mistaken for a control. It exists to scope the
-    // Cmd/Ctrl+Enter Run shortcut to this drawer, catching the event as it
-    // bubbles from whichever natively-focusable descendant (a tab, a TextInput,
-    // the filter textarea) actually has focus. The rule's stated harm — that a
-    // keyboard user cannot reach the handler — is inverted here: focus is
-    // already inside by design. Both offered fixes make it worse. `role="button"`
-    // on a container holding a tablist and several inputs is invalid nested-
-    // interactive ARIA, and a bare `tabIndex={0}` adds a tab stop that does
-    // nothing. Same pattern, same accept, in ScriptTab.tsx.
     <div
-      onKeyDown={handleDrawerKeyDown}
       style={{
         width: '100%',
         borderLeft: `1px solid ${T.border}`,

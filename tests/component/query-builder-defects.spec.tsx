@@ -351,6 +351,118 @@ describe('W13 §7 — single owner, single Run', () => {
   });
 });
 
+// ─── ⌘↵ from anywhere in the Documents view ──────────────────────────────
+//
+// The key used to be bound to the filter textarea and the drawer root only,
+// so after dragging a field from the results into the drawer — focus stays
+// on the result row — ⌘↵ did nothing. One handler on the panel group now
+// covers the whole view, and repairs every draft before it gates.
+describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
+  const DOC = { _id: '1', sku: 'widget' };
+  const cmdEnter = { key: 'Enter', metaKey: true };
+
+  it('runs once from the result tree without expanding the focused row', async () => {
+    const { findSpy } = mountWith(
+      makeState({ lastRun: { documents: [DOC], durationMs: 0, ranAt: now } }),
+    );
+    const tree = await screen.findByRole('tree', { name: 'Documents' });
+
+    fireEvent.keyDown(tree, cmdEnter);
+
+    // Checked before the run lands, whose empty result unmounts the row. The
+    // tree's own Enter expands the active row; ⌘↵ must not also do that.
+    expect(within(tree).queryByRole('button', { name: 'Collapse document' })).toBeNull();
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('runs once from the result table without toggling the row selection', async () => {
+    const { findSpy } = mountWith(
+      makeState({ view: 'Table', lastRun: { documents: [DOC], durationMs: 0, ranAt: now } }),
+    );
+    const grid = await screen.findByRole('grid');
+    act(() => grid.focus()); // focus makes the first row the active one
+
+    fireEvent.keyDown(grid, cmdEnter);
+
+    // Checked before the run lands: its empty result would clear a selection
+    // anyway. The table's own ⌘+Space (and, before, ⌘+Enter) toggles it.
+    expect(screen.queryByTestId('selection-bar-count')).toBeNull();
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('repairs a Shell Syntax sort that was never blurred, and runs it', async () => {
+    const { findSpy } = mountWith(
+      makeState({ builder: { projection: [], sort: '{sku: 1}', limit: '' } }),
+    );
+
+    fireEvent.keyDown(await screen.findByTestId('query-bar-sort'), { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0][0].sort).toBe('{"sku": 1}');
+  });
+
+  it('commits a projection draft that was never blurred, and runs it', async () => {
+    // A limit is set only so the advanced row (projection, sort) opens.
+    const { findSpy } = mountWith(
+      makeState({ builder: { projection: [], sort: '', limit: '5' } }),
+    );
+    const projection = await screen.findByTestId('query-bar-projection');
+
+    fireEvent.change(projection, { target: { value: '{sku: 1}' } });
+    fireEvent.keyDown(projection, cmdEnter);
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0][0].projection).toContain('sku');
+  });
+
+  it('refuses an invalid sort from a drawer input, says why, and clears on the next edit', async () => {
+    const { findSpy } = mountWith(
+      makeState({ builder: { projection: [], sort: '[1,2]', limit: '' } }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+
+    fireEvent.keyDown(await screen.findByPlaceholderText('field'), cmdEnter);
+
+    const line = await screen.findByText('Not run: Invalid sort');
+    expect(line.getAttribute('role')).toBe('alert');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(findSpy).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '{"sku": 1}' } });
+    await waitFor(() => expect(screen.queryByText('Not run: Invalid sort')).toBeNull());
+  });
+
+  it('leaves ⌘↵ inside a dialog to that dialog', async () => {
+    const { findSpy } = mountWith(makeState());
+    fireEvent.click(await screen.findByTestId('query-bar-expand-btn'));
+    const dialog = await screen.findByRole('dialog');
+
+    fireEvent.keyDown(within(dialog).getByRole('textbox'), cmdEnter);
+
+    // The expand modal's own ⌘↵ applies and closes; the find query stays put.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not run a find query from the Aggregation view', async () => {
+    const { findSpy } = mountWith(makeState({ activeView: 'aggregation' }));
+    const result = await screen.findByRole('button', { name: /Run/ });
+
+    fireEvent.keyDown(result, cmdEnter);
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('puts Run last in the toolbar, after History', async () => {
+    mountWith(makeState());
+    const run = await screen.findByTestId('query-run-btn');
+    const history = screen.getByRole('button', { name: 'History' });
+
+    expect(history.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 // ─── X15 T5 — the ⌘B guard survives portaling ─────────────────────────
 //
 // `Workspace.tsx`'s window-level ⌘B handler skips the toggle when the event
