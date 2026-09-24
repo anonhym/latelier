@@ -108,7 +108,7 @@ main ─────────────────────────
 10. **When every issue — original and discovered — is closed, run `/verify` before
     calling the feature done.** Only after it passes, open the PR base → `main`. This
     one gets the full gate: all seven Definition-of-Done gates in `CLAUDE.md`, including
-    `npx tsc -b` by hand (nothing in CI typechecks `main`) and the reviewer bot on the
+    `npx tsc -b` by hand (nothing in CI typechecks `main`) and Gitar's review on the
     combined diff.
 
     **Merging base → `main` requires the user's explicit consent, every time.** Open the
