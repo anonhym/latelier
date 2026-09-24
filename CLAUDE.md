@@ -56,13 +56,7 @@ npm run test:mutation   # Stryker; local only, not in CI
 npm run audit:ipc
 ```
 
-### Native-module ABI — no longer a thing
-
-`better-sqlite3` 13 is an **N-API** addon. Its prebuilt binaries are keyed by platform-arch alone (e.g. `prebuilds/darwin-arm64.node`), with no ABI in the name, so one binary serves both the system Node and Electron ABIs. Nothing compiles at install time, and `npm test`, `npm run test:e2e`, `electron:dev` and a packaged launch all work off the same install.
-
-**If you see `NODE_MODULE_VERSION` anywhere, do not add a rebuild script.** It means something reintroduced a compile-from-source path — a native dep that isn't N-API, or a `--build-from-source` flag. Fix that instead.
-
-The old advice still applies whenever you check a native module by hand: probe by **opening a database**, not by requiring it. `better-sqlite3` loads its binary inside the `Database` constructor, so `node -e "require('better-sqlite3')"` exits 0 against a broken binary and tells you nothing:
+`better-sqlite3`, the only native module, ships N-API prebuilds, so one install serves Node and Electron alike. **A `NODE_MODULE_VERSION` error means a compile-from-source path came back** (a non-N-API native dep, a `--build-from-source` flag) — fix that; never add a rebuild script. To check the binary, open a database rather than `require()` it: the binary loads inside the `Database` constructor, so a bare `require` passes against a broken one.
 
 ```bash
 node -e "const db=require('better-sqlite3')(':memory:'); db.prepare('select 1').get(); db.close();"
@@ -166,7 +160,7 @@ The discovered-issues gate governs the defect you notice while implementing some
 
 One way out, and it is not the implementer's to take: a discovery that is really a redesign or a feature proposal rather than a defect gets de-scoped by the maintainer, on request. Record the de-scope on the issue in writing, and make sure the work still has an open issue carrying a `priority:` label. Nothing leaves a feature's blocking set silently.
 
-CI runs lint, typecheck, `audit:ipc`, `npm test` **and E2E** on pushes to `main` and on PRs **targeting `main` only**. A PR into a feature base triggers nothing — run every gate locally on those. E2E is a 4-way `--shard` matrix, so it reports as four checks (`Playwright + Electron (1/4)`…`(4/4)`) rather than one. `workers: 1` still holds **inside** a shard — the parallelism is across runners, not within one, so no two tests ever share an Electron or a Mongo. Running the suite by hand is unchanged (`npm run test:e2e`); `npm run test:e2e -- --shard=1/4` runs one slice. `npm run test:mutation` is **not** wired into CI — it stays local-only and someone runs it by hand. Code review is Gitar (`gitar-bot`), which reviews every PR by itself; nobody dispatches it. `scripts/run-e2e.sh` runs under `set -euo pipefail`, so a failing build or `tsc -b` inside it aborts the run instead of letting Playwright pass against a stale bundle. A `NODE_MODULE_VERSION` failure is **not** a rebuild-and-rerun: after the move to an N-API addon there is no rebuild script to run, so it means a compile-from-source path came back — see the native-module section at the top.
+CI runs lint, typecheck, `audit:ipc`, `npm test` **and E2E** on pushes to `main` and on PRs **targeting `main` only**. A PR into a feature base triggers nothing — run every gate locally on those. E2E is a 4-way `--shard` matrix, so it reports as four checks (`Playwright + Electron (1/4)`…`(4/4)`) rather than one. `workers: 1` still holds **inside** a shard — the parallelism is across runners, not within one, so no two tests ever share an Electron or a Mongo. Running the suite by hand is unchanged (`npm run test:e2e`); `npm run test:e2e -- --shard=1/4` runs one slice. `npm run test:mutation` is **not** wired into CI — it stays local-only and someone runs it by hand. Code review is Gitar (`gitar-bot`), which reviews every PR by itself; nobody dispatches it. `scripts/run-e2e.sh` runs under `set -euo pipefail`, so a failing build or `tsc -b` inside it aborts the run instead of letting Playwright pass against a stale bundle.
 
 Editing this section: some workflows read these bullets to run the gates automatically, so keep the shape — one gate per bullet, command in backticks. Three traps, all silent: a table parses to zero gates; a line opening with `**bold**` parses as an extra gate; and `if`/`when`/`unless` inside a bullet turns that gate into a skippable conditional.
 
