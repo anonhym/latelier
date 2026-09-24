@@ -1,13 +1,10 @@
-# MongoLab — Iteration 1 Specifications
+# L'Atelier — Specifications
 
-This directory contains the specifications for MongoLab iteration 1. Each spec describes a single testable component (UI component, service, data model, or cross-cutting concern) in enough detail to implement and test independently.
+The design source of truth for L'Atelier. Each spec describes one testable component (UI component, service, data model, or cross-cutting concern) in enough detail to implement and test independently. Open follow-ups live in GitHub Issues; architectural decisions live in [`docs/adr/`](../docs/adr/).
 
-> **Iteration 1 status: SHIPPED.** F01–F06, C01–C08, W01–W10, A01–A06, and X01–X06 are all implemented and tested. Indexes/Users tabs shipped as intentional stubs (per C08) at the time; both were later built out with real CRUD in post-iteration-1 specs C09/C10. Open follow-ups live in GitHub Issues. Migrations 004 (`auth_mech 'default'`), 005 (reference rules backing X05), and 006 (workspace tab pinning) were added during the phase but not pre-planned.
+## History
 
-## Scope of iteration 1
-
-- **In-scope**: SQLite persistence, secrets vault, IPC bridge, Mongo client pool, connection CRUD, NewConnection page, ConnectionManager, Workspace with real data + tabs + Tree/JSON/Table views + builder + query bar bidirectional sync + pagination + document write ops + saved/recent queries, Aggregation with real pipeline runs + stage previews + save + explain, theme/window state persistence.
-- **Deferred**: SSH tunneling (spec stub only), full CmdK palette, multi-window support, import from Compass, replica-set topology views, change streams, transactions UI. (Indexes tab and Users tab, listed as deferred at the time, later shipped — see C09/C10.)
+The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01–W10, A01–A06 and X01–X06 — shipped and is implemented and tested. Everything marked *post-iteration-1* below came after it; some of it supersedes iteration-1 designs (W13 replaces the W04 condition model and the W05 sync machine, X16 retires the single-active-connection policy). The rename to L'Atelier is [X09](./X09-namespace-rename.md); a few internal names, such as the `mongolab.db` file, still carry the old one.
 
 ## Architectural ground rules
 
@@ -102,24 +99,33 @@ This directory contains the specifications for MongoLab iteration 1. Each spec d
 | [X14](./X14-shell-syntax-input.md) | Shell Syntax input on the read-query surfaces — *post-iteration-1* | renderer |
 | [X15](./X15-dialog-consolidation.md) | Dialog consolidation onto Mantine + unsaved-changes guards — *post-iteration-1* | renderer |
 | [X16](./X16-multi-connection.md) | Multi-connection Data View (retires the single-active-connection policy assumed by W02 §1b) — *post-iteration-1* | renderer + pool |
+| [X17](./X17-renderer-hardening.md) | Renderer hardening — *post-iteration-1* | main + renderer |
+| [X18](./X18-deepening-seams.md) | Deepening seams: Shell Syntax fields and the Read-Only handle — *post-iteration-1* | main + renderer |
+| [X19](./X19-keyboard-operability.md) | Keyboard operability of custom controls — *post-iteration-1* | renderer |
+
+### Plans
+
+| File | Sequences |
+| ---- | --------- |
+| [PLAN-foundation](./PLAN-foundation.md) | F01 → F06 |
+| [PLAN-connections](./PLAN-connections.md) | C01 → C08 |
+| [PLAN-workspace](./PLAN-workspace.md) | W01 → W10, plus X01 and X06 |
+| [PLAN-workspace-decomposition](./PLAN-workspace-decomposition.md) | Workspace component decomposition |
 
 
-## Implementation order
+## Numbering
 
-The specs are numbered in recommended build order. Foundation first (F01→F06), then connections (C01→C08), then workspace (W01→W10), then aggregation (A01→A06), with X01 touched throughout.
+Iteration-1 specs are numbered in the order they were built: foundation first (F01→F06), then connections (C01→C08), workspace (W01→W10) and aggregation (A01→A06), with X01 touched throughout. Later specs take the next free number in their area.
 
 ## Spec template
 
-Each spec follows this structure:
+Every spec opens with:
 
-1. **Purpose** — what this component does in one paragraph.
+1. **Purpose** — what this component does, in one paragraph.
 2. **Scope** — explicit in-scope / out-of-scope bullets.
 3. **Dependencies** — other specs this one depends on.
-4. **Types** — TypeScript interfaces / data model.
-5. **IPC contract** (if applicable) — channel names, payloads, errors.
-6. **Behavior** — step-by-step interactions, states, edge cases.
-7. **UI** (if applicable) — layout diagram, components, keyboard shortcuts, accessibility notes.
-8. **Persistence** (if applicable) — SQL schema touches, file writes.
-9. **Error handling** — failure modes and UX response.
-10. **Acceptance criteria** — checklist of verifiable outcomes.
-11. **Test cases** — unit / integration / component / E2E tests.
+
+Then numbered design sections, shaped by the component: types and data model, IPC contract, behavior and edge cases, UI and keyboard/accessibility notes, persistence, error handling — whichever apply. Most end with:
+
+- **Acceptance criteria** — a checklist of verifiable outcomes, ticked as they ship.
+- **Test cases** — unit / integration / component / E2E.
