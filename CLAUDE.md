@@ -2,14 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## When to keep going
-
-When a step doesn't need my input, keep going. Put status notes in the
-same message as your next action.
-Stop and ask only when you can't continue without me, or before anything
-destructive: deleting data, force-pushing, or changing anything outside
-this repository.
-
 ## Check where you are running first
 
 Two environments, and they differ enough that guessing wastes a session. Check once, before planning any work:
