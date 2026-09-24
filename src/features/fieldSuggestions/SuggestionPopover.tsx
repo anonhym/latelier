@@ -121,7 +121,11 @@ export function SuggestionPopover({
         e.preventDefault();
         setEngaged(true);
         moveHighlight(-1);
-      } else if (e.key === 'Tab' || (e.key === 'Enter' && engaged)) {
+      } else if (
+        e.key === 'Tab' ||
+        // ⌘/Ctrl+Enter is Run, never Select: leave it to bubble.
+        (e.key === 'Enter' && engaged && !e.metaKey && !e.ctrlKey)
+      ) {
         const pick = items[highlight];
         if (pick) {
           e.preventDefault();

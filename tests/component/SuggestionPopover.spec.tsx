@@ -156,6 +156,25 @@ describe('SuggestionPopover — Enter only selects an actively chosen item', () 
     expect(evt.defaultPrevented).toBe(true);
   });
 
+  // ⌘/Ctrl+Enter is Run, never Select. The popover used to take it
+  // as a pick, and the key then bubbled on to the Run handler, so one press
+  // both inserted the suggestion and ran the query.
+  it.each([
+    ['metaKey', { metaKey: true }],
+    ['ctrlKey', { ctrlKey: true }],
+  ])('leaves %s+Enter to the Run handler even after arrowing', (_name, mod) => {
+    const picked: Suggestion[] = [];
+    render(<Harness items={items} onSelect={(s) => picked.push(s)} />);
+
+    const anchor = screen.getByTestId('anchor');
+    fireEvent.keyDown(anchor, { key: 'ArrowDown' });
+    const evt = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...mod });
+    anchor.dispatchEvent(evt);
+
+    expect(picked).toEqual([]);
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
   it('claims aria-selected exactly when Enter would take the row', () => {
     // The other half of the acceptance criterion. Asserting only "false before
     // ArrowDown" would also pass against a popover that had stopped setting
