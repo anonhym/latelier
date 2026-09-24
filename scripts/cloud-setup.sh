@@ -9,9 +9,10 @@
 # Claude Code launches, once per environment cache (~7 days or on edit). Must
 # exit 0 or the session fails to start, and finish inside ~5 minutes.
 #
-# Skills come from the repo's .claude/settings.json. Plugin marketplaces and
-# the plugins themselves do not: see the two blocks near the bottom for why
-# both the registry and the install have to happen here.
+# The repo's .claude/settings.json enables only official-marketplace plugins.
+# The two third-party plugins below (ponytail, mattpocock-skills) are the
+# maintainer's personal choice, not project config, so this script installs
+# and enables them at user scope in the cloud container instead.
 
 set -x
 
@@ -66,13 +67,12 @@ fi
 
 # Plugin marketplaces, pre-seeded.
 #
-# `extraKnownMarketplaces` in .claude/settings.json does NOT take effect in a
-# cloud session. Registering a third-party marketplace needs a one-time trust
-# approval, and a headless session has nobody to collect it from, so both
-# entries are skipped silently — `known_marketplaces.json` ends up holding
-# only claude-plugins-official, and the `enabledPlugins` keys that qualify
-# against them (`ponytail@ponytail`, `mattpocock-skills@mattpocock`) resolve
-# to nothing. No error is printed; the plugins are just absent.
+# `extraKnownMarketplaces` does NOT take effect in a cloud session.
+# Registering a third-party marketplace needs a one-time trust approval, and a
+# headless session has nobody to collect it from, so it is skipped silently —
+# `known_marketplaces.json` ends up holding only claude-plugins-official, and
+# `ponytail@ponytail` / `mattpocock-skills@mattpocock` resolve to nothing. No
+# error is printed; the plugins are just absent.
 #
 # Claude Code reads the registry when it launches, so a SessionStart hook is
 # already too late — this setup script is the only lever that lands before it.
@@ -124,11 +124,11 @@ console.log("registered marketplaces:", Object.keys(known).join(", "));
 # Plugins, actually installed.
 #
 # Registering a marketplace is not installing anything from it, and nothing in
-# a cloud session ever runs the install: `enabledPlugins` in
-# .claude/settings.json only enables plugins that are already installed, so
-# `installed_plugins.json` stays `{"plugins": {}}` and every skill from both
-# marketplaces is absent — the same silent no-op, one step further along, that
-# the registry block above exists to fix.
+# a cloud session ever runs the install, so `installed_plugins.json` stays
+# `{"plugins": {}}` and every skill from both marketplaces is absent — the
+# same silent no-op, one step further along, that the registry block above
+# exists to fix. Each plugin is then enabled at user scope explicitly: the
+# repo's settings no longer enable them.
 #
 # Non-interactive now that the registry is seeded: the trust approval is a
 # property of ADDING a marketplace, not of installing from a known one.
@@ -140,6 +140,8 @@ if command -v claude >/dev/null 2>&1; then
   for plugin in ponytail@ponytail mattpocock-skills@mattpocock; do
     timeout 120 claude plugin install "$plugin" --scope user || \
       echo "WARNING: could not install $plugin — its skills will be missing"
+    # Fails harmlessly when install already left it enabled.
+    claude plugin enable "$plugin" --scope user || true
   done
   claude plugin list || true
 else

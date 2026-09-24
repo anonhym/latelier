@@ -91,9 +91,7 @@ or `specs/` and nothing else — owes a subset. A change touching both docs and
 code is a code change.
 
 CI runs lint, typecheck, `audit:ipc`, the Vitest suite **and E2E** on pushes to
-`main` and on PRs targeting `main`. The E2E job takes ~26 minutes on a runner
-against ~2 locally, because Playwright runs `workers: 1` and each test pays an
-Electron launch plus a `mongodb-memory-server` spin-up.
+`main` and on PRs targeting `main`.
 
 ## Testing
 
