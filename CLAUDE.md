@@ -135,9 +135,9 @@ Conventions: build inputs with real constructors (`bson`'s `ObjectId`/`Long`/`De
 
 ## Specs and roadmap
 
-`specs/` is the design source of truth — F (foundation), C (connections), W (workspace), A (aggregation), X (cross-cutting). Before implementing something non-trivial, read the relevant `X##-*.md` — each spec has Purpose / Scope / Types / IPC contract / Behavior / Acceptance criteria / Test cases sections. `specs/PLAN-*.md` files sequence the work.
+`specs/` is the design source of truth — F (foundation), C (connections), W (workspace), A (aggregation), X (cross-cutting); `specs/README.md` indexes them. Before implementing something non-trivial, read the relevant spec (e.g. `W13-filter-tree-editor.md`). Each opens with Purpose / Scope / Dependencies, then numbered design sections, and most end with Acceptance criteria and Test cases. `specs/PLAN-*.md` files sequence the work.
 
-Known gaps and post-iteration follow-ups are tracked in **GitHub Issues**, with `priority:P0/P1/P2` and `effort:S/M/L` labels. There used to be a `BACKLOG.md` at the repo root holding the same thing; it was retired because a checked-in list and an issue tracker always drift, and the file lost. Older specs still say "de-scoped to `BACKLOG.md`" — read that as "de-scoped and filed as an issue".
+Known gaps and follow-ups are tracked in **GitHub Issues**, with `priority:P0/P1/P2` and `effort:S/M/L` labels — never in a checked-in list, which drifts from the tracker.
 
 ## Definition of done
 
