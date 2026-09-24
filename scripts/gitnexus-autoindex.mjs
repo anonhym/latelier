@@ -16,7 +16,8 @@
  * every session start. An automatic hook must never leave the tree dirty.
  *
  * Consequence: the generated docs go stale even while the graph is fresh.
- * Refresh them deliberately with `npx gitnexus analyze --pdg --skills`, and
+ * Refresh them deliberately with `npx gitnexus analyze --pdg --skills --no-stats`
+ * (`--no-stats` keeps the volatile symbol counts out of the diff), and
  * note the `--skills` flag is load-bearing — a bare `analyze` regenerates
  * the block between the `gitnexus:start`/`gitnexus:end` markers from that
  * run's output alone, silently dropping every `.claude/skills/generated/`

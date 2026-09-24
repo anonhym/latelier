@@ -132,6 +132,13 @@ When adding a new module with real branching, analyze it against that actual con
 
 Conventions: build inputs with real constructors (`bson`'s `ObjectId`/`Long`/`Decimal128`/`Binary`, not hand-built sentinel objects — a boxed `Int32`/`Double` and a raw JS number compare unequal). Verify an equivalence or invariant claim empirically — a quick Node probe — before asserting it in a property, rather than assuming. Never build a test input with a literal `__proto__` key using object-literal syntax; it sets the prototype at construction time instead of creating an own property. Build such inputs from a JSON string or `Object.defineProperty` instead.
 
+### Test gotchas
+
+- **Stateful wrappers.** A tab-level component test that renders with a static `state` prop and a no-op `onPatch` (e.g. `renderTab` in `aggregation-tab.spec.tsx`) cannot see any effect that only appears after the patch round-trips back into props — staleness markers, derived warning strips. Those need a wrapper that holds real `useState`, merges each patch and re-renders; plan it from the start.
+- **Proving `stopPropagation`.** Render the component under a plain parent with its own `onClick`/`onKeyDown` spies and assert they were not called. A `document`-level listener gives a false pass: closing a popover unmounts its backdrop or input in the same tick, which stops native bubbling on its own.
+- **Lifecycle events jsdom never fires.** For controls that mount and unmount on interaction (inline editors, popovers, drag handles), jsdom does not fire blur-on-unmount or dragend-on-cancel. Dispatch that trailing event explicitly (e.g. Escape keydown + blur inside one `act()`), or the cancel/reset guard ships untested.
+- **Stage-op catalog entries.** When adding a `StageOp` to `KNOWN_STAGE_OPS`/`DEFAULT_BODIES` (`pipeline.ts`), test catalog presence only. Default bodies are Shell Syntax with unquoted keys (`_id: "$field"`) by design, so asserting that strict EJSON validation accepts them is wrong.
+
 ## Specs and roadmap
 
 `specs/` is the design source of truth — F (foundation), C (connections), W (workspace), A (aggregation), X (cross-cutting). Before implementing something non-trivial, read the relevant `X##-*.md` — each spec has Purpose / Scope / Types / IPC contract / Behavior / Acceptance criteria / Test cases sections. `specs/PLAN-*.md` files sequence the work.
@@ -186,12 +193,16 @@ Not gates — obligations that travel with the change. Deliberately its own sect
 - CI/shell steps that run `npm install`/`npx` pass `--ignore-scripts` when install-time scripts aren't needed, and pin exact dependency/action versions instead of tags.
 - Use `Number.parseInt`/`Number.parseFloat`/`Number.NaN`, not the bare globals.
 - Every test carries at least one assertion.
+- The app ships Electron-only (Chromium). Decline cross-browser review findings — Firefox/Safari drag-and-drop quirks, vendor CSS — they never apply here.
+- Component files cannot export object, array or function constants: `eslint-plugin-react-refresh` (`only-export-components`, vite preset) allows only primitive literals. An object-shaped constant shared by more than one component lives in a plain non-component `.ts` module from the start.
+- Every dismiss path of a popover rendered over an interactive ancestor (Escape keydown, backdrop click) needs its own `stopPropagation()`. The trigger's open-click having one does not cover the popover's own dismiss branches.
+- Replacing a plain `<textarea>` with the CodeMirror `ScriptEditor` loses two textarea affordances silently: vertical resize (the editor has a fixed height) and Escape-to-blur (Escape closes the completion popup instead). Plan for them or scope them out explicitly.
 - `UPDATE schema_version SET version = N` in a migration looks like a missing-WHERE bug but isn't — `schema_version` is a singleton one-row table by design. Don't "fix" it by adding a meaningless `WHERE`.
 
 ## About the generated GitNexus section below
 
 Everything between the `gitnexus:start` and `gitnexus:end` markers is written by
-`npx gitnexus analyze --pdg --skills` and is overwritten on every run. Edit above
+`npx gitnexus analyze --pdg --skills --no-stats` and is overwritten on every run. Edit above
 the marker, never inside it.
 
 Read its **MUST** and **NEVER** lines as "how to use this tool well", not as
@@ -206,6 +217,14 @@ a good way to find the callers a change affects, and on a large refactor it is
 the fastest way; grep and the type-checker reach the same answer. Nothing in
 this repository merges or fails to merge because of whether an index was
 consulted.
+
+Before trusting a GitNexus result, check the index is fresh and scoped to this
+repo. A graph shared across several repos can answer with another repo's
+symbols — 0 callers for a symbol grep finds, or a HIGH risk citing processes
+that don't exist here. When in doubt, grep and run the tests.
+
+`--no-stats` keeps the symbol counts, which shift on every run, out of the
+generated block and out of the diff.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
