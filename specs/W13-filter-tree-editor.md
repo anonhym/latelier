@@ -397,7 +397,7 @@ bar's don't). W13 resolves it by deletion rather than reconciliation:
 | limit | query bar advanced grid |
 | projection | query bar advanced grid |
 | skip | pagination (display-only in the grid, unchanged) |
-| Run | **one** button, at the right end of the toolbar (#167) |
+| Run | **one** button, at the right end of the toolbar |
 
 The drawer stops rendering sort / limit / projection editors. That work is
 therefore **subsumed by W13**, not implemented separately — building it would
@@ -411,7 +411,7 @@ and ran under a *different* enabled rule than the bar's. That mangled-but-valid-
 hazard cannot recur, because the only writer of `queryRaw` other than the user
 is a printer that fails closed.
 
-**Amended by #167.** Two gaps survived the first pass. `⌘↵` was bound only to the
+**Amended.** Two gaps survived the first pass. `⌘↵` was bound only to the
 filter textarea and the drawer root, so it did nothing from a result row — which is
 where focus stays after dragging a field into the drawer — or from the sort,
 projection and limit inputs. And Run sat at the toolbar's left end, the width of the
@@ -553,10 +553,10 @@ Retired test ids and controls, so the churn isn't a surprise:
 **Integration**
 - [x] No sync pill, "Re-sync builder", "Accept builder", or "Builder disabled" control exists anywhere.
 - [x] Exactly one Run button; `⌘↵` runs from inside any drawer input.
-- [ ] (#167) Run is the last control in the toolbar, after History.
-- [ ] (#167) `⌘↵` runs from anywhere in the Documents view — result rows, sort/projection/limit inputs, drawer inputs — and after a drag-and-drop into the drawer with no further click.
-- [ ] (#167) `⌘↵` inside a dialog never runs the find query; in the Aggregation view it runs the pipeline exactly once.
-- [ ] (#167) Run button and `⌘↵` share one gate (`findProblem`); a refused `⌘↵` announces its reason in a `role="alert"` line.
+- [x] Run is the last control in the toolbar, after History.
+- [x] `⌘↵` runs from anywhere in the Documents view — result rows, sort/projection/limit inputs, drawer inputs — and after a drag-and-drop into the drawer with no further click.
+- [x] `⌘↵` inside a dialog never runs the find query; in the Aggregation view it runs the pipeline exactly once.
+- [x] Run button and `⌘↵` share one gate (`findProblem`); a refused `⌘↵` announces its reason in a `role="alert"` line.
 - [x] Sort, limit, and projection are editable in exactly one place.
 - [x] `currentFilterJson` returns `null` for blank or invalid-EJSON text, returns `'{}'` for the empty filter, and delete-all refuses to arm on `null`.
 - [x] A saved find payload with `builder.conditions` and no `queryRaw` hydrates to its original filter, not `{}`, and its sort/limit/projection survive hydration.
