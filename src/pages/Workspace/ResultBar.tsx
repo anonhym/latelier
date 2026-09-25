@@ -245,9 +245,8 @@ export function ResultBar() {
 
       <span style={{ flex: 1 }} />
 
-      {/* Fields control — all three views (#199); Tree/JSON don't consume
-          `columnConfig` yet (later slices of #144), but the control itself
-          is common. */}
+      {/* Fields control — one control for all three views; each view reads
+          the same per-tab `columnConfig`. */}
       <FieldsControl />
 
       {/* View switch */}

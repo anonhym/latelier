@@ -142,7 +142,7 @@ describe('FieldsControl', () => {
       const { getByRole, queryByRole } = renderChooser(state, { patchWith });
       fireEvent.click(getByRole('button', { name: /fields/i }));
 
-      // Hide/reorder (#199's shared field list) still works outside Table.
+      // Hide/reorder (the shared field list) still works outside Table.
       fireEvent.click(getByRole('checkbox', { name: 'apple' }));
       expect(patchWith).toHaveBeenCalled();
 

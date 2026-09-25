@@ -32,9 +32,9 @@ function renderBar(view: ResultViewMode) {
   );
 }
 
-// #199 — the Fields control used to be gated on `view === 'Table'`; it now
+// The Fields control used to be gated on `view === 'Table'`; it now
 // renders for every view (Tree/JSON don't consume the config yet, but the
-// control itself is shared, per #144's slicing).
+// control itself is shared, one list for every view).
 describe('ResultBar - Fields control visibility', () => {
   it.each(['Tree', 'JSON', 'Table'] as const)('renders the Fields control in the %s view', (view) => {
     renderBar(view);
