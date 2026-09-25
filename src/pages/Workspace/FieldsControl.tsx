@@ -176,7 +176,7 @@ export function FieldsControl() {
             ) : undefined
           }
         >
-          Columns
+          Fields
         </Button>
       </Popover.Target>
       <Popover.Dropdown p="xs">

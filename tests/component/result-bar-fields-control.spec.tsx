@@ -38,6 +38,6 @@ function renderBar(view: ResultViewMode) {
 describe('ResultBar - Fields control visibility', () => {
   it.each(['Tree', 'JSON', 'Table'] as const)('renders the Fields control in the %s view', (view) => {
     renderBar(view);
-    expect(screen.getByRole('button', { name: /columns/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /fields/i })).toBeTruthy();
   });
 });
