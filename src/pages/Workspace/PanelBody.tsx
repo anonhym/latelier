@@ -432,7 +432,7 @@ export function PanelBody({
                     position: 'relative',
                     zIndex: 2,
                   }}
-                  aria-label="Resize builder pane"
+                  aria-label="Resize Query Builder"
                 />
                 <Panel
                   id="h-builder"
@@ -456,7 +456,7 @@ export function PanelBody({
                         side="left"
                         collapsed
                         onClick={toggleBuilder}
-                        ariaLabel="Open builder pane"
+                        ariaLabel="Open Query Builder"
                         buttonRef={notchRef}
                       />
                     </div>
@@ -492,7 +492,7 @@ export function PanelBody({
                         side="left"
                         collapsed={false}
                         onClick={toggleBuilder}
-                        ariaLabel="Collapse builder pane"
+                        ariaLabel="Collapse Query Builder"
                         buttonRef={notchRef}
                       />
                       {collection.view !== 'documents' && (
@@ -513,7 +513,7 @@ export function PanelBody({
                             style={{ maxWidth: 280, pointerEvents: 'auto' }}
                             styles={{ message: { fontSize: 12, lineHeight: 1.5 } }}
                           >
-                            The query builder only applies to the Documents
+                            The Query Builder only applies to the Documents
                             view.{' '}
                             <Button
                               variant="subtle"
