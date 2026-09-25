@@ -212,6 +212,7 @@ export function emptyWorkspaceActions(
     patch: vi.fn(),
     patchWith: vi.fn(),
     run: vi.fn(),
+    cancel: vi.fn(),
     openEdit: vi.fn(),
     openDelete: vi.fn(),
     openDeleteAll: vi.fn(),

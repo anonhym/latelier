@@ -322,17 +322,19 @@ function WorkspaceInner() {
   // Stable callbacks for the major panels, reading state via the `*Ref` bag
   // so an unrelated re-render doesn't cascade through every child.
   // `useQueryRunner` returns a fresh object each render; depend on `run` alone.
-  const { run } = queryRunner;
+  const { run, cancel: cancelRun } = queryRunner;
   const collectionTabActions = useCollectionTabActions({
     activeCollectionRef,
     activeScriptRef,
     tabs,
     run,
+    cancel: cancelRun,
   });
   const {
     patchActiveCollection,
     patchActiveCollectionWith,
     runActiveCollection,
+    cancelActiveCollection,
   } = collectionTabActions;
   // The post-write refresh target, resolved fresh from `tabsRef` at
   // completion time rather than snapshotted, since a drawer pinned to tab A
@@ -402,6 +404,7 @@ function WorkspaceInner() {
       patch: patchActiveCollection,
       patchWith: patchActiveCollectionWith,
       run: runActiveCollection,
+      cancel: cancelActiveCollection,
       openEdit,
       openDelete: setDeleteDoc,
       openDeleteAll: openDeleteAllModal,
@@ -415,6 +418,7 @@ function WorkspaceInner() {
       patchActiveCollection,
       patchActiveCollectionWith,
       runActiveCollection,
+      cancelActiveCollection,
       openEdit,
       setDeleteDoc,
       openDeleteAllModal,
