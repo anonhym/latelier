@@ -60,7 +60,7 @@ test('table inline edit: hover pencil -> edit one cell -> only that field change
       await expect(win.getByText('shipped')).toBeVisible({ timeout: 8000 });
       // ...and the untouched fields survive: the load-bearing $set proof.
       await expect(win.getByText('multi-field')).toBeVisible();
-      await expect(win.getByText('5')).toBeVisible();
+      await expect(win.getByRole('gridcell', { name: /^5\b/ })).toBeVisible();
     });
   });
 });
