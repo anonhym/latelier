@@ -72,7 +72,11 @@ function Body({
   onRefHoverLeave,
   onRefOpen,
 }: BodyProps) {
-  const { state, meta } = useCollectionWorkspace();
+  const { state, meta, actions } = useCollectionWorkspace();
+  // Owned here, not by `EmptyState`: the import's own refresh fills
+  // `documents`, which unmounts `EmptyState`, and the dialog has to outlive
+  // that to keep showing its report.
+  const [importOpen, setImportOpen] = useState(false);
   const isLoading = meta.isLoading;
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const hasError = !!state.lastRun?.error;
@@ -117,7 +121,7 @@ function Body({
       )}
 
       {isEmpty ? (
-        <EmptyState onClearFilter={onClearFilter} />
+        <EmptyState onClearFilter={onClearFilter} onImport={() => setImportOpen(true)} />
       ) : (
         <>
           {state.view === 'Tree' && (
@@ -143,6 +147,15 @@ function Body({
           )}
         </>
       )}
+      {importOpen && (
+        <ImportDialog
+          connectionId={meta.connectionId}
+          dbName={meta.dbName}
+          collection={meta.collection}
+          onClose={() => setImportOpen(false)}
+          onImported={() => actions.run()}
+        />
+      )}
     </div>
   );
 }
@@ -156,9 +169,8 @@ const LINK_BUTTON_STYLE = {
   textDecoration: 'underline',
 } as const;
 
-function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
-  const { state, meta, actions } = useCollectionWorkspace();
-  const [importOpen, setImportOpen] = useState(false);
+function EmptyState({ onClearFilter, onImport }: { onClearFilter: () => void; onImport: () => void }) {
+  const { state, meta } = useCollectionWorkspace();
   // No filter, first page, no error: the collection itself is empty, not
   // just this query's match — a different message and CTA than "no match".
   const isEmptyCollection = isUnfilteredFirstPage(state);
@@ -180,18 +192,9 @@ function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
         <>
           <span>This collection is empty</span>
           {!meta.isReadOnly && (
-            <button onClick={() => setImportOpen(true)} style={LINK_BUTTON_STYLE}>
+            <button onClick={onImport} style={LINK_BUTTON_STYLE}>
               Import documents…
             </button>
-          )}
-          {importOpen && (
-            <ImportDialog
-              connectionId={meta.connectionId}
-              dbName={meta.dbName}
-              collection={meta.collection}
-              onClose={() => setImportOpen(false)}
-              onImported={() => actions.run()}
-            />
           )}
         </>
       ) : (

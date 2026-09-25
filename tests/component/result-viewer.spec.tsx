@@ -86,6 +86,39 @@ describe('ResultViewer compound', () => {
     expect(screen.getByRole('button', { name: /import documents/i })).toBeTruthy();
   });
 
+  it('keeps the import dialog open when the import refresh fills the empty collection', () => {
+    const empty = makeState({
+      queryRaw: '{}',
+      page: 0,
+      lastRun: { documents: [], durationMs: 0, ranAt: new Date().toISOString() },
+    });
+    const body = (
+      <ResultViewer>
+        <ResultViewer.Body onClearFilter={noop} onColumnResize={noop} onRowExpand={noop} />
+      </ResultViewer>
+    );
+    const { rerender } = renderViewer(empty, {}, body);
+    fireEvent.click(screen.getByRole('button', { name: /import documents/i }));
+    expect(screen.getByRole('dialog', { name: /import into/i })).toBeTruthy();
+
+    // The import's own refresh lands rows, which unmounts the empty state.
+    rerender(
+      <CollectionWorkspaceProvider
+        state={makeState({
+          queryRaw: '{}',
+          page: 0,
+          lastRun: { documents: [{ _id: 1 }], durationMs: 0, ranAt: new Date().toISOString() },
+        })}
+        actions={emptyWorkspaceActions()}
+        meta={makeMeta({})}
+      >
+        {body}
+      </CollectionWorkspaceProvider>,
+    );
+    expect(screen.queryByText('This collection is empty')).toBeNull();
+    expect(screen.getByRole('dialog', { name: /import into/i })).toBeTruthy();
+  });
+
   it('Body hides the import CTA for a read-only consumer, but still shows the empty-collection message', () => {
     const state = makeState({
       view: 'Tree',
