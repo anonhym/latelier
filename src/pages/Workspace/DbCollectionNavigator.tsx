@@ -64,6 +64,13 @@ export interface DbCollectionNavigatorProps {
     oldName: string,
     newName: string,
   ) => void;
+  /**
+   * Opens the reference-rules drawer for the Focused Tab's collection. Scoped
+   * to the active row: the drawer reads its rules off the currently open
+   * collection tab, not off whichever row the menu was opened from, so the
+   * "References…" item is disabled on any other row.
+   */
+  onOpenReferences?: () => void;
 }
 
 type TreeRow =
@@ -190,6 +197,7 @@ export function DbCollectionNavigator({
   onCollectionDropped,
   onDatabaseDropped,
   onCollectionRenamed,
+  onOpenReferences,
 }: DbCollectionNavigatorProps) {
   const T = themeVars;
   const { state: tree, dispatch } = useNavigatorTree();
@@ -857,6 +865,15 @@ export function DbCollectionNavigator({
     { kind: 'item', label: 'Copy name', icon: I.copy, onClick: () => void copyToClipboard(row.coll.name, 'Collection name copied to the clipboard.') },
     { kind: 'item', label: 'Copy namespace', icon: I.copy, onClick: () => void copyToClipboard(`${row.dbName}.${row.coll.name}`, 'Namespace copied to the clipboard.') },
     { kind: 'sep' },
+    {
+      kind: 'item',
+      label: 'References…',
+      icon: I.link,
+      onClick: () => onOpenReferences?.(),
+      disabled: !row.isActive || !onOpenReferences,
+      disabledTitle: 'Open this collection first',
+    },
+    { kind: 'sep' },
     row.coll.type === 'view'
       ? {
           kind: 'item',
@@ -889,7 +906,7 @@ export function DbCollectionNavigator({
         }),
       destructive: true,
     },
-  ], [openFromRow, setRenameTarget, setDropCollTarget]);
+  ], [openFromRow, setRenameTarget, setDropCollTarget, onOpenReferences]);
 
   const buildDbMenu = React.useCallback((row: Extract<TreeRow, { kind: 'db' }>): MenuItem[] => [
     {
@@ -1872,6 +1889,11 @@ function CollRow({
       aria-level={3}
       aria-selected={isActive}
       data-testid={`nav-coll-${row.dbName}-${coll.name}`}
+      // `refs.configure`'s anchor moved here from the header's now-removed
+      // References button: the row for the Focused Tab's own collection is
+      // the closest persistently-mounted stand-in for "where References now
+      // lives" (the context menu item itself only exists while open).
+      {...(isActive ? { 'data-hint-anchor': 'refs.configure' } : {})}
       // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
       // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}

@@ -917,6 +917,7 @@ function WorkspaceInner() {
         setNewTabOpen={setNewTabOpen}
         panelPrefs={panelPrefs}
         connectionDialogs={connectionDialogs}
+        onOpenReferences={() => setRefEditorOpen(true)}
       />
 
       <PanelBody

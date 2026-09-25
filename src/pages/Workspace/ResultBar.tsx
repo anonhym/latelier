@@ -249,6 +249,27 @@ export function ResultBar() {
           the same per-tab `columnConfig`. */}
       <FieldsControl />
 
+      {/* Insert — primary create action, moved here from the header so it
+          sits with the other document-level controls. Same handler as
+          before (`actions.openInsert`, wired to `useDocumentDialogs`'s
+          `openInsertModal`); the aria-label is unchanged so existing e2e
+          selectors looking for `/Insert document/` still match. Hidden for
+          read-only consumers (ScriptTab's snapshot provider), same as the
+          Documents menu below. */}
+      {!isReadOnly && (
+        <Tooltip label="Insert a new document into this collection" withArrow>
+          <Button
+            variant="filled"
+            size="compact-xs"
+            leftSection={I.plus}
+            onClick={() => actions.openInsert()}
+            aria-label="Insert document"
+          >
+            Insert
+          </Button>
+        </Tooltip>
+      )}
+
       {/* Document-level actions — bulk/destructive operations on the result
           set. A labelled menu rather than a bare overflow icon: this is the
           shared home for document actions (update all matching, delete all

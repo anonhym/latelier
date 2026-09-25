@@ -212,11 +212,10 @@ export function PanelBody({
     patchAggregation,
     patchSchema,
   } = collectionTabActions;
-  const { openInsertModal, setDeleteSelected } = documentDialogs;
+  const { setDeleteSelected } = documentDialogs;
   const {
     refStack, setRefStack,
     refDrawerPinned, setRefDrawerPinned,
-    setRefEditorOpen,
     handleRefHover, handleRefHoverLeave, handleRefOpen,
   } = refDrawer;
 
@@ -345,9 +344,6 @@ export function PanelBody({
                         connectionId={collection.tab.connectionId}
                         dbName={collection.tab.dbName}
                         collection={collection.tab.collection}
-                        onInsert={openInsertModal}
-                        onOpenReferences={() => setRefEditorOpen(true)}
-                        referenceRuleCount={referenceRules.rules.length}
                         refreshSignal={documentDialogs.writeVersion}
                       />
                       <QueryBar

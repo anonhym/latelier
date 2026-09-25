@@ -14,9 +14,6 @@ function renderHeader(refreshSignal: number | undefined) {
       connectionId="c1"
       dbName="shop"
       collection="orders"
-      onInsert={() => {}}
-      onOpenReferences={() => {}}
-      referenceRuleCount={0}
       refreshSignal={refreshSignal}
     />,
   );
@@ -50,9 +47,6 @@ describe('CollectionHeader — stats refresh', () => {
         connectionId="c1"
         dbName="shop"
         collection="orders"
-        onInsert={() => {}}
-        onOpenReferences={() => {}}
-        referenceRuleCount={0}
         refreshSignal={1}
       />,
     );
@@ -82,14 +76,20 @@ describe('CollectionHeader — stats refresh', () => {
         connectionId="c1"
         dbName="shop"
         collection="orders"
-        onInsert={() => {}}
-        onOpenReferences={() => {}}
-        referenceRuleCount={0}
         refreshSignal={1}
       />,
     );
 
     await waitFor(() => expect(screen.queryByText('10')).toBeNull());
     expect(screen.queryByText(/docs/)).toBeNull();
+  });
+
+  // Insert and References moved out to ResultBar and the navigator's
+  // collection context menu (six-chrome-strips cleanup) — the header is
+  // breadcrumb + stats only now.
+  it('renders neither an Insert nor a References control', () => {
+    renderHeader(0);
+    expect(screen.queryByRole('button', { name: 'Insert document' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /References/ })).toBeNull();
   });
 });
