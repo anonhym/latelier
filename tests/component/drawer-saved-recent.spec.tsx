@@ -244,6 +244,37 @@ describe('SavedTab opens every saved kind, not just find', () => {
     expect(onOpenInTab).toHaveBeenCalledWith(agg);
     expect(onRunHere).not.toHaveBeenCalled();
   });
+
+  it('a script row opens as its own tab via onOpenInTab, not onRunHere', async () => {
+    const onRunHere = vi.fn();
+    const onOpenInTab = vi.fn();
+    const script = summary({ kind: 'script', name: 'Backfill emails' });
+    installAtelierMock({ saved: { list: async () => [script] } });
+    renderSaved({ onRunHere, onOpenInTab });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open "Backfill emails" in a new tab' }));
+
+    expect(onOpenInTab).toHaveBeenCalledWith(script);
+    expect(onRunHere).not.toHaveBeenCalled();
+  });
+
+  it('labels each row by kind so find, aggregation and script are distinguishable', async () => {
+    installAtelierMock({
+      saved: {
+        list: async () => [
+          summary({ id: 'q1', kind: 'find', name: 'Unpaid orders' }),
+          summary({ id: 'q2', kind: 'aggregation', name: 'Top spenders' }),
+          summary({ id: 'q3', kind: 'script', name: 'Backfill emails' }),
+        ],
+      },
+    });
+    renderSaved();
+
+    await screen.findByText('Unpaid orders');
+    expect(screen.getByText('QUE')).toBeTruthy();
+    expect(screen.getByText('AGG')).toBeTruthy();
+    expect(screen.getByText('SCR')).toBeTruthy();
+  });
 });
 
 // Recent's delete and clear-history.
