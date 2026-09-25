@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { deserialize, serialize } from 'bson';
 import type { Document } from 'mongodb';
 import { SystemError } from '../errors.ts';
 import { ejsonEncodeArrayJson, ejsonStringify } from './ejson.ts';
@@ -39,10 +40,17 @@ export const MAX_IMPORT_CAPTURE_DOCS = 10_000;
  * first, the same normalization `restoreInserted` uses, because the driver
  * appends a generated `_id` last (and a pasted document can carry it
  * anywhere) while the server always stores it first.
+ *
+ * Hashed on the BSON round-tripped form read back with `EXACT_BSON`, which is
+ * exactly how `restoreImported` reads the stored document: a parsed JS number
+ * outside int32 (an epoch-ms timestamp) serializes as `$numberLong` but is
+ * stored, and read back, as a double. Re-running it on an already-read
+ * document changes nothing.
  */
 export function importDigest(doc: Document): string {
   const { _id, ...rest } = doc;
-  return createHash('sha256').update(ejsonStringify({ _id, ...rest })).digest('hex');
+  const asStored = deserialize(serialize({ _id, ...rest }), EXACT_BSON);
+  return createHash('sha256').update(ejsonStringify(asStored)).digest('hex');
 }
 
 /** X13 §5: a bulk Pre-image capture never holds more than this many documents… */

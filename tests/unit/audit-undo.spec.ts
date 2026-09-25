@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Double } from 'bson';
 import {
   assertUndoable,
   attachUndo,
@@ -109,6 +110,10 @@ describe('importDigest — the _id-first normalization import undo relies on', (
 
   it('is order-sensitive beyond _id — canonical EJSON, not a value-set compare', () => {
     expect(importDigest({ _id: 1, a: 1, b: 2 })).not.toBe(importDigest({ _id: 1, b: 2, a: 1 }));
+  });
+
+  it('hashes the stored form: a parsed integer past int32 matches the double the server reads back', () => {
+    expect(importDigest({ _id: 1, at: 1700000000000 })).toBe(importDigest({ _id: 1, at: new Double(1700000000000) }));
   });
 });
 
