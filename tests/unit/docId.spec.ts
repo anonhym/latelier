@@ -49,8 +49,8 @@ describe('getFullDocId', () => {
   });
 });
 
-// T2.6 — shared `{_id}` filter for inline edit + EditDrawer (no drift between
-// the two write surfaces).
+// T2.6 — shared `{_id}` filter for inline edit and delete (no drift between
+// the write surfaces).
 describe('buildIdFilter', () => {
   it('builds a JSON.stringify (not ejsonStringify) filter for an ObjectId sentinel _id', () => {
     const doc = { _id: { $oid: '507f1f77bcf86cd799439011' } };
@@ -86,18 +86,29 @@ describe('isInlineEditable', () => {
     expect(isInlineEditable('abc123', '_id')).toBe(false);
   });
 
-  it('rejects EJSON sentinel objects (number/date/long/decimal/objectid/binary) to avoid silent BSON-type corruption', () => {
-    expect(isInlineEditable({ $numberInt: '5' }, 'qty')).toBe(false);
-    expect(isInlineEditable({ $numberDouble: '5.5' }, 'qty')).toBe(false);
-    expect(isInlineEditable({ $numberLong: '5' }, 'qty')).toBe(false);
-    expect(isInlineEditable({ $numberDecimal: '5.5' }, 'qty')).toBe(false);
+  // W18 §8 — widened from v1: the BSON numeric sentinels keep their loaded
+  // type through the guarded save path (`documentDiff.ts`), so they're no
+  // longer routed away from the cell.
+  it('allows the BSON numeric sentinels (Int32/Int64/Double/Decimal128)', () => {
+    expect(isInlineEditable({ $numberInt: '5' }, 'qty')).toBe(true);
+    expect(isInlineEditable({ $numberDouble: '5.5' }, 'qty')).toBe(true);
+    expect(isInlineEditable({ $numberLong: '5' }, 'qty')).toBe(true);
+    expect(isInlineEditable({ $numberDecimal: '5.5' }, 'qty')).toBe(true);
+  });
+
+  // W18 §8 — booleans are the other type this widens to allow.
+  it('allows booleans', () => {
+    expect(isInlineEditable(true, 'active')).toBe(true);
+    expect(isInlineEditable(false, 'active')).toBe(true);
+  });
+
+  it('rejects sentinel types the inline editor still doesn\'t handle (Date, ObjectId, Binary) — those open the Document Editor on the field instead', () => {
     expect(isInlineEditable({ $date: '2026-01-01T00:00:00Z' }, 'createdAt')).toBe(false);
     expect(isInlineEditable({ $oid: '507f1f77bcf86cd799439011' }, 'userId')).toBe(false);
     expect(isInlineEditable({ $binary: { base64: 'AA==', subType: '00' } }, 'blob')).toBe(false);
   });
 
-  it('rejects boolean, null, array, and plain-object values in v1', () => {
-    expect(isInlineEditable(true, 'active')).toBe(false);
+  it('rejects null, array, and plain-object values', () => {
     expect(isInlineEditable(null, 'note')).toBe(false);
     expect(isInlineEditable([1, 2], 'tags')).toBe(false);
     expect(isInlineEditable({ city: 'Springfield' }, 'address')).toBe(false);

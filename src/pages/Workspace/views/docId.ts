@@ -1,5 +1,6 @@
 import { isRecord } from '../../../utils/displayValue';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../../utils/ejson';
+import { kindOf, type Kind } from '../documentFieldTypes';
 
 /**
  * Short, human-scannable row identifier — last 8 chars of an `$oid`, or a
@@ -43,9 +44,10 @@ export function getFullDocId(doc: unknown): string {
 }
 
 /**
- * Build the `{_id}` filter shared by the drawer's replace/update paths
- * (`EditDrawer.tsx`) and inline cell edits (T2.6) — one source of truth so
- * the two write surfaces cannot drift.
+ * Build the `{_id}` filter shared by inline cell edits (T2.6) and single
+ * document deletes — one source of truth so the write surfaces cannot drift.
+ * The Document Editor holds revived BSON rather than sentinels, so it builds
+ * its filter with `ejsonStringify` in `documentDiff.ts` instead.
  *
  * `JSON.stringify`, NOT `ejsonStringify` — `doc._id` is already a canonical
  * EJSON sentinel from `parseFindResult` (plain `JSON.parse`, not bson
@@ -67,16 +69,50 @@ export function buildIdFilter(doc: unknown): string | null {
 }
 
 /**
- * Whether a Table cell's value is safe for the v1 inline single-field editor
- * (T2.6). Only a plain JS `string` qualifies: numbers/dates/ObjectId/Long/
- * Decimal/Binary all arrive over the wire as canonical-EJSON sentinel
- * *objects* (`parseFindResult` is a plain `JSON.parse`, not a BSON-aware
- * revive — see `electron/preload.ts`), so letting the user retype one as
- * text and `$set` it back would silently flip the field's BSON type
- * (e.g. int32 -> double). Booleans, null, arrays, and plain objects are also
- * out of scope for v1 — all of these route through the existing EditDrawer,
- * which preserves type via EJSON. `_id` is never inline-editable regardless
- * of its value's shape.
+ * A Table cell's raw wire value, revived the same way the Document Editor
+ * revives a row (`JSON.stringify` -> `ejsonParse`): live BSON instances
+ * (`Int32`, `Decimal128`, …) instead of the canonical-EJSON sentinel
+ * *objects* the wire actually carries (`parseFindResult` is a plain
+ * `JSON.parse`, not a BSON-aware revive — see `electron/preload.ts`).
+ * `documentFieldTypes.ts`'s `kindOf` only recognizes the revived shapes, so
+ * both `isInlineEditable` and the inline editor's own control-picking logic
+ * go through this first — they'd otherwise see every sentinel as a generic
+ * `'object'` and either refuse everything or, worse, misclassify one.
+ * Falls back to the raw value on a parse failure, which `kindOf` then reads
+ * as `'other'` — never inline-editable, same as any other exotic type.
+ */
+export function reviveTableValue(value: unknown): unknown {
+  try {
+    return ejsonParse<unknown>(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * W18 §8 (Quick Edit) — the kinds the Table's inline editor can write back
+ * with `$set` without silently changing the field's BSON type. A bare
+ * `number` is excluded on purpose: canonical EJSON never round-trips one, so
+ * a wire value that revives to one isn't a real document field to begin
+ * with.
+ */
+const INLINE_EDITABLE_KINDS: ReadonlySet<Kind> = new Set<Kind>([
+  'string',
+  'boolean',
+  'int32',
+  'long',
+  'double',
+  'decimal',
+]);
+
+/**
+ * Whether a Table cell's value is safe for the inline single-field editor
+ * (W18 §8). String, boolean and the BSON numeric types (Int32/Int64/Double/
+ * Decimal128) qualify — each keeps its loaded type through the guarded save
+ * path (`documentDiff.ts`'s `buildUpdateRequest`), same as the Document
+ * Editor's Fields view. Date, ObjectId, Binary, null, arrays and plain
+ * objects are out of scope: those open the Document Editor on the field
+ * instead. `_id` is never inline-editable regardless of its value's shape.
  *
  * Deliberately doesn't know about column *kind* (field vs. computed
  * accessor) — callers must additionally gate on `col.kind === 'field'`
@@ -85,18 +121,19 @@ export function buildIdFilter(doc: unknown): string | null {
  */
 export function isInlineEditable(value: unknown, fieldPath: string): boolean {
   if (fieldPath === '_id') return false;
-  return typeof value === 'string';
+  return INLINE_EDITABLE_KINDS.has(kindOf(reviveTableValue(value)));
 }
 
 /**
- * EJSON body for "Duplicate document" (T2.6) — the source document's
- * canonical EJSON with `_id` stripped, so the Insert drawer lets Mongo
- * assign a fresh `_id` instead of colliding with the original on insert.
+ * EJSON body for "Duplicate document" — the source document's canonical
+ * EJSON with `_id` stripped, so the Document Editor's insert mode lets
+ * Mongo assign a fresh `_id` instead of colliding with the original on
+ * insert.
  *
  * Round-trips through `ejsonParse` -> delete -> `ejsonStringify` (rather
  * than deleting the key from the raw JS object and reusing `JSON.stringify`)
  * so a BSON-typed `_id` — or any BSON-typed sibling field — survives the
- * strip without corruption. Falls back to `'{}'` (the Insert drawer's own
+ * strip without corruption. Falls back to `'{}'` (the insert mode's own
  * empty-document default) on any failure, including non-record input.
  */
 export function stripIdForDuplicate(doc: unknown): string {

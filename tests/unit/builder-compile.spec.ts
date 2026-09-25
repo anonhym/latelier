@@ -11,6 +11,7 @@ import {
   isApplicableOp,
   isCompilableOp,
   isDefaultQueryState,
+  isUnfilteredFirstPage,
   limitWarning,
   parseSortString,
   projectionProblem,
@@ -902,6 +903,38 @@ describe('isDefaultQueryState', () => {
   });
 });
 
+// `ResultViewer`'s empty-collection CTA discriminator: no filter, first
+// page, no error. Each conjunct is proven independently so a `&&` weakened
+// to `||`, or an equality flipped, fails one of these.
+describe('isUnfilteredFirstPage', () => {
+  it('is true for the default tab state (no filter, page 0, no run error)', () => {
+    expect(isUnfilteredFirstPage(makeTabState())).toBe(true);
+  });
+
+  it('is true for an explicit whitespace-only queryRaw too', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '  ' }))).toBe(true);
+  });
+
+  it('is false when the filter is non-default', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '{"a":1}' }))).toBe(false);
+  });
+
+  it('is false past the first page', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ page: 1 }))).toBe(false);
+  });
+
+  it('is false when the last run errored', () => {
+    const state = makeTabState({
+      lastRun: { documents: [], durationMs: 1, ranAt: '2026-01-01T00:00:00.000Z', error: { code: 'MONGO_ERROR', message: 'x' } },
+    });
+    expect(isUnfilteredFirstPage(state)).toBe(false);
+  });
+
+  it('requires every condition at once — a non-default filter on page 0 is still false', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '{"a":1}', page: 0 }))).toBe(false);
+  });
+});
+
 describe('projectionProblem', () => {
   it('is null when projectionRaw is undefined, empty, or whitespace-only', () => {
     expect(projectionProblem({ ...emptyBuilder() })).toBeNull();
@@ -1010,5 +1043,14 @@ describe('currentFilterJson', () => {
       expect(result).toBeNull();
       expect(result).not.toBe('{}');
     }
+  });
+});
+
+// A stray write (`DEFAULT_COLLECTION_TAB_STATE.page = 5`) would otherwise
+// leak into every tab seeded from the default afterwards.
+describe('DEFAULT_COLLECTION_TAB_STATE', () => {
+  it('is frozen, builder included', () => {
+    expect(Object.isFrozen(DEFAULT_COLLECTION_TAB_STATE)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_COLLECTION_TAB_STATE.builder)).toBe(true);
   });
 });

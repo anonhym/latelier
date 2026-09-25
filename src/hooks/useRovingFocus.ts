@@ -45,6 +45,25 @@ function isRowFullyVisible(rowElementId: string): boolean {
   );
 }
 
+/** The row's own top/bottom, or `null` when it isn't mounted. Compared frame
+ * to frame to tell a genuinely settled layout from a stale estimate that
+ * merely reads as visible this frame. */
+function rowRectSnapshot(rowElementId: string): { top: number; bottom: number } | null {
+  const row = document.getElementById(rowElementId);
+  if (!row) return null;
+  const rect = row.getBoundingClientRect();
+  return { top: rect.top, bottom: rect.bottom };
+}
+
+/** Same row, same position — an exact comparison is fine because a layout
+ * that hasn't changed reports identical numbers, not merely close ones. */
+function sameRect(
+  a: { top: number; bottom: number } | null,
+  b: { top: number; bottom: number } | null,
+): boolean {
+  return a !== null && b !== null && a.top === b.top && a.bottom === b.bottom;
+}
+
 export interface UseRovingFocusOptions {
   /** Number of navigable rows. */
   count: number;
@@ -133,27 +152,26 @@ export function useRovingFocus({
   const { index, setIndex, move } = useRovingHighlight(count, resetKey);
   const rowId = React.useCallback((i: number) => `${idPrefix}${i}`, [idPrefix]);
 
-  // #62/#119 — a long jump (Home/End, or any move past never-rendered rows)
-  // asks `scrollToIndex` to compute an offset from react-window's
-  // dynamic-height cache while most of the rows it's summing are still at
-  // their `defaultRowHeight` estimate, so the target can land clipped
-  // instead of fully in view. The first call still has to run synchronously
-  // (this docstring's own requirement — the row must exist in the DOM
-  // before `aria-activedescendant` names it); the rest is a convergence
-  // loop, one `requestAnimationFrame` at a time: check first whether the row
-  // is now fully visible (`isRowFullyVisible`, above); if not, re-scroll and
-  // check again next frame. #62's original fix re-scrolled exactly once,
-  // two frames out, on the theory that the mount -> layout effect ->
-  // `ResizeObserver` chain always settles by then — #119 found that false
-  // under CPU load (13/40 loaded e2e runs left the last row off-screen
-  // permanently), because a *stale* estimate holds perfectly still until
-  // `ResizeObserver` actually fires, so a "did the rect stop moving" or "did
-  // scrollTop stop changing" stop condition converges falsely. Checking real
-  // geometry instead means it can't declare victory on a stale reading.
-  // Harmless for ArrowUp/ArrowDown, which don't hit this (each step moves at
-  // most one row, so there's no unmeasured span to accumulate error over) —
-  // and with the check-first order, a row already visible on frame 1 costs
-  // zero extra `scrollToIndex` calls.
+  // A long jump (Home/End, or any move past never-rendered rows) asks
+  // `scrollToIndex` to compute an offset from react-window's dynamic-height
+  // cache while most of the rows it's summing are still at their
+  // `defaultRowHeight` estimate, so the target can land clipped instead of
+  // fully in view. The first call still has to run synchronously (this
+  // docstring's own requirement — the row must exist in the DOM before
+  // `aria-activedescendant` names it); the rest is a convergence loop, one
+  // `requestAnimationFrame` at a time: re-scroll while the row isn't fully
+  // visible (`isRowFullyVisible`, above), and once it is, keep checking
+  // without re-scrolling until its rect (`rowRectSnapshot`) reads identical
+  // two frames running (`sameRect`) before declaring it settled. Visible
+  // alone isn't enough: a stale estimate can hold perfectly still and read
+  // as fully visible right up until `ResizeObserver` actually fires and
+  // moves it off-screen, so a single "looks visible" frame can't tell a
+  // real landing from a lucky one on numbers about to change. Requiring an
+  // unchanged rect on top of "visible" catches that case, at the cost of one
+  // extra confirmation frame even when the first landing was already
+  // correct. Harmless for ArrowUp/ArrowDown, which don't hit the clipped-
+  // estimate case at all (each step moves at most one row, so there's no
+  // unmeasured span to accumulate error over).
   //
   // The pending frame id is tracked so a newer jump — or an unmount — can
   // cancel a still-pending settle: without this, a quick Home-then-End let
@@ -211,12 +229,16 @@ export function useRovingFocus({
       if (!settle) return;
 
       let framesLeft = MAX_SETTLE_FRAMES;
+      let lastRect: { top: number; bottom: number } | null = null;
       const scheduleCheck = () => {
         pendingFrame.current = requestAnimationFrame(() => {
           pendingFrame.current = null;
           if (i >= countRef.current) return; // count shrunk this index out
-          if (isRowFullyVisible(rowId(i))) return; // settled
-          scrollToIndex(i);
+          const rect = rowRectSnapshot(rowId(i));
+          const visible = isRowFullyVisible(rowId(i));
+          if (visible && sameRect(rect, lastRect)) return; // settled: visible AND unchanged since last frame
+          lastRect = rect;
+          if (!visible) scrollToIndex(i);
           framesLeft -= 1;
           if (framesLeft > 0) scheduleCheck();
         });

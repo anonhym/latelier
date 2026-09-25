@@ -91,6 +91,9 @@ export function classifyMongoOpError(
     extraDetails ? { ...details, ...extraDetails } : details;
 
   if (e.codeName === 'MaxTimeMSExpired') return new SystemError('TIMEOUT', msg, withExtra());
+  if (e.name === 'MongoNetworkError' || e.name === 'MongoNetworkTimeoutError') {
+    return new SystemError('NETWORK', msg, withExtra());
+  }
   if (e.codeName === 'Unauthorized' || e.code === 13) {
     return new SystemError('UNAUTHORIZED', msg, withExtra());
   }
