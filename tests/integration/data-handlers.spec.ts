@@ -138,7 +138,7 @@ describe('data:import via the router', () => {
     const p = await file('people.jsonl', '{"_id":1}\n');
     const env = await invoke({ ...target(), connectionId: 'c-ro', path: p });
     expect(env).toMatchObject({ ok: false, error: { code: 'READ_ONLY' } });
-    expect(rows()).toMatchObject([{ op: 'import', outcome: 'error', errorCode: 'READ_ONLY', summary: { op: 'import', fileName: 'people.jsonl' } }]);
+    expect(rows()).toMatchObject([{ op: 'import', outcome: 'error', errorCode: 'READ_ONLY', summary: { op: 'import', fileName: 'people.jsonl', format: 'jsonl' } }]);
     expect(await client.db(dbName).collection('people').countDocuments()).toBe(0);
   });
 

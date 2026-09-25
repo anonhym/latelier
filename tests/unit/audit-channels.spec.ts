@@ -133,5 +133,16 @@ describe('auditRecordFor', () => {
       expect(auditRecordFor(IPC_CHANNELS.dataImport, input, errEnv({ code: 'INTERNAL', message: 'eacces', details: { insertedCount: 0 } })))
         .toMatchObject({ outcome: 'error', summary: { insertedCount: 0 } });
     });
+
+    it('takes a failed import\'s format from an extension that settles it, never from .json', () => {
+      const failed = (p: string) =>
+        auditRecordFor(IPC_CHANNELS.dataImport, { ...T, path: p }, errEnv({ code: 'READ_ONLY', message: 'ro' }))!.summary;
+      expect(failed('/d/a.jsonl')).toMatchObject({ fileName: 'a.jsonl', format: 'jsonl' });
+      expect(failed('/d/a.NDJSON')).toMatchObject({ format: 'jsonl' });
+      expect(failed('/d/a.json')).toMatchObject({ format: undefined });
+      expect(failed('/d/a.jsonl.bak')).toMatchObject({ format: undefined });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, { ...T, path: '/d/a.jsonl' }, okEnv({ format: 'json' }))!.summary)
+        .toMatchObject({ format: 'json' });
+    });
   });
 });

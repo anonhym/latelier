@@ -34,9 +34,13 @@ function count(source: unknown, key: string): number | undefined {
 // updateMany's).
 const filterOf = (input: Fields): string => input.filterJson as string;
 
-function importFormat(data: unknown): ImportFormat | undefined {
+// The report's format when there is one: it reflects what the file turned
+// out to hold. Without one, only an extension that settles it counts — a
+// `.json` file can be either shape until it is read.
+function importFormat(input: Fields, data: unknown): ImportFormat | undefined {
   const v = data === null || typeof data !== 'object' ? undefined : (data as Fields).format;
-  return v === 'json' || v === 'jsonl' ? v : undefined;
+  if (v === 'json' || v === 'jsonl') return v;
+  return /\.(jsonl|ndjson)$/i.test(input.path as string) ? 'jsonl' : undefined;
 }
 
 /**
@@ -108,7 +112,7 @@ const AUDITED_CHANNELS: Readonly<Record<string, ChannelSpec>> = {
     summarize: (input, data) => ({
       op: 'import',
       fileName: path.basename(input.path as string),
-      format: importFormat(data),
+      format: importFormat(input, data),
       insertedCount: count(data, 'inserted'),
       failedCount: count(data, 'failed'),
     }),
