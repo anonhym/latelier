@@ -169,6 +169,9 @@ const api: IpcApi = {
     list: (input) => call(IPC_CHANNELS.recentList, input),
     get: (input) => call(IPC_CHANNELS.recentGet, input),
     clear: (input) => call(IPC_CHANNELS.recentClear, input),
+    valuesForField: (input) => call(IPC_CHANNELS.recentValuesForField, input),
+    recordFieldValues: (input) => call(IPC_CHANNELS.recentRecordFieldValues, input),
+    clearFieldValues: () => call(IPC_CHANNELS.recentClearFieldValues, {}),
   },
 
   agg: {
