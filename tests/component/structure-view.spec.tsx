@@ -196,9 +196,17 @@ describe('Structure view — header count on return to Documents', () => {
     await userEvent.click(screen.getByRole('tab', { name: /Structure/i }));
     await waitFor(() => expect(screen.queryByText('10')).toBeNull());
 
+    // The navigator (DbCollectionNavigator) also fetches listCollections once,
+    // independently, to auto-expand the focused tab's db — its timing floats
+    // relative to these clicks (a 300ms empty-db retry can land it anywhere
+    // in this test), so the total call count isn't deterministic. Snapshot
+    // here and assert only that the Documents click itself caused a further
+    // call — that's the behaviour this test is about.
+    const callsBeforeReturn = listCollections.mock.calls.length;
+
     await userEvent.click(screen.getByRole('tab', { name: /Documents/i }));
 
     await waitFor(() => expect(screen.getByText('25')).toBeTruthy());
-    expect(listCollections).toHaveBeenCalledTimes(2);
+    expect(listCollections.mock.calls.length).toBeGreaterThan(callsBeforeReturn);
   });
 });
