@@ -1,4 +1,4 @@
-// Issue #177's actual regression: `App.tsx` mounts `<HintsProvider>` above
+// the real regression: `App.tsx` mounts `<HintsProvider>` above
 // `<Workspace />`, but every other Workspace-level test mounts `<Workspace />`
 // bare, so its `useHints()` falls back to the inert `NULL_HINTS` default and
 // no hint can ever become visible there. This file adds the provider back so

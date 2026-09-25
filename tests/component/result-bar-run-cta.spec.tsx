@@ -4,7 +4,7 @@ import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
 
-// Issue #177 — before the first run, "No run yet" led nowhere. This covers
+// Before the first run, "No run yet" led nowhere. This covers
 // the Run action ResultBar now offers in its place.
 
 function makeState(queryRaw = '{}'): CollectionTabState {
