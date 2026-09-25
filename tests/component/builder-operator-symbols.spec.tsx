@@ -300,9 +300,9 @@ async function openExistingRow(queryRaw: string) {
   return { opInput, findSpy };
 }
 
-// #188 — the op box is a draft until it commits (blur / Enter / a suggestion
+// The op box is a draft until it commits (blur / Enter / a suggestion
 // pick), so a half-typed operator never reaches `printFilter` mid-keystroke.
-describe('Query Builder — operator draft (#188)', () => {
+describe('Query Builder — operator draft', () => {
   it('shows no banner and no red border while typing an invalid operator', async () => {
     const { opInput } = await openExistingRow('{"qty":{"$gt":5}}');
 

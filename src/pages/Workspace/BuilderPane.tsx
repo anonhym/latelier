@@ -399,7 +399,7 @@ function CondRow({
     () => (suggestionContext ? { ...suggestionContext, operatorContext: 'matchKey' } : null),
     [suggestionContext],
   );
-  // §188 — the op box is a draft until it's finished: typing writes here, not
+  // The op box is a draft until it's finished: typing writes here, not
   // to `node.op`, so a half-typed operator never reaches `printFilter` and
   // never turns on the "not applied" banner or the red border mid-keystroke.
   // `null` means "no draft" (nothing typed since the last commit); the box
