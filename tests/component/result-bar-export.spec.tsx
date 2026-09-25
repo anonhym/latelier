@@ -53,10 +53,10 @@ async function openExportDialog() {
   fireEvent.click(trigger);
   const item = await screen.findByRole('menuitem', { name: /Export…/ });
   fireEvent.click(item);
-  return screen.findByRole('dialog', { name: /Export current page/ });
+  return screen.findByRole('dialog', { name: /Export documents/ });
 }
 
-describe('ResultBar — Export current page', () => {
+describe('ResultBar — Export', () => {
   it('is absent in a read-only provider, along with the rest of the Documents menu', () => {
     renderBar({}, { isReadOnly: true });
     expect(screen.queryByRole('button', { name: 'Documents' })).toBeNull();
@@ -101,7 +101,7 @@ describe('ResultBar — Export current page', () => {
     await vi.waitFor(() =>
       expect((screen.getByRole('button', { name: /^Export…$/ }) as HTMLButtonElement).disabled).toBe(false),
     );
-    expect(screen.queryByRole('dialog', { name: 'Export current page' })).not.toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Export documents' })).not.toBeNull();
   });
 
   it('reports a failed write instead of swallowing it, and stays open', async () => {
@@ -117,7 +117,7 @@ describe('ResultBar — Export current page', () => {
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(1));
     expect(error.mock.calls[0]![0]).toMatch(/Export failed: .*permission denied/);
-    expect(screen.queryByRole('dialog', { name: 'Export current page' })).not.toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Export documents' })).not.toBeNull();
     error.mockRestore();
   });
 
@@ -154,5 +154,102 @@ describe('ResultBar — Export current page', () => {
     await vi.waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
     const { content } = saveFile.mock.calls[0]![0];
     expect(JSON.parse(content)[0].age).toBe(30);
+  });
+});
+
+describe('ResultBar — Export all matching', () => {
+  it('sends the committed filter/sort/limit and closes on success', async () => {
+    const exportFn = vi.fn<(input: Record<string, unknown>) => Promise<{ path: string | null; written: number; truncated: boolean }>>(
+      async () => ({ path: '/tmp/orders.json', written: 3, truncated: false }),
+    );
+    installAtelierMock({ query: { export: exportFn } as never });
+    renderBar(
+      { queryRaw: '{"active":true}', builder: { projection: [], sort: '{"n":1}', limit: '50' } },
+      { collection: 'orders', connectionId: 'conn-1', dbName: 'app' },
+    );
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: /All matching/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(exportFn).toHaveBeenCalledTimes(1));
+    const input = exportFn.mock.calls[0]![0];
+    expect(input).toMatchObject({
+      connectionId: 'conn-1',
+      dbName: 'app',
+      collection: 'orders',
+      filter: '{"active":true}',
+      sort: '{"n":1}',
+      limit: 50,
+      format: 'json',
+    });
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Export documents' })).toBeNull(),
+    );
+  });
+
+  it('warns when the export hit the cap, naming how many were written', async () => {
+    const exportFn = vi.fn(async () => ({ path: '/tmp/orders.json', written: 100_000, truncated: true }));
+    installAtelierMock({ query: { export: exportFn } as never });
+    const warning = vi.spyOn(notify, 'warning').mockImplementation(() => undefined as never);
+    renderBar({}, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: /All matching/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(warning).toHaveBeenCalledTimes(1));
+    expect(warning.mock.calls[0]![0]).toMatch(/100,000/);
+    warning.mockRestore();
+  });
+
+  it('keeps the dialog open when the save panel is cancelled', async () => {
+    const exportFn = vi.fn(async () => ({ path: null, written: 0, truncated: false }));
+    installAtelierMock({ query: { export: exportFn } as never });
+    renderBar({}, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: /All matching/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(exportFn).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect((screen.getByRole('button', { name: /^Export…$/ }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByRole('dialog', { name: 'Export documents' })).not.toBeNull();
+  });
+
+  it('is disabled when the current filter is unrunnable, same gate as Run', async () => {
+    const exportFn = vi.fn(async () => ({ path: '/tmp/orders.json', written: 0, truncated: false }));
+    installAtelierMock({ query: { export: exportFn } as never });
+    renderBar({ queryRaw: 'not json' }, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: /All matching/ }));
+
+    expect((screen.getByRole('button', { name: /^Export…$/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+    expect(exportFn).not.toHaveBeenCalled();
+  });
+
+  it('sends CSV columns from the Fields control, same as the page export', async () => {
+    const exportFn = vi.fn<(input: { columns?: unknown }) => Promise<{ path: string | null; written: number; truncated: boolean }>>(
+      async () => ({ path: '/tmp/orders.csv', written: 1, truncated: false }),
+    );
+    installAtelierMock({ query: { export: exportFn } as never });
+    renderBar({}, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: /All matching/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'CSV' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(exportFn).toHaveBeenCalledTimes(1));
+    const input = exportFn.mock.calls[0]![0];
+    expect(input.columns).toEqual([
+      { header: '_id', path: '_id' },
+      { header: 'age', path: 'age' },
+      { header: 'name', path: 'name' },
+    ]);
   });
 });

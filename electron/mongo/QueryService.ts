@@ -1,19 +1,56 @@
+import fs from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import type { Sort } from 'mongodb';
-import type { FindInput, FindResultWire, ExplainInput } from '@shared/types';
+import { EJSON } from 'bson';
+import type { FindInput, FindResultWire, ExplainInput, QueryExportInput, QueryExportResult } from '@shared/types';
 import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, ejsonEncodeArrayJson, parseEjsonDocument } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
+import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
 import type { RecentQueryService } from '../services/RecentQueryService.ts';
-import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
+import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
+// The main process has no `src/` precedent, but `exportFormat.ts` is a pure
+// module (no React/Mantine — verified: it imports only `bson`, `utils/ejson`
+// and `views/tableColumns`'s types/`getValueAtPath`), and duplicating its CSV
+// cell/escape/formula rules here would let the page export and this one
+// silently drift. Confirmed buildable under both `tsc -b` and the real
+// `vite build` main bundle before relying on it.
+import {
+  csvHeaderLine,
+  csvRowLine,
+  revive,
+  type ExportColumn,
+} from '../../src/pages/Workspace/exportFormat.ts';
+
+// Hard cap on `query:export` — one matching-all export can't stream an
+// unbounded collection to disk. A constructor default (not a bare module
+// constant) so a test can pass a small cap instead of seeding 100k documents.
+export const DEFAULT_EXPORT_CAP = 100_000;
+
+/**
+ * One JSON-array element's text, indented to match a whole-array
+ * `JSON.stringify(docs, null, 2)`: every element's own lines gain one
+ * `'  '` (2-space) prefix. Verified byte-identical to
+ * `exportFormat.ts`'s `serializeJsonArray` for the same documents — see
+ * `tests/integration/query-export.spec.ts`.
+ */
+function jsonArrayElementText(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n');
+}
 
 export class QueryService {
   private pool: MongoPool;
   private recent: RecentQueryService;
   private active = new Map<string, AbortController>();
+  private exportCap: number;
 
-  constructor(pool: MongoPool, recent: RecentQueryService) {
+  constructor(pool: MongoPool, recent: RecentQueryService, exportCap = DEFAULT_EXPORT_CAP) {
     this.pool = pool;
     this.recent = recent;
+    this.exportCap = exportCap;
   }
 
   // every EJSON string off the wire is parsed with `parseEjsonDocument`,
@@ -136,6 +173,96 @@ export class QueryService {
       // leak cursors across long-running sessions.
       await cursor.close().catch(() => {});
     }
+  }
+
+  /**
+   * Export every document matching `input`'s filter/sort/projection to
+   * `filePath`, up to this service's `exportCap`. Streams the find cursor
+   * straight to disk rather than materializing the whole result — the same
+   * reason `find` itself refuses to return more than 1000 documents.
+   *
+   * Every document is first canonicalized with `ejsonEncode(doc, false)` —
+   * the same wire shape `find`'s `documentsJson` sends the renderer — before
+   * handing it to `exportFormat.ts`'s own CSV/Relaxed helpers, so this
+   * output matches the page export byte-for-byte for the same documents.
+   *
+   * `input.limit` (the builder's own limit, already compiled by the
+   * renderer) is honoured when set, capped at `exportCap`; a limited export
+   * is never `truncated` since the cursor never asks for more than the
+   * limit. Otherwise the cursor asks for `exportCap + 1` and `truncated`
+   * means that extra document was actually there.
+   */
+  async exportToFile(input: QueryExportInput, filePath: string): Promise<QueryExportResult> {
+    if (input.format === 'csv' && !input.columns) {
+      throw new ValidationError('columns are required for a CSV export');
+    }
+    const columns = input.columns as ExportColumn[] | undefined;
+
+    const filter = parseEjsonDocument<Record<string, unknown>>(input.filter, 'filter');
+    const sort = input.sort ? parseEjsonDocument<Sort>(input.sort, 'sort') : undefined;
+    const projection = input.projection
+      ? parseEjsonDocument<Record<string, unknown>>(input.projection, 'projection')
+      : undefined;
+
+    const cap = this.exportCap;
+    const builderLimit =
+      input.limit !== undefined && input.limit > 0 ? Math.min(input.limit, cap) : undefined;
+    const cursorLimit = builderLimit ?? cap + 1;
+
+    const db = await this.pool.readDb(input.connectionId, input.dbName);
+    const coll = db.collection(input.collection);
+    const cursor = coll.find(filter, {
+      sort,
+      projection,
+      limit: cursorLimit,
+      maxTimeMS: ADMIN_LONG_TIMEOUT_MS,
+    });
+
+    let handle: FileHandle | undefined;
+    let written = 0;
+    let truncated = false;
+    let jsonArrayStarted = false;
+    try {
+      handle = await fs.open(filePath, 'w');
+      if (input.format === 'csv') {
+        await handle.write(csvHeaderLine(columns!) + '\n');
+      }
+      for await (const doc of cursor) {
+        if (builderLimit === undefined && written >= cap) {
+          truncated = true;
+          break;
+        }
+        const wire = ejsonEncode(doc, false);
+        if (input.format === 'csv') {
+          await handle.write(csvRowLine(wire, columns!) + '\n');
+        } else if (input.format === 'jsonl') {
+          const line = input.relaxed
+            ? (EJSON.stringify(revive(wire) as object, undefined, undefined, { relaxed: true }) as string)
+            : JSON.stringify(wire);
+          await handle.write(line + '\n');
+        } else {
+          const plain = input.relaxed
+            ? EJSON.serialize(revive(wire) as object, { relaxed: true })
+            : wire;
+          const element = jsonArrayElementText(plain);
+          await handle.write((jsonArrayStarted ? ',\n' : '[\n') + element);
+          jsonArrayStarted = true;
+        }
+        written++;
+      }
+      if (input.format === 'json') {
+        await handle.write(jsonArrayStarted ? '\n]' : '[]');
+      }
+    } catch (err) {
+      if (handle) await handle.close().catch(() => {});
+      handle = undefined;
+      await fs.unlink(filePath).catch(() => {});
+      throw classifyMongoOpError(err);
+    } finally {
+      await cursor.close().catch(() => {});
+      if (handle) await handle.close().catch(() => {});
+    }
+    return { path: filePath, written, truncated };
   }
 
   cancel(token: string): void {
