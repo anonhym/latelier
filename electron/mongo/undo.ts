@@ -6,7 +6,10 @@ import { ejsonEncodeArrayJson } from './ejson.ts';
  * What a write kept so it can be undone. Single-document ops use
  * `preImage`/`postImage` (`postImage` is what the write left behind, which
  * Undo compares against before putting `preImage` back); bulk ops use the
- * plural arrays, paired by index; `insertMany` keeps only the ids it created;
+ * plural arrays, paired by index; `insertMany` keeps the documents it
+ * inserted — the Node driver assigns `_id` onto each input document in
+ * place unless `forceServerObjectId` is set (neither `insertMany` call sets
+ * it), so the same array holds the ids after the write with no second read;
  * `collectionRename` keeps the two names.
  */
 export interface UndoCapture {
@@ -14,7 +17,7 @@ export interface UndoCapture {
   postImage?: Document;
   preImages?: Document[];
   postImages?: Document[];
-  insertedIds?: unknown[];
+  insertedDocs?: Document[];
   fromName?: string;
   toName?: string;
 }

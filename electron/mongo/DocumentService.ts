@@ -200,10 +200,17 @@ export class DocumentService {
         .collection(input.collection)
         .insertMany(docs as Record<string, unknown>[], { ordered: true, maxTimeMS: QUERY_TIMEOUT_MS });
       const insertedIds = Object.values(result.insertedIds);
-      return attachUndo(
-        { insertedCount: result.insertedCount, insertedIds: insertedIds.map((id) => ejsonEncode(id)) },
-        { insertedIds },
-      );
+      const response = {
+        insertedCount: result.insertedCount,
+        insertedIds: insertedIds.map((id) => ejsonEncode(id)),
+      };
+      // The driver mutated `docs` in place, setting `_id` on each document
+      // that lacked one — the same array now holds exactly what was
+      // inserted, no second read needed. Bounded the same way as
+      // deleteMany/updateMany's Pre-images (X13 §5), so Undo can compare
+      // before deleting rather than a blind delete-by-id.
+      const insertedDocs = boundedCapture(docs as Record<string, unknown>[]);
+      return insertedDocs ? attachUndo(response, { insertedDocs }) : response;
     } catch (err) {
       // `ordered:true` stops at the first write error, so a bulk-write
       // failure can still carry a nonzero prefix of documents that landed —

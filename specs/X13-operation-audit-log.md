@@ -141,14 +141,14 @@ Pre-image capture lives in the services, because only they run before the write.
 
 | `op` | Captured | `undo_json` |
 | --- | --- | --- |
-| `insertMany` | nothing | the returned `insertedIds` |
+| `insertMany` | ≤1000 docs **and** ≤1 MB | the inserted documents, `_id` included |
 | `deleteOne`, `updateOne` | exactly 1 document | the Pre-image |
 | `deleteMany` | ≤1000 docs **and** ≤1 MB | the Pre-images |
 | `updateMany` | ≤1000 docs **and** ≤1 MB | the Pre-images, paired by index with what each was left as |
 | `collectionRename` | nothing | `fromName` and `toName` |
 | `collectionDrop`, `databaseDrop` | never | none — `reversible = 0` |
 
-`insertMany`, `deleteOne`, `updateOne` and `collectionRename` capture nothing or exactly one document, so no ceiling applies. `import` gets its capture rule with its channel. `deleteMany` and `updateMany` share the same bound, checked twice:
+`deleteOne`, `updateOne` and `collectionRename` capture nothing or exactly one document, so no ceiling applies. `import` gets its capture rule with its channel. `insertMany`, `deleteMany` and `updateMany` share the same bound, checked twice:
 
 1. `find(filter).limit(1001)` — 1001 results means the doc ceiling is breached. This never reads 100,000 documents to discover the set is too big.
 2. `ejsonEncodeArrayJson(docs, { maxBytes: 1_048_576 })` — which throws rather than truncating, so a half-captured Pre-image can never be stored.
@@ -158,6 +158,8 @@ Either ceiling breached: **the Operation still runs**, the entry records `revers
 `updateOne` additionally records what the Operation *left behind*, so §6 can detect a later change. Both images are taken atomically with the write, or not at all: the Pre-image is read first, then the write runs as a `findOneAndUpdate` whose filter also requires the document to still equal that Pre-image (`$expr: { $eq: ['$$ROOT', { $literal: preImage }] }`) and which returns the post-image in the same step. A separate read on either side would let another client's write land between the image and the Operation, and Undo would then restore over it. When the pinned write matches nothing — the document changed after the Pre-image was read — the caller's plain `updateOne` runs instead and the entry records `reversible = 0`; a Pre-image too large to put in the filter (over 4 MB) is treated the same way. The capture never blocks or alters the write.
 
 `updateMany` records the same pair per document: it re-reads the matched set by `_id` after the write and pairs each Pre-image with what it was left as. Unlike `updateOne` this read-back is not atomic with the write; a document missing from it (a concurrent delete) drops the whole capture rather than keeping a partial one, the same "nothing partial" rule the ceiling itself follows.
+
+`insertMany` needs no second read: the Node driver assigns `_id` onto each input document *in place* (unless `forceServerObjectId` is set — neither call sets it), so the same array holds exactly what was inserted, `_id` included, the moment the write returns.
 
 ## 6. Undo
 
@@ -172,7 +174,7 @@ Either ceiling breached: **the Operation still runs**, the entry records `revers
 
 Otherwise:
 
-- `insertMany` → `deleteMany({ _id: { $in: insertedIds } })`, reporting `{ restored, skipped }` — an id already gone (deleted since) is a skip, not a failure.
+- `insertMany` → re-reads the inserted `_id`s and deletes only the documents still byte-identical to what was inserted, reporting `{ restored, skipped }` — one already gone, or edited since, is a skip, not a failure. Undo must never discard an edit it didn't know about.
 - `deleteOne` → insert the Pre-image back. A reused `_id` is rejected by Mongo's unique index and surfaces as the existing `ConflictError`; no extra guard is needed.
 - `deleteMany` → `insertMany(preImages, { ordered: false })`, reporting `{ restored, skipped }` honestly — *"restored 47 of 50, 3 already exist"*.
 - `updateOne` → replace the Pre-image back, after the `AUDIT_TARGET_CHANGED` check.

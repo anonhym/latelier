@@ -770,6 +770,42 @@ describe('audit log via the router', () => {
       expect(await orders().countDocuments()).toBe(0);
     });
 
+    it('insertMany undo removes every document when none were changed since', async () => {
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ _id: 1, v: 'a' }, { _id: 2, v: 'b' }, { _id: 3, v: 'c' }]),
+      });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 3, skipped: 0 } });
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
+    it('insertMany undo leaves an edited document alone and reports it skipped', async () => {
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ _id: 1, v: 'original' }, { _id: 2, v: 'original' }]),
+      });
+      await orders().updateOne({ _id: 1 }, { $set: { v: 'edited-since' } });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 1 } });
+      // The edited document survives Undo untouched — undoing an insert must
+      // never discard an edit it didn't know about.
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 'edited-since' });
+      expect(await orders().findOne({ _id: 2 })).toBeNull();
+    });
+
+    it('insertMany over the bulk capture ceiling is not reversible', async () => {
+      const docs = Array.from({ length: 1001 }, (_, i) => ({ _id: i }));
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify(docs),
+      });
+
+      expect(res.insertedCount).toBe(1001);
+      expect(res.auditId).toBeUndefined();
+      expect((await list())[0]).toMatchObject({ op: 'insertMany', reversible: false });
+    });
+
     async function confirmedUpdateMany(filterJson: string, updateJson: string) {
       const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmUpdateMany, {
         ...target('orders'),

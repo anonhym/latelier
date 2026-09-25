@@ -10,7 +10,7 @@ import type { Logger } from '../log.ts';
 import { ejsonParse, ejsonStringify } from '../mongo/ejson.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { QUERY_TIMEOUT_MS } from '../mongo/timeouts.ts';
-import { assertUndoable, undoCaptureOf, type UndoCapture } from '../mongo/undo.ts';
+import { assertUndoable, undoCaptureOf, EXACT_BSON, type UndoCapture } from '../mongo/undo.ts';
 
 const DEFAULT_LIST_LIMIT = 100;
 
@@ -130,9 +130,7 @@ export class AuditService {
           }
           result = { restored: 1, skipped: 0 };
         } else if (row.op === 'insertMany') {
-          const ids = capture.insertedIds ?? [];
-          const deleted = await coll.deleteMany({ _id: { $in: ids } } as Document, { maxTimeMS: QUERY_TIMEOUT_MS });
-          result = { restored: deleted.deletedCount, skipped: ids.length - deleted.deletedCount };
+          result = await this.restoreInserted(coll, capture.insertedDocs ?? []);
         } else if (row.op === 'deleteMany') {
           result = await this.restoreDeleted(coll, capture.preImages ?? []);
         } else if (row.op === 'updateMany') {
@@ -163,6 +161,36 @@ export class AuditService {
       { maxTimeMS: QUERY_TIMEOUT_MS },
     );
     return result.matchedCount;
+  }
+
+  /**
+   * `insertMany` undo (X13 §6): deletes only the documents that are still
+   * byte-identical to what was inserted. A document edited since, or already
+   * removed, survives Undo and counts as `skipped` — same honesty as
+   * `restoreDeleted`/`restoreUpdated`; Undo must never discard an edit made
+   * after the insert it didn't know about.
+   */
+  private async restoreInserted(coll: Collection, docs: Document[]): Promise<UndoResult> {
+    if (docs.length === 0) return { restored: 0, skipped: 0 };
+    const ids = docs.map((d) => d._id);
+    const current = await coll.find({ _id: { $in: ids } } as Document, { ...EXACT_BSON, maxTimeMS: QUERY_TIMEOUT_MS }).toArray();
+    const currentById = new Map(current.map((d) => [ejsonStringify(d._id), d]));
+    const toDelete: unknown[] = [];
+    let skipped = 0;
+    for (const doc of docs) {
+      const cur = currentById.get(ejsonStringify(doc._id));
+      // Exact-value match, not just "still present" — an insert that was
+      // then edited must survive Undo, not get silently discarded because
+      // its _id is still the one this entry created.
+      if (cur !== undefined && ejsonStringify(cur) === ejsonStringify(doc)) {
+        toDelete.push(doc._id);
+      } else {
+        skipped++;
+      }
+    }
+    if (toDelete.length === 0) return { restored: 0, skipped };
+    const deleted = await coll.deleteMany({ _id: { $in: toDelete } } as Document, { maxTimeMS: QUERY_TIMEOUT_MS });
+    return { restored: deleted.deletedCount, skipped: skipped + (toDelete.length - deleted.deletedCount) };
   }
 
   /**
