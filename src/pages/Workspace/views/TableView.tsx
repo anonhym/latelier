@@ -1106,13 +1106,26 @@ export function TableView({
   // the same trick TreeView's sticky field-header overlay uses for an
   // analogous case where react-window's row positioning breaks a native
   // CSS mechanism.
+  //
+  // The column's right edge is the wrapper's visible right edge, capped at
+  // the grid's own content box: once the grid shows its vertical scrollbar,
+  // its rows are that much narrower than the wrapper, and a `transform`
+  // counts toward scrollable overflow — ending at the wrapper's edge would
+  // tuck the column under the scrollbar and give the grid a horizontal
+  // scrollbar of its own, shortening the viewport the roving-focus scroll
+  // aims at.
   const tableWrapperRef = React.useRef<HTMLDivElement>(null);
+  // Declared here rather than beside `roving` below, which also uses it:
+  // the actions offset reads the grid element too.
+  const listRef = useListRef(null);
   const [actionsOffset, setActionsOffset] = React.useState(0);
   const computeActionsOffset = React.useCallback(() => {
     const el = tableWrapperRef.current;
     if (!el) return;
-    setActionsOffset(el.clientWidth - totalWidth + el.scrollLeft);
-  }, [totalWidth]);
+    const visibleRight = el.scrollLeft + el.clientWidth;
+    const grid = listRef.current?.element;
+    setActionsOffset((grid ? Math.min(visibleRight, grid.clientWidth) : visibleRight) - totalWidth);
+  }, [totalWidth, listRef]);
   const scrollRaf = React.useRef<number | null>(null);
   const handleTableScroll = React.useCallback(() => {
     if (scrollRaf.current != null) return;
@@ -1124,10 +1137,18 @@ export function TableView({
   React.useLayoutEffect(() => {
     computeActionsOffset();
   }, [computeActionsOffset]);
+  // A window resize is not the only thing that moves the visible edge: a
+  // panel splitter drag resizes the wrapper alone, and the grid's vertical
+  // scrollbar appears only once enough rows have been measured.
   React.useEffect(() => {
-    window.addEventListener('resize', computeActionsOffset);
-    return () => window.removeEventListener('resize', computeActionsOffset);
-  }, [computeActionsOffset]);
+    const el = tableWrapperRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(computeActionsOffset);
+    observer.observe(el);
+    const grid = listRef.current?.element;
+    if (grid) observer.observe(grid);
+    return () => observer.disconnect();
+  }, [computeActionsOffset, listRef]);
 
   const dragState = React.useRef<{
     field: string;
@@ -1186,7 +1207,6 @@ export function TableView({
   // moves the index — see `useRovingFocus`'s own docstring for why that has
   // to be one operation, not two. Declared before `handleSelect` below,
   // which needs `roving.setActiveIndex`.
-  const listRef = useListRef(null);
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'table-row-',
