@@ -29,7 +29,8 @@ import { useCollectionWorkspace } from '../context';
 import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
-import { getFullDocId, isInlineEditable } from './docId';
+import { getDocId, getFullDocId, isInlineEditable } from './docId';
+import { SelectToggle } from './SelectToggle';
 import {
   deriveColumns,
   resolveColumns,
@@ -59,7 +60,8 @@ interface TableViewProps {
 
 // Kept independent of the data columns — the column chooser can hide/reorder
 // any derived field including `_id`, so the expand control can't live in a data cell.
-const GUTTER_WIDTH = 28;
+// Wide enough for both the expand chevron and the select checkbox side by side.
+const GUTTER_WIDTH = 54;
 
 const EMPTY_EXPANDED_ROWS: Record<string, boolean> = {};
 
@@ -483,9 +485,12 @@ interface TableRowProps {
   refsByField?: Map<string, ReferenceRule>;
   // Widened from React.MouseEvent so a keyboard Enter/Space on the row can
   // drive the same selection logic as a click — both event types carry
-  // metaKey/ctrlKey, which is all this reads.
+  // metaKey/ctrlKey, which is all this reads. A plain click only moves the
+  // active row; ⌘/Ctrl+click also toggles the row into/out of the
+  // selection — the checkbox below is the plain-click-free way in.
   onSelect: (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => void;
-  // #20 — stable per-row DOM id so the grid's `aria-activedescendant` (set
+  onToggleSelect: (idx: number) => void;
+  // stable per-row DOM id so the grid's `aria-activedescendant` (set
   // by `useRovingFocus` in the component below) always names a real element.
   rowId: (index: number) => string;
   onCopyCell: (text: string, cellKey: string) => void;
@@ -525,6 +530,7 @@ function TableRowImpl({
   fieldCopiedPath,
   refsByField,
   onSelect,
+  onToggleSelect,
   onCopyCell,
   onContextMenu,
   onRowExpand,
@@ -556,12 +562,14 @@ function TableRowImpl({
           : 'var(--atelier-surface)',
       }}
     >
-      {/* S6848 — this strip behaves like a selectable row (click selects,
-          ⌘/Ctrl+click multi-selects) while wrapping other real interactive
-          controls: draggable cells, the expand chevron, the edit affordances.
-          `role="option"` was the first attempt and was wrong: `option` is
-          "children presentational" in ARIA, so it may not contain any of
-          those, and it needs a `listbox` parent this never had.
+      {/* This strip behaves like an activatable row (plain click makes it
+          the active/highlighted row, ⌘/Ctrl+click also toggles it into/out
+          of the selection) while wrapping other real interactive controls:
+          draggable cells, the expand chevron, the select checkbox, the edit
+          affordances. `role="option"` was the first attempt and was wrong:
+          `option` is "children presentational" in ARIA, so it may not
+          contain any of those, and it needs a `listbox` parent this never
+          had.
 
           `row` inside `role="grid"` is the pattern for exactly this — a data
           table whose cells hold controls. `row` is not children
@@ -570,20 +578,18 @@ function TableRowImpl({
           counts the header, so the first document row is 2.
 
           No `tabIndex` at all: a plain `div` with none is already out of
-          both the Tab order AND click-focusable — #20 originally left
-          `tabIndex={-1}` here on the theory that only *sequential* focus
-          needed excluding, but the HTML focusing-steps algorithm treats any
-          declared `tabIndex` (negative included) as making the element
-          focusable via a real click, which review caught: clicking a row
-          left real DOM focus sitting on it, so the next Arrow/Home/End
-          reached the grid's `onKeyDown` with `e.target` = this row instead
-          of the grid itself, and its own-target guard swallowed every one
-          of them. Removing it lets a click's focusing steps walk up to the
-          nearest focusable ancestor instead, which is the grid — exactly
-          where #20's design already wanted real focus to live. The grid's
+          both the Tab order AND click-focusable — the HTML focusing-steps
+          algorithm treats any declared `tabIndex` (negative included) as
+          making the element focusable via a real click, and a click leaving
+          real DOM focus sitting on the row would make the next Arrow/Home/End
+          reach the grid's `onKeyDown` with `e.target` = this row instead of
+          the grid itself, where its own-target guard would swallow every one
+          of them. Leaving `tabIndex` off lets a click's focusing steps walk
+          up to the nearest focusable ancestor instead, which is the grid —
+          exactly where real focus needs to live. The grid's
           `aria-activedescendant` (set in `TableView` below) still points at
-          this row via its `id`; `handleSelect` also moves the roving index
-          here on click, so a click and the next Arrow agree on which row is
+          this row via its `id`; `onSelect` also moves the roving index here
+          on click, so a click and the next Arrow agree on which row is
           active. */}
       <div
         id={rowId(index)}
@@ -606,7 +612,7 @@ function TableRowImpl({
         }}
         onClick={(e) => onSelect(e, index)}
       >
-        {/* Fixed expand gutter — independent of the (hide/reorder-able)
+        {/* Fixed expand+select gutter — independent of the (hide/reorder-able)
             data columns. A `gridcell` like the rest, so the row owns nothing
             but cells. */}
         <div
@@ -618,11 +624,17 @@ function TableRowImpl({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            gap: 2,
             borderBottom: '1px solid var(--atelier-border)',
             borderRight: '1px solid var(--atelier-border)',
             boxSizing: 'border-box',
           }}
         >
+          <SelectToggle
+            selected={isSelected}
+            docLabel={getDocId(doc)}
+            onToggle={() => onToggleSelect(index)}
+          />
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -994,24 +1006,56 @@ export function TableView({
     scrollToIndex: (i) => listRef.current?.scrollToRow({ index: i, align: 'auto' }),
   });
 
-  // Plain click: single-row highlight (click again to deselect). ⌘/Ctrl+click
-  // toggles the row into/out of a multi-row selection for the bulk-action bar.
-  // Also makes the clicked row the roving-focus target — found in review: a
-  // clicked row (`tabIndex={-1}` used to make it click-focusable per the HTML
+  // Plain click only moves the roving-focus/active-row highlight — it used
+  // to also replace the selection with just this row, which made a habit
+  // learned in Table surprise a user in Tree or JSON (a plain click there
+  // means something else entirely). ⌘/Ctrl+click still toggles the row
+  // into/out of the multi-row selection for the bulk-action bar; the visible
+  // checkbox in the gutter is the plain-click-free way to select. Always
+  // moves the roving-focus target too — found in review: a clicked row
+  // (`tabIndex={-1}` used to make it click-focusable per the HTML
   // focusing-steps algorithm — since removed, see the row strip's own
   // comment) would otherwise leave the highlight sitting wherever it was
   // before the click, so the next Arrow key would jump from there instead of
   // from the row the user just clicked.
-  const handleSelect = React.useCallback(
+  const handleRowClick = React.useCallback(
     (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
       if (e.metaKey || e.ctrlKey) selection.toggle(idx);
-      else selection.selectOnly(idx);
       roving.setActiveIndex(idx);
     },
     // `roving` itself is a fresh object every render; depend on the one
     // function this actually calls (stable per `useRovingFocus`) so this
     // callback — and everything memoized against it, like `rowProps` below
     // — doesn't get a new identity on every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, roving.setActiveIndex],
+  );
+
+  // The checkbox's own gesture: toggle the row into/out of the selection
+  // (never a single-row replace — matches JSON's and Tree's checkbox, and
+  // ⌘/Ctrl+click above) and also move the active row here, same as a click
+  // anywhere else on the strip.
+  const handleToggleSelect = React.useCallback(
+    (idx: number) => {
+      selection.toggle(idx);
+      roving.setActiveIndex(idx);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, roving.setActiveIndex],
+  );
+
+  // Keyboard Enter/Space on the grid (handleGridKeyDown below) keeps the
+  // previous plain-click semantics: replace the selection with just the
+  // active row, or clear it if it was already the sole selection. Mouse and
+  // keyboard deliberately diverge here — the mouse has a dedicated checkbox
+  // and ⌘/Ctrl+click, but a keyboard user still needs a single-key way to
+  // select the active row without reaching for a modifier.
+  const handleSelect = React.useCallback(
+    (e: { metaKey: boolean; ctrlKey: boolean }, idx: number) => {
+      if (e.metaKey || e.ctrlKey) selection.toggle(idx);
+      else selection.selectOnly(idx);
+      roving.setActiveIndex(idx);
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [selection, roving.setActiveIndex],
   );
@@ -1106,7 +1150,8 @@ export function TableView({
       deepPaths,
       fieldCopiedPath,
       refsByField,
-      onSelect: handleSelect,
+      onSelect: handleRowClick,
+      onToggleSelect: handleToggleSelect,
       onCopyCell: copyCell,
       onContextMenu: handleContextMenu,
       onRowExpand: handleRowExpand,
@@ -1129,7 +1174,8 @@ export function TableView({
       deepPaths,
       fieldCopiedPath,
       refsByField,
-      handleSelect,
+      handleRowClick,
+      handleToggleSelect,
       copyCell,
       handleContextMenu,
       handleRowExpand,

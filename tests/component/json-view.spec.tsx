@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { fireEvent, render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
@@ -90,7 +90,7 @@ describe('JsonView — rendering', () => {
   it('the Select button carries no nested interactive controls (nested-interactive / S6852)', () => {
     const docs = [{ _id: 1, name: 'alpha' }];
     renderJson(docs);
-    const selectBtn = screen.getByRole('button', { name: 'Select document' });
+    const selectBtn = screen.getByRole('button', { name: 'Select document 1' });
     expect(within(selectBtn).queryAllByRole('button')).toHaveLength(0);
   });
 });
@@ -173,5 +173,28 @@ describe('JsonView — hidden fields', () => {
     // silently moved onto 'c'.
     expect(screen.getByText(/yvalue/)).toBeTruthy();
     expect(screen.getByText(/zvalue/)).toBeTruthy();
+  });
+});
+
+// N4.1 — a plain click used to toggle the card into/out of the multi-
+// selection; that surprised anyone who'd learned Table or Tree's own click
+// behavior first. The checkbox (or ⌘/Ctrl+click) is now the only way in.
+describe('JsonView — click selection semantics (N4.1)', () => {
+  it('a plain click on the card does not select it', () => {
+    const docs = [{ _id: 1, name: 'alpha' }];
+    const { container, getByText } = renderJson(docs);
+
+    fireEvent.click(getByText('"alpha"'));
+
+    expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
+  });
+
+  it('⌘/Ctrl+click on the card still toggles the selection', () => {
+    const docs = [{ _id: 1, name: 'alpha' }];
+    const { getByText, getByRole } = renderJson(docs);
+
+    fireEvent.click(getByText('"alpha"'), { metaKey: true });
+
+    expect(getByRole('button', { name: 'Deselect document 1' })).toBeTruthy();
   });
 });
