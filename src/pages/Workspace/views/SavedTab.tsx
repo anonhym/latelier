@@ -1,13 +1,14 @@
 import React from 'react';
+import { Badge } from '@mantine/core';
 import { I } from '../../../icons';
 import { api, getErrorMessage } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import type { SavedKind, SavedQuery, SavedQuerySummary } from '@shared/types';
 
-const KIND_BADGE: Record<SavedKind, string> = {
-  find: 'QUE',
-  aggregation: 'AGG',
-  script: 'SCR',
+const KIND_LABEL: Record<SavedKind, string> = {
+  find: 'Find',
+  aggregation: 'Aggregation',
+  script: 'Script',
 };
 
 interface SavedTabProps {
@@ -158,27 +159,15 @@ export function SavedTab({
             fontSize: 12,
           }}
         >
-          {/* Kind badge — QUE/AGG/SCR. SavedStrip carried this same badge;
-              now that SavedTab lists every kind (not just find), the label
-              is what tells a find, an aggregation and a script apart at a
-              glance. */}
-          <span
-            title={item.kind}
-            style={{
-              fontSize: 9,
-              padding: '1px 5px',
-              background: 'var(--atelier-accent-soft)',
-              color: 'var(--atelier-accent)',
-              borderRadius: 'var(--atelier-radius-xs)',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: 0.4,
-              flexShrink: 0,
-              fontFamily: '"JetBrains Mono", monospace',
-            }}
-          >
-            {KIND_BADGE[item.kind]}
-          </span>
+          {/* Kind label. `Badge` with this size/variant/color is the
+              existing small-badge pattern in this file's siblings
+              (ColumnChooser, PreviewPicker, QueryBar's advanced-count
+              badge) — reused rather than hand-rolled, since SavedTab now
+              lists every kind and needs to tell a find, an aggregation
+              and a script apart at a glance. */}
+          <Badge size="xs" variant="light" color="violet" style={{ flexShrink: 0 }}>
+            {KIND_LABEL[item.kind]}
+          </Badge>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <div
               style={{

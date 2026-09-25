@@ -271,9 +271,9 @@ describe('SavedTab opens every saved kind, not just find', () => {
     renderSaved();
 
     await screen.findByText('Unpaid orders');
-    expect(screen.getByText('QUE')).toBeTruthy();
-    expect(screen.getByText('AGG')).toBeTruthy();
-    expect(screen.getByText('SCR')).toBeTruthy();
+    expect(screen.getByText('Find')).toBeTruthy();
+    expect(screen.getByText('Aggregation')).toBeTruthy();
+    expect(screen.getByText('Script')).toBeTruthy();
   });
 });
 
