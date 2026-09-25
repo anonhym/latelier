@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { csvEscape, csvCellValue, serializeCsv } from '../../src/pages/Workspace/exportFormat';
+import { csvCellValue, csvEscape, neutralizeFormula, serializeCsv } from '../../src/pages/Workspace/exportFormat';
 
 /**
  * Reverses `csvEscape` for a single standalone field — not a general CSV
@@ -55,7 +55,7 @@ describe('serializeCsv (property)', () => {
         expect(lines[0]).toBe('a');
         expect(lines[lines.length - 1]).toBe('');
         for (let i = 0; i < values.length; i++) {
-          expect(unescapeOne(lines[i + 1]!)).toBe(csvCellValue(values[i]));
+          expect(unescapeOne(lines[i + 1]!)).toBe(neutralizeFormula(csvCellValue(values[i]), values[i]));
         }
       }),
     );
