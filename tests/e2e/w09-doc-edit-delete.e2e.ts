@@ -156,7 +156,7 @@ test('doc writes: update ($set) changes one field and leaves the others untouche
       // Load-bearing assertion: fields never mentioned in the patch survive
       // untouched — proof this is a $set patch, not a full-document rewrite.
       await expect(win.getByText('multi-field')).toBeVisible();
-      await expect(win.getByText('5')).toBeVisible();
+      await expect(win.getByText('5', { exact: true })).toBeVisible();
     });
   });
 });
