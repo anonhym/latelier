@@ -35,22 +35,25 @@ export interface UndoCapture {
 export const MAX_IMPORT_CAPTURE_DOCS = 10_000;
 
 /**
+ * A document as the server stores it and `EXACT_BSON` reads it back: `_id`
+ * first (the driver appends a generated `_id` last, and a pasted document can
+ * carry it anywhere) and BSON round-tripped (a parsed JS number outside int32,
+ * such as an epoch-ms timestamp, serializes as `$numberLong` but is stored
+ * and read back as a double). Captures taken from the renderer's input go
+ * through this so Undo's compare-before-delete sees the same bytes it will
+ * read; re-running it on an already-read document changes nothing.
+ */
+export function asStored(doc: Document): Document {
+  const { _id, ...rest } = doc;
+  return deserialize(serialize({ _id, ...rest }), EXACT_BSON);
+}
+
+/**
  * The per-document digest an import capture keeps, and what `restoreImported`
- * recomputes to decide whether a landed document is still unchanged. `_id`
- * first, the same normalization `restoreInserted` uses, because the driver
- * appends a generated `_id` last (and a pasted document can carry it
- * anywhere) while the server always stores it first.
- *
- * Hashed on the BSON round-tripped form read back with `EXACT_BSON`, which is
- * exactly how `restoreImported` reads the stored document: a parsed JS number
- * outside int32 (an epoch-ms timestamp) serializes as `$numberLong` but is
- * stored, and read back, as a double. Re-running it on an already-read
- * document changes nothing.
+ * recomputes to decide whether a landed document is still unchanged.
  */
 export function importDigest(doc: Document): string {
-  const { _id, ...rest } = doc;
-  const asStored = deserialize(serialize({ _id, ...rest }), EXACT_BSON);
-  return createHash('sha256').update(ejsonStringify(asStored)).digest('hex');
+  return createHash('sha256').update(ejsonStringify(asStored(doc))).digest('hex');
 }
 
 /** X13 §5: a bulk Pre-image capture never holds more than this many documents… */

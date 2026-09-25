@@ -5,7 +5,7 @@ import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
 import type { Logger } from '../log.ts';
-import { EXACT_BSON, attachUndo, boundedCapture, MAX_BULK_CAPTURE_DOCS } from './undo.ts';
+import { EXACT_BSON, asStored, attachUndo, boundedCapture, MAX_BULK_CAPTURE_DOCS } from './undo.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
 const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -208,8 +208,9 @@ export class DocumentService {
       // that lacked one — the same array now holds exactly what was
       // inserted, no second read needed. Bounded the same way as
       // deleteMany/updateMany's Pre-images (X13 §5), so Undo can compare
-      // before deleting rather than a blind delete-by-id.
-      const insertedDocs = boundedCapture(docs as Record<string, unknown>[]);
+      // before deleting rather than a blind delete-by-id. Kept in stored form
+      // (`asStored`): the input's JS numbers are not what Undo reads back.
+      const insertedDocs = boundedCapture((docs as Record<string, unknown>[]).map(asStored));
       return insertedDocs ? attachUndo(response, { insertedDocs }) : response;
     } catch (err) {
       // `ordered:true` stops at the first write error, so a bulk-write
