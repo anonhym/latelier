@@ -188,17 +188,6 @@ function WorkspaceInner() {
 
   const hints = useHints();
 
-  // Issue #177 — the first hint a new user sees should be about Run, not a
-  // secondary feature. Firing once the query has been edited off its
-  // default shape (rather than on every fresh tab) avoids nagging the
-  // common case, where `Workspace`'s own auto-run effect already ran it.
-  const runExecuteWhen =
-    activeView === 'documents' &&
-    !!activeCollection &&
-    !activeCollection.state.lastRun &&
-    !isDefaultQueryState(activeCollection.state);
-  const runExecuteHint = useFeatureHint('run.execute', runExecuteWhen);
-
   const lastRunDocs = activeCollection?.state.lastRun?.documents;
   const refsConfigureWhen = React.useMemo(() => {
     if (!lastRunDocs || lastRunDocs.length === 0) return false;
@@ -252,6 +241,20 @@ function WorkspaceInner() {
   const savedCreateHint = useFeatureHint(
     'saved.create',
     savedCreateCount >= 3 && !!activeCollection,
+  );
+
+  // The first hint a new user sees should be about Run, not a secondary
+  // feature. Workspace's own auto-run effect means `lastRun` is set almost
+  // as soon as a tab opens, so gating on "no lastRun" would essentially
+  // never fire once the user starts editing. `savedCreateCount` is this same
+  // query's exact run-key looked up in this session's run tally (recorded
+  // by `useQueryRunner` on every completed run, further up in this file) —
+  // zero means the query on screen right now has never actually been run,
+  // whether because nothing has run yet or because it was edited since the
+  // last one that did.
+  const runExecuteHint = useFeatureHint(
+    'run.execute',
+    activeView === 'documents' && !!activeCollection && savedCreateCount === 0,
   );
 
   const collectionSuggestionContext = React.useMemo<SuggestionContext | null>(() => {

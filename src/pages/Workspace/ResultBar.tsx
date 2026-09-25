@@ -233,7 +233,6 @@ export function ResultBar() {
                   leftSection={I.play}
                   onClick={() => canRunHere && actions.run()}
                   disabled={!canRunHere}
-                  data-hint-anchor="run.execute"
                   data-testid="resultbar-run-cta"
                 >
                   Run (Cmd+Enter)

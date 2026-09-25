@@ -97,9 +97,6 @@ export function HintsProvider({ children }: { children: React.ReactNode }) {
   // Lowest `priority` wins, not registration order — the primary-path hint
   // (Run) must beat a secondary one even when it registers later. Ties keep
   // whichever candidate `reduce` saw first, i.e. mount order.
-  // Lowest `priority` wins, not registration order — the primary-path hint
-  // (Run) must beat a secondary one even when it registers later. Ties keep
-  // whichever candidate `reduce` saw first, i.e. mount order.
   const visibleId = candidates.reduce<FeatureHintId | null>((best, id) => {
     if (best === null) return id;
     return HINT_REGISTRY[id].priority < HINT_REGISTRY[best].priority ? id : best;
