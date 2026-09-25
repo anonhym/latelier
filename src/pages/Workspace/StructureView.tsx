@@ -1,0 +1,39 @@
+import type { SchemaTabState } from '@shared/types';
+import { IndexesTab } from '../IndexesTab';
+import { SchemaView } from './SchemaView';
+
+interface Props {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  state: SchemaTabState;
+  onPatch: (patch: Partial<SchemaTabState>) => void;
+}
+
+/**
+ * The collection tab's Structure sub-view (W16 Tier 2, ADR 0003): the
+ * namespace-scoped indexes stacked above the sampled schema, in one
+ * scrolling pane rather than a fourth tab. `IndexesTab` and `SchemaView`
+ * each used to own their own `flex:1; overflow:auto` scroller, sized by a
+ * flex parent with a definite height (the collection tab's result panel).
+ * Stacked here inside a plain scrolling block, that same styling collapses
+ * both sections toward zero height — an "auto" height ancestor gives a
+ * `flex:1` child (flex-basis 0%) nothing to grow against, and a non-visible
+ * `overflow` zeroes its automatic min size. `IndexesTab` and `SchemaView`
+ * lay out at natural content height instead; this pane is the only
+ * scroller.
+ */
+export function StructureView({ connectionId, dbName, collection, state, onPatch }: Props) {
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+      <IndexesTab connectionId={connectionId} dbName={dbName} collection={collection} />
+      <SchemaView
+        connectionId={connectionId}
+        dbName={dbName}
+        collection={collection}
+        state={state}
+        onPatch={onPatch}
+      />
+    </div>
+  );
+}

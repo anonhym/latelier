@@ -29,7 +29,7 @@ import {
   isUserChosenBuilderSplit,
 } from './panelSizes';
 import { AggregationTab } from './Aggregation/AggregationTab';
-import { SchemaView } from './SchemaView';
+import { StructureView } from './StructureView';
 import { QueryBar } from './QueryBar';
 import { ResultViewer } from './ResultViewer';
 import { BuilderPane } from './BuilderPane';
@@ -55,7 +55,7 @@ const SUB_TABS: ReadonlyArray<{
 }> = [
   { key: 'documents', label: 'Documents', icon: '⚡' },
   { key: 'aggregation', label: 'Aggregation', icon: 'Σ' },
-  { key: 'schema', label: 'Schema', icon: '⚙' },
+  { key: 'structure', label: 'Structure', icon: '⚙' },
 ];
 
 function SubTabStrip({
@@ -310,7 +310,7 @@ export function PanelBody({
             onPatch={patchActiveScript}
           />
         ) : collection ? (
-            // Builder pane always renders; agg/schema views just dim it via overlay rather than unmounting.
+            // Builder pane always renders; agg/structure views just dim it via overlay rather than unmounting.
             <CollectionWorkspaceProvider
               state={collection.tab.state}
               actions={collection.actions}
@@ -404,8 +404,8 @@ export function PanelBody({
                       onPatch={patchAggregation}
                     />
                   )}
-                  {collection.view === 'schema' && (
-                    <SchemaView
+                  {collection.view === 'structure' && (
+                    <StructureView
                       connectionId={collection.tab.connectionId}
                       dbName={collection.tab.dbName}
                       collection={collection.tab.collection}
