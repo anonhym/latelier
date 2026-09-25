@@ -6,7 +6,7 @@ import {
 } from 'react-window';
 import { I } from '../../../icons';
 import { ejsonStringify } from '../../../utils/ejson';
-import { docKey } from '../../../utils/displayValue';
+import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { useCollectionWorkspace } from '../context';
@@ -14,6 +14,23 @@ import { useResultSelection } from '../resultSelection';
 
 interface JsonViewProps {
   documents: unknown[];
+}
+
+/**
+ * Strip the Fields control's hidden top-level fields from a document before
+ * it is serialized for display (#201). Rendering-only: every action on the
+ * document (Copy, Edit, Delete/Select) is handed the original `doc`, never
+ * this redacted copy — hiding a field must never change what gets sent to
+ * Mongo or the clipboard. Only top-level paths are handled, matching what
+ * `columnConfig.hidden` (Table's Fields control) currently stores.
+ */
+function redactHidden(doc: unknown, hidden: Set<string>): unknown {
+  if (hidden.size === 0 || !isRecord(doc)) return doc;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(doc)) {
+    if (!hidden.has(key)) out[key] = value;
+  }
+  return out;
 }
 
 function tokenColor(kind: TokenKind): string {
@@ -184,6 +201,7 @@ interface DocCardProps {
   isSelected: boolean;
   isCopied: boolean;
   collapsedKeys: Set<string>;
+  hiddenFields: Set<string>;
   onToggleCollapse: (key: string) => void;
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
@@ -197,6 +215,7 @@ function DocCard({
   isSelected,
   isCopied,
   collapsedKeys,
+  hiddenFields,
   onToggleCollapse,
   onToggle,
   onCopy,
@@ -204,12 +223,13 @@ function DocCard({
   onDelete,
 }: DocCardProps) {
   const json = React.useMemo(() => {
+    const visible = redactHidden(doc, hiddenFields);
     try {
-      return ejsonStringify(doc, 2);
+      return ejsonStringify(visible, 2);
     } catch {
-      return JSON.stringify(doc, null, 2);
+      return JSON.stringify(visible, null, 2);
     }
-  }, [doc]);
+  }, [doc, hiddenFields]);
 
   return (
     <div
@@ -342,6 +362,7 @@ interface JsonRowProps {
   selectedIndices: Set<number>;
   copiedIdx: number | null;
   collapsedKeys: Set<string>;
+  hiddenFields: Set<string>;
   onToggleCollapse: (key: string) => void;
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
@@ -356,6 +377,7 @@ function JsonRow({
   selectedIndices,
   copiedIdx,
   collapsedKeys,
+  hiddenFields,
   onToggleCollapse,
   onToggle,
   onCopy,
@@ -371,6 +393,7 @@ function JsonRow({
         isSelected={selectedIndices.has(index)}
         isCopied={copiedIdx === index}
         collapsedKeys={collapsedKeys}
+        hiddenFields={hiddenFields}
         onToggleCollapse={onToggleCollapse}
         onToggle={onToggle}
         onCopy={onCopy}
@@ -382,9 +405,16 @@ function JsonRow({
 }
 
 export function JsonView({ documents }: JsonViewProps) {
-  const { actions } = useCollectionWorkspace();
+  const { state, actions } = useCollectionWorkspace();
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
+  // Fields control (#201): same top-level `columnConfig.hidden` Table already
+  // reads (`tableColumns.ts`'s `resolveColumns`) — display-only, so Copy/Edit/
+  // Delete below always act on the untouched `doc`, never this set.
+  const hiddenFields = React.useMemo(
+    () => new Set(state.columnConfig?.hidden ?? []),
+    [state.columnConfig?.hidden],
+  );
   // T0.4 — selection lifted to the shared cross-view context (index-based,
   // scoped to the enclosing <ResultViewer>); falls back to local state when
   // rendered standalone (no provider mounted).
@@ -426,6 +456,7 @@ export function JsonView({ documents }: JsonViewProps) {
       selectedIndices,
       copiedIdx,
       collapsedKeys,
+      hiddenFields,
       onToggleCollapse: toggleCollapse,
       onToggle: toggleSelect,
       onCopy: copyDoc,
@@ -437,6 +468,7 @@ export function JsonView({ documents }: JsonViewProps) {
       selectedIndices,
       copiedIdx,
       collapsedKeys,
+      hiddenFields,
       toggleCollapse,
       toggleSelect,
       copyDoc,
@@ -446,17 +478,30 @@ export function JsonView({ documents }: JsonViewProps) {
   );
 
   return (
-    <List<JsonRowProps>
-      rowComponent={JsonRow}
-      rowCount={documents.length}
-      rowHeight={rowHeight}
-      rowProps={rowProps}
-      overscanCount={4}
-      style={{
-        flex: 1,
-        minHeight: 0,
-        padding: '8px 12px',
-      }}
-    />
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {hiddenFields.size > 0 && (
+        <div
+          style={{
+            padding: '4px 12px 0',
+            fontSize: 11,
+            color: 'var(--atelier-text-muted)',
+          }}
+        >
+          {hiddenFields.size === 1 ? '1 field hidden' : `${hiddenFields.size} fields hidden`}
+        </div>
+      )}
+      <List<JsonRowProps>
+        rowComponent={JsonRow}
+        rowCount={documents.length}
+        rowHeight={rowHeight}
+        rowProps={rowProps}
+        overscanCount={4}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          padding: '8px 12px',
+        }}
+      />
+    </div>
   );
 }

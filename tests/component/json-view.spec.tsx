@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -37,16 +38,23 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function renderJson(docs: unknown[]) {
-  return render(
+function renderJson(
+  docs: unknown[],
+  overrides?: { state?: Partial<CollectionTabState>; actions?: ReturnType<typeof emptyWorkspaceActions> },
+) {
+  const actions = overrides?.actions ?? emptyWorkspaceActions();
+  return {
+    ...render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
-        actions={emptyWorkspaceActions()}
+        state={{ ...emptyState(), ...overrides?.state }}
+        actions={actions}
         meta={emptyWorkspaceMeta()}
       >
         <JsonView documents={docs} />
       </CollectionWorkspaceProvider>
-  );
+    ),
+    actions,
+  };
 }
 
 /**
@@ -84,5 +92,53 @@ describe('JsonView — rendering', () => {
     renderJson(docs);
     const selectBtn = screen.getByRole('button', { name: 'Select document' });
     expect(within(selectBtn).queryAllByRole('button')).toHaveLength(0);
+  });
+});
+
+/**
+ * #201 — JSON honors the Fields control's hidden top-level fields.
+ */
+describe('JsonView — hidden fields (#201)', () => {
+  it('omits a hidden top-level field from the rendered JSON', () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    const { container } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret'] } },
+    });
+    expect(container.textContent).toContain('name');
+    expect(container.textContent).not.toContain('secret');
+    expect(container.textContent).not.toContain('shh');
+  });
+
+  it('shows a "N fields hidden" note reflecting the hidden count', () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh', other: 1 }];
+    const { container } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret', 'other'] } },
+    });
+    expect(container.textContent).toContain('2 fields hidden');
+  });
+
+  it('shows no hidden-fields note when nothing is hidden', () => {
+    const docs = [{ _id: 1, name: 'alpha' }];
+    const { container } = renderJson(docs);
+    expect(container.textContent).not.toContain('field hidden');
+    expect(container.textContent).not.toContain('fields hidden');
+  });
+
+  it('still hands the FULL document (including hidden fields) to Edit', async () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    const { actions } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret'] } },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(actions.openEdit).toHaveBeenCalledWith(docs[0]);
+  });
+
+  it('still copies the FULL document (including hidden fields)', async () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    renderJson(docs, { state: { columnConfig: { hidden: ['secret'] } } });
+    await userEvent.click(screen.getByRole('button', { name: 'Copy JSON' }));
+    const written = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(written).toContain('secret');
+    expect(written).toContain('shh');
   });
 });
