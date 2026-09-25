@@ -405,12 +405,12 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
     expect(findSpy.mock.calls[0][0].sort).toBe('{"sku": 1}');
   });
 
+  // The projection's input sits in the Fields control's dropdown, a dialog
+  // the panel-level ⌘↵ skips — so the control runs this one itself.
   it('commits a projection draft that was never blurred, and runs it', async () => {
-    // A limit is set only so the advanced row (projection, sort) opens.
-    const { findSpy } = mountWith(
-      makeState({ builder: { projection: [], sort: '', limit: '5' } }),
-    );
-    const projection = await screen.findByTestId('query-bar-projection');
+    const { findSpy } = mountWith(makeState());
+    fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+    const projection = await screen.findByTestId('fields-projection');
 
     fireEvent.change(projection, { target: { value: '{sku: 1}' } });
     fireEvent.keyDown(projection, cmdEnter);

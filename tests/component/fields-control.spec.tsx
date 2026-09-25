@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { render, fireEvent, waitFor, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { FieldsControl } from '../../src/pages/Workspace/FieldsControl';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions, CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
 
 function baseState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
@@ -372,6 +372,307 @@ describe('FieldsControl', () => {
         trigger,
         focusInside: () => userEvent.click(ctx.getByRole('button', { name: 'Move apple down' })),
       };
+    });
+  });
+});
+
+/**
+ * The fetch section — the projection, moved here from the query bar's
+ * advanced row (W14 §4). Everything the advanced row promised about the
+ * draft (W14 §3, W15 §2.1, X14 §3/§5) still holds, now inside the control.
+ */
+describe('FieldsControl — fetch only these fields from the server', () => {
+  const tabState = (builder: Partial<CollectionTabState['builder']> = {}) =>
+    baseState({ view: 'Tree', builder: { projection: [], sort: '', limit: '', ...builder } });
+
+  function openFetch(
+    state: CollectionTabState = tabState(),
+    actionOverrides: Partial<CollectionWorkspaceActions> = {},
+    metaOverrides: Partial<CollectionWorkspaceMeta> = {},
+  ) {
+    const actions = emptyWorkspaceActions(actionOverrides);
+    const utils = render(
+      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta(metaOverrides)}>
+        <FieldsControl />
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.click(utils.getByRole('button', { name: /fields/i }));
+    return {
+      ...utils,
+      actions,
+      input: () => utils.queryByTestId('fields-projection') as HTMLInputElement | null,
+      alerts: () => utils.queryAllByRole('alert'),
+    };
+  }
+
+  const type = (input: HTMLInputElement, text: string) => {
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.blur(input);
+  };
+
+  it('says what each section does: hiding is display-only, fetching changes the server reply', () => {
+    const r = openFetch();
+    expect(r.getByText('Show in results')).toBeTruthy();
+    expect(r.getByText(/display only — instant, nothing is re-fetched/i)).toBeTruthy();
+    expect(r.getByText('Fetch only these fields from the server')).toBeTruthy();
+    const help = r.getByText(/changes what the server returns — applied on the next run/i);
+    // The explanation is the input's description, not just nearby text.
+    expect(r.input()?.getAttribute('aria-describedby')).toBe(help.id);
+  });
+
+  it('is offered even before a first run, when there are no fields to hide', () => {
+    const r = openFetch(baseState({ view: 'JSON', lastRun: undefined }));
+    expect(r.getByText(/no fields available/i)).toBeTruthy();
+    expect(r.input()).not.toBeNull();
+  });
+
+  it('is absent for a read-only consumer, which has no Run to apply it', () => {
+    const r = openFetch(tabState(), {}, { isReadOnly: true });
+    expect(r.getByText('Show in results')).toBeTruthy();
+    expect(r.input()).toBeNull();
+    expect(r.queryByText('Fetch only these fields from the server')).toBeNull();
+  });
+
+  it('shows the committed projection, modelled or raw', () => {
+    expect(openFetch(tabState({ projection: ['name'] })).input()?.value).toBe('{ name: 1 }');
+  });
+
+  it('shows a raw projection verbatim', () => {
+    expect(openFetch(tabState({ projectionRaw: '{"_id":0}' })).input()?.value).toBe('{"_id":0}');
+  });
+
+  it('commits a valid projection to the builder, clears the draft, and shows no alert', () => {
+    const r = openFetch(tabState({ sort: '{"a":1}' }));
+    type(r.input()!, '{ name: 1 }');
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: ['name'], projectionRaw: undefined, sort: '{"a":1}', limit: '' },
+    });
+    // `patch` is mocked, so state doesn't move; the input falling back to the
+    // (still empty) committed display is exactly "the draft was cleared".
+    expect(r.input()?.value).toBe('');
+    expect(r.alerts()).toHaveLength(0);
+  });
+
+  it('escapes $slice to the raw projection instead of refusing it', () => {
+    const r = openFetch(tabState({ projection: ['name'] }));
+    type(r.input()!, '{"a":{"$slice":5}}');
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: [], projectionRaw: '{"a":{"$slice":5}}', sort: '', limit: '' },
+    });
+    expect(r.alerts()).toHaveLength(0);
+  });
+
+  it('retains malformed text and explains it, rather than discarding it', () => {
+    const r = openFetch();
+    type(r.input()!, '{a: }');
+    expect(r.input()?.value).toBe('{a: }');
+    expect(r.actions.patch).not.toHaveBeenCalled();
+    const msg = r.alerts()[0]?.textContent ?? null;
+    expect(msg).toMatch(/comma-separated field list/);
+    expect(r.input()?.getAttribute('aria-invalid')).toBe('true');
+    expect(r.input()?.getAttribute('aria-describedby')).toBe(r.alerts()[0]?.id);
+  });
+
+  // Three refusals, three different messages: a typo, text the Shell Syntax
+  // transform refused (its own located reason), and well-formed text that is
+  // neither modellable nor an EJSON document.
+  it('gives malformed, transform-refused and unmodelable input different messages', () => {
+    const messageFor = (text: string) => {
+      const r = openFetch();
+      type(r.input()!, text);
+      const msg = r.alerts()[0]?.textContent ?? null;
+      r.unmount();
+      return msg;
+    };
+    const malformed = messageFor('{a: }');
+    const refused = messageFor('{a: 0');
+    const unmodelable = messageFor('{"a": {"$oid": "nothex"}}');
+    expect(malformed).toMatch(/comma-separated field list/);
+    expect(refused).toMatch(/^Line 1, column 6: /);
+    expect(unmodelable).toMatch(/only as an EJSON document/);
+    expect(new Set([malformed, refused, unmodelable]).size).toBe(3);
+  });
+
+  it('repairs Shell Syntax before judging it: {_id: 0} commits as a raw projection', () => {
+    const r = openFetch();
+    type(r.input()!, '{_id: 0}');
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: [], projectionRaw: '{"_id": 0}', sort: '', limit: '' },
+    });
+  });
+
+  it('settles the draft when the control closes, since no blur is guaranteed', () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{ name: 1 }' } });
+    fireEvent.click(r.getByRole('button', { name: /^fields/i }));
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
+    });
+  });
+
+  // Escape belongs to the innermost thing on screen: the first one dismisses
+  // the suggestion list and nothing else, the second closes the control.
+  it('Escape closes an open suggestion list first, and only then the control', async () => {
+    const r = openFetch();
+    const input = r.input()!;
+    fireEvent.change(input, { target: { value: '{ name: 1 }' } });
+    expect(await r.findAllByRole('option')).not.toHaveLength(0);
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
+    expect(r.input()).not.toBeNull();
+    expect(r.input()?.value).toBe('{ name: 1 }');
+    expect(r.actions.patch).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    await waitFor(() => expect(r.input()).toBeNull());
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
+    });
+  });
+
+  it('Escape with no suggestion list showing closes the control at once', async () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{ zzz' } });
+    // The caret syncs a frame later; until then the empty token matches all.
+    await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
+    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    await waitFor(() => expect(r.input()).toBeNull());
+  });
+
+  it('keeps a refused draft across close and reopen', async () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{a: }' } });
+    fireEvent.click(r.getByRole('button', { name: /^fields/i }));
+    await waitFor(() => expect(r.input()).toBeNull());
+    // Closed: the button still warns that the projection won't run as typed.
+    expect(r.getByText('projection')).toBeTruthy();
+    fireEvent.click(r.getByRole('button', { name: /fields/i }));
+    expect(r.input()?.value).toBe('{a: }');
+    expect(r.alerts()[0]?.textContent).toMatch(/comma-separated field list/);
+  });
+
+  it('does not leak a retained bad draft into another tab', () => {
+    const actions = emptyWorkspaceActions();
+    const r = render(
+      <CollectionWorkspaceProvider state={tabState()} actions={actions} meta={emptyWorkspaceMeta({ tabId: 'tA' })}>
+        <FieldsControl />
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.click(r.getByRole('button', { name: /fields/i }));
+    const input = r.getByTestId('fields-projection') as HTMLInputElement;
+    type(input, '{a: 0');
+    expect(input.value).toBe('{a: 0');
+    expect(r.queryAllByRole('alert')).toHaveLength(1);
+
+    r.rerender(
+      <CollectionWorkspaceProvider
+        state={tabState({ projection: ['name'] })}
+        actions={actions}
+        meta={emptyWorkspaceMeta({ tabId: 'tB' })}
+      >
+        <FieldsControl />
+      </CollectionWorkspaceProvider>,
+    );
+    // Asserted positively: tab B's own value, not merely "not tab A's text".
+    expect((r.getByTestId('fields-projection') as HTMLInputElement).value).toBe('{ name: 1 }');
+    expect(r.queryAllByRole('alert')).toHaveLength(0);
+  });
+
+  it('says why a committed raw projection cannot run', () => {
+    const r = openFetch(tabState({ projectionRaw: '{"_id":0' }));
+    expect(r.getByText(/Can't parse this projection/)).toBeTruthy();
+    expect(r.input()?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  // The panel-level ⌘↵ skips anything inside a dialog, and this dropdown is
+  // one, so the input runs it itself — with the settled builder, since the
+  // patch it just made has not landed in state yet.
+  it('⌘↵ settles the draft and runs with it', () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{sku: 1}' } });
+    fireEvent.keyDown(r.input()!, { key: 'Enter', metaKey: true });
+    expect(r.actions.run).toHaveBeenCalledWith({
+      builder: { projection: ['sku'], projectionRaw: undefined, sort: '', limit: '' },
+    });
+  });
+
+  it('⌘↵ on a refused draft does not run', () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{a: }' } });
+    fireEvent.keyDown(r.input()!, { key: 'Enter', ctrlKey: true });
+    expect(r.actions.run).not.toHaveBeenCalled();
+    expect(r.alerts()).toHaveLength(1);
+  });
+
+  it('plain Enter commits without running', () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{sku: 1}' } });
+    fireEvent.keyDown(r.input()!, { key: 'Enter' });
+    expect(r.actions.patch).toHaveBeenCalledTimes(1);
+    expect(r.actions.run).not.toHaveBeenCalled();
+  });
+
+  it('badges the closed control while a projection is set', () => {
+    const { getByRole } = render(
+      <CollectionWorkspaceProvider
+        state={tabState({ projection: ['apple'] })}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
+      >
+        <FieldsControl />
+      </CollectionWorkspaceProvider>,
+    );
+    expect(getByRole('button', { name: /fields/i }).textContent).toContain('projection');
+  });
+
+  it('shows no projection badge with no projection', () => {
+    const { getByRole } = renderChooser(tabState());
+    expect(getByRole('button', { name: /fields/i }).textContent).not.toContain('projection');
+  });
+
+  describe('fields the projection keeps off the wire are named, not silently missing', () => {
+    it('marks an excluded _id in place and lists other excluded fields as not fetched', () => {
+      const r = openFetch(
+        baseState({
+          view: 'Tree',
+          builder: { projection: [], projectionRaw: '{"_id":0,"secret":0}', sort: '', limit: '' },
+          lastRun: { documents: [{ apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
+        }),
+      );
+      expect(r.getByRole('checkbox', { name: /^_id — not fetched$/ })).toBeTruthy();
+      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
+      expect(r.getByTestId('fields-not-fetched').textContent).toBe('secret — not fetched');
+    });
+
+    it('lists a remembered field an inclusion projection left out', () => {
+      const r = openFetch(
+        baseState({
+          view: 'Table',
+          builder: { projection: ['apple'], sort: '', limit: '' },
+          columnConfig: { order: ['_id', 'apple', 'banana'] },
+          lastRun: { documents: [{ _id: 1, apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
+        }),
+      );
+      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
+      expect(r.getByTestId('fields-not-fetched').textContent).toBe('banana — not fetched');
+      // Only the fields in hand are reorderable; a not-fetched one is not.
+      expect(r.queryByRole('button', { name: 'Move banana up' })).toBeNull();
+    });
+
+    // "Applied on the next Run": a projection committed but not yet run has
+    // not removed anything, so a field still in the results is not marked.
+    it('does not mark a field the results in hand still carry', () => {
+      const r = openFetch(tabState({ projection: ['apple'] }));
+      expect(r.getByRole('checkbox', { name: 'banana' })).toBeTruthy();
+      expect(r.getByRole('checkbox', { name: '_id' })).toBeTruthy();
+      expect(r.queryByText(/not fetched/)).toBeNull();
+    });
+
+    it('marks nothing without a projection', () => {
+      const r = openFetch(baseState({ columnConfig: { order: ['_id', 'apple', 'banana', 'gone'] } }));
+      expect(r.queryByTestId('fields-not-fetched')).toBeNull();
+      expect(r.queryByText(/not fetched/)).toBeNull();
     });
   });
 });

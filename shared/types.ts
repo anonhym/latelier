@@ -188,8 +188,9 @@ export type ValType =
   | 'string' | 'number' | 'long' | 'decimal' | 'boolean' | 'date' | 'null' | 'regex' | 'objectid' | 'array';
 
 /**
- * Sort/limit/projection knobs, editable in exactly one place (the query bar's
- * advanced grid, W13 §7). `conditions`/`logic` retired by W13 — the
+ * Sort/limit/projection knobs, each editable in exactly one place: sort and
+ * limit in the query bar's advanced grid (W13 §7), projection in the Fields
+ * control (W14 §4). `conditions`/`logic` retired by W13 — the
  * filter is `CollectionTabState.queryRaw` / `SavedFindPayload.queryRaw` text,
  * not a compiled condition list. See `legacyBuilder.ts` for the pre-W13
  * shape this superseded.
