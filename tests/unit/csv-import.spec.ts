@@ -85,6 +85,9 @@ describe('coerce', () => {
   it('refuses a whole number past 2^53 and a number past the double range', () => {
     expect(coerce('9007199254740992', 'number')).toBeUndefined();
     expect(coerce('-9007199254740992', 'number')).toBeUndefined();
+    expect(coerce('9007199254740993.0', 'number')).toBeUndefined();
+    expect(coerce('9007199254740993.', 'number')).toBeUndefined();
+    expect(coerce('12.000', 'number')).toBe(12);
     expect(coerce('1e400', 'number')).toBeUndefined();
     expect(coerce('-1e400', 'number')).toBeUndefined();
   });

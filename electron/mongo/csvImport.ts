@@ -62,7 +62,11 @@ export function parseCsv(text: string): string[][] {
 // Neither admits hex, `Infinity` or surrounding whitespace, all of which
 // `Number()` accepts.
 const NUMBER = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/;
-const INTEGER = /^[-+]?\d+$/;
+// A whole number however its fraction is spelled (`12`, `12.`, `12.000`):
+// past 2^53 any of these would land as a different number. An exponent is
+// left out on purpose — `1e300` is a float by intent, and no double holds it
+// exactly either.
+const INTEGER = /^[-+]?\d+(?:\.0*)?$/;
 // A date, or a date-time that states its zone: a zone-less time would parse
 // as the importing machine's local time.
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
