@@ -350,5 +350,34 @@ describe('TreeView — rendering and interaction', () => {
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
       expect(onRowExpand).not.toHaveBeenCalled();
     });
+
+    it('closes the field-level menu when the doc menu opens, and vice versa', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole, queryByRole } = renderTree(docs, {
+        expanded: { '507f1f77bcf86cd799439011': true },
+      });
+
+      // Right-click the expanded 'name' field row to open the field-level
+      // menu. Field rows are identified by a stable `field-row-<docId>::<path>`
+      // id, since the doc summary row's own accessible name also contains
+      // "name" (it previews the field's value).
+      const nameFieldRow = document.getElementById(
+        'field-row-507f1f77bcf86cd799439011::name',
+      )!;
+      fireEvent.contextMenu(nameFieldRow);
+      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+
+      // Opening the doc-level "More actions" menu must close the field menu —
+      // both are dismissed only by useMenuFocus's window click listener, and
+      // this button stops propagation, so it never fires for the other menu.
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(queryByRole('group', { name: 'Field actions' })).toBeNull();
+      expect(getByRole('group', { name: 'Document actions' })).toBeTruthy();
+
+      // And the reverse: opening a field menu closes the doc menu.
+      fireEvent.contextMenu(nameFieldRow);
+      expect(queryByRole('group', { name: 'Document actions' })).toBeNull();
+      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+    });
   });
 });

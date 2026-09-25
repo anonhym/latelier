@@ -512,8 +512,24 @@ export function TreeView({
     });
   }, []);
 
+  // "More actions" per-row menu — Duplicate only, since Edit/Delete already
+  // have their own always-visible buttons on this row. Separate from the
+  // field-level `contextMenu` above: this one is doc-level (opened from the
+  // row strip, not from inside an expanded field). Declared here, ahead of
+  // handleOpenMenu below, so both open handlers can close the other menu.
+  const [docMenu, setDocMenu] = React.useState<{
+    x: number;
+    y: number;
+    doc: unknown;
+    returnFocusTo?: HTMLElement | null;
+    focusMenuOnOpen?: boolean;
+  } | null>(null);
+
   const handleOpenMenu = React.useCallback(
     ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+      // Symmetric with handleOpenRowMenu below: only one of the field-level
+      // and doc-level menus should ever be open at once.
+      setDocMenu(null);
       setContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
     },
     [],
@@ -560,18 +576,6 @@ export function TreeView({
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
   useMenuFocus(fieldMenuRef, contextMenu, closeContextMenu);
 
-  // "More actions" per-row menu — Duplicate only, since Edit/Delete already
-  // have their own always-visible buttons on this row. Separate from the
-  // field-level `contextMenu` above: this one is doc-level (opened from the
-  // row strip, not from inside an expanded field), so the two never need to
-  // be open at once.
-  const [docMenu, setDocMenu] = React.useState<{
-    x: number;
-    y: number;
-    doc: unknown;
-    returnFocusTo?: HTMLElement | null;
-    focusMenuOnOpen?: boolean;
-  } | null>(null);
   const docMenuRef = React.useRef<HTMLDivElement | null>(null);
   const handleOpenRowMenu = React.useCallback(
     (
@@ -579,6 +583,11 @@ export function TreeView({
       anchor: { x: number; y: number },
       focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
     ) => {
+      // The field-level context menu and this doc-level one both only close
+      // via useMenuFocus's window click listener, but this button already
+      // stops propagation — so opening one while the other is open would
+      // otherwise leave both on screen at once.
+      setContextMenu(null);
       setDocMenu({ ...anchor, doc, returnFocusTo: focus?.returnFocusTo, focusMenuOnOpen: focus?.focusMenuOnOpen });
     },
     [],
