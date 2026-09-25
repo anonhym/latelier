@@ -81,12 +81,14 @@ function setup({
   findOne,
   prefs,
   sample,
+  focusPath,
 }: {
   doc?: unknown;
   updateOne?: ReturnType<typeof vi.fn<IpcApi['doc']['updateOne']>>;
   findOne?: IpcApi['query']['findOne'];
   prefs?: Partial<IpcApi['prefs']>;
   sample?: unknown[];
+  focusPath?: string;
 } = {}) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
@@ -103,6 +105,7 @@ function setup({
       dbName="shop"
       collection="orders"
       doc={doc}
+      focusPath={focusPath}
       onClose={onClose}
       onSaved={onSaved}
     />,
@@ -1044,5 +1047,57 @@ describe('DocumentEditor — insert mode — creating a document', () => {
     expect(onInserted).not.toHaveBeenCalled();
     expect(onPartialInsert).toHaveBeenCalledTimes(1);
     expect(insertEditor()).toBeTruthy();
+  });
+});
+
+// W18 §8 — Quick Edit's "open the editor on that field": the editor scrolls
+// the row into view and focuses its control once, at mount.
+// Mantine's `FocusTrap` (`@mantine/hooks`' `useFocusTrap`) does the actual
+// focusing, asynchronously (`setTimeout(0)`), off a `data-autofocus`
+// attribute the editor's own effect sets synchronously at mount — see that
+// effect's comment for why a direct `.focus()` there loses the race. These
+// wait for that timer to settle before reading `document.activeElement`,
+// the same way `dialog-focus-return.spec.tsx` waits past Mantine's own
+// 10ms focus-return timer.
+const settleFocusTrap = async () => {
+  // `useFocusTrap` (`@mantine/hooks`) schedules its own initial-focus pass
+  // with a bare `setTimeout(0)`, not a measured delay — 30ms is just a
+  // margin past that, the same order of magnitude `dialog-focus-return.
+  // spec.tsx` uses for a *different* Mantine timer (`useFocusReturn`'s 10ms
+  // return-focus delay on the discard prompt) for the same reason: give a
+  // deferred Mantine effect room to run before reading `document.activeElement`.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+  });
+};
+
+describe('DocumentEditor — focusPath (W18 §8)', () => {
+  it('scrolls the field row into view and focuses its input', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+    setup({ focusPath: 'name' });
+    await settleFocusTrap();
+
+    expect(scrollSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(field('name'));
+  });
+
+  it('focuses the collapse toggle for an Object row', async () => {
+    setup({ focusPath: 'nested' });
+    await settleFocusTrap();
+    expect(document.activeElement).toBe(within(row('nested')).getByRole('button', { name: /Collapse nested/ }));
+  });
+
+  it('focuses the "Edit in JSON" link for an unrenderable ("other") row', async () => {
+    setup({ doc: { ...DOC, re: { $regularExpression: { pattern: '^a', options: '' } } }, focusPath: 're' });
+    await settleFocusTrap();
+    expect(document.activeElement).toBe(within(row('re')).getByRole('button', { name: 'Edit in JSON' }));
+  });
+
+  it('leaves the default focus target alone when no focusPath is given', async () => {
+    setup();
+    await settleFocusTrap();
+    // Mantine's trap still focuses *something* on open — the point is only
+    // that it isn't steered onto a specific row.
+    expect(document.activeElement?.hasAttribute('data-autofocus')).toBe(false);
   });
 });

@@ -9,8 +9,8 @@ import { useConnections, isConnectionActive, isKnownNotConnected } from '../stat
 import { setFocusedConnectionId as publishFocusedConnectionId } from '../state/focusedConnection';
 import { api, getErrorMessage, isIpcError } from '../api/atelier';
 import { notify } from '../theme/notifications';
-import { buildIdFilter } from './Workspace/views/docId';
-import { ejsonStringify } from '../utils/ejson';
+import { ejsonParse, isPlainDocument } from '../utils/ejson';
+import { buildUpdateRequest, setAtSegments } from './Workspace/documentDiff';
 import { copyToClipboard } from '../utils/clipboard';
 import { BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import type { CollectionView } from '@shared/types';
@@ -365,34 +365,68 @@ function WorkspaceInner() {
     () => setQueryBarSaveOpen(true),
     [],
   );
-  // Table view's inline single-field edit: `$set`s just `fieldPath`, then
-  // re-runs. No drawer to show an inline error, so this uses `notify` instead.
+  // Table view's inline single-field edit (W18 §8, Quick Edit): the same
+  // one-path guarded save the Document Editor uses (`documentDiff.ts`'s
+  // `buildUpdateRequest`), so a concurrent change to the loaded value is
+  // caught instead of silently overwritten, and `newValue`'s own type
+  // (string, boolean, or a revived BSON numeric instance) is what gets
+  // written — never a re-typed string coerced into another field's type. No
+  // drawer to show an inline error, so this uses `notify` instead.
+  // Returns the write's settlement, not just fires it: the boolean Quick
+  // Edit toggle (`TableCell`, W18 §8) is a controlled checkbox with no
+  // separate "editing" draft, so it needs to know when an in-flight write
+  // has landed to disable itself and stop a second click mid-flight from
+  // firing a guard built on the value the first click is still saving.
   const updateField = React.useCallback(
-    (doc: unknown, fieldPath: string, newValue: string) => {
+    (doc: unknown, fieldPath: string, newValue: unknown): Promise<void> => {
       const a = activeCollectionRef.current;
-      if (!a) return;
-      const filterJson = buildIdFilter(doc);
-      if (filterJson === null) {
+      if (!a) return Promise.resolve();
+      const revived = ejsonParse<unknown>(JSON.stringify(doc));
+      if (!isPlainDocument(revived)) {
         notify.error('Cannot edit a document without an _id');
-        return;
+        return Promise.resolve();
       }
-      const updateJson = ejsonStringify({ $set: { [fieldPath]: newValue } });
-      api.doc
+      const original = revived as Record<string, unknown>;
+      const draft = setAtSegments(original, [fieldPath], newValue);
+      let request;
+      try {
+        request = buildUpdateRequest(original, draft);
+      } catch (e) {
+        notify.error(getErrorMessage(e, 'Cannot save this value'));
+        return Promise.resolve();
+      }
+      if (request === null) return Promise.resolve(); // unchanged — same field, same value
+      return api.doc
         .updateOne({
           connectionId: a.connectionId,
           dbName: a.dbName,
           collection: a.collection,
-          filterJson,
-          updateJson,
+          filterJson: request.filterJson,
+          updateJson: request.updateJson,
         })
-        .then(({ auditId }) => {
-          void run();
+        .then(({ matchedCount, auditId }) => {
+          // Guarded: nothing matching means the field (or the document)
+          // changed since it was loaded, not that the write landed unseen.
+          if (matchedCount === 0) {
+            notify.error('This document changed since it was loaded; the edit was not saved.', {
+              title: 'Update failed',
+            });
+            return;
+          }
+          // Returned (not fired-and-forgotten): the boolean Quick Edit
+          // toggle stays disabled off this same promise (`TableCell`'s
+          // `pendingBoolean`) until the row it reads its checked state from
+          // actually reflects the write — resolving before the re-run lands
+          // would re-enable it against the stale value, and a second click
+          // there would guard its compare-and-set on that stale value too.
+          const refreshed = run();
           // The tab edited, not whichever has focus when Undo is clicked.
           const tabId = a.id;
           offerUndo('Field updated', auditId, () => {
             const target = resolveRunnerTarget(tabId);
             if (target) void run(undefined, target);
           });
+          return refreshed;
         })
         .catch((e: unknown) => {
           notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });

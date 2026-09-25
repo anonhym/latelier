@@ -32,13 +32,13 @@ export function useDocumentDialogs(deps: {
   /** The Focused Tab's Connection is read-only, so the Document Editor never opens. */
   readOnly: boolean;
 }): {
-  editing: { doc: unknown; target: DocTarget } | null;
+  editing: { doc: unknown; target: DocTarget; focusPath?: string } | null;
   deleteDoc: unknown | null;
   deleteAllOpen: boolean;
   updateAllOpen: boolean;
   deleteSelected: unknown[] | null;
   inserting: { target: DocTarget; duplicateDocJson: string | null } | null;
-  openEdit: (doc: unknown) => void;
+  openEdit: (doc: unknown, focusPath?: string) => void;
   setDeleteDoc: React.Dispatch<React.SetStateAction<unknown | null>>;
   setDeleteSelected: React.Dispatch<React.SetStateAction<unknown[] | null>>;
   openInsertModal: () => void;
@@ -65,7 +65,7 @@ export function useDocumentDialogs(deps: {
 
   // Target travels inside editing/inserting with the payload, captured at
   // open time, so a tab switch mid-edit can't retarget the eventual write.
-  const [editing, setEditing] = React.useState<{ doc: unknown; target: DocTarget } | null>(null);
+  const [editing, setEditing] = React.useState<{ doc: unknown; target: DocTarget; focusPath?: string } | null>(null);
   const [deleteDoc, setDeleteDoc] = React.useState<unknown | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = React.useState(false);
   const [updateAllOpen, setUpdateAllOpen] = React.useState(false);
@@ -81,7 +81,7 @@ export function useDocumentDialogs(deps: {
   const [writeVersion, setWriteVersion] = React.useState(0);
 
   const openEdit = React.useCallback(
-    (doc: unknown) => {
+    (doc: unknown, focusPath?: string) => {
       const a = activeCollectionRef.current;
       if (!a) return;
       if (readOnly) {
@@ -90,7 +90,7 @@ export function useDocumentDialogs(deps: {
         });
         return;
       }
-      setEditing({ doc, target: targetOf(a) });
+      setEditing({ doc, target: targetOf(a), focusPath });
     },
     [activeCollectionRef, readOnly],
   );

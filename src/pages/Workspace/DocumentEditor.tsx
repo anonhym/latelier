@@ -53,6 +53,15 @@ interface EditModeProps extends DocumentEditorBaseProps {
   doc: unknown;
   /** `auditId` is the Reversible entry id of the update, for undo. */
   onSaved: (auditId?: string) => void;
+  /**
+   * W18 §8 — Quick Edit opens the editor straight at a field it can't edit
+   * inline (Date, ObjectId, Object, Array, …) instead of leaving the user to
+   * find the row themselves: scrolled into view and focused once the editor
+   * mounts. Always a top-level field name (Quick Edit never targets a
+   * computed or nested column), so `data-field`/`aria-label` match it
+   * exactly.
+   */
+  focusPath?: string;
 }
 
 interface InsertModeProps extends DocumentEditorBaseProps {
@@ -485,6 +494,7 @@ type JsonCommit = { kind: 'doc'; doc: Doc } | { kind: 'array'; docs: unknown[] }
 export function DocumentEditor(props: DocumentEditorProps) {
   const { connectionId, dbName, collection, onClose, mode } = props;
   const onSaved = props.mode === 'edit' ? props.onSaved : undefined;
+  const focusPath = props.mode === 'edit' ? props.focusPath : undefined;
   const onInserted = props.mode === 'insert' ? props.onInserted : undefined;
   const onPartialInsert = props.mode === 'insert' ? props.onPartialInsert : undefined;
 
@@ -825,7 +835,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
   // resize handle, so an inline size that differs from the rendered one is a
   // resize to remember — content growing inside an auto height is not.
   const observer = React.useRef<ResizeObserver | null>(null);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
   const surfaceRef = React.useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
     observer.current?.disconnect();
     observer.current = null;
     if (!el) return;
@@ -843,6 +855,42 @@ export function DocumentEditor(props: DocumentEditorProps) {
       }, 300);
     });
     observer.current.observe(el);
+  }, []);
+
+  // W18 §8 — Quick Edit's "open the editor on that field": scroll the row
+  // into view, and marks its control `data-autofocus` for Mantine's own
+  // `FocusTrap` (`@mantine/hooks`' `useFocusTrap`) to focus. `focusPath` is
+  // fixed for this instance's whole lifetime (it comes from the props that
+  // created it), and Fields — where the row lives — is always the view on
+  // open (§2's default), so this never has to react to a later change.
+  //
+  // Marking the attribute rather than calling `.focus()` directly is
+  // load-bearing, not stylistic: the trap schedules its own initial-focus
+  // pass with `setTimeout(0)` (`use-focus-trap.ts`'s `setRef`/mount effect,
+  // both deferred), which always runs after this effect's synchronous body
+  // — a direct `.focus()` here would just lose that race and read as
+  // "focused" for one tick before the trap grabs it back to the modal's
+  // Close button. `querySelector('[data-autofocus]')` is the trap's own
+  // first lookup, ahead of its tabbable-element fallback, so setting the
+  // attribute now is visible to it whenever it actually runs.
+  React.useEffect(() => {
+    if (!focusPath) return;
+    const path = focusPath;
+    const container = containerRef.current;
+    if (!container) return;
+    const escaped = CSS.escape(path);
+    const rowEl = container.querySelector(`[data-field="${escaped}"]`);
+    rowEl?.scrollIntoView({ block: 'center' });
+    // The row's own value control (Switch/TextInput/Textarea share the
+    // `aria-label={dotted}` convention); an Object row has none of those and
+    // gets its collapse toggle instead, and an 'other' row its "Edit in
+    // JSON" link — both live inside `rowEl`.
+    const control =
+      container.querySelector(`[aria-label="${escaped}"]`) ??
+      rowEl?.querySelector('button') ??
+      null;
+    control?.setAttribute('data-autofocus', 'true');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // W18 §6 — the Insert button label, live off the uncommitted JSON buffer:

@@ -3,13 +3,14 @@
 // `openDuplicate` (~1124) and `openInsertModal` (~1068). Every case mounts
 // the real `<Workspace />` and drives it through the DOM.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '../helpers/render';
+import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
 import { stripIdForDuplicate } from '../../src/pages/Workspace/views/docId';
 import type { CollectionTab, CollectionTabState } from '@shared/types';
 import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
+import type { IpcApi } from '@shared/ipc';
 
 // The Document Editor's JSON view mounts a real CodeMirror 6 `ScriptEditor`,
 // which needs layout APIs jsdom doesn't implement (see
@@ -279,5 +280,75 @@ describe('workspace doc dialogs (T2)', () => {
 
     expect(await screen.findByText('Read-only connection')).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: 'Edit document' })).toBeNull();
+  });
+});
+
+// W18 §8 — Table Quick Edit, driven against the real `Workspace.tsx`
+// `updateField`/`openEdit`, not the test-local copy `table-inline-edit.spec.tsx`
+// exercises against `TableView` in isolation. That copy proves `TableCell`'s
+// own behavior; these prove the real wiring it's plugged into — a
+// regression in `updateField`'s guard, or a dropped `focusPath` prop on the
+// way to `DocumentEditor`, would pass every `TableView`-level test unnoticed.
+describe('workspace doc dialogs (T2) — Table Quick Edit (W18 §8)', () => {
+  it('inline-edits a string cell through the real updateField: a guarded request, not a raw $set', async () => {
+    const updateOne = vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+    const find = vi.fn(async () => ({ documents: [], durationMs: 0, hasMore: false }));
+    mount({ doc: { updateOne }, query: { find } }, tab({ view: 'Table' }));
+
+    await screen.findByText(/widget/);
+    const cell = screen.getByTitle(/Drag to add "sku/);
+    fireEvent.mouseEnter(cell);
+    fireEvent.click(within(cell).getByRole('button', { name: 'Edit cell value' }));
+    const input = within(cell).getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'gadget' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    const call = updateOne.mock.calls[0]![0];
+    expect(JSON.parse(call.filterJson)).toEqual({ _id: '1', sku: { $eq: 'widget' } });
+    expect(JSON.parse(call.updateJson)).toEqual({ $set: { sku: 'gadget' } });
+    await waitFor(() => expect(find).toHaveBeenCalledTimes(1));
+  });
+
+  it('a concurrent change under a real Quick Edit (matchedCount: 0) surfaces the conflict notice', async () => {
+    const updateOne = vi.fn(async () => ({ matchedCount: 0, modifiedCount: 0 }));
+    mount({ doc: { updateOne } }, tab({ view: 'Table' }));
+
+    await screen.findByText(/widget/);
+    const cell = screen.getByTitle(/Drag to add "sku/);
+    fireEvent.mouseEnter(cell);
+    fireEvent.click(within(cell).getByRole('button', { name: 'Edit cell value' }));
+    const input = within(cell).getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'gadget' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(screen.getByText(/This document changed since it was loaded/)).toBeTruthy(),
+    );
+  });
+
+  it('a non-inline-editable field\'s pencil opens the real Document Editor scrolled and focused on that field', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+    const doc = { _id: '1', sku: 'widget', createdAt: { $date: { $numberLong: '0' } } };
+    mount(
+      {},
+      tab({ view: 'Table', lastRun: { documents: [doc], durationMs: 1, ranAt: NOW } }),
+    );
+
+    await screen.findByText(/widget/);
+    const cell = screen.getByTitle(/Drag to add "createdAt/);
+    fireEvent.mouseEnter(cell);
+    // Never turns into an inline text box — Date opens the full editor.
+    expect(within(cell).queryByRole('textbox')).toBeNull();
+    fireEvent.click(within(cell).getByRole('button', { name: 'Edit cell value' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit document' });
+    expect(scrollSpy).toHaveBeenCalled();
+    // Mantine's own focus trap also moves focus on open, asynchronously —
+    // let both settle before reading `document.activeElement`.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(document.activeElement).toBe(within(dialog).getByRole('textbox', { name: 'createdAt' }));
   });
 });
