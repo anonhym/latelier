@@ -678,6 +678,21 @@ describe('DocumentEditor — view switching', () => {
     expect(parsed._id).toEqual({ $oid: OID });
   });
 
+  it('pretty-prints the JSON with a 2-space indent, not the whole document on one line', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    expect(jsonBox().value).toContain('\n  "name"');
+  });
+
+  it('blocks the switch to JSON while Fields holds a value that does not parse, and explains why', () => {
+    setup();
+    fireEvent.change(field('qty'), { target: { value: '1.5' } });
+    fireEvent.click(viewSwitch('JSON'));
+    expect(viewSwitch('Fields').checked).toBe(true);
+    expect(screen.queryByRole('textbox', { name: 'Document JSON' })).toBeNull();
+    expect(within(editor()).getByText(/invalid values/)).toBeTruthy();
+  });
+
   it('carries a JSON-view edit into Fields on switch back', () => {
     setup();
     fireEvent.click(viewSwitch('JSON'));
@@ -764,6 +779,34 @@ describe('DocumentEditor — view switching', () => {
     fireEvent.click(await within(editor()).findByRole('button', { name: 'Reload' }));
     await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
     expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
+  });
+
+  it('commits a JSON edit typed after a failed Save before Reload merges, instead of dropping it', async () => {
+    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
+      document: { ...DOC, name: 'server-name' },
+      durationMs: 0,
+    }));
+    setup({
+      updateOne: vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 })),
+      findOne,
+    });
+    fireEvent.click(viewSwitch('JSON'));
+    const first = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    first.qty = 6;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(first) } });
+    fireEvent.click(save());
+    await within(editor()).findByRole('button', { name: 'Reload' });
+
+    // Typed after the conflict notice appeared, and never committed by a
+    // blur or another Save — this is the text Reload must not drop.
+    const second = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    second.price = 9;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(second) } });
+
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).price).toBe(9);
   });
 });
 

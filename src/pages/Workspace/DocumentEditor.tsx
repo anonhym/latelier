@@ -496,7 +496,15 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   };
 
   const switchToJson = () => {
-    setJsonText(ejsonStringifyReadable(draft));
+    // A row's typed text that doesn't parse lives only in `texts`, out of
+    // `draft` — building `jsonText` from `draft` alone would show the old
+    // value, and the switch away from Fields (§4a) clears `texts`
+    // unconditionally, so that text would vanish with no warning.
+    if (rowErrors.size > 0) {
+      setErr('Fix the invalid values in Fields before switching to JSON');
+      return;
+    }
+    setJsonText(ejsonStringifyReadable(draft, 2));
     setView('json');
   };
 
@@ -511,7 +519,7 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   const isDirty =
     !isEmptyDiff(changes) ||
     rowErrors.size > 0 ||
-    (view === 'json' && jsonText !== ejsonStringifyReadable(draft));
+    (view === 'json' && jsonText !== ejsonStringifyReadable(draft, 2));
 
   const close = useDialogFocusReturn(onClose);
 
@@ -593,6 +601,17 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     setBusy(true);
     setErr(null);
     try {
+      // `changes` (the outer diff) reflects only `draft` — in the JSON view,
+      // text typed since the last commit point lives in `jsonText` alone.
+      // Committing it first, and diffing from that, is what keeps a JSON
+      // edit made after a failed Save from being silently dropped here.
+      let baseChanges = changes;
+      if (view === 'json') {
+        const committed = commitJson();
+        if (!committed) return; // refused; jsonLiveError already shows why, text kept
+        setDraft(committed.doc);
+        baseChanges = diff(original, committed.doc);
+      }
       const res = await api.query.findOne({
         connectionId,
         dbName,
@@ -606,17 +625,17 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
       const fresh = revive(res.document);
       // The user's edits win over the server's on a path both changed; that
       // path stays in the diff, so the next Save guards it again.
-      const merged = applyDiff(fresh, changes);
+      const merged = applyDiff(fresh, baseChanges);
       setOriginal(fresh);
       setDraft(merged);
       // The JSON view's own buffer is a separate draft (W18 §4) — refresh it
       // too, or Reload's merge would be invisible behind stale text.
-      if (view === 'json') setJsonText(ejsonStringifyReadable(merged));
+      if (view === 'json') setJsonText(ejsonStringifyReadable(merged, 2));
       setTexts((m) => {
         const next = new Map<string, string>();
         for (const [key, text] of m) {
           const segments = decodeKey(key);
-          if (segments && isEdited(changes, editAddress(segments))) next.set(key, text);
+          if (segments && isEdited(baseChanges, editAddress(segments))) next.set(key, text);
         }
         return next;
       });
