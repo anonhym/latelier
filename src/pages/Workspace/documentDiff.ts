@@ -1,4 +1,4 @@
-import { ejsonStringify, isPlainDocument } from '../../utils/ejson';
+import { ejsonParse, ejsonStringify, isPlainDocument } from '../../utils/ejson';
 
 /**
  * The Document Editor's save, as pure functions (W18 §5, ADR 0012).
@@ -227,4 +227,30 @@ export function buildUpdateRequest(original: Doc, draft: Doc): UpdateRequest | n
     idFilterJson: ejsonStringify({ _id: original._id }),
     updateJson: ejsonStringify(update),
   };
+}
+
+export type JsonDraftResult = { ok: true; doc: Doc } | { ok: false; error: string };
+
+/**
+ * Parses the JSON view's Canonical EJSON text into a draft document (W18
+ * §4). Two refusals `diff` itself would otherwise swallow silently: `diff`
+ * skips `_id` in both directions (it is never a legal update path), so an
+ * `_id` typed differently in the JSON text would simply be dropped rather
+ * than saved — this catches that and names it, instead of the change
+ * vanishing without a word.
+ */
+export function parseJsonDraft(text: string, originalId: unknown): JsonDraftResult {
+  let parsed: unknown;
+  try {
+    parsed = ejsonParse(text);
+  } catch {
+    return { ok: false, error: 'Invalid EJSON' };
+  }
+  if (!isPlainDocument(parsed)) return { ok: false, error: 'Enter a JSON document' };
+  const doc = parsed as Doc;
+  const hadId = originalId !== undefined;
+  const hasId = has(doc, '_id');
+  const idChanged = hadId !== hasId || (hadId && hasId && !same(originalId, doc._id));
+  if (idChanged) return { ok: false, error: 'The _id field cannot be changed here' };
+  return { ok: true, doc };
 }
