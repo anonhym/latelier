@@ -6,6 +6,7 @@ import {
 } from '../../electron/mongo/errors';
 import { ObjectId, Decimal128 } from 'bson';
 import { AppError, MongoOpError, ValidationError } from '../../electron/errors';
+import { MongoNetworkTimeoutError } from 'mongodb';
 
 /**
  * `classifyMongoOpError` is the single seam a raw driver error crosses on its
@@ -40,6 +41,10 @@ describe('classifyMongoOpError', () => {
     // Observed with NO `codeName` — these are the ones a name-keyed branch misses.
     { what: 'duplicate key', err: { code: 11000 }, code: 'CONFLICT' },
     { what: 'document validation failure', err: { code: 121 }, code: 'VALIDATION' },
+
+    // Network errors — classified by name, not code.
+    { what: 'MongoNetworkError', err: { name: 'MongoNetworkError' }, code: 'NETWORK' },
+    { what: 'MongoNetworkTimeoutError', err: { name: 'MongoNetworkTimeoutError' }, code: 'NETWORK' },
 
     { what: 'anything unrecognized', err: { code: 999999 }, code: 'MONGO_ERROR' },
   ];
@@ -107,6 +112,19 @@ describe('classifyMongoOpError', () => {
     const out = classifyMongoOpError({ code: 999999, message: 'x' }, { insertedCount: 1 });
     expect(out.code).toBe('MONGO_ERROR');
     expect(out.details).toMatchObject({ insertedCount: 1 });
+  });
+
+  it('keeps extraDetails on network errors', () => {
+    const out = classifyMongoOpError({ name: 'MongoNetworkError', message: 'connection lost' }, { insertedCount: 5 });
+    expect(out.code).toBe('NETWORK');
+    expect(out.details).toMatchObject({ insertedCount: 5 });
+  });
+
+  it('classifies a real MongoNetworkTimeoutError instance as NETWORK', () => {
+    const err = new MongoNetworkTimeoutError('timeout');
+    const out = classifyMongoOpError(err);
+    expect(out.code).toBe('NETWORK');
+    expect(out).toBeInstanceOf(AppError);
   });
 });
 
