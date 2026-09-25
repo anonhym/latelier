@@ -141,7 +141,7 @@ export function IndexesTab({
   // || loadingIndexes}`, and the success path kicks off a reload, so it is
   // disabled at the exact moment focus would land there. A disabled focused
   // button drops focus to <body> itself — the #55/#70 defect documented at
-  // ColumnChooser.tsx:78-82 — which is the bug this exists to fix.
+  // FieldsControl.tsx:84-91 — which is the bug this exists to fix.
   const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {

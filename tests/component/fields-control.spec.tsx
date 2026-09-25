@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
-import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
+import { FieldsControl } from '../../src/pages/Workspace/FieldsControl';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
@@ -35,14 +35,14 @@ function renderChooser(
   return {
     ...render(
       <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
-        <ColumnChooser />
+        <FieldsControl />
       </CollectionWorkspaceProvider>,
     ),
     actions,
   };
 }
 
-describe('ColumnChooser', () => {
+describe('FieldsControl', () => {
   it('toggling a field checkbox calls patchWith with the field added to hidden', () => {
     const patchWith = vi.fn();
     const { getByRole } = renderChooser(baseState(), { patchWith });
@@ -133,6 +133,25 @@ describe('ColumnChooser', () => {
     const patch = fn(state);
     expect(patch.columnConfig?.computed).toEqual([]);
   });
+
+  it.each(['Tree', 'JSON'] as const)(
+    'renders in the %s view, with hide/reorder available but no computed-column UI',
+    (view) => {
+      const patchWith = vi.fn();
+      const state = baseState({ view });
+      const { getByRole, queryByRole } = renderChooser(state, { patchWith });
+      fireEvent.click(getByRole('button', { name: /columns/i }));
+
+      // Hide/reorder (#199's shared field list) still works outside Table.
+      fireEvent.click(getByRole('checkbox', { name: 'apple' }));
+      expect(patchWith).toHaveBeenCalled();
+
+      // Computed columns only ever feed TableView's rendering — the
+      // add-column form is Table-only (see FieldsControl's doc comment).
+      expect(queryByRole('textbox', { name: /computed column path/i })).toBeNull();
+      expect(queryByRole('button', { name: /add column/i })).toBeNull();
+    },
+  );
 
   it('renders "No fields available" when there are no documents yet', () => {
     const { getByRole, getByText } = renderChooser(baseState({ lastRun: undefined }));
@@ -233,7 +252,7 @@ describe('ColumnChooser', () => {
 
   it('does not carry a stale announcement into the next time the chooser is opened', async () => {
     // The dropdown unmounts on close (Mantine's Popover is not keepMounted
-    // here), but `announcement` lives in ColumnChooser, which stays mounted.
+    // here), but `announcement` lives in FieldsControl, which stays mounted.
     // So the region comes back already holding the last move's sentence.
     // `aria-live` announces *mutations*, never the content a region is born
     // with, so that text is never spoken — it just sits in the accessibility
@@ -255,7 +274,7 @@ describe('ColumnChooser', () => {
 
   // Applies a mocked patchWith's captured updater to `state` and re-renders
   // with the result — the two focus-trap tests below both need a *real*
-  // reorder committed to props, since ColumnChooser derives order from
+  // reorder committed to props, since FieldsControl derives order from
   // props alone and the mocked patchWith never updates anything on its own.
   function rerenderAfterMove(
     ctx: ReturnType<typeof renderChooser>,
@@ -268,7 +287,7 @@ describe('ColumnChooser', () => {
     const nextState = { ...state, ...fn(state) };
     ctx.rerender(
       <CollectionWorkspaceProvider state={nextState} actions={ctx.actions} meta={emptyWorkspaceMeta()}>
-        <ColumnChooser />
+        <FieldsControl />
       </CollectionWorkspaceProvider>,
     );
   }

@@ -62,7 +62,7 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       // and resetting the active row (PR #122's shard 4).
       await ws.viewTableButton.click();
 
-      // --- ColumnChooser: uncontrolled Popover, `returnFocus` fix. ---
+      // --- FieldsControl: uncontrolled Popover, `returnFocus` fix. ---
       const columnsTrigger = win.getByRole('button', { name: 'Columns', exact: true });
       await expect(columnsTrigger).toBeVisible();
 

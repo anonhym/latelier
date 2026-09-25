@@ -15,7 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
-import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
+import { FieldsControl } from '../../src/pages/Workspace/FieldsControl';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
@@ -91,7 +91,7 @@ function renderTable(
 }
 
 /**
- * Real `useState` harness for the ColumnChooser <-> TableView round-trip
+ * Real `useState` harness for the FieldsControl <-> TableView round-trip
  * (AC3/AC4): patches from the chooser must come back through props and
  * actually change what TableView renders. A static-prop render can't
  * observe this (known gotcha) — see also treeview/table-view specs for the
@@ -119,7 +119,7 @@ function renderStatefulTable(initial: CollectionTabState) {
     };
     return (
       <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
-        <ColumnChooser />
+        <FieldsControl />
         <TableView
           documents={documents}
           columns={state.columns}
