@@ -177,4 +177,53 @@ describe('AuditLogModal', () => {
     // The old Connection's table must not still be showing alongside the error.
     expect(screen.queryByText('shop.orders → orders_old')).toBeNull();
   });
+
+  describe('Revert', () => {
+    const REVERSIBLE: AuditEntry = {
+      ...ENTRY_BASE,
+      id: 'r1',
+      collection: 'orders',
+      op: 'deleteOne',
+      summary: { op: 'deleteOne', filter: '{"_id":1}', deletedCount: 1 },
+      outcome: 'ok',
+      reversible: true,
+      ranAt: '2026-09-01T11:00:00.000Z',
+    };
+
+    it('is offered only on entries that can still be undone, and re-lists after undoing', async () => {
+      let entries: AuditEntry[] = [REVERSIBLE, ...ENTRIES];
+      const list = vi.fn(async () => entries);
+      const undo = vi.fn(async () => {
+        entries = [{ ...REVERSIBLE, reversible: false, undoneAt: '2026-09-01T11:01:00.000Z' }, ...ENTRIES];
+        return { restored: 1, skipped: 0 };
+      });
+      installAtelierMock({ conn: { list: async () => CONNECTIONS }, audit: { list, undo } });
+      render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+      const rows = (await screen.findAllByRole('row')).slice(1);
+      expect(within(rows[0]!).getByRole('button', { name: 'Revert' })).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'Revert' })).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Revert' })).toBeNull());
+      expect(undo).toHaveBeenCalledWith({ entryId: 'r1' });
+      expect(within((await screen.findAllByRole('row'))[1]!).getByText('Undone')).toBeTruthy();
+    });
+
+    it('explains a refused Revert in words', async () => {
+      installAtelierMock({
+        conn: { list: async () => CONNECTIONS },
+        audit: {
+          list: async () => [REVERSIBLE],
+          undo: async () => Promise.reject({ code: 'AUDIT_UNDO_EXPIRED', message: 'AUDIT_UNDO_EXPIRED' }),
+        },
+      });
+      render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+
+      expect((await screen.findByRole('alert')).textContent).toMatch(/too old to undo/);
+    });
+  });
 });

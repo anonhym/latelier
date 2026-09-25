@@ -8,6 +8,7 @@ import type {
   AggStagePreview,
   AuditEntry,
   AuditListInput,
+  UndoResult,
   CollectionCreateInput,
   CollectionDropInput,
   CollectionRenameInput,
@@ -66,6 +67,10 @@ export type IpcErrorCode =
   | 'SECRETS_UNAVAILABLE'
   | 'SECRET_DECRYPT_FAILED'
   | 'READ_ONLY'
+  | 'AUDIT_NOT_REVERSIBLE'
+  | 'AUDIT_UNDO_EXPIRED'
+  | 'AUDIT_ALREADY_UNDONE'
+  | 'AUDIT_TARGET_CHANGED'
   // Deliberately distinct from UNAUTHORIZED, which the renderer already reads
   // as "your MongoDB user lacks permission" in several places. This one means
   // the IPC message did not come from the app's own document, which is a very
@@ -238,8 +243,10 @@ export interface IpcApi {
     insert: (input: { connectionId: string; dbName: string; collection: string; docJson: string }) => Promise<{ insertedId: unknown }>;
     insertMany: (input: { connectionId: string; dbName: string; collection: string; docsJson: string }) => Promise<{ insertedCount: number; insertedIds: unknown[] }>;
     replace: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; docJson: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
-    updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
-    deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number }>;
+    // `auditId` is present only when the write was recorded Reversible: it is
+    // the entry to hand `audit.undo`, so its presence is what offers Undo.
+    updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
+    deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number; auditId?: string }>;
     confirmDeleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ count: number; confirmToken: string }>;
     deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number }>;
     confirmUpdateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ count: number; confirmToken: string }>;
@@ -258,6 +265,8 @@ export interface IpcApi {
   /** The Audit Log: newest first, never carrying a Pre-image. */
   audit: {
     list: (input: AuditListInput) => Promise<AuditEntry[]>;
+    /** Puts back what a Reversible entry changed; records no entry of its own. */
+    undo: (input: { entryId: string }) => Promise<UndoResult>;
   };
 
   recent: {
@@ -442,6 +451,7 @@ export const IPC_CHANNELS = {
 
   // Audit log -----------------------------------------
   auditList: 'audit:list',
+  auditUndo: 'audit:undo',
 
   // Aggregation runner -----------------------------------------
   aggRun:             'agg:run',

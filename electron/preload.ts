@@ -152,6 +152,7 @@ const api: IpcApi = {
 
   audit: {
     list: (input) => call(IPC_CHANNELS.auditList, input),
+    undo: (input) => call(IPC_CHANNELS.auditUndo, input),
   },
   recent: {
     list: (input) => call(IPC_CHANNELS.recentList, input),

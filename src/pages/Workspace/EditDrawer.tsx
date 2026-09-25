@@ -20,7 +20,8 @@ interface EditDrawerProps {
   collection: string;
   doc: unknown;
   onClose: () => void;
-  onSaved: () => void;
+  /** `auditId` is set when the save can be undone (update mode only). */
+  onSaved: (auditId?: string) => void;
 }
 
 export function EditDrawer({
@@ -193,6 +194,7 @@ export function EditDrawer({
         return;
       }
 
+      let auditId: string | undefined;
       if (mode === 'replace') {
         // Re-inject _id if user removed it. The buffer already passed
         // isValidEjson; round-trip via EJSON so BSON-typed _ids (ObjectId,
@@ -260,16 +262,16 @@ export function EditDrawer({
         }
 
         const updateJson = ejsonStringify({ $set: parsed });
-        await api.doc.updateOne({
+        ({ auditId } = await api.doc.updateOne({
           connectionId,
           dbName,
           collection,
           filterJson,
           updateJson,
-        });
+        }));
       }
 
-      onSaved();
+      onSaved(auditId);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Save failed'));

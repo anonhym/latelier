@@ -447,8 +447,17 @@ export interface AuditEntry {
   errorCode?: string;
   ranAt: string;
   durationMs: number;
+  /**
+   * Undo is still on offer: a Pre-image was captured, is still held, and has
+   * not been used. False once the entry is undone or its Pre-image is swept.
+   */
   reversible: boolean;
   undoneAt?: string;
+}
+
+export interface UndoResult {
+  restored: number;
+  skipped: number;
 }
 
 export interface AuditListInput {

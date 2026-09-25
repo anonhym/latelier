@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongoClient } from 'mongodb';
+import { Binary, Collection, Decimal128, Double, Int32, Long, MongoClient, ObjectId, BSONRegExp } from 'mongodb';
 import { randomUUID } from 'node:crypto';
 import { createRouter } from '../../electron/ipc/router';
 import { registerDocChannels } from '../../electron/ipc/handlers/doc';
@@ -26,7 +26,7 @@ import { AuditService } from '../../electron/services/AuditService';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import type { Logger } from '../../electron/log';
 import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
-import type { AuditEntry } from '../../shared/types';
+import type { AuditEntry, UndoResult } from '../../shared/types';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
@@ -60,8 +60,9 @@ function seedConnectionRow(db: TempDb['db'], id: string): void {
 
 function silentLogger() {
   const error = vi.fn<Logger['error']>();
-  const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error };
-  return { log, error };
+  const warn = vi.fn<Logger['warn']>();
+  const log: Logger = { debug: vi.fn(), info: vi.fn(), warn, error };
+  return { log, error, warn };
 }
 
 // A value that exists only inside document bodies. If it ever shows up in an
@@ -104,15 +105,16 @@ describe('audit log via the router', () => {
       ]),
       vault,
     });
-    docSvc = new DocumentService(pool);
+    logSpy = silentLogger();
+    docSvc = new DocumentService(pool, { log: logSpy.log });
     scriptSvc = new ScriptService({ pool });
     auditRepo = new AuditRepo(tmp.db);
-    logSpy = silentLogger();
     shim = createShim();
-    const router = createRouter(shim.ipcMain, testSenderCheck, logSpy.log, new AuditService(auditRepo));
+    const auditSvc = new AuditService(auditRepo, pool, logSpy.log);
+    const router = createRouter(shim.ipcMain, testSenderCheck, logSpy.log, auditSvc);
     registerDocChannels(router, docSvc);
     registerCollectionAdminChannels(router, new CollectionAdminService(pool));
-    registerAuditChannels(router, new AuditService(auditRepo));
+    registerAuditChannels(router, auditSvc);
     registerQueryChannels(router, new QueryService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db))));
     registerIndexChannels(router, new IndexService(pool));
     registerUserChannels(router, new UserService(pool));
@@ -121,6 +123,7 @@ describe('audit log via the router', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     docSvc.dispose();
     scriptSvc.cancelAll();
     await pool.disconnectAll();
@@ -144,7 +147,13 @@ describe('audit log via the router', () => {
   const target = (collection: string) => ({ connectionId: 'c1', dbName, collection });
 
   it('each audited channel writes one row with its op, namespace, outcome and duration', async () => {
-    await ok(IPC_CHANNELS.docInsertMany, {
+    const envelopes: unknown[] = [];
+    const okAndKeep = async <T,>(channel: string, payload: unknown): Promise<T> => {
+      const data = await ok<T>(channel, payload);
+      envelopes.push(data);
+      return data;
+    };
+    await okAndKeep(IPC_CHANNELS.docInsertMany, {
       ...target('orders'),
       docsJson: JSON.stringify([
         { _id: 1, note: BODY_MARKER },
@@ -152,7 +161,7 @@ describe('audit log via the router', () => {
         { _id: 3, note: BODY_MARKER },
       ]),
     });
-    await ok(IPC_CHANNELS.docUpdateOne, {
+    await okAndKeep(IPC_CHANNELS.docUpdateOne, {
       ...target('orders'),
       filterJson: '{"_id":1}',
       updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-2` } }),
@@ -167,7 +176,7 @@ describe('audit log via the router', () => {
       updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-3` } }),
       confirmToken: updateManyToken,
     });
-    await ok(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":2}' });
+    await okAndKeep(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":2}' });
     const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmDeleteMany, {
       ...target('orders'),
       filterJson: '{"_id":{"$gte":1}}',
@@ -202,14 +211,22 @@ describe('audit log via the router', () => {
     expect(entries.map((e) => e.collection)).toEqual([
       'orders', 'orders', 'orders', 'orders', 'orders', 'scratch', 'scratch2', null,
     ]);
+    // Only the single-document writes keep a Pre-image.
+    expect(entries.map((e) => e.reversible)).toEqual([false, true, false, true, false, false, false, false]);
     for (const e of entries) {
-      expect(e).toMatchObject({ connectionId: 'c1', dbName, outcome: 'ok', reversible: false });
+      expect(e).toMatchObject({ connectionId: 'c1', dbName, outcome: 'ok' });
       expect(e.errorCode).toBeUndefined();
       expect(Number.isInteger(e.durationMs) && e.durationMs >= 0).toBe(true);
       expect(Number.isNaN(Date.parse(e.ranAt))).toBe(false);
     }
-    const raw = tmp.db.prepare('SELECT * FROM audit_log').all();
+    // Document bodies live only in `undo_json`, never in the durable record
+    // and never in what the renderer receives.
+    const raw = tmp.db
+      .prepare('SELECT id, db_name, collection, op, summary_json, outcome, error_code, ran_at FROM audit_log')
+      .all();
     expect(JSON.stringify(raw)).not.toContain(BODY_MARKER);
+    expect(JSON.stringify(envelopes)).not.toContain(BODY_MARKER);
+    expect(JSON.stringify(await list())).not.toContain(BODY_MARKER);
     expect(JSON.stringify(raw)).not.toContain(confirmToken);
     expect(JSON.stringify(raw)).not.toContain(updateManyToken);
   });
@@ -380,6 +397,278 @@ describe('audit log via the router', () => {
       new ConnectionRepo(tmp.db).deleteById('c1');
       const left = tmp.db.prepare('SELECT id FROM audit_log').all() as { id: string }[];
       expect(left.map((r) => r.id)).toEqual(['other']);
+    });
+  });
+
+  describe('audit:undo', () => {
+    const orders = () => client.db(dbName).collection<{ _id: ObjectId | number; [k: string]: unknown }>('orders');
+    // Raw BSON bytes: "restored exactly" means the same bytes, not a
+    // document that merely compares equal after type promotion.
+    const rawDoc = async (id: ObjectId) =>
+      (await orders().findOne({ _id: id }, { raw: true })) as unknown as Uint8Array;
+
+    async function undo(entryId: string): Promise<Envelope<UndoResult>> {
+      return shim.invoke<UndoResult>(IPC_CHANNELS.auditUndo, { entryId });
+    }
+
+    async function undoError(entryId: string): Promise<string> {
+      const env = await undo(entryId);
+      if (env.ok) throw new Error('expected audit:undo to fail');
+      return env.error.code;
+    }
+
+    async function updateOne(id: unknown, set: Record<string, unknown>) {
+      return ok<{ matchedCount: number; auditId?: string }>(IPC_CHANNELS.docUpdateOne, {
+        ...target('orders'),
+        filterJson: JSON.stringify({ _id: id }),
+        updateJson: JSON.stringify({ $set: set }),
+      });
+    }
+
+    // Every BSON type the default driver promotion would silently change on
+    // a read-then-reinsert: Double → Int32, Long → number, regex flags.
+    const typed = () => ({
+      _id: new ObjectId(),
+      dbl: new Double(5),
+      int: new Int32(7),
+      long: Long.fromString('9007199254740993'),
+      dec: Decimal128.fromString('1.10'),
+      at: new Date('2026-01-02T03:04:05.678Z'),
+      re: new BSONRegExp('^a', 'imx'),
+      bin: new Binary(Buffer.from('xyz'), 0x80),
+      uuid: new Binary(Buffer.alloc(16, 7), Binary.SUBTYPE_UUID),
+      nested: { b: 2, a: [1, 'two', { c: null }] },
+    });
+
+    it('undoes a deleteOne by putting the exact document back', async () => {
+      const doc = typed();
+      await orders().insertOne(doc);
+      const before = await rawDoc(doc._id);
+
+      const deleted = await ok<{ deletedCount: number; auditId?: string }>(IPC_CHANNELS.docDeleteOne, {
+        ...target('orders'),
+        filterJson: JSON.stringify({ _id: { $oid: doc._id.toHexString() } }),
+      });
+      expect(deleted.deletedCount).toBe(1);
+      expect(typeof deleted.auditId).toBe('string');
+      expect(await orders().countDocuments()).toBe(0);
+
+      const rowsBefore = rowCount();
+      expect(await undo(deleted.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 0 } });
+      expect(Buffer.compare(await rawDoc(doc._id), before)).toBe(0);
+      // The Undo is not an Operation of its own.
+      expect(rowCount()).toBe(rowsBefore);
+      const [entry] = await list();
+      expect(entry).toMatchObject({ id: deleted.auditId, reversible: false });
+      expect(Number.isNaN(Date.parse(entry!.undoneAt ?? ''))).toBe(false);
+    });
+
+    it('undoes an updateOne back to its Pre-image exactly', async () => {
+      const doc = typed();
+      await orders().insertOne(doc);
+      const before = await rawDoc(doc._id);
+
+      const res = await ok<{ matchedCount: number; auditId?: string }>(IPC_CHANNELS.docUpdateOne, {
+        ...target('orders'),
+        filterJson: JSON.stringify({ _id: { $oid: doc._id.toHexString() } }),
+        updateJson: '{"$set":{"dbl":"changed"},"$unset":{"re":""}}',
+      });
+      expect(res.matchedCount).toBe(1);
+
+      expect((await undo(res.auditId!)).ok).toBe(true);
+      expect(Buffer.compare(await rawDoc(doc._id), before)).toBe(0);
+    });
+
+    it('refuses to undo an update once the document changed again, and unwinds in reverse order', async () => {
+      await orders().insertOne({ _id: 1, v: 0 });
+      const first = await updateOne(1, { v: 1 });
+      const second = await updateOne(1, { v: 2 });
+
+      expect(await undoError(first.auditId!)).toBe('AUDIT_TARGET_CHANGED');
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 2 });
+      const [, firstEntry] = await list();
+      expect(firstEntry).toMatchObject({ id: first.auditId, reversible: true });
+      expect(firstEntry!.undoneAt).toBeUndefined();
+
+      expect((await undo(second.auditId!)).ok).toBe(true);
+      expect((await undo(first.auditId!)).ok).toBe(true);
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 0 });
+    });
+
+    it('refuses to undo an update whose document was deleted since', async () => {
+      await orders().insertOne({ _id: 1, v: 0 });
+      const res = await updateOne(1, { v: 1 });
+      await orders().deleteOne({ _id: 1 });
+
+      expect(await undoError(res.auditId!)).toBe('AUDIT_TARGET_CHANGED');
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
+    it('refuses a second undo of the same entry without writing again', async () => {
+      await orders().insertOne({ _id: 1, v: 0 });
+      const res = await updateOne(1, { v: 1 });
+      expect((await undo(res.auditId!)).ok).toBe(true);
+      const replace = vi.spyOn(Collection.prototype, 'replaceOne');
+
+      expect(await undoError(res.auditId!)).toBe('AUDIT_ALREADY_UNDONE');
+      expect(replace).not.toHaveBeenCalled();
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 0 });
+    });
+
+    it('refuses to undo an Operation that kept no Pre-image', async () => {
+      await orders().insertOne({ _id: 1 });
+      await ok(IPC_CHANNELS.collectionDrop, target('orders'));
+      const [entry] = await list();
+
+      expect(entry!.op).toBe('collectionDrop');
+      expect(await undoError(entry!.id)).toBe('AUDIT_NOT_REVERSIBLE');
+    });
+
+    it('refuses to undo once the sweep has dropped the Pre-image', async () => {
+      await orders().insertOne({ _id: 1 });
+      const res = await ok<{ auditId?: string }>(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":1}' });
+      tmp.db
+        .prepare('UPDATE audit_log SET ran_at = ? WHERE id = ?')
+        .run(new Date(Date.now() - 8 * 86_400_000).toISOString(), res.auditId);
+      expect(auditRepo.expirePreImages(7, 200)).toBe(1);
+
+      expect(await undoError(res.auditId!)).toBe('AUDIT_UNDO_EXPIRED');
+      expect(await orders().countDocuments()).toBe(0);
+      expect((await list())[0]!.reversible).toBe(false);
+    });
+
+    it('surfaces CONFLICT when the deleted _id exists again', async () => {
+      await orders().insertOne({ _id: 1, v: 'old' });
+      const res = await ok<{ auditId?: string }>(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":1}' });
+      await orders().insertOne({ _id: 1, v: 'new' });
+
+      expect(await undoError(res.auditId!)).toBe('CONFLICT');
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 'new' });
+      expect((await list())[0]!.undoneAt).toBeUndefined();
+    });
+
+    it('refuses on a Connection that is read-only now', async () => {
+      auditRepo.insert(
+        {
+          id: 'ro-entry',
+          connection_id: 'c-ro',
+          db_name: dbName,
+          collection: 'orders',
+          op: 'deleteOne',
+          summary_json: '{"op":"deleteOne","filter":"{}"}',
+          outcome: 'ok',
+          error_code: null,
+          ran_at: new Date().toISOString(),
+          duration_ms: 1,
+          reversible: 1,
+          undone_at: null,
+        },
+        '{"preImage":{"_id":1}}',
+      );
+
+      expect(await undoError('ro-entry')).toBe('READ_ONLY');
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
+    it('answers NOT_FOUND for an unknown entry', async () => {
+      expect(await undoError('no-such-entry')).toBe('NOT_FOUND');
+    });
+
+    /**
+     * Runs `write` from another client right after the next call to `method`
+     * returns — the gap between two steps of a capture.
+     */
+    function interleaveAfter(method: 'findOne' | 'findOneAndUpdate', write: () => Promise<unknown>) {
+      const original = Collection.prototype[method] as (...args: unknown[]) => Promise<unknown>;
+      vi.spyOn(Collection.prototype, method).mockImplementationOnce(async function (
+        this: Collection,
+        ...args: unknown[]
+      ) {
+        const result = await original.apply(this, args);
+        await write();
+        return result;
+      } as never);
+    }
+
+    it('a write from another client right after the update is not overwritten by Undo', async () => {
+      await orders().insertOne({ _id: 1, v: 0, other: 'a' });
+      interleaveAfter('findOneAndUpdate', () => orders().updateOne({ _id: 1 }, { $set: { other: 'theirs' } }));
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(await undoError(res.auditId!)).toBe('AUDIT_TARGET_CHANGED');
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1, other: 'theirs' });
+    });
+
+    it('a write from another client between the Pre-image read and the update costs the Undo, not the update', async () => {
+      await orders().insertOne({ _id: 1, v: 0, other: 'a' });
+      interleaveAfter('findOne', () => orders().updateOne({ _id: 1 }, { $set: { other: 'theirs' } }));
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toEqual({ matchedCount: 1, modifiedCount: 1 });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1, other: 'theirs' });
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+    });
+
+    it('an update that changes nothing reports modified 0 and still undoes cleanly', async () => {
+      await orders().insertOne({ _id: 1, v: 1 });
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toMatchObject({ matchedCount: 1, modifiedCount: 0 });
+      expect((await undo(res.auditId!)).ok).toBe(true);
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1 });
+    });
+
+    it('a Pre-image too large to pin the write to still updates, offering no Undo', async () => {
+      await orders().insertOne({ _id: 1, v: 0, blob: 'x'.repeat(5 * 1024 * 1024) });
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toEqual({ matchedCount: 1, modifiedCount: 1 });
+      expect((await orders().findOne({ _id: 1 }, { projection: { v: 1 } }))).toEqual({ _id: 1, v: 1 });
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+    });
+
+    it('a failed Pre-image read still runs the update, offering no Undo', async () => {
+      await orders().insertOne({ _id: 1, v: 0 });
+      vi.spyOn(Collection.prototype, 'findOne').mockRejectedValueOnce(new Error('read refused'));
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toEqual({ matchedCount: 1, modifiedCount: 1 });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1 });
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+      expect(logSpy.warn).toHaveBeenCalledWith('audit.capture', expect.any(String), { message: 'read refused' });
+    });
+
+    it('offers no Undo for a document whose Pre-image would not read back, and still deletes it', async () => {
+      // A UUID-subtype Binary must be 16 bytes; the server stores a short one,
+      // but the EJSON reviver refuses it, so an Undo could only ever fail.
+      await orders().insertOne({ _id: 1, bad: new Binary(Buffer.from('xyz'), Binary.SUBTYPE_UUID) });
+
+      const res = await ok<{ deletedCount: number; auditId?: string }>(IPC_CHANNELS.docDeleteOne, {
+        ...target('orders'),
+        filterJson: '{"_id":1}',
+      });
+
+      expect(res).toEqual({ deletedCount: 1 });
+      expect(await orders().countDocuments()).toBe(0);
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+      expect(logSpy.warn).toHaveBeenCalledWith('audit.capture', expect.any(String), expect.anything());
+    });
+
+    it('offers no Undo for an update or delete that matched nothing', async () => {
+      const upd = await updateOne('missing', { v: 1 });
+      const del = await ok<{ deletedCount: number }>(IPC_CHANNELS.docDeleteOne, {
+        ...target('orders'),
+        filterJson: '{"_id":"missing"}',
+      });
+
+      expect(upd).toEqual({ matchedCount: 0, modifiedCount: 0 });
+      expect(del).toEqual({ deletedCount: 0 });
+      expect((await list()).map((e) => e.reversible)).toEqual([false, false]);
     });
   });
 });

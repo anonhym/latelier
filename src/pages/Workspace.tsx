@@ -27,6 +27,7 @@ import type { RunnerTarget } from './Workspace/useQueryRunner';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useConnectionDialogs } from './Workspace/useConnectionDialogs';
 import { useDocumentDialogs } from './Workspace/useDocumentDialogs';
+import { offerUndo } from './Workspace/offerUndo';
 import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
 import { ShellSection } from './Workspace/ShellSection';
@@ -383,14 +384,20 @@ function WorkspaceInner() {
           filterJson,
           updateJson,
         })
-        .then(() => {
+        .then(({ auditId }) => {
           void run();
+          // The tab edited, not whichever has focus when Undo is clicked.
+          const tabId = a.id;
+          offerUndo('Field updated', auditId, () => {
+            const target = resolveRunnerTarget(tabId);
+            if (target) void run(undefined, target);
+          });
         })
         .catch((e: unknown) => {
           notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });
         });
     },
-    [activeCollectionRef, run],
+    [activeCollectionRef, resolveRunnerTarget, run],
   );
   const workspaceActions = React.useMemo<CollectionWorkspaceActions>(
     () => ({

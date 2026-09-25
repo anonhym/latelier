@@ -295,4 +295,25 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
       true,
     );
   });
+
+describe('DeleteConfirm — Undo hand-off', () => {
+  it('passes the Reversible entry id of a single-document delete to onDeleted', async () => {
+    installAtelierMock({ doc: { deleteOne: async () => ({ deletedCount: 1, auditId: 'a1' }) } });
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1' }]}
+        onClose={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('a1'));
+  });
+});
 });

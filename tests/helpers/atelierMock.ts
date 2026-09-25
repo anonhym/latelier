@@ -116,6 +116,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     audit: {
       list: async () => [],
+      undo: unused('audit.undo') as IpcApi['audit']['undo'],
     },
     recent: {
       list: async () => [],
@@ -409,6 +410,7 @@ function makePermissiveStub(): IpcApi {
     },
     audit: {
       list: async () => [],
+      undo: noopAsync as IpcApi['audit']['undo'],
     },
     recent: {
       list: async () => [],

@@ -41,6 +41,7 @@ const WRITE_CHANNELS = new Set<string>([
   IPC_CHANNELS.mshellStart,
   IPC_CHANNELS.mshellWrite,
   IPC_CHANNELS.scriptRun,
+  IPC_CHANNELS.auditUndo,
 ]);
 
 const READ_CHANNELS = new Set<string>([
@@ -141,17 +142,20 @@ describe('read-only guard — IPC channel classification is exhaustive', () => {
 
   it('every write channel name actually looks write-shaped', () => {
     const writeVerb = /insert|update|replace|delete|drop|create|rename|runAndSave|write/i;
-    // These three don't carry a write verb in their name because they're not
+    // These don't carry a write verb in their name because they're not
     // unconditional writes: agg:run is conditional on pipeline content
     // (guarded inline via isWriteStage), and mshell:start/script:run are the
     // session-start channels for panes that hand sandboxed code a raw driver
     // handle (guarded via wholesale refusal / dbProxy allowlist — ADR 0005).
     // Any OTHER non-verb-named addition here is exactly the silent-drift case
     // this test exists to catch — don't add to this list without a reason.
+    // audit:undo writes whatever puts an Operation back (an insert or a
+    // replace), and takes its grant from MongoPool.write like any write.
     const namedExemptions = new Set<string>([
       IPC_CHANNELS.aggRun,
       IPC_CHANNELS.mshellStart,
       IPC_CHANNELS.scriptRun,
+      IPC_CHANNELS.auditUndo,
     ]);
     const nonVerbLike = [...WRITE_CHANNELS].filter(
       (ch) => !writeVerb.test(ch) && !namedExemptions.has(ch),
