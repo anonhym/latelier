@@ -4,6 +4,7 @@ import type { DataImportProgressEvent, ImportReport } from '@shared/types';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
+import { offerUndo } from './offerUndo';
 
 interface ImportDialogProps {
   connectionId: string;
@@ -64,6 +65,11 @@ export function ImportDialog({
       const result = await api.data.import({ connectionId, dbName, collection, path, cancelToken });
       setReport(result);
       onImported(result);
+      // No toast when nothing landed — `result.auditId` is only set when
+      // something did (offerUndo no-ops on undefined either way).
+      offerUndo(`${plural(result.inserted, 'document')} imported from ${result.fileName}`, result.auditId, () =>
+        onImported(result),
+      );
     } catch (err) {
       setError(getErrorMessage(err, 'Import failed'));
     } finally {

@@ -3,16 +3,17 @@
 // internal slot components. The react-refresh rule wants one component per
 // file, but co-locating the slots is the whole point — and they're not
 // addressed as top-level exports, only via the namespace.
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { TreeView } from './views/TreeView';
 import { JsonView } from './views/JsonView';
 import { TableView } from './views/TableView';
 import { ResultBar } from './ResultBar';
 import { ResultSelectionProvider } from './ResultSelectionProvider';
 import { SelectionActionBar } from './SelectionActionBar';
+import { ImportDialog } from './ImportDialog';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
-import { findProblem } from './builder';
+import { findProblem, isUnfilteredFirstPage } from './builder';
 import type { ReferenceRule } from '@shared/types';
 
 /**
@@ -146,7 +147,22 @@ function Body({
   );
 }
 
+const LINK_BUTTON_STYLE = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--atelier-accent)',
+  fontSize: 12,
+  textDecoration: 'underline',
+} as const;
+
 function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+  const { state, meta, actions } = useCollectionWorkspace();
+  const [importOpen, setImportOpen] = useState(false);
+  // No filter, first page, no error: the collection itself is empty, not
+  // just this query's match — a different message and CTA than "no match".
+  const isEmptyCollection = isUnfilteredFirstPage(state);
+
   return (
     <div
       style={{
@@ -160,20 +176,32 @@ function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
         gap: 8,
       }}
     >
-      <span>No matching documents</span>
-      <button
-        onClick={onClearFilter}
-        style={{
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'var(--atelier-accent)',
-          fontSize: 12,
-          textDecoration: 'underline',
-        }}
-      >
-        Clear filter
-      </button>
+      {isEmptyCollection ? (
+        <>
+          <span>This collection is empty</span>
+          {!meta.isReadOnly && (
+            <button onClick={() => setImportOpen(true)} style={LINK_BUTTON_STYLE}>
+              Import documents…
+            </button>
+          )}
+          {importOpen && (
+            <ImportDialog
+              connectionId={meta.connectionId}
+              dbName={meta.dbName}
+              collection={meta.collection}
+              onClose={() => setImportOpen(false)}
+              onImported={() => actions.run()}
+            />
+          )}
+        </>
+      ) : (
+        <>
+          <span>No matching documents</span>
+          <button onClick={onClearFilter} style={LINK_BUTTON_STYLE}>
+            Clear filter
+          </button>
+        </>
+      )}
     </div>
   );
 }

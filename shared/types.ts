@@ -303,6 +303,8 @@ export interface ImportReport {
   errorsTruncated: boolean;
   /** Cancel was requested and the import stopped after its current batch. */
   cancelled: boolean;
+  /** Present only when the import was recorded Reversible (≤10,000 landed), for Undo. */
+  auditId?: string;
 }
 
 /** Pushed once per batch while `data:import` runs. */

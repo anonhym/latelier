@@ -8,14 +8,16 @@ import { MongoClient } from 'mongodb';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { createRouter } from '../../electron/ipc/router';
 import { registerDataChannels } from '../../electron/ipc/handlers/data';
+import { registerAuditChannels } from '../../electron/ipc/handlers/audit';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { ImportService } from '../../electron/mongo/ImportService';
+import { importDigest } from '../../electron/mongo/undo';
 import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
 import { AuditService } from '../../electron/services/AuditService';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import type { Logger } from '../../electron/log';
 import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
-import type { AuditEntry, ImportReport } from '../../shared/types';
+import type { AuditEntry, ImportReport, UndoResult } from '../../shared/types';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
@@ -34,10 +36,14 @@ describe('data:import via the router', () => {
   let pool: MongoPool;
   let dir: string;
   let dbName: string;
+  let auditRepo: AuditRepo;
   const handlers = new Map<string, Handler>();
 
   const invoke = async <T,>(payload: unknown): Promise<Envelope<T>> =>
     (await handlers.get(IPC_CHANNELS.dataImport)!(invokeEvent, payload)) as Envelope<T>;
+
+  const invokeUndo = async (entryId: string): Promise<Envelope<UndoResult>> =>
+    (await handlers.get(IPC_CHANNELS.auditUndo)!(invokeEvent, { entryId })) as Envelope<UndoResult>;
 
   const rows = (): AuditEntry[] =>
     (tmp.db.prepare('SELECT * FROM audit_log').all() as Record<string, unknown>[]).map((r) => ({
@@ -74,7 +80,8 @@ describe('data:import via the router', () => {
       vault: new SecretsVault(tmp.db, createSafeStorageMock()),
     });
     const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    const auditSvc = new AuditService(new AuditRepo(tmp.db), pool, log);
+    auditRepo = new AuditRepo(tmp.db);
+    const auditSvc = new AuditService(auditRepo, pool, log);
     handlers.clear();
     const router = createRouter(
       { handle: (channel: string, fn: Handler) => void handlers.set(channel, fn) },
@@ -83,6 +90,7 @@ describe('data:import via the router', () => {
       auditSvc,
     );
     registerDataChannels(router, new ImportService(pool));
+    registerAuditChannels(router, auditSvc);
     dbName = `data_${randomUUID().slice(0, 8)}`;
     await client.db(dbName).createCollection('people');
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'latelier-data-'));
@@ -103,10 +111,11 @@ describe('data:import via the router', () => {
 
   const target = () => ({ connectionId: 'c1', dbName, collection: 'people' });
 
-  it('records one ok row per clean import, naming the file but not its directory or contents', async () => {
+  it('records one ok row per clean import, naming the file but not its directory or contents, and offers Undo', async () => {
     const p = await file('clean.jsonl', `{"_id":1,"s":"${BODY_MARKER}"}\n{"_id":2}\n`);
     const env = await invoke<ImportReport>({ ...target(), path: p });
     expect(env).toMatchObject({ ok: true, data: { inserted: 2, failed: 0 } });
+    expect(env.ok && env.data.auditId).toBeTruthy();
     const [row, ...rest] = rows();
     expect(rest).toEqual([]);
     expect(row).toMatchObject({
@@ -114,7 +123,7 @@ describe('data:import via the router', () => {
       outcome: 'ok',
       errorCode: null,
       collection: 'people',
-      reversible: false,
+      reversible: true,
       summary: { op: 'import', fileName: 'clean.jsonl', format: 'jsonl', insertedCount: 2, failedCount: 0 },
     });
     const raw = (row as unknown as { raw: string }).raw;
@@ -180,7 +189,81 @@ describe('data:import via the router', () => {
     )) as Envelope<ImportReport>;
     expect(env).toMatchObject({ ok: true, data: { inserted: 5, cancelled: true } });
     const [row] = tmp.db.prepare('SELECT * FROM audit_log').all() as Record<string, unknown>[];
-    expect(row).toMatchObject({ outcome: 'partial' });
+    expect(row).toMatchObject({ outcome: 'partial', reversible: 1 });
     expect(JSON.parse(row!.summary_json as string)).toMatchObject({ cancelled: true, insertedCount: 5 });
+  });
+
+  describe('undo', () => {
+    async function importAuditId(fileName: string, content: string): Promise<string> {
+      const env = await invoke<ImportReport>({ ...target(), path: await file(fileName, content) });
+      if (!env.ok) throw new Error(`import failed: ${JSON.stringify(env.error)}`);
+      return env.data.auditId!;
+    }
+
+    it('restores landed documents that are still unchanged, and skips one edited since', async () => {
+      const auditId = await importAuditId('three.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n');
+      await client.db(dbName).collection('people').updateOne({ _id: 2 } as never, { $set: { edited: true } });
+
+      const env = await invokeUndo(auditId);
+      expect(env).toMatchObject({ ok: true, data: { restored: 2, skipped: 1 } });
+      const remaining = await client.db(dbName).collection('people').find().sort({ _id: 1 }).toArray();
+      expect(remaining).toEqual([{ _id: 2, edited: true }]);
+    });
+
+    it('is not offered above the capture ceiling — reversible is false and there is no auditId to undo', async () => {
+      const localHandlers = new Map<string, Handler>();
+      const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const auditSvc = new AuditService(new AuditRepo(tmp.db), pool, log);
+      const router = createRouter(
+        { handle: (channel: string, fn: Handler) => void localHandlers.set(channel, fn) },
+        testSenderCheck,
+        log,
+        auditSvc,
+      );
+      registerDataChannels(router, new ImportService(pool, { maxUndoCaptureDocs: 2 }));
+      const p = await file('over-ceiling.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n');
+      const env = (await localHandlers.get(IPC_CHANNELS.dataImport)!(
+        invokeEvent,
+        { ...target(), path: p },
+      )) as Envelope<ImportReport>;
+      expect(env).toMatchObject({ ok: true, data: { inserted: 3 } });
+      expect(env.ok && env.data.auditId).toBeUndefined();
+      expect(rows()).toMatchObject([{ reversible: false }]);
+    });
+
+    it('refuses a second Undo of the same import', async () => {
+      const auditId = await importAuditId('again.jsonl', '{"_id":1}\n');
+      expect(await invokeUndo(auditId)).toMatchObject({ ok: true, data: { restored: 1, skipped: 0 } });
+      expect(await invokeUndo(auditId)).toMatchObject({ ok: false, error: { code: 'AUDIT_ALREADY_UNDONE' } });
+    });
+
+    it('refuses to undo an import whose connection is read-only', async () => {
+      // `c-ro` targets the same server as `c1` but is flagged read-only in the
+      // pool, the same way `audit-handlers.spec.ts` covers this refusal: a
+      // synthetic row, since a real import through `c-ro` would itself be
+      // refused before ever landing anything to undo.
+      const doc = { _id: 1 };
+      await client.db(dbName).collection('people').insertOne(doc as never);
+      auditRepo.insert(
+        {
+          id: 'ro-import',
+          connection_id: 'c-ro',
+          db_name: dbName,
+          collection: 'people',
+          op: 'import',
+          summary_json: '{"op":"import","fileName":"ro.jsonl"}',
+          outcome: 'ok',
+          error_code: null,
+          ran_at: new Date().toISOString(),
+          duration_ms: 1,
+          reversible: 1,
+          undone_at: null,
+        },
+        JSON.stringify({ importedIds: [1], digests: [importDigest(doc)] }),
+      );
+
+      expect(await invokeUndo('ro-import')).toMatchObject({ ok: false, error: { code: 'READ_ONLY' } });
+      expect(await client.db(dbName).collection('people').countDocuments()).toBe(1);
+    });
   });
 });

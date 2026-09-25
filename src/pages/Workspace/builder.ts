@@ -273,6 +273,18 @@ export function currentFilterJson(state: CollectionTabState): string | null {
 }
 
 /**
+ * True when an empty result is because the collection itself is empty
+ * rather than because the committed filter matched nothing: no filter, on
+ * the first page, and the run didn't error. `ResultViewer`'s `EmptyState`
+ * uses this to decide between "This collection is empty" (with an Import
+ * CTA) and "No matching documents".
+ */
+export function isUnfilteredFirstPage(state: CollectionTabState): boolean {
+  const filter = state.queryRaw.trim();
+  return (filter === '' || filter === '{}') && state.page === 0 && !state.lastRun?.error;
+}
+
+/**
  * `{ skip, limit }` for one page, treating `userLimit` as a hard cap across
  * pages. Past the cap `limit` is `0` — callers MUST short-circuit rather than
  * send that to Mongo, which reads `limit: 0` as unlimited.
