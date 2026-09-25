@@ -3,6 +3,7 @@ import {
   render,
   screen,
   fireEvent,
+  within,
   act,
   emptyWorkspaceActions,
   emptyWorkspaceMeta,
@@ -340,6 +341,69 @@ describe('TreeView — rendering and interaction', () => {
       );
       expect(outlined).toHaveLength(1);
       expect(outlined[0].id).toBe('tree-row-0');
+    });
+  });
+
+  // Edit/Delete already had their own visible per-row buttons here; this
+  // adds a "More actions" button for parity with Table's context menu
+  // (Duplicate), opening the same shared menu content.
+  describe('"More actions" per-row menu', () => {
+    it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+      const openDuplicate = vi.fn();
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole } = renderTree(docs, { actions: { openDuplicate } });
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      const menu = getByRole('group', { name: 'Document actions' });
+      fireEvent.click(within(menu).getByText('Duplicate document'));
+
+      expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
+    });
+
+    it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole, queryByText } = renderTree(docs);
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(queryByText('Duplicate document')).toBeNull();
+    });
+
+    it('does not expand or collapse the row it belongs to', () => {
+      const onRowExpand = vi.fn();
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole } = renderTree(docs, { onRowExpand });
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(onRowExpand).not.toHaveBeenCalled();
+    });
+
+    it('closes the field-level menu when the doc menu opens, and vice versa', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole, queryByRole } = renderTree(docs, {
+        expanded: { '507f1f77bcf86cd799439011': true },
+      });
+
+      // Right-click the expanded 'name' field row to open the field-level
+      // menu. Field rows are identified by a stable `field-row-<docId>::<path>`
+      // id, since the doc summary row's own accessible name also contains
+      // "name" (it previews the field's value).
+      const nameFieldRow = document.getElementById(
+        'field-row-507f1f77bcf86cd799439011::name',
+      )!;
+      fireEvent.contextMenu(nameFieldRow);
+      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+
+      // Opening the doc-level "More actions" menu must close the field menu —
+      // both are dismissed only by useMenuFocus's window click listener, and
+      // this button stops propagation, so it never fires for the other menu.
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(queryByRole('group', { name: 'Field actions' })).toBeNull();
+      expect(getByRole('group', { name: 'Document actions' })).toBeTruthy();
+
+      // And the reverse: opening a field menu closes the doc menu.
+      fireEvent.contextMenu(nameFieldRow);
+      expect(queryByRole('group', { name: 'Document actions' })).toBeNull();
+      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
     });
   });
 });
