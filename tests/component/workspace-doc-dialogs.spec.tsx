@@ -81,21 +81,30 @@ describe('workspace doc dialogs (T2)', () => {
   // number. This drives the real toolbar Insert flow end to end and checks
   // the header text, not just that a refresh function was called.
   it('a completed insert bumps the header doc count', async () => {
-    let call = 0;
-    const listCollections = vi.fn(async () => {
-      call += 1;
-      return [
-        {
-          name: 'orders',
-          type: 'collection' as const,
-          documentCount: call === 1 ? 1 : 2,
-          sizeBytes: 0,
-          indexCount: 1,
-          capped: false,
-        },
-      ];
+    // Stateful, not call-order-based: `documentCount` reflects the real
+    // count, bumped only by a completed insert. A call-order mock (1st call
+    // -> 1, every call after -> 2) can't tell an insert-triggered refetch
+    // apart from the unrelated one-time prefs-ready remount (see
+    // CollectionHeader's refreshSignal effect) — if that remount's own
+    // refetch happens to land before the insert, it alone would already
+    // paint "2 docs", and the test would pass even with no insert-triggered
+    // refetch at all. Deriving the count from actual insert calls makes any
+    // refetch before the insert honestly return 1.
+    let docCount = 1;
+    const listCollections = vi.fn(async () => [
+      {
+        name: 'orders',
+        type: 'collection' as const,
+        documentCount: docCount,
+        sizeBytes: 0,
+        indexCount: 1,
+        capped: false,
+      },
+    ]);
+    const insert = vi.fn(async () => {
+      docCount += 1;
+      return { insertedId: 'x' };
     });
-    const insert = vi.fn().mockResolvedValue({ insertedId: 'x' });
     mount({ meta: { listCollections }, doc: { insert } });
 
     // Matched by its own textContent ("N docs · 1 indexes") rather than a
