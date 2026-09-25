@@ -211,8 +211,9 @@ describe('audit log via the router', () => {
     expect(entries.map((e) => e.collection)).toEqual([
       'orders', 'orders', 'orders', 'orders', 'orders', 'scratch', 'scratch2', null,
     ]);
-    // Only the single-document writes keep a Pre-image.
-    expect(entries.map((e) => e.reversible)).toEqual([false, true, false, true, false, false, false, false]);
+    // Every write op keeps a Pre-image under X13's bounds; the two drops
+    // never capture one.
+    expect(entries.map((e) => e.reversible)).toEqual([true, true, true, true, true, true, false, false]);
     for (const e of entries) {
       expect(e).toMatchObject({ connectionId: 'c1', dbName, outcome: 'ok' });
       expect(e.errorCode).toBeUndefined();
@@ -669,6 +670,143 @@ describe('audit log via the router', () => {
       expect(upd).toEqual({ matchedCount: 0, modifiedCount: 0 });
       expect(del).toEqual({ deletedCount: 0 });
       expect((await list()).map((e) => e.reversible)).toEqual([false, false]);
+    });
+
+    async function deleteManyAll(): Promise<{ deletedCount: number; auditId?: string }> {
+      const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmDeleteMany, {
+        ...target('orders'),
+        filterJson: '{}',
+      });
+      return ok(IPC_CHANNELS.docDeleteMany, { ...target('orders'), filterJson: '{}', confirmToken });
+    }
+
+    it('deleteMany matching 1001 documents deletes all of them and keeps no Pre-image', async () => {
+      await orders().insertMany(Array.from({ length: 1001 }, (_, i) => ({ _id: i })));
+
+      const res = await deleteManyAll();
+      expect(res.deletedCount).toBe(1001);
+      expect(res.auditId).toBeUndefined();
+      expect(await orders().countDocuments()).toBe(0);
+      expect((await list())[0]).toMatchObject({ op: 'deleteMany', reversible: false });
+    });
+
+    it('deleteMany over the byte ceiling still deletes and keeps no Pre-image', async () => {
+      await orders().insertMany(
+        Array.from({ length: 20 }, (_, i) => ({ _id: i, blob: 'x'.repeat(100_000) })),
+      );
+
+      const res = await deleteManyAll();
+      expect(res.deletedCount).toBe(20);
+      expect(res.auditId).toBeUndefined();
+      expect((await list())[0]).toMatchObject({ op: 'deleteMany', reversible: false });
+    });
+
+    it('deleteMany under both ceilings undoes to the original document set, byte-identically', async () => {
+      const docs = [typed(), typed(), typed()];
+      await orders().insertMany(docs);
+      const before = await Promise.all(docs.map((d) => rawDoc(d._id)));
+
+      const res = await deleteManyAll();
+      expect(res.deletedCount).toBe(3);
+      expect(typeof res.auditId).toBe('string');
+      expect(await orders().countDocuments()).toBe(0);
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 3, skipped: 0 } });
+      const after = await Promise.all(docs.map((d) => rawDoc(d._id)));
+      for (let i = 0; i < docs.length; i++) expect(Buffer.compare(after[i]!, before[i]!)).toBe(0);
+    });
+
+    it('deleteMany undo restores the rest and skips a document whose _id exists again', async () => {
+      await orders().insertMany([{ _id: 1 }, { _id: 2 }, { _id: 3 }]);
+      const res = await deleteManyAll();
+      await orders().insertOne({ _id: 2, v: 'recreated' });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 1 } });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1 });
+      expect(await orders().findOne({ _id: 3 })).toEqual({ _id: 3 });
+      expect(await orders().findOne({ _id: 2 })).toEqual({ _id: 2, v: 'recreated' });
+    });
+
+    it('insertMany undo deletes exactly the inserted ids, leaving a similar pre-existing document', async () => {
+      await orders().insertOne({ _id: 0, note: 'pre-existing' });
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ _id: 1 }, { _id: 2 }]),
+      });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 0 } });
+      expect(await orders().countDocuments()).toBe(1);
+      expect(await orders().findOne({ _id: 0 })).toEqual({ _id: 0, note: 'pre-existing' });
+    });
+
+    it('insertMany undo skips ids already removed since', async () => {
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ _id: 1 }, { _id: 2 }]),
+      });
+      await orders().deleteOne({ _id: 1 });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 1 } });
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
+    async function confirmedUpdateMany(filterJson: string, updateJson: string) {
+      const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmUpdateMany, {
+        ...target('orders'),
+        filterJson,
+        updateJson,
+      });
+      return ok<{ matchedCount: number; auditId?: string }>(IPC_CHANNELS.docUpdateMany, {
+        ...target('orders'),
+        filterJson,
+        updateJson,
+        confirmToken,
+      });
+    }
+
+    it('updateMany undoes every matched document back to its Pre-image', async () => {
+      await orders().insertMany([{ _id: 1, v: 0 }, { _id: 2, v: 0 }]);
+      const res = await confirmedUpdateMany('{}', '{"$set":{"v":1}}');
+      expect(res.matchedCount).toBe(2);
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 0 } });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 0 });
+      expect(await orders().findOne({ _id: 2 })).toEqual({ _id: 2, v: 0 });
+    });
+
+    it('updateMany undo skips a document changed again, restores the rest', async () => {
+      await orders().insertMany([{ _id: 1, v: 0 }, { _id: 2, v: 0 }]);
+      const res = await confirmedUpdateMany('{}', '{"$set":{"v":1}}');
+      await updateOne(2, { v: 2 });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 1 } });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 0 });
+      expect(await orders().findOne({ _id: 2 })).toEqual({ _id: 2, v: 2 });
+    });
+
+    it('collectionRename undo restores the original name', async () => {
+      await client.db(dbName).collection('renameme').insertOne({ a: 1 });
+      const res = await ok<{ name: string; auditId?: string }>(IPC_CHANNELS.collectionRename, {
+        ...target('renameme'),
+        newName: 'renamed',
+      });
+      expect(typeof res.auditId).toBe('string');
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 0 } });
+      const names = (await client.db(dbName).listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
+      expect(names).toContain('renameme');
+      expect(names).not.toContain('renamed');
+    });
+
+    it('collectionRename undo surfaces the driver error when a collection already holds the old name', async () => {
+      await client.db(dbName).collection('renameme').insertOne({ a: 1 });
+      const res = await ok<{ name: string; auditId?: string }>(IPC_CHANNELS.collectionRename, {
+        ...target('renameme'),
+        newName: 'renamed',
+      });
+      await client.db(dbName).createCollection('renameme');
+
+      expect(await undoError(res.auditId!)).toBe('CONFLICT');
     });
   });
 });

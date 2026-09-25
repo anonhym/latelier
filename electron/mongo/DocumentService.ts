@@ -5,7 +5,7 @@ import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
 import type { Logger } from '../log.ts';
-import { EXACT_BSON, attachUndo } from './undo.ts';
+import { EXACT_BSON, attachUndo, boundedCapture, MAX_BULK_CAPTURE_DOCS } from './undo.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
 const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -199,10 +199,11 @@ export class DocumentService {
       const result = await db
         .collection(input.collection)
         .insertMany(docs as Record<string, unknown>[], { ordered: true, maxTimeMS: QUERY_TIMEOUT_MS });
-      return {
-        insertedCount: result.insertedCount,
-        insertedIds: Object.values(result.insertedIds).map((id) => ejsonEncode(id)),
-      };
+      const insertedIds = Object.values(result.insertedIds);
+      return attachUndo(
+        { insertedCount: result.insertedCount, insertedIds: insertedIds.map((id) => ejsonEncode(id)) },
+        { insertedIds },
+      );
     } catch (err) {
       // `ordered:true` stops at the first write error, so a bulk-write
       // failure can still carry a nonzero prefix of documents that landed —
@@ -381,15 +382,24 @@ export class DocumentService {
 
     const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
     const db = await w.db(input.dbName);
+    const coll = db.collection(input.collection);
+    // Pre-image capture, bounded twice (X13 §5). Read-before-write, and a read
+    // that fails or breaches a ceiling costs the Operation its Undo, not its
+    // result (ADR 0002) — the delete below always runs regardless.
+    const preImages = await coll
+      .find(filter, { ...EXACT_BSON, maxTimeMS: PROBE_TIMEOUT_MS })
+      .limit(MAX_BULK_CAPTURE_DOCS + 1)
+      .toArray()
+      .then(boundedCapture)
+      .catch((err: unknown) => this.captureFailed(err));
     try {
       // The admin budget, not the interactive one: this is the confirm-gated
       // bulk delete, the same class of structural operation as dropping a
       // collection. It is also not atomic, so a bound that fires mid-run
       // leaves documents already deleted and reports only a timeout.
-      const result = await db
-        .collection(input.collection)
-        .deleteMany(filter, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
-      return { deletedCount: result.deletedCount };
+      const result = await coll.deleteMany(filter, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
+      const response = { deletedCount: result.deletedCount };
+      return preImages ? attachUndo(response, { preImages }) : response;
     } catch (err) {
       throw classifyMongoOpError(err);
     }
@@ -483,16 +493,40 @@ export class DocumentService {
     assertUpdateOperatorDocument(update, 'updateJson');
 
     const db = await w.db(input.dbName);
+    const coll = db.collection(input.collection);
+    // Same bounded Pre-image capture as deleteMany (X13 §5); a read failure
+    // or a breached ceiling only costs the Undo, never the write.
+    const preImages = await coll
+      .find(filter, { ...EXACT_BSON, maxTimeMS: PROBE_TIMEOUT_MS })
+      .limit(MAX_BULK_CAPTURE_DOCS + 1)
+      .toArray()
+      .then(boundedCapture)
+      .catch((err: unknown) => this.captureFailed(err));
+    let counts: { matchedCount: number; modifiedCount: number };
     try {
       // Same admin budget as deleteMany — the confirm-gated bulk write, not
       // atomic, so a bound firing mid-run leaves some documents already
       // updated.
-      const result = await db
-        .collection(input.collection)
-        .updateMany(filter, update, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
-      return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
+      const result = await coll.updateMany(filter, update, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
+      counts = { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
     } catch (err) {
       throw classifyMongoOpError(err);
     }
+    if (!preImages || preImages.length === 0) return counts;
+    // What the update left behind, so Undo can refuse per-document once
+    // anything changes it again — same check `updateOne` makes (X13 §5, §6).
+    // A read-back that fails, or a document missing from it, drops the whole
+    // capture rather than storing a partial one the ceiling was meant to
+    // prevent.
+    const ids = preImages.map((d) => d._id);
+    const postByFound = await coll
+      .find({ _id: { $in: ids } }, { ...EXACT_BSON, maxTimeMS: PROBE_TIMEOUT_MS })
+      .toArray()
+      .catch((err: unknown) => this.captureFailed(err));
+    if (!postByFound) return counts;
+    const postById = new Map(postByFound.map((d) => [String(d._id), d]));
+    const postImages = preImages.map((d) => postById.get(String(d._id)));
+    if (postImages.some((p) => p === undefined)) return counts;
+    return attachUndo(counts, { preImages, postImages: postImages as Record<string, unknown>[] });
   }
 }

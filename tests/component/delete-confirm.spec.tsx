@@ -267,6 +267,47 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
     expect(deleteMany).not.toHaveBeenCalled();
   });
 
+  it('states the pending delete is within the undo limit at 999 matches', async () => {
+    installAtelierMock({
+      doc: { confirmDeleteMany: async () => ({ count: 999, confirmToken: 'tok-1' }) },
+    });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText(/can be undone/)).toBeTruthy());
+    expect(screen.queryByText(/cannot be undone/)).toBeNull();
+  });
+
+  it('states the pending delete is beyond the undo limit at 1001 matches', async () => {
+    installAtelierMock({
+      doc: { confirmDeleteMany: async () => ({ count: 1001, confirmToken: 'tok-1' }) },
+    });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText(/cannot be undone/)).toBeTruthy());
+  });
+
   it('surfaces a confirmDeleteMany rejection via the alert and leaves Delete disabled', async () => {
     installAtelierMock({
       doc: {

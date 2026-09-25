@@ -2,6 +2,14 @@ import type { UndoResult } from '@shared/types';
 import { getErrorMessage, isIpcError } from '../api/atelier';
 
 /**
+ * X13 §5's bulk Pre-image capture ceiling (`MAX_BULK_CAPTURE_DOCS` in
+ * `electron/mongo/undo.ts`), mirrored here so a confirm dialog can state
+ * whether a pending bulk delete/update is within it without a round trip —
+ * `shared/` is types-only, so the two copies can't share one module.
+ */
+export const AUDIT_UNDO_DOC_LIMIT = 1000;
+
+/**
  * Why an Undo was refused, in words the user can act on. The refusal codes
  * are X13's; each names what happened rather than the code, and a changed
  * target says plainly when there is nothing to unwind from here.

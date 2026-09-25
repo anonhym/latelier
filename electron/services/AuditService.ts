@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Envelope } from '@shared/ipc';
 import type { AuditEntry, AuditListInput, AuditSummary, UndoResult } from '@shared/types';
+import type { Collection, Document } from 'mongodb';
 import type { AuditRepo, AuditRow } from '../db/repositories/AuditRepo.ts';
 import { auditRecordFor } from '../ipc/auditChannels.ts';
-import { NotFoundError, SystemError } from '../errors.ts';
+import { AppError, NotFoundError, SystemError } from '../errors.ts';
 import type { MongoPool } from '../mongo/MongoPool.ts';
 import type { Logger } from '../log.ts';
 import { ejsonParse, ejsonStringify } from '../mongo/ejson.ts';
@@ -104,39 +105,99 @@ export class AuditService {
     assertUndoable(row);
     // Refuses a Connection made read-only since the Operation ran.
     const w = this.pool.write(row.connection_id);
-    const { preImage, postImage } = ejsonParse<UndoCapture>(row.undo_json);
-    const coll = (await w.db(row.db_name)).collection(row.collection!);
-    let matched: number;
+    const capture = ejsonParse<UndoCapture>(row.undo_json);
+    let result: UndoResult;
     try {
-      if (row.op === 'deleteOne') {
-        // A reused `_id` fails on the unique index and surfaces as CONFLICT.
-        await coll.insertOne(preImage, { maxTimeMS: QUERY_TIMEOUT_MS });
-        matched = 1;
-      } else if (row.op === 'updateOne' && postImage) {
-        // The compare-and-set is the write's own filter, so nothing can land
-        // between the check and the replace. `$$ROOT` equality is field-order
-        // and type-bracket exact; only a numerically equal type change
-        // (1 → 1.0) slips past it.
-        const result = await coll.replaceOne(
-          { _id: postImage._id, $expr: { $eq: ['$$ROOT', { $literal: postImage }] } },
-          preImage,
-          { maxTimeMS: QUERY_TIMEOUT_MS },
-        );
-        matched = result.matchedCount;
+      if (row.op === 'collectionRename') {
+        const db = await w.db(row.db_name);
+        // A collection already holding `fromName` fails on the driver's own
+        // duplicate-namespace check and surfaces as the existing error path.
+        await db.renameCollection(capture.toName!, capture.fromName!, { maxTimeMS: QUERY_TIMEOUT_MS });
+        result = { restored: 1, skipped: 0 };
       } else {
-        throw new SystemError('INTERNAL', `undo of ${row.op} is not supported`);
+        const coll = (await w.db(row.db_name)).collection(row.collection!);
+        if (row.op === 'deleteOne') {
+          // A reused `_id` fails on the unique index and surfaces as CONFLICT.
+          await coll.insertOne(capture.preImage!, { maxTimeMS: QUERY_TIMEOUT_MS });
+          result = { restored: 1, skipped: 0 };
+        } else if (row.op === 'updateOne' && capture.postImage) {
+          const matched = await this.compareAndReplace(coll, capture.postImage, capture.preImage!);
+          if (matched === 0) {
+            throw new SystemError(
+              'AUDIT_TARGET_CHANGED',
+              'The document has changed since this Operation, so undoing it would overwrite the newer change.',
+            );
+          }
+          result = { restored: 1, skipped: 0 };
+        } else if (row.op === 'insertMany') {
+          const ids = capture.insertedIds ?? [];
+          const deleted = await coll.deleteMany({ _id: { $in: ids } } as Document, { maxTimeMS: QUERY_TIMEOUT_MS });
+          result = { restored: deleted.deletedCount, skipped: ids.length - deleted.deletedCount };
+        } else if (row.op === 'deleteMany') {
+          result = await this.restoreDeleted(coll, capture.preImages ?? []);
+        } else if (row.op === 'updateMany') {
+          result = await this.restoreUpdated(coll, capture.preImages ?? [], capture.postImages ?? []);
+        } else {
+          throw new SystemError('INTERNAL', `undo of ${row.op} is not supported`);
+        }
       }
     } catch (err) {
+      if (err instanceof AppError) throw err;
       throw classifyMongoOpError(err);
     }
-    if (matched === 0) {
-      throw new SystemError(
-        'AUDIT_TARGET_CHANGED',
-        'The document has changed since this Operation, so undoing it would overwrite the newer change.',
-      );
-    }
     this.repo.markUndone(input.entryId, new Date().toISOString());
-    return { restored: 1, skipped: 0 };
+    return result;
+  }
+
+  /**
+   * The compare-and-set `updateOne` undo uses: nothing can land between the
+   * check and the replace, because the check IS the write's own filter.
+   * `$$ROOT` equality is field-order and type-bracket exact; only a
+   * numerically equal type change (1 → 1.0) slips past it. Returns the
+   * matched count, 0 meaning the target changed since.
+   */
+  private async compareAndReplace(coll: Collection, postImage: Document, preImage: Document): Promise<number> {
+    const result = await coll.replaceOne(
+      { _id: postImage._id, $expr: { $eq: ['$$ROOT', { $literal: postImage }] } },
+      preImage,
+      { maxTimeMS: QUERY_TIMEOUT_MS },
+    );
+    return result.matchedCount;
+  }
+
+  /**
+   * `deleteMany` undo (X13 §6): re-inserts the Pre-images with
+   * `ordered: false` so one revived `_id` doesn't block the rest, and reports
+   * `{restored, skipped}` honestly rather than failing the whole batch.
+   */
+  private async restoreDeleted(coll: Collection, docs: Document[]): Promise<UndoResult> {
+    if (docs.length === 0) return { restored: 0, skipped: 0 };
+    try {
+      const result = await coll.insertMany(docs, { ordered: false, maxTimeMS: QUERY_TIMEOUT_MS });
+      return { restored: result.insertedCount, skipped: docs.length - result.insertedCount };
+    } catch (err) {
+      const insertedCount = (err as { result?: { insertedCount?: number } })?.result?.insertedCount;
+      if (insertedCount === undefined) throw err;
+      return { restored: insertedCount, skipped: docs.length - insertedCount };
+    }
+  }
+
+  /**
+   * `updateMany` undo: the same per-document compare-and-set `updateOne`
+   * uses, one document at a time — a document changed again since is
+   * skipped rather than failing the whole batch, same honesty as
+   * `restoreDeleted`. Bounded to the same ≤1000-document capture ceiling, so
+   * this never runs unbounded.
+   */
+  private async restoreUpdated(coll: Collection, preImages: Document[], postImages: Document[]): Promise<UndoResult> {
+    let restored = 0;
+    let skipped = 0;
+    for (let i = 0; i < preImages.length; i++) {
+      const matched = await this.compareAndReplace(coll, postImages[i]!, preImages[i]!);
+      if (matched > 0) restored++;
+      else skipped++;
+    }
+    return { restored, skipped };
   }
 
   list(input: AuditListInput): AuditEntry[] {

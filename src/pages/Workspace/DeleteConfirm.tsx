@@ -4,6 +4,7 @@ import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { buildIdFilter } from './views/docId';
+import { AUDIT_UNDO_DOC_LIMIT } from '../../utils/auditUndo';
 
 interface DeleteConfirmProps {
   connectionId: string;
@@ -148,12 +149,25 @@ export function DeleteConfirm({
         countState.status !== 'ready' ||
         countState.count === 0));
 
+  // States a fact about this specific action (ADR 0013 — never what tier the
+  // dialog is on). A single document always keeps a Pre-image; a bulk delete
+  // does too, but only within the capture ceiling (X13 §5).
+  const undoLine = !isMulti
+    ? 'This can be undone.'
+    : countState.status === 'ready'
+      ? countState.count <= AUDIT_UNDO_DOC_LIMIT
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this can be undone.`
+        : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`
+      : null;
+
   return (
     <Modal opened onClose={close} title={title} centered size="md">
       <Stack gap="sm">
-        <Text size="xs" c="dimmed">
-          This cannot be undone.
-        </Text>
+        {undoLine && (
+          <Text size="xs" c="dimmed">
+            {undoLine}
+          </Text>
+        )}
 
         {readOnly && (
           <Alert color="yellow" variant="light" role="alert">

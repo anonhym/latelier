@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { assertUndoable, attachUndo, undoCaptureOf } from '../../electron/mongo/undo';
+import {
+  assertUndoable,
+  attachUndo,
+  boundedCapture,
+  MAX_BULK_CAPTURE_DOCS,
+  MAX_BULK_CAPTURE_BYTES,
+  undoCaptureOf,
+} from '../../electron/mongo/undo';
 import { AppError } from '../../electron/errors';
 import { undoFailureMessage, undoneMessage } from '../../src/utils/auditUndo';
 
@@ -54,6 +61,37 @@ describe('attachUndo / undoCaptureOf', () => {
     expect(undoCaptureOf(null)).toBeUndefined();
     expect(undoCaptureOf(undefined)).toBeUndefined();
     expect(undoCaptureOf('x')).toBeUndefined();
+  });
+});
+
+describe('boundedCapture — X13 §5\'s bulk Pre-image ceiling', () => {
+  it('keeps documents at or under both ceilings', () => {
+    const docs = [{ a: 1 }, { a: 2 }];
+    expect(boundedCapture(docs)).toBe(docs);
+  });
+
+  it('keeps exactly MAX_BULK_CAPTURE_DOCS documents', () => {
+    const docs = Array.from({ length: MAX_BULK_CAPTURE_DOCS }, (_, i) => ({ i }));
+    expect(boundedCapture(docs)).toBe(docs);
+  });
+
+  it('refuses one document over the doc ceiling', () => {
+    const docs = Array.from({ length: MAX_BULK_CAPTURE_DOCS + 1 }, (_, i) => ({ i }));
+    expect(boundedCapture(docs)).toBeNull();
+  });
+
+  it('refuses documents whose encoded size is over the byte ceiling', () => {
+    const docs = [{ blob: 'x'.repeat(MAX_BULK_CAPTURE_BYTES) }];
+    expect(boundedCapture(docs)).toBeNull();
+  });
+
+  it('keeps documents right at the byte ceiling', () => {
+    // ejsonEncodeArrayJson's own accounting (brackets/commas/quotes), not a
+    // guess: this is the largest single string field that keeps the
+    // encoded array at or under MAX_BULK_CAPTURE_BYTES.
+    const overhead = '[{"blob":""}]'.length;
+    const docs = [{ blob: 'x'.repeat(MAX_BULK_CAPTURE_BYTES - overhead) }];
+    expect(boundedCapture(docs)).toBe(docs);
   });
 });
 
