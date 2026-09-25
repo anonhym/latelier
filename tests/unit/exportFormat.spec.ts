@@ -222,6 +222,10 @@ describe('neutralizeFormula', () => {
     expect(neutralizeFormula('-5', { $numberInt: '-5' })).toBe('-5');
   });
 
+  it('is applied to header cells too, since field names come from the data', () => {
+    expect(serializeCsv([{ '=cmd': 1 }], [{ header: '=cmd', path: '=cmd' }])).toBe("'=cmd\n1\n");
+  });
+
   it('is applied by serializeCsv before quoting', () => {
     const docs = [{ f: '=1+1', n: -3 }];
     const columns = [

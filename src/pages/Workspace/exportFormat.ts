@@ -151,7 +151,8 @@ export function neutralizeFormula(cell: string, raw: unknown): string {
 }
 
 export function serializeCsv(documents: unknown[], columns: ExportColumn[]): string {
-  const header = columns.map((c) => csvEscape(c.header)).join(',');
+  // Headers are field names from the data, so they get the same treatment.
+  const header = columns.map((c) => csvEscape(neutralizeFormula(c.header, c.header))).join(',');
   const rows = documents.map((doc) =>
     columns
       .map((c) => {
