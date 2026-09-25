@@ -118,8 +118,12 @@ export function DeleteConfirm({
           setErr('Cannot delete a document without an _id');
           return;
         }
-        ({ auditId } = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson }));
-        message = 'Document deleted';
+        const res = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson });
+        auditId = res.auditId;
+        // A compare-and-set that lost its race (someone else deleted it
+        // first) matched nothing — say so rather than claiming a delete that
+        // didn't happen (X13 §4: `matchedCount: 0` is never reversible).
+        message = res.deletedCount === 1 ? 'Document deleted' : 'Nothing was deleted: the document was already gone';
       } else {
         if (countState.status !== 'ready') return;
         const res = await api.doc.deleteMany({

@@ -357,6 +357,27 @@ describe('DeleteConfirm — Undo hand-off', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('a1', 'Document deleted'));
   });
 
+  it('says nothing was deleted, rather than claiming a delete, when deleteOne matched nothing', async () => {
+    installAtelierMock({ doc: { deleteOne: async () => ({ deletedCount: 0 }) } });
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1' }]}
+        onClose={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(onDeleted).toHaveBeenCalledWith(undefined, 'Nothing was deleted: the document was already gone'),
+    );
+  });
+
   it('passes the Reversible entry id of a delete-all-matching to onDeleted', async () => {
     const confirmDeleteMany = vi.fn(async () => ({ count: 5, confirmToken: 'tok-xyz' }));
     const deleteMany = vi.fn(async () => ({ deletedCount: 5, auditId: 'a2' }));
