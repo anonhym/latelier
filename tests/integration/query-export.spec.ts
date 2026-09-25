@@ -174,14 +174,24 @@ describe('QueryService.exportToFile', () => {
     expect(result).toEqual({ path: file, written: 3, truncated: false });
   });
 
-  it('a builder limit above the cap is clamped to the cap', async () => {
+  it('a builder limit above the cap is clamped to the cap and reported truncated — the cap, not the limit, stopped it', async () => {
     await seed(10); // service cap is 5
     const file = outPath('out.jsonl');
     const result = await svc.exportToFile(
       { connectionId: connId, dbName, collection: collName, filter: '{}', format: 'jsonl', limit: 9000 },
       file,
     );
-    expect(result).toEqual({ path: file, written: 5, truncated: false });
+    expect(result).toEqual({ path: file, written: 5, truncated: true });
+  });
+
+  it('a builder limit above the cap is not truncated when there are fewer matches than the cap anyway', async () => {
+    await seed(3); // service cap is 5 — the limit is clamped but never actually binds
+    const file = outPath('out.jsonl');
+    const result = await svc.exportToFile(
+      { connectionId: connId, dbName, collection: collName, filter: '{}', format: 'jsonl', limit: 9000 },
+      file,
+    );
+    expect(result).toEqual({ path: file, written: 3, truncated: false });
   });
 
   it('hitting the cap with no builder limit reports truncated=true and written===cap', async () => {
@@ -205,8 +215,9 @@ describe('QueryService.exportToFile', () => {
     await client.db(dbName).collection(collName).insertOne({ n: -1, tag: 'not-a-number' });
     const file = outPath('out.jsonl');
 
-    await expect(
-      svc.exportToFile(
+    let caught: unknown;
+    try {
+      await svc.exportToFile(
         {
           connectionId: connId,
           dbName,
@@ -217,25 +228,42 @@ describe('QueryService.exportToFile', () => {
           format: 'jsonl',
         },
         file,
-      ),
-    ).rejects.toThrow();
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    // A genuine Mongo driver error stays on `classifyMongoOpError`'s own
+    // classification — unlike the fs-open/write path, it's not force-labelled
+    // INTERNAL.
+    expect((caught as { code?: string }).code).toBe('MONGO_ERROR');
 
     await expect(fs.access(file)).rejects.toThrow();
   });
 
-  it('leaves a pre-existing file untouched when opening the target itself fails', async () => {
+  it('leaves a pre-existing file untouched when opening the target itself fails, and labels the failure a filesystem error, not a Mongo one', async () => {
     await seed(1);
     const file = outPath('readonly.jsonl');
     await fs.writeFile(file, 'keep me\n', 'utf8');
     await fs.chmod(file, 0o444); // read-only — `fs.open(file, 'w')` itself must fail
 
     try {
-      await expect(
-        svc.exportToFile(
+      let caught: unknown;
+      try {
+        await svc.exportToFile(
           { connectionId: connId, dbName, collection: collName, filter: '{}', format: 'jsonl' },
           file,
-        ),
-      ).rejects.toThrow();
+        );
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      // A disk/permission failure is not a Mongo driver error — it must not
+      // come out labelled MONGO_ERROR, the code `classifyMongoOpError`
+      // stamps on an unrecognized error it hasn't already seen as an
+      // AppError.
+      expect((caught as { code?: string }).code).toBe('INTERNAL');
+      expect((caught as { code?: string }).code).not.toBe('MONGO_ERROR');
 
       // Nothing was ever truncated or opened for this export, so the
       // unrelated pre-existing content must survive — the catch path must
