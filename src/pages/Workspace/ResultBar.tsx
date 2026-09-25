@@ -109,6 +109,19 @@ export function ResultBar() {
         flexShrink: 0,
         fontSize: 11,
         color: T.textMuted,
+        // None of this row's own text (page number, result counts, ms,
+        // range) sets its own `white-space`, so a tight flex squeeze can
+        // wrap any one span onto a second line instead of shrinking a
+        // neighbour. That grows this bar's own height, which — one flex
+        // column up — shrinks the table's available height under its
+        // virtualized list, turning a cosmetic width squeeze into a
+        // scroll-settle bug several layers away (a virtualized row landing
+        // a sub-pixel short of fully in view because its scroll container
+        // is fractionally shorter than the settle math expects). Setting it
+        // once here, inherited by every descendant, keeps this row's height
+        // independent of how tight the available width gets, rather than
+        // chasing it span by span.
+        whiteSpace: 'nowrap',
       }}
     >
       {/* Pager — first · prev · P/T · next · last */}
@@ -248,6 +261,27 @@ export function ResultBar() {
       {/* Fields control — one control for all three views; each view reads
           the same per-tab `columnConfig`. */}
       <FieldsControl />
+
+      {/* Insert — primary create action, moved here from the header so it
+          sits with the other document-level controls. Same handler as
+          before (`actions.openInsert`, wired to `useDocumentDialogs`'s
+          `openInsertModal`); the aria-label is unchanged so existing e2e
+          selectors looking for `/Insert document/` still match. Hidden for
+          read-only consumers (ScriptTab's snapshot provider), same as the
+          Documents menu below. */}
+      {!isReadOnly && (
+        <Tooltip label="Insert a new document into this collection" withArrow>
+          <Button
+            variant="filled"
+            size="compact-xs"
+            leftSection={I.plus}
+            onClick={() => actions.openInsert()}
+            aria-label="Insert document"
+          >
+            Insert
+          </Button>
+        </Tooltip>
+      )}
 
       {/* Document-level actions — bulk/destructive operations on the result
           set. A labelled menu rather than a bare overflow icon: this is the

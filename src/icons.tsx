@@ -28,6 +28,7 @@ import {
   IconFileText,
   IconFilter,
   IconGripVertical,
+  IconLink,
   IconList,
   IconLock,
   IconMoon,
@@ -95,4 +96,5 @@ export const I = {
   // (I.code) reads as raw JSON and now sits on "add raw clause", where it
   // is accurate. Parentheses are how a nested boolean group is written.
   group: <IconParentheses size={13} stroke={s} />,
+  link: <IconLink size={13} stroke={s} />,
 };
