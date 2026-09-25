@@ -44,6 +44,7 @@ import {
   compileFindOptions,
   currentFilterJson,
   effectivePageLimit,
+  findProblem,
   isDefaultQueryState,
 } from './Workspace/builder';
 import type { SuggestionContext } from '../features/fieldSuggestions/types';
@@ -296,6 +297,27 @@ function WorkspaceInner() {
     recordSessionEvent: hints.recordSessionEvent,
   });
   const showLoading = queryRunner.isLoading;
+
+  // The first hint a new user sees should be about Run, not a secondary
+  // feature. Workspace's own auto-run effect means `lastRun` is set almost
+  // as soon as a tab opens, so gating on "no lastRun" would essentially
+  // never fire once the user starts editing. `savedCreateCount` is this same
+  // query's exact run-key looked up in this session's run tally (recorded
+  // by `useQueryRunner` on every completed run, further up in this file) —
+  // zero means the query on screen right now has never actually been run,
+  // whether because nothing has run yet or because it was edited since the
+  // last one that did. Gated on the same two conditions the Run button
+  // itself gates on (`QueryBar`'s `canRun`), or the hint would teach "Press
+  // Run" while Run is disabled (an unparseable filter) or mid-flight
+  // (Cancel has replaced Run).
+  const runExecuteHint = useFeatureHint(
+    'run.execute',
+    activeView === 'documents' &&
+      !!activeCollection &&
+      !queryRunner.isLoading &&
+      findProblem(activeCollection.state) === null &&
+      savedCreateCount === 0,
+  );
 
   // Auto-runs the base query on a fresh/restored tab landing on Documents
   // with no prior run, only while the query is still at its default shape
@@ -973,6 +995,7 @@ function WorkspaceInner() {
         tabsPinHint={tabsPinHint}
         savedCreateHint={savedCreateHint}
         previewConfigureHint={previewConfigureHint}
+        runExecuteHint={runExecuteHint}
       />
     </AppShell>
   );

@@ -713,6 +713,7 @@ export interface PersistedDrawerState {
 }
 
 export type FeatureHintId =
+  | 'run.execute'
   | 'refs.configure'
   | 'tabs.pin'
   | 'saved.create'

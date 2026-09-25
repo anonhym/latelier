@@ -592,6 +592,7 @@ function QueryBarInner({
                 onClick={() => canRun && onRun()}
                 disabled={!canRun}
                 data-testid="query-run-btn"
+                data-hint-anchor="run.execute"
                 leftSection={I.play}
                 styles={{ root: { fontWeight: 700 } }}
               >
