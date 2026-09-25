@@ -22,7 +22,9 @@ function details(e: AuditEntry): string {
   const s = e.summary;
   const parts: string[] = [];
   if ('filter' in s) parts.push(s.filter);
+  if ('fileName' in s) parts.push(s.format ? `${s.fileName} (${s.format.toUpperCase()})` : s.fileName);
   if ('insertedCount' in s && s.insertedCount !== undefined) parts.push(`${s.insertedCount} inserted`);
+  if ('failedCount' in s && s.failedCount !== undefined) parts.push(`${s.failedCount} failed`);
   if ('matchedCount' in s && s.matchedCount !== undefined) parts.push(`${s.matchedCount} matched`);
   if ('modifiedCount' in s && s.modifiedCount !== undefined) parts.push(`${s.modifiedCount} modified`);
   if ('deletedCount' in s && s.deletedCount !== undefined) parts.push(`${s.deletedCount} deleted`);
@@ -32,6 +34,8 @@ function details(e: AuditEntry): string {
 function outcome(e: AuditEntry): string {
   if (e.undoneAt !== undefined) return 'Undone';
   if (e.outcome === 'ok') return 'Done';
+  // An import that finished with rejected documents: partial, yet no error.
+  if (e.outcome === 'partial' && e.errorCode === undefined) return 'Partial';
   return `${e.outcome === 'partial' ? 'Partial' : 'Failed'} (${e.errorCode ?? 'unknown'})`;
 }
 

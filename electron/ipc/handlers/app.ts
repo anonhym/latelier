@@ -8,7 +8,7 @@ import { zodValidator } from '../validators.ts';
 import { SystemError, ValidationError } from '../../errors.ts';
 import type { DiagnosticService } from '../../services/DiagnosticService.ts';
 
-const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key']);
+const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key', 'data-import']);
 const OpenExternalInput = z.string().url();
 const SaveFileInput = z.object({
   defaultName: z.string().optional(),
@@ -28,6 +28,10 @@ const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
   'ssh-key': [
     { name: 'Private keys', extensions: ['pem', 'key', 'ppk'] },
     { name: 'All files', extensions: ['*'] },
+  ],
+  // No "All files" entry: `data:import` refuses any other extension anyway.
+  'data-import': [
+    { name: 'JSON / JSON Lines', extensions: ['json', 'jsonl', 'ndjson'] },
   ],
 };
 

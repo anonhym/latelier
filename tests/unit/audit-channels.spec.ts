@@ -82,4 +82,56 @@ describe('auditRecordFor', () => {
     expect(auditRecordFor(IPC_CHANNELS.docInsertMany, input, errEnv({ code: 'NETWORK', message: 'down' })))
       .toEqual({ ...T, op: 'insertMany', summary: { op: 'insertMany', insertedCount: undefined }, outcome: 'error', errorCode: 'NETWORK' });
   });
+
+  describe('import', () => {
+    const input = { ...T, path: '/home/me/exports/people.json' };
+    const report = (over: Record<string, unknown> = {}) =>
+      ({ fileName: 'people.json', format: 'jsonl', inserted: 5, failed: 0, errors: [], errorsTruncated: false, ...over });
+
+    it('records a clean import as ok, naming only the file', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report()))).toEqual({
+        ...T,
+        op: 'import',
+        summary: { op: 'import', fileName: 'people.json', format: 'jsonl', insertedCount: 5, failedCount: 0 },
+        outcome: 'ok',
+        errorCode: null,
+      });
+    });
+
+    it('records an import with rejected documents as partial, however many landed', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ failed: 2 }))))
+        .toMatchObject({ outcome: 'partial', errorCode: null, summary: { insertedCount: 5, failedCount: 2 } });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ inserted: 0, failed: 1 }))))
+        .toMatchObject({ outcome: 'partial' });
+    });
+
+    it('keeps the format only when the report states a known one', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ format: 'json' })))!.summary)
+        .toMatchObject({ format: 'json' });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ format: 'csv' })))!.summary)
+        .toEqual({ op: 'import', fileName: 'people.json', format: undefined, insertedCount: 5, failedCount: 0 });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(null))!.summary)
+        .toEqual({ op: 'import', fileName: 'people.json', format: undefined, insertedCount: undefined, failedCount: undefined });
+    });
+
+    it('records a failed import by file name, partial when earlier batches landed', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, errEnv({ code: 'READ_ONLY', message: 'ro' }))).toEqual({
+        ...T,
+        op: 'import',
+        summary: { op: 'import', fileName: 'people.json', format: undefined, insertedCount: undefined, failedCount: undefined },
+        outcome: 'error',
+        errorCode: 'READ_ONLY',
+      });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, errEnv({ code: 'NETWORK', message: 'down', details: { insertedCount: 2000 } })))
+        .toEqual({
+          ...T,
+          op: 'import',
+          summary: { op: 'import', fileName: 'people.json', format: undefined, insertedCount: 2000, failedCount: undefined },
+          outcome: 'partial',
+          errorCode: 'NETWORK',
+        });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, errEnv({ code: 'INTERNAL', message: 'eacces', details: { insertedCount: 0 } })))
+        .toMatchObject({ outcome: 'error', summary: { insertedCount: 0 } });
+    });
+  });
 });

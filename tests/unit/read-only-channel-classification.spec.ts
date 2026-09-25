@@ -41,6 +41,7 @@ const WRITE_CHANNELS = new Set<string>([
   IPC_CHANNELS.mshellWrite,
   IPC_CHANNELS.scriptRun,
   IPC_CHANNELS.auditUndo,
+  IPC_CHANNELS.dataImport,
 ]);
 
 const READ_CHANNELS = new Set<string>([
@@ -141,7 +142,7 @@ describe('read-only guard — IPC channel classification is exhaustive', () => {
   });
 
   it('every write channel name actually looks write-shaped', () => {
-    const writeVerb = /insert|update|replace|delete|drop|create|rename|runAndSave|write/i;
+    const writeVerb = /insert|update|replace|delete|drop|create|rename|runAndSave|write|import/i;
     // These don't carry a write verb in their name because they're not
     // unconditional writes: agg:run is conditional on pipeline content
     // (guarded inline via isWriteStage), and mshell:start/script:run are the

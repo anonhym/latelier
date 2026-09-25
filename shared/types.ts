@@ -277,6 +277,30 @@ export interface QueryExportResult {
   truncated: boolean;
 }
 
+// ─── Import (JSON / JSONL into an existing collection) ──────────────────────
+
+export type ImportFormat = 'json' | 'jsonl';
+
+export interface DataImportInput {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  /** Absolute path the renderer got from `app.pickFile('data-import')`. */
+  path: string;
+}
+
+export interface ImportReport {
+  /** Basename only — never the directory the file came from. */
+  fileName: string;
+  format: ImportFormat;
+  inserted: number;
+  failed: number;
+  /** The first failures. `at` is a 1-based line for JSONL, a 0-based array index for JSON. */
+  errors: { at: number; message: string }[];
+  /** More documents failed than `errors` lists. */
+  errorsTruncated: boolean;
+}
+
 // ─── Result view types (W06) ─────────────────────────────────────────────────
 
 export interface LastRunError {
@@ -462,7 +486,9 @@ export type AuditSummary =
   | { op: 'updateOne' | 'updateMany'; filter: string; matchedCount?: number; modifiedCount?: number }
   | { op: 'deleteOne' | 'deleteMany'; filter: string; deletedCount?: number }
   | { op: 'collectionRename'; fromName: string; toName: string }
-  | { op: 'collectionDrop' | 'databaseDrop' };
+  | { op: 'collectionDrop' | 'databaseDrop' }
+  /** `format` is absent when the import failed before its file was read. */
+  | { op: 'import'; fileName: string; format?: ImportFormat; insertedCount?: number; failedCount?: number };
 
 export interface AuditEntry {
   id: string;

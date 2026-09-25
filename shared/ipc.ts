@@ -19,10 +19,12 @@ import type {
   ConnectionRuntime,
   ConnectionSummary,
   ConnectionUpdate,
+  DataImportInput,
   DatabaseDropInput,
   ExplainInput,
   FindInput,
   FindResult,
+  ImportReport,
   IndexCreateInput,
   IndexDropInput,
   IndexInfo,
@@ -265,6 +267,15 @@ export interface IpcApi {
     duplicate: (input: { id: string; newName: string }) => Promise<SavedQuery>;
   };
 
+  /**
+   * Bulk data in and out of a collection. `import` reads a file main already
+   * holds the path to (from `app.pickFile('data-import')`) — never one it
+   * opens a dialog for, so a cancelled pick records no audit row.
+   */
+  data: {
+    import: (input: DataImportInput) => Promise<ImportReport>;
+  };
+
   /** The Audit Log: newest first, never carrying a Pre-image. */
   audit: {
     list: (input: AuditListInput) => Promise<AuditEntry[]>;
@@ -452,6 +463,9 @@ export const IPC_CHANNELS = {
   recentGet:   'recent:get',
   recentClear: 'recent:clear',
 
+  // Bulk data -----------------------------------------
+  dataImport: 'data:import',
+
   // Audit log -----------------------------------------
   auditList: 'audit:list',
   auditUndo: 'audit:undo',
@@ -498,4 +512,4 @@ export const IPC_CHANNELS = {
 } as const;
 
 /** Allowed purposes for app:pickFile — restricts the file dialog filter. */
-export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key';
+export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key' | 'data-import';

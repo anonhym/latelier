@@ -8,6 +8,7 @@ import { api } from '../../api/atelier';
 import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
 import { FieldsControl } from './FieldsControl';
 import { ExportDialog } from './ExportDialog';
+import { ImportDialog } from './ImportDialog';
 import { findProblem } from './builder';
 
 const VIEWS: ResultViewMode[] = ['Tree', 'JSON', 'Table'];
@@ -43,6 +44,7 @@ export function ResultBar() {
   const view = state.view;
   const isReadOnly = !!meta.isReadOnly;
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
 
   // X14 §5 — the dangerous half of the defect this ticket exists for.
   // A refused filter never re-runs, so `lastRun` keeps describing the query
@@ -289,7 +291,7 @@ export function ResultBar() {
       {/* Document-level actions — bulk/destructive operations on the result
           set. A labelled menu rather than a bare overflow icon: this is the
           shared home for document actions (update all matching, delete all
-          matching — export, import can land here too), so it needs a name a
+          matching, export, import), so it needs a name a
           user can point at, not just a dots glyph next to the view switch.
           Placed left of the view switch, not beside it, so a destructive item
           doesn't share a hover target with a benign view-mode toggle. Hidden
@@ -321,6 +323,12 @@ export function ResultBar() {
               Export…
             </Menu.Item>
             <Menu.Item
+              leftSection={I.upload}
+              onClick={() => setImportOpen(true)}
+            >
+              Import documents…
+            </Menu.Item>
+            <Menu.Item
               color="red"
               leftSection={I.trash}
               onClick={() => actions.openDeleteAll()}
@@ -332,6 +340,17 @@ export function ResultBar() {
       )}
 
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
+      {importOpen && (
+        <ImportDialog
+          connectionId={meta.connectionId}
+          dbName={meta.dbName}
+          collection={meta.collection}
+          onClose={() => setImportOpen(false)}
+          onImported={(report) => {
+            if (report.inserted > 0) actions.run();
+          }}
+        />
+      )}
 
       {/* View switch */}
       <SegmentedControl

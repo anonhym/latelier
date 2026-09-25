@@ -1,5 +1,6 @@
+import path from 'node:path';
 import { IPC_CHANNELS, type Envelope } from '@shared/ipc';
-import type { AuditOp, AuditOutcome, AuditSummary } from '@shared/types';
+import type { AuditOp, AuditOutcome, AuditSummary, ImportFormat } from '@shared/types';
 
 /** One audit row, before it has an id or timestamps. */
 export interface AuditRecord {
@@ -18,6 +19,8 @@ interface ChannelSpec {
   op: AuditOp;
   /** `data` is the handler's result, or undefined when the Operation failed. */
   summarize: (input: Fields, data: unknown) => AuditSummary;
+  /** The outcome of an ok envelope, when that can be less than `'ok'`. */
+  outcome?: (data: unknown) => AuditOutcome;
 }
 
 function count(source: unknown, key: string): number | undefined {
@@ -30,6 +33,11 @@ function count(source: unknown, key: string): number | undefined {
 // (`docsJson`, `updateJson`), and never a confirm token (deleteMany's or
 // updateMany's).
 const filterOf = (input: Fields): string => input.filterJson as string;
+
+function importFormat(data: unknown): ImportFormat | undefined {
+  const v = data === null || typeof data !== 'object' ? undefined : (data as Fields).format;
+  return v === 'json' || v === 'jsonl' ? v : undefined;
+}
 
 /**
  * The audited channels. A channel absent from this table is not audited, so a
@@ -92,6 +100,21 @@ const AUDITED_CHANNELS: Readonly<Record<string, ChannelSpec>> = {
     op: 'databaseDrop',
     summarize: () => ({ op: 'databaseDrop' }),
   },
+  // The file name comes from the input, not the report, so a failed import's
+  // row still names its file. Only the basename: the directory is the user's
+  // business, not the log's.
+  [IPC_CHANNELS.dataImport]: {
+    op: 'import',
+    summarize: (input, data) => ({
+      op: 'import',
+      fileName: path.basename(input.path as string),
+      format: importFormat(data),
+      insertedCount: count(data, 'inserted'),
+      failedCount: count(data, 'failed'),
+    }),
+    // Rejected documents do not fail the import, but they do make it partial.
+    outcome: (data) => ((count(data, 'failed') ?? 0) > 0 ? 'partial' : 'ok'),
+  },
 };
 
 /**
@@ -114,16 +137,23 @@ export function auditRecordFor(
     op: spec.op,
   };
   if (envelope.ok) {
-    return { ...target, summary: spec.summarize(fields, envelope.data), outcome: 'ok', errorCode: null };
+    return {
+      ...target,
+      summary: spec.summarize(fields, envelope.data),
+      outcome: spec.outcome?.(envelope.data) ?? 'ok',
+      errorCode: null,
+    };
   }
-  // `ordered: true` stops at the first failing document, so a failed
-  // insertMany can still have changed the collection. The error carries how
-  // many landed; anything above zero is a partial, not a plain failure.
-  const insertedCount = spec.op === 'insertMany' ? count(envelope.error.details, 'insertedCount') : undefined;
+  // `ordered: true` stops at the first failing document, and an import stops
+  // at a failure between batches, so either can fail having changed the
+  // collection. The error carries how many landed; anything above zero is a
+  // partial, not a plain failure.
+  const insertedCount =
+    spec.op === 'insertMany' || spec.op === 'import' ? count(envelope.error.details, 'insertedCount') : undefined;
   if (insertedCount !== undefined) {
     return {
       ...target,
-      summary: { op: 'insertMany', insertedCount },
+      summary: { ...spec.summarize(fields, undefined), insertedCount } as AuditSummary,
       outcome: insertedCount > 0 ? 'partial' : 'error',
       errorCode: envelope.error.code,
     };
