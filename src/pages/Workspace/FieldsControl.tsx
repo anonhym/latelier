@@ -147,6 +147,7 @@ export function FieldsControl() {
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
   const [newPath, setNewPath] = React.useState('');
+  const [opened, setOpened] = React.useState(false);
   const canFetch = !meta.isReadOnly;
   const projection = useProjectionDraft();
   const projRawError = projectionProblem(state.builder);
@@ -307,8 +308,28 @@ export function FieldsControl() {
     color: T.warn,
   };
 
+  // The dropdown unmounts on close but `announcement` lives out here, so
+  // without the reset the live region is reborn already holding the last
+  // move's sentence. `aria-live` only announces mutations, never the content
+  // a region mounts with, so that text is never spoken — it just sits in the
+  // accessibility tree describing a move from last time.
+  //
+  // Closing also settles the projection draft: jsdom and Chromium alike may
+  // skip the input's blur when the dropdown unmounts under it.
+  const close = () => {
+    setOpened(false);
+    setAnnouncement('');
+    projection.commit();
+  };
+
   return (
     <Popover
+      opened={opened}
+      // Controlled only so Escape can be layered: Mantine's own Escape close
+      // is a capture-phase handler on the dropdown, which fires before the
+      // projection input's suggestion list can claim the key. The bubble-phase
+      // `onKeyDown` below closes only when nothing inside already did.
+      closeOnEscape={false}
       position="bottom-end"
       shadow="md"
       withinPortal
@@ -321,22 +342,12 @@ export function FieldsControl() {
       // so an autofocused element would win that race (see
       // `ConnectionSwitcher`, which can't use this for that reason).
       returnFocus
-      // The dropdown unmounts on close but `announcement` lives out here, so
-      // without this the live region is reborn already holding the last
-      // move's sentence. `aria-live` only announces mutations, never the
-      // content a region mounts with, so that text is never spoken — it just
-      // sits in the accessibility tree describing a move from last time.
-      //
-      // Closing also settles the projection draft: jsdom and Chromium alike
-      // may skip the input's blur when the dropdown unmounts under it.
-      onChange={(opened) => {
-        if (opened) return;
-        setAnnouncement('');
-        projection.commit();
-      }}
+      onChange={(next) => (next ? setOpened(true) : close())}
     >
       <Popover.Target>
         <Button
+          // A controlled Popover's target does not toggle by itself.
+          onClick={() => (opened ? close() : setOpened(true))}
           variant="default"
           size="compact-xs"
           rightSection={
@@ -367,7 +378,15 @@ export function FieldsControl() {
           Fields
         </Button>
       </Popover.Target>
-      <Popover.Dropdown p="xs" style={{ maxWidth: 320 }}>
+      <Popover.Dropdown
+        p="xs"
+        style={{ maxWidth: 320 }}
+        onKeyDown={(e) => {
+          // `defaultPrevented`: an open suggestion list took this Escape to
+          // close itself — the next one closes the control.
+          if (e.key === 'Escape' && !e.defaultPrevented) close();
+        }}
+      >
         <div id="fields-show-heading" style={sectionHeadingStyle}>Show in results</div>
         <div style={sectionHelpStyle}>Display only — instant, nothing is re-fetched.</div>
         {documents.length === 0 ? (

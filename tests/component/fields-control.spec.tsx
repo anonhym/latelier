@@ -504,16 +504,46 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   it('settles the draft when the control closes, since no blur is guaranteed', () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{ name: 1 }' } });
-    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    fireEvent.click(r.getByRole('button', { name: /^fields/i }));
     expect(r.actions.patch).toHaveBeenCalledWith({
       builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
     });
   });
 
+  // Escape belongs to the innermost thing on screen: the first one dismisses
+  // the suggestion list and nothing else, the second closes the control.
+  it('Escape closes an open suggestion list first, and only then the control', async () => {
+    const r = openFetch();
+    const input = r.input()!;
+    fireEvent.change(input, { target: { value: '{ name: 1 }' } });
+    expect(await r.findAllByRole('option')).not.toHaveLength(0);
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
+    expect(r.input()).not.toBeNull();
+    expect(r.input()?.value).toBe('{ name: 1 }');
+    expect(r.actions.patch).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    await waitFor(() => expect(r.input()).toBeNull());
+    expect(r.actions.patch).toHaveBeenCalledWith({
+      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
+    });
+  });
+
+  it('Escape with no suggestion list showing closes the control at once', async () => {
+    const r = openFetch();
+    fireEvent.change(r.input()!, { target: { value: '{ zzz' } });
+    // The caret syncs a frame later; until then the empty token matches all.
+    await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
+    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    await waitFor(() => expect(r.input()).toBeNull());
+  });
+
   it('keeps a refused draft across close and reopen', async () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{a: }' } });
-    fireEvent.keyDown(r.input()!, { key: 'Escape' });
+    fireEvent.click(r.getByRole('button', { name: /^fields/i }));
     await waitFor(() => expect(r.input()).toBeNull());
     // Closed: the button still warns that the projection won't run as typed.
     expect(r.getByText('projection')).toBeTruthy();
