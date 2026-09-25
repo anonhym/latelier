@@ -465,6 +465,12 @@ describe('useRovingFocus', () => {
       mountRow('row-4', { top: 10, bottom: 30 }, { top: 0, bottom: 100 });
       act(() => result.current.onKeyDown(keyEvent('End')));
 
+      // Baseline frame: establishes lastRect = {10, 30} without which
+      // `sameRect`'s `b !== null` check alone would explain the next
+      // frame's "not settled" reading — the top comparison would never run.
+      act(() => queue.flush());
+      expect(queue.pending()).toBe(1);
+
       const row = document.getElementById('row-4')!;
       vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
         top: 12,
@@ -481,7 +487,7 @@ describe('useRovingFocus', () => {
       } as DOMRect);
 
       act(() => queue.flush());
-      expect(queue.pending()).toBe(1); // still visible, but top moved — not confirmed
+      expect(queue.pending()).toBe(1); // still visible, but top moved from the baseline — not confirmed
     });
 
     it('does not settle while the row stays visible but its bottom keeps drifting', () => {
@@ -491,6 +497,11 @@ describe('useRovingFocus', () => {
       );
       mountRow('row-4', { top: 10, bottom: 30 }, { top: 0, bottom: 100 });
       act(() => result.current.onKeyDown(keyEvent('End')));
+
+      // Baseline frame: establishes lastRect = {10, 30} — see the top-drift
+      // test above for why this is required to isolate the bottom check.
+      act(() => queue.flush());
+      expect(queue.pending()).toBe(1);
 
       const row = document.getElementById('row-4')!;
       vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
@@ -508,7 +519,7 @@ describe('useRovingFocus', () => {
       } as DOMRect);
 
       act(() => queue.flush());
-      expect(queue.pending()).toBe(1); // still visible, but bottom moved — not confirmed
+      expect(queue.pending()).toBe(1); // still visible, but bottom moved from the baseline — not confirmed
     });
 
     it('treats a missing row element as not settled and keeps re-scrolling', () => {
