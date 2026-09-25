@@ -442,6 +442,35 @@ describe('TableView — inline cell editing (T2.6)', () => {
     expect(updateOne).toHaveBeenCalledTimes(1);
   });
 
+  // A rebind clears the pending state before the first write settles; that
+  // write's late settle must not re-enable a toggle a newer click disabled.
+  it('keeps the toggle disabled when an older write settles while a newer one is in flight', async () => {
+    const resolvers: Array<() => void> = [];
+    const updateOne = vi.fn(
+      () =>
+        new Promise<{ matchedCount: number; modifiedCount: number }>((resolve) => {
+          resolvers.push(() => resolve({ matchedCount: 1, modifiedCount: 1 }));
+        }),
+    );
+    installAtelierMock({ doc: { updateOne } });
+    const { getByTitle, rerenderDocs } = renderRerenderableInlineEditHarness([{ _id: 1, active: true }]);
+    const toggle = () =>
+      within(getByTitle(/Drag to add "active/)).getByRole('checkbox', { name: 'Edit active' }) as HTMLInputElement;
+
+    fireEvent.click(toggle());
+    expect(toggle().disabled).toBe(true);
+    rerenderDocs([{ _id: 1, active: false }]);
+    expect(toggle().disabled).toBe(false);
+    fireEvent.click(toggle());
+    expect(toggle().disabled).toBe(true);
+
+    await act(async () => { resolvers[0]!(); });
+    expect(toggle().disabled).toBe(true);
+
+    await act(async () => { resolvers[1]!(); });
+    await waitFor(() => expect(toggle().disabled).toBe(false));
+  });
+
   // Date/ObjectId/Binary stay out of the inline editor's scope (W18 §8); the
   // pencil still shows, but opens the Document Editor on the field instead.
   it('an ObjectId-sentinel cell has no inline pencil, but its edit affordance opens the Document Editor on that field', () => {

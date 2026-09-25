@@ -180,6 +180,10 @@ function TableCell({
   // spurious conflict. `pending` overrides the checked state (and disables
   // it) until `updateField`'s returned promise resolves.
   const [pendingBoolean, setPendingBoolean] = React.useState<boolean | null>(null);
+  // Only the latest write may clear `pendingBoolean`: a rebind clears it
+  // early, and an older write settling after a newer click would otherwise
+  // re-enable the toggle while the newer write is still in flight.
+  const boolWriteRef = React.useRef(0);
   const commitGuardRef = React.useRef(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -203,7 +207,11 @@ function TableCell({
       setDraft('');
       setInputError(null);
     }
-    if (pendingBoolean !== null) setPendingBoolean(null);
+    if (pendingBoolean !== null) {
+      // eslint-disable-next-line react-hooks/refs
+      boolWriteRef.current++;
+      setPendingBoolean(null);
+    }
   }
 
   // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
@@ -365,9 +373,10 @@ function TableCell({
           disabled={pendingBoolean !== null}
           onChange={(e) => {
             const next = e.currentTarget.checked;
+            const token = ++boolWriteRef.current;
             setPendingBoolean(next);
             void Promise.resolve(actions.updateField?.(doc, fieldPath, next)).finally(() => {
-              setPendingBoolean(null);
+              if (boolWriteRef.current === token) setPendingBoolean(null);
             });
           }}
           onClick={(e) => e.stopPropagation()}
