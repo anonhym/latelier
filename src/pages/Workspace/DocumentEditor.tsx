@@ -235,7 +235,7 @@ function warningFor(entriesByPath: Map<string, SchemaSampleEntry>, field: string
 
 /** One level of indent for a container's children — a constant step per level, applied once per nesting, never multiplied by depth. */
 const INDENT = 16;
-/** The Add-field/Add-item row's offset relative to its sibling rows, unchanged from before this indent was DOM-nested rather than computed. */
+/** How far the Add-field/Add-item row sits in from the rows it adds to, so it reads as belonging to that level. */
 const ADD_ROW_OFFSET = 16;
 
 function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
@@ -305,11 +305,10 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
   };
 
   return (
-    <>
+    // The listitem wraps the row and its children, so a nested list stays
+    // inside an item rather than becoming a bare child of the parent list.
+    <div role="listitem" data-field={dotted} data-edited={edited || undefined}>
       <div
-        role="listitem"
-        data-field={dotted}
-        data-edited={edited || undefined}
         style={{
           display: 'flex',
           alignItems: 'flex-start',
@@ -441,7 +440,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
           <RowsList ctx={ctx} parentSegments={segments} />
         </div>
       )}
-    </>
+    </div>
   );
 }
 

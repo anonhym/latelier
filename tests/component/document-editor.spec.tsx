@@ -629,6 +629,14 @@ describe('DocumentEditor — arrays', () => {
     expect(row('cast.0.name').dataset.edited).toBeUndefined();
   });
 
+  it("a container's children sit inside its list item, below its own controls rather than beside them", () => {
+    setup({ doc: { ...DOC, cast: [{ name: 'x' }] } });
+    const nested = within(editor()).getByRole('list', { name: 'Fields of cast' });
+    expect(nested.parentElement!.closest('[role="listitem"]')).toBe(row('cast'));
+    const controls = within(row('cast')).getByRole('button', { name: 'Remove cast' }).closest('div[style*="flex"]')!;
+    expect(controls.contains(nested)).toBe(false);
+  });
+
   it('a nested array edits and saves as the whole outer array', async () => {
     const { updateOne } = setup({ doc: { ...DOC, m: [[1, 2]] } });
     fireEvent.change(field('m.0.0'), { target: { value: '9' } });
