@@ -113,67 +113,72 @@ export class ImportService {
     const state = token ? { cancelled: false } : undefined;
     if (token && state) this.active.set(token, state);
 
-    let bytesRead = 0;
-    let records: Iterable<ImportRecord> | AsyncIterable<ImportRecord>;
-    if (format === 'json') {
-      let text: string;
-      try {
-        text = await fs.readFile(input.path, 'utf8');
-      } catch (err) {
-        throw fileError('read', err);
-      }
-      bytesRead = size; // whole file is already in memory once parsed
-      records = parseJsonArray(text);
-    } else {
-      records = jsonlRecords(input.path, (n) => { bytesRead += n; });
-    }
-
-    const emitProgress = () => {
-      if (!token) return;
-      this.emit?.({
-        cancelToken: token,
-        processed: report.inserted + report.failed,
-        inserted: report.inserted,
-        failed: report.failed,
-        bytesRead,
-        totalBytes: size,
-      });
-    };
-
-    let batch: { at: number; doc: Record<string, unknown> }[] = [];
+    // Registered before the file is read, so a cancel clicked while a large
+    // array is still parsing is not lost; the outer finally unregisters it
+    // on every exit, including a read or parse failure.
     try {
-      for await (const record of records) {
-        if ('error' in record) {
-          recordFailure(report, record.at, record.error);
-          continue;
+      let bytesRead = 0;
+      let records: Iterable<ImportRecord> | AsyncIterable<ImportRecord>;
+      if (format === 'json') {
+        let text: string;
+        try {
+          text = await fs.readFile(input.path, 'utf8');
+        } catch (err) {
+          throw fileError('read', err);
         }
-        batch.push(record);
-        if (batch.length >= this.batchSize) {
-          await this.insertBatch(coll, batch, report);
-          batch = [];
-          emitProgress();
-          // Never mid-batch: an aborted in-flight `insertMany` would leave the
-          // landed count unknowable, so cancel only takes effect once the
-          // batch that was already running has fully landed.
-          if (state?.cancelled) {
-            report.cancelled = true;
-            return report;
+        bytesRead = size; // whole file is already in memory once parsed
+        records = parseJsonArray(text);
+      } else {
+        records = jsonlRecords(input.path, (n) => { bytesRead += n; });
+      }
+
+      const emitProgress = () => {
+        if (!token) return;
+        this.emit?.({
+          cancelToken: token,
+          processed: report.inserted + report.failed,
+          inserted: report.inserted,
+          failed: report.failed,
+          bytesRead,
+          totalBytes: size,
+        });
+      };
+
+      let batch: { at: number; doc: Record<string, unknown> }[] = [];
+      try {
+        for await (const record of records) {
+          if ('error' in record) {
+            recordFailure(report, record.at, record.error);
+            continue;
+          }
+          batch.push(record);
+          if (batch.length >= this.batchSize) {
+            await this.insertBatch(coll, batch, report);
+            batch = [];
+            emitProgress();
+            // Never mid-batch: an aborted in-flight `insertMany` would leave the
+            // landed count unknowable, so cancel only takes effect once the
+            // batch that was already running has fully landed.
+            if (state?.cancelled) {
+              report.cancelled = true;
+              return report;
+            }
           }
         }
+        if (batch.length > 0) {
+          await this.insertBatch(coll, batch, report);
+          emitProgress();
+        }
+      } catch (err) {
+        // `insertBatch` has already classified its own errors; what is left is
+        // the JSONL stream failing to read part-way.
+        if (err instanceof AppError) throw err;
+        throw fileError('read', err, { insertedCount: report.inserted });
       }
-      if (batch.length > 0) {
-        await this.insertBatch(coll, batch, report);
-        emitProgress();
-      }
-    } catch (err) {
-      // `insertBatch` has already classified its own errors; what is left is
-      // the JSONL stream failing to read part-way.
-      if (err instanceof AppError) throw err;
-      throw fileError('read', err, { insertedCount: report.inserted });
+      return report;
     } finally {
       if (token) this.active.delete(token);
     }
-    return report;
   }
 
   /** Re-checks the path the renderer sent: absolute, an allowed extension, a regular file. */

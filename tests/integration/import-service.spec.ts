@@ -250,5 +250,13 @@ describe('ImportService.importFile', () => {
       await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p });
       expect(emit).not.toHaveBeenCalled();
     });
+
+    it('unregisters the cancel token when the file fails to parse', async () => {
+      const p = await file('broken-tok.json', '[{"_id":1},');
+      await expect(
+        svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'parse-fail' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION' });
+      expect((svc as unknown as { active: Map<string, unknown> }).active.size).toBe(0);
+    });
   });
 });
