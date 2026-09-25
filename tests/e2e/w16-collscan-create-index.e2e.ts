@@ -74,8 +74,8 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       // just explained: `status` (equality) — the only field in play.
       const createDrawer = win.getByRole('dialog', { name: /New index/ });
       await expect(createDrawer).toBeVisible({ timeout: 8000 });
-      await expect(createDrawer.getByLabel('Field 1')).toHaveValue('status');
-      await expect(createDrawer.getByLabel('Direction 1')).toHaveValue('1');
+      await expect(createDrawer.getByLabel('Field 1', { exact: true })).toHaveValue('status');
+      await expect(createDrawer.getByLabel('Direction 1', { exact: true })).toHaveValue('1');
       await expect(createDrawer).toContainText("MongoDB's ESR order");
 
       // Submitting is the user's own act — the drawer never auto-creates.
