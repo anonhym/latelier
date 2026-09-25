@@ -7,10 +7,11 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import type { ConnectionSummary } from '@shared/types';
 
 /**
- * ADR 0003 moved the Indexes tab's DB/collection drill-in out of
- * `IndexesTab` (now namespace-scoped) and into `IndexesHost`, a wrapper
- * local to `DetailPanel.tsx`. These are the auto-pick and
- * `ui.indexes.lastTarget` persistence cases that used to live in
+ * ADR 0003 / W16 Tier 1 moved the Indexes tab's DB/collection drill-in out
+ * of `IndexesTab` (now namespace-scoped) and into `IndexesHost`, a wrapper
+ * local to `DetailPanel.tsx` — and retired the `ui.indexes.lastTarget`
+ * preference along with it (W16 §9, Tier 1 AC), rather than carrying it
+ * over. These are the auto-pick and picker-switch cases that used to live in
  * `IndexesTab`'s own render tests.
  */
 
@@ -103,7 +104,7 @@ describe('IndexesHost — DB/collection picker', () => {
     await waitFor(() => expect(screen.getByText('_id_')).toBeTruthy());
   });
 
-  it('persists the selected target via prefs.set and switches the index list', async () => {
+  it('does not persist the selected target, and switching DBs reloads the index list', async () => {
     const setSpy = vi.fn<(key: string, value: unknown) => void>();
     const set = async <T,>(key: string, value: T) => { setSpy(key, value); return value; };
     installAtelierMock({
@@ -162,9 +163,11 @@ describe('IndexesHost — DB/collection picker', () => {
     await userEvent.selectOptions(screen.getByLabelText('Database'), 'beta');
 
     await waitFor(() => {
-      const calls = setSpy.mock.calls.filter((c) => c[0] === 'ui.indexes.lastTarget');
-      expect(calls.length).toBeGreaterThan(0);
-      expect(calls.at(-1)?.[1]).toMatchObject({ dbName: 'beta', collection: 'logs' });
+      const collSelect = screen.getByLabelText('Collection') as HTMLSelectElement;
+      expect(collSelect.value).toBe('logs');
     });
+    await waitFor(() => expect(screen.queryByText('_id_')).toBeNull());
+
+    expect(setSpy.mock.calls.filter((c) => c[0] === 'ui.indexes.lastTarget')).toEqual([]);
   });
 });

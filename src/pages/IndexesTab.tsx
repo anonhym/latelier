@@ -121,13 +121,13 @@ export function IndexesTab({
   // never during render (`react-hooks/refs`), so this can't be
   // `scrollRegionRef.current` inline in the JSX below.
   const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
-  // #74's focus-return target for a successful drop: the row is gone by then,
-  // but this scroll region is mounted for the tab's whole lifetime. Not the
+  // Focus-return target for a successful drop: the row is gone by then, but
+  // this scroll region is mounted for the tab's whole lifetime. Not the
   // "Refresh" button, the obvious-looking alternative — it's `disabled={loadingIndexes}`,
   // and the success path kicks off a reload, so it is disabled at the exact
   // moment focus would land there. A disabled focused button drops focus to
-  // <body> itself — the #55/#70 defect documented at FieldsControl.tsx:84-91
-  // — which is the bug this exists to fix.
+  // <body> itself — the same disabled-button focus loss documented at
+  // FieldsControl.tsx:84-91 — which is the bug this exists to fix.
   const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   const loadIndexes = React.useCallback(

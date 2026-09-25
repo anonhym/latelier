@@ -3,11 +3,14 @@
 > **Amended by W16 Tier 1 (ADR 0003).** `IndexesTab` is now namespace-scoped
 > (`{connectionId, dbName, collection}`) and owns no picker; the DB →
 > collection drill-in described below moved to `IndexesHost`, a wrapper local
-> to `DetailPanel.tsx`. `DetailPanel` still hosts the tab for now. W16 Tier 2
-> retires this tab entirely — the index surface becomes a section of the Data
-> View's Structure view, and `IndexesHost` goes with it. Read this spec's
-> "pick a database, drill into a collection" framing as history, not the
-> current component boundary.
+> to `DetailPanel.tsx`. `DetailPanel` still hosts the tab for now. Per W16 §9's
+> Tier 1 acceptance criteria, the `ui.indexes.lastTarget` preference is
+> retired now rather than carried over — `IndexesHost`'s picker auto-picks a
+> namespace on mount but does not persist the pick across relaunches. W16
+> Tier 2 retires this tab entirely — the index surface becomes a section of
+> the Data View's Structure view, and `IndexesHost` goes with it. Read this
+> spec's "pick a database, drill into a collection" framing as history, not
+> the current component boundary.
 
 ## Purpose
 

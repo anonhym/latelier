@@ -557,15 +557,17 @@ interface IndexTarget {
   collection: string;
 }
 
-const INDEXES_LAST_TARGET_KEY = 'ui.indexes.lastTarget';
-
 /**
  * Owns the database/collection picker for the Connection Manager's Indexes
  * tab. `IndexesTab` itself is namespace-scoped ({connectionId, dbName,
  * collection}) — collection-scoped admin surfaces are moving into the Data
- * View's Structure view (ADR 0003), and this picker goes away with the rest
- * of this tab once that lands. Until then it reuses the same DB/collection
- * drill-in as CollectionsTab above.
+ * View's Structure view (W16 Tier 2, ADR 0003), and this whole picker is
+ * deleted along with the tab once that lands. W16 Tier 1's acceptance
+ * criteria retires the `ui.indexes.lastTarget` preference now, not later —
+ * unlike CollectionsTab's DB list, the picked target here is deliberately
+ * not persisted across relaunches; it just auto-picks the first database and
+ * collection on mount, the same drill-in CollectionsTab above uses for its
+ * own list.
  */
 function IndexesHost({ conn, runtime }: {
   conn: ConnectionSummary;
@@ -583,13 +585,6 @@ function IndexesHost({ conn, runtime }: {
     void api.prefs
       .get<boolean>('ui.showSystemDbs')
       .then((v) => v !== null && setShowSystem(v))
-      .catch(() => { /* non-fatal */ });
-  }, []);
-
-  React.useEffect(() => {
-    void api.prefs
-      .get<IndexTarget>(INDEXES_LAST_TARGET_KEY)
-      .then((v) => v && setTarget(v))
       .catch(() => { /* non-fatal */ });
   }, []);
 
@@ -644,11 +639,7 @@ function IndexesHost({ conn, runtime }: {
     const firstDb = dbs[0]!.name;
     void loadCollections(firstDb).then((rows) => {
       const first = rows.find((c) => c.type !== 'view');
-      if (first) {
-        const next = { dbName: firstDb, collection: first.name };
-        setTarget(next);
-        void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
-      }
+      if (first) setTarget({ dbName: firstDb, collection: first.name });
     });
   }, [dbs, target, loadCollections]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -656,16 +647,12 @@ function IndexesHost({ conn, runtime }: {
   const onPickDb = async (dbName: string) => {
     const rows = await loadCollections(dbName);
     const first = rows.find((c) => c.type !== 'view');
-    const next = first ? { dbName, collection: first.name } : { dbName, collection: '' };
-    setTarget(next);
-    void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
+    setTarget(first ? { dbName, collection: first.name } : { dbName, collection: '' });
   };
 
   const onPickCollection = (collection: string) => {
     if (!target) return;
-    const next = { dbName: target.dbName, collection };
-    setTarget(next);
-    void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
+    setTarget({ dbName: target.dbName, collection });
   };
 
   if (runtime.status !== 'connected') {
