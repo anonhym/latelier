@@ -153,13 +153,13 @@ describe('DocumentEditor — insert mode — Shell Syntax input (JSON view)', ()
   });
 });
 
-// Review finding, ported from InsertDrawer — the write payload must be
-// Canonical EJSON. `stripIdForDuplicate` (the Duplicate-document seed) hands
-// this editor the *readable* form: a date as `{"$date":"<ISO>"}` and an
-// int32 as a bare number. Fields view revives it (typed BSON instances) and
-// the save path re-stringifies with `ejsonStringify`, so no round trip
-// through the JSON view's Shell Syntax reader is needed for this to hold —
-// it is asserted here anyway, once, as a regression guard on the same seam.
+// The write payload must be Canonical EJSON. `stripIdForDuplicate` (the
+// Duplicate-document seed) hands this editor the *readable* form: a date as
+// `{"$date":"<ISO>"}` and an int32 as a bare number. Fields view revives it
+// (typed BSON instances) and the save path re-stringifies with
+// `ejsonStringify`, so no round trip through the JSON view's Shell Syntax
+// reader is needed for this to hold — it is asserted here anyway, once, as
+// a regression guard on the same seam.
 describe('DocumentEditor — insert mode — the write payload is Canonical EJSON', () => {
   it('canonicalizes a readable duplicate seed before it crosses IPC', async () => {
     const insert = vi.fn().mockResolvedValue({ insertedId: 'new' });

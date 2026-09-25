@@ -492,11 +492,6 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
   const [original, setOriginal] = React.useState<Doc>(seedDoc);
   const [draft, setDraft] = React.useState<Doc>(seedDoc);
-  // W18 §6 — set only in `mode: 'insert'`, when the JSON view's committed
-  // text is a top-level array rather than a document. `draft` keeps holding
-  // the last Fields-shaped value (possibly stale) while this is non-null;
-  // Fields view is unavailable for as long as it is.
-  const [insertArray, setInsertArray] = React.useState<unknown[] | null>(null);
   // Text as typed, only for rows the user has touched, keyed by
   // `keyOf(segments)`. A value that doesn't parse stays here, and out of the
   // draft, until it does.
@@ -604,11 +599,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
     if (!result) return; // refused; stays on JSON with the text and error intact
     if (result.kind === 'array') {
       // W18 §6 — Fields shows one document; an array stays on JSON.
-      setInsertArray(result.docs);
       setErr('Fields view is not available for an array of documents. Edit it here, or Insert to add them all.');
       return;
     }
-    setInsertArray(null);
     setDraft(result.doc);
     setTexts(new Map());
     setView('fields');
@@ -617,8 +610,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const isDirty =
     !isEmptyDiff(changes) ||
     rowErrors.size > 0 ||
-    insertArray !== null ||
-    (view === 'json' && jsonText !== ejsonStringifyReadable(insertArray ?? draft, 2));
+    (view === 'json' && jsonText !== ejsonStringifyReadable(draft, 2));
 
   const close = useDialogFocusReturn(onClose);
 
@@ -698,18 +690,16 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
   // W18 §6 — Insert sends the whole draft; there is no diff for a document
   // that doesn't exist yet. A top-level array routes to `doc:insertMany`
-  // instead, same as the drawer this replaces (T2.7).
+  // instead, via `classifyInsertPayload`.
   const sendInsert = async () => {
     if (busy) return;
-    let payload: Doc | unknown[] = insertArray ?? draft;
+    let payload: Doc | unknown[] = draft;
     if (view === 'json') {
       const result = commitJson();
       if (!result) return; // refused; jsonLiveError already shows why
       if (result.kind === 'array') {
-        setInsertArray(result.docs);
         payload = result.docs;
       } else {
-        setInsertArray(null);
         setDraft(result.doc);
         payload = result.doc;
       }
@@ -855,12 +845,12 @@ export function DocumentEditor(props: DocumentEditorProps) {
     observer.current.observe(el);
   }, []);
 
-  // W18 §6 — the Insert/Duplicate button label, live off the uncommitted
-  // buffer the same way InsertDrawer's did: an array shows its count before
-  // Save is even pressed.
+  // W18 §6 — the Insert button label, live off the uncommitted JSON buffer:
+  // an array shows its count before Save is even pressed, and stays current
+  // as the user keeps editing (never off a value captured at an earlier
+  // commit).
   const livePayload = React.useMemo<InsertPayloadClassification | null>(() => {
     if (mode !== 'insert') return null;
-    if (insertArray !== null) return { kind: 'array', count: insertArray.length };
     if (view === 'fields') return { kind: 'single' };
     if (jsonOutcome.kind === 'failed') return null;
     const canonical = jsonOutcome.kind === 'repaired' ? jsonOutcome.text : jsonText;
@@ -869,7 +859,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     } catch {
       return null;
     }
-  }, [mode, insertArray, view, jsonOutcome, jsonText]);
+  }, [mode, view, jsonOutcome, jsonText]);
 
   const submitLabel =
     mode === 'edit'
@@ -962,7 +952,10 @@ export function DocumentEditor(props: DocumentEditorProps) {
             <div style={{ flex: 1, minHeight: 0 }}>
               <ScriptEditor
                 value={jsonText}
-                onChange={setJsonText}
+                onChange={(next) => {
+                  setJsonText(next);
+                  setErr(null);
+                }}
                 onBlur={() => void commitJson()}
                 height="100%"
                 ariaLabel="Document JSON"

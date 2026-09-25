@@ -57,7 +57,7 @@ test('doc writes: insert adds a row; edit changes a field; delete removes the ro
 
       // Fields is the default view (W18 §2); switch to JSON to paste the
       // whole document the way the drawer's textarea used to take it.
-      await insertDialog.getByRole('radio', { name: 'JSON' }).click();
+      await insertDialog.getByRole('radiogroup', { name: 'View' }).getByText('JSON', { exact: true }).click();
       const insertBox = insertDialog.getByRole('textbox', { name: 'Document JSON' });
       await insertBox.fill('{"_id": 3, "sku": "fresh-insert", "status": "pending"}');
 

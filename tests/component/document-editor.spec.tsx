@@ -907,10 +907,9 @@ describe('DocumentEditor — Escape layering (JSON view)', () => {
   });
 });
 
-// W18 §6 — Insert and Duplicate on the Document Editor. InsertDrawer and its
-// own spec are gone; this suite covers what it covered (T2.7's insert-many
-// routing, the duplicate seed, the partial-insert banner) plus the
-// mode-specific bits new here: Fields as the default view, and Fields being
+// W18 §6 — Insert and Duplicate on the Document Editor: insert-many routing,
+// the duplicate seed, the partial-insert banner, plus the mode-specific bits
+// only the editor has — Fields as the default view, and Fields being
 // unavailable for an array draft.
 const insertField = (name: string) => within(insertEditor()).getByRole('textbox', { name }) as HTMLInputElement;
 const insertSaveButton = () => within(insertEditor()).getByRole('button', { name: /^Insert/ });
@@ -965,6 +964,23 @@ describe('DocumentEditor — insert mode — creating a document', () => {
       collection: 'orders',
       docJson: '{"sku":"widget","qty":{"$numberInt":"5"}}',
     });
+  });
+
+  it('the button label tracks further edits after a refused switch to Fields, not the text at the time of refusal', async () => {
+    setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1}]' } });
+    // Refused: Fields shows one document, so this stays on JSON.
+    fireEvent.click(insertViewSwitch('Fields'));
+    expect(await screen.findByText(/Fields view is not available/)).toBeTruthy();
+
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1},{"b":2},{"c":3}]' } });
+    expect(await screen.findByRole('button', { name: 'Insert 3 documents' })).toBeTruthy();
+    // The refusal message is stale advice now that the text has changed.
+    expect(screen.queryByText(/Fields view is not available/)).toBeNull();
+
+    fireEvent.change(insertJsonBox(), { target: { value: '{"a":1}' } });
+    expect(await screen.findByRole('button', { name: 'Insert' })).toBeTruthy();
   });
 
   it('a top-level array in the JSON view inserts many, with the count on the button', async () => {

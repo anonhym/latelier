@@ -74,7 +74,7 @@ async function open(dialogName: string) {
 }
 
 describe('dialog focus return (X15 T2)', () => {
-  it('InsertDrawer returns focus to the trigger when it closes', async () => {
+  it('the Document Editor (insert mode) returns focus to the trigger when it closes', async () => {
     installAtelierMock({});
     render(<Harness>{insertDrawer}</Harness>);
     await open('Insert document');

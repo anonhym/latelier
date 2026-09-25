@@ -187,7 +187,7 @@ test('the Document Editor (insert mode) keeps inserting into the tab it was open
 
       // Fields is the default view (W18 §2); switch to JSON to paste the
       // whole document.
-      await insertDialog.getByRole('radio', { name: 'JSON' }).click();
+      await insertDialog.getByRole('radiogroup', { name: 'View' }).getByText('JSON', { exact: true }).click();
       const insertBox = insertDialog.getByRole('textbox', { name: 'Document JSON' });
       await insertBox.fill('{"_id": "fresh", "sku": "drafted-on-orders"}');
 
