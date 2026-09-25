@@ -9,6 +9,7 @@ import {
   moveStage,
   nextStageId,
   removeStage,
+  restoreStage,
   setBody,
   setOp,
   stageSig,
@@ -48,6 +49,48 @@ describe('pipeline ops', () => {
     const s2 = removeStage(s1, id);
     expect(s2.stages).toHaveLength(0);
     expect(s2.activeStageId).toBeNull();
+  });
+
+  // docs/adr/0013 — restoreStage undoes a single removeStage.
+  describe('restoreStage', () => {
+    it('reinserts the stage at its index and activates it', () => {
+      let s = addStage(emptyState, '$match');
+      s = addStage(s, '$sort');
+      s = addStage(s, '$limit');
+      const removed = s.stages[1]!; // $sort
+      const afterRemove = removeStage(s, removed.id);
+
+      const restored = restoreStage(afterRemove, removed, 1);
+      expect(restored.stages.map((st) => st.op)).toEqual(['$match', '$sort', '$limit']);
+      expect(restored.activeStageId).toBe(removed.id);
+    });
+
+    /**
+     * MUTATION TARGET — drop the `Math.min(index, stages.length)` clamp and
+     * this throws (or silently misplaces) instead of landing at the end.
+     */
+    it('clamps the index to the current pipeline length', () => {
+      const s = addStage(emptyState, '$match');
+      const removed: Stage = { id: 99, op: '$sort', body: '{}', enabled: true };
+      const restored = restoreStage(s, removed, 50);
+      expect(restored.stages.map((st) => st.op)).toEqual(['$match', '$sort']);
+    });
+
+    /**
+     * MUTATION TARGET — drop the `idTaken` check and this produces two
+     * stages sharing id 1, silently breaking the accordion's `key`.
+     */
+    it('gives the restored stage a fresh id if the old one has been reused since', () => {
+      let s = addStage(emptyState, '$match'); // id 1
+      const removedMatch = s.stages[0]!;
+      s = removeStage(s, removedMatch.id);
+      s = addStage(s, '$sort'); // reuses id 1 via nextStageId
+
+      const restored = restoreStage(s, removedMatch, 0);
+      const ids = restored.stages.map((st) => st.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(restored.activeStageId).toBe(restored.stages[0]!.id);
+    });
   });
 
   it('moveStage reorders', () => {

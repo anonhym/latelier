@@ -191,7 +191,7 @@ The record outlives the Pre-image because they have different value curves. Undo
 
 Not a workspace tab: `workspace_tabs.kind` is a SQL `CHECK` constraint, so a new tab kind would mean a migration plus tab-state persistence, position, pinning and resize handles, to house a list the user opens, scans and closes.
 
-**Confirm dialogs.** `DeleteConfirm`, `DropCollectionConfirm` and `DropDatabaseConfirm` each gain one line stating whether the action can be undone. `confirmDeleteMany` already counts matches, so the delete dialog can say *"250,000 documents — above the 1,000-document undo limit, this cannot be undone"* with no new query. The drops always say they cannot be undone.
+**Confirm dialogs.** `DeleteConfirm`, `DropCollectionConfirm` and `DropDatabaseConfirm` each gain one line stating whether the action can be undone. `confirmDeleteMany` already counts matches, so the delete dialog can say *"250,000 documents — above the 1,000-document undo limit, this cannot be undone"* with no new query. The drops always say they cannot be undone. This copy states a fact about the specific action; it never changes which dialogs get type-to-confirm versus an undo toast in the first place — that's [ADR 0013](../docs/adr/0013-destructive-friction.md).
 
 ## 9. Acceptance criteria
 

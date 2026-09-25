@@ -149,6 +149,25 @@ export function removeStage(state: PipelineState, id: number): PipelineState {
   return { ...state, stages, activeStageId };
 }
 
+/**
+ * Undoes a single `removeStage` (docs/adr/0013 — local editor state gets an
+ * Undo toast, not a confirm). Reinserts `stage` at `index`, clamped to the
+ * pipeline's current length so a restore fired after other edits shifted the
+ * stage list still lands somewhere valid instead of throwing.
+ *
+ * Gives the stage a fresh id when its old one has since been reused by
+ * `addStage`/`duplicateStage` (both derive from the same max-id-plus-one), so
+ * the restored stage never collides with a stage added after the delete.
+ */
+export function restoreStage(state: PipelineState, stage: Stage, index: number): PipelineState {
+  const idTaken = state.stages.some((s) => s.id === stage.id);
+  const restored = idTaken ? { ...stage, id: nextStageId(state.stages) } : stage;
+  const stages = [...state.stages];
+  const insertAt = Math.min(Math.max(0, index), stages.length);
+  stages.splice(insertAt, 0, restored);
+  return { ...state, stages, activeStageId: restored.id };
+}
+
 export function moveStage(state: PipelineState, from: number, to: number): PipelineState {
   if (from === to) return state;
   if (from < 0 || from >= state.stages.length) return state;
