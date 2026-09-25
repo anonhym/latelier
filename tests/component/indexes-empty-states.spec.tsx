@@ -1,8 +1,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { DetailPanel } from '../../src/pages/DetailPanel';
 import { IndexesTab } from '../../src/pages/IndexesTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ConnectionRuntime, ConnectionSummary } from '@shared/types';
+import type { ConnectionSummary } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
@@ -20,54 +23,62 @@ const conn: ConnectionSummary = {
   status: 'connected',
 };
 
-function renderTab(runtime: ConnectionRuntime) {
+function renderDetail() {
   return render(
-      <IndexesTab conn={conn} runtime={runtime} />
+    <MemoryRouter initialEntries={['/connections/c1']}>
+      <DetailPanel selected={conn} loading={false} onDelete={() => {}} onDisconnect={() => {}} />
+    </MemoryRouter>,
   );
 }
 
-describe('IndexesTab — empty / error states', () => {
-  it('renders the disconnected state when runtime is not connected', () => {
-    installAtelierMock({});
-    renderTab({ id: 'c1', status: 'disconnected' });
-    expect(screen.getByText(/Not connected/)).toBeTruthy();
+describe('IndexesHost — empty / error states (the picker, now in DetailPanel.tsx)', () => {
+  it('renders the disconnected state when runtime is not connected', async () => {
+    installAtelierMock({
+      mongo: {
+        status: async (id) => ({ id, status: 'disconnected' as const }),
+        connect: async (id) => ({ id, status: 'connecting' as const }),
+        disconnect: async (id) => ({ id }),
+        ping: async () => ({ roundTripMs: 0 }),
+        onStatus: () => () => { /* ok */ },
+      },
+    });
+    renderDetail();
+    await userEvent.click(await screen.findByText('Indexes'));
+    expect(await screen.findByText(/Not connected/)).toBeTruthy();
   });
 
   it('renders the empty-pick prompt when no databases exist on the server', async () => {
     installAtelierMock({
+      mongo: {
+        status: async (id) => ({ id, status: 'connected' as const }),
+        connect: async (id) => ({ id, status: 'connected' as const }),
+        disconnect: async (id) => ({ id }),
+        ping: async () => ({ roundTripMs: 1 }),
+        onStatus: () => () => { /* ok */ },
+      },
       meta: {
         listDatabases: async () => [],
         listCollections: async () => [],
       },
     });
-    renderTab({ id: 'c1', status: 'connected' });
+    renderDetail();
+    await userEvent.click(await screen.findByText('Indexes'));
     await waitFor(() => {
       expect(screen.getByText(/Pick a database and collection/)).toBeTruthy();
     });
   });
+});
 
+describe('IndexesTab — error states', () => {
   it('shows an UNAUTHORIZED-specific banner when index:list throws', async () => {
     installAtelierMock({
-      meta: {
-        listDatabases: async () => [{ name: 'alpha', sizeOnDisk: 0, empty: false }],
-        listCollections: async () => [
-          {
-            name: 'people',
-            type: 'collection' as const,
-            documentCount: 0,
-            sizeBytes: 0,
-            indexCount: 0,
-            capped: false,
-          },
-        ],
-      },
       index: {
         list: async () => {
           throw { code: 'UNAUTHORIZED', message: 'not authorized on alpha' };
         },
       },
     });
-    renderTab({ id: 'c1', status: 'connected' });
+    render(<IndexesTab connectionId="c1" dbName="alpha" collection="people" />);
     await waitFor(() => {
       expect(
         screen.getByText(/lacks the privilege to read indexes on alpha\.people/),
