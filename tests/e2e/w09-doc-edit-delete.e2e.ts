@@ -47,23 +47,24 @@ test('doc writes: insert adds a row; edit changes a field; delete removes the ro
 
       // ── Insert ──────────────────────────────────────────────────────────
       // Toolbar Insert button (visible "+ Insert", aria-label
-      // "Insert document") opens the InsertDrawer. The drawer's own
+      // "Insert document") opens the Document Editor in insert mode. Its own
       // primary action is just "Insert" so the regex below distinguishes
       // them — we want the toolbar one here.
       await win.getByRole('button', { name: /Insert document/ }).click();
 
-      // The drawer's textarea is the last on the page (rendered after the
-      // QueryBar's `placeholder="{}"` textarea).
-      await expect(win.getByText('Insert document', { exact: true })).toBeVisible({
-        timeout: 5000,
-      });
-      const insertTextarea = win.locator('textarea').last();
-      await insertTextarea.fill('{"_id": 3, "sku": "fresh-insert", "status": "pending"}');
+      const insertDialog = win.getByRole('dialog', { name: 'Insert document' });
+      await expect(insertDialog).toBeVisible({ timeout: 5000 });
 
-      // The drawer's primary "Insert" button is the only "Insert" rendered.
+      // Fields is the default view (W18 §2); switch to JSON to paste the
+      // whole document the way the drawer's textarea used to take it.
+      await insertDialog.getByRole('radio', { name: 'JSON' }).click();
+      const insertBox = insertDialog.getByRole('textbox', { name: 'Document JSON' });
+      await insertBox.fill('{"_id": 3, "sku": "fresh-insert", "status": "pending"}');
+
+      // The editor's primary "Insert" button is the only "Insert" rendered.
       await win.getByRole('button', { name: /^Insert$/ }).click();
 
-      // Drawer closes, run reruns automatically. New row appears.
+      // Editor closes, run reruns automatically. New row appears.
       await expect(win.getByText('fresh-insert')).toBeVisible({ timeout: 8000 });
 
       // ── Edit ────────────────────────────────────────────────────────────

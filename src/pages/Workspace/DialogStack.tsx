@@ -15,7 +15,6 @@ import { ConnectionExpandedTable } from '../../features/connections/ConnectionEx
 import { FeatureHint } from '../../hints/FeatureHint';
 import type { UseFeatureHintResult } from '../../hints/useFeatureHint';
 import { SaveModal } from './SaveModal';
-import { InsertDrawer } from './InsertDrawer';
 import { DocumentEditor } from './DocumentEditor';
 import { DeleteConfirm } from './DeleteConfirm';
 import { UpdateConfirm } from './UpdateConfirm';
@@ -349,7 +348,8 @@ export function DialogStack({
       )}
 
       {inserting && (
-        <InsertDrawer
+        <DocumentEditor
+          mode="insert"
           collection={inserting.target.collection}
           connectionId={inserting.target.connectionId}
           dbName={inserting.target.dbName}
@@ -362,6 +362,7 @@ export function DialogStack({
 
       {editing && (
         <DocumentEditor
+          mode="edit"
           connectionId={editing.target.connectionId}
           dbName={editing.target.dbName}
           collection={editing.target.collection}

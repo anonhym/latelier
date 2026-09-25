@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
-import { InsertDrawer } from '../../src/pages/Workspace/InsertDrawer';
 import { CreateCollectionDrawer } from '../../src/pages/Workspace/CreateCollectionDrawer';
 import { DocumentEditor } from '../../src/pages/Workspace/DocumentEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -51,7 +50,8 @@ const trigger = () => screen.getByRole('button', { name: 'Open dialog' });
 const elsewhere = () => screen.getByRole('button', { name: 'Elsewhere' });
 
 const insertDrawer = (close: () => void) => (
-  <InsertDrawer
+  <DocumentEditor
+    mode="insert"
     collection="coll"
     connectionId="c1"
     dbName="db"
@@ -135,6 +135,7 @@ describe('dialog focus return (X15 T2)', () => {
       <Harness>
         {(close) => (
           <DocumentEditor
+            mode="edit"
             connectionId="c1"
             dbName="db"
             collection="coll"

@@ -143,11 +143,11 @@ test('the Document Editor keeps saving to the tab it was opened on after switchi
 });
 
 /**
- * Same hazard, InsertDrawer side: a draft started on one tab must insert
- * into that tab's collection even after focus moves to another tab before
- * Insert is clicked.
+ * Same hazard, the Document Editor's insert mode: a draft started on one tab
+ * must insert into that tab's collection even after focus moves to another
+ * tab before Insert is clicked.
  */
-test('InsertDrawer keeps inserting into the tab it was opened on after switching Focused Tab mid-draft', async () => {
+test('the Document Editor (insert mode) keeps inserting into the tab it was opened on after switching Focused Tab mid-draft', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -182,24 +182,24 @@ test('InsertDrawer keeps inserting into the tab it was opened on after switching
       await ws.tabByName('orders').click();
       await expect(ws.tabByName('orders')).toHaveAttribute('aria-selected', 'true');
       await win.getByRole('button', { name: /Insert document/ }).click();
-      await expect(win.getByText('Insert document', { exact: true })).toBeVisible({
-        timeout: 5000,
-      });
+      const insertDialog = win.getByRole('dialog', { name: 'Insert document' });
+      await expect(insertDialog).toBeVisible({ timeout: 5000 });
 
-      const insertTextarea = win.locator('textarea').last();
-      await insertTextarea.fill('{"_id": "fresh", "sku": "drafted-on-orders"}');
+      // Fields is the default view (W18 §2); switch to JSON to paste the
+      // whole document.
+      await insertDialog.getByRole('radio', { name: 'JSON' }).click();
+      const insertBox = insertDialog.getByRole('textbox', { name: 'Document JSON' });
+      await insertBox.fill('{"_id": "fresh", "sku": "drafted-on-orders"}');
 
       await win.keyboard.press(`${MOD}+2`);
       await expect(ws.tabByName('users')).toHaveAttribute('aria-selected', 'true', {
         timeout: 5000,
       });
       // Survives the switch instead of unmounting.
-      await expect(win.getByText('Insert document', { exact: true })).toBeVisible();
+      await expect(insertDialog).toBeVisible();
 
       await win.getByRole('button', { name: /^Insert$/ }).click();
-      await expect(win.getByText('Insert document', { exact: true })).not.toBeVisible({
-        timeout: 8000,
-      });
+      await expect(insertDialog).not.toBeVisible({ timeout: 8000 });
 
       const counts = await win.evaluate(async (cid) => {
         const api = (window as unknown as {

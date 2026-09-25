@@ -9,6 +9,23 @@ import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
 import { stripIdForDuplicate } from '../../src/pages/Workspace/views/docId';
 import type { CollectionTab, CollectionTabState } from '@shared/types';
+import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
+
+// The Document Editor's JSON view mounts a real CodeMirror 6 `ScriptEditor`,
+// which needs layout APIs jsdom doesn't implement (see
+// `document-editor.spec.tsx`). This suite only drives its text and blur, not
+// the completion popup, so the stub stays minimal.
+vi.mock('../../src/components/ScriptEditor', () => ({
+  ScriptEditor: ({ value, onChange, onBlur, testId, ariaLabel }: ScriptEditorProps) => (
+    <textarea
+      data-testid={testId}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => onBlur?.()}
+    />
+  ),
+}));
 
 const NOW = '2026-08-01T12:00:00.000Z';
 const DOC = { _id: '1', sku: 'widget' };
@@ -65,15 +82,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The editor's JSON textbox, after switching that dialog to the JSON view. */
+function jsonTextOf(dialog: HTMLElement): string {
+  fireEvent.click(within(dialog).getByRole('radio', { name: 'JSON' }));
+  return (within(dialog).getByRole('textbox', { name: 'Document JSON' }) as HTMLTextAreaElement).value;
+}
+
 describe('workspace doc dialogs (T2)', () => {
-  it('toolbar "Insert" opens InsertDrawer with the default {} document', async () => {
+  it('toolbar "Insert" opens the Document Editor with the default {} document', async () => {
     mount();
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
-    expect((within(dialog).getByRole('textbox') as HTMLTextAreaElement).value).toBe('{}');
+    expect(jsonTextOf(dialog)).toBe('{}');
   });
 
   // The header's doc count used to be fetched once at open and never again —
@@ -135,7 +158,7 @@ describe('workspace doc dialogs (T2)', () => {
   // T2.6 — "Duplicate document" is wired from TableView's row context menu
   // only (TreeView/JsonView don't offer it), so this seeds the tab in Table
   // view rather than driving a view switch through the SegmentedControl.
-  it('"Duplicate document" opens InsertDrawer pre-filled with the source doc\'s EJSON minus _id', async () => {
+  it('"Duplicate document" opens the Document Editor pre-filled with the source doc\'s EJSON minus _id', async () => {
     mount({}, tab({ view: 'Table' }));
 
     await screen.findByText(/widget/);
@@ -143,9 +166,12 @@ describe('workspace doc dialogs (T2)', () => {
     fireEvent.click(screen.getByText('Duplicate document'));
 
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
-    const textarea = within(dialog).getByRole('textbox') as HTMLTextAreaElement;
-    expect(textarea.value).toBe(stripIdForDuplicate(DOC));
-    expect(textarea.value).not.toContain('_id');
+    // Fields is the default view, so the seeded field renders straight into
+    // its own row — no need to switch to JSON to see it.
+    expect((within(dialog).getByRole('textbox', { name: 'sku' }) as HTMLInputElement).value).toBe('widget');
+    const jsonText = jsonTextOf(dialog);
+    expect(jsonText).toBe(stripIdForDuplicate(DOC));
+    expect(jsonText).not.toContain('_id');
   });
 
   it('closing after a duplicate clears duplicateDocJson, so the next plain Insert opens empty again', async () => {
@@ -166,7 +192,7 @@ describe('workspace doc dialogs (T2)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
-    expect((within(dialog).getByRole('textbox') as HTMLTextAreaElement).value).toBe('{}');
+    expect(jsonTextOf(dialog)).toBe('{}');
   });
 
   it('onInserted closes the drawer and re-runs the query; onPartialInsert re-runs without closing', async () => {
@@ -177,7 +203,8 @@ describe('workspace doc dialogs (T2)', () => {
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
-    fireEvent.change(within(dialog).getByRole('textbox'), {
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'JSON' }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Document JSON' }), {
       target: { value: '{"sku":"new"}' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: /^Insert$/ }));
@@ -200,7 +227,8 @@ describe('workspace doc dialogs (T2)', () => {
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
-    fireEvent.change(within(dialog).getByRole('textbox'), {
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'JSON' }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Document JSON' }), {
       target: { value: '[{"sku":"a"},{"sku":"b"}]' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: /^Insert/ }));
