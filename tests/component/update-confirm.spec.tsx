@@ -78,6 +78,92 @@ describe('UpdateConfirm', () => {
     expect(updateBtn()).toBeNull();
   });
 
+  // A Review response used to arm Update with whatever text `submitted`
+  // closed over, even when the buffer had since been edited while the count
+  // was still in flight. The dialog's own promise (`This cannot be undone`)
+  // that a stale token can never authorize a different update only holds if
+  // a response describing a body the user is no longer looking at is dropped
+  // rather than accepted.
+  it('editing the body while Review is in flight drops the stale response instead of arming Update', async () => {
+    let resolveConfirm!: (v: { count: number; confirmToken: string }) => void;
+    const confirmUpdateMany = vi.fn(
+      () => new Promise<{ count: number; confirmToken: string }>((r) => (resolveConfirm = r)),
+    );
+    installAtelierMock({ doc: { confirmUpdateMany } });
+
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    fireEvent.click(reviewBtn());
+    await waitFor(() => expect(confirmUpdateMany).toHaveBeenCalledTimes(1));
+
+    // Edit the buffer while the count request for the OLD body is still
+    // in flight — this is the race Gitar found.
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"edited-mid-flight"}}' } });
+
+    // The now-late response describes the body the user has since moved
+    // away from.
+    resolveConfirm({ count: 5, confirmToken: 'tok-1' });
+
+    // `reviewing` clears (the Review button's label returns), but the count
+    // for the stale body must never appear and Update must never render.
+    await waitFor(() => expect(reviewBtn().textContent).toBe('Review'));
+    expect(screen.queryByText(/5 matching document/)).toBeNull();
+    expect(updateBtn()).toBeNull();
+  });
+
+  it('editing the filter/target this dialog is scoped to while Review is in flight also drops the stale response', async () => {
+    let resolveConfirm!: (v: { count: number; confirmToken: string }) => void;
+    const confirmUpdateMany = vi.fn(
+      () => new Promise<{ count: number; confirmToken: string }>((r) => (resolveConfirm = r)),
+    );
+    installAtelierMock({ doc: { confirmUpdateMany } });
+
+    const { rerender } = render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    fireEvent.click(reviewBtn());
+    await waitFor(() => expect(confirmUpdateMany).toHaveBeenCalledTimes(1));
+
+    // The tab's current filter changes underneath the dialog while the count
+    // for the OLD filter is still in flight (DialogStack re-derives `filter`
+    // from `currentFilterJson` on every render of the active tab's state).
+    rerender(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"shipped"}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    resolveConfirm({ count: 5, confirmToken: 'tok-1' });
+
+    await waitFor(() => expect(reviewBtn().textContent).toBe('Review'));
+    expect(screen.queryByText(/5 matching document/)).toBeNull();
+    expect(updateBtn()).toBeNull();
+  });
+
   it('sends updateMany with the exact updateJson and confirmToken the Review call returned', async () => {
     const confirmUpdateMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-xyz' }));
     const updateMany = vi.fn(async () => ({ matchedCount: 2, modifiedCount: 2 }));

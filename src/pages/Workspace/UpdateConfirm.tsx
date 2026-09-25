@@ -57,6 +57,21 @@ export function UpdateConfirm({
   const [running, setRunning] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
+  // Live snapshots of what a Review response must still match once it lands.
+  // `confirmUpdateMany` is in flight for a round trip; the textarea is
+  // read-only for that window (below), but nothing stops the *filter/target*
+  // this dialog is scoped to from moving underneath it (a live re-run of
+  // `currentFilterJson` in DialogStack). Refs, not state — `handleReview`
+  // only reads them once the awaited call resolves, and a ref read/written
+  // during render is unreliable (and `react-hooks/refs` refuses it), so the
+  // sync runs from an effect instead.
+  const bufferRef = React.useRef(buffer);
+  const targetRef = React.useRef({ connectionId, dbName, collection, filter });
+  React.useEffect(() => {
+    bufferRef.current = buffer;
+    targetRef.current = { connectionId, dbName, collection, filter };
+  });
+
   // Write surfaces stay strict (ADR 0004) — Shell Syntax reaches this editor
   // the same way it reaches EditDrawer, repaired on blur so what Review sends
   // is exactly what's on screen.
@@ -84,6 +99,10 @@ export function UpdateConfirm({
       setErr('Invalid EJSON');
       return;
     }
+    // What this specific request describes — compared against the live refs
+    // once the response lands, not against `filter`/`connectionId`/… again,
+    // which would just re-read the same (possibly since-changed) closure.
+    const requested = { connectionId, dbName, collection, filter, updateJson: submitted };
     setReviewing(true);
     setErr(null);
     try {
@@ -94,6 +113,20 @@ export function UpdateConfirm({
         filterJson: filter,
         updateJson: submitted,
       });
+      // The textarea is read-only for this window, but the buffer can still
+      // have been repaired by a blur that fired after this call started, and
+      // the filter/target this dialog is scoped to can move under it (a live
+      // re-run of `currentFilterJson` in DialogStack). Either one means this
+      // response describes an action the user is no longer looking at — drop
+      // it rather than arm Update with a token minted for a different body.
+      const current = targetRef.current;
+      const stale =
+        bufferRef.current !== requested.updateJson ||
+        current.connectionId !== requested.connectionId ||
+        current.dbName !== requested.dbName ||
+        current.collection !== requested.collection ||
+        current.filter !== requested.filter;
+      if (stale) return;
       setReviewed({ count, confirmToken, updateJson: submitted });
     } catch (e) {
       setErr(getErrorMessage(e, 'Could not review this update'));
@@ -163,6 +196,12 @@ export function UpdateConfirm({
             value={buffer}
             onChange={(e) => handleChange(e.target.value)}
             onBlur={() => shell.onBlur()}
+            // Locked for the round trip: a Review response is bound to the
+            // body it counted, so an edit during that window must never be
+            // possible to make silently — the `handleReview` staleness check
+            // above is the correctness guard, this is what stops the user
+            // from ever seeing the discarded response as if it had counted.
+            readOnly={reviewing}
             aria-invalid={!isValid}
             aria-describedby={refusal ? 'update-all-syntax-error' : undefined}
             spellCheck={false}
