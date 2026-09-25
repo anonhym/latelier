@@ -138,4 +138,43 @@ describe('AuditLogModal', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('database is locked');
     expect(screen.queryByText('No Operations recorded.')).toBeNull();
   });
+
+  it('does not show the previous Connection\'s rows while the new one is loading', async () => {
+    // Deferred: c1's list resolves immediately, c2's stays pending until we
+    // resolve it — long enough to inspect the table mid-load.
+    let resolveC2!: (rows: AuditEntry[]) => void;
+    const list = vi.fn<(input: AuditListInput) => Promise<AuditEntry[]>>((input) => {
+      if (input.connectionId === 'c2') return new Promise((resolve) => (resolveC2 = resolve));
+      return Promise.resolve(ENTRIES);
+    });
+    installAtelierMock({ conn: { list: async () => CONNECTIONS }, audit: { list } });
+    render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+    await screen.findByText('shop.orders → orders_old');
+
+    fireEvent.change(await screen.findByLabelText('Connection'), { target: { value: 'c2' } });
+
+    // c1's rows must not still be on screen under c2's label while c2 loads.
+    await waitFor(() => expect(screen.queryByText('shop.orders → orders_old')).toBeNull());
+
+    resolveC2([]);
+    expect(await screen.findByText('No Operations recorded.')).toBeTruthy();
+  });
+
+  it('clears the stale table when a re-list fails after a successful one', async () => {
+    let failNext = false;
+    const list = vi.fn<(input: AuditListInput) => Promise<AuditEntry[]>>(async () => {
+      if (failNext) return Promise.reject({ code: 'DB_ERROR', message: 'database is locked' });
+      return ENTRIES;
+    });
+    installAtelierMock({ conn: { list: async () => CONNECTIONS }, audit: { list } });
+    render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+    await screen.findByText('shop.orders → orders_old');
+
+    failNext = true;
+    fireEvent.change(screen.getByLabelText('Database'), { target: { value: 'shop2' } });
+
+    expect((await screen.findByRole('alert')).textContent).toBe('database is locked');
+    // The old Connection's table must not still be showing alongside the error.
+    expect(screen.queryByText('shop.orders → orders_old')).toBeNull();
+  });
 });

@@ -46,6 +46,20 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
   const [entries, setEntries] = React.useState<AuditEntry[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Clear the previous Connection/database/collection's rows the instant the
+  // query changes — otherwise they stay on screen (under the new label)
+  // until the request below resolves, and stick around on a failed load
+  // alongside the error. "Adjust state during render" pattern (see
+  // TreeView's prevDocuments reset), not a useEffect, to avoid a cascading
+  // render cycle.
+  const listKey = `${connectionId ?? ''}|${dbName}|${collection}`;
+  const [prevListKey, setPrevListKey] = React.useState(listKey);
+  if (listKey !== prevListKey) {
+    setPrevListKey(listKey);
+    setEntries(null);
+    setError(null);
+  }
+
   React.useEffect(() => {
     api.conn
       .list()
