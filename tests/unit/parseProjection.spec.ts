@@ -203,6 +203,13 @@ describe('parseProjection — the lenient path', () => {
     expect(fieldsOf('5')).toEqual(['5']);
   });
 
+  // Only the outer pair is stripped. An inner `{` stays in the field name
+  // where the user can see it, rather than being silently repaired into a
+  // field they never typed cleanly.
+  it('strips only the outer opening brace, keeping a stray inner one', () => {
+    expect(fieldsOf('{a: 1, {b: 1}')).toEqual(['a', '{b']);
+  });
+
   it('refuses a stray closing brace rather than dropping it', () => {
     expect(parseProjection('{a: 1}}').ok).toBe(false);
   });
