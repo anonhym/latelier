@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 import { MongoBulkWriteError, type Collection, type Db, type Document } from 'mongodb';
 import type { DataImportInput, DataImportProgressEvent, ImportFormat, ImportReport } from '@shared/types';
 import { AppError, NotFoundError, SystemError, ValidationError } from '../errors.ts';
@@ -48,17 +49,23 @@ async function sniffFile(filePath: string): Promise<ImportFormat> {
 // `onBytes` rides the same underlying stream `readline` consumes — attaching
 // a second `data` listener doesn't steal chunks from the first, so it gives
 // an exact read count without readline exposing one itself.
-async function* jsonlRecords(filePath: string, onBytes: (n: number) => void): AsyncGenerator<ImportRecord> {
-  const stream = createReadStream(filePath, { encoding: 'utf8' });
+export async function* jsonlRecords(stream: Readable, onBytes: (n: number) => void): AsyncGenerator<ImportRecord> {
   stream.on('data', (chunk) => onBytes(Buffer.byteLength(chunk as string, 'utf8')));
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   let lineNo = 0;
-  for await (const line of lines) {
-    // Counted before the blank check, so a reported line number is the
-    // editor's line number.
-    lineNo++;
-    const record = parseJsonlLine(line, lineNo);
-    if (record) yield record;
+  try {
+    for await (const line of lines) {
+      // Counted before the blank check, so a reported line number is the
+      // editor's line number.
+      lineNo++;
+      const record = parseJsonlLine(line, lineNo);
+      if (record) yield record;
+    }
+  } finally {
+    // Leaving early (a cancel, or a batch that failed outright) only pauses
+    // readline's input; a file past its first chunk never reaches EOF, so
+    // without this its descriptor stays open.
+    stream.destroy();
   }
 }
 
@@ -129,7 +136,7 @@ export class ImportService {
         bytesRead = size; // whole file is already in memory once parsed
         records = parseJsonArray(text);
       } else {
-        records = jsonlRecords(input.path, (n) => { bytesRead += n; });
+        records = jsonlRecords(createReadStream(input.path, { encoding: 'utf8' }), (n) => { bytesRead += n; });
       }
 
       const emitProgress = () => {

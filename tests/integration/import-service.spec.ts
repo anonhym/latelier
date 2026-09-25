@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto';
 import { Collection, Decimal128, MongoClient, MongoNetworkError, ObjectId } from 'mongodb';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
-import { ImportService } from '../../electron/mongo/ImportService';
+import { createReadStream } from 'node:fs';
+import { ImportService, jsonlRecords } from '../../electron/mongo/ImportService';
 import type { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { getSharedServer, makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
 
@@ -257,6 +258,18 @@ describe('ImportService.importFile', () => {
         svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'parse-fail' }),
       ).rejects.toMatchObject({ code: 'VALIDATION' });
       expect((svc as unknown as { active: Map<string, unknown> }).active.size).toBe(0);
+    });
+
+    it('destroys the JSONL read stream when the import stops before EOF', async () => {
+      // Well past one 64 KiB read chunk, so the stream can't hit EOF (and
+      // auto-close) on its own before the consumer stops.
+      const p = await file('big.jsonl', Array.from({ length: 5000 }, (_, i) => JSON.stringify({ _id: i, pad: 'x'.repeat(40) })).join('\n'));
+      const stream = createReadStream(p, { encoding: 'utf8' });
+      for await (const record of jsonlRecords(stream, () => {})) {
+        expect(record).toMatchObject({ at: 1 });
+        break;
+      }
+      expect(stream.destroyed).toBe(true);
     });
   });
 });
