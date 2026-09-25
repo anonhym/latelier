@@ -446,7 +446,9 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   const entriesByPath = React.useMemo(() => new Map(structureEntries.map((e) => [e.path, e])), [structureEntries]);
 
   const send = async (guarded: boolean) => {
-    if (busy || rowErrors.size > 0) return;
+    // Same guard as the Save button's `disabled`: ⌘↵ calls send() directly,
+    // bypassing the button, so a deleted document must be checked here too.
+    if (busy || rowErrors.size > 0 || conflict === 'deleted') return;
     let request;
     try {
       request = buildUpdateRequest(original, draft);
