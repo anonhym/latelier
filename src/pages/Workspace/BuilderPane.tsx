@@ -50,7 +50,7 @@ import { SavedStrip } from './SavedStrip';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
-import { DEFAULT_FIELD_SOURCES, operatorSource } from '../../features/fieldSuggestions/sources';
+import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
 import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -402,7 +402,7 @@ function CondRow({
   const { items: opSuggestionItems } = useSuggestions(
     opPopoverOpen ? opSuggestionCtx : null,
     node.op,
-    { fieldSources: [operatorSource] },
+    { fieldSources: [fieldOperatorSource] },
   );
 
   const patch = (p: Partial<CondNode>) => applyEdit(updateAt(root, path, { ...node, ...p }));

@@ -1,9 +1,9 @@
 import type { FieldSource, ValueSource } from '../types';
 import { lastRunSource } from './lastRunSource';
-import { operatorSource } from './operatorSource';
+import { fieldOperatorSource, operatorSource } from './operatorSource';
 import { sampleSchemaSource } from './sampleSchemaSource';
 
-export { lastRunSource, operatorSource, sampleSchemaSource };
+export { fieldOperatorSource, lastRunSource, operatorSource, sampleSchemaSource };
 export {
   invalidateSampleSchemaCache,
   setSampleSchemaCacheTtl,
