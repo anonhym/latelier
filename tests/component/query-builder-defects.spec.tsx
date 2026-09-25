@@ -140,7 +140,7 @@ describe(' a blank or invalid filter text has no runnable filter', () => {
     // can't silently defang the guard.
     const { confirmDeleteManySpy } = mountWith(makeState({ queryRaw: '   ' }));
 
-    const overflow = await screen.findByLabelText('More result actions');
+    const overflow = await screen.findByRole('button', { name: 'Documents' });
     fireEvent.click(overflow);
     const deleteAllItem = await screen.findByRole('menuitem', { name: /Delete all matching/ });
     fireEvent.click(deleteAllItem);

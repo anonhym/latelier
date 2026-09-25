@@ -249,28 +249,25 @@ export function ResultBar() {
           the same per-tab `columnConfig`. */}
       <FieldsControl />
 
-      {/* View switch */}
-      <SegmentedControl
-        size="xs"
-        value={view}
-        onChange={(v) => actions.patch({ view: v as ResultViewMode })}
-        data={VIEWS.map((v) => ({ label: v, value: v }))}
-      />
-
-      {/* Overflow — destructive/bulk actions. Hidden for read-only
-          consumers (ScriptTab's snapshot provider) so there's nothing to
-          short-circuit at the leaf. */}
+      {/* Document-level actions — bulk/destructive operations on the result
+          set. A labelled menu rather than a bare overflow icon: this is the
+          shared home for later document actions (update all matching,
+          export, import — each a further `Menu.Item` here), so it needs a
+          name a user can point at, not just a dots glyph next to the view
+          switch. Placed left of the view switch, not beside it, so a
+          destructive item doesn't share a hover target with a benign
+          view-mode toggle. Hidden for read-only consumers (ScriptTab's
+          snapshot provider) so there's nothing to short-circuit at the leaf. */}
       {!isReadOnly && (
         <Menu position="bottom-end" shadow="md" width={210}>
           <Menu.Target>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              aria-label="More result actions"
+            <Button
+              variant="default"
+              size="compact-xs"
+              rightSection={I.chevD}
             >
-              {I.more}
-            </ActionIcon>
+              Documents
+            </Button>
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Item
@@ -283,6 +280,14 @@ export function ResultBar() {
           </Menu.Dropdown>
         </Menu>
       )}
+
+      {/* View switch */}
+      <SegmentedControl
+        size="xs"
+        value={view}
+        onChange={(v) => actions.patch({ view: v as ResultViewMode })}
+        data={VIEWS.map((v) => ({ label: v, value: v }))}
+      />
     </Group>
   );
 }

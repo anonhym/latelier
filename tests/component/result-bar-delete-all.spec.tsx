@@ -37,7 +37,7 @@ function renderBar(metaOverrides: Partial<CollectionWorkspaceMeta> = {}) {
 }
 
 async function openOverflowMenu() {
-  const trigger = await screen.findByLabelText('More result actions');
+  const trigger = await screen.findByRole('button', { name: 'Documents' });
   fireEvent.click(trigger);
 }
 
@@ -52,6 +52,6 @@ describe('ResultBar — delete-all-matching overflow action', () => {
 
   it('does not offer delete-all in a read-only provider', () => {
     renderBar({ isReadOnly: true });
-    expect(screen.queryByLabelText('More result actions')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Documents' })).toBeNull();
   });
 });

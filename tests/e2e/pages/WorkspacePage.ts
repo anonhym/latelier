@@ -82,10 +82,10 @@ export class WorkspacePage {
   /** The QueryBar "Run options" chevron — opens the Run/Explain menu. */
   get queryBarRunOptionsButton() { return this.win.locator('[data-testid="query-run-options-btn"]'); }
 
-  /** ResultBar overflow (kebab) menu trigger — hosts bulk/destructive actions. */
-  get resultOverflowMenuButton() { return this.win.getByLabel('More result actions'); }
+  /** ResultBar "Documents" menu trigger — hosts bulk/destructive document actions. */
+  get resultOverflowMenuButton() { return this.win.getByRole('button', { name: 'Documents' }); }
 
-  /** "Delete all matching…" item inside the ResultBar overflow menu. */
+  /** "Delete all matching…" item inside the ResultBar "Documents" menu. */
   get deleteAllMatchingMenuItem() {
     return this.win.getByRole('menuitem', { name: /Delete all matching/ });
   }
