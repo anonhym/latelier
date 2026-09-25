@@ -115,7 +115,7 @@ export function CollectionHeader({
                 <strong style={{ fontWeight: 500, color: T.text }}>
                   {docCount.toLocaleString()}
                 </strong>
-                {' docs'}
+                {' docs in collection'}
               </>
             )}
             {docCount !== null && indexCount !== null && ' · '}
@@ -147,7 +147,7 @@ export function CollectionHeader({
           size="compact-xs"
           onClick={onOpenReferences}
         >
-          ↗ Refs ({referenceRuleCount})
+          References ({referenceRuleCount})
         </Button>
       </Tooltip>
 
