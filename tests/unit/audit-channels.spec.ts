@@ -109,6 +109,8 @@ describe('auditRecordFor', () => {
       expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ format: 'json' })))!.summary)
         .toMatchObject({ format: 'json' });
       expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ format: 'csv' })))!.summary)
+        .toMatchObject({ format: 'csv' });
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ format: 'xml' })))!.summary)
         .toEqual({ op: 'import', fileName: 'people.json', format: undefined, insertedCount: 5, failedCount: 0 });
       expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(null))!.summary)
         .toEqual({ op: 'import', fileName: 'people.json', format: undefined, insertedCount: undefined, failedCount: undefined });
@@ -156,6 +158,8 @@ describe('auditRecordFor', () => {
       expect(failed('/d/a.NDJSON')).toMatchObject({ format: 'jsonl' });
       expect(failed('/d/a.json')).toMatchObject({ format: undefined });
       expect(failed('/d/a.jsonl.bak')).toMatchObject({ format: undefined });
+      expect(failed('/d/a.Csv')).toMatchObject({ format: 'csv' });
+      expect(failed('/d/a.csv.bak')).toMatchObject({ format: undefined });
       expect(auditRecordFor(IPC_CHANNELS.dataImport, { ...T, path: '/d/a.jsonl' }, okEnv({ format: 'json' }))!.summary)
         .toMatchObject({ format: 'json' });
     });

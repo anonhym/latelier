@@ -39,8 +39,10 @@ const filterOf = (input: Fields): string => input.filterJson as string;
 // `.json` file can be either shape until it is read.
 function importFormat(input: Fields, data: unknown): ImportFormat | undefined {
   const v = data === null || typeof data !== 'object' ? undefined : (data as Fields).format;
-  if (v === 'json' || v === 'jsonl') return v;
-  return /\.(jsonl|ndjson)$/i.test(input.path as string) ? 'jsonl' : undefined;
+  if (v === 'json' || v === 'jsonl' || v === 'csv') return v;
+  const p = input.path as string;
+  if (/\.csv$/i.test(p)) return 'csv';
+  return /\.(jsonl|ndjson)$/i.test(p) ? 'jsonl' : undefined;
 }
 
 // `undefined`, never `false`, when the run wasn't cancelled — keeps the

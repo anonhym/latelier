@@ -277,9 +277,31 @@ export interface QueryExportResult {
   truncated: boolean;
 }
 
-// ─── Import (JSON / JSONL into an existing collection) ──────────────────────
+// ─── Import (JSON / JSONL / CSV into an existing collection) ────────────────
 
-export type ImportFormat = 'json' | 'jsonl';
+export type ImportFormat = 'json' | 'jsonl' | 'csv';
+
+/** What a CSV column's cells become; `skip` leaves the column out of every document. */
+export type CsvColumnType = 'string' | 'number' | 'boolean' | 'date' | 'objectId' | 'skip';
+
+export interface CsvColumnMapping {
+  /** The file's header cell, checked against the file again at import. A dotted header nests. */
+  header: string;
+  type: CsvColumnType;
+  /** An empty cell stores `null`; otherwise it leaves the field out. */
+  emptyAsNull: boolean;
+}
+
+/** `data:previewCsv`: what the import dialog shows before a CSV import runs. */
+export interface CsvPreview {
+  /** Basename only. */
+  fileName: string;
+  headers: string[];
+  /** The first data rows, as parsed; a ragged row stays ragged. */
+  rows: string[][];
+  /** One per header: the type every non-empty cell in the file converts to. */
+  inferred: CsvColumnType[];
+}
 
 export interface DataImportInput {
   connectionId: string;
@@ -289,6 +311,8 @@ export interface DataImportInput {
   path: string;
   /** Renderer-generated UUID; lets `data:cancelImport` and progress events target this run. */
   cancelToken?: string;
+  /** Required for a `.csv` file, refused for any other: one mapping per header, in file order. */
+  csv?: { columns: CsvColumnMapping[] };
 }
 
 export interface ImportReport {
@@ -297,7 +321,10 @@ export interface ImportReport {
   format: ImportFormat;
   inserted: number;
   failed: number;
-  /** The first failures. `at` is a 1-based line for JSONL, a 0-based array index for JSON. */
+  /**
+   * The first failures. `at` is a 1-based line for JSONL, a 0-based array
+   * index for JSON, and a 1-based spreadsheet row for CSV (the header is row 1).
+   */
   errors: { at: number; message: string }[];
   /** More documents failed than `errors` lists. */
   errorsTruncated: boolean;

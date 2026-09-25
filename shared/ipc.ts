@@ -19,6 +19,7 @@ import type {
   ConnectionRuntime,
   ConnectionSummary,
   ConnectionUpdate,
+  CsvPreview,
   DataImportInput,
   DataImportProgressEvent,
   DatabaseDropInput,
@@ -278,6 +279,12 @@ export interface IpcApi {
    */
   data: {
     import: (input: DataImportInput) => Promise<ImportReport>;
+    /**
+     * Reads a `.csv` file the renderer got from `app.pickFile('data-import')`
+     * — same re-validation as `import` — and returns its header, first rows
+     * and an inferred type per column, for the dialog's mapping step.
+     */
+    previewCsv: (input: { path: string }) => Promise<CsvPreview>;
     /** Sets a flag `ImportService` checks between batches; the current batch still lands. */
     cancelImport: (input: { token: string }) => Promise<void>;
     onImportProgress: (cb: (evt: DataImportProgressEvent) => void) => () => void;
@@ -492,6 +499,7 @@ export const IPC_CHANNELS = {
 
   // Bulk data -----------------------------------------
   dataImport: 'data:import',
+  dataPreviewCsv: 'data:previewCsv',
   dataCancelImport: 'data:cancelImport',
   dataImportProgressEvent: 'data:import-progress-event',
 

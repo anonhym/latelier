@@ -44,6 +44,7 @@
     "electron/ipc/auditChannels.ts",
     "electron/mongo/undo.ts",
     "electron/mongo/importParse.ts",
+    "electron/mongo/csvImport.ts",
     "src/utils/auditUndo.ts",
     "electron/ipc/senderGuard.ts",
     "electron/security/appLocation.ts",

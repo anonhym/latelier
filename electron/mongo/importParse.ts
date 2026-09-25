@@ -12,6 +12,7 @@ const EXTENSION_FORMATS: Readonly<Record<string, ImportFormat | 'sniff'>> = {
   '.json': 'sniff',
   '.jsonl': 'jsonl',
   '.ndjson': 'jsonl',
+  '.csv': 'csv',
 };
 
 /** The format a file's extension settles, `'sniff'` when only its contents can, undefined for an extension import refuses. */

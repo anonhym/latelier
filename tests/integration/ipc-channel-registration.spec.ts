@@ -164,6 +164,14 @@ describe('IPC channel registration — full router coverage', () => {
     expect(unexpected).toEqual([]);
   });
 
+  it('offers every importable extension in the data-import picker', async () => {
+    const { dialog } = await import('electron');
+    await shim.invoke(IPC_CHANNELS.appPickFile, 'data-import');
+    // Called as (window, options); the mocked type only knows the one-argument overload.
+    const options = (vi.mocked(dialog.showOpenDialog).mock.lastCall as unknown[]).at(-1) as Electron.OpenDialogOptions;
+    expect(options.filters!.flatMap((f) => f.extensions)).toEqual(['json', 'jsonl', 'ndjson', 'csv']);
+  });
+
   const coveredEntries = Object.entries(IPC_CHANNELS).filter(
     ([, channel]) => !PUSH_EVENT_CHANNELS.has(channel),
   );
