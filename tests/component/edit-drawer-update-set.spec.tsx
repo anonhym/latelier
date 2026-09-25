@@ -81,6 +81,27 @@ describe('EditDrawer — Update fields ($set) mode', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the Reversible entry id of the update to onSaved', async () => {
+    installAtelierMock({ doc: { updateOne: async () => ({ matchedCount: 1, modifiedCount: 1, auditId: 'a2' }) } });
+    const onSaved = vi.fn();
+    render(
+      <EditDrawer
+        connectionId="c1"
+        dbName="db"
+        collection="coll"
+        doc={{ _id: 42, status: 'pending' }}
+        onClose={() => {}}
+        onSaved={onSaved}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Update fields/i }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '{"status": "shipped"}' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Apply update$/ }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('a2'));
+  });
+
   it('defaults to Replace mode: clicking Save without switching mode calls doc.replace, not updateOne', async () => {
     const replaceCalls: ReplaceCall[] = [];
     const updateCalls: UpdateOneCall[] = [];

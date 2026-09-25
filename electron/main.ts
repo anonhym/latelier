@@ -535,7 +535,7 @@ app.whenReady().then(() => {
   // captured — and it is re-read per message, which is what keeps it correct
   // across a reload.
   const auditRepo = new AuditRepo(db);
-  const auditSvc = new AuditService(auditRepo);
+  const auditSvc = new AuditService(auditRepo, pool);
   const router = createRouter(
     ipcMain,
     senderCheck(() => win?.webContents.mainFrame ?? null, isAppLocation),
@@ -551,7 +551,7 @@ app.whenReady().then(() => {
   const recentRepo = new RecentQueryRepo(db);
   const recentSvc = new RecentQueryService(recentRepo);
   const querySvc = new QueryService(pool, recentSvc);
-  docSvc = new DocumentService(pool);
+  docSvc = new DocumentService(pool, { log });
   const aggSvc = new AggregationService(pool, recentSvc);
   const metaSvc = new MetaService(pool);
   const indexSvc = new IndexService(pool);

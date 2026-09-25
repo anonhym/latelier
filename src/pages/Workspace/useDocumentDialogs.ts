@@ -1,5 +1,6 @@
 import React from 'react';
 import { notify } from '../../theme/notifications';
+import { offerUndo } from './offerUndo';
 import { currentFilterJson } from './builder';
 import { stripIdForDuplicate } from './views/docId';
 import type { CollectionTab } from '@shared/types';
@@ -46,9 +47,9 @@ export function useDocumentDialogs(deps: {
   handleInserted: () => void;
   handlePartialInsert: () => void;
   closeEditDrawer: () => void;
-  handleDocSaved: () => void;
+  handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
-  handleDeleted: () => void;
+  handleDeleted: (auditId?: string) => void;
   closeUpdateAllModal: () => void;
   handleUpdatedAll: () => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
@@ -144,10 +145,12 @@ export function useDocumentDialogs(deps: {
   }, [inserting, refreshSource]);
 
   const closeEditDrawer = React.useCallback(() => setEditing(null), []);
-  const handleDocSaved = React.useCallback(() => {
+  const handleDocSaved = React.useCallback((auditId?: string) => {
     const target = editing?.target;
     setEditing(null);
-    if (target) refreshSource(target);
+    if (!target) return;
+    refreshSource(target);
+    offerUndo('Document updated', auditId, () => refreshSource(target));
   }, [editing, refreshSource]);
 
   const closeDeleteDialogs = React.useCallback(() => {
@@ -157,11 +160,16 @@ export function useDocumentDialogs(deps: {
   }, []);
   // Not routed through refreshSource: DeleteConfirm reads its target live
   // from the Focused Tab, so a delete can only complete against it.
-  const handleDeleted = React.useCallback(() => {
+  const handleDeleted = React.useCallback((auditId?: string) => {
     closeDeleteDialogs();
     void run();
     setWriteVersion((v) => v + 1);
-  }, [closeDeleteDialogs, run]);
+    const a = activeCollectionRef.current;
+    if (a) {
+      const target = targetOf(a);
+      offerUndo('Document deleted', auditId, () => refreshSource(target));
+    }
+  }, [activeCollectionRef, closeDeleteDialogs, refreshSource, run]);
 
   // Same shape as delete-all: UpdateConfirm also reads its target live from
   // the Focused Tab (see the tab-switch effect below), so it's closed the

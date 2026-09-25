@@ -27,6 +27,7 @@ import type { RunnerTarget } from './Workspace/useQueryRunner';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useConnectionDialogs } from './Workspace/useConnectionDialogs';
 import { useDocumentDialogs } from './Workspace/useDocumentDialogs';
+import { offerUndo } from './Workspace/offerUndo';
 import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
 import { ShellSection } from './Workspace/ShellSection';
@@ -383,8 +384,9 @@ function WorkspaceInner() {
           filterJson,
           updateJson,
         })
-        .then(() => {
+        .then(({ auditId }) => {
           void run();
+          offerUndo('Field updated', auditId, () => void run());
         })
         .catch((e: unknown) => {
           notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });

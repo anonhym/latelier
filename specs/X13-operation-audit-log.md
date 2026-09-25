@@ -183,7 +183,7 @@ Because Undo refuses on a changed target, Operations against the same document u
 
 Two calls added to `MaintenanceService.vacuum()`, which already runs at most once per 24h:
 
-- Pre-images: null `undo_json` and clear `reversible` past **7 days**, or beyond the most recent **200** revertible entries per Connection — whichever bites first.
+- Pre-images: null `undo_json` past **7 days**, or beyond the most recent **200** revertible entries per Connection — whichever bites first. The `reversible` column is left as recorded: it says a Pre-image was captured, which is what tells `AUDIT_UNDO_EXPIRED` apart from `AUDIT_NOT_REVERSIBLE`. `audit:list` reports an entry as reversible only while its Pre-image is still held and unused.
 - Rows: delete past **90 days**.
 
 The record outlives the Pre-image because they have different value curves. Undo happens within minutes; the record is worth reading months later.

@@ -1388,7 +1388,8 @@ describe('DocumentService — every driver call carries maxTimeMS', () => {
 
     const replaceSpy = vi.spyOn(Collection.prototype, 'replaceOne');
     const updateSpy = vi.spyOn(Collection.prototype, 'updateOne');
-    const deleteSpy = vi.spyOn(Collection.prototype, 'deleteOne');
+    const findOneSpy = vi.spyOn(Collection.prototype, 'findOne');
+    const deleteSpy = vi.spyOn(Collection.prototype, 'findOneAndDelete');
 
     await svc.replace({
       connectionId: connId,
@@ -1412,9 +1413,14 @@ describe('DocumentService — every driver call carries maxTimeMS', () => {
     expect((updateSpy.mock.calls[0]![2] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
       QUERY_TIMEOUT_MS,
     );
-    expect((deleteSpy.mock.calls[0]![1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
+    expect(((deleteSpy.mock.calls[0] as unknown[])[1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
       QUERY_TIMEOUT_MS,
     );
+    // updateOne's Pre-image and post-image reads.
+    expect(findOneSpy.mock.calls).toHaveLength(2);
+    for (const call of findOneSpy.mock.calls) {
+      expect(((call as unknown[])[1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(QUERY_TIMEOUT_MS);
+    }
   });
 
   it('confirmDeleteMany carries PROBE_TIMEOUT_MS and deleteMany carries ADMIN_LONG_TIMEOUT_MS', async () => {

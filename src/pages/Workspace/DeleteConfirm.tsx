@@ -15,7 +15,8 @@ interface DeleteConfirmProps {
    * user complete the confirmation flow only to hit a server-side rejection. */
   readOnly?: boolean;
   onClose: () => void;
-  onDeleted: () => void;
+  /** `auditId` is set when the delete can be undone (single document only). */
+  onDeleted: (auditId?: string) => void;
 }
 
 /**
@@ -97,6 +98,7 @@ export function DeleteConfirm({
     if (loading) return; // #91 — see SubmitButton.tsx
     setLoading(true);
     setErr(null);
+    let auditId: string | undefined;
     try {
       if (!isMulti && docs[0] !== undefined) {
         const doc = docs[0];
@@ -110,7 +112,7 @@ export function DeleteConfirm({
           setErr('Cannot delete a document without an _id');
           return;
         }
-        await api.doc.deleteOne({ connectionId, dbName, collection, filterJson });
+        ({ auditId } = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson }));
       } else {
         if (countState.status !== 'ready') return;
         await api.doc.deleteMany({
@@ -121,7 +123,7 @@ export function DeleteConfirm({
           confirmToken: countState.confirmToken,
         });
       }
-      onDeleted();
+      onDeleted(auditId);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Delete failed'));

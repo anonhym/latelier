@@ -12,10 +12,17 @@ const ListInputSchema = z.object({
   before: NonEmpty.optional(),
 });
 
+const UndoInputSchema = z.object({ entryId: NonEmpty });
+
 export function registerAuditChannels(router: Router, svc: AuditService): void {
   router.register(
     IPC_CHANNELS.auditList,
     zodValidator(ListInputSchema),
     (input) => svc.list(input),
+  );
+  router.register(
+    IPC_CHANNELS.auditUndo,
+    zodValidator(UndoInputSchema),
+    (input) => svc.undo(input),
   );
 }

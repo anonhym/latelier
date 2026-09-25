@@ -3,6 +3,8 @@ import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, parseEjsonDocument, parseEjsonFie
 import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
+import type { Logger } from '../log.ts';
+import { EXACT_BSON, attachUndo } from './undo.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
 const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -30,6 +32,7 @@ interface TokenEntry {
 export interface DocumentServiceOpts {
   tokenTtlMs?: number;
   sweepIntervalMs?: number;
+  log?: Logger;
 }
 
 /**
@@ -111,9 +114,11 @@ export class DocumentService {
   private tokens = new Map<string, TokenEntry>();
   private tokenTtlMs: number;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private log: Logger | undefined;
 
   constructor(pool: MongoPool, opts: DocumentServiceOpts = {}) {
     this.pool = pool;
+    this.log = opts.log;
     this.tokenTtlMs = opts.tokenTtlMs ?? DEFAULT_TOKEN_TTL_MS;
     const sweepMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
     this.sweepTimer = setInterval(() => this.sweep(), sweepMs);
@@ -241,15 +246,39 @@ export class DocumentService {
     const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
     const update = parseEjsonField<Record<string, unknown>>(input.updateJson, 'updateJson');
     assertNonEmptyFilter(filter, 'filterJson');
-    const db = await w.db(input.dbName);
+    const coll = (await w.db(input.dbName)).collection(input.collection);
+    const readOpts = { maxTimeMS: QUERY_TIMEOUT_MS, ...EXACT_BSON };
+    // The Pre-image and post-image reads never decide whether the write runs
+    // or how it reports: a read that fails costs the Operation its Undo, not
+    // its result (ADR 0002).
+    const preImage = await coll.findOne(filter, readOpts).catch((err: unknown) => this.captureFailed(err));
+    let counts: { matchedCount: number; modifiedCount: number };
     try {
-      const result = await db
-        .collection(input.collection)
-        .updateOne(filter, update, { maxTimeMS: QUERY_TIMEOUT_MS });
-      return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
+      // Pinned to the document just read, so the Pre-image and the write are
+      // about the same document even when the filter could match several.
+      const result = await coll.updateOne(
+        preImage ? { $and: [filter, { _id: preImage._id }] } : filter,
+        update,
+        { maxTimeMS: QUERY_TIMEOUT_MS },
+      );
+      counts = { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
     } catch (err) {
       throw classifyMongoOpError(err);
     }
+    if (!preImage || counts.matchedCount === 0) return counts;
+    // What the update left behind, so Undo can refuse once anything changes
+    // it again (X13 §5).
+    const postImage = await coll
+      .findOne({ _id: preImage._id }, readOpts)
+      .catch((err: unknown) => this.captureFailed(err));
+    return postImage ? attachUndo(counts, { preImage, postImage }) : counts;
+  }
+
+  private captureFailed(err: unknown): null {
+    this.log?.warn('audit.capture', 'Pre-image not captured; this Operation cannot be undone', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   }
 
   async deleteOne(input: {
@@ -262,14 +291,17 @@ export class DocumentService {
     const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
     assertNonEmptyFilter(filter, 'filterJson');
     const db = await w.db(input.dbName);
+    let preImage;
     try {
-      const result = await db
+      // Rather than deleteOne: it hands back the document it removed, in the
+      // same atomic step, and that document is the Pre-image Undo puts back.
+      preImage = await db
         .collection(input.collection)
-        .deleteOne(filter, { maxTimeMS: QUERY_TIMEOUT_MS });
-      return { deletedCount: result.deletedCount };
+        .findOneAndDelete(filter, { maxTimeMS: QUERY_TIMEOUT_MS, ...EXACT_BSON });
     } catch (err) {
       throw classifyMongoOpError(err);
     }
+    return preImage ? attachUndo({ deletedCount: 1 }, { preImage }) : { deletedCount: 0 };
   }
 
   async confirmDeleteMany(input: {

@@ -11,9 +11,11 @@
 // the stable `run`, not the fresh `{ run, isLoading }` literal `useQueryRunner`
 // returns each render; re-introducing the object dependency has no behavioral
 // tell, so a two-render identity check is the only thing that catches it.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act } from '@testing-library/react';
-import { renderHook } from '../helpers/render';
+import { notifications } from '@mantine/notifications';
+import { fireEvent, renderHook, screen, waitFor } from '../helpers/render';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { useDocumentDialogs } from '../../src/pages/Workspace/useDocumentDialogs';
 import type { CollectionTab } from '@shared/types';
 import type {
@@ -405,5 +407,53 @@ describe('useDocumentDialogs', () => {
     expect(result.current.handlePartialInsert).toBe(before.handlePartialInsert);
     expect(result.current.handleDocSaved).toBe(before.handleDocSaved);
     expect(result.current.handleDeleted).toBe(before.handleDeleted);
+  });
+
+  describe('Undo toast', () => {
+    afterEach(() => {
+      notifications.clean();
+      uninstallAtelierMock();
+    });
+
+    it('a Reversible delete offers Undo that re-runs the tab it came from, even after focus moved', async () => {
+      const undo = vi.fn(async () => ({ restored: 1, skipped: 0 }));
+      installAtelierMock({ audit: { undo } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t2 = tab({ id: 't2', collection: 'users' });
+      const { result, activeCollectionRef } = mountDialogs(run, 't1', t1, [t1, t2]);
+
+      act(() => result.current.handleDeleted('a1'));
+      activeCollectionRef.current = t2;
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(undo).toHaveBeenCalledWith({ entryId: 'a1' });
+      expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
+    });
+
+    it('a delete with no Reversible entry offers nothing', async () => {
+      const t1 = tab();
+      const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
+
+      act(() => result.current.handleDeleted());
+
+      await waitFor(() => expect(screen.queryByText('Document deleted')).toBeNull());
+    });
+
+    it('a Reversible edit offers Undo that re-runs the pinned tab', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const { result } = mountDialogs(run, 't1', t1);
+      act(() => result.current.openEdit(DOC));
+
+      act(() => result.current.handleDocSaved('a2'));
+      expect(await screen.findByText('Document updated')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
+    });
   });
 });

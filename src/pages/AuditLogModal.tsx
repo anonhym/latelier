@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Group, Modal, NativeSelect, Stack, Table, Text, TextInput } from '@mantine/core';
 import type { AuditEntry, ConnectionSummary } from '@shared/types';
 import { api, getErrorMessage } from '../api/atelier';
+import { undoFailureMessage } from '../utils/auditUndo';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 
 interface AuditLogModalProps {
@@ -29,13 +30,14 @@ function details(e: AuditEntry): string {
 }
 
 function outcome(e: AuditEntry): string {
+  if (e.undoneAt !== undefined) return 'Undone';
   if (e.outcome === 'ok') return 'Done';
   return `${e.outcome === 'partial' ? 'Partial' : 'Failed'} (${e.errorCode ?? 'unknown'})`;
 }
 
 /**
- * Read-only view of one Connection's Audit Log, newest first. Filters match a
- * database or collection name exactly.
+ * One Connection's Audit Log, newest first, with Revert on the entries that
+ * can still be undone. Filters match a database or collection name exactly.
  */
 export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalProps) {
   const close = useDialogFocusReturn(onClose);
@@ -45,6 +47,10 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
   const [collection, setCollection] = React.useState('');
   const [entries, setEntries] = React.useState<AuditEntry[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [reverting, setReverting] = React.useState<string | null>(null);
+  const [revertError, setRevertError] = React.useState<string | null>(null);
+  // Bumped after a Revert so the list re-reads `undoneAt` / `reversible`.
+  const [reload, setReload] = React.useState(0);
 
   // Clear the previous Connection/database/collection's rows the instant the
   // query changes — otherwise they stay on screen (under the new label)
@@ -90,7 +96,19 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
     return () => {
       cancelled = true;
     };
-  }, [connectionId, dbName, collection]);
+  }, [connectionId, dbName, collection, reload]);
+
+  const revert = (entryId: string) => {
+    setReverting(entryId);
+    setRevertError(null);
+    api.audit
+      .undo({ entryId })
+      .catch((err: unknown) => setRevertError(undoFailureMessage(err)))
+      .finally(() => {
+        setReverting(null);
+        setReload((n) => n + 1);
+      });
+  };
 
   return (
     <Modal opened onClose={close} title="Audit log" centered size="xl">
@@ -111,6 +129,11 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
             {error}
           </Text>
         )}
+        {revertError && (
+          <Text size="sm" c="red" role="alert">
+            {revertError}
+          </Text>
+        )}
         {entries !== null && entries.length === 0 && !error && (
           <Text size="sm" c="dimmed">
             No Operations recorded.
@@ -125,6 +148,7 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
                 <Table.Th>Target</Table.Th>
                 <Table.Th>Details</Table.Th>
                 <Table.Th>Outcome</Table.Th>
+                <Table.Th aria-label="Undo" />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -137,6 +161,19 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
                     {details(e)}
                   </Table.Td>
                   <Table.Td>{outcome(e)}</Table.Td>
+                  <Table.Td>
+                    {e.reversible && (
+                      <Button
+                        variant="subtle"
+                        size="compact-xs"
+                        loading={reverting === e.id}
+                        disabled={reverting !== null}
+                        onClick={() => revert(e.id)}
+                      >
+                        Revert
+                      </Button>
+                    )}
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

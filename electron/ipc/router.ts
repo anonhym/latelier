@@ -10,8 +10,9 @@ export type Handler<I, O> = (input: I) => Promise<O> | O;
 
 /**
  * Receives every validated invocation once its envelope is settled. Decides
- * for itself whether the channel is audited. May throw; the router logs that
- * and returns the envelope unchanged.
+ * for itself whether the channel is audited, and returns the id of the entry
+ * it wrote when that entry is Reversible (null otherwise). May throw; the
+ * router logs that and returns the envelope unchanged.
  */
 export interface AuditSink {
   record(
@@ -20,7 +21,7 @@ export interface AuditSink {
     envelope: Envelope<unknown>,
     startedAt: number,
     durationMs: number,
-  ): void;
+  ): string | null;
 }
 
 export interface Router {
@@ -164,7 +165,13 @@ export function createRouter(
         // lost and the Operation's result stands (ADR 0002).
         if (audit && validated) {
           try {
-            audit.record(channel, validated.input, envelope, t0, durationMs);
+            const auditId = audit.record(channel, validated.input, envelope, t0, durationMs);
+            // Handing back the entry id is what lets the renderer offer Undo.
+            // Only a Reversible entry has one, and every audited channel
+            // resolves to an object.
+            if (auditId !== null && envelope.ok) {
+              envelope = success({ ...(envelope.data as object), auditId } as O);
+            }
           } catch (err) {
             log?.error('audit.write', channel, { message: toIpcError(err).message });
           }
