@@ -20,6 +20,7 @@ import {
 } from '../../components/ContextMenu';
 import { CreateCollectionDrawer } from './CreateCollectionDrawer';
 import { RenameCollectionModal } from './RenameCollectionModal';
+import { ImportDialog } from './ImportDialog';
 import { DropCollectionConfirm } from './DropCollectionConfirm';
 import { DropDatabaseConfirm } from './DropDatabaseConfirm';
 import { useNavigatorDialogs } from './useNavigatorDialogs';
@@ -483,12 +484,14 @@ export function DbCollectionNavigator({
     renameTarget,
     dropCollTarget,
     dropDbTarget,
+    importTarget,
     menuTrigger,
     setMenu,
     setCreateCollDb,
     setRenameTarget,
     setDropCollTarget,
     setDropDbTarget,
+    setImportTarget,
     setMenuTrigger,
     closeMenu,
     cancelCreateColl,
@@ -499,6 +502,8 @@ export function DbCollectionNavigator({
     handleCollectionDropped,
     cancelDropDb,
     handleDatabaseDropped,
+    closeImport,
+    handleImported,
   } = useNavigatorDialogs({
     refreshDb,
     refreshAll,
@@ -874,6 +879,20 @@ export function DbCollectionNavigator({
       disabledTitle: 'Open this collection first',
     },
     { kind: 'sep' },
+    // A view holds no documents of its own to import into.
+    ...(row.coll.type === 'view'
+      ? []
+      : [{
+          kind: 'item' as const,
+          label: 'Import documents…',
+          icon: I.upload,
+          onClick: () =>
+            setImportTarget({
+              connectionId: row.connectionId,
+              dbName: row.dbName,
+              collection: row.coll.name,
+            }),
+        }]),
     row.coll.type === 'view'
       ? {
           kind: 'item',
@@ -906,7 +925,7 @@ export function DbCollectionNavigator({
         }),
       destructive: true,
     },
-  ], [openFromRow, setRenameTarget, setDropCollTarget, onOpenReferences]);
+  ], [openFromRow, setRenameTarget, setDropCollTarget, setImportTarget, onOpenReferences]);
 
   const buildDbMenu = React.useCallback((row: Extract<TreeRow, { kind: 'db' }>): MenuItem[] => [
     {
@@ -1248,6 +1267,18 @@ export function DbCollectionNavigator({
           returnFocusTo={menuTrigger}
           onCancel={cancelDropColl}
           onDropped={handleCollectionDropped}
+        />
+      )}
+
+      {importTarget && (
+        <ImportDialog
+          connectionId={importTarget.connectionId}
+          dbName={importTarget.dbName}
+          collection={importTarget.collection}
+          readOnly={readOnlyOf(importTarget.connectionId)}
+          returnFocusTo={menuTrigger}
+          onClose={closeImport}
+          onImported={handleImported}
         />
       )}
 

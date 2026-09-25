@@ -33,6 +33,7 @@ const { registerDocChannels } = await import('../../electron/ipc/handlers/doc');
 const { registerSavedChannels } = await import('../../electron/ipc/handlers/saved');
 const { registerRecentChannels } = await import('../../electron/ipc/handlers/recent');
 const { registerAuditChannels } = await import('../../electron/ipc/handlers/audit');
+const { registerDataChannels } = await import('../../electron/ipc/handlers/data');
 const { registerAggChannels } = await import('../../electron/ipc/handlers/agg');
 const { registerShellChannels } = await import('../../electron/ipc/handlers/shell');
 const { registerMshellChannels } = await import('../../electron/ipc/handlers/mshell');
@@ -134,6 +135,7 @@ describe('IPC channel registration — full router coverage', () => {
     registerSavedChannels(router, stubSvc<Parameters<typeof registerSavedChannels>[1]>());
     registerRecentChannels(router, stubSvc<Parameters<typeof registerRecentChannels>[1]>());
     registerAuditChannels(router, stubSvc<Parameters<typeof registerAuditChannels>[1]>());
+    registerDataChannels(router, stubSvc<Parameters<typeof registerDataChannels>[1]>());
     registerAggChannels(router, stubSvc<Parameters<typeof registerAggChannels>[1]>());
     registerShellChannels(router);
     registerMshellChannels(router, stubSvc<Parameters<typeof registerMshellChannels>[1]>());

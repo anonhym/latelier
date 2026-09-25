@@ -60,6 +60,8 @@ import { MaintenanceService } from './services/MaintenanceService.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
 import { registerAuditChannels } from './ipc/handlers/audit.ts';
+import { registerDataChannels } from './ipc/handlers/data.ts';
+import { ImportService } from './mongo/ImportService.ts';
 import { QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
@@ -584,6 +586,7 @@ app.whenReady().then(() => {
   registerSavedChannels(router, savedSvc);
   registerRecentChannels(router, recentSvc);
   registerAuditChannels(router, auditSvc);
+  registerDataChannels(router, new ImportService(pool));
   registerAggChannels(router, aggSvc);
   registerShellChannels(router);
 

@@ -150,6 +150,10 @@ const api: IpcApi = {
     duplicate: (input) => call(IPC_CHANNELS.savedDuplicate, input),
   },
 
+  data: {
+    import: (input) => call(IPC_CHANNELS.dataImport, input),
+  },
+
   audit: {
     list: (input) => call(IPC_CHANNELS.auditList, input),
     undo: (input) => call(IPC_CHANNELS.auditUndo, input),

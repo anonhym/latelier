@@ -47,6 +47,15 @@ const ENTRIES: AuditEntry[] = [
     errorCode: 'UNAUTHORIZED',
     ranAt: '2026-09-01T08:00:00.000Z',
   },
+  {
+    ...ENTRY_BASE,
+    id: 'e4',
+    collection: 'people',
+    op: 'import',
+    summary: { op: 'import', fileName: 'people.json', format: 'jsonl', insertedCount: 8, failedCount: 2 },
+    outcome: 'partial',
+    ranAt: '2026-09-01T07:00:00.000Z',
+  },
 ];
 
 function mockApi(entries: AuditEntry[] = ENTRIES) {
@@ -118,13 +127,15 @@ describe('AuditLogModal', () => {
     render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
 
     const rows = (await screen.findAllByRole('row')).slice(1);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(within(rows[0]!).getByText('shop.orders')).toBeTruthy();
     expect(within(rows[0]!).getByText('{"status":"void"} · 40 deleted')).toBeTruthy();
     expect(within(rows[0]!).getByText('Done')).toBeTruthy();
     expect(within(rows[1]!).getByText('3 inserted')).toBeTruthy();
     expect(within(rows[1]!).getByText('Partial (CONFLICT)')).toBeTruthy();
     expect(within(rows[2]!).getByText('Failed (UNAUTHORIZED)')).toBeTruthy();
+    expect(within(rows[3]!).getByText('people.json (JSONL) · 8 inserted · 2 failed')).toBeTruthy();
+    expect(within(rows[3]!).getByText('Partial')).toBeTruthy();
     expect(screen.getAllByRole('button').map((b) => b.textContent?.trim()).filter(Boolean)).toEqual(['Close']);
   });
 

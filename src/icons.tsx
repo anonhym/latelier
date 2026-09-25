@@ -45,6 +45,7 @@ import {
   IconSun,
   IconTerminal2,
   IconTrash,
+  IconUpload,
   IconX,
 } from '@tabler/icons-react';
 
@@ -89,6 +90,7 @@ export const I = {
   copy: <IconCopy size={12} stroke={s} />,
   save: <IconDeviceFloppy size={14} stroke={s} />,
   download: <IconDownload size={13} stroke={s} />,
+  upload: <IconUpload size={13} stroke={s} />,
   arrowR: <IconArrowRight size={11} stroke={s} />,
   expand: <IconArrowsMaximize size={11} stroke={s} />,
   gear: <IconSettings size={14} stroke={s} />,
