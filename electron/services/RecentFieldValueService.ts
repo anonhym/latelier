@@ -1,14 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import type { ValType } from '@shared/types';
 import type { RecentFieldValueRepo } from '../db/repositories/RecentFieldValueRepo.ts';
+import { isSecretFieldPath } from '../log.ts';
 
 /** Roadmap decision (X02 "Value suggestions" §Eviction cap): 50 rows per field. */
 const EVICTION_CAP = 50;
+
+/**
+ * Triage #162: the only ops both suggested and recorded. `$in`/`$nin` are
+ * element-wise — the caller already splits their array into one entry per
+ * scalar element before calling `recordMany`. Every other op (including
+ * `$exists`, `$regex`, `$mod`, ...) is silently dropped here rather than
+ * trusted from the renderer — main is the trust boundary for what gets
+ * persisted, same reasoning as the secret-field-path check below.
+ */
+const RECORDABLE_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 export interface RecordFieldValueEntry {
   field: string;
   value: string;
   valType: ValType;
+  op: string;
 }
 
 export interface RecentFieldValueSummary {
@@ -19,9 +31,18 @@ export interface RecentFieldValueSummary {
 }
 
 export class RecentFieldValueService {
-  constructor(private repo: RecentFieldValueRepo) {}
+  private repo: RecentFieldValueRepo;
 
-  /** Upserts every entry, then trims each touched field to the eviction cap. */
+  constructor(repo: RecentFieldValueRepo) {
+    this.repo = repo;
+  }
+
+  /**
+   * Upserts every entry, then trims each touched field to the eviction cap.
+   * Refuses (silently drops) any entry whose op isn't recordable or whose
+   * field path names a secret (`log.ts`'s `REDACTED_KEYS`) — never trust the
+   * renderer to have filtered these itself.
+   */
   recordMany(
     connectionId: string,
     dbName: string,
@@ -30,23 +51,28 @@ export class RecentFieldValueService {
   ): { recorded: number } {
     const now = new Date().toISOString();
     const touchedFields = new Set<string>();
-    for (const entry of entries) {
-      this.repo.upsert({
-        id: randomUUID(),
-        connectionId,
-        dbName,
-        collection,
-        field: entry.field,
-        value: entry.value,
-        valType: entry.valType,
-        lastUsedAt: now,
-      });
-      touchedFields.add(entry.field);
-    }
-    for (const field of touchedFields) {
-      this.repo.evictOldest({ connectionId, dbName, collection, field, keep: EVICTION_CAP });
-    }
-    return { recorded: entries.length };
+    let recorded = 0;
+    this.repo.transaction(() => {
+      for (const entry of entries) {
+        if (!RECORDABLE_OPS.has(entry.op) || isSecretFieldPath(entry.field)) continue;
+        this.repo.upsert({
+          id: randomUUID(),
+          connectionId,
+          dbName,
+          collection,
+          field: entry.field,
+          value: entry.value,
+          valType: entry.valType,
+          lastUsedAt: now,
+        });
+        touchedFields.add(entry.field);
+        recorded += 1;
+      }
+      for (const field of touchedFields) {
+        this.repo.evictOldest({ connectionId, dbName, collection, field, keep: EVICTION_CAP });
+      }
+    });
+    return { recorded };
   }
 
   listForField(

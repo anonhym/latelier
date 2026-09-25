@@ -42,6 +42,7 @@ const RecordFieldValuesInputSchema = CollectionTargetSchema.extend({
     field: NonEmpty,
     value: NonEmpty,
     valType: ValTypeSchema,
+    op: NonEmpty,
   })).min(1),
 });
 

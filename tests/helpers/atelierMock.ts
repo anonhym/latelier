@@ -127,6 +127,9 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       list: async () => [],
       get: unused('recent.get') as IpcApi['recent']['get'],
       clear: async () => ({ deleted: 0 }),
+      valuesForField: async () => ({ values: [] }),
+      recordFieldValues: async () => ({ recorded: 0 }),
+      clearFieldValues: async () => ({ deleted: 0 }),
     },
     agg: {
       run: unused('agg.run') as IpcApi['agg']['run'],
@@ -427,6 +430,9 @@ function makePermissiveStub(): IpcApi {
       list: async () => [],
       get: noopAsync as IpcApi['recent']['get'],
       clear: async () => ({ deleted: 0 }),
+      valuesForField: async () => ({ values: [] }),
+      recordFieldValues: async () => ({ recorded: 0 }),
+      clearFieldValues: async () => ({ deleted: 0 }),
     },
     agg: {
       run: noopAsync as IpcApi['agg']['run'],

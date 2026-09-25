@@ -314,7 +314,7 @@ export interface IpcApi {
       connectionId: string;
       dbName: string;
       collection: string;
-      entries: Array<{ field: string; value: string; valType: ValType }>;
+      entries: Array<{ field: string; value: string; valType: ValType; op: string }>;
     }) => Promise<{ recorded: number }>;
     /** Settings' "Clear value history" — wipes every `recent_field_values` row. */
     clearFieldValues: () => Promise<{ deleted: number }>;

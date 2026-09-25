@@ -20,6 +20,17 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
  */
 const REDACTED_KEYS = new Set(['password', 'pwd', 'sshpassword', 'sshpassphrase']);
 
+/**
+ * True when a dotted field path (e.g. `user.password`) has any segment that
+ * is a secret key name, checked case-insensitively. Shared with
+ * `RecentFieldValueService` so a value typed against a secret-named field
+ * never reaches `recent_field_values` — main is the trust boundary, not the
+ * renderer that sends the record request.
+ */
+export function isSecretFieldPath(field: string): boolean {
+  return field.split('.').some((segment) => REDACTED_KEYS.has(segment.toLowerCase()));
+}
+
 const REDACTED_PLACEHOLDER = '<redacted>';
 const CIRCULAR_PLACEHOLDER = '[Circular]';
 const IN_PROGRESS = Symbol('in-progress');

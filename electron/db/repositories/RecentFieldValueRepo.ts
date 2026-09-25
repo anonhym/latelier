@@ -85,6 +85,11 @@ export class RecentFieldValueRepo {
     this.clearAllStmt = db.prepare('DELETE FROM recent_field_values');
   }
 
+  /** Runs `fn` inside a SQLite transaction, committing on return and rolling back on throw. */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   upsert(row: RecentFieldValueUpsert): void {
     this.upsertStmt.run({
       id: row.id,
