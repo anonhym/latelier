@@ -141,4 +141,37 @@ describe('JsonView — hidden fields', () => {
     expect(written).toContain('secret');
     expect(written).toContain('shh');
   });
+
+  it('resets collapse state when hiding a field shifts group node ids', async () => {
+    // `_id` is a string, not a number, so it doesn't get its own EJSON
+    // wrapper group. Node ids are assigned in token order over `{`/`[`
+    // tokens, so with nothing hidden: document=0, a=1, b=2, c=3.
+    const docs = [
+      { _id: 'id1', a: { w: 'wvalue' }, b: { y: 'yvalue' }, c: { z: 'zvalue' } },
+    ];
+    const { rerender } = renderJson(docs);
+
+    // Collapse 'b' (id 2) — its content 'yvalue' should disappear.
+    const collapseButtons = screen.getAllByRole('button', { name: 'Collapse' });
+    await userEvent.click(collapseButtons[2]!);
+    expect(screen.queryByText(/yvalue/)).toBeNull();
+
+    // Hiding 'a' removes an earlier group, so ids shift: document=0, b=1,
+    // c=2. Without a reset, the stale `docKey:2` collapse key now matches
+    // 'c' instead of 'b'.
+    rerender(
+      <CollectionWorkspaceProvider
+        state={{ ...emptyState(), columnConfig: { hidden: ['a'] } }}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
+      >
+        <JsonView documents={docs} />
+      </CollectionWorkspaceProvider>,
+    );
+
+    // Both b and c must render expanded — collapse state should not have
+    // silently moved onto 'c'.
+    expect(screen.getByText(/yvalue/)).toBeTruthy();
+    expect(screen.getByText(/zvalue/)).toBeTruthy();
+  });
 });

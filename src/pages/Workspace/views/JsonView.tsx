@@ -423,6 +423,17 @@ export function JsonView({ documents }: JsonViewProps) {
   const toggleSelect = selection.toggle;
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
   const [collapsedKeys, setCollapsedKeys] = React.useState<Set<string>>(() => new Set());
+  // Collapse keys are `${docKey}:${node.id}`, where node.id is assigned in
+  // token order over the *redacted* JSON — hiding or showing a field shifts
+  // every id after it, so a stale collapsedKeys set would collapse the wrong
+  // subtree. Reset rather than try to remap ids across a hidden-fields
+  // change. "Adjust state during render" pattern (see TreeView's
+  // prevDocuments reset), not a useEffect, to avoid a cascading render cycle.
+  const [prevHiddenFields, setPrevHiddenFields] = React.useState(hiddenFields);
+  if (prevHiddenFields !== hiddenFields) {
+    setPrevHiddenFields(hiddenFields);
+    setCollapsedKeys(new Set());
+  }
   const toggleCollapse = React.useCallback((key: string) => {
     setCollapsedKeys((prev) => {
       const next = new Set(prev);
