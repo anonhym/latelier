@@ -22,7 +22,7 @@ X13 gives every Connection a durable **Audit Log** of the Operations that change
 | `databaseDrop` | `databaseDrop` |
 | `dataImport` (not yet built) | `import` |
 
-`docReplace` is not audited: the Document Editor edits through `docUpdateOne`, and whole-document replace is on its way out.
+`docReplace` is not audited: it is being removed from the Document Editor in favour of `docUpdateOne`. Until that lands, an edit saved through it goes unrecorded.
 
 Also in scope: migration `012`, an `AuditRepo` + `AuditService`, two IPC channels, an Undo action on the success toast, an audit modal that opens on the Focused Tab's Connection, retention in `MaintenanceService`, and one line in each of the three confirm dialogs stating whether the action can be undone.
 

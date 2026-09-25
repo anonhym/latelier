@@ -37,7 +37,7 @@ export function GlobalCommands() {
         id: 'audit.open',
         title: 'Open audit log',
         group: 'general',
-        keywords: ['history', 'operations', 'changes', 'deleted'],
+        keywords: ['history', 'operations', 'changes'],
         perform: (ctx) => setAudit({ connectionId: ctx.connectionId }),
       },
       {
