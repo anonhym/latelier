@@ -268,9 +268,11 @@ export interface IpcApi {
   };
 
   /**
-   * Bulk data in and out of a collection. `import` reads a file main already
-   * holds the path to (from `app.pickFile('data-import')`) — never one it
-   * opens a dialog for, so a cancelled pick records no audit row.
+   * Bulk data in and out of a collection. `import` takes the path the
+   * renderer got back from `app.pickFile('data-import')`, which is stateless;
+   * main re-validates it (absolute, allowed extension, a regular file) before
+   * reading. It opens no dialog of its own, so a cancelled pick never reaches
+   * this audited channel and records no row.
    */
   data: {
     import: (input: DataImportInput) => Promise<ImportReport>;
