@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Envelope } from '@shared/ipc';
 import type { AuditEntry, AuditListInput, AuditSummary, UndoResult } from '@shared/types';
-import type { Collection, Document } from 'mongodb';
+import { MongoBulkWriteError, type Collection, type Document } from 'mongodb';
 import type { AuditRepo, AuditRow } from '../db/repositories/AuditRepo.ts';
 import { auditRecordFor } from '../ipc/auditChannels.ts';
 import { AppError, NotFoundError, SystemError } from '../errors.ts';
@@ -176,9 +176,19 @@ export class AuditService {
       const result = await coll.insertMany(docs, { ordered: false, maxTimeMS: QUERY_TIMEOUT_MS });
       return { restored: result.insertedCount, skipped: docs.length - result.insertedCount };
     } catch (err) {
-      const insertedCount = (err as { result?: { insertedCount?: number } })?.result?.insertedCount;
-      if (insertedCount === undefined) throw err;
-      return { restored: insertedCount, skipped: docs.length - insertedCount };
+      // A partial insert is only a legitimate skip when every failure was a
+      // reused `_id` (11000) — the expected "restored the rest" case (X13
+      // test case 9). Anything else (a validator rejecting one document, a
+      // dropped connection mid-batch) must not be folded into `skipped`: that
+      // would mark the entry undone and null its `undo_json` while some
+      // Pre-images were never actually written back.
+      if (err instanceof MongoBulkWriteError) {
+        const writeErrors = Array.isArray(err.writeErrors) ? err.writeErrors : [err.writeErrors];
+        if (writeErrors.every((e) => e.code === 11000)) {
+          return { restored: err.result.insertedCount, skipped: docs.length - err.result.insertedCount };
+        }
+      }
+      throw err;
     }
   }
 

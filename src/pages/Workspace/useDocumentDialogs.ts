@@ -51,7 +51,7 @@ export function useDocumentDialogs(deps: {
   closeDeleteDialogs: () => void;
   handleDeleted: (auditId?: string) => void;
   closeUpdateAllModal: () => void;
-  handleUpdatedAll: () => void;
+  handleUpdatedAll: (auditId?: string) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
    * doesn't have to re-run on every read-only query re-run (sort, filter,
@@ -175,11 +175,16 @@ export function useDocumentDialogs(deps: {
   // the Focused Tab (see the tab-switch effect below), so it's closed the
   // same way rather than routed through refreshSource's captured target.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
-  const handleUpdatedAll = React.useCallback(() => {
+  const handleUpdatedAll = React.useCallback((auditId?: string) => {
     closeUpdateAllModal();
     void run();
     setWriteVersion((v) => v + 1);
-  }, [closeUpdateAllModal, run]);
+    const a = activeCollectionRef.current;
+    if (a) {
+      const target = targetOf(a);
+      offerUndo('Documents updated', auditId, () => refreshSource(target));
+    }
+  }, [activeCollectionRef, closeUpdateAllModal, refreshSource, run]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the
   // Focused Tab, so any route that moves focus off the tab either was opened

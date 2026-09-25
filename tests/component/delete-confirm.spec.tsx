@@ -284,7 +284,7 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByText(/can be undone/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/within the 1,000-document undo limit/i)).toBeTruthy());
     expect(screen.queryByText(/cannot be undone/)).toBeNull();
   });
 
@@ -355,6 +355,31 @@ describe('DeleteConfirm — Undo hand-off', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('a1'));
+  });
+
+  it('passes the Reversible entry id of a delete-all-matching to onDeleted', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 5, confirmToken: 'tok-xyz' }));
+    const deleteMany = vi.fn(async () => ({ deletedCount: 5, auditId: 'a2' }));
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
+    const onDeleted = vi.fn();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    await waitFor(() => expect(confirmDeleteMany).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('a2'));
   });
 });
 });

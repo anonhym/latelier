@@ -6,7 +6,7 @@ import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { isValidEjson } from '../../utils/ejson';
 import { useShellSyntaxField } from './useShellSyntaxField';
-import { notify } from '../../theme/notifications';
+import { AUDIT_UNDO_DOC_LIMIT } from '../../utils/auditUndo';
 
 interface UpdateConfirmProps {
   connectionId: string;
@@ -18,7 +18,9 @@ interface UpdateConfirmProps {
   filter: string;
   readOnly?: boolean;
   onClose: () => void;
-  onUpdated: () => void;
+  /** `auditId` is set when the update can be undone — within X13's bulk
+   *  capture ceiling. */
+  onUpdated: (auditId?: string) => void;
 }
 
 /**
@@ -140,7 +142,9 @@ export function UpdateConfirm({
     setRunning(true);
     setErr(null);
     try {
-      const { matchedCount, modifiedCount } = await api.doc.updateMany({
+      // Undo's own toast (X13 §8) carries the outcome; no separate success
+      // notification here, or a bulk update would show two toasts.
+      const { auditId } = await api.doc.updateMany({
         connectionId,
         dbName,
         collection,
@@ -148,8 +152,7 @@ export function UpdateConfirm({
         updateJson: reviewed.updateJson,
         confirmToken: reviewed.confirmToken,
       });
-      notify.success(`${matchedCount.toLocaleString()} matched, ${modifiedCount.toLocaleString()} modified`);
-      onUpdated();
+      onUpdated(auditId);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Update failed'));
@@ -162,12 +165,27 @@ export function UpdateConfirm({
   const reviewDisabled = readOnly || reviewing || !isValid;
   const updateDisabled = readOnly || running || reviewed === null || !matchesCollectionName;
 
+  // States a fact about this specific action (ADR 0013); no line until
+  // Review runs `confirmUpdateMany`, since the count isn't known before
+  // that. Same ceiling and same
+  // caveat as `DeleteConfirm`'s bulk line: within the document-count limit
+  // is "Undo will be offered", not a flat guarantee — the byte ceiling
+  // (X13 §5) can still drop it, and there's no cheap way to know that here.
+  const undoLine =
+    reviewed === null
+      ? null
+      : reviewed.count <= AUDIT_UNDO_DOC_LIMIT
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered unless the matched documents are unusually large.`
+        : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`;
+
   return (
     <Modal opened onClose={close} title="Update all matching documents" centered size="md">
       <Stack gap="sm">
-        <Text size="xs" c="dimmed">
-          This cannot be undone.
-        </Text>
+        {undoLine && (
+          <Text size="xs" c="dimmed">
+            {undoLine}
+          </Text>
+        )}
 
         {readOnly && (
           <Alert color="yellow" variant="light" role="alert">

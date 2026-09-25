@@ -455,5 +455,31 @@ describe('useDocumentDialogs', () => {
       await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
       expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
     });
+
+    it('a Reversible update-all offers Undo that re-runs the tab it came from, even after focus moved', async () => {
+      const undo = vi.fn(async () => ({ restored: 2, skipped: 0 }));
+      installAtelierMock({ audit: { undo } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t2 = tab({ id: 't2', collection: 'users' });
+      const { result, activeCollectionRef } = mountDialogs(run, 't1', t1, [t1, t2]);
+
+      act(() => result.current.handleUpdatedAll('a3'));
+      activeCollectionRef.current = t2;
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(undo).toHaveBeenCalledWith({ entryId: 'a3' });
+      expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
+    });
+
+    it('an update-all with no Reversible entry offers nothing', async () => {
+      const t1 = tab();
+      const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
+
+      act(() => result.current.handleUpdatedAll());
+
+      await waitFor(() => expect(screen.queryByText('Documents updated')).toBeNull());
+    });
   });
 });

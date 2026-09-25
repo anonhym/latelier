@@ -16,7 +16,8 @@ interface DeleteConfirmProps {
    * user complete the confirmation flow only to hit a server-side rejection. */
   readOnly?: boolean;
   onClose: () => void;
-  /** `auditId` is set when the delete can be undone (single document only). */
+  /** `auditId` is set when the delete can be undone — single document
+   *  always; delete-all-matching only within X13's bulk capture ceiling. */
   onDeleted: (auditId?: string) => void;
 }
 
@@ -116,13 +117,13 @@ export function DeleteConfirm({
         ({ auditId } = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson }));
       } else {
         if (countState.status !== 'ready') return;
-        await api.doc.deleteMany({
+        ({ auditId } = await api.doc.deleteMany({
           connectionId,
           dbName,
           collection,
           filterJson: matchFilterJson,
           confirmToken: countState.confirmToken,
-        });
+        }));
       }
       onDeleted(auditId);
       onClose();
@@ -150,13 +151,17 @@ export function DeleteConfirm({
         countState.count === 0));
 
   // States a fact about this specific action (ADR 0013 — never what tier the
-  // dialog is on). A single document always keeps a Pre-image; a bulk delete
-  // does too, but only within the capture ceiling (X13 §5).
+  // dialog is on). A single document always keeps a Pre-image. A bulk delete
+  // is bounded twice (X13 §5): the count here only proves the document-count
+  // half, so under the limit is "undo is available" rather than a flat
+  // guarantee — the byte ceiling can still drop it, and the confirm dialog
+  // has no cheap way to know that in advance. Above the limit is an absolute
+  // "cannot" — breaching either ceiling alone is enough to refuse capture.
   const undoLine = !isMulti
     ? 'This can be undone.'
     : countState.status === 'ready'
       ? countState.count <= AUDIT_UNDO_DOC_LIMIT
-        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this can be undone.`
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered unless the matched documents are unusually large.`
         : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`
       : null;
 

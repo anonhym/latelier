@@ -727,6 +727,25 @@ describe('audit log via the router', () => {
       expect(await orders().findOne({ _id: 2 })).toEqual({ _id: 2, v: 'recreated' });
     });
 
+    it('deleteMany undo does not count a non-duplicate-key write failure as skipped', async () => {
+      await orders().insertMany([{ _id: 1, v: 0 }, { _id: 2, v: 0 }]);
+      const res = await deleteManyAll();
+      // A validator added since the delete rejects `v: 0` — a write failure
+      // that is NOT a reused `_id`, so it must not be folded into `skipped`
+      // the way a genuine 11000 duplicate-key failure is.
+      await client.db(dbName).command({
+        collMod: 'orders',
+        validator: { v: { $ne: 0 } },
+        validationLevel: 'strict',
+      });
+
+      expect(await undoError(res.auditId!)).toBe('VALIDATION');
+      expect(await orders().countDocuments()).toBe(0);
+      const [entry] = await list();
+      expect(entry).toMatchObject({ id: res.auditId, reversible: true });
+      expect(entry!.undoneAt).toBeUndefined();
+    });
+
     it('insertMany undo deletes exactly the inserted ids, leaving a similar pre-existing document', async () => {
       await orders().insertOne({ _id: 0, note: 'pre-existing' });
       const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {

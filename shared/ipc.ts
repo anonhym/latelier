@@ -248,9 +248,9 @@ export interface IpcApi {
     updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
     deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number; auditId?: string }>;
     confirmDeleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ count: number; confirmToken: string }>;
-    deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number }>;
+    deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number; auditId?: string }>;
     confirmUpdateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ count: number; confirmToken: string }>;
-    updateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string; confirmToken: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
+    updateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string; confirmToken: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
   };
 
   saved: {
