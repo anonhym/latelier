@@ -18,18 +18,19 @@ import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
 
 /**
- * Fields control (T2.5, AC3/AC4/AC8; #199) — show/hide + reorder the
- * schema-derived fields, shared by Tree, JSON and Table (only Table
- * consumes the config so far; Tree/JSON wiring is later slices of #144).
+ * Fields control (T2.5, AC3/AC4/AC8) — show/hide + reorder the
+ * schema-derived fields, shared by Tree, JSON and Table (Table consumes the
+ * config for its columns; Tree reads it too, for its collapsed-row preview
+ * — see `TreeView.tsx`. JSON reads the hidden list too — see `JsonView.tsx`).
  * Also add/remove dotted-path computed columns, but that section only
  * renders in Table — `computed` only ever feeds `TableView`'s column
  * resolution (`tableColumns.ts`), so offering it elsewhere would let a
  * user add a column that visibly does nothing.
- * Modeled on `PreviewPicker.tsx`'s Popover-anchored-Button pattern; reads
- * everything off `useCollectionWorkspace()` (documents, `columnConfig`) so
- * it can be dropped into `<ResultBar>` with no prop plumbing, and writes
- * back through the existing `actions.patchWith` read-modify-write — the
- * same pattern `columns` / `expandedRows` / `schema` already use.
+ * A Popover-anchored-Button pattern; reads everything off
+ * `useCollectionWorkspace()` (documents, `columnConfig`) so it can be
+ * dropped into `<ResultBar>` with no prop plumbing, and writes back through
+ * the existing `actions.patchWith` read-modify-write — the same pattern
+ * `columns` / `expandedRows` / `schema` already use.
  */
 export function FieldsControl() {
   const T = themeVars;

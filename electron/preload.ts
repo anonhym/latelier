@@ -110,8 +110,6 @@ const api: IpcApi = {
   prefs: {
     get: (key) => call(IPC_CHANNELS.prefsGet, { key }),
     set: (key, value) => call(IPC_CHANNELS.prefsSet, { key, value }),
-    getPreviewFields: (input) => call(IPC_CHANNELS.prefsGetPreviewFields, input),
-    setPreviewFields: (input) => call(IPC_CHANNELS.prefsSetPreviewFields, input),
     getTheme: () => call(IPC_CHANNELS.prefsGetTheme),
     setTheme: (mode) => call(IPC_CHANNELS.prefsSetTheme, { mode }),
     onThemeChanged: (cb) => {

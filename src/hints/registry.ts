@@ -48,11 +48,4 @@ export const HINT_REGISTRY: Record<FeatureHintId, FeatureHintCopy> = {
     ctaLabel: 'Try it',
     priority: 40,
   },
-  'preview.configure': {
-    id: 'preview.configure',
-    title: 'Show key fields at a glance',
-    body: 'Pick a few fields to preview on each collapsed row, so you can scan results without expanding every doc.',
-    ctaLabel: 'Pick fields',
-    priority: 50,
-  },
 };

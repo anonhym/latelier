@@ -12,11 +12,11 @@ import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
-import type { CollectionTabState } from '@shared/types';
+import type { CollectionTabState, TableColumnConfig } from '@shared/types';
 
 const noop = () => {};
 
-function emptyState(): CollectionTabState {
+function emptyState(columnConfig?: TableColumnConfig): CollectionTabState {
   return {
     view: 'Tree',
     builder: { projection: [], sort: '', limit: '' },
@@ -24,19 +24,21 @@ function emptyState(): CollectionTabState {
     page: 0,
     pageSize: 50,
     activeBuilderTab: 'Builder',
+    columnConfig,
   };
 }
 
 function renderTree(documents: unknown[], opts: {
   expanded?: Record<string, true>;
-  previewFields?: string[] | null;
+  /** Fields control's per-tab config — hide/reorder now drive the Tree preview directly. */
+  columnConfig?: TableColumnConfig;
   onRowExpand?: (id: string, expanded: boolean) => void;
   onSelect?: (doc: unknown) => void;
   actions?: Partial<CollectionWorkspaceActions>;
 } = {}) {
   return render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
+        state={emptyState(opts.columnConfig)}
         actions={emptyWorkspaceActions(opts.actions)}
         meta={emptyWorkspaceMeta()}
       >
@@ -45,7 +47,6 @@ function renderTree(documents: unknown[], opts: {
           expandedRows={opts.expanded}
           onSelect={opts.onSelect ?? noop}
           onRowExpand={opts.onRowExpand ?? vi.fn()}
-          previewFields={opts.previewFields}
         />
       </CollectionWorkspaceProvider>
   );
@@ -72,14 +73,14 @@ describe('TreeView — rendering and interaction', () => {
     expect(container.textContent).toContain('beta');
   });
 
-  it('honors previewFields prop, hiding non-listed fields from the collapsed preview', () => {
+  it('hiding a field in the Fields control removes it from the collapsed preview', () => {
     const docs = [
       { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha', secret: 'hidden' },
     ];
-    const { container } = renderTree(docs, { previewFields: ['name'] });
+    const { container } = renderTree(docs, { columnConfig: { hidden: ['secret'] } });
 
     expect(container.textContent).toContain('alpha');
-    // `secret` field is not in the previewFields list — must not appear.
+    // `secret` is hidden in the Fields control — must not appear in the preview.
     // Strip <style> elements first: Mantine's MantineProvider injects a
     // global stylesheet that mentions the word "hidden" in utility class
     // names (e.g., .mantine-hidden-from-xs), which would otherwise be
@@ -87,6 +88,52 @@ describe('TreeView — rendering and interaction', () => {
     const rendered = container.cloneNode(true) as HTMLElement;
     rendered.querySelectorAll('style').forEach((el) => el.remove());
     expect(rendered.textContent).not.toContain('hidden');
+  });
+
+  it('with no Fields config, the preview falls back to a document\'s own first 4 keys', () => {
+    const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
+    const { container } = renderTree(docs);
+
+    expect(container.textContent).toContain('aa:');
+    expect(container.textContent).not.toContain('ee:');
+  });
+
+  it('reordering fields in the Fields control changes which 4 fields the Tree previews', () => {
+    const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
+    const { container } = renderTree(docs, {
+      columnConfig: { order: ['ee', 'dd', 'cc', 'bb', 'aa'] },
+    });
+
+    // Reordered to the front — now inside the first-4 preview slice.
+    expect(container.textContent).toContain('ee:');
+    // Pushed to 5th by the reorder — falls out of the slice.
+    expect(container.textContent).not.toContain('aa:');
+  });
+
+  it('hiding every field shows an empty collapsed preview, not the hidden fields', () => {
+    const docs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha', secret: 'topsecret' },
+    ];
+    const { container } = renderTree(docs, { columnConfig: { hidden: ['name', 'secret'] } });
+
+    const rendered = container.cloneNode(true) as HTMLElement;
+    rendered.querySelectorAll('style').forEach((el) => el.remove());
+    expect(rendered.textContent).not.toContain('alpha');
+    expect(rendered.textContent).not.toContain('topsecret');
+  });
+
+  it('with a Fields config, each sparse row previews its own visible fields, not a global slice', () => {
+    const docs = [
+      { _id: 1, a: 'zone-a', b: 'zone-b', c: 'zone-c', d: 'zone-d' },
+      { _id: 2, e: 'zone-e', f: 'zone-f' },
+    ];
+    // Hiding `a` pushes the visible list to [b, c, d, e, f]; a global first-4
+    // slice would cut `f` before the second doc's own fields are considered,
+    // even though that doc has none of b/c/d.
+    const { container } = renderTree(docs, { columnConfig: { hidden: ['a'] } });
+
+    expect(container.textContent).toContain('zone-e');
+    expect(container.textContent).toContain('zone-f');
   });
 
   it('renders an expanded row with its top-level fields visible', () => {

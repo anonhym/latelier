@@ -84,8 +84,6 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.shellOpenExternal,
   IPC_CHANNELS.prefsGet,
   IPC_CHANNELS.prefsSet,
-  IPC_CHANNELS.prefsGetPreviewFields,
-  IPC_CHANNELS.prefsSetPreviewFields,
   IPC_CHANNELS.prefsGetTheme,
   IPC_CHANNELS.prefsSetTheme,
   IPC_CHANNELS.prefsThemeEvent,

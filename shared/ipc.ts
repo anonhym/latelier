@@ -24,7 +24,6 @@ import type {
   IndexDropInput,
   IndexInfo,
   ParsedUri,
-  PreviewFields,
   PreviewInput,
   ProbeResult,
   RoleInfo,
@@ -220,8 +219,6 @@ export interface IpcApi {
   prefs: {
     get: <T>(key: string) => Promise<T | null>;
     set: <T>(key: string, value: T) => Promise<T>;
-    getPreviewFields: (input: { connectionId: string; dbName: string; collection: string }) => Promise<PreviewFields | null>;
-    setPreviewFields: (input: { connectionId: string; dbName: string; collection: string; fields: string[] }) => Promise<PreviewFields>;
     getTheme: () => Promise<'light' | 'dark' | 'system'>;
     setTheme: (mode: 'light' | 'dark' | 'system') => Promise<void>;
     onThemeChanged: (cb: (mode: 'light' | 'dark' | 'system') => void) => () => void;
@@ -399,8 +396,6 @@ export const IPC_CHANNELS = {
   // App state preferences ----------------------------------------
   prefsGet: 'prefs:get',
   prefsSet: 'prefs:set',
-  prefsGetPreviewFields: 'prefs:getPreviewFields',
-  prefsSetPreviewFields: 'prefs:setPreviewFields',
   prefsGetTheme:  'prefs:getTheme',
   prefsSetTheme:  'prefs:setTheme',
   prefsThemeEvent: 'prefs:theme-event',

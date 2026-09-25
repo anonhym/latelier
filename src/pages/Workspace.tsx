@@ -16,7 +16,6 @@ import { BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import type { CollectionView } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
 import { useReferenceRules } from '../features/references/useReferenceRules';
-import { usePreviewFields } from './Workspace/usePreviewFields';
 import { useReferenceDrawer } from './Workspace/useReferenceDrawer';
 import { groupTabsByConnection } from './Workspace/tabGroups';
 import {
@@ -254,35 +253,6 @@ function WorkspaceInner() {
     };
   }, [activeCollection]);
 
-  const [activePreviewFields, setActivePreviewFields] = usePreviewFields(
-    activeCollection?.connectionId ?? null,
-    activeCollection?.dbName ?? null,
-    activeCollection?.collection ?? null,
-  );
-
-  const previewKnownFields = React.useMemo(() => {
-    const docs = activeCollection?.state.lastRun?.documents ?? [];
-    const seen = new Set<string>();
-    for (const doc of docs.slice(0, 50)) {
-      if (doc && typeof doc === 'object' && !Array.isArray(doc)) {
-        for (const k of Object.keys(doc as Record<string, unknown>)) {
-          if (k !== '_id') seen.add(k);
-        }
-      }
-    }
-    return Array.from(seen).sort((a, b) => a.localeCompare(b));
-  }, [activeCollection?.state.lastRun?.documents]);
-
-  const previewConfigureWhen =
-    activeView === 'documents' &&
-    !!activeCollection?.state.lastRun &&
-    previewKnownFields.length >= 4 &&
-    (activePreviewFields === null || activePreviewFields.length === 0);
-  const previewConfigureHint = useFeatureHint(
-    'preview.configure',
-    previewConfigureWhen,
-  );
-
   const queryRunner = useQueryRunner({
     active: activeCollection
       ? {
@@ -476,9 +446,6 @@ function WorkspaceInner() {
             view: activeView,
             aggregationState,
             schemaState,
-            previewKnownFields,
-            activePreviewFields,
-            setActivePreviewFields,
             suggestionContext: collectionSuggestionContext,
             savedRefreshKey,
           }
@@ -490,9 +457,6 @@ function WorkspaceInner() {
       activeView,
       aggregationState,
       schemaState,
-      previewKnownFields,
-      activePreviewFields,
-      setActivePreviewFields,
       collectionSuggestionContext,
       savedRefreshKey,
     ],
@@ -994,7 +958,6 @@ function WorkspaceInner() {
         refsConfigureHint={refsConfigureHint}
         tabsPinHint={tabsPinHint}
         savedCreateHint={savedCreateHint}
-        previewConfigureHint={previewConfigureHint}
         runExecuteHint={runExecuteHint}
       />
     </AppShell>

@@ -122,7 +122,6 @@ describe('IPC channel registration — full router coverage', () => {
       router,
       stubSvc<Parameters<typeof registerPrefsChannels>[1]>(),
       () => null,
-      stubSvc<Parameters<typeof registerPrefsChannels>[3]>(),
     );
     registerTabsChannels(router, stubSvc<Parameters<typeof registerTabsChannels>[1]>());
     registerQueryChannels(router, stubSvc<Parameters<typeof registerQueryChannels>[1]>());

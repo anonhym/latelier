@@ -143,9 +143,6 @@ export interface PanelBodyCollectionProps {
   view: CollectionView;
   aggregationState: AggregationTabState;
   schemaState: SchemaTabState;
-  previewKnownFields: string[];
-  activePreviewFields: string[] | null;
-  setActivePreviewFields: (fields: string[]) => void;
   suggestionContext: SuggestionContext | null;
   savedRefreshKey: number;
 }
@@ -351,9 +348,6 @@ export function PanelBody({
                         onInsert={openInsertModal}
                         onOpenReferences={() => setRefEditorOpen(true)}
                         referenceRuleCount={referenceRules.rules.length}
-                        previewKnownFields={collection.previewKnownFields}
-                        previewFields={collection.activePreviewFields}
-                        onPreviewFieldsChange={collection.setActivePreviewFields}
                         refreshSignal={documentDialogs.writeVersion}
                       />
                       <QueryBar
@@ -369,7 +363,6 @@ export function PanelBody({
                             onColumnResize={handleColumnResize}
                             onRowExpand={handleRowExpand}
                             onSortField={handleSortField}
-                            previewFields={collection.activePreviewFields}
                             refsByField={referenceRules.byField}
                             onRefHover={handleRefHover}
                             onRefHoverLeave={handleRefHoverLeave}

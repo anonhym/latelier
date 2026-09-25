@@ -84,8 +84,6 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     prefs: {
       get: async () => null,
       set: async (_k, v) => v,
-      getPreviewFields: async () => null,
-      setPreviewFields: async (input) => ({ ...input, updatedAt: new Date().toISOString() }),
       getTheme: async () => 'system' as const,
       setTheme: async () => undefined,
       onThemeChanged: () => () => {},
@@ -373,8 +371,6 @@ function makePermissiveStub(): IpcApi {
     prefs: {
       get: async () => null,
       set: async (_k, v) => v,
-      getPreviewFields: async () => null,
-      setPreviewFields: async (input) => ({ ...input, updatedAt: new Date().toISOString() }),
       getTheme: async () => 'system' as const,
       setTheme: async () => undefined,
       onThemeChanged: () => noopFn,

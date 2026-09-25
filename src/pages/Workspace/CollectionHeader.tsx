@@ -3,7 +3,6 @@ import { Button, Group, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api } from '../../api/atelier';
-import { PreviewPicker } from './PreviewPicker';
 
 interface CollectionHeaderProps {
   connectionId: string;
@@ -12,9 +11,6 @@ interface CollectionHeaderProps {
   onInsert: () => void;
   onOpenReferences: () => void;
   referenceRuleCount: number;
-  previewKnownFields: string[];
-  previewFields: string[] | null;
-  onPreviewFieldsChange: (fields: string[]) => void;
   /**
    * `useDocumentDialogs`'s write-completion counter — bumps once per
    * finished insert/edit/delete/delete-many. Reusing that existing signal
@@ -37,9 +33,6 @@ export function CollectionHeader({
   onInsert,
   onOpenReferences,
   referenceRuleCount,
-  previewKnownFields,
-  previewFields,
-  onPreviewFieldsChange,
   refreshSignal,
 }: CollectionHeaderProps) {
   const T = themeVars;
@@ -130,14 +123,6 @@ export function CollectionHeader({
       </Group>
 
       <span style={{ flex: 1 }} />
-
-      {/* Preview-fields picker — collection-level setting, lives in the header
-          alongside the other per-collection controls (view, refs, insert). */}
-      <PreviewPicker
-        knownFields={previewKnownFields}
-        currentFields={previewFields ?? []}
-        onChange={onPreviewFieldsChange}
-      />
 
       {/* References — secondary action; collapses to icon + count */}
       <Tooltip label={`Manage reference rules for this collection (${referenceRuleCount})`} withArrow>

@@ -406,14 +406,6 @@ export interface RecentQuery {
   errorCode?: string;
 }
 
-export interface PreviewFields {
-  connectionId: string;
-  dbName: string;
-  collection: string;
-  fields: string[];
-  updatedAt: string;
-}
-
 /**
  * A Table-view column addressed by a dotted path into each document rather
  * than a literal top-level key (T2.5, AC8). v1 is a plain accessor — no
@@ -717,8 +709,7 @@ export type FeatureHintId =
   | 'refs.configure'
   | 'tabs.pin'
   | 'saved.create'
-  | 'palette.discover'
-  | 'preview.configure';
+  | 'palette.discover';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];

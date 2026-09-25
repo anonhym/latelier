@@ -17,9 +17,6 @@ function renderHeader(refreshSignal: number | undefined) {
       onInsert={() => {}}
       onOpenReferences={() => {}}
       referenceRuleCount={0}
-      previewKnownFields={[]}
-      previewFields={null}
-      onPreviewFieldsChange={() => {}}
       refreshSignal={refreshSignal}
     />,
   );
@@ -56,9 +53,6 @@ describe('CollectionHeader — stats refresh', () => {
         onInsert={() => {}}
         onOpenReferences={() => {}}
         referenceRuleCount={0}
-        previewKnownFields={[]}
-        previewFields={null}
-        onPreviewFieldsChange={() => {}}
         refreshSignal={1}
       />,
     );
@@ -91,9 +85,6 @@ describe('CollectionHeader — stats refresh', () => {
         onInsert={() => {}}
         onOpenReferences={() => {}}
         referenceRuleCount={0}
-        previewKnownFields={[]}
-        previewFields={null}
-        onPreviewFieldsChange={() => {}}
         refreshSignal={1}
       />,
     );

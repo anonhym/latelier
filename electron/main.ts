@@ -56,8 +56,6 @@ import { SavedQueryRepo } from './db/repositories/SavedQueryRepo.ts';
 import { SavedQueryService } from './services/SavedQueryService.ts';
 import { RecentQueryRepo } from './db/repositories/RecentQueryRepo.ts';
 import { RecentQueryService } from './services/RecentQueryService.ts';
-import { PreviewFieldsRepo } from './db/repositories/PreviewFieldsRepo.ts';
-import { PreviewFieldsService } from './services/PreviewFieldsService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
 import { QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
@@ -546,8 +544,6 @@ app.whenReady().then(() => {
   const savedSvc = new SavedQueryService(savedRepo);
   const recentRepo = new RecentQueryRepo(db);
   const recentSvc = new RecentQueryService(recentRepo);
-  const previewRepo = new PreviewFieldsRepo(db);
-  const previewSvc = new PreviewFieldsService(previewRepo);
   const querySvc = new QueryService(pool, recentSvc);
   docSvc = new DocumentService(pool);
   const aggSvc = new AggregationService(pool, recentSvc);
@@ -567,7 +563,7 @@ app.whenReady().then(() => {
   registerIndexChannels(router, indexSvc);
   registerCollectionAdminChannels(router, collectionAdminSvc);
   registerUserChannels(router, userSvc);
-  registerPrefsChannels(router, appState, () => win?.webContents ?? null, previewSvc);
+  registerPrefsChannels(router, appState, () => win?.webContents ?? null);
   registerTabsChannels(router, tabsSvc);
   registerQueryChannels(router, querySvc);
   registerDocChannels(router, docSvc);
