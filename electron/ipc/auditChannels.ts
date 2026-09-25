@@ -27,7 +27,8 @@ function count(source: unknown, key: string): number | undefined {
 }
 
 // Summaries name what was targeted and what came back — never a document body
-// (`docsJson`, `updateJson`), and never the delete confirm token.
+// (`docsJson`, `updateJson`), and never a confirm token (deleteMany's or
+// updateMany's).
 const filterOf = (input: Fields): string => input.filterJson as string;
 
 /**

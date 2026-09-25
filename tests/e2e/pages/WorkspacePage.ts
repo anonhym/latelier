@@ -90,6 +90,11 @@ export class WorkspacePage {
     return this.win.getByRole('menuitem', { name: /Delete all matching/ });
   }
 
+  /** "Update all matching…" item inside the ResultBar "Documents" menu. */
+  get updateAllMatchingMenuItem() {
+    return this.win.getByRole('menuitem', { name: /Update all matching/ });
+  }
+
   // T0.4 — contextual bulk-action bar, visible once ≥1 result row is selected.
   get selectionBarCount() { return this.win.locator('[data-testid="selection-bar-count"]'); }
   get selectionBarCopyButton() { return this.win.locator('[data-testid="selection-bar-copy"]'); }
