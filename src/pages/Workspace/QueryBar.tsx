@@ -33,10 +33,6 @@ interface QueryBarProps {
   runShortcutRef?: React.Ref<() => void>;
 }
 
-/**
- * Why Run refuses `s`, or null when it would run. One copy for the Run
- * tooltip and the refused-⌘↵ line, so the two can't drift.
- */
 /** `suggestIndex`'s filter argument — an unparseable or non-document filter is treated as empty rather than thrown. */
 function parseFilterDoc(raw: string): Record<string, unknown> {
   try {
@@ -71,6 +67,10 @@ function parseSortDoc(raw: string | undefined): Record<string, 1 | -1> | undefin
   return result;
 }
 
+/**
+ * Why Run refuses `s`, or null when it would run. One copy for the Run
+ * tooltip and the refused-⌘↵ line, so the two can't drift.
+ */
 function runBlockReason(s: CollectionTabState): string | null {
   if (filterProblem(s.queryRaw) !== null) return 'Invalid MQL';
   if (sortProblem(s.builder.sort) !== null) return 'Invalid sort';
