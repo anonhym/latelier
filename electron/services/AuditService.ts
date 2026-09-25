@@ -5,6 +5,7 @@ import type { AuditRepo, AuditRow } from '../db/repositories/AuditRepo.ts';
 import { auditRecordFor } from '../ipc/auditChannels.ts';
 import { NotFoundError, SystemError } from '../errors.ts';
 import type { MongoPool } from '../mongo/MongoPool.ts';
+import type { Logger } from '../log.ts';
 import { ejsonParse, ejsonStringify } from '../mongo/ejson.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { QUERY_TIMEOUT_MS } from '../mongo/timeouts.ts';
@@ -32,9 +33,30 @@ function toEntry(row: AuditRow): AuditEntry {
 export class AuditService {
   private repo: AuditRepo;
   private pool: MongoPool;
-  constructor(repo: AuditRepo, pool: MongoPool) {
+  private log: Logger | undefined;
+  constructor(repo: AuditRepo, pool: MongoPool, log?: Logger) {
     this.repo = repo;
     this.pool = pool;
+    this.log = log;
+  }
+
+  /**
+   * The capture as stored, or null when there is none or it would not read
+   * back — a document the EJSON reviver refuses (a UUID Binary of the wrong
+   * length, a regex JS can't compile) would only ever offer an Undo that fails.
+   */
+  private restorableUndoJson(undo: UndoCapture | undefined): string | null {
+    if (!undo) return null;
+    const json = ejsonStringify(undo);
+    try {
+      ejsonParse(json);
+    } catch (err) {
+      this.log?.warn('audit.capture', 'Pre-image would not read back; this Operation cannot be undone', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+    return json;
   }
 
   /**
@@ -53,7 +75,7 @@ export class AuditService {
   ): string | null {
     const rec = auditRecordFor(channel, input, envelope);
     if (!rec) return null;
-    const undo = envelope.ok ? undoCaptureOf(envelope.data) : undefined;
+    const undoJson = envelope.ok ? this.restorableUndoJson(undoCaptureOf(envelope.data)) : null;
     const id = randomUUID();
     this.repo.insert({
       id,
@@ -66,10 +88,10 @@ export class AuditService {
       error_code: rec.errorCode,
       ran_at: new Date(startedAt).toISOString(),
       duration_ms: durationMs,
-      reversible: undo ? 1 : 0,
+      reversible: undoJson !== null ? 1 : 0,
       undone_at: null,
-    }, undo ? ejsonStringify(undo) : null);
-    return undo ? id : null;
+    }, undoJson);
+    return undoJson !== null ? id : null;
   }
 
   /**

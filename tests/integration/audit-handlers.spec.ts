@@ -110,7 +110,7 @@ describe('audit log via the router', () => {
     scriptSvc = new ScriptService({ pool });
     auditRepo = new AuditRepo(tmp.db);
     shim = createShim();
-    const auditSvc = new AuditService(auditRepo, pool);
+    const auditSvc = new AuditService(auditRepo, pool, logSpy.log);
     const router = createRouter(shim.ipcMain, testSenderCheck, logSpy.log, auditSvc);
     registerDocChannels(router, docSvc);
     registerCollectionAdminChannels(router, new CollectionAdminService(pool));
@@ -584,6 +584,22 @@ describe('audit log via the router', () => {
       expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1 });
       expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
       expect(logSpy.warn).toHaveBeenCalledWith('audit.capture', expect.any(String), { message: 'read refused' });
+    });
+
+    it('offers no Undo for a document whose Pre-image would not read back, and still deletes it', async () => {
+      // A UUID-subtype Binary must be 16 bytes; the server stores a short one,
+      // but the EJSON reviver refuses it, so an Undo could only ever fail.
+      await orders().insertOne({ _id: 1, bad: new Binary(Buffer.from('xyz'), Binary.SUBTYPE_UUID) });
+
+      const res = await ok<{ deletedCount: number; auditId?: string }>(IPC_CHANNELS.docDeleteOne, {
+        ...target('orders'),
+        filterJson: '{"_id":1}',
+      });
+
+      expect(res).toEqual({ deletedCount: 1 });
+      expect(await orders().countDocuments()).toBe(0);
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+      expect(logSpy.warn).toHaveBeenCalledWith('audit.capture', expect.any(String), expect.anything());
     });
 
     it('offers no Undo for an update or delete that matched nothing', async () => {

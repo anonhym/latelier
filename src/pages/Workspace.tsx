@@ -386,13 +386,18 @@ function WorkspaceInner() {
         })
         .then(({ auditId }) => {
           void run();
-          offerUndo('Field updated', auditId, () => void run());
+          // The tab edited, not whichever has focus when Undo is clicked.
+          const tabId = a.id;
+          offerUndo('Field updated', auditId, () => {
+            const target = resolveRunnerTarget(tabId);
+            if (target) void run(undefined, target);
+          });
         })
         .catch((e: unknown) => {
           notify.error(getErrorMessage(e, 'Update failed'), { title: 'Update failed' });
         });
     },
-    [activeCollectionRef, run],
+    [activeCollectionRef, resolveRunnerTarget, run],
   );
   const workspaceActions = React.useMemo<CollectionWorkspaceActions>(
     () => ({

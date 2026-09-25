@@ -535,7 +535,7 @@ app.whenReady().then(() => {
   // captured — and it is re-read per message, which is what keeps it correct
   // across a reload.
   const auditRepo = new AuditRepo(db);
-  const auditSvc = new AuditService(auditRepo, pool);
+  const auditSvc = new AuditService(auditRepo, pool, log);
   const router = createRouter(
     ipcMain,
     senderCheck(() => win?.webContents.mainFrame ?? null, isAppLocation),
