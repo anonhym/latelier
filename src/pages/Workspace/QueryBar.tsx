@@ -2,7 +2,8 @@ import React, { memo } from 'react';
 import { Badge, Button, Group, Menu, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { isEjsonDocument } from '../../utils/ejson';
+import { ejsonParse, isEjsonDocument, isPlainDocument } from '../../utils/ejson';
+import { suggestIndex } from '../../utils/indexSuggestion';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import {
   compileFindOptions,
@@ -36,6 +37,40 @@ interface QueryBarProps {
  * Why Run refuses `s`, or null when it would run. One copy for the Run
  * tooltip and the refused-⌘↵ line, so the two can't drift.
  */
+/** `suggestIndex`'s filter argument — an unparseable or non-document filter is treated as empty rather than thrown. */
+function parseFilterDoc(raw: string): Record<string, unknown> {
+  try {
+    const parsed = ejsonParse(raw);
+    return isPlainDocument(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * `suggestIndex`'s sort argument. Per W16 §6/platform facts: the sort is a
+ * raw EJSON string (`compileFindOptions`'s output, not a filterTree node),
+ * parsed the same way as the filter and then normalized with `Number()` —
+ * a direction other than `±1` (e.g. `{$meta:'textScore'}`) drops that field
+ * rather than prefilling it.
+ */
+function parseSortDoc(raw: string | undefined): Record<string, 1 | -1> | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = ejsonParse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isPlainDocument(parsed)) return undefined;
+  const result: Record<string, 1 | -1> = {};
+  for (const [field, direction] of Object.entries(parsed as Record<string, unknown>)) {
+    const n = Number(direction);
+    if (n === 1 || n === -1) result[field] = n;
+  }
+  return result;
+}
+
 function runBlockReason(s: CollectionTabState): string | null {
   if (filterProblem(s.queryRaw) !== null) return 'Invalid MQL';
   if (sortProblem(s.builder.sort) !== null) return 'Invalid sort';
@@ -229,6 +264,21 @@ function QueryBarInner({
       filterField,
     ],
   );
+
+  // Same inputs `runQueryExplain` reads (`filterField`'s committed text,
+  // `findOptions.sort`) — the button only appears on the explain that was
+  // just run against them, so the suggestion has to read the same query.
+  // `actions.openCreateIndex` is optional (saved-query preview, ScriptTab's
+  // synthetic provider don't have a Structure view), so `undefined` here
+  // means `ExplainDrawer` renders no button at all.
+  const onCreateIndex = actions.openCreateIndex
+    ? () => {
+        const { text } = filterField.commitNow();
+        actions.openCreateIndex!(
+          suggestIndex(parseFilterDoc(text), parseSortDoc(findOptions.sort)),
+        );
+      }
+    : undefined;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onPatch({ queryRaw: e.target.value });
@@ -798,6 +848,7 @@ function QueryBarInner({
           onClose={() => setExplainOpen(false)}
           initialVerbosity={explainVerbosity}
           runExplain={runQueryExplain}
+          onCreateIndex={onCreateIndex}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import { createContext, use } from 'react';
 import type { CollectionTabState } from '@shared/types';
+import type { IndexSuggestion } from '../../utils/indexSuggestion';
 
 /**
  * Actions exposed to any subtree inside a `<CollectionWorkspaceProvider>`.
@@ -70,6 +71,16 @@ export interface CollectionWorkspaceActions {
    * `updateField`.
    */
   openDuplicate?: (doc: unknown) => void;
+  /**
+   * Switches to the Structure view and opens `IndexesTab`'s create-index
+   * drawer prefilled from `suggestion` (`null` prefills nothing — every
+   * `suggestIndex` refusal still opens the drawer, just empty). Driven by
+   * `ExplainDrawer`'s "Create an index for this query" on a COLLSCAN.
+   * Optional like `expandBuilder`: providers with no Structure view (saved-
+   * query preview, ScriptTab's synthetic provider) simply omit it, and
+   * `QueryBar` passes no `onCreateIndex` to `ExplainDrawer` when it's absent.
+   */
+  openCreateIndex?: (suggestion: IndexSuggestion | null) => void;
 }
 
 /**

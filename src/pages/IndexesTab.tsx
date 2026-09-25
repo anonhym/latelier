@@ -24,6 +24,20 @@ import type {
   IndexFieldDirection,
   IndexInfo,
 } from '@shared/types';
+import type { IndexSuggestion } from '../utils/indexSuggestion';
+
+/**
+ * A one-shot request from `ExplainDrawer`'s "Create an index for this
+ * query" (W16 Tier 4) to open the create-index drawer prefilled.
+ * `requestId` changes on every click, even when `suggestion` doesn't
+ * (two COLLSCAN refusals in a row are both `null`) — `IndexesTab`'s effect
+ * keys on it so a second click reopens the drawer instead of being a no-op
+ * against an unchanged prop.
+ */
+export interface IndexCreateRequest {
+  requestId: string;
+  suggestion: IndexSuggestion | null;
+}
 
 function humanBytes(n: number): string {
   if (!Number.isFinite(n) || n === 0) return '0 B';
@@ -101,10 +115,23 @@ export function IndexesTab({
   connectionId,
   dbName,
   collection,
+  initialCreate,
+  onInitialCreateConsumed,
 }: {
   connectionId: string;
   dbName: string;
   collection: string;
+  /** See `IndexCreateRequest`. Omitted (or `null`) outside the ExplainDrawer flow. */
+  initialCreate?: IndexCreateRequest | null;
+  /**
+   * Called once the request above has opened the drawer, so the caller can
+   * null it out. Without this, navigating away from Structure and back
+   * (which unmounts and remounts this component — see `PanelBody`'s
+   * `collection.view === 'structure' &&` guard) would find the same
+   * `initialCreate` still set and reopen the drawer on a click from months
+   * ago. Omitted for the same reason `initialCreate` can be omitted.
+   */
+  onInitialCreateConsumed?: () => void;
 }) {
   const T = themeVars;
   const target = React.useMemo(() => ({ dbName, collection }), [dbName, collection]);
@@ -115,6 +142,7 @@ export function IndexesTab({
   );
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [createPrefill, setCreatePrefill] = React.useState<IndexSuggestion | null>(null);
   const [dropName, setDropName] = React.useState<string | null>(null);
   // Captured alongside `dropName`, in the same click handler that sets it —
   // reading a ref's `.current` has to happen in an event handler or effect,
@@ -162,6 +190,19 @@ export function IndexesTab({
   }, [target, loadIndexes]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Opens the create-index drawer prefilled from ExplainDrawer's "Create an
+  // index for this query" (W16 Tier 4). `onInitialCreateConsumed` nulls the
+  // request at its source right away — see that prop's own doc comment for
+  // why a remount must not find it still set.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    if (!initialCreate) return;
+    setCreatePrefill(initialCreate.suggestion);
+    setDrawerOpen(true);
+    onInitialCreateConsumed?.();
+  }, [initialCreate, onInitialCreateConsumed]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   // `flex: 'none'` + `overflow: 'visible'`, not the `flex: 1; overflow:
   // hidden` this used before it moved into the collection tab's Structure
   // view (W16 Tier 2, ADR 0003): that assumed a flex parent with a definite
@@ -186,7 +227,10 @@ export function IndexesTab({
         <Button
           size="compact-xs"
           variant="filled"
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => {
+            setCreatePrefill(null);
+            setDrawerOpen(true);
+          }}
         >
           + New index
         </Button>
@@ -243,12 +287,18 @@ export function IndexesTab({
         {drawerOpen && (
           <CreateIndexDrawer
             target={target}
-            onCancel={() => setDrawerOpen(false)}
+            onCancel={() => {
+              setDrawerOpen(false);
+              setCreatePrefill(null);
+            }}
             onCreated={() => {
               setDrawerOpen(false);
+              setCreatePrefill(null);
               void loadIndexes(target);
             }}
             connectionId={connectionId}
+            initialFields={createPrefill?.keys.map((k) => ({ field: k.field, direction: k.direction }))}
+            reason={createPrefill?.reason}
           />
         )}
 
@@ -471,15 +521,26 @@ function CreateIndexDrawer({
   connectionId,
   onCancel,
   onCreated,
+  initialFields,
+  reason,
 }: {
   target: { dbName: string; collection: string };
   connectionId: string;
   onCancel: () => void;
   onCreated: () => void;
+  /** Prefill from `suggestIndex` (ExplainDrawer's "Create an index for this query"). Omitted for the plain "+ New index" open. */
+  initialFields?: FieldRow[];
+  /** The prefill's rationale line, shown above the fields when `initialFields` is set. */
+  reason?: string;
 }) {
   const T = themeVars;
   const close = useDialogFocusReturn(onCancel);
-  const [fields, setFields] = React.useState<FieldRow[]>(DEFAULT_FIELDS);
+  // The baseline both the initial value and the dirty check compare
+  // against — a prefilled drawer that the user hasn't touched must not
+  // read as dirty, or closing it prompts "Discard changes?" over nothing.
+  const baselineFields =
+    initialFields && initialFields.length > 0 ? initialFields : DEFAULT_FIELDS;
+  const [fields, setFields] = React.useState<FieldRow[]>(baselineFields);
   const [name, setName] = React.useState('');
   const [unique, setUnique] = React.useState(false);
   const [sparse, setSparse] = React.useState(false);
@@ -493,7 +554,7 @@ function CreateIndexDrawer({
   const [error, setError] = React.useState<string | null>(null);
 
   const isDirty =
-    JSON.stringify(fields) !== JSON.stringify(DEFAULT_FIELDS) ||
+    JSON.stringify(fields) !== JSON.stringify(baselineFields) ||
     name !== '' ||
     unique ||
     sparse ||
@@ -600,6 +661,19 @@ function CreateIndexDrawer({
     >
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Section title="Fields">
+          {initialFields && reason && (
+            <div
+              data-testid="create-index-reason"
+              style={{
+                fontSize: 11,
+                color: T.textMuted,
+                marginBottom: 8,
+                lineHeight: 1.4,
+              }}
+            >
+              {reason}
+            </div>
+          )}
           {fields.map((f, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
               <input
