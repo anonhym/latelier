@@ -248,6 +248,35 @@ export interface ExplainInput extends Omit<FindInput, 'limit' | 'skip' | 'cancel
 /** Verbosity union shared by find-explain and aggregation-explain callers. */
 export type ExplainVerbosity = ExplainInput['verbosity'];
 
+// ─── Export all matching (W03 / export-all) ──────────────────────────────────
+
+export interface QueryExportColumn {
+  header: string;
+  path: string;
+}
+
+export interface QueryExportInput {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  filter: string;
+  sort?: string;
+  projection?: string;
+  /** Builder's own `limit`, if set — capped server-side at the export hard cap. */
+  limit?: number;
+  format: 'json' | 'jsonl' | 'csv';
+  relaxed?: boolean;
+  /** Required when `format === 'csv'` — the Fields control's visible columns. */
+  columns?: QueryExportColumn[];
+  defaultName?: string;
+}
+
+export interface QueryExportResult {
+  path: string | null;
+  written: number;
+  truncated: boolean;
+}
+
 // ─── Result view types (W06) ─────────────────────────────────────────────────
 
 export interface LastRunError {

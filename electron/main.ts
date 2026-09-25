@@ -23,7 +23,7 @@ import {
   connectionReader,
 } from './mongo/ConnectionService.ts';
 import { registerConnChannels } from './ipc/handlers/conn.ts';
-import { registerAppChannels } from './ipc/handlers/app.ts';
+import { registerAppChannels, saveFilters } from './ipc/handlers/app.ts';
 import { registerMongoChannels } from './ipc/handlers/mongo.ts';
 import { registerMetaChannels } from './ipc/handlers/meta.ts';
 import { registerIndexChannels } from './ipc/handlers/indexes.ts';
@@ -571,7 +571,15 @@ app.whenReady().then(() => {
   registerUserChannels(router, userSvc);
   registerPrefsChannels(router, appState, () => win?.webContents ?? null);
   registerTabsChannels(router, tabsSvc);
-  registerQueryChannels(router, querySvc);
+  // Same window-lookup + `saveFilters` pattern as `app.ts`'s `saveFile`,
+  // kept as a closure here rather than an import into query.ts so that file
+  // never needs `electron` itself (mirrors app.ts's own `dialog` usage).
+  registerQueryChannels(router, querySvc, async (defaultName) => {
+    const result = await (win
+      ? dialog.showSaveDialog(win, { defaultPath: defaultName, filters: saveFilters(defaultName) })
+      : dialog.showSaveDialog({ defaultPath: defaultName, filters: saveFilters(defaultName) }));
+    return result.canceled || !result.filePath ? null : result.filePath;
+  });
   registerDocChannels(router, docSvc);
   registerSavedChannels(router, savedSvc);
   registerRecentChannels(router, recentSvc);

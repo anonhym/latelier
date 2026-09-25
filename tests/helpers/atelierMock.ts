@@ -94,6 +94,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       findOne: async () => ({ document: null, durationMs: 0 }),
       explain: unused('query.explain') as IpcApi['query']['explain'],
       cancel: async () => undefined,
+      export: unused('query.export') as IpcApi['query']['export'],
     },
     doc: {
       insert: unused('doc.insert') as IpcApi['doc']['insert'],
@@ -387,6 +388,7 @@ function makePermissiveStub(): IpcApi {
       findOne: async () => ({ document: null, durationMs: 0 }),
       explain: noopAsync as IpcApi['query']['explain'],
       cancel: async () => undefined,
+      export: noopAsync as IpcApi['query']['export'],
     },
     doc: {
       insert: noopAsync as IpcApi['doc']['insert'],

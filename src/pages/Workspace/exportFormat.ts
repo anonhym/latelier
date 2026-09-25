@@ -27,8 +27,13 @@ export function exportColumnsFrom(resolved: ResolvedColumn[]): ExportColumn[] {
  * `JSON.parse` of the wire text — see `electron/preload.ts`), so re-deriving
  * real BSON classes for Relaxed output means round-tripping through the same
  * revival `ejsonParse` already trusts for user-typed text.
+ *
+ * Exported (not just an internal helper): `query:export`'s streaming writer
+ * canonicalizes each document the same way (`ejsonEncode(doc, false)`) before
+ * handing it to a per-document version of this same Relaxed conversion, so
+ * its output matches this module's byte-for-byte.
  */
-function revive(doc: unknown): unknown {
+export function revive(doc: unknown): unknown {
   return ejsonParse(JSON.stringify(doc));
 }
 
@@ -150,18 +155,27 @@ export function neutralizeFormula(cell: string, raw: unknown): string {
   return typeof raw === 'string' && FORMULA_LEAD.test(cell) ? `'${cell}` : cell;
 }
 
+/** The header row alone, no trailing newline. Headers are field names from
+ * the data, so they get the same formula-neutralization treatment as a cell. */
+export function csvHeaderLine(columns: ExportColumn[]): string {
+  return columns.map((c) => csvEscape(neutralizeFormula(c.header, c.header))).join(',');
+}
+
+/** One document's row, no trailing newline. Split out from `serializeCsv` so
+ * a streaming writer (`query:export`) can emit a row at a time instead of
+ * building the whole document array in memory first. */
+export function csvRowLine(doc: unknown, columns: ExportColumn[]): string {
+  return columns
+    .map((c) => {
+      const raw = getValueAtPath(doc, c.path);
+      return csvEscape(neutralizeFormula(csvCellValue(raw), raw));
+    })
+    .join(',');
+}
+
 export function serializeCsv(documents: unknown[], columns: ExportColumn[]): string {
-  // Headers are field names from the data, so they get the same treatment.
-  const header = columns.map((c) => csvEscape(neutralizeFormula(c.header, c.header))).join(',');
-  const rows = documents.map((doc) =>
-    columns
-      .map((c) => {
-        const raw = getValueAtPath(doc, c.path);
-        return csvEscape(neutralizeFormula(csvCellValue(raw), raw));
-      })
-      .join(','),
-  );
-  return [header, ...rows].join('\n') + '\n';
+  const lines = [csvHeaderLine(columns), ...documents.map((doc) => csvRowLine(doc, columns))];
+  return lines.join('\n') + '\n';
 }
 
 export function exportFileExtension(format: ExportFormat): string {

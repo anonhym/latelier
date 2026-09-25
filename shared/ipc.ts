@@ -29,6 +29,8 @@ import type {
   ParsedUri,
   PreviewInput,
   ProbeResult,
+  QueryExportInput,
+  QueryExportResult,
   RoleInfo,
   UserCreateInput,
   UserDropInput,
@@ -237,6 +239,8 @@ export interface IpcApi {
     findOne: (input: Pick<FindInput, 'connectionId' | 'dbName' | 'collection' | 'filter' | 'projection' | 'sort'>) => Promise<{ document: unknown | null; durationMs: number }>;
     explain: (input: ExplainInput) => Promise<{ plan: unknown; verbosity: string }>;
     cancel: (input: { token: string }) => Promise<void>;
+    /** Export every matching document (up to a hard cap) straight to a file the user picks. */
+    export: (input: QueryExportInput) => Promise<QueryExportResult>;
   };
 
   doc: {
@@ -423,6 +427,7 @@ export const IPC_CHANNELS = {
   queryFindOne:          'query:findOne',
   queryExplain:          'query:explain',
   queryCancel:           'query:cancel',
+  queryExport:           'query:export',
 
   // Document write ops -----------------------------------------
   docInsert:             'doc:insert',

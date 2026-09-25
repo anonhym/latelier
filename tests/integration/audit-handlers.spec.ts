@@ -115,7 +115,11 @@ describe('audit log via the router', () => {
     registerDocChannels(router, docSvc);
     registerCollectionAdminChannels(router, new CollectionAdminService(pool));
     registerAuditChannels(router, auditSvc);
-    registerQueryChannels(router, new QueryService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db))));
+    registerQueryChannels(
+      router,
+      new QueryService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db))),
+      async () => null,
+    );
     registerIndexChannels(router, new IndexService(pool));
     registerUserChannels(router, new UserService(pool));
     registerScriptChannels(router, scriptSvc);

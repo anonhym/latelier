@@ -127,6 +127,7 @@ const api: IpcApi = {
     findOne: (input) => call(IPC_CHANNELS.queryFindOne, input),
     explain: (input) => call(IPC_CHANNELS.queryExplain, input),
     cancel: (input) => call(IPC_CHANNELS.queryCancel, input),
+    export: (input) => call(IPC_CHANNELS.queryExport, input),
   },
 
   doc: {

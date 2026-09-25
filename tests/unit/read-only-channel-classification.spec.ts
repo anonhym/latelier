@@ -63,6 +63,7 @@ const READ_CHANNELS = new Set<string>([
   IPC_CHANNELS.queryFindOne,
   IPC_CHANNELS.queryExplain,
   IPC_CHANNELS.queryCancel,
+  IPC_CHANNELS.queryExport,
   IPC_CHANNELS.docConfirmDeleteMany,
   IPC_CHANNELS.docConfirmUpdateMany,
   IPC_CHANNELS.aggPreviewUpToStage,
