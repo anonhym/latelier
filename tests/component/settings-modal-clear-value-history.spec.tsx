@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('SettingsModal — clear value history (#162)', () => {
+describe('SettingsModal — clear value history', () => {
   it('calls recent.clearFieldValues and invalidates the recent-values cache', async () => {
     const { SettingsModal } = await import('../../src/pages/SettingsModal');
     const { HintsProvider } = await import('../../src/hints/HintsProvider');

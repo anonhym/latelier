@@ -7,7 +7,7 @@ import { isSecretFieldPath } from '../log.ts';
 const EVICTION_CAP = 50;
 
 /**
- * Triage #162: the only ops both suggested and recorded. `$in`/`$nin` are
+ * The only ops both suggested and recorded. `$in`/`$nin` are
  * element-wise — the caller already splits their array into one entry per
  * scalar element before calling `recordMany`. Every other op (including
  * `$exists`, `$regex`, `$mod`, ...) is silently dropped here rather than

@@ -726,7 +726,7 @@ describe('useQueryRunner', () => {
     expect(patch.mock.calls.some((c) => c[1].builder !== undefined)).toBe(false);
   });
 
-  // Triage #162 — a successful run fire-and-forgets the filter's conditions
+  // A successful run fire-and-forgets the filter's conditions
   // to `recent:recordFieldValues` for the value-suggestion popover.
   describe('value-suggestion recording', () => {
     it('records a scalar $eq condition after a successful run', async () => {

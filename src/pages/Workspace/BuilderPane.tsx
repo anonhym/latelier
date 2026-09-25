@@ -72,7 +72,7 @@ interface BuilderPaneProps {
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
 
-/** Triage #162: the only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
+/** The only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
 const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
@@ -414,7 +414,7 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
-  // Value suggestions (triage #162): gated on a non-empty field and one of
+  // Value suggestions: gated on a non-empty field and one of
   // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
   // gets no popover, mirroring what `RecentFieldValueService` will ever
   // record for it.

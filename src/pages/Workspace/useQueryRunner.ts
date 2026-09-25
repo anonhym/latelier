@@ -16,7 +16,7 @@ import {
 import { parseFilter, parseJsonArrayLenient, type CondNode, type FilterNode } from './filterTree';
 
 /**
- * Triage #162: the only ops both suggested and recorded — mirrors
+ * The only ops both suggested and recorded — mirrors
  * `VALUE_SUGGESTION_OPS` in `BuilderPane.tsx` and `RECORDABLE_OPS` in
  * `RecentFieldValueService`. Kept as its own copy rather than a shared
  * import: it's a two-line set literal, and the three call sites (popover
@@ -43,7 +43,7 @@ interface FieldValueEntry {
 
 /**
  * Walks a successful run's filter for the conditions worth remembering.
- * `$in`/`$nin` are element-wise (triage #162): each array element becomes
+ * `$in`/`$nin` are element-wise: each array element becomes
  * its own entry, typed from its own EJSON shape rather than the cond's
  * `array` valType, since that's what the value popover suggests against.
  */
@@ -324,7 +324,7 @@ export function useQueryRunner({
           lastRunHasMore: effectiveHasMore,
         });
         // Fire-and-forget: persists the values this run's conditions actually
-        // carried for the value-suggestion popover (triage #162). Never
+        // carried for the value-suggestion popover. Never
         // blocks or fails the run itself — main re-filters by op and secret
         // field path regardless of what's sent here.
         const entries = fieldValueEntriesFromFilter(filter);

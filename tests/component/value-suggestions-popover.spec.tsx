@@ -1,4 +1,4 @@
-// Triage #162 — the value box next to a condition row's operator suggests
+// The value box next to a condition row's operator suggests
 // values from the current results and from values persisted for this
 // (conn, db, coll, field). Only covers what a rendered row can show: gating
 // on field/op and the pick wiring. The sources themselves are covered in
@@ -100,7 +100,7 @@ afterEach(() => {
   invalidateRecentValuesCache();
 });
 
-describe('Query Builder — value suggestions popover (#162)', () => {
+describe('Query Builder — value suggestions popover', () => {
   it('shows no popover while the field is blank', async () => {
     const { valueInput } = await openConditionRow(vi.fn(async () => ({ values: [] })));
 
