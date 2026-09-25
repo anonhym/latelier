@@ -1,5 +1,5 @@
 import type { SchemaTabState } from '@shared/types';
-import { IndexesTab } from '../IndexesTab';
+import { IndexesTab, type IndexCreateRequest } from '../IndexesTab';
 import { SchemaView } from './SchemaView';
 
 interface Props {
@@ -8,6 +8,9 @@ interface Props {
   collection: string;
   state: SchemaTabState;
   onPatch: (patch: Partial<SchemaTabState>) => void;
+  /** See `IndexCreateRequest` — threaded straight through to `IndexesTab`. */
+  initialCreate?: IndexCreateRequest | null;
+  onInitialCreateConsumed?: () => void;
 }
 
 /**
@@ -23,10 +26,24 @@ interface Props {
  * lay out at natural content height instead; this pane is the only
  * scroller.
  */
-export function StructureView({ connectionId, dbName, collection, state, onPatch }: Props) {
+export function StructureView({
+  connectionId,
+  dbName,
+  collection,
+  state,
+  onPatch,
+  initialCreate,
+  onInitialCreateConsumed,
+}: Props) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-      <IndexesTab connectionId={connectionId} dbName={dbName} collection={collection} />
+      <IndexesTab
+        connectionId={connectionId}
+        dbName={dbName}
+        collection={collection}
+        initialCreate={initialCreate}
+        onInitialCreateConsumed={onInitialCreateConsumed}
+      />
       <SchemaView
         connectionId={connectionId}
         dbName={dbName}

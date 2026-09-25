@@ -30,6 +30,7 @@ import {
 } from './panelSizes';
 import { AggregationTab } from './Aggregation/AggregationTab';
 import { StructureView } from './StructureView';
+import type { IndexCreateRequest } from '../IndexesTab';
 import { QueryBar } from './QueryBar';
 import { ResultViewer } from './ResultViewer';
 import { BuilderPane } from './BuilderPane';
@@ -169,6 +170,9 @@ export interface PanelBodyProps {
   builderPanelRef: React.RefObject<PanelImperativeHandle | null>;
   toggleBuilder: () => void;
   notchRef: React.RefObject<HTMLButtonElement | null>;
+  /** See `IndexCreateRequest` — scoped to `collection`'s own tab by the caller (`Workspace.tsx`) before it reaches here. */
+  structureInitialCreate?: IndexCreateRequest | null;
+  onStructureInitialCreateConsumed?: () => void;
 }
 
 export function PanelBody({
@@ -193,6 +197,8 @@ export function PanelBody({
   builderPanelRef,
   toggleBuilder,
   notchRef,
+  structureInitialCreate,
+  onStructureInitialCreateConsumed,
 }: PanelBodyProps) {
   const T = themeVars;
   const {
@@ -411,6 +417,8 @@ export function PanelBody({
                       collection={collection.tab.collection}
                       state={collection.schemaState}
                       onPatch={patchSchema}
+                      initialCreate={structureInitialCreate}
+                      onInitialCreateConsumed={onStructureInitialCreateConsumed}
                     />
                   )}
                 </Panel>

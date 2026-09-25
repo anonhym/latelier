@@ -32,6 +32,7 @@ import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
 import { ShellSection } from './Workspace/ShellSection';
 import { PanelBody, type PanelBodyCollectionProps } from './Workspace/PanelBody';
+import type { IndexCreateRequest } from './IndexesTab';
 import { useSettings } from './SettingsContext';
 import { useRegisterCommands } from '../commands/useRegisterCommands';
 import { useLatest } from '../commands/useLatest';
@@ -328,7 +329,29 @@ function WorkspaceInner() {
     patchActiveCollectionWith,
     runActiveCollection,
     cancelActiveCollection,
+    selectActiveView,
   } = collectionTabActions;
+
+  // W16 Tier 4 — ExplainDrawer's "Create an index for this query". Kept as
+  // plain tab-scoped state (not tab persisted state) because it's a one-shot
+  // UI trigger, not data: `openCreateIndex` sets it and switches to
+  // Structure; `IndexesTab` (via `PanelBody`/`StructureView`) opens the
+  // drawer from it and immediately calls `onCreateIndexConsumed` — see that
+  // callback's own comment for why a stale request can't be left set past
+  // its one use.
+  const [createIndexRequest, setCreateIndexRequest] = React.useState<
+    (IndexCreateRequest & { tabId: string }) | null
+  >(null);
+  const openCreateIndex = React.useCallback(
+    (suggestion: IndexCreateRequest['suggestion']) => {
+      const a = activeCollectionRef.current;
+      if (!a) return;
+      setCreateIndexRequest({ tabId: a.id, requestId: crypto.randomUUID(), suggestion });
+      selectActiveView('structure');
+    },
+    [activeCollectionRef, selectActiveView],
+  );
+  const onCreateIndexConsumed = React.useCallback(() => setCreateIndexRequest(null), []);
   // The post-write refresh target, resolved fresh from `tabsRef` at
   // completion time rather than snapshotted, since a drawer pinned to tab A
   // must refresh A even after the user switches to tab B.
@@ -449,6 +472,7 @@ function WorkspaceInner() {
       expandBuilder,
       updateField,
       openDuplicate,
+      openCreateIndex,
     }),
     [
       patchActiveCollection,
@@ -464,6 +488,7 @@ function WorkspaceInner() {
       expandBuilder,
       updateField,
       openDuplicate,
+      openCreateIndex,
     ],
   );
   const workspaceMeta = React.useMemo<CollectionWorkspaceMeta | null>(
@@ -982,6 +1007,10 @@ function WorkspaceInner() {
         builderPanelRef={builderPanelRef}
         toggleBuilder={toggleBuilder}
         notchRef={notchRef}
+        structureInitialCreate={
+          createIndexRequest?.tabId === activeCollection?.id ? createIndexRequest : null
+        }
+        onStructureInitialCreateConsumed={onCreateIndexConsumed}
       />
 
       <DialogStack

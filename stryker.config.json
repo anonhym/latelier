@@ -38,6 +38,7 @@
     "src/pages/Workspace/exportFormat.ts",
     "src/utils/displayValue.ts",
     "src/utils/shellSyntax.ts",
+    "src/utils/indexSuggestion.ts",
     "electron/log.ts",
     "electron/ipc/envelope.ts",
     "electron/ipc/auditChannels.ts",

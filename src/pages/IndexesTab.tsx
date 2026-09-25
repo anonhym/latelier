@@ -24,6 +24,20 @@ import type {
   IndexFieldDirection,
   IndexInfo,
 } from '@shared/types';
+import type { IndexSuggestion } from '../utils/indexSuggestion';
+
+/**
+ * A one-shot request from `ExplainDrawer`'s "Create an index for this
+ * query" (W16 Tier 4) to open the create-index drawer prefilled.
+ * `requestId` changes on every click, even when `suggestion` doesn't
+ * (two COLLSCAN refusals in a row are both `null`) — `IndexesTab`'s effect
+ * keys on it so a second click reopens the drawer instead of being a no-op
+ * against an unchanged prop.
+ */
+export interface IndexCreateRequest {
+  requestId: string;
+  suggestion: IndexSuggestion | null;
+}
 
 function humanBytes(n: number): string {
   if (!Number.isFinite(n) || n === 0) return '0 B';
@@ -101,10 +115,23 @@ export function IndexesTab({
   connectionId,
   dbName,
   collection,
+  initialCreate,
+  onInitialCreateConsumed,
 }: {
   connectionId: string;
   dbName: string;
   collection: string;
+  /** See `IndexCreateRequest`. Omitted (or `null`) outside the ExplainDrawer flow. */
+  initialCreate?: IndexCreateRequest | null;
+  /**
+   * Called once the request above has opened the drawer, so the caller can
+   * null it out. Without this, navigating away from Structure and back
+   * (which unmounts and remounts this component — see `PanelBody`'s
+   * `collection.view === 'structure' &&` guard) would find the same
+   * `initialCreate` still set and reopen the drawer on a click from months
+   * ago. Omitted for the same reason `initialCreate` can be omitted.
+   */
+  onInitialCreateConsumed?: () => void;
 }) {
   const T = themeVars;
   const target = React.useMemo(() => ({ dbName, collection }), [dbName, collection]);
@@ -115,6 +142,12 @@ export function IndexesTab({
   );
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [createPrefill, setCreatePrefill] = React.useState<IndexSuggestion | null>(null);
+  // Only set for the `initialCreate` open path — see that effect below for
+  // why the drawer's own default focus-return capture can't be trusted
+  // there. `null` for the plain "+ New index" click: `document.activeElement`
+  // at that mount is the button itself, which is exactly right already.
+  const [createReturnFocusTo, setCreateReturnFocusTo] = React.useState<HTMLElement | null>(null);
   const [dropName, setDropName] = React.useState<string | null>(null);
   // Captured alongside `dropName`, in the same click handler that sets it —
   // reading a ref's `.current` has to happen in an event handler or effect,
@@ -162,6 +195,36 @@ export function IndexesTab({
   }, [target, loadIndexes]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Opens the create-index drawer prefilled from ExplainDrawer's "Create an
+  // index for this query" (W16 Tier 4). `onInitialCreateConsumed` nulls the
+  // request at its source right away — see that prop's own doc comment for
+  // why a remount must not find it still set.
+  //
+  // `useDialogFocusReturn`'s default capture (`document.activeElement` at
+  // `CreateIndexDrawer`'s own first render) is wrong here and `returnFocusTo`
+  // has to override it: the click that led here was on a button inside
+  // `ExplainDrawer`, in the Documents view, which the Structure-view switch
+  // this same click triggers then unmounts. The previously-focused trigger
+  // is gone from the DOM by the time this drawer mounts, so the browser has
+  // already reset focus to `<body>` — capturing that gives Escape/Cancel a
+  // `trigger.focus()` that's a silent no-op instead of a real return target.
+  // `scrollRegionRef` is mounted for this tab's whole lifetime, same
+  // fallback `DropConfirmDialog`'s `returnFocusTo` uses below for the
+  // equivalent "the opener won't exist when this closes" case.
+  // Deliberately keyed on `requestId` alone, not the whole `initialCreate`
+  // object: two refused clicks in a row both carry `suggestion: null`, and
+  // keying on the object would rely on the caller giving each click a new
+  // object identity rather than on anything this effect actually checks.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+  React.useEffect(() => {
+    if (!initialCreate) return;
+    setCreatePrefill(initialCreate.suggestion);
+    setCreateReturnFocusTo(scrollRegionRef.current);
+    setDrawerOpen(true);
+    onInitialCreateConsumed?.();
+  }, [initialCreate?.requestId, onInitialCreateConsumed]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+
   // `flex: 'none'` + `overflow: 'visible'`, not the `flex: 1; overflow:
   // hidden` this used before it moved into the collection tab's Structure
   // view (W16 Tier 2, ADR 0003): that assumed a flex parent with a definite
@@ -186,7 +249,11 @@ export function IndexesTab({
         <Button
           size="compact-xs"
           variant="filled"
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => {
+            setCreatePrefill(null);
+            setCreateReturnFocusTo(null);
+            setDrawerOpen(true);
+          }}
         >
           + New index
         </Button>
@@ -243,12 +310,19 @@ export function IndexesTab({
         {drawerOpen && (
           <CreateIndexDrawer
             target={target}
-            onCancel={() => setDrawerOpen(false)}
+            onCancel={() => {
+              setDrawerOpen(false);
+              setCreatePrefill(null);
+            }}
             onCreated={() => {
               setDrawerOpen(false);
+              setCreatePrefill(null);
               void loadIndexes(target);
             }}
             connectionId={connectionId}
+            initialFields={createPrefill?.keys.map((k) => ({ field: k.field, direction: k.direction }))}
+            reason={createPrefill?.reason}
+            returnFocusTo={createReturnFocusTo}
           />
         )}
 
@@ -471,15 +545,36 @@ function CreateIndexDrawer({
   connectionId,
   onCancel,
   onCreated,
+  initialFields,
+  reason,
+  returnFocusTo,
 }: {
   target: { dbName: string; collection: string };
   connectionId: string;
   onCancel: () => void;
   onCreated: () => void;
+  /** Prefill from `suggestIndex` (ExplainDrawer's "Create an index for this query"). Omitted for the plain "+ New index" open. */
+  initialFields?: FieldRow[];
+  /** The prefill's rationale line, shown above the fields when `initialFields` is set. */
+  reason?: string;
+  /**
+   * Overrides `useDialogFocusReturn`'s default capture. Required for the
+   * `initialFields` open path — see that effect's own comment in
+   * `IndexesTab` for why the default (`document.activeElement` at this
+   * component's own first render) is `<body>` there, not a useful target.
+   * `null` for the plain "+ New index" open, where the default capture is
+   * already correct.
+   */
+  returnFocusTo?: HTMLElement | null;
 }) {
   const T = themeVars;
-  const close = useDialogFocusReturn(onCancel);
-  const [fields, setFields] = React.useState<FieldRow[]>(DEFAULT_FIELDS);
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
+  // The baseline both the initial value and the dirty check compare
+  // against — a prefilled drawer that the user hasn't touched must not
+  // read as dirty, or closing it prompts "Discard changes?" over nothing.
+  const baselineFields =
+    initialFields && initialFields.length > 0 ? initialFields : DEFAULT_FIELDS;
+  const [fields, setFields] = React.useState<FieldRow[]>(baselineFields);
   const [name, setName] = React.useState('');
   const [unique, setUnique] = React.useState(false);
   const [sparse, setSparse] = React.useState(false);
@@ -493,7 +588,7 @@ function CreateIndexDrawer({
   const [error, setError] = React.useState<string | null>(null);
 
   const isDirty =
-    JSON.stringify(fields) !== JSON.stringify(DEFAULT_FIELDS) ||
+    JSON.stringify(fields) !== JSON.stringify(baselineFields) ||
     name !== '' ||
     unique ||
     sparse ||
@@ -600,6 +695,19 @@ function CreateIndexDrawer({
     >
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Section title="Fields">
+          {initialFields && reason && (
+            <div
+              data-testid="create-index-reason"
+              style={{
+                fontSize: 11,
+                color: T.textMuted,
+                marginBottom: 8,
+                lineHeight: 1.4,
+              }}
+            >
+              {reason}
+            </div>
+          )}
           {fields.map((f, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
               <input
