@@ -1060,9 +1060,12 @@ describe('DocumentEditor — insert mode — creating a document', () => {
 // the same way `dialog-focus-return.spec.tsx` waits past Mantine's own
 // 10ms focus-return timer.
 const settleFocusTrap = async () => {
-  // 30ms, not a shorter guess: `dialog-focus-return.spec.tsx` measured this
-  // same `@mantine/hooks` `useFocusTrap` timer and found the margin that
-  // doesn't flake — see its own note on why the wait is load-bearing.
+  // `useFocusTrap` (`@mantine/hooks`) schedules its own initial-focus pass
+  // with a bare `setTimeout(0)`, not a measured delay — 30ms is just a
+  // margin past that, the same order of magnitude `dialog-focus-return.
+  // spec.tsx` uses for a *different* Mantine timer (`useFocusReturn`'s 10ms
+  // return-focus delay on the discard prompt) for the same reason: give a
+  // deferred Mantine effect room to run before reading `document.activeElement`.
   await act(async () => {
     await new Promise((r) => setTimeout(r, 30));
   });

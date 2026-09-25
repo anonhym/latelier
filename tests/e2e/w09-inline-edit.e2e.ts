@@ -79,7 +79,7 @@ test('table inline edit: a boolean cell toggles and saves without opening an edi
     await win.waitForLoadState('domcontentloaded');
 
     await expectConsoleClean(win, async () => {
-      await seedActiveConnectionWithDocs(
+      const conn = await seedActiveConnectionWithDocs(
         win,
         { ...baseConnInput(host, port), name: 'Boolean Inline Edit Target' },
         {
@@ -107,9 +107,40 @@ test('table inline edit: a boolean cell toggles and saves without opening an edi
 
       await toggle.click();
 
-      // Re-run happens automatically on a successful update, same as the
-      // string case: the grid reflects the flipped value once it lands.
-      await expect(toggle).not.toBeChecked({ timeout: 8000 });
+      // The toggle disables itself while the write is in flight (W18 §8's
+      // in-flight guard) and re-enables once the post-write re-run lands —
+      // not merely once the write itself settles, which would still be
+      // showing the optimistic value even on a failed save.
+      await expect(toggle).toBeEnabled({ timeout: 8000 });
+
+      // The load-bearing proof: the document actually persisted the flip,
+      // not just the optimistic checkbox state.
+      const doc = await win.evaluate(async (cid) => {
+        const api = (window as unknown as {
+          atelier: {
+            query: {
+              find: (i: {
+                connectionId: string;
+                dbName: string;
+                collection: string;
+                filter: string;
+                limit: number;
+                skip: number;
+              }) => Promise<{ documents: Array<{ active?: boolean }> }>;
+            };
+          };
+        }).atelier;
+        const res = await api.query.find({
+          connectionId: cid,
+          dbName: 'shop',
+          collection: 'orders',
+          filter: '{"_id":31}',
+          limit: 1,
+          skip: 0,
+        });
+        return res.documents[0];
+      }, conn.id);
+      expect(doc?.active).toBe(false);
     });
   });
 });
