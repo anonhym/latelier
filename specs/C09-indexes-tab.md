@@ -1,5 +1,14 @@
 # C09 — Indexes tab (real listing + create / drop)
 
+> **Amended by W16 Tier 1 (ADR 0003).** `IndexesTab` is now namespace-scoped
+> (`{connectionId, dbName, collection}`) and owns no picker; the DB →
+> collection drill-in described below moved to `IndexesHost`, a wrapper local
+> to `DetailPanel.tsx`. `DetailPanel` still hosts the tab for now. W16 Tier 2
+> retires this tab entirely — the index surface becomes a section of the Data
+> View's Structure view, and `IndexesHost` goes with it. Read this spec's
+> "pick a database, drill into a collection" framing as history, not the
+> current component boundary.
+
 ## Purpose
 
 Replace the C08 `StubTab` for the Indexes tab in `DetailPanel.tsx` with a real, per-collection index manager. Lets the user list indexes for any collection on the active connection, see their key spec / options / usage stats, create a new index, and drop a non-default one.

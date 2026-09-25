@@ -19,22 +19,11 @@ import { confirmDestructive } from '../utils/confirm';
 import { DisclosureToggle } from '../components/DisclosureToggle';
 import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
-import { ownGet } from '../utils/ownProperty';
-import type { CollectionInfo, DbInfo } from '@shared/ipc';
 import type {
-  ConnectionRuntime,
-  ConnectionSummary,
   IndexCreateInput,
   IndexFieldDirection,
   IndexInfo,
 } from '@shared/types';
-
-interface Target {
-  dbName: string;
-  collection: string;
-}
-
-const LAST_TARGET_KEY = 'ui.indexes.lastTarget';
 
 function humanBytes(n: number): string {
   if (!Number.isFinite(n) || n === 0) return '0 B';
@@ -109,23 +98,21 @@ function IndexBadge({ label, tone }: { label: string; tone?: 'accent' | 'warn' }
 }
 
 export function IndexesTab({
-  conn,
-  runtime,
+  connectionId,
+  dbName,
+  collection,
 }: {
-  conn: ConnectionSummary;
-  runtime: ConnectionRuntime;
+  connectionId: string;
+  dbName: string;
+  collection: string;
 }) {
   const T = themeVars;
-  const [dbs, setDbs] = React.useState<DbInfo[] | null>(null);
-  const [collsByDb, setCollsByDb] = React.useState<Record<string, CollectionInfo[]>>({});
-  const [target, setTarget] = React.useState<Target | null>(null);
+  const target = React.useMemo(() => ({ dbName, collection }), [dbName, collection]);
   const [indexes, setIndexes] = React.useState<IndexInfo[] | null>(null);
   const [loadingIndexes, setLoadingIndexes] = React.useState(false);
   const [indexError, setIndexError] = React.useState<{ message: string; code?: string } | null>(
     null,
   );
-  const [dbError, setDbError] = React.useState<string | null>(null);
-  const [showSystem, setShowSystem] = React.useState(false);
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [dropName, setDropName] = React.useState<string | null>(null);
@@ -134,67 +121,22 @@ export function IndexesTab({
   // never during render (`react-hooks/refs`), so this can't be
   // `scrollRegionRef.current` inline in the JSX below.
   const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
-  const initialPickRef = React.useRef(false);
   // #74's focus-return target for a successful drop: the row is gone by then,
   // but this scroll region is mounted for the tab's whole lifetime. Not the
-  // "Refresh" button, the obvious-looking alternative — it's `disabled={!target
-  // || loadingIndexes}`, and the success path kicks off a reload, so it is
-  // disabled at the exact moment focus would land there. A disabled focused
-  // button drops focus to <body> itself — the #55/#70 defect documented at
-  // FieldsControl.tsx:84-91 — which is the bug this exists to fix.
+  // "Refresh" button, the obvious-looking alternative — it's `disabled={loadingIndexes}`,
+  // and the success path kicks off a reload, so it is disabled at the exact
+  // moment focus would land there. A disabled focused button drops focus to
+  // <body> itself — the #55/#70 defect documented at FieldsControl.tsx:84-91
+  // — which is the bug this exists to fix.
   const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
-    void api.prefs
-      .get<boolean>('ui.showSystemDbs')
-      .then((v) => v !== null && setShowSystem(v))
-      .catch(() => { /* non-fatal */ });
-  }, []);
-
-  React.useEffect(() => {
-    void api.prefs
-      .get<Target>(LAST_TARGET_KEY)
-      .then((v) => v && setTarget(v))
-      .catch(() => { /* non-fatal */ });
-  }, []);
-
-  const loadDatabases = React.useCallback(async () => {
-    if (runtime.status !== 'connected') return;
-    try {
-      const rows = await api.meta.listDatabases({
-        connectionId: conn.id,
-        includeSystem: showSystem,
-      });
-      setDbs(rows);
-      setDbError(null);
-    } catch (err) {
-      setDbError(isIpcError(err) ? err.message : String(err));
-    }
-  }, [conn.id, runtime.status, showSystem]);
-
-  const loadCollections = React.useCallback(
-    async (dbName: string) => {
-      const cached = ownGet(collsByDb, dbName);
-      if (cached) return cached;
-      try {
-        const rows = await api.meta.listCollections({ connectionId: conn.id, dbName });
-        setCollsByDb((c) => ({ ...c, [dbName]: rows }));
-        return rows;
-      } catch {
-        setCollsByDb((c) => ({ ...c, [dbName]: [] }));
-        return [];
-      }
-    },
-    [conn.id, collsByDb],
-  );
-
   const loadIndexes = React.useCallback(
-    async (t: Target) => {
+    async (t: { dbName: string; collection: string }) => {
       setLoadingIndexes(true);
       setIndexError(null);
       try {
         const rows = await api.index.list({
-          connectionId: conn.id,
+          connectionId,
           dbName: t.dbName,
           collection: t.collection,
         });
@@ -210,83 +152,15 @@ export function IndexesTab({
         setLoadingIndexes(false);
       }
     },
-    [conn.id],
+    [connectionId],
   );
 
   /* eslint-disable react-hooks/set-state-in-effect */
   React.useEffect(() => {
-    void loadDatabases();
-  }, [loadDatabases]);
-
-  React.useEffect(() => {
-    if (!target) return;
-    void loadCollections(target.dbName);
     void loadIndexes(target);
     setExpandedRow(null);
-  }, [target, loadCollections, loadIndexes]);
-
-  React.useEffect(() => {
-    if (initialPickRef.current) return;
-    if (!dbs || dbs.length === 0) return;
-    if (target) {
-      initialPickRef.current = true;
-      return;
-    }
-    initialPickRef.current = true;
-    const firstDb = dbs[0]!.name;
-    void loadCollections(firstDb).then((rows) => {
-      const first = rows.find((c) => c.type !== 'view');
-      if (first) {
-        const next = { dbName: firstDb, collection: first.name };
-        setTarget(next);
-        void api.prefs.set(LAST_TARGET_KEY, next).catch(() => { /* ok */ });
-      }
-    });
-  }, [dbs, target, loadCollections]);
+  }, [target, loadIndexes]);
   /* eslint-enable react-hooks/set-state-in-effect */
-
-  const onPickDb = async (dbName: string) => {
-    const rows = await loadCollections(dbName);
-    const first = rows.find((c) => c.type !== 'view');
-    if (!first) {
-      setTarget({ dbName, collection: '' });
-      return;
-    }
-    const next = { dbName, collection: first.name };
-    setTarget(next);
-    void api.prefs.set(LAST_TARGET_KEY, next).catch(() => { /* ok */ });
-  };
-
-  const onPickCollection = (collection: string) => {
-    if (!target) return;
-    const next = { dbName: target.dbName, collection };
-    setTarget(next);
-    void api.prefs.set(LAST_TARGET_KEY, next).catch(() => { /* ok */ });
-  };
-
-  if (runtime.status !== 'connected') {
-    return (
-      <div style={{ padding: 32, textAlign: 'center', color: T.textMuted }}>
-        Not connected. Open the Overview tab to connect.
-      </div>
-    );
-  }
-
-  if (dbError) {
-    return (
-      <div style={{ padding: 20, color: T.warn }}>
-        {dbError}
-        <button
-          onClick={() => void loadDatabases()}
-          style={{ marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer' }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const colls = target ? ownGet(collsByDb, target.dbName) ?? [] : [];
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
@@ -300,63 +174,12 @@ export function IndexesTab({
           background: T.surface,
         }}
       >
-        <select
-          aria-label="Database"
-          value={target?.dbName ?? ''}
-          onChange={(e) => void onPickDb(e.target.value)}
-          style={{
-            border: `1px solid ${T.border}`,
-            borderRadius: T.rs,
-            background: T.surfaceRaised,
-            padding: '4px 8px',
-            fontSize: 12,
-            color: T.text,
-          }}
-        >
-          <option value="" disabled>
-            Database…
-          </option>
-          {dbs?.map((d) => (
-            <option key={d.name} value={d.name}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-
-        <select
-          aria-label="Collection"
-          value={target?.collection ?? ''}
-          onChange={(e) => onPickCollection(e.target.value)}
-          disabled={!target || colls.length === 0}
-          style={{
-            border: `1px solid ${T.border}`,
-            borderRadius: T.rs,
-            background: T.surfaceRaised,
-            padding: '4px 8px',
-            fontSize: 12,
-            color: T.text,
-            minWidth: 160,
-          }}
-        >
-          <option value="" disabled>
-            Collection…
-          </option>
-          {colls
-            .filter((c) => c.type !== 'view')
-            .map((c) => (
-              <option key={c.name} value={c.name}>
-                {c.name}
-              </option>
-            ))}
-        </select>
-
         <div style={{ flex: 1 }} />
 
         <Button
           size="compact-xs"
           variant="filled"
           onClick={() => setDrawerOpen(true)}
-          disabled={!target || !target.collection}
         >
           + New index
         </Button>
@@ -364,9 +187,9 @@ export function IndexesTab({
         <Button
           size="compact-xs"
           variant="subtle"
-          onClick={() => target && void loadIndexes(target)}
+          onClick={() => void loadIndexes(target)}
           leftSection={I.sync}
-          disabled={!target || loadingIndexes}
+          disabled={loadingIndexes}
         >
           Refresh
         </Button>
@@ -379,13 +202,7 @@ export function IndexesTab({
         aria-label="Indexes"
         style={{ flex: 1, overflowY: 'auto' }}
       >
-        {!target && (
-          <div style={{ padding: 24, color: T.textMuted, fontSize: 13, textAlign: 'center' }}>
-            Pick a database and collection to inspect its indexes.
-          </div>
-        )}
-
-        {target && indexError && (
+        {indexError && (
           <Alert
             role="alert"
             color="orange"
@@ -412,11 +229,11 @@ export function IndexesTab({
           </Alert>
         )}
 
-        {target && !indexError && loadingIndexes && !indexes && (
+        {!indexError && loadingIndexes && !indexes && (
           <div style={{ padding: 20, color: T.textMuted, fontSize: 13 }}>Loading indexes…</div>
         )}
 
-        {target && drawerOpen && (
+        {drawerOpen && (
           <CreateIndexDrawer
             target={target}
             onCancel={() => setDrawerOpen(false)}
@@ -424,11 +241,11 @@ export function IndexesTab({
               setDrawerOpen(false);
               void loadIndexes(target);
             }}
-            connectionId={conn.id}
+            connectionId={connectionId}
           />
         )}
 
-        {target && dropName && (
+        {dropName && (
           <DropConfirmDialog
             indexName={dropName}
             onCancel={() => setDropName(null)}
@@ -437,13 +254,13 @@ export function IndexesTab({
               void loadIndexes(target);
             }}
             returnFocusTo={dropReturnFocus}
-            connectionId={conn.id}
+            connectionId={connectionId}
             dbName={target.dbName}
             collection={target.collection}
           />
         )}
 
-        {target && !indexError && indexes && (
+        {!indexError && indexes && (
           <Table
             striped
             highlightOnHover

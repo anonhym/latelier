@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '../helpers/render';
-import { IndexesTab } from '../../src/pages/IndexesTab';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { DetailPanel } from '../../src/pages/DetailPanel';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ConnectionRuntime, ConnectionSummary } from '@shared/types';
+import type { ConnectionSummary } from '@shared/types';
 
 /**
  * `collsByDb` (`Record<string, CollectionInfo[]>`) is read with plain
@@ -10,6 +12,9 @@ import type { ConnectionRuntime, ConnectionSummary } from '@shared/types';
  * named `constructor` is legal in MongoDB, and `{}['constructor']` is the
  * inherited `Object` function — truthy, and not rescued by `?? []` since a
  * function is neither `null` nor `undefined`.
+ *
+ * This lives in `IndexesHost` (`DetailPanel.tsx`) now — ADR 0003 moved the
+ * DB/collection picker out of `IndexesTab`, which is namespace-scoped.
  */
 
 afterEach(() => {
@@ -28,11 +33,24 @@ const conn: ConnectionSummary = {
   status: 'connected',
 };
 
-const runtime: ConnectionRuntime = { id: 'c1', status: 'connected' };
+function renderDetail() {
+  return render(
+    <MemoryRouter initialEntries={['/connections/c1']}>
+      <DetailPanel selected={conn} loading={false} onDelete={() => {}} onDisconnect={() => {}} />
+    </MemoryRouter>,
+  );
+}
 
-describe('IndexesTab — collsByDb keyed by a db named "constructor"', () => {
+describe('IndexesHost — collsByDb keyed by a db named "constructor"', () => {
   it('loads the collection list instead of returning the inherited Object constructor', async () => {
     installAtelierMock({
+      mongo: {
+        status: async (id) => ({ id, status: 'connected' as const }),
+        connect: async (id) => ({ id, status: 'connected' as const }),
+        disconnect: async (id) => ({ id }),
+        ping: async () => ({ roundTripMs: 1 }),
+        onStatus: () => () => { /* ok */ },
+      },
       meta: {
         listDatabases: async () => [{ name: 'constructor', sizeOnDisk: 0, empty: false }],
         listCollections: async ({ dbName }) => {
@@ -52,11 +70,12 @@ describe('IndexesTab — collsByDb keyed by a db named "constructor"', () => {
       index: { list: async () => [] },
     });
 
-    render(<IndexesTab conn={conn} runtime={runtime} />);
+    renderDetail();
+    await userEvent.click(await screen.findByText('Indexes'));
 
-    // Auto-pick calls loadCollections('constructor'); if the guard at :161
-    // reads the inherited function instead of fetching, `rows.find` throws
-    // inside the auto-pick effect and `collection` never populates.
+    // Auto-pick calls loadCollections('constructor'); if the guard reads the
+    // inherited function instead of fetching, `rows.find` throws inside the
+    // auto-pick effect and `collection` never populates.
     await waitFor(() => {
       const collectionSelect = screen.getByLabelText('Collection') as HTMLSelectElement;
       expect(collectionSelect.value).toBe('people');

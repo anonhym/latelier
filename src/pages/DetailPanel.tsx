@@ -552,6 +552,220 @@ function CollectionsTab({ conn, runtime }: {
   );
 }
 
+interface IndexTarget {
+  dbName: string;
+  collection: string;
+}
+
+const INDEXES_LAST_TARGET_KEY = 'ui.indexes.lastTarget';
+
+/**
+ * Owns the database/collection picker for the Connection Manager's Indexes
+ * tab. `IndexesTab` itself is namespace-scoped ({connectionId, dbName,
+ * collection}) — collection-scoped admin surfaces are moving into the Data
+ * View's Structure view (ADR 0003), and this picker goes away with the rest
+ * of this tab once that lands. Until then it reuses the same DB/collection
+ * drill-in as CollectionsTab above.
+ */
+function IndexesHost({ conn, runtime }: {
+  conn: ConnectionSummary;
+  runtime: ConnectionRuntime;
+}) {
+  const T = themeVars;
+  const [dbs, setDbs] = React.useState<DbInfo[] | null>(null);
+  const [collsByDb, setCollsByDb] = React.useState<Record<string, CollectionInfo[]>>({});
+  const [target, setTarget] = React.useState<IndexTarget | null>(null);
+  const [dbError, setDbError] = React.useState<string | null>(null);
+  const [showSystem, setShowSystem] = React.useState(false);
+  const initialPickRef = React.useRef(false);
+
+  React.useEffect(() => {
+    void api.prefs
+      .get<boolean>('ui.showSystemDbs')
+      .then((v) => v !== null && setShowSystem(v))
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
+  React.useEffect(() => {
+    void api.prefs
+      .get<IndexTarget>(INDEXES_LAST_TARGET_KEY)
+      .then((v) => v && setTarget(v))
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
+  const loadDatabases = React.useCallback(async () => {
+    if (runtime.status !== 'connected') return;
+    try {
+      const rows = await api.meta.listDatabases({
+        connectionId: conn.id,
+        includeSystem: showSystem,
+      });
+      setDbs(rows);
+      setDbError(null);
+    } catch (err) {
+      setDbError(isIpcError(err) ? err.message : String(err));
+    }
+  }, [conn.id, runtime.status, showSystem]);
+
+  const loadCollections = React.useCallback(
+    async (dbName: string) => {
+      const cached = ownGet(collsByDb, dbName);
+      if (cached) return cached;
+      try {
+        const rows = await api.meta.listCollections({ connectionId: conn.id, dbName });
+        setCollsByDb((c) => ({ ...c, [dbName]: rows }));
+        return rows;
+      } catch {
+        setCollsByDb((c) => ({ ...c, [dbName]: [] }));
+        return [];
+      }
+    },
+    [conn.id, collsByDb],
+  );
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    void loadDatabases();
+  }, [loadDatabases]);
+
+  React.useEffect(() => {
+    if (!target) return;
+    void loadCollections(target.dbName);
+  }, [target, loadCollections]);
+
+  React.useEffect(() => {
+    if (initialPickRef.current) return;
+    if (!dbs || dbs.length === 0) return;
+    if (target) {
+      initialPickRef.current = true;
+      return;
+    }
+    initialPickRef.current = true;
+    const firstDb = dbs[0]!.name;
+    void loadCollections(firstDb).then((rows) => {
+      const first = rows.find((c) => c.type !== 'view');
+      if (first) {
+        const next = { dbName: firstDb, collection: first.name };
+        setTarget(next);
+        void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
+      }
+    });
+  }, [dbs, target, loadCollections]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const onPickDb = async (dbName: string) => {
+    const rows = await loadCollections(dbName);
+    const first = rows.find((c) => c.type !== 'view');
+    const next = first ? { dbName, collection: first.name } : { dbName, collection: '' };
+    setTarget(next);
+    void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
+  };
+
+  const onPickCollection = (collection: string) => {
+    if (!target) return;
+    const next = { dbName: target.dbName, collection };
+    setTarget(next);
+    void api.prefs.set(INDEXES_LAST_TARGET_KEY, next).catch(() => { /* ok */ });
+  };
+
+  if (runtime.status !== 'connected') {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: T.textMuted }}>
+        Not connected. Open the Overview tab to connect.
+      </div>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <div style={{ padding: 20, color: T.warn }}>
+        {dbError}
+        <button
+          onClick={() => void loadDatabases()}
+          style={{ marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer' }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const colls = target ? ownGet(collsByDb, target.dbName) ?? [] : [];
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 16px',
+          borderBottom: `1px solid ${T.border}`,
+          background: T.surface,
+        }}
+      >
+        <select
+          aria-label="Database"
+          value={target?.dbName ?? ''}
+          onChange={(e) => void onPickDb(e.target.value)}
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: T.rs,
+            background: T.surfaceRaised,
+            padding: '4px 8px',
+            fontSize: 12,
+            color: T.text,
+          }}
+        >
+          <option value="" disabled>
+            Database…
+          </option>
+          {dbs?.map((d) => (
+            <option key={d.name} value={d.name}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+
+        <select
+          aria-label="Collection"
+          value={target?.collection ?? ''}
+          onChange={(e) => onPickCollection(e.target.value)}
+          disabled={!target || colls.length === 0}
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: T.rs,
+            background: T.surfaceRaised,
+            padding: '4px 8px',
+            fontSize: 12,
+            color: T.text,
+            minWidth: 160,
+          }}
+        >
+          <option value="" disabled>
+            Collection…
+          </option>
+          {colls
+            .filter((c) => c.type !== 'view')
+            .map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+        </select>
+      </div>
+
+      {target && target.collection ? (
+        <IndexesTab connectionId={conn.id} dbName={target.dbName} collection={target.collection} />
+      ) : (
+        <div style={{ padding: 24, color: T.textMuted, fontSize: 13, textAlign: 'center' }}>
+          Pick a database and collection to inspect its indexes.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
   selected: ConnectionSummary | null;
   // Also null for one beat on first mount before the IPC round-trip resolves; loading distinguishes that from a dead id.
@@ -707,7 +921,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'Overview' && <OverviewTab conn={selected} runtime={effective} />}
         {activeTab === 'Collections' && <CollectionsTab conn={selected} runtime={effective} />}
-        {activeTab === 'Indexes' && <IndexesTab conn={selected} runtime={effective} />}
+        {activeTab === 'Indexes' && <IndexesHost conn={selected} runtime={effective} />}
         {activeTab === 'Users' && <UsersTab conn={selected} runtime={effective} />}
       </div>
     </div>
