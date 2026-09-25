@@ -1411,6 +1411,11 @@ export function TableView({
     <div
       ref={tableWrapperRef}
       onScroll={handleTableScroll}
+      // Test hook (e2e) — the actual horizontal-scroll container. `[role="grid"]`
+      // (react-window's `List`) sizes its own box to fit its content exactly
+      // (`minWidth: totalWidth` below), so it never scrolls itself; this div
+      // is what does, and what the actions column's `actionsOffset` tracks.
+      data-testid="table-scroll-container"
       style={{
         flex: 1,
         minHeight: 0,
