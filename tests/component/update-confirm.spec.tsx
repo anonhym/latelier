@@ -107,7 +107,7 @@ describe('UpdateConfirm', () => {
     await waitFor(() => expect(confirmUpdateMany).toHaveBeenCalledTimes(1));
 
     // Edit the buffer while the count request for the OLD body is still
-    // in flight — this is the race Gitar found.
+    // in flight.
     fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"edited-mid-flight"}}' } });
 
     // The now-late response describes the body the user has since moved
@@ -164,9 +164,9 @@ describe('UpdateConfirm', () => {
     expect(updateBtn()).toBeNull();
   });
 
-  it('sends updateMany with the exact updateJson and confirmToken the Review call returned', async () => {
+  it('sends updateMany with the exact updateJson and confirmToken the Review call returned, and hands the auditId to onUpdated', async () => {
     const confirmUpdateMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-xyz' }));
-    const updateMany = vi.fn(async () => ({ matchedCount: 2, modifiedCount: 2 }));
+    const updateMany = vi.fn(async () => ({ matchedCount: 2, modifiedCount: 2, auditId: 'a1' }));
     installAtelierMock({ doc: { confirmUpdateMany, updateMany } });
 
     const onClose = vi.fn();
@@ -198,9 +198,54 @@ describe('UpdateConfirm', () => {
       updateJson: '{"$set":{"status":"active"}}',
       confirmToken: 'tok-xyz',
     });
-    expect(onUpdated).toHaveBeenCalledTimes(1);
+    expect(onUpdated).toHaveBeenCalledWith('a1', '2 matched, 2 modified');
     expect(onClose).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByText('2 matched, 2 modified')).toBeTruthy());
+  });
+
+  it('states the undo fact once Review resolves — within the limit, then above it', async () => {
+    const confirmUpdateMany = vi.fn(async () => ({ count: 999, confirmToken: 'tok-1' }));
+    installAtelierMock({ doc: { confirmUpdateMany } });
+
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    // No claim before Review has run — the count isn't known yet.
+    expect(screen.queryByText(/undo limit/)).toBeNull();
+
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    fireEvent.click(reviewBtn());
+
+    await waitFor(() => expect(screen.getByText(/within the 1,000-document undo limit/i)).toBeTruthy());
+    expect(screen.queryByText(/cannot be undone/)).toBeNull();
+  });
+
+  it('states the update is beyond the undo limit at 1001 matches', async () => {
+    const confirmUpdateMany = vi.fn(async () => ({ count: 1001, confirmToken: 'tok-1' }));
+    installAtelierMock({ doc: { confirmUpdateMany } });
+
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    fireEvent.click(reviewBtn());
+
+    await waitFor(() => expect(screen.getByText(/cannot be undone/)).toBeTruthy());
   });
 
   it('disables Review outright when readOnly is true and shows the read-only alert', () => {

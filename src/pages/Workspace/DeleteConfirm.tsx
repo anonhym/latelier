@@ -4,6 +4,7 @@ import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { buildIdFilter } from './views/docId';
+import { AUDIT_UNDO_DOC_LIMIT } from '../../utils/auditUndo';
 
 interface DeleteConfirmProps {
   connectionId: string;
@@ -15,8 +16,12 @@ interface DeleteConfirmProps {
    * user complete the confirmation flow only to hit a server-side rejection. */
   readOnly?: boolean;
   onClose: () => void;
-  /** `auditId` is set when the delete can be undone (single document only). */
-  onDeleted: (auditId?: string) => void;
+  /** `auditId` is set when the delete can be undone — single document
+   *  always; delete-all-matching only within X13's bulk capture ceiling.
+   *  `message` names what happened (singular for one document, a count for
+   *  delete-all), so the caller's one toast (Undo-bearing or plain) reports
+   *  it correctly either way. */
+  onDeleted: (auditId: string | undefined, message: string) => void;
 }
 
 /**
@@ -99,6 +104,7 @@ export function DeleteConfirm({
     setLoading(true);
     setErr(null);
     let auditId: string | undefined;
+    let message: string;
     try {
       if (!isMulti && docs[0] !== undefined) {
         const doc = docs[0];
@@ -112,18 +118,25 @@ export function DeleteConfirm({
           setErr('Cannot delete a document without an _id');
           return;
         }
-        ({ auditId } = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson }));
+        const res = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson });
+        auditId = res.auditId;
+        // A compare-and-set that lost its race (someone else deleted it
+        // first) matched nothing — say so rather than claiming a delete that
+        // didn't happen (X13 §4: `matchedCount: 0` is never reversible).
+        message = res.deletedCount === 1 ? 'Document deleted' : 'Nothing was deleted: the document was already gone';
       } else {
         if (countState.status !== 'ready') return;
-        await api.doc.deleteMany({
+        const res = await api.doc.deleteMany({
           connectionId,
           dbName,
           collection,
           filterJson: matchFilterJson,
           confirmToken: countState.confirmToken,
         });
+        auditId = res.auditId;
+        message = `${res.deletedCount.toLocaleString()} document${res.deletedCount === 1 ? '' : 's'} deleted`;
       }
-      onDeleted(auditId);
+      onDeleted(auditId, message);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Delete failed'));
@@ -148,12 +161,29 @@ export function DeleteConfirm({
         countState.status !== 'ready' ||
         countState.count === 0));
 
+  // States a fact about this specific action (ADR 0013 — never what tier the
+  // dialog is on). A single document always keeps a Pre-image. A bulk delete
+  // is bounded twice (X13 §5): the count here only proves the document-count
+  // half, so under the limit is "undo is available" rather than a flat
+  // guarantee — the byte ceiling can still drop it, and the confirm dialog
+  // has no cheap way to know that in advance. Above the limit is an absolute
+  // "cannot" — breaching either ceiling alone is enough to refuse capture.
+  const undoLine = !isMulti
+    ? 'This can be undone.'
+    : countState.status === 'ready'
+      ? countState.count <= AUDIT_UNDO_DOC_LIMIT
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered if they total under 1 MB.`
+        : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`
+      : null;
+
   return (
     <Modal opened onClose={close} title={title} centered size="md">
       <Stack gap="sm">
-        <Text size="xs" c="dimmed">
-          This cannot be undone.
-        </Text>
+        {undoLine && (
+          <Text size="xs" c="dimmed">
+            {undoLine}
+          </Text>
+        )}
 
         {readOnly && (
           <Alert color="yellow" variant="light" role="alert">

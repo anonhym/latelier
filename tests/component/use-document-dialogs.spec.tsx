@@ -108,7 +108,7 @@ describe('useDocumentDialogs', () => {
     expect(result.current.deleteDoc).toEqual(DOC);
     expect(result.current.deleteSelected).toEqual([DOC]);
 
-    act(() => result.current.handleDeleted());
+    act(() => result.current.handleDeleted(undefined, 'Document deleted'));
 
     expect(result.current.deleteDoc).toBeNull();
     expect(result.current.deleteAllOpen).toBe(false);
@@ -169,7 +169,7 @@ describe('useDocumentDialogs', () => {
     act(() => result.current.openUpdateAllModal());
     expect(result.current.updateAllOpen).toBe(true);
 
-    act(() => result.current.handleUpdatedAll());
+    act(() => result.current.handleUpdatedAll(undefined, '2 matched, 2 modified'));
 
     expect(result.current.updateAllOpen).toBe(false);
     expect(run).toHaveBeenCalledTimes(1);
@@ -423,7 +423,7 @@ describe('useDocumentDialogs', () => {
       const t2 = tab({ id: 't2', collection: 'users' });
       const { result, activeCollectionRef } = mountDialogs(run, 't1', t1, [t1, t2]);
 
-      act(() => result.current.handleDeleted('a1'));
+      act(() => result.current.handleDeleted('a1', 'Document deleted'));
       activeCollectionRef.current = t2;
       fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
 
@@ -432,13 +432,14 @@ describe('useDocumentDialogs', () => {
       expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
     });
 
-    it('a delete with no Reversible entry offers nothing', async () => {
+    it('a delete-all over the undo ceiling still shows the deleted-count toast, with no Undo button', async () => {
       const t1 = tab();
       const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
 
-      act(() => result.current.handleDeleted());
+      act(() => result.current.handleDeleted(undefined, '1,001 documents deleted'));
 
-      await waitFor(() => expect(screen.queryByText('Document deleted')).toBeNull());
+      await waitFor(() => expect(screen.getByText('1,001 documents deleted')).toBeTruthy());
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
 
     it('a Reversible edit offers Undo that re-runs the pinned tab', async () => {
@@ -454,6 +455,33 @@ describe('useDocumentDialogs', () => {
 
       await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
       expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
+    });
+
+    it('a Reversible update-all offers Undo that re-runs the tab it came from, even after focus moved', async () => {
+      const undo = vi.fn(async () => ({ restored: 2, skipped: 0 }));
+      installAtelierMock({ audit: { undo } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t2 = tab({ id: 't2', collection: 'users' });
+      const { result, activeCollectionRef } = mountDialogs(run, 't1', t1, [t1, t2]);
+
+      act(() => result.current.handleUpdatedAll('a3', '2 matched, 2 modified'));
+      activeCollectionRef.current = t2;
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(undo).toHaveBeenCalledWith({ entryId: 'a3' });
+      expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
+    });
+
+    it('an update-all with no Reversible entry still shows the matched/modified count, with no Undo button', async () => {
+      const t1 = tab();
+      const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
+
+      act(() => result.current.handleUpdatedAll(undefined, '5 matched, 5 modified'));
+
+      await waitFor(() => expect(screen.getByText('5 matched, 5 modified')).toBeTruthy());
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
   });
 });

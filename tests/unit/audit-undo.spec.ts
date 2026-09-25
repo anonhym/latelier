@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { assertUndoable, attachUndo, undoCaptureOf } from '../../electron/mongo/undo';
+import {
+  assertUndoable,
+  attachUndo,
+  boundedCapture,
+  MAX_BULK_CAPTURE_DOCS,
+  MAX_BULK_CAPTURE_BYTES,
+  undoCaptureOf,
+} from '../../electron/mongo/undo';
 import { AppError } from '../../electron/errors';
 import { undoFailureMessage, undoneMessage } from '../../src/utils/auditUndo';
 
@@ -57,6 +64,37 @@ describe('attachUndo / undoCaptureOf', () => {
   });
 });
 
+describe('boundedCapture — X13 §5\'s bulk Pre-image ceiling', () => {
+  it('keeps documents at or under both ceilings', () => {
+    const docs = [{ a: 1 }, { a: 2 }];
+    expect(boundedCapture(docs)).toBe(docs);
+  });
+
+  it('keeps exactly MAX_BULK_CAPTURE_DOCS documents', () => {
+    const docs = Array.from({ length: MAX_BULK_CAPTURE_DOCS }, (_, i) => ({ i }));
+    expect(boundedCapture(docs)).toBe(docs);
+  });
+
+  it('refuses one document over the doc ceiling', () => {
+    const docs = Array.from({ length: MAX_BULK_CAPTURE_DOCS + 1 }, (_, i) => ({ i }));
+    expect(boundedCapture(docs)).toBeNull();
+  });
+
+  it('refuses documents whose encoded size is over the byte ceiling', () => {
+    const docs = [{ blob: 'x'.repeat(MAX_BULK_CAPTURE_BYTES) }];
+    expect(boundedCapture(docs)).toBeNull();
+  });
+
+  it('keeps documents right at the byte ceiling', () => {
+    // ejsonEncodeArrayJson's own accounting (brackets/commas/quotes), not a
+    // guess: this is the largest single string field that keeps the
+    // encoded array at or under MAX_BULK_CAPTURE_BYTES.
+    const overhead = '[{"blob":""}]'.length;
+    const docs = [{ blob: 'x'.repeat(MAX_BULK_CAPTURE_BYTES - overhead) }];
+    expect(boundedCapture(docs)).toBe(docs);
+  });
+});
+
 describe('undoFailureMessage', () => {
   const err = (code: string, message = code) => ({ code, message });
 
@@ -86,5 +124,14 @@ describe('undoneMessage', () => {
   it('counts what came back', () => {
     expect(undoneMessage({ restored: 1, skipped: 0 })).toBe('Restored 1 document');
     expect(undoneMessage({ restored: 3, skipped: 0 })).toBe('Restored 3 documents');
+  });
+
+  it('names a partial restore honestly (X13 §6: "restored 47 of 50, 3 already exist")', () => {
+    expect(undoneMessage({ restored: 2, skipped: 1 })).toBe('Restored 2 of 3 documents (1 skipped)');
+  });
+
+  it('uses the singular only when the total is exactly one document', () => {
+    expect(undoneMessage({ restored: 0, skipped: 1 })).toBe('Restored 0 of 1 document (1 skipped)');
+    expect(undoneMessage({ restored: 1, skipped: 1 })).toBe('Restored 1 of 2 documents (1 skipped)');
   });
 });

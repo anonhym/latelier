@@ -1,14 +1,47 @@
 import type { Document } from 'mongodb';
 import { SystemError } from '../errors.ts';
+import { ejsonEncodeArrayJson } from './ejson.ts';
 
 /**
- * What a single-document write kept so it can be undone: the Pre-image, and
- * for an update the document the write left behind, which Undo compares
- * against before putting the Pre-image back.
+ * What a write kept so it can be undone. Single-document ops use
+ * `preImage`/`postImage` (`postImage` is what the write left behind, which
+ * Undo compares against before putting `preImage` back); bulk ops use the
+ * plural arrays, paired by index; `insertMany` keeps the documents it
+ * inserted — the Node driver assigns `_id` onto each input document in
+ * place unless `forceServerObjectId` is set (neither `insertMany` call sets
+ * it), so the same array holds the ids after the write with no second read;
+ * `collectionRename` keeps the two names.
  */
 export interface UndoCapture {
-  preImage: Document;
+  preImage?: Document;
   postImage?: Document;
+  preImages?: Document[];
+  postImages?: Document[];
+  insertedDocs?: Document[];
+  fromName?: string;
+  toName?: string;
+}
+
+/** X13 §5: a bulk Pre-image capture never holds more than this many documents… */
+export const MAX_BULK_CAPTURE_DOCS = 1000;
+/** …nor more than this many encoded bytes. */
+export const MAX_BULK_CAPTURE_BYTES = 1_048_576;
+
+/**
+ * Bounds a bulk Pre-image capture (X13 §5): breach either ceiling and nothing
+ * is kept — the Operation still runs, only without an Undo, and no partial
+ * capture is ever stored. `docs` should be read with a `limit` one past
+ * `MAX_BULK_CAPTURE_DOCS` so the doc-count ceiling can be detected without
+ * reading an unbounded result set first.
+ */
+export function boundedCapture(docs: Document[]): Document[] | null {
+  if (docs.length > MAX_BULK_CAPTURE_DOCS) return null;
+  try {
+    ejsonEncodeArrayJson(docs, { maxBytes: MAX_BULK_CAPTURE_BYTES });
+  } catch {
+    return null;
+  }
+  return docs;
 }
 
 /**

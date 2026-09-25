@@ -49,9 +49,9 @@ export function useDocumentDialogs(deps: {
   closeEditDrawer: () => void;
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
-  handleDeleted: (auditId?: string) => void;
+  handleDeleted: (auditId: string | undefined, message: string) => void;
   closeUpdateAllModal: () => void;
-  handleUpdatedAll: () => void;
+  handleUpdatedAll: (auditId: string | undefined, message: string) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
    * doesn't have to re-run on every read-only query re-run (sort, filter,
@@ -160,14 +160,21 @@ export function useDocumentDialogs(deps: {
   }, []);
   // Not routed through refreshSource: DeleteConfirm reads its target live
   // from the Focused Tab, so a delete can only complete against it.
-  const handleDeleted = React.useCallback((auditId?: string) => {
+  const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
     closeDeleteDialogs();
     void run();
     setWriteVersion((v) => v + 1);
+    // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
+    // delete-all over the bulk capture ceiling still needs to say what
+    // happened.
+    if (auditId === undefined) {
+      notify.success(message);
+      return;
+    }
     const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
-      offerUndo('Document deleted', auditId, () => refreshSource(target));
+      offerUndo(message, auditId, () => refreshSource(target));
     }
   }, [activeCollectionRef, closeDeleteDialogs, refreshSource, run]);
 
@@ -175,11 +182,22 @@ export function useDocumentDialogs(deps: {
   // the Focused Tab (see the tab-switch effect below), so it's closed the
   // same way rather than routed through refreshSource's captured target.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
-  const handleUpdatedAll = React.useCallback(() => {
+  const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
     closeUpdateAllModal();
     void run();
     setWriteVersion((v) => v + 1);
-  }, [closeUpdateAllModal, run]);
+    // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
+    // update over the bulk capture ceiling still needs to say what happened.
+    if (auditId === undefined) {
+      notify.success(message);
+      return;
+    }
+    const a = activeCollectionRef.current;
+    if (a) {
+      const target = targetOf(a);
+      offerUndo(message, auditId, () => refreshSource(target));
+    }
+  }, [activeCollectionRef, closeUpdateAllModal, refreshSource, run]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the
   // Focused Tab, so any route that moves focus off the tab either was opened
