@@ -399,9 +399,16 @@ function CondRow({
     () => (suggestionContext ? { ...suggestionContext, operatorContext: 'matchKey' } : null),
     [suggestionContext],
   );
+  // The op box is a draft until it's finished: typing writes here, not
+  // to `node.op`, so a half-typed operator never reaches `printFilter` and
+  // never turns on the "not applied" banner or the red border mid-keystroke.
+  // `null` means "no draft" (nothing typed since the last commit); the box
+  // then shows the committed `node.op`.
+  const [opDraft, setOpDraft] = React.useState<string | null>(null);
+  const opValue = opDraft ?? node.op;
   const { items: opSuggestionItems } = useSuggestions(
     opPopoverOpen ? opSuggestionCtx : null,
-    node.op,
+    opValue,
     { fieldSources: [fieldOperatorSource] },
   );
 
@@ -421,13 +428,35 @@ function CondRow({
   // no row to click and no clobber to have. It costs three lines and it is the
   // only thing standing between a future ranking change and a wrong operator.
   const symbolResolvedByPopover = React.useRef(false);
-  const resolveTypedSymbol = () => {
+  // Commits the draft (if any) to `node.op` — the point the banner/border can
+  // finally turn on, since `patch` is what feeds `printFilter`. A suggestion
+  // pick already patched directly (`onSelect` below) and cleared the draft,
+  // so the popover guard here just means "nothing left to commit".
+  // Escape sets this ref (not just state) because the keydown handler blurs
+  // the input in the same tick — the blur listener below runs against the
+  // still-stale `opDraft` closure before React re-renders, so a state-only
+  // revert would race and re-commit the very draft it just discarded.
+  const opDraftRevertedRef = React.useRef(false);
+  const commitOpDraft = () => {
+    if (opDraftRevertedRef.current) {
+      opDraftRevertedRef.current = false;
+      return;
+    }
     if (symbolResolvedByPopover.current) {
       symbolResolvedByPopover.current = false;
       return;
     }
-    const resolved = resolveOperatorSymbol(node.op);
-    if (resolved) patch({ op: resolved });
+    if (opDraft === null) return;
+    const resolved = resolveOperatorSymbol(opDraft);
+    patch({ op: resolved ?? opDraft });
+    setOpDraft(null);
+  };
+  // Escape is the box's own cancel — it discards the draft and falls back to
+  // the last-committed op, the same "undo the in-progress edit" contract
+  // Shell Syntax's fields already give the user.
+  const revertOpDraft = () => {
+    opDraftRevertedRef.current = true;
+    setOpDraft(null);
   };
 
   /**
@@ -449,20 +478,32 @@ function CondRow({
    *   keeps the row visibly unfinished, which is the truth.
    */
   const handleOpKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      revertOpDraft();
+      opInputRef.current?.blur();
+      return;
+    }
     if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
-    resolveTypedSymbol();
+    commitOpDraft();
   };
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
-  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode(node)));
+  // Converts on the *typed* op, not only the committed one: `toRawNode` falls
+  // back to a blank pending raw node whenever the op is uncompilable (below),
+  // regardless of which uncompilable text it was given, so a still-drafted
+  // `$elemMatch` converts the same as a committed one would.
+  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
   // offer a one-click escape to a raw clause the instant the op looks
   // unencodable, independent of whether the row currently has a print
-  // problem (a pending row with an empty field never has one — §5.4).
-  const showConvertToRaw = node.op.startsWith('$') && !isCompilableOp(node.op);
+  // problem (a pending row with an empty field never has one — §5.4). Keyed
+  // on the draft (`opValue`), not the committed `node.op` — the whole point
+  // is not waiting for a commit that would otherwise never come for text
+  // like `$elemMatch`.
+  const showConvertToRaw = opValue.startsWith('$') && !isCompilableOp(opValue);
   const showOpDocs = node.op.startsWith('$') && !problem && hasOperatorDocs(node.op, 'query');
 
   // The row's one Remove control names what it removes. A row whose field is
@@ -523,16 +564,16 @@ function CondRow({
         <TextInput
           ref={opInputRef}
           placeholder="$op"
-          value={node.op}
+          value={opValue}
           disabled={readOnly}
           onChange={(e) => {
-            patch({ op: e.target.value });
+            setOpDraft(e.target.value);
             if (!opPopoverOpen) setOpPopoverOpen(true);
           }}
           onFocus={() => setOpPopoverOpen(true)}
           onKeyDown={handleOpKeyDown}
           onBlur={() => {
-            resolveTypedSymbol();
+            commitOpDraft();
             window.setTimeout(() => setOpPopoverOpen(false), 100);
           }}
           aria-invalid={!!problem}
@@ -557,6 +598,10 @@ function CondRow({
               // functional update.
               symbolResolvedByPopover.current = true;
               patch({ op: s.name });
+              // A pick is itself a commit (per the issue's fix shape) — clear
+              // the draft so the box falls back to `node.op` (about to become
+              // `s.name`) instead of showing the typed text the pick replaced.
+              setOpDraft(null);
             }
             setOpPopoverOpen(false);
             opInputRef.current?.blur();
