@@ -134,6 +134,36 @@ describe('HintsProvider + useFeatureHint', () => {
     expect(screen.getByTestId('h').textContent).toBe('visible');
   });
 
+  it('the lower-priority hint wins even when it registers second', async () => {
+    // `tabs.pin` (priority 20) mounts first here; `run.execute` (priority 0)
+    // registers after it. `HintsProvider` must still pick `run.execute` —
+    // priority beats registration order, otherwise the primary Run hint
+    // could lose to whichever secondary hint happened to mount first.
+    function Probe() {
+      const secondary = useFeatureHint('tabs.pin', true);
+      const primary = useFeatureHint('run.execute', true);
+      return (
+        <div>
+          <span data-testid="secondary">{secondary.visible ? 'visible' : 'hidden'}</span>
+          <span data-testid="primary">{primary.visible ? 'visible' : 'hidden'}</span>
+        </div>
+      );
+    }
+    render(
+      withTheme(
+        <HintsProvider>
+          <Probe />
+        </HintsProvider>,
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(1500);
+    });
+    expect(screen.getByTestId('primary').textContent).toBe('visible');
+    expect(screen.getByTestId('secondary').textContent).toBe('hidden');
+  });
+
   it('a dismissed hint stays hidden even when the trigger is true', async () => {
     installAtelierMock({
       prefs: {

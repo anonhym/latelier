@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Menu, Select, SegmentedControl } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, Select, SegmentedControl, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import type { ResultViewMode } from '@shared/types';
@@ -49,7 +49,13 @@ export function ResultBar() {
   // `useQueryRunner`, where no QueryBar-local message exists to hang this on.
   // `findProblem` is the Run button's own rule, so the count is marked stale
   // exactly while Run is refusing to make it current again.
-  const isStale = findProblem(state) !== null;
+  const runProblem = findProblem(state);
+  const isStale = runProblem !== null;
+  // Before the first run, the count is missing entirely rather than stale —
+  // offer the same Run gate QueryBar's button uses instead of a dead-end
+  // "No run yet" label. Read-only consumers (ScriptTab's snapshot provider)
+  // have no working `run`, so they keep the plain label.
+  const canRunHere = !isReadOnly && !isLoading && runProblem === null;
 
   const start = docCount !== null ? page * pageSize + 1 : null;
   const end = docCount !== null ? page * pageSize + docCount : null;
@@ -216,7 +222,24 @@ export function ResultBar() {
         ) : (
           <>
             <span style={{ color: T.textGhost }}>·</span>
-            <span style={{ color: T.textMuted }}>No run yet</span>
+            {isReadOnly ? (
+              <span style={{ color: T.textMuted }}>No run yet</span>
+            ) : (
+              <Tooltip label={runProblem ?? 'Run (Cmd+Enter)'} withArrow>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="compact-xs"
+                  leftSection={I.play}
+                  onClick={() => canRunHere && actions.run()}
+                  disabled={!canRunHere}
+                  data-hint-anchor="run.execute"
+                  data-testid="resultbar-run-cta"
+                >
+                  Run (Cmd+Enter)
+                </Button>
+              </Tooltip>
+            )}
           </>
         )}
       </Group>

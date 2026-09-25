@@ -236,6 +236,7 @@ export interface DialogStackProps {
   tabsPinHint: UseFeatureHintResult;
   savedCreateHint: UseFeatureHintResult;
   previewConfigureHint: UseFeatureHintResult;
+  runExecuteHint: UseFeatureHintResult;
 }
 
 export function DialogStack({
@@ -259,6 +260,7 @@ export function DialogStack({
   tabsPinHint,
   savedCreateHint,
   previewConfigureHint,
+  runExecuteHint,
 }: DialogStackProps) {
   const { refHover, refEditorOpen, setRefEditorOpen } = refDrawer;
   const {
@@ -389,6 +391,11 @@ export function DialogStack({
         );
       })()}
 
+      <FeatureHint
+        id="run.execute"
+        visible={runExecuteHint.visible}
+        onDismiss={runExecuteHint.dismiss}
+      />
       <FeatureHint
         id="refs.configure"
         visible={refsConfigureHint.visible}

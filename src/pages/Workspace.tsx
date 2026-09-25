@@ -188,6 +188,17 @@ function WorkspaceInner() {
 
   const hints = useHints();
 
+  // Issue #177 — the first hint a new user sees should be about Run, not a
+  // secondary feature. Firing once the query has been edited off its
+  // default shape (rather than on every fresh tab) avoids nagging the
+  // common case, where `Workspace`'s own auto-run effect already ran it.
+  const runExecuteWhen =
+    activeView === 'documents' &&
+    !!activeCollection &&
+    !activeCollection.state.lastRun &&
+    !isDefaultQueryState(activeCollection.state);
+  const runExecuteHint = useFeatureHint('run.execute', runExecuteWhen);
+
   const lastRunDocs = activeCollection?.state.lastRun?.documents;
   const refsConfigureWhen = React.useMemo(() => {
     if (!lastRunDocs || lastRunDocs.length === 0) return false;
@@ -973,6 +984,7 @@ function WorkspaceInner() {
         tabsPinHint={tabsPinHint}
         savedCreateHint={savedCreateHint}
         previewConfigureHint={previewConfigureHint}
+        runExecuteHint={runExecuteHint}
       />
     </AppShell>
   );

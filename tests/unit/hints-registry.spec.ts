@@ -4,7 +4,14 @@ import type { FeatureHintId } from '../../shared/types';
 import { queryRunKey } from '../../src/utils/queryRunKey';
 
 describe('HINT_REGISTRY', () => {
-  const ids: FeatureHintId[] = ['refs.configure', 'tabs.pin', 'saved.create', 'palette.discover', 'preview.configure'];
+  const ids: FeatureHintId[] = [
+    'run.execute',
+    'refs.configure',
+    'tabs.pin',
+    'saved.create',
+    'palette.discover',
+    'preview.configure',
+  ];
 
   it('contains every FeatureHintId exactly once', () => {
     for (const id of ids) {
@@ -19,6 +26,14 @@ describe('HINT_REGISTRY', () => {
       expect(c.title.length).toBeLessThanOrEqual(60);
       expect(c.body.length).toBeLessThanOrEqual(200);
       expect(c.title.trim()).toBe(c.title);
+    }
+  });
+
+  it('gives the primary-path Run hint the lowest priority number', () => {
+    const runPriority = HINT_REGISTRY['run.execute'].priority;
+    for (const id of ids) {
+      if (id === 'run.execute') continue;
+      expect(runPriority).toBeLessThan(HINT_REGISTRY[id].priority);
     }
   });
 });
