@@ -10,7 +10,10 @@ import type { Logger } from '../log.ts';
 import { ejsonParse, ejsonStringify } from '../mongo/ejson.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { QUERY_TIMEOUT_MS } from '../mongo/timeouts.ts';
-import { assertUndoable, undoCaptureOf, EXACT_BSON, type UndoCapture } from '../mongo/undo.ts';
+import { assertUndoable, undoCaptureOf, EXACT_BSON, importDigest, type UndoCapture } from '../mongo/undo.ts';
+
+/** Ids are chunked into reads/deletes this large — matches `insertBatch`'s write-side batch size. */
+const UNDO_ID_CHUNK = 1000;
 
 const DEFAULT_LIST_LIMIT = 100;
 
@@ -135,6 +138,8 @@ export class AuditService {
           result = await this.restoreDeleted(coll, capture.preImages ?? []);
         } else if (row.op === 'updateMany') {
           result = await this.restoreUpdated(coll, capture.preImages ?? [], capture.postImages ?? []);
+        } else if (row.op === 'import') {
+          result = await this.restoreImported(coll, capture.importedIds ?? [], capture.digests ?? []);
         } else {
           throw new SystemError('INTERNAL', `undo of ${row.op} is not supported`);
         }
@@ -222,6 +227,38 @@ export class AuditService {
       }
       throw err;
     }
+  }
+
+  /**
+   * `import` undo (X13 §5 option (b)): deletes only the documents whose
+   * digest still matches what landed. Reads and deletes in chunks of
+   * `UNDO_ID_CHUNK`, since a capture can hold up to `MAX_IMPORT_CAPTURE_DOCS`
+   * ids — far past what `restoreInserted`'s single `find` bothers to chunk.
+   * A document edited or removed since counts as `skipped`, same honesty as
+   * `restoreInserted`/`restoreDeleted`.
+   */
+  private async restoreImported(coll: Collection, ids: unknown[], digests: string[]): Promise<UndoResult> {
+    if (ids.length === 0) return { restored: 0, skipped: 0 };
+    let restored = 0;
+    let skipped = 0;
+    for (let i = 0; i < ids.length; i += UNDO_ID_CHUNK) {
+      const idChunk = ids.slice(i, i + UNDO_ID_CHUNK);
+      const digestByKey = new Map(idChunk.map((id, j) => [ejsonStringify(id), digests[i + j]!]));
+      const current = await coll
+        .find({ _id: { $in: idChunk } } as Document, { ...EXACT_BSON, maxTimeMS: QUERY_TIMEOUT_MS })
+        .toArray();
+      const toDelete: unknown[] = [];
+      for (const doc of current) {
+        const key = ejsonStringify(doc._id);
+        if (importDigest(doc) === digestByKey.get(key)) toDelete.push(doc._id);
+      }
+      skipped += idChunk.length - toDelete.length;
+      if (toDelete.length === 0) continue;
+      const deleted = await coll.deleteMany({ _id: { $in: toDelete } } as Document, { maxTimeMS: QUERY_TIMEOUT_MS });
+      restored += deleted.deletedCount;
+      skipped += toDelete.length - deleted.deletedCount;
+    }
+    return { restored, skipped };
   }
 
   /**

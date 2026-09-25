@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
+import { deserialize, serialize } from 'bson';
 import type { Document } from 'mongodb';
 import { SystemError } from '../errors.ts';
-import { ejsonEncodeArrayJson } from './ejson.ts';
+import { ejsonEncodeArrayJson, ejsonStringify } from './ejson.ts';
 
 /**
  * What a write kept so it can be undone. Single-document ops use
@@ -10,7 +12,10 @@ import { ejsonEncodeArrayJson } from './ejson.ts';
  * inserted — the Node driver assigns `_id` onto each input document in
  * place unless `forceServerObjectId` is set (neither `insertMany` call sets
  * it), so the same array holds the ids after the write with no second read;
- * `collectionRename` keeps the two names.
+ * `collectionRename` keeps the two names; `import` keeps only ids plus a
+ * per-document digest (X13 §5's option (b)) — a full-body capture like
+ * `insertedDocs` would be tens of MB at the ~10,000-document ceiling `import`
+ * needs, well past `insertMany`'s ≤1000/≤1MB bulk capture.
  */
 export interface UndoCapture {
   preImage?: Document;
@@ -18,8 +23,34 @@ export interface UndoCapture {
   preImages?: Document[];
   postImages?: Document[];
   insertedDocs?: Document[];
+  /** `import` only, paired by index with `digests`. */
+  importedIds?: unknown[];
+  /** `import` only — `importDigest` of each landed document. */
+  digests?: string[];
   fromName?: string;
   toName?: string;
+}
+
+/** X13 §5: an import capture never keeps more ids/digests than this. */
+export const MAX_IMPORT_CAPTURE_DOCS = 10_000;
+
+/**
+ * The per-document digest an import capture keeps, and what `restoreImported`
+ * recomputes to decide whether a landed document is still unchanged. `_id`
+ * first, the same normalization `restoreInserted` uses, because the driver
+ * appends a generated `_id` last (and a pasted document can carry it
+ * anywhere) while the server always stores it first.
+ *
+ * Hashed on the BSON round-tripped form read back with `EXACT_BSON`, which is
+ * exactly how `restoreImported` reads the stored document: a parsed JS number
+ * outside int32 (an epoch-ms timestamp) serializes as `$numberLong` but is
+ * stored, and read back, as a double. Re-running it on an already-read
+ * document changes nothing.
+ */
+export function importDigest(doc: Document): string {
+  const { _id, ...rest } = doc;
+  const asStored = deserialize(serialize({ _id, ...rest }), EXACT_BSON);
+  return createHash('sha256').update(ejsonStringify(asStored)).digest('hex');
 }
 
 /** X13 §5: a bulk Pre-image capture never holds more than this many documents… */

@@ -8,6 +8,7 @@ import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { createReadStream } from 'node:fs';
 import { ImportService, jsonlRecords } from '../../electron/mongo/ImportService';
+import { importDigest, undoCaptureOf } from '../../electron/mongo/undo';
 import type { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { getSharedServer, makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
 
@@ -270,6 +271,54 @@ describe('ImportService.importFile', () => {
         break;
       }
       expect(stream.destroyed).toBe(true);
+    });
+  });
+
+  describe('undo capture (X13 §5 option (b))', () => {
+    it('captures an id + digest per landed document, up to the injectable ceiling', async () => {
+      svc = new ImportService(pool, { maxUndoCaptureDocs: 2 });
+      const p = await file('small.jsonl', '{"_id":1,"n":"a"}\n{"_id":2,"n":"b"}\n');
+      const report = await run(p);
+      const capture = undoCaptureOf(report);
+      expect(capture?.importedIds).toEqual([1, 2]);
+      expect(capture?.digests).toHaveLength(2);
+      expect(capture?.digests?.[0]).toBe(importDigest({ _id: 1, n: 'a' }));
+      expect(capture?.digests?.[0]).not.toBe(capture?.digests?.[1]);
+    });
+
+    it('keeps nothing above the injectable ceiling', async () => {
+      svc = new ImportService(pool, { maxUndoCaptureDocs: 2 });
+      const p = await file('over.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n');
+      const report = await run(p);
+      expect(report.inserted).toBe(3);
+      expect(undoCaptureOf(report)).toBeUndefined();
+    });
+
+    it('captures nothing when nothing landed', async () => {
+      const p = await file('junk.jsonl', 'nope\n');
+      const report = await run(p);
+      expect(report.inserted).toBe(0);
+      expect(undoCaptureOf(report)).toBeUndefined();
+    });
+
+    it('only captures the documents that actually landed in a batch with a write error', async () => {
+      await client.db(dbName).collection(coll).insertOne({ _id: 2 } as never);
+      const p = await file('dup.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n');
+      const report = await run(p);
+      expect(report).toMatchObject({ inserted: 2, failed: 1 });
+      expect(undoCaptureOf(report)?.importedIds).toEqual([1, 3]);
+    });
+
+    it('still captures what landed before a cancel', async () => {
+      svc = new ImportService(pool, {
+        batchSize: 1,
+        emit: () => svc.cancel('tok'),
+      });
+      const p = await file('cancel.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n');
+      const report = await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'tok' });
+      expect(report.cancelled).toBe(true);
+      expect(report.inserted).toBe(1);
+      expect(undoCaptureOf(report)?.importedIds).toEqual([1]);
     });
   });
 });

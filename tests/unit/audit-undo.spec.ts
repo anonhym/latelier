@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { Double } from 'bson';
 import {
   assertUndoable,
   attachUndo,
   boundedCapture,
+  importDigest,
   MAX_BULK_CAPTURE_DOCS,
   MAX_BULK_CAPTURE_BYTES,
   undoCaptureOf,
@@ -92,6 +94,26 @@ describe('boundedCapture — X13 §5\'s bulk Pre-image ceiling', () => {
     const overhead = '[{"blob":""}]'.length;
     const docs = [{ blob: 'x'.repeat(MAX_BULK_CAPTURE_BYTES - overhead) }];
     expect(boundedCapture(docs)).toBe(docs);
+  });
+});
+
+describe('importDigest — the _id-first normalization import undo relies on', () => {
+  it('is the same whether _id is written first (server order) or last (driver-appended)', () => {
+    const idFirst = { _id: 1, name: 'alpha' };
+    const idLast = { name: 'alpha', _id: 1 };
+    expect(importDigest(idFirst)).toBe(importDigest(idLast));
+  });
+
+  it('changes when a field value changes', () => {
+    expect(importDigest({ _id: 1, name: 'alpha' })).not.toBe(importDigest({ _id: 1, name: 'beta' }));
+  });
+
+  it('is order-sensitive beyond _id — canonical EJSON, not a value-set compare', () => {
+    expect(importDigest({ _id: 1, a: 1, b: 2 })).not.toBe(importDigest({ _id: 1, b: 2, a: 1 }));
+  });
+
+  it('hashes the stored form: a parsed integer past int32 matches the double the server reads back', () => {
+    expect(importDigest({ _id: 1, at: 1700000000000 })).toBe(importDigest({ _id: 1, at: new Double(1700000000000) }));
   });
 });
 

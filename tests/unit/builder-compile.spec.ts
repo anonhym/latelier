@@ -11,6 +11,7 @@ import {
   isApplicableOp,
   isCompilableOp,
   isDefaultQueryState,
+  isUnfilteredFirstPage,
   limitWarning,
   parseSortString,
   projectionProblem,
@@ -899,6 +900,38 @@ describe('isDefaultQueryState', () => {
       builder: { ...emptyBuilder(), projectionRaw: '   ' },
     });
     expect(isDefaultQueryState(state)).toBe(true);
+  });
+});
+
+// `ResultViewer`'s empty-collection CTA discriminator: no filter, first
+// page, no error. Each conjunct is proven independently so a `&&` weakened
+// to `||`, or an equality flipped, fails one of these.
+describe('isUnfilteredFirstPage', () => {
+  it('is true for the default tab state (no filter, page 0, no run error)', () => {
+    expect(isUnfilteredFirstPage(makeTabState())).toBe(true);
+  });
+
+  it('is true for an explicit whitespace-only queryRaw too', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '  ' }))).toBe(true);
+  });
+
+  it('is false when the filter is non-default', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '{"a":1}' }))).toBe(false);
+  });
+
+  it('is false past the first page', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ page: 1 }))).toBe(false);
+  });
+
+  it('is false when the last run errored', () => {
+    const state = makeTabState({
+      lastRun: { documents: [], durationMs: 1, ranAt: '2026-01-01T00:00:00.000Z', error: { code: 'MONGO_ERROR', message: 'x' } },
+    });
+    expect(isUnfilteredFirstPage(state)).toBe(false);
+  });
+
+  it('requires every condition at once — a non-default filter on page 0 is still false', () => {
+    expect(isUnfilteredFirstPage(makeTabState({ queryRaw: '{"a":1}', page: 0 }))).toBe(false);
   });
 });
 

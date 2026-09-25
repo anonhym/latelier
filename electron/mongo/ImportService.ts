@@ -19,6 +19,7 @@ import {
 } from './importParse.ts';
 import type { MongoPool } from './MongoPool.ts';
 import { QUERY_TIMEOUT_MS } from './timeouts.ts';
+import { attachUndo, importDigest, MAX_IMPORT_CAPTURE_DOCS } from './undo.ts';
 
 const DEFAULT_BATCH_SIZE = 1000;
 
@@ -81,6 +82,7 @@ export class ImportService {
   private maxArrayBytes: number;
   private batchSize: number;
   private emit?: EmitFn;
+  private maxUndoCaptureDocs: number;
   // Token -> live run's cancel flag. A plain mutable holder (not a boolean
   // map) so `cancel()` can flip it after `importFile` has already captured
   // its reference, the same shape as QueryService's `active` map.
@@ -88,12 +90,13 @@ export class ImportService {
 
   constructor(
     pool: MongoPool,
-    opts: { maxArrayBytes?: number; batchSize?: number; emit?: EmitFn } = {},
+    opts: { maxArrayBytes?: number; batchSize?: number; emit?: EmitFn; maxUndoCaptureDocs?: number } = {},
   ) {
     this.pool = pool;
     this.maxArrayBytes = opts.maxArrayBytes ?? DEFAULT_MAX_EJSON_BYTES;
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
     this.emit = opts.emit;
+    this.maxUndoCaptureDocs = opts.maxUndoCaptureDocs ?? MAX_IMPORT_CAPTURE_DOCS;
   }
 
   cancel(token: string): void {
@@ -151,6 +154,29 @@ export class ImportService {
         });
       };
 
+      // X13 §5 option (b): ids + a per-document digest for every landed
+      // document, up to `maxUndoCaptureDocs` — above that, nothing partial is
+      // kept, so the arrays are dropped rather than trimmed.
+      const importedIds: unknown[] = [];
+      const digests: string[] = [];
+      let captureOverflowed = false;
+      const captureLanded = (docs: Record<string, unknown>[]) => {
+        if (captureOverflowed) return;
+        for (const doc of docs) {
+          importedIds.push(doc._id);
+          digests.push(importDigest(doc));
+        }
+        if (importedIds.length > this.maxUndoCaptureDocs) {
+          captureOverflowed = true;
+          importedIds.length = 0;
+          digests.length = 0;
+        }
+      };
+      // A cancelled run is still undoable for whatever landed, so both exits
+      // below go through this rather than a bare `return report`.
+      const finish = (): ImportReport =>
+        !captureOverflowed && importedIds.length > 0 ? attachUndo(report, { importedIds, digests }) : report;
+
       let batch: { at: number; doc: Record<string, unknown> }[] = [];
       try {
         for await (const record of records) {
@@ -160,7 +186,7 @@ export class ImportService {
           }
           batch.push(record);
           if (batch.length >= this.batchSize) {
-            await this.insertBatch(coll, batch, report);
+            captureLanded(await this.insertBatch(coll, batch, report));
             batch = [];
             emitProgress();
             // Never mid-batch: an aborted in-flight `insertMany` would leave the
@@ -168,12 +194,12 @@ export class ImportService {
             // batch that was already running has fully landed.
             if (state?.cancelled) {
               report.cancelled = true;
-              return report;
+              return finish();
             }
           }
         }
         if (batch.length > 0) {
-          await this.insertBatch(coll, batch, report);
+          captureLanded(await this.insertBatch(coll, batch, report));
           emitProgress();
         }
       } catch (err) {
@@ -182,7 +208,7 @@ export class ImportService {
         if (err instanceof AppError) throw err;
         throw fileError('read', err, { insertedCount: report.inserted });
       }
-      return report;
+      return finish();
     } finally {
       if (token) this.active.delete(token);
     }
@@ -225,14 +251,16 @@ export class ImportService {
     }
   }
 
+  /** Inserts `batch`, returning the documents that actually landed — the driver mutates each with its `_id` in place. */
   private async insertBatch(
     coll: Collection,
     batch: { at: number; doc: Record<string, unknown> }[],
     report: ImportReport,
-  ): Promise<void> {
+  ): Promise<Record<string, unknown>[]> {
     try {
       const result = await coll.insertMany(batch.map((r) => r.doc), { ordered: false, maxTimeMS: QUERY_TIMEOUT_MS });
       report.inserted += result.insertedCount;
+      return batch.map((r) => r.doc);
     } catch (err) {
       if (err instanceof MongoBulkWriteError) {
         const writeErrors = Array.isArray(err.writeErrors) ? err.writeErrors : [err.writeErrors];
@@ -241,8 +269,9 @@ export class ImportService {
         // rejections went wrong, and the import stops.
         if (writeErrors.length > 0 && err.result.insertedCount + writeErrors.length === batch.length) {
           report.inserted += err.result.insertedCount;
+          const failedAt = new Set(writeErrors.map((e) => e.index));
           for (const e of writeErrors) recordFailure(report, batch[e.index]!.at, e.errmsg ?? `write error ${e.code}`);
-          return;
+          return batch.filter((_r, i) => !failedAt.has(i)).map((r) => r.doc);
         }
         report.inserted += err.result.insertedCount;
       }
