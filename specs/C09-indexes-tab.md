@@ -1,14 +1,12 @@
 # C09 — Indexes tab (real listing + create / drop)
 
-> **Amended by W16 Tier 1 (ADR 0003).** `IndexesTab` is now namespace-scoped
-> (`{connectionId, dbName, collection}`) and owns no picker; the DB →
-> collection drill-in described below moved to `IndexesHost`, a wrapper local
-> to `DetailPanel.tsx`. `DetailPanel` still hosts the tab for now. Per W16 §9's
-> Tier 1 acceptance criteria, the `ui.indexes.lastTarget` preference is
-> retired now rather than carried over — `IndexesHost`'s picker auto-picks a
-> namespace on mount but does not persist the pick across relaunches. W16
-> Tier 2 retires this tab entirely — the index surface becomes a section of
-> the Data View's Structure view, and `IndexesHost` goes with it. Read this
+> **Removed by W16 Tier 2 (ADR 0003).** The Connection Manager's Indexes tab
+> is gone, along with `IndexesHost`, the DB/collection picker wrapper it used
+> in the interim. `IndexesTab` is namespace-scoped (`{connectionId, dbName,
+> collection}`) and now lives in the collection tab's Structure sub-view,
+> stacked above the sampled schema (`src/pages/Workspace/StructureView.tsx`),
+> with no picker of its own — the namespace comes from the open tab. The
+> `ui.indexes.lastTarget` preference stays retired (W16 Tier 1). Read this
 > spec's "pick a database, drill into a collection" framing as history, not
 > the current component boundary.
 
@@ -234,8 +232,8 @@ Replaces `<StubTab title="Index management" .../>` at `DetailPanel.tsx:635`.
 - DB picker reuses `meta:listDatabases({ connectionId, includeSystem: showSystem })` with the same `ui.showSystemDbs` pref as Collections.
 - Collection picker calls `meta:listCollections` once per DB; cached for the lifetime of the tab.
 - Selecting (db, collection) calls `index:list`. List re-fetches on Refresh and after every successful create/drop.
-- ~~Last (db, collection) selection persists to `app_state['ui.indexes.lastTarget']` (per app, not per connection — small enough to be a single key) so re-opening the tab restores the view.~~ **Retired by W16 Tier 1** — the picker now lives in `IndexesHost` (`DetailPanel.tsx`) and does not persist; leaving and returning to the Indexes tab re-picks the first database and collection.
-- Pickers are dropdown buttons styled like the existing tab bar — keep the visual language consistent with `CollectionsTab`. No tree/sidebar.
+- ~~Last (db, collection) selection persists to `app_state['ui.indexes.lastTarget']` (per app, not per connection — small enough to be a single key) so re-opening the tab restores the view.~~ **Removed by W16 Tier 2** — there is no picker any more; `IndexesTab` takes its namespace from the open collection tab.
+- ~~Pickers are dropdown buttons styled like the existing tab bar — keep the visual language consistent with `CollectionsTab`. No tree/sidebar.~~ **Removed by W16 Tier 2.**
 
 ### Index row anatomy
 
@@ -320,7 +318,7 @@ Type the index name to confirm:
 
 ## 5. State & persistence
 
-- ~~No new SQLite tables, no migration. The only persisted state is `ui.indexes.lastTarget = { dbName, collection }` in `app_state` via existing `prefs` channels. Reset on disconnect or when the targeted (db, collection) no longer exists at refresh time.~~ **Retired by W16 Tier 1** — no persisted state remains; `IndexesHost` re-picks a namespace on every mount.
+- ~~No new SQLite tables, no migration. The only persisted state is `ui.indexes.lastTarget = { dbName, collection }` in `app_state` via existing `prefs` channels. Reset on disconnect or when the targeted (db, collection) no longer exists at refresh time.~~ **Removed by W16 Tier 2** — no persisted state remains; the tab is namespace-scoped by the open collection tab, which owns its own persistence.
 - No caching of the index list — it's small and changes rarely; refetch on every (db, collection) switch and on Refresh.
 
 ## 6. Error handling

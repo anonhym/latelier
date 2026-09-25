@@ -164,7 +164,7 @@ export interface ParsedUri {
 // ─── Workspace tabs (W01) ───────────────────────────────────────────────────
 
 /** Sub-views shown inside a collection tab. */
-export type CollectionView = 'documents' | 'aggregation' | 'schema';
+export type CollectionView = 'documents' | 'aggregation' | 'structure';
 
 export type ResultViewMode = 'Tree' | 'JSON' | 'Table';
 export type BuilderTab = 'Builder' | 'Saved' | 'Recent';

@@ -162,8 +162,15 @@ export function IndexesTab({
   }, [target, loadIndexes]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // `flex: 'none'` + `overflow: 'visible'`, not the `flex: 1; overflow:
+  // hidden` this used before it moved into the collection tab's Structure
+  // view (W16 Tier 2, ADR 0003): that assumed a flex parent with a definite
+  // height to fill and its own internal scroller. `StructureView` is a
+  // plain scrolling block instead — one scroller for the whole pane — so
+  // this lays out at its natural content height and lets the page provide
+  // the only scrollbar.
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', overflow: 'visible', position: 'relative' }}>
       <div
         style={{
           display: 'flex',
@@ -200,7 +207,7 @@ export function IndexesTab({
         tabIndex={-1}
         role="region"
         aria-label="Indexes"
-        style={{ flex: 1, overflowY: 'auto' }}
+        style={{ overflowY: 'visible' }}
       >
         {indexError && (
           <Alert
