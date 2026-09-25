@@ -808,6 +808,16 @@ describe('audit log via the router', () => {
       expect(await orders().countDocuments()).toBe(0);
     });
 
+    it('insertMany undo removes a document holding an integer past int32 (stored as a double)', async () => {
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ _id: 1, at: 1700000000000 }, { _id: 2, at: 5 }]),
+      });
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 0 } });
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
     it('insertMany over the bulk capture ceiling is not reversible', async () => {
       const docs = Array.from({ length: 1001 }, (_, i) => ({ _id: i }));
       const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
