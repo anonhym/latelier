@@ -104,9 +104,11 @@ describe('IndexesHost — DB/collection picker', () => {
     await waitFor(() => expect(screen.getByText('_id_')).toBeTruthy());
   });
 
-  it('does not persist the selected target, and switching DBs reloads the index list', async () => {
+  it('does not read or persist the selected target, and switching DBs reloads the index list', async () => {
     const setSpy = vi.fn<(key: string, value: unknown) => void>();
+    const getSpy = vi.fn<(key: string) => void>();
     const set = async <T,>(key: string, value: T) => { setSpy(key, value); return value; };
+    const get = async (key: string) => { getSpy(key); return null; };
     installAtelierMock({
       mongo: CONNECTED_MONGO,
       meta: {
@@ -153,7 +155,7 @@ describe('IndexesHost — DB/collection picker', () => {
                 },
               ],
       },
-      prefs: { get: async () => null, set },
+      prefs: { get, set },
     });
 
     await openIndexesTab();
@@ -168,6 +170,9 @@ describe('IndexesHost — DB/collection picker', () => {
     });
     await waitFor(() => expect(screen.queryByText('_id_')).toBeNull());
 
+    // `ui.showSystemDbs` is legitimately read; only `ui.indexes.lastTarget`
+    // — the picked namespace — must never be read or written.
+    expect(getSpy.mock.calls.filter((c) => c[0] === 'ui.indexes.lastTarget')).toEqual([]);
     expect(setSpy.mock.calls.filter((c) => c[0] === 'ui.indexes.lastTarget')).toEqual([]);
   });
 });

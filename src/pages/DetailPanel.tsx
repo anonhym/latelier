@@ -564,10 +564,9 @@ interface IndexTarget {
  * View's Structure view (W16 Tier 2, ADR 0003), and this whole picker is
  * deleted along with the tab once that lands. W16 Tier 1's acceptance
  * criteria retires the `ui.indexes.lastTarget` preference now, not later —
- * unlike CollectionsTab's DB list, the picked target here is deliberately
- * not persisted across relaunches; it just auto-picks the first database and
- * collection on mount, the same drill-in CollectionsTab above uses for its
- * own list.
+ * the picked target here is not persisted across relaunches; it just
+ * auto-picks the first database and collection on mount, the same drill-in
+ * CollectionsTab above uses for its own list.
  */
 function IndexesHost({ conn, runtime }: {
   conn: ConnectionSummary;
