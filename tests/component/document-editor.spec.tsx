@@ -1,9 +1,53 @@
+import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { DocumentEditor } from '../../src/pages/Workspace/DocumentEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { IpcApi } from '@shared/ipc';
+import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
+
+/**
+ * `ScriptEditor` mounts a real CodeMirror 6 view, which needs layout APIs
+ * jsdom doesn't implement (see `stage-accordion.spec.tsx`) — behavioral
+ * coverage for the real editor lives in e2e. Here we stub it with a plain
+ * `<textarea>` that forwards the controlled-component props the JSON view
+ * relies on, plus a fake completion popup: typing a trailing `$` opens it,
+ * and Escape on the field closes it — mirroring `@codemirror/autocomplete`'s
+ * own Escape binding, which never calls `stopPropagation`. Mantine's Modal
+ * closes on Escape via a `capture: true` `window` listener that fires before
+ * any of this field's own handlers ever run, so `stopPropagation` from here
+ * would always be too late — the same reason `ScriptEditor` marks its
+ * `contentDOM` with `data-mantine-stop-propagation` while a completion is
+ * open (`FieldAutocompleteInput`'s identical marker), which is what this
+ * fake reproduces on its own textarea.
+ */
+function FakeJsonEditor({ value, onChange, onBlur, testId, ariaLabel }: ScriptEditorProps) {
+  const [popupOpen, setPopupOpen] = React.useState(false);
+  return (
+    <div>
+      <textarea
+        data-testid={testId}
+        aria-label={ariaLabel}
+        data-mantine-stop-propagation={popupOpen ? 'true' : undefined}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setPopupOpen(e.target.value.endsWith('$'));
+        }}
+        onBlur={() => onBlur?.()}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && popupOpen) setPopupOpen(false);
+        }}
+      />
+      {popupOpen && <div role="listbox" aria-label="Suggestions" />}
+    </div>
+  );
+}
+
+vi.mock('../../src/components/ScriptEditor', () => ({
+  ScriptEditor: (props: ScriptEditorProps) => <FakeJsonEditor {...props} />,
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
@@ -72,6 +116,9 @@ const save = () => within(editor()).getByRole('button', { name: 'Save' });
 const lastCall = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.at(-1)![0] as UpdateInput;
 const typeSelect = (name: string) => within(row(name)).getByRole('combobox', { name: `${name} type` }) as HTMLSelectElement;
 const addFieldBox = (parent = 'root') => within(editor()).getByTestId(`add-field-${parent}`);
+const viewSwitch = (label: 'Fields' | 'JSON') => within(editor()).getByRole('radio', { name: label }) as HTMLInputElement;
+const jsonBox = () => within(editor()).getByRole('textbox', { name: 'Document JSON' }) as HTMLTextAreaElement;
+const filterBox = () => within(editor()).getByRole('textbox', { name: 'Filter fields' }) as HTMLInputElement;
 
 const settle = async () => {
   await act(async () => {
@@ -93,14 +140,23 @@ describe('DocumentEditor — the surface', () => {
   });
 
   it('remembers a size the user drags to, and ignores the one it rendered', async () => {
-    let fire!: () => void;
+    // Keyed by the observed element, not a single shared callback: the
+    // Fields/JSON `SegmentedControl` renders Mantine's `FloatingIndicator`,
+    // which constructs its own `ResizeObserver` too, and a single shared
+    // `fire` variable would silently end up pointed at that one instead of
+    // the surface's.
+    const instances: { el: Element | null; cb: () => void }[] = [];
     vi.stubGlobal(
       'ResizeObserver',
       class {
+        private entry: { el: Element | null; cb: () => void };
         constructor(cb: () => void) {
-          fire = cb;
+          this.entry = { el: null, cb };
+          instances.push(this.entry);
         }
-        observe() {}
+        observe(el: Element) {
+          this.entry.el = el;
+        }
         disconnect() {}
       },
     );
@@ -113,6 +169,7 @@ describe('DocumentEditor — the surface', () => {
     });
     const surface = screen.getByTestId('document-editor-surface');
     await waitFor(() => expect(surface.style.width).toBe('900px'));
+    const fire = () => instances.find((i) => i.el === surface)?.cb();
 
     fire();
     await act(async () => {
@@ -603,5 +660,216 @@ describe('DocumentEditor — remove field', () => {
   it('never offers Remove on _id', () => {
     setup();
     expect(within(row('_id')).queryByRole('button', { name: 'Remove _id' })).toBeNull();
+  });
+});
+
+describe('DocumentEditor — view switching', () => {
+  it('defaults to Fields, with no JSON box mounted', () => {
+    setup();
+    expect(viewSwitch('Fields').checked).toBe(true);
+    expect(screen.queryByRole('textbox', { name: 'Document JSON' })).toBeNull();
+  });
+
+  it('shows the whole draft as EJSON text in the JSON view', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    const parsed = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    expect(parsed.name).toBe('widget');
+    expect(parsed._id).toEqual({ $oid: OID });
+  });
+
+  it('pretty-prints the JSON with a 2-space indent, not the whole document on one line', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    expect(jsonBox().value).toContain('\n  "name"');
+  });
+
+  it('blocks the switch to JSON while Fields holds a value that does not parse, and explains why', () => {
+    setup();
+    fireEvent.change(field('qty'), { target: { value: '1.5' } });
+    fireEvent.click(viewSwitch('JSON'));
+    expect(viewSwitch('Fields').checked).toBe(true);
+    expect(screen.queryByRole('textbox', { name: 'Document JSON' })).toBeNull();
+    expect(within(editor()).getByText(/invalid values/)).toBeTruthy();
+  });
+
+  it('carries a JSON-view edit into Fields on switch back', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    const next = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    next.name = 'gadget';
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(next) } });
+    fireEvent.click(viewSwitch('Fields'));
+    expect(field('name').value).toBe('gadget');
+    expect(row('name').dataset.edited).toBe('true');
+  });
+
+  it('carries a Fields edit into the JSON view', () => {
+    setup();
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.click(viewSwitch('JSON'));
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('gadget');
+  });
+
+  it('blocks the switch back to Fields on invalid JSON, keeping the text and showing an error', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    fireEvent.change(jsonBox(), { target: { value: '{ not json' } });
+    fireEvent.click(viewSwitch('Fields'));
+    expect(viewSwitch('JSON').checked).toBe(true);
+    expect(jsonBox().value).toBe('{ not json');
+    expect(within(editor()).getByRole('alert')).toBeTruthy();
+  });
+
+  it('blocks Save the same way invalid JSON blocks the switch', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    fireEvent.change(jsonBox(), { target: { value: '{ not json' } });
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('refuses an _id change in JSON with a clear inline error, blocking switch and Save', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    const next = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    next._id = { $oid: 'bbbbbbbbbbbbbbbbbbbbbbbb' };
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(next) } });
+    expect(within(editor()).getByText(/cannot be changed/)).toBeTruthy();
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(viewSwitch('Fields'));
+    expect(viewSwitch('JSON').checked).toBe(true);
+  });
+
+  it('a non-document JSON value (an array) is refused, not silently accepted', () => {
+    setup();
+    fireEvent.click(viewSwitch('JSON'));
+    fireEvent.change(jsonBox(), { target: { value: '[1,2]' } });
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(viewSwitch('Fields'));
+    expect(viewSwitch('JSON').checked).toBe(true);
+  });
+
+  it('saves from the JSON view as the same kind of diff request Fields would send', async () => {
+    const { updateOne } = setup();
+    fireEvent.click(viewSwitch('JSON'));
+    const next = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    next.name = 'gadget';
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(next) } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    const call = lastCall(updateOne);
+    expect(JSON.parse(call.updateJson)).toEqual({ $set: { name: 'gadget' } });
+    expect((JSON.parse(call.filterJson) as Record<string, unknown>).name).toEqual({ $eq: 'widget' });
+  });
+
+  it('Reload refreshes the JSON view text too, not just Fields', async () => {
+    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
+      document: { ...DOC, name: 'server-name' },
+      durationMs: 0,
+    }));
+    setup({
+      updateOne: vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 })),
+      findOne,
+    });
+    fireEvent.click(viewSwitch('JSON'));
+    const next = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    next.qty = 6;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(next) } });
+    fireEvent.click(save());
+    fireEvent.click(await within(editor()).findByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
+  });
+
+  it('commits a JSON edit typed after a failed Save before Reload merges, instead of dropping it', async () => {
+    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
+      document: { ...DOC, name: 'server-name' },
+      durationMs: 0,
+    }));
+    setup({
+      updateOne: vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 })),
+      findOne,
+    });
+    fireEvent.click(viewSwitch('JSON'));
+    const first = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    first.qty = 6;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(first) } });
+    fireEvent.click(save());
+    await within(editor()).findByRole('button', { name: 'Reload' });
+
+    // Typed after the conflict notice appeared, and never committed by a
+    // blur or another Save — this is the text Reload must not drop.
+    const second = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    second.price = 9;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(second) } });
+
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
+    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).price).toBe(9);
+  });
+});
+
+describe('DocumentEditor — filter box', () => {
+  function docWithFields(n: number) {
+    const out: Record<string, unknown> = { _id: { $oid: OID } };
+    for (let i = 0; i < n; i++) out[`f${i}`] = i;
+    return out;
+  }
+
+  it('does not show at 15 top-level fields', () => {
+    setup({ doc: docWithFields(14) }); // 14 + _id = 15
+    expect(within(editor()).queryByRole('textbox', { name: 'Filter fields' })).toBeNull();
+  });
+
+  it('shows past 15 top-level fields', () => {
+    setup({ doc: docWithFields(15) }); // 15 + _id = 16
+    expect(filterBox()).toBeTruthy();
+  });
+
+  it('narrows rows by name, case-insensitively, without touching hidden rows\' edits', () => {
+    setup({ doc: docWithFields(15) });
+    fireEvent.change(field('f2'), { target: { value: '99' } });
+    fireEvent.change(filterBox(), { target: { value: 'F1' } });
+    expect(row('f2')).toBeNull();
+    expect(row('f1')).toBeTruthy();
+    expect(row('f10')).toBeTruthy(); // "f10" contains "F1" case-insensitively
+    fireEvent.change(filterBox(), { target: { value: '' } });
+    expect(field('f2').value).toBe('99');
+  });
+});
+
+describe('DocumentEditor — Edit in JSON link', () => {
+  it('switches an unrenderable row\'s "Edit in JSON" link to the JSON view', () => {
+    // A regex sentinel revives to bson's `BSONRegExp`, which `kindOf` has no
+    // case for — unlike `Timestamp`, which extends `Long` and is not "other".
+    setup({ doc: { ...DOC, re: { $regularExpression: { pattern: '^a', options: '' } } } });
+    fireEvent.click(within(row('re')).getByRole('button', { name: 'Edit in JSON' }));
+    expect(viewSwitch('JSON').checked).toBe(true);
+  });
+
+  it('never offers the link on a typed row', () => {
+    setup();
+    expect(within(row('name')).queryByRole('button', { name: 'Edit in JSON' })).toBeNull();
+  });
+});
+
+describe('DocumentEditor — Escape layering (JSON view)', () => {
+  it('closes only the completion popup on the first Escape', async () => {
+    const { onClose } = setup();
+    fireEvent.click(viewSwitch('JSON'));
+    fireEvent.change(jsonBox(), { target: { value: `${jsonBox().value}$` } });
+    expect(await screen.findByRole('listbox')).toBeTruthy();
+    fireEvent.keyDown(jsonBox(), { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+  });
+
+  it('closes the editor on Escape once no popup is open', async () => {
+    const { onClose } = setup();
+    fireEvent.click(viewSwitch('JSON'));
+    fireEvent.keyDown(jsonBox(), { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });

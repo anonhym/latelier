@@ -9,6 +9,7 @@ import {
   isEdited,
   isEmptyDiff,
   isUnsafeFieldName,
+  parseJsonDraft,
   setAtSegments,
 } from '../../src/pages/Workspace/documentDiff';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../src/utils/ejson';
@@ -272,5 +273,49 @@ describe('buildUpdateRequest', () => {
   it('lets an untouched unsafe top-level name ride along', () => {
     const req = buildUpdateRequest({ _id: 1, 'a.b': 1, k: 1 }, { _id: 1, 'a.b': 1, k: 2 })!;
     expect(JSON.parse(req.updateJson)).toEqual({ $set: { k: { $numberInt: '2' } } });
+  });
+});
+
+describe('parseJsonDraft', () => {
+  it('parses Canonical EJSON text into a draft document', () => {
+    const res = parseJsonDraft('{"_id":{"$numberInt":"1"},"a":"b"}', new Int32(1));
+    expect(res.ok).toBe(true);
+    expect(res.ok && plain(res.doc)).toEqual({ _id: 1, a: 'b' });
+  });
+
+  it('refuses text that does not parse', () => {
+    const res = parseJsonDraft('{ not json', 1);
+    expect(res).toEqual({ ok: false, error: 'Invalid EJSON' });
+  });
+
+  it('refuses a non-document value', () => {
+    expect(parseJsonDraft('[1,2]', 1)).toEqual({ ok: false, error: 'Enter a JSON document' });
+    expect(parseJsonDraft('"x"', 1)).toEqual({ ok: false, error: 'Enter a JSON document' });
+    expect(parseJsonDraft('null', 1)).toEqual({ ok: false, error: 'Enter a JSON document' });
+  });
+
+  it('accepts an unchanged _id', () => {
+    const res = parseJsonDraft('{"_id":{"$numberInt":"1"},"a":1}', new Int32(1));
+    expect(res.ok).toBe(true);
+  });
+
+  it('refuses a changed _id value', () => {
+    const res = parseJsonDraft('{"_id":{"$numberInt":"2"}}', new Int32(1));
+    expect(res).toEqual({ ok: false, error: 'The _id field cannot be changed here' });
+  });
+
+  it('refuses _id removed from the text', () => {
+    const res = parseJsonDraft('{"a":1}', new Int32(1));
+    expect(res).toEqual({ ok: false, error: 'The _id field cannot be changed here' });
+  });
+
+  it('refuses _id added to text that had none', () => {
+    const res = parseJsonDraft('{"_id":{"$numberInt":"1"}}', undefined);
+    expect(res).toEqual({ ok: false, error: 'The _id field cannot be changed here' });
+  });
+
+  it('accepts staying without an _id', () => {
+    const res = parseJsonDraft('{"a":1}', undefined);
+    expect(res.ok).toBe(true);
   });
 });

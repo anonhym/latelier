@@ -1,11 +1,13 @@
 import React from 'react';
-import { Button, Group, Modal, NativeSelect, Switch, Text, Textarea, TextInput } from '@mantine/core';
+import { Button, Group, Modal, NativeSelect, SegmentedControl, Switch, Text, Textarea, TextInput } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { api, getErrorMessage } from '../../api/atelier';
-import { ejsonParse, ejsonStringify, isPlainDocument } from '../../utils/ejson';
+import { ejsonParse, ejsonStringify, ejsonStringifyReadable, isPlainDocument } from '../../utils/ejson';
+import { refusalMessage, repairOnCommit, repairToCanonicalEjson } from '../../utils/shellSyntax';
+import { ScriptEditor } from '../../components/ScriptEditor';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
 import { getStructureEntries } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
@@ -19,6 +21,7 @@ import {
   isEdited,
   isEmptyDiff,
   isUnsafeFieldName,
+  parseJsonDraft,
   setAtSegments,
   type DocDiff,
 } from './documentDiff';
@@ -49,6 +52,8 @@ interface DocumentEditorProps {
 
 const SIZE_PREF_KEY = 'ui.workspace.documentEditorSize';
 const DEFAULT_WIDTH = 720;
+/** W18 §3 — the filter box appears only past this many top-level fields. */
+const FILTER_BOX_THRESHOLD = 15;
 
 interface EditorSize {
   width: number;
@@ -117,10 +122,14 @@ interface RowCtx {
   texts: ReadonlyMap<string, string>;
   collapsed: ReadonlySet<string>;
   entriesByPath: Map<string, SchemaSampleEntry>;
+  /** Root-level-only (W18 §3); narrows visible rows by name, never their edits. */
+  filterText: string;
   patchDraft: (updater: (d: Doc) => Doc) => void;
   patchTexts: (updater: (m: ReadonlyMap<string, string>) => ReadonlyMap<string, string>) => void;
   toggleCollapsed: (key: string) => void;
   setErr: (e: string | null) => void;
+  /** The "Edit in JSON" link on a read-only ("other" kind) row. */
+  switchToJson: () => void;
 }
 
 /** Whether some row nested under `segments` holds text that doesn't parse. */
@@ -227,9 +236,16 @@ function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; d
       <div style={{ flex: 1, minWidth: 0 }}>
         {!hasValueControl ? (
           kind === 'object' ? null : (
-            <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
-              {kind === 'null' ? 'null' : textOf(kind, value)}
-            </Text>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
+                {kind === 'null' ? 'null' : textOf(kind, value)}
+              </Text>
+              {kind === 'other' && (
+                <Button size="compact-xs" variant="subtle" onClick={ctx.switchToJson} px={4}>
+                  Edit in JSON
+                </Button>
+              )}
+            </div>
           )
         ) : kind === 'boolean' ? (
           <Switch
@@ -397,19 +413,24 @@ function AddFieldRow({
 }
 
 function RowsList({ ctx, parentSegments, depth }: { ctx: RowCtx; parentSegments: readonly string[]; depth: number }) {
-  const found = parentSegments.length === 0 ? { value: ctx.draft as unknown } : getAtSegments(ctx.draft, parentSegments);
+  const isRoot = parentSegments.length === 0;
+  const found = isRoot ? { value: ctx.draft as unknown } : getAtSegments(ctx.draft, parentSegments);
   const obj = found && isPlainDocument(found.value) ? (found.value as Doc) : {};
-  const keys = Object.keys(obj);
+  const allKeys = Object.keys(obj);
+  // The filter box is root-only (W18 §3): a nested object's own rows are
+  // never narrowed, only which top-level rows are shown.
+  const needle = isRoot ? ctx.filterText.trim().toLowerCase() : '';
+  const keys = needle ? allKeys.filter((k) => k.toLowerCase().includes(needle)) : allKeys;
   return (
     <div
       role="list"
-      aria-label={parentSegments.length === 0 ? 'Fields' : `Fields of ${parentSegments.join('.')}`}
+      aria-label={isRoot ? 'Fields' : `Fields of ${parentSegments.join('.')}`}
       style={{ minHeight: 0 }}
     >
       {keys.map((k) => (
         <FieldRow key={k} ctx={ctx} segments={[...parentSegments, k]} depth={depth} />
       ))}
-      <AddFieldRow ctx={ctx} parentSegments={parentSegments} existing={keys} depth={depth} />
+      <AddFieldRow ctx={ctx} parentSegments={parentSegments} existing={allKeys} depth={depth} />
     </div>
   );
 }
@@ -425,6 +446,15 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   const [err, setErr] = React.useState<string | null>(null);
   const [conflict, setConflict] = React.useState<'changed' | 'deleted' | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [filterText, setFilterText] = React.useState('');
+
+  // W18 §2/§4 — the JSON view's own draft of the same document, as Shell
+  // Syntax text (X14). It is regenerated from `draft` on every switch *into*
+  // this view, and only written back into `draft` on a successful switch
+  // away or Save — never per keystroke, so a half-typed edit is never
+  // reflected (or lost) behind the user's back.
+  const [view, setView] = React.useState<'fields' | 'json'>('fields');
+  const [jsonText, setJsonText] = React.useState('');
 
   // One diff drives the edited markers, the dirty guard and the save, so the
   // three cannot disagree.
@@ -441,7 +471,55 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     }
     return out;
   }, [texts, draft]);
-  const isDirty = !isEmptyDiff(changes) || rowErrors.size > 0;
+
+  // Live, from the raw `jsonText` — never written back until a commit point
+  // (blur, switch, Save), the same asymmetry X14's read surfaces use. The
+  // transform's own refusal comes first; a text that repairs but isn't a
+  // document, or changes `_id`, fails the second check instead.
+  const jsonOutcome = React.useMemo(() => repairToCanonicalEjson(jsonText), [jsonText]);
+  const jsonLiveError = React.useMemo(() => {
+    if (jsonOutcome.kind === 'failed') return refusalMessage(jsonText, jsonOutcome);
+    const canonical = jsonOutcome.kind === 'repaired' ? jsonOutcome.text : jsonText;
+    const parsed = parseJsonDraft(canonical, original._id);
+    return parsed.ok ? null : parsed.error;
+  }, [jsonOutcome, jsonText, original]);
+
+  // Repairs and commits `jsonText` (writing the canonical text back into the
+  // box, per X14), then parses it into a draft document. Null means refused —
+  // `jsonLiveError` already carries why, recomputed from the (possibly now
+  // repaired) text on the next render.
+  const commitJson = (): { doc: Doc } | null => {
+    const result = repairOnCommit(jsonText, setJsonText);
+    if (result.outcome.kind === 'failed') return null;
+    const parsed = parseJsonDraft(result.text, original._id);
+    return parsed.ok ? { doc: parsed.doc } : null;
+  };
+
+  const switchToJson = () => {
+    // A row's typed text that doesn't parse lives only in `texts`, out of
+    // `draft` — building `jsonText` from `draft` alone would show the old
+    // value, and the switch away from Fields (§4a) clears `texts`
+    // unconditionally, so that text would vanish with no warning.
+    if (rowErrors.size > 0) {
+      setErr('Fix the invalid values in Fields before switching to JSON');
+      return;
+    }
+    setJsonText(ejsonStringifyReadable(draft, 2));
+    setView('json');
+  };
+
+  const trySwitchToFields = () => {
+    const result = commitJson();
+    if (!result) return; // refused; stays on JSON with the text and error intact
+    setDraft(result.doc);
+    setTexts(new Map());
+    setView('fields');
+  };
+
+  const isDirty =
+    !isEmptyDiff(changes) ||
+    rowErrors.size > 0 ||
+    (view === 'json' && jsonText !== ejsonStringifyReadable(draft, 2));
 
   const close = useDialogFocusReturn(onClose);
 
@@ -471,10 +549,19 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   const send = async (guarded: boolean) => {
     // Same guard as the Save button's `disabled`: ⌘↵ calls send() directly,
     // bypassing the button, so a deleted document must be checked here too.
-    if (busy || rowErrors.size > 0 || conflict === 'deleted') return;
+    if (busy || conflict === 'deleted') return;
+    let nextDraft = draft;
+    if (view === 'json') {
+      const result = commitJson();
+      if (!result) return; // refused; jsonLiveError already shows why
+      nextDraft = result.doc;
+      setDraft(result.doc);
+    } else if (rowErrors.size > 0) {
+      return;
+    }
     let request;
     try {
-      request = buildUpdateRequest(original, draft);
+      request = buildUpdateRequest(original, nextDraft);
     } catch (e) {
       setErr(getErrorMessage(e, 'Cannot save this document'));
       return;
@@ -514,6 +601,17 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     setBusy(true);
     setErr(null);
     try {
+      // `changes` (the outer diff) reflects only `draft` — in the JSON view,
+      // text typed since the last commit point lives in `jsonText` alone.
+      // Committing it first, and diffing from that, is what keeps a JSON
+      // edit made after a failed Save from being silently dropped here.
+      let baseChanges = changes;
+      if (view === 'json') {
+        const committed = commitJson();
+        if (!committed) return; // refused; jsonLiveError already shows why, text kept
+        setDraft(committed.doc);
+        baseChanges = diff(original, committed.doc);
+      }
       const res = await api.query.findOne({
         connectionId,
         dbName,
@@ -527,13 +625,17 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
       const fresh = revive(res.document);
       // The user's edits win over the server's on a path both changed; that
       // path stays in the diff, so the next Save guards it again.
+      const merged = applyDiff(fresh, baseChanges);
       setOriginal(fresh);
-      setDraft(applyDiff(fresh, changes));
+      setDraft(merged);
+      // The JSON view's own buffer is a separate draft (W18 §4) — refresh it
+      // too, or Reload's merge would be invisible behind stale text.
+      if (view === 'json') setJsonText(ejsonStringifyReadable(merged, 2));
       setTexts((m) => {
         const next = new Map<string, string>();
         for (const [key, text] of m) {
           const segments = decodeKey(key);
-          if (segments && isEdited(changes, editAddress(segments))) next.set(key, text);
+          if (segments && isEdited(baseChanges, editAddress(segments))) next.set(key, text);
         }
         return next;
       });
@@ -606,6 +708,7 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     texts,
     collapsed,
     entriesByPath,
+    filterText,
     patchDraft: (updater) => setDraft(updater),
     patchTexts: (updater) => setTexts(updater),
     toggleCollapsed: (key) =>
@@ -616,6 +719,7 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
         return next;
       }),
     setErr,
+    switchToJson,
   };
 
   return (
@@ -654,11 +758,53 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
           gap: 8,
         }}
       >
-        <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
+          <SegmentedControl
+            size="xs"
+            aria-label="View"
+            value={view}
+            onChange={(next) => (next === 'json' ? switchToJson() : trySwitchToFields())}
+            data={[
+              { label: 'Fields', value: 'fields' },
+              { label: 'JSON', value: 'json' },
+            ]}
+          />
+        </Group>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <RowsList ctx={ctx} parentSegments={[]} depth={0} />
-        </div>
+        {view === 'json' ? (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <ScriptEditor
+                value={jsonText}
+                onChange={setJsonText}
+                onBlur={() => void commitJson()}
+                height="100%"
+                ariaLabel="Document JSON"
+                testId="document-editor-json"
+              />
+            </div>
+            {jsonLiveError && (
+              <Text size="xs" c="red" role="alert">
+                {jsonLiveError}
+              </Text>
+            )}
+          </div>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            {Object.keys(draft).length > FILTER_BOX_THRESHOLD && (
+              <TextInput
+                aria-label="Filter fields"
+                placeholder="Filter fields"
+                value={filterText}
+                onChange={(e) => setFilterText(e.currentTarget.value)}
+                size="xs"
+                mb={4}
+              />
+            )}
+            <RowsList ctx={ctx} parentSegments={[]} depth={0} />
+          </div>
+        )}
 
         {conflict === 'changed' && (
           <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
@@ -692,7 +838,7 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
           <SubmitButton
             size="compact-sm"
             submitting={busy}
-            disabled={rowErrors.size > 0 || conflict === 'deleted'}
+            disabled={(view === 'fields' ? rowErrors.size > 0 : jsonLiveError !== null) || conflict === 'deleted'}
             onClick={() => void send(true)}
           >
             {busy ? 'Saving…' : 'Save'}
