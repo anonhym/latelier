@@ -208,6 +208,6 @@ describe('ImportService.importFile', () => {
       return real.apply(this, args as Parameters<typeof real>);
     });
     const p = await file('net.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n{"_id":4}\n');
-    await expect(run(p)).rejects.toMatchObject({ message: expect.stringMatching(/connection reset/), details: { insertedCount: 2 } });
+    await expect(run(p)).rejects.toMatchObject({ code: 'NETWORK', message: expect.stringMatching(/connection reset/), details: { insertedCount: 2 } });
   });
 });
