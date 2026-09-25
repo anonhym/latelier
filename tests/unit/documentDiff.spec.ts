@@ -3,10 +3,13 @@ import { BSONRegExp, Double, Int32, Long, ObjectId } from 'bson';
 import {
   applyDiff,
   buildUpdateRequest,
+  deleteAtSegments,
   diff,
+  getAtSegments,
   isEdited,
   isEmptyDiff,
   isUnsafeFieldName,
+  setAtSegments,
 } from '../../src/pages/Workspace/documentDiff';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../src/utils/ejson';
 
@@ -107,6 +110,47 @@ describe('isEdited', () => {
     expect(isEdited(d, 'add')).toBe(false);
     expect(isEdited(d, 'names')).toBe(false);
     expect(isEdited(d, 'other')).toBe(false);
+  });
+});
+
+describe('getAtSegments / setAtSegments / deleteAtSegments', () => {
+  it('reads a value by its literal key segments, dots and all', () => {
+    expect(getAtSegments({ o: { 'a.b': 1 } }, ['o', 'a.b'])).toEqual({ value: 1 });
+    expect(getAtSegments({ o: { a: 1 } }, ['o', 'missing'])).toBeNull();
+    expect(getAtSegments({ o: 5 }, ['o', 'a'])).toBeNull();
+  });
+
+  it('sets a value at nested segments, creating missing objects, without mutating the input', () => {
+    const doc = { o: { k: 1 } };
+    const out = setAtSegments(doc, ['o', 'new'], 2);
+    expect(plain(out)).toEqual({ o: { k: 1, new: 2 } });
+    expect(doc).toEqual({ o: { k: 1 } });
+  });
+
+  it('treats one segment as one literal key, never as a nested path', () => {
+    const out = setAtSegments({}, ['top', 'a.b'], 1);
+    expect(plain(out)).toEqual({ top: { 'a.b': 1 } });
+  });
+
+  it('replaces a non-document on the way down when setting', () => {
+    expect(plain(setAtSegments({ o: 5 }, ['o', 'k'], 'v'))).toEqual({ o: { k: 'v' } });
+  });
+
+  it('deletes a value at nested segments, keeping siblings, without mutating the input', () => {
+    const doc = { o: { k: 1, keep: 2 } };
+    const out = deleteAtSegments(doc, ['o', 'k']);
+    expect(plain(out)).toEqual({ o: { keep: 2 } });
+    expect(doc).toEqual({ o: { k: 1, keep: 2 } });
+  });
+
+  it('is a no-op deleting under a missing or non-document intermediate value', () => {
+    expect(plain(deleteAtSegments({}, ['o', 'k']))).toEqual({});
+    expect(plain(deleteAtSegments({ o: 5 }, ['o', 'k']))).toEqual({ o: 5 });
+  });
+
+  it('refuses an empty path', () => {
+    expect(() => setAtSegments({}, [], 1)).toThrow(/at least one/);
+    expect(() => deleteAtSegments({}, [])).toThrow(/at least one/);
   });
 });
 

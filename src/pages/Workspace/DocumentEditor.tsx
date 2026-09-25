@@ -1,15 +1,37 @@
 import React from 'react';
-import { Button, Group, Modal, Switch, Text, Textarea, TextInput } from '@mantine/core';
-import { Decimal128, Double, Int32, Long, ObjectId } from 'bson';
+import { Button, Group, Modal, NativeSelect, Switch, Text, Textarea, TextInput } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { api, getErrorMessage } from '../../api/atelier';
-import { ejsonParse, ejsonStringify, ejsonStringifyReadable, isPlainDocument } from '../../utils/ejson';
+import { ejsonParse, ejsonStringify, isPlainDocument } from '../../utils/ejson';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
 import { getStructureEntries } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
-import { applyDiff, buildUpdateRequest, diff, isEdited, isEmptyDiff, isUnsafeFieldName } from './documentDiff';
+import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
+import type { SuggestionContext } from '../../features/fieldSuggestions/types';
+import {
+  applyDiff,
+  buildUpdateRequest,
+  deleteAtSegments,
+  diff,
+  getAtSegments,
+  isEdited,
+  isEmptyDiff,
+  isUnsafeFieldName,
+  setAtSegments,
+  type DocDiff,
+} from './documentDiff';
+import {
+  SELECTABLE_KINDS,
+  TYPE_LABEL,
+  convertType,
+  kindOf,
+  parseAs,
+  textOf,
+  typeLabel,
+  type FieldKind,
+} from './documentFieldTypes';
 import type { SchemaSampleEntry } from '@shared/types';
 
 type Doc = Record<string, unknown>;
@@ -46,135 +68,360 @@ function revive(doc: unknown): Doc {
   return revived as Doc;
 }
 
-type Kind = 'string' | 'int32' | 'double' | 'long' | 'decimal' | 'number' | 'boolean' | 'date' | 'objectId' | 'null' | 'other';
+/** One field row's identity, and the map key `texts`/`collapsed` are keyed by. */
+const keyOf = (segments: readonly string[]): string => JSON.stringify(segments);
 
-function kindOf(v: unknown): Kind {
-  if (v === null) return 'null';
-  if (typeof v === 'string') return 'string';
-  if (typeof v === 'boolean') return 'boolean';
-  // A bare JS number never comes off the wire (it is always a sentinel), but
-  // a hand-built document can hold one; it saves as whatever bson infers.
-  if (typeof v === 'number') return 'number';
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? 'other' : 'date';
-  if (v instanceof Int32) return 'int32';
-  if (v instanceof Double) return 'double';
-  if (v instanceof Long) return 'long';
-  if (v instanceof Decimal128) return 'decimal';
-  if (v instanceof ObjectId) return 'objectId';
-  return 'other';
-}
-
-const TYPE_LABEL: Record<Exclude<Kind, 'other'>, string> = {
-  string: 'String',
-  int32: 'Int32',
-  double: 'Double',
-  long: 'Int64',
-  decimal: 'Decimal128',
-  number: 'Number',
-  boolean: 'Boolean',
-  date: 'Date',
-  objectId: 'ObjectId',
-  null: 'Null',
-};
-
-function typeLabel(kind: Kind, v: unknown): string {
-  if (kind !== 'other') return TYPE_LABEL[kind];
-  if (Array.isArray(v)) return 'Array';
-  if (isPlainDocument(v)) return 'Object';
-  const bsonType = (v as { _bsontype?: unknown } | null)?._bsontype;
-  return typeof bsonType === 'string' ? bsonType : 'Value';
-}
-
-/** ISO-8601 in UTC, without the `.000` a whole second doesn't need. */
-function isoOf(d: Date): string {
-  return d.toISOString().replace('.000Z', 'Z');
-}
-
-function textOf(kind: Kind, v: unknown): string {
-  switch (kind) {
-    case 'date':
-      return isoOf(v as Date);
-    case 'int32':
-    case 'double':
-      return String((v as Int32 | Double).value);
-    case 'long':
-    case 'decimal':
-    case 'objectId':
-    case 'number':
-      return String(v);
-    case 'string':
-      return v as string;
-    default:
-      return ejsonStringifyReadable(v);
+function decodeKey(key: string): string[] | null {
+  try {
+    const segments = JSON.parse(key) as unknown;
+    return Array.isArray(segments) && segments.every((s) => typeof s === 'string') ? (segments as string[]) : null;
+  } catch {
+    return null;
   }
 }
 
-type Parsed = { ok: true; value: unknown } | { ok: false; error: string };
-
-const INTEGER = /^-?\d+$/;
-// Zone required: without one, `Date.parse` reads the text as local time and
-// the stored instant silently shifts by the machine's offset.
-const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
-const HEX_24 = /^[0-9a-fA-F]{24}$/;
-
-/** Typed text back to a value of the row's own type — never another one. */
-function parseAs(kind: Kind, text: string): Parsed {
-  const t = text.trim();
-  switch (kind) {
-    case 'string':
-      return { ok: true, value: text };
-    case 'int32': {
-      const n = Number(t);
-      return INTEGER.test(t) && n >= -(2 ** 31) && n < 2 ** 31
-        ? { ok: true, value: new Int32(n) }
-        : { ok: false, error: 'Enter a whole number between -2147483648 and 2147483647' };
-    }
-    case 'long': {
-      const ok = INTEGER.test(t) && BigInt(t) >= -(2n ** 63n) && BigInt(t) < 2n ** 63n;
-      return ok ? { ok: true, value: Long.fromString(t) } : { ok: false, error: 'Enter a whole number that fits in 64 bits' };
-    }
-    case 'double':
-    case 'number': {
-      const n = Number(t);
-      if (t === '' || Number.isNaN(n)) return { ok: false, error: 'Enter a number' };
-      return { ok: true, value: kind === 'double' ? new Double(n) : n };
-    }
-    case 'decimal':
-      try {
-        return { ok: true, value: Decimal128.fromString(t) };
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : 'Enter a decimal number' };
-      }
-    case 'date': {
-      // The regex only checks shape; a text like `2026-13-01T00:00Z` passes
-      // it but parses to NaN, which would otherwise write an Invalid Date
-      // into the draft and strand the row as uneditable.
-      const ms = ISO_UTC.test(t) ? Date.parse(t) : Number.NaN;
-      return Number.isNaN(ms)
-        ? { ok: false, error: 'Enter an ISO-8601 date with a zone, like 2026-09-24T20:31:00Z' }
-        : { ok: true, value: new Date(ms) };
-    }
-    case 'objectId':
-      return HEX_24.test(t) ? { ok: true, value: new ObjectId(t) } : { ok: false, error: 'Enter 24 hexadecimal characters' };
-    default:
-      return { ok: false, error: 'This type is not editable here' };
-  }
+function isUnderSegments(key: string, prefix: readonly string[]): boolean {
+  const segments = decodeKey(key);
+  if (!segments || segments.length < prefix.length) return false;
+  return prefix.every((p, i) => segments[i] === p);
 }
 
-function withField(doc: Doc, field: string, value: unknown): Doc {
-  const next = Object.assign(Object.create(null) as Doc, doc);
-  Object.defineProperty(next, field, { value, enumerable: true, writable: true, configurable: true });
+/** Drops any entry addressing `segments` or anything nested under it. */
+function purgeUnder(m: ReadonlyMap<string, string>, segments: readonly string[]): Map<string, string> {
+  const next = new Map(m);
+  for (const key of next.keys()) if (isUnderSegments(key, segments)) next.delete(key);
   return next;
 }
 
-export function DocumentEditor({ connectionId, dbName, collection, doc, onClose, onSaved }: DocumentEditorProps) {
-  const T = themeVars;
+/**
+ * The dotted path to check with `isEdited` (and the W17 warning) for a row at
+ * `segments`. A field name with a `.` or a leading `$` can't be its own
+ * update path — `diff` (§5a) falls back to resending the nearest ancestor
+ * whose own path is safe, so that's what has to be checked here too. A
+ * top-level unsafe name has no such ancestor; the row is locked read-only in
+ * that case (see `locked` below), so its address is never actually used to
+ * decide anything save-relevant.
+ */
+function editAddress(segments: readonly string[]): string {
+  const cut = segments.findIndex((s) => isUnsafeFieldName(s));
+  const safe = cut === -1 ? segments : segments.slice(0, cut);
+  return (safe.length > 0 ? safe : segments).join('.');
+}
 
+interface RowCtx {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  draft: Doc;
+  changes: DocDiff;
+  texts: ReadonlyMap<string, string>;
+  collapsed: ReadonlySet<string>;
+  entriesByPath: Map<string, SchemaSampleEntry>;
+  patchDraft: (updater: (d: Doc) => Doc) => void;
+  patchTexts: (updater: (m: ReadonlyMap<string, string>) => ReadonlyMap<string, string>) => void;
+  toggleCollapsed: (key: string) => void;
+  setErr: (e: string | null) => void;
+}
+
+/** Whether some row nested under `segments` holds text that doesn't parse. */
+function hasPendingErrorUnder(ctx: RowCtx, segments: readonly string[]): boolean {
+  for (const [key, text] of ctx.texts) {
+    const rowSegments = decodeKey(key);
+    if (!rowSegments || rowSegments.length <= segments.length) continue;
+    if (!segments.every((s, i) => rowSegments[i] === s)) continue;
+    const found = getAtSegments(ctx.draft, rowSegments);
+    if (found && !parseAs(kindOf(found.value), text).ok) return true;
+  }
+  return false;
+}
+
+function warningFor(entriesByPath: Map<string, SchemaSampleEntry>, field: string, value: unknown): TypeWarning | null {
+  if (entriesByPath.size === 0 || field.includes('.')) return null;
+  // `inferType` reads sentinel shapes, the vocabulary the sample was
+  // recorded in, so the revived value goes back to one first.
+  const actual = inferType(JSON.parse(ejsonStringify(value)) as unknown);
+  return actual === 'object' ? null : checkFieldType(entriesByPath, field, actual);
+}
+
+function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; depth: number }) {
+  const T = themeVars;
+  const found = getAtSegments(ctx.draft, segments);
+  if (!found) return null; // removed by a sibling edit in the same render pass
+  const value = found.value;
+  const kind = kindOf(value);
+  const name = segments[segments.length - 1]!;
+  const isRoot = segments.length === 1;
+  const locked = isRoot && (name === '_id' || isUnsafeFieldName(name));
+  const dotted = segments.join('.');
+  const key = keyOf(segments);
+  const edited = isEdited(ctx.changes, editAddress(segments));
+  const warning = isRoot ? warningFor(ctx.entriesByPath, name, value) : null;
+
+  const hasTypeSelector = !locked && kind !== 'other';
+  const hasValueControl = hasTypeSelector && kind !== 'null' && kind !== 'object';
+  const removable = !locked;
+  // A container stays open, even if the user collapsed it, while a row
+  // nested under it holds text that doesn't parse — collapsing must never
+  // hide the only explanation for why Save is disabled.
+  const isCollapsed = ctx.collapsed.has(key) && !hasPendingErrorUnder(ctx, segments);
+
+  const text = ctx.texts.get(key) ?? (kind === 'array' ? textOf(kind, value) : hasValueControl ? textOf(kind, value) : '');
+  const parsedText = hasValueControl && ctx.texts.has(key) ? parseAs(kind, ctx.texts.get(key)!) : null;
+  const rowError = parsedText && !parsedText.ok ? parsedText.error : undefined;
+
+  const editText = (nextText: string) => {
+    ctx.patchTexts((m) => new Map(m).set(key, nextText));
+    ctx.setErr(null);
+    const parsed = parseAs(kind, nextText);
+    if (parsed.ok) ctx.patchDraft((d) => setAtSegments(d, segments, parsed.value));
+  };
+
+  const onTypeChange = (nextKind: FieldKind) => {
+    const converted = convertType(kind, nextKind, value);
+    ctx.patchDraft((d) => setAtSegments(d, segments, converted));
+    ctx.patchTexts((m) => purgeUnder(m, segments));
+    ctx.setErr(null);
+  };
+
+  const onRemove = () => {
+    ctx.patchDraft((d) => deleteAtSegments(d, segments));
+    ctx.patchTexts((m) => purgeUnder(m, segments));
+    ctx.setErr(null);
+  };
+
+  return (
+    <div
+      role="listitem"
+      data-field={dotted}
+      data-edited={edited || undefined}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 8,
+        padding: '4px 6px',
+        marginLeft: depth * 16,
+        borderLeft: `2px solid ${edited ? T.accent : 'transparent'}`,
+      }}
+    >
+      <div style={{ width: 180, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingTop: 4 }}>
+        {kind === 'object' && (
+          <button
+            type="button"
+            aria-expanded={!isCollapsed}
+            aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dotted}`}
+            onClick={() => ctx.toggleCollapsed(key)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 11, lineHeight: 1 }}
+          >
+            {isCollapsed ? '▸' : '▾'}
+          </button>
+        )}
+        <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
+          {name}
+          {edited && (
+            <Text span size="xs" c={T.accent} ml={6}>
+              edited
+            </Text>
+          )}
+        </Text>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {!hasValueControl ? (
+          kind === 'object' ? null : (
+            <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
+              {kind === 'null' ? 'null' : textOf(kind, value)}
+            </Text>
+          )
+        ) : kind === 'boolean' ? (
+          <Switch
+            aria-label={dotted}
+            checked={value === true}
+            onChange={(e) => {
+              const { checked } = e.currentTarget;
+              ctx.setErr(null);
+              ctx.patchDraft((d) => setAtSegments(d, segments, checked));
+            }}
+            mt={6}
+          />
+        ) : kind === 'string' || kind === 'array' ? (
+          <Textarea
+            aria-label={dotted}
+            value={text}
+            onChange={(e) => editText(e.currentTarget.value)}
+            error={rowError}
+            // Grows past one line natively (Chromium's `field-sizing`),
+            // without Mantine's JS autosize.
+            rows={1}
+            styles={{ input: { fieldSizing: 'content', maxHeight: 160 } }}
+            size="xs"
+            ff="monospace"
+            spellCheck={false}
+          />
+        ) : (
+          <TextInput
+            aria-label={dotted}
+            value={text}
+            onChange={(e) => editText(e.currentTarget.value)}
+            error={rowError}
+            inputMode={kind === 'date' || kind === 'objectId' ? undefined : 'decimal'}
+            size="xs"
+            ff="monospace"
+            spellCheck={false}
+            description={kind === 'date' && value instanceof Date ? `Local: ${value.toLocaleString()}` : undefined}
+            inputWrapperOrder={['label', 'input', 'description', 'error']}
+          />
+        )}
+        {warning && (
+          <Text size="xs" c="dimmed" mt={2} data-testid="document-editor-type-warning">
+            {`Field "${warning.field}" is usually ${warning.expectedType} (${warning.percent}% of sampled documents). This value is ${warning.actualType}.`}
+          </Text>
+        )}
+      </div>
+      <div style={{ width: 110, flexShrink: 0, paddingTop: 2 }}>
+        {hasTypeSelector ? (
+          <NativeSelect
+            aria-label={`${dotted} type`}
+            value={kind}
+            // A bare JS number isn't a selectable target — bson infers its
+            // saved type, not this selector — so it gets a disabled
+            // placeholder option instead of being folded into 'double',
+            // which would make Double look already selected and take a
+            // click to convert without firing onChange.
+            data={[
+              ...(kind === 'number' ? [{ value: 'number', label: TYPE_LABEL.number, disabled: true }] : []),
+              ...SELECTABLE_KINDS.map((k) => ({ value: k, label: TYPE_LABEL[k] })),
+            ]}
+            onChange={(e) => onTypeChange(e.currentTarget.value as FieldKind)}
+            size="xs"
+          />
+        ) : (
+          <Text size="xs" c="dimmed" style={{ paddingTop: 6 }}>
+            {typeLabel(kind, value)}
+          </Text>
+        )}
+      </div>
+      <div style={{ width: 28, flexShrink: 0 }}>
+        {removable && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="red"
+            aria-label={`Remove ${dotted}`}
+            onClick={onRemove}
+            px={4}
+          >
+            &times;
+          </Button>
+        )}
+      </div>
+      {kind === 'object' && !isCollapsed && (
+        <div style={{ width: '100%' }}>
+          <RowsList ctx={ctx} parentSegments={segments} depth={depth + 1} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddFieldRow({
+  ctx,
+  parentSegments,
+  existing,
+  depth,
+}: {
+  ctx: RowCtx;
+  parentSegments: readonly string[];
+  existing: readonly string[];
+  depth: number;
+}) {
+  const [name, setName] = React.useState('');
+  const [err, setErrLocal] = React.useState<string | null>(null);
+  const isRootLevel = parentSegments.length === 0;
+
+  const suggestionContext: SuggestionContext = React.useMemo(
+    () => ({ connectionId: ctx.connectionId, dbName: ctx.dbName, collection: ctx.collection }),
+    [ctx.connectionId, ctx.dbName, ctx.collection],
+  );
+  const ariaLabel = isRootLevel ? 'New field name' : `New field name under ${parentSegments.join('.')}`;
+
+  const submit = () => {
+    const trimmed = name.trim();
+    if (trimmed === '') return;
+    if (existing.includes(trimmed)) {
+      setErrLocal(`A field named "${trimmed}" already exists`);
+      return;
+    }
+    if (isRootLevel && isUnsafeFieldName(trimmed)) {
+      setErrLocal('This name cannot be saved from here: it must not contain "." or start with "$"');
+      return;
+    }
+    ctx.patchDraft((d) => setAtSegments(d, [...parentSegments, trimmed], ''));
+    ctx.setErr(null);
+    setName('');
+    setErrLocal(null);
+  };
+
+  return (
+    <div
+      data-testid={`add-field-${isRootLevel ? 'root' : parentSegments.join('.')}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: (depth + 1) * 16 }}
+    >
+      <div style={{ flex: 1, minWidth: 0, maxWidth: 260 }}>
+        <FieldAutocompleteInput
+          value={name}
+          onChange={(v) => {
+            setName(v);
+            setErrLocal(null);
+          }}
+          context={suggestionContext}
+          ariaLabel={ariaLabel}
+          placeholder="Add field"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: '4px 6px' }}
+        />
+      </div>
+      <Button size="compact-xs" variant="default" disabled={name.trim() === ''} onClick={submit}>
+        Add field
+      </Button>
+      {err && (
+        <Text size="xs" c="red">
+          {err}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+function RowsList({ ctx, parentSegments, depth }: { ctx: RowCtx; parentSegments: readonly string[]; depth: number }) {
+  const found = parentSegments.length === 0 ? { value: ctx.draft as unknown } : getAtSegments(ctx.draft, parentSegments);
+  const obj = found && isPlainDocument(found.value) ? (found.value as Doc) : {};
+  const keys = Object.keys(obj);
+  return (
+    <div
+      role="list"
+      aria-label={parentSegments.length === 0 ? 'Fields' : `Fields of ${parentSegments.join('.')}`}
+      style={{ minHeight: 0 }}
+    >
+      {keys.map((k) => (
+        <FieldRow key={k} ctx={ctx} segments={[...parentSegments, k]} depth={depth} />
+      ))}
+      <AddFieldRow ctx={ctx} parentSegments={parentSegments} existing={keys} depth={depth} />
+    </div>
+  );
+}
+
+export function DocumentEditor({ connectionId, dbName, collection, doc, onClose, onSaved }: DocumentEditorProps) {
   const [original, setOriginal] = React.useState<Doc>(() => revive(doc));
   const [draft, setDraft] = React.useState<Doc>(() => revive(doc));
-  // Text as typed, only for rows the user has touched. A value that doesn't
-  // parse stays here, and out of the draft, until it does.
+  // Text as typed, only for rows the user has touched, keyed by
+  // `keyOf(segments)`. A value that doesn't parse stays here, and out of the
+  // draft, until it does.
   const [texts, setTexts] = React.useState<ReadonlyMap<string, string>>(() => new Map());
+  const [collapsed, setCollapsed] = React.useState<ReadonlySet<string>>(() => new Set());
   const [err, setErr] = React.useState<string | null>(null);
   const [conflict, setConflict] = React.useState<'changed' | 'deleted' | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -184,9 +431,13 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   const changes = React.useMemo(() => diff(original, draft), [original, draft]);
   const rowErrors = React.useMemo(() => {
     const out = new Map<string, string>();
-    for (const [field, text] of texts) {
-      const parsed = parseAs(kindOf(draft[field]), text);
-      if (!parsed.ok) out.set(field, parsed.error);
+    for (const [key, text] of texts) {
+      const segments = decodeKey(key);
+      if (!segments) continue;
+      const found = getAtSegments(draft, segments);
+      if (!found) continue; // the row was removed or its type changed since
+      const parsed = parseAs(kindOf(found.value), text);
+      if (!parsed.ok) out.set(key, parsed.error);
     }
     return out;
   }, [texts, draft]);
@@ -216,20 +467,6 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     };
   }, [connectionId, dbName, collection]);
   const entriesByPath = React.useMemo(() => new Map(structureEntries.map((e) => [e.path, e])), [structureEntries]);
-  const warningFor = (field: string, value: unknown): TypeWarning | null => {
-    if (entriesByPath.size === 0 || field.includes('.')) return null;
-    // `inferType` reads sentinel shapes, the vocabulary the sample was
-    // recorded in, so the revived value goes back to one first.
-    const actual = inferType(JSON.parse(ejsonStringify(value)) as unknown);
-    return actual === 'object' ? null : checkFieldType(entriesByPath, field, actual);
-  };
-
-  const editText = (field: string, text: string) => {
-    setTexts((m) => new Map(m).set(field, text));
-    setErr(null);
-    const parsed = parseAs(kindOf(draft[field]), text);
-    if (parsed.ok) setDraft((d) => withField(d, field, parsed.value));
-  };
 
   const send = async (guarded: boolean) => {
     // Same guard as the Save button's `disabled`: ⌘↵ calls send() directly,
@@ -292,7 +529,14 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
       // path stays in the diff, so the next Save guards it again.
       setOriginal(fresh);
       setDraft(applyDiff(fresh, changes));
-      setTexts((m) => new Map([...m].filter(([field]) => isEdited(changes, field))));
+      setTexts((m) => {
+        const next = new Map<string, string>();
+        for (const [key, text] of m) {
+          const segments = decodeKey(key);
+          if (segments && isEdited(changes, editAddress(segments))) next.set(key, text);
+        }
+        return next;
+      });
       setConflict(null);
     } catch (e) {
       setErr(getErrorMessage(e, 'Reload failed'));
@@ -353,7 +597,26 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
     observer.current.observe(el);
   }, []);
 
-  const fields = Object.keys(draft);
+  const ctx: RowCtx = {
+    connectionId,
+    dbName,
+    collection,
+    draft,
+    changes,
+    texts,
+    collapsed,
+    entriesByPath,
+    patchDraft: (updater) => setDraft(updater),
+    patchTexts: (updater) => setTexts(updater),
+    toggleCollapsed: (key) =>
+      setCollapsed((s) => {
+        const next = new Set(s);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    setErr,
+  };
 
   return (
     // `closeOnClickOutside={false}` is load-bearing: one stray click on the
@@ -393,100 +656,12 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
       >
         <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
 
-        <div role="list" aria-label="Fields" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {fields.map((field) => {
-            const value = draft[field];
-            // The draft's own type: a row edits in the type it holds, and only
-            // a type selector could change that.
-            const kind = kindOf(value);
-            const editable = field !== '_id' && kind !== 'other' && kind !== 'null' && !isUnsafeFieldName(field);
-            const edited = isEdited(changes, field);
-            const rowError = rowErrors.get(field);
-            const warning = warningFor(field, value);
-            const text = texts.get(field) ?? textOf(kind, value);
-            return (
-              <div
-                key={field}
-                role="listitem"
-                data-field={field}
-                data-edited={edited || undefined}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(80px, 180px) 1fr 90px',
-                  gap: 8,
-                  alignItems: 'start',
-                  padding: '4px 6px',
-                  borderLeft: `2px solid ${edited ? T.accent : 'transparent'}`,
-                }}
-              >
-                <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
-                  {field}
-                  {edited && (
-                    <Text span size="xs" c={T.accent} ml={6}>
-                      edited
-                    </Text>
-                  )}
-                </Text>
-                <div>
-                  {!editable ? (
-                    <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
-                      {kind === 'null' ? 'null' : textOf(kind, value)}
-                    </Text>
-                  ) : kind === 'boolean' ? (
-                    <Switch
-                      aria-label={field}
-                      checked={value === true}
-                      onChange={(e) => {
-                        const { checked } = e.currentTarget;
-                        setErr(null);
-                        setDraft((d) => withField(d, field, checked));
-                      }}
-                      mt={6}
-                    />
-                  ) : kind === 'string' ? (
-                    <Textarea
-                      aria-label={field}
-                      value={text}
-                      onChange={(e) => editText(field, e.currentTarget.value)}
-                      // Grows past one line natively (Chromium's `field-sizing`),
-                      // without Mantine's JS autosize.
-                      rows={1}
-                      styles={{ input: { fieldSizing: 'content', maxHeight: 160 } }}
-                      size="xs"
-                      spellCheck={false}
-                    />
-                  ) : (
-                    <TextInput
-                      aria-label={field}
-                      value={text}
-                      onChange={(e) => editText(field, e.currentTarget.value)}
-                      error={rowError}
-                      inputMode={kind === 'date' || kind === 'objectId' ? undefined : 'decimal'}
-                      size="xs"
-                      ff="monospace"
-                      spellCheck={false}
-                      description={
-                        kind === 'date' && value instanceof Date ? `Local: ${value.toLocaleString()}` : undefined
-                      }
-                      inputWrapperOrder={['label', 'input', 'description', 'error']}
-                    />
-                  )}
-                  {warning && (
-                    <Text size="xs" c="dimmed" mt={2} data-testid="document-editor-type-warning">
-                      {`Field "${warning.field}" is usually ${warning.expectedType} (${warning.percent}% of sampled documents). This value is ${warning.actualType}.`}
-                    </Text>
-                  )}
-                </div>
-                <Text size="xs" c="dimmed" style={{ paddingTop: 6 }}>
-                  {typeLabel(kind, value)}
-                </Text>
-              </div>
-            );
-          })}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <RowsList ctx={ctx} parentSegments={[]} depth={0} />
         </div>
 
         {conflict === 'changed' && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: T.rs, background: T.warnSoft, color: T.warnText }}>
+          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
             This document changed since you opened it. Reload puts your edits on top of the current version;
             Overwrite saves them over it.
             <Group gap={6} mt={6}>
@@ -500,12 +675,12 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
           </div>
         )}
         {conflict === 'deleted' && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: T.rs, background: T.redSoft, color: T.redText }}>
+          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
             This document was deleted since you opened it. There is nothing left to save to.
           </div>
         )}
         {err && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: T.rs, background: T.redSoft, color: T.redText }}>
+          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
             {err}
           </div>
         )}

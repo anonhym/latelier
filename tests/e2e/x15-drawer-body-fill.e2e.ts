@@ -53,10 +53,13 @@ test('the Document Editor stays inside a short window and scrolls its fields', a
       .poll(async () =>
         win.evaluate(() => {
           const panel = document.querySelector('[role="dialog"]') as HTMLElement;
-          const list = panel.querySelector('[role="list"]') as HTMLElement;
+          // The field list scrolls inside a wrapper it shares with the filter
+          // box, so measure the list's nearest scrolling ancestor.
+          let scroller = panel.querySelector('[role="list"]') as HTMLElement;
+          while (getComputedStyle(scroller).overflowY !== 'auto') scroller = scroller.parentElement as HTMLElement;
           return {
             overflows: panel.getBoundingClientRect().bottom > window.innerHeight + 1,
-            scrolls: list.scrollHeight > list.clientHeight,
+            scrolls: scroller.scrollHeight > scroller.clientHeight,
           };
         }),
       )
