@@ -18,6 +18,7 @@ import { SaveModal } from './SaveModal';
 import { InsertDrawer } from './InsertDrawer';
 import { EditDrawer } from './EditDrawer';
 import { DeleteConfirm } from './DeleteConfirm';
+import { UpdateConfirm } from './UpdateConfirm';
 import { resolveDeleteDialog } from './deleteMode';
 import { currentFilterJson } from './builder';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
@@ -265,6 +266,7 @@ export function DialogStack({
     editing,
     deleteDoc,
     deleteAllOpen,
+    updateAllOpen,
     deleteSelected,
     inserting,
     closeInsertDrawer,
@@ -274,6 +276,8 @@ export function DialogStack({
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,
+    closeUpdateAllModal,
+    handleUpdatedAll,
   } = documentDialogs;
   const {
     connectionFormTarget,
@@ -366,6 +370,26 @@ export function DialogStack({
           onSaved={handleDocSaved}
         />
       )}
+
+      {updateAllOpen && activeCollection && (() => {
+        const filterJson = currentFilterJson(activeCollection.state);
+        // Same defensive stance as delete-all: openUpdateAllModal already
+        // refused to open without a runnable filter, but the filter is read
+        // live from the Focused Tab, which can change out from under an open
+        // dialog (builder edit, tab restore) — never fall through to `{}`.
+        if (filterJson === null) return null;
+        return (
+          <UpdateConfirm
+            connectionId={activeCollection.connectionId}
+            dbName={activeCollection.dbName}
+            collection={activeCollection.collection}
+            readOnly={focusedConnectionReadOnly}
+            filter={filterJson}
+            onClose={closeUpdateAllModal}
+            onUpdated={handleUpdatedAll}
+          />
+        );
+      })()}
 
       {(() => {
         if (!activeCollection) return null;

@@ -216,6 +216,7 @@ export function emptyWorkspaceActions(
     openEdit: vi.fn(),
     openDelete: vi.fn(),
     openDeleteAll: vi.fn(),
+    openUpdateAll: vi.fn(),
     openInsert: vi.fn(),
     openSave: vi.fn(),
     ...overrides,

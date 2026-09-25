@@ -1528,3 +1528,259 @@ describe('DocumentService — a schema-validator rejection is a VALIDATION error
     expect(caught?.details?.errInfo).toBeDefined();
   });
 });
+
+// W08/updateMany — same confirm-token gate as deleteMany, plus two things
+// deleteMany's filter-only token doesn't need: an update-shape guard
+// (operator documents only, no pipelines, no replacements) and a hash
+// binding the token to the exact update body reviewed, not just the filter.
+describe('DocumentService.confirmUpdateMany / updateMany', () => {
+  let hp: { host: string; port: number };
+  let pool: MongoPool;
+  let svc: DocumentService;
+  let tmp: TempDb;
+  let vault: SecretsVault;
+  const connId = 'update-many-conn';
+  const dbName = 'update_many_db';
+
+  beforeAll(async () => {
+    const server = await getSharedServer();
+    hp = uriToHostPort(server.getUri());
+    tmp = createTempDb();
+    vault = new SecretsVault(tmp.db, createSafeStorageMock());
+    const conn = makeConnection(connId, hp, { defaultDb: dbName });
+    pool = new MongoPool({ repo: makeReader([conn]), vault });
+    svc = new DocumentService(pool);
+  }, 60_000);
+
+  afterAll(async () => {
+    svc.dispose();
+    await pool.disconnectAll();
+    tmp.cleanup();
+  });
+
+  it('happy path: confirms a count, then updates exactly the matched documents', async () => {
+    const coll = 'update_many_happy';
+    const client = await pool.write(connId).client();
+    await client.db(dbName).collection(coll).drop().catch(() => {});
+    await client
+      .db(dbName)
+      .collection<{ _id: number; status: string }>(coll)
+      .insertMany([{ _id: 1, status: 'draft' }, { _id: 2, status: 'draft' }, { _id: 3, status: 'final' }]);
+
+    const filterJson = JSON.stringify({ status: 'draft' });
+    const updateJson = JSON.stringify({ $set: { status: 'active' } });
+    const { count, confirmToken } = await svc.confirmUpdateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson });
+    expect(count).toBe(2);
+
+    const result = await svc.updateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson, confirmToken });
+    expect(result).toEqual({ matchedCount: 2, modifiedCount: 2 });
+
+    const docs = await client.db(dbName).collection<{ _id: number; status: string }>(coll).find({}).sort({ _id: 1 }).toArray();
+    expect(docs.map((d) => d.status)).toEqual(['active', 'active', 'final']);
+  });
+
+  it('confirmUpdateMany refuses a replacement-style document (no $ keys), before counting', async () => {
+    const coll = 'update_many_replacement';
+    await expect(
+      svc.confirmUpdateMany({
+        connectionId: connId,
+        dbName,
+        collection: coll,
+        filterJson: '{}',
+        updateJson: JSON.stringify({ status: 'active' }),
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('confirmUpdateMany refuses a pipeline update (a top-level array)', async () => {
+    const coll = 'update_many_pipeline';
+    await expect(
+      svc.confirmUpdateMany({
+        connectionId: connId,
+        dbName,
+        collection: coll,
+        filterJson: '{}',
+        updateJson: JSON.stringify([{ $set: { status: 'active' } }]),
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('confirmUpdateMany refuses an empty update document', async () => {
+    const coll = 'update_many_empty_update';
+    await expect(
+      svc.confirmUpdateMany({ connectionId: connId, dbName, collection: coll, filterJson: '{}', updateJson: '{}' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('a confirmDeleteMany token cannot authorize updateMany, even against the identical filter/collection', async () => {
+    const coll = 'update_many_cross_op_a';
+    const client = await pool.write(connId).client();
+    await client.db(dbName).collection(coll).drop().catch(() => {});
+    await client.db(dbName).collection<{ _id: number; status: string }>(coll).insertOne({ _id: 1, status: 'draft' });
+
+    const filterJson = '{}';
+    const { confirmToken } = await svc.confirmDeleteMany({ connectionId: connId, dbName, collection: coll, filterJson });
+
+    await expect(
+      svc.updateMany({
+        connectionId: connId,
+        dbName,
+        collection: coll,
+        filterJson,
+        updateJson: JSON.stringify({ $set: { status: 'active' } }),
+        confirmToken,
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    const stored = await client.db(dbName).collection<{ _id: number; status: string }>(coll).findOne({ _id: 1 });
+    expect(stored!.status).toBe('draft');
+  });
+
+  it('a confirmUpdateMany token cannot authorize deleteMany, even against the identical filter/collection', async () => {
+    const coll = 'update_many_cross_op_b';
+    const client = await pool.write(connId).client();
+    await client.db(dbName).collection(coll).drop().catch(() => {});
+    await client.db(dbName).collection<{ _id: number }>(coll).insertOne({ _id: 1 });
+
+    const filterJson = '{}';
+    const updateJson = JSON.stringify({ $set: { touched: true } });
+    const { confirmToken } = await svc.confirmUpdateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson });
+
+    await expect(
+      svc.deleteMany({ connectionId: connId, dbName, collection: coll, filterJson, confirmToken }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    expect(await client.db(dbName).collection(coll).countDocuments({})).toBe(1);
+  });
+
+  it('rejects the token when the update body changes after Review, even though the filter/collection match', async () => {
+    const coll = 'update_many_hash_mismatch';
+    const client = await pool.write(connId).client();
+    await client.db(dbName).collection(coll).drop().catch(() => {});
+    await client.db(dbName).collection<{ _id: number; status: string }>(coll).insertOne({ _id: 1, status: 'draft' });
+
+    const filterJson = '{}';
+    const { confirmToken } = await svc.confirmUpdateMany({
+      connectionId: connId,
+      dbName,
+      collection: coll,
+      filterJson,
+      updateJson: JSON.stringify({ $set: { status: 'reviewed-value' } }),
+    });
+
+    await expect(
+      svc.updateMany({
+        connectionId: connId,
+        dbName,
+        collection: coll,
+        filterJson,
+        // A different update body than the one the token was minted for.
+        updateJson: JSON.stringify({ $set: { status: 'edited-after-review' } }),
+        confirmToken,
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    const stored = await client.db(dbName).collection<{ _id: number; status: string }>(coll).findOne({ _id: 1 });
+    expect(stored!.status).toBe('draft');
+  });
+
+  it('consumes its own token on success, and rejects an expired token', async () => {
+    const coll = 'update_many_token_lifecycle';
+    const client = await pool.write(connId).client();
+    await client.db(dbName).collection(coll).drop().catch(() => {});
+    await client.db(dbName).collection<{ _id: number }>(coll).insertOne({ _id: 1 });
+
+    const filterJson = '{}';
+    const updateJson = JSON.stringify({ $set: { touched: true } });
+    const { confirmToken } = await svc.confirmUpdateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson });
+    await svc.updateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson, confirmToken });
+
+    // Reusing the same (now-consumed) token must fail.
+    await expect(
+      svc.updateMany({ connectionId: connId, dbName, collection: coll, filterJson, updateJson, confirmToken }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+// Read-only connection guard for updateMany. Same server, only `readOnly`
+// differs — the write-grant-first ordering (unlike deleteMany's
+// token-then-grant order) must report READ_ONLY even against a bogus token,
+// proving the grant really is asked for before the token is inspected.
+describe('DocumentService.updateMany — read-only connection guard', () => {
+  let server: MongoMemoryServer;
+  let hp: { host: string; port: number };
+  let pool: MongoPool;
+  let svc: DocumentService;
+  let tmp: TempDb;
+  let vault: SecretsVault;
+  let verify: MongoClient;
+  const rwConnId = 'update-many-ro-guard-rw';
+  const roConnId = 'update-many-ro-guard-ro';
+  const dbName = 'update_many_ro_guard_db';
+
+  beforeAll(async () => {
+    server = await getSharedServer();
+    hp = uriToHostPort(server.getUri());
+    verify = new MongoClient(server.getUri());
+    await verify.connect();
+
+    tmp = createTempDb();
+    vault = new SecretsVault(tmp.db, createSafeStorageMock());
+    const rwConn = makeConnection(rwConnId, hp, { defaultDb: dbName });
+    const roConn = makeConnection(roConnId, hp, { defaultDb: dbName, readOnly: true });
+    pool = new MongoPool({ repo: makeReader([rwConn, roConn]), vault });
+    svc = new DocumentService(pool);
+  }, 60_000);
+
+  afterAll(async () => {
+    svc.dispose();
+    await pool.disconnectAll();
+    await verify.close();
+    tmp.cleanup();
+  });
+
+  it('confirmUpdateMany still works read-only (a read); updateMany refuses READ_ONLY even with a bogus token', async () => {
+    const coll = 'update_many_ro_guard';
+    await verify.db(dbName).collection(coll).drop().catch(() => {});
+    await verify.db(dbName).collection<{ a: number }>(coll).insertMany([{ a: 1 }, { a: 2 }]);
+
+    const { count } = await svc.confirmUpdateMany({
+      connectionId: roConnId,
+      dbName,
+      collection: coll,
+      filterJson: '{}',
+      updateJson: '{"$set":{"a":9}}',
+    });
+    expect(count).toBe(2);
+
+    await expect(
+      svc.updateMany({
+        connectionId: roConnId,
+        dbName,
+        collection: coll,
+        filterJson: '{}',
+        updateJson: '{"$set":{"a":9}}',
+        confirmToken: 'not-a-real-token',
+      }),
+    ).rejects.toMatchObject({ code: 'READ_ONLY' });
+    expect(await verify.db(dbName).collection(coll).countDocuments({ a: 9 })).toBe(0);
+
+    // The identical confirm+update flow against the writable connection still works.
+    const { confirmToken: rwToken } = await svc.confirmUpdateMany({
+      connectionId: rwConnId,
+      dbName,
+      collection: coll,
+      filterJson: '{}',
+      updateJson: '{"$set":{"a":9}}',
+    });
+    const res = await svc.updateMany({
+      connectionId: rwConnId,
+      dbName,
+      collection: coll,
+      filterJson: '{}',
+      updateJson: '{"$set":{"a":9}}',
+      confirmToken: rwToken,
+    });
+    expect(res.matchedCount).toBe(2);
+  });
+});

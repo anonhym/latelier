@@ -50,6 +50,15 @@ const AUDITED_CHANNELS: Readonly<Record<string, ChannelSpec>> = {
       modifiedCount: count(data, 'modifiedCount'),
     }),
   },
+  [IPC_CHANNELS.docUpdateMany]: {
+    op: 'updateMany',
+    summarize: (input, data) => ({
+      op: 'updateMany',
+      filter: filterOf(input),
+      matchedCount: count(data, 'matchedCount'),
+      modifiedCount: count(data, 'modifiedCount'),
+    }),
+  },
   [IPC_CHANNELS.docDeleteOne]: {
     op: 'deleteOne',
     summarize: (input, data) => ({

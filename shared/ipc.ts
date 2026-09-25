@@ -242,6 +242,8 @@ export interface IpcApi {
     deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number }>;
     confirmDeleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ count: number; confirmToken: string }>;
     deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number }>;
+    confirmUpdateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ count: number; confirmToken: string }>;
+    updateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string; confirmToken: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
   };
 
   saved: {
@@ -422,6 +424,8 @@ export const IPC_CHANNELS = {
   docDeleteOne:          'doc:deleteOne',
   docConfirmDeleteMany:  'doc:confirmDeleteMany',
   docDeleteMany:         'doc:deleteMany',
+  docConfirmUpdateMany:  'doc:confirmUpdateMany',
+  docUpdateMany:         'doc:updateMany',
 
   // Saved queries -----------------------------------------
   savedList:      'saved:list',

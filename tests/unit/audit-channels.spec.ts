@@ -12,6 +12,7 @@ describe('auditRecordFor', () => {
       IPC_CHANNELS.docInsert,
       IPC_CHANNELS.docReplace,
       IPC_CHANNELS.docConfirmDeleteMany,
+      IPC_CHANNELS.docConfirmUpdateMany,
       IPC_CHANNELS.queryFind,
       IPC_CHANNELS.userCreate,
       IPC_CHANNELS.auditList,
@@ -31,6 +32,8 @@ describe('auditRecordFor', () => {
       .toEqual({ ...T, op: 'deleteOne', summary: { op: 'deleteOne', filter: '{"_id":1}', deletedCount: 1 }, outcome: 'ok', errorCode: null });
     expect(auditRecordFor(IPC_CHANNELS.docDeleteMany, { ...T, filterJson: '{}', confirmToken: 'tok' }, okEnv({ deletedCount: 9 })))
       .toEqual({ ...T, op: 'deleteMany', summary: { op: 'deleteMany', filter: '{}', deletedCount: 9 }, outcome: 'ok', errorCode: null });
+    expect(auditRecordFor(IPC_CHANNELS.docUpdateMany, { ...T, filterJson: '{}', updateJson: '{"$set":{"a":1}}', confirmToken: 'tok' }, okEnv({ matchedCount: 4, modifiedCount: 3 })))
+      .toEqual({ ...T, op: 'updateMany', summary: { op: 'updateMany', filter: '{}', matchedCount: 4, modifiedCount: 3 }, outcome: 'ok', errorCode: null });
     expect(auditRecordFor(IPC_CHANNELS.collectionRename, { ...T, newName: 'orders2' }, okEnv({ name: 'orders2' })))
       .toEqual({ ...T, op: 'collectionRename', summary: { op: 'collectionRename', fromName: 'orders', toName: 'orders2' }, outcome: 'ok', errorCode: null });
     expect(auditRecordFor(IPC_CHANNELS.collectionDrop, T, okEnv({ dropped: true })))
@@ -44,6 +47,7 @@ describe('auditRecordFor', () => {
       auditRecordFor(IPC_CHANNELS.docInsertMany, { ...T, docsJson: '[{"secret":"BODY"}]' }, okEnv({ insertedCount: 1, insertedIds: ['BODY-ID'] })),
       auditRecordFor(IPC_CHANNELS.docUpdateOne, { ...T, filterJson: '{}', updateJson: '{"$set":{"s":"BODY"}}' }, okEnv({ matchedCount: 1, modifiedCount: 1 })),
       auditRecordFor(IPC_CHANNELS.docDeleteMany, { ...T, filterJson: '{}', confirmToken: 'BODY-TOKEN' }, okEnv({ deletedCount: 1 })),
+      auditRecordFor(IPC_CHANNELS.docUpdateMany, { ...T, filterJson: '{}', updateJson: '{"$set":{"s":"BODY"}}', confirmToken: 'BODY-TOKEN' }, okEnv({ matchedCount: 1, modifiedCount: 1 })),
     ];
     expect(JSON.stringify(recs)).not.toContain('BODY');
   });

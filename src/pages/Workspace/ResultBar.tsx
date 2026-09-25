@@ -251,13 +251,13 @@ export function ResultBar() {
 
       {/* Document-level actions — bulk/destructive operations on the result
           set. A labelled menu rather than a bare overflow icon: this is the
-          shared home for later document actions (update all matching,
-          export, import — each a further `Menu.Item` here), so it needs a
-          name a user can point at, not just a dots glyph next to the view
-          switch. Placed left of the view switch, not beside it, so a
-          destructive item doesn't share a hover target with a benign
-          view-mode toggle. Hidden for read-only consumers (ScriptTab's
-          snapshot provider) so there's nothing to short-circuit at the leaf. */}
+          shared home for document actions (update all matching, delete all
+          matching — export, import can land here too), so it needs a name a
+          user can point at, not just a dots glyph next to the view switch.
+          Placed left of the view switch, not beside it, so a destructive item
+          doesn't share a hover target with a benign view-mode toggle. Hidden
+          for read-only consumers (ScriptTab's snapshot provider) so there's
+          nothing to short-circuit at the leaf. */}
       {!isReadOnly && (
         <Menu position="bottom-end" shadow="md" width={210}>
           <Menu.Target>
@@ -270,6 +270,12 @@ export function ResultBar() {
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
+            <Menu.Item
+              leftSection={I.edit}
+              onClick={() => actions.openUpdateAll()}
+            >
+              Update all matching…
+            </Menu.Item>
             <Menu.Item
               color="red"
               leftSection={I.trash}

@@ -32,6 +32,7 @@ export function useDocumentDialogs(deps: {
   editing: { doc: unknown; target: DocTarget } | null;
   deleteDoc: unknown | null;
   deleteAllOpen: boolean;
+  updateAllOpen: boolean;
   deleteSelected: unknown[] | null;
   inserting: { target: DocTarget; duplicateDocJson: string | null } | null;
   openEdit: (doc: unknown) => void;
@@ -39,6 +40,7 @@ export function useDocumentDialogs(deps: {
   setDeleteSelected: React.Dispatch<React.SetStateAction<unknown[] | null>>;
   openInsertModal: () => void;
   openDeleteAllModal: () => void;
+  openUpdateAllModal: () => void;
   openDuplicate: (doc: unknown) => void;
   closeInsertDrawer: () => void;
   handleInserted: () => void;
@@ -47,6 +49,8 @@ export function useDocumentDialogs(deps: {
   handleDocSaved: () => void;
   closeDeleteDialogs: () => void;
   handleDeleted: () => void;
+  closeUpdateAllModal: () => void;
+  handleUpdatedAll: () => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
    * doesn't have to re-run on every read-only query re-run (sort, filter,
@@ -61,6 +65,7 @@ export function useDocumentDialogs(deps: {
   const [editing, setEditing] = React.useState<{ doc: unknown; target: DocTarget } | null>(null);
   const [deleteDoc, setDeleteDoc] = React.useState<unknown | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = React.useState(false);
+  const [updateAllOpen, setUpdateAllOpen] = React.useState(false);
   // Holds the selected documents, not just ids, so the $in filter can be
   // recomputed from the canonical revived-BSON _id values.
   const [deleteSelected, setDeleteSelected] = React.useState<unknown[] | null>(null);
@@ -94,6 +99,17 @@ export function useDocumentDialogs(deps: {
       return;
     }
     setDeleteAllOpen(true);
+  }, [activeCollectionRef]);
+  const openUpdateAllModal = React.useCallback(() => {
+    const a = activeCollectionRef.current;
+    if (!a) return;
+    if (currentFilterJson(a.state) === null) {
+      notify.error('Filter text is blank or not valid JSON', {
+        title: 'No runnable filter',
+      });
+      return;
+    }
+    setUpdateAllOpen(true);
   }, [activeCollectionRef]);
   const openDuplicate = React.useCallback(
     (doc: unknown) => {
@@ -146,24 +162,37 @@ export function useDocumentDialogs(deps: {
     void run();
     setWriteVersion((v) => v + 1);
   }, [closeDeleteDialogs, run]);
-  // DeleteConfirm's target is read live from the Focused Tab, so any route
-  // that moves focus off the tab it was opened against (⌘1-9, ⌘W, cycling,
-  // palette tab.open) must close it — otherwise it deletes from the wrong
-  // collection. editing/inserting deliberately do NOT close here: they carry
-  // their own captured target and hold an in-progress draft that a tab
-  // switch must not silently discard.
+
+  // Same shape as delete-all: UpdateConfirm also reads its target live from
+  // the Focused Tab (see the tab-switch effect below), so it's closed the
+  // same way rather than routed through refreshSource's captured target.
+  const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
+  const handleUpdatedAll = React.useCallback(() => {
+    closeUpdateAllModal();
+    void run();
+    setWriteVersion((v) => v + 1);
+  }, [closeUpdateAllModal, run]);
+
+  // DeleteConfirm's and UpdateConfirm's targets are read live from the
+  // Focused Tab, so any route that moves focus off the tab either was opened
+  // against (⌘1-9, ⌘W, cycling, palette tab.open) must close them —
+  // otherwise they'd act on the wrong collection. editing/inserting
+  // deliberately do NOT close here: they carry their own captured target and
+  // hold an in-progress draft that a tab switch must not silently discard.
   //
   // Adjusted during render (not an effect) to avoid an extra commit+render pass per switch.
   const [prevTabId, setPrevTabId] = React.useState(activeTabId);
   if (activeTabId !== prevTabId) {
     setPrevTabId(activeTabId);
     closeDeleteDialogs();
+    closeUpdateAllModal();
   }
 
   return {
     editing,
     deleteDoc,
     deleteAllOpen,
+    updateAllOpen,
     deleteSelected,
     inserting,
     openEdit,
@@ -171,6 +200,7 @@ export function useDocumentDialogs(deps: {
     setDeleteSelected,
     openInsertModal,
     openDeleteAllModal,
+    openUpdateAllModal,
     openDuplicate,
     closeInsertDrawer,
     handleInserted,
@@ -179,6 +209,8 @@ export function useDocumentDialogs(deps: {
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,
+    closeUpdateAllModal,
+    handleUpdatedAll,
     writeVersion,
   };
 }
