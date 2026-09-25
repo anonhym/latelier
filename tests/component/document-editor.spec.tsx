@@ -260,6 +260,13 @@ describe('DocumentEditor — Fields view', () => {
     expect(within(row(name)).getByText(message)).toBeTruthy();
   });
 
+  it('refuses a date that matches the pattern but is not a real instant', () => {
+    setup();
+    fireEvent.change(field('at'), { target: { value: '2026-13-01T00:00:00Z' } });
+    expect(within(row('at')).getByText(/zone/)).toBeTruthy();
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('shows the W17 warning on a disagreeing row, and it never blocks Save', async () => {
     const sample = [1, 2, 3].map((i) => ({ _id: i, name: { $numberInt: String(i) } }));
     setup({ sample });
@@ -418,6 +425,20 @@ describe('DocumentEditor — conflicts', () => {
     expect((save() as HTMLButtonElement).disabled).toBe(true);
     expect(within(editor()).queryByRole('button', { name: 'Reload' })).toBeNull();
   });
+
+  it('⌘↵ after a deleted conflict does not resend, and leaves the deleted notice in place', async () => {
+    const { updateOne } = setup({ updateOne: conflicted() });
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.click(save());
+    fireEvent.click(await within(editor()).findByRole('button', { name: 'Overwrite' }));
+    await waitFor(() => expect(within(editor()).getByText(/was deleted/)).toBeTruthy());
+    updateOne.mockClear();
+
+    fireEvent.keyDown(field('name'), { key: 'Enter', metaKey: true });
+    await settle();
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(within(editor()).getByText(/was deleted/)).toBeTruthy();
+  });
 });
 
 describe('DocumentEditor — dismissal', () => {
@@ -490,6 +511,14 @@ describe('DocumentEditor — nested objects', () => {
     fireEvent.click(within(row('nested')).getByRole('button', { name: 'Expand nested' }));
     expect(field('nested.city').value).toBe('B');
   });
+
+  it('keeps a collapsed container open while a nested row still has a parse error', () => {
+    setup({ doc: { ...DOC, nested: { city: 'A', qty: { $numberInt: '5' } } } });
+    fireEvent.change(field('nested.qty'), { target: { value: '1.5' } });
+    fireEvent.click(within(row('nested')).getByRole('button', { name: 'Collapse nested' }));
+    expect(row('nested.qty')).not.toBeNull();
+    expect(within(row('nested.qty')).getByText(/whole number/)).toBeTruthy();
+  });
 });
 
 describe('DocumentEditor — arrays', () => {
@@ -550,6 +579,15 @@ describe('DocumentEditor — type selector', () => {
     fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
     expect(within(row('qty')).queryByText(/whole number/)).toBeNull();
     expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('gives a bare JS number its own disabled placeholder, so picking Double is a real change', async () => {
+    const { updateOne } = setup({ doc: { ...DOC, raw: 7 } });
+    expect(typeSelect('raw').value).toBe('number');
+    fireEvent.change(typeSelect('raw'), { target: { value: 'double' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { raw: { $numberDouble: '7.0' } } });
   });
 });
 
