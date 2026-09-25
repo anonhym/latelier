@@ -192,7 +192,7 @@ export interface IpcApi {
   collection: {
     create: (input: CollectionCreateInput) => Promise<{ name: string }>;
     drop: (input: CollectionDropInput) => Promise<{ dropped: boolean }>;
-    rename: (input: CollectionRenameInput) => Promise<{ name: string }>;
+    rename: (input: CollectionRenameInput) => Promise<{ name: string; auditId?: string }>;
   };
 
   database: {
