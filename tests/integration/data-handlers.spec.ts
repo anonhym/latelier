@@ -151,6 +151,49 @@ describe('data:import via the router', () => {
     expect(await client.db(dbName).collection('people').countDocuments()).toBe(0);
   });
 
+  it('imports a CSV through its mapping, records it as csv, and undoes it by digest', async () => {
+    const p = await file('people.csv', `_id,when,ref,a.b,s\n1,2024-01-02T03:04:05Z,507f1f77bcf86cd799439011,x,${BODY_MARKER}\n2,,,,\n`);
+    const columns = [
+      { header: '_id', type: 'number', emptyAsNull: false },
+      { header: 'when', type: 'date', emptyAsNull: false },
+      { header: 'ref', type: 'objectId', emptyAsNull: true },
+      { header: 'a.b', type: 'string', emptyAsNull: false },
+      { header: 's', type: 'string', emptyAsNull: false },
+    ];
+    const env = await invoke<ImportReport>({ ...target(), path: p, csv: { columns } });
+    expect(env).toMatchObject({ ok: true, data: { format: 'csv', inserted: 2, failed: 0 } });
+    expect(rows()).toMatchObject([{ outcome: 'ok', reversible: true, summary: { fileName: 'people.csv', format: 'csv', insertedCount: 2 } }]);
+    expect((rows()[0] as unknown as { raw: string }).raw).not.toContain(BODY_MARKER);
+
+    const undo = await invokeUndo(env.ok ? env.data.auditId! : '');
+    expect(undo).toMatchObject({ ok: true, data: { restored: 2, skipped: 0 } });
+    expect(await client.db(dbName).collection('people').countDocuments()).toBe(0);
+  });
+
+  it('refuses a CSV column mapping that is not the documented shape', async () => {
+    const p = await file('people.csv', 'a\n1\n');
+    for (const csv of [
+      { columns: [] },
+      { columns: [{ header: 'a', type: 'int', emptyAsNull: false }] },
+      { columns: [{ header: 'a', type: 'string' }] },
+    ]) {
+      expect(await invoke({ ...target(), path: p, csv })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    }
+    expect(await client.db(dbName).collection('people').countDocuments()).toBe(0);
+  });
+
+  it('previews a CSV without recording an audit row', async () => {
+    const preview = (payload: unknown) => handlers.get(IPC_CHANNELS.dataPreviewCsv)!(invokeEvent, payload) as Promise<Envelope<unknown>>;
+    const p = await file('people.csv', 'name,n\nann,1\n');
+    expect(await preview({ path: p })).toEqual({
+      ok: true,
+      data: { fileName: 'people.csv', headers: ['name', 'n'], rows: [['ann', '1']], inferred: ['string', 'number'] },
+    });
+    expect(await preview({})).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    expect(await preview({ path: await file('people.jsonl', '{}\n') })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    expect(rows()).toEqual([]);
+  });
+
   it('refuses a payload without a path before reaching the service', async () => {
     const env = await invoke({ ...target() });
     expect(env).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });

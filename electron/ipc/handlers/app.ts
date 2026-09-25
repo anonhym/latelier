@@ -31,7 +31,7 @@ const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
   ],
   // No "All files" entry: `data:import` refuses any other extension anyway.
   'data-import': [
-    { name: 'JSON / JSON Lines', extensions: ['json', 'jsonl', 'ndjson'] },
+    { name: 'JSON / JSON Lines / CSV', extensions: ['json', 'jsonl', 'ndjson', 'csv'] },
   ],
 };
 

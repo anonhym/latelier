@@ -4,10 +4,11 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import { MongoBulkWriteError, type Collection, type Db, type Document } from 'mongodb';
-import type { DataImportInput, DataImportProgressEvent, ImportFormat, ImportReport } from '@shared/types';
+import type { CsvPreview, DataImportInput, DataImportProgressEvent, ImportFormat, ImportReport } from '@shared/types';
 import { AppError, NotFoundError, SystemError, ValidationError } from '../errors.ts';
 import { DEFAULT_MAX_EJSON_BYTES } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
+import { csvRecords, previewCsv } from './csvImport.ts';
 import {
   emptyReport,
   extensionFormat,
@@ -70,8 +71,16 @@ export async function* jsonlRecords(stream: Readable, onBytes: (n: number) => vo
   }
 }
 
+async function readWhole(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch (err) {
+    throw fileError('read', err);
+  }
+}
+
 /**
- * Imports a JSON array or JSONL file into an existing collection. Parses in
+ * Imports a JSON array, JSONL or CSV file into an existing collection. Parses in
  * main and inserts unordered in batches, so a malformed line or a rejected
  * document is counted in the report rather than stopping the import. An error
  * that does stop it part-way carries `insertedCount` in its details, which is
@@ -104,16 +113,29 @@ export class ImportService {
     if (state) state.cancelled = true;
   }
 
+  /**
+   * The dialog's mapping step for a `.csv` file. Reads the file the same way
+   * `importFile` does, and the whole of it, so each column's inferred type
+   * holds for every row rather than only the ones shown.
+   */
+  async previewCsv(filePath: string): Promise<CsvPreview> {
+    const { format, size } = await this.checkFile(filePath);
+    if (format !== 'csv') throw new ValidationError('only a .csv file has a column preview', { field: 'path' });
+    this.checkWholeFileSize(format, size);
+    return { fileName: path.basename(filePath), ...previewCsv(await readWhole(filePath)) };
+  }
+
   async importFile(input: DataImportInput): Promise<ImportReport> {
     // First, before the file is touched: refuses a read-only connection.
     const w = this.pool.write(input.connectionId);
     const { format, size } = await this.checkFile(input.path);
-    if (format === 'json' && size > this.maxArrayBytes) {
+    if ((format === 'csv') !== (input.csv !== undefined)) {
       throw new ValidationError(
-        `a JSON array file over ${this.maxArrayBytes} bytes cannot be imported — convert it to JSONL, which is read line by line`,
-        { size, maxBytes: this.maxArrayBytes },
+        format === 'csv' ? 'a .csv file needs a column mapping' : 'a column mapping applies only to a .csv file',
+        { field: 'csv' },
       );
     }
+    this.checkWholeFileSize(format, size);
     const db = await w.db(input.dbName);
     await this.assertCollection(db, input);
     const coll = db.collection(input.collection);
@@ -129,15 +151,10 @@ export class ImportService {
     try {
       let bytesRead = 0;
       let records: Iterable<ImportRecord> | AsyncIterable<ImportRecord>;
-      if (format === 'json') {
-        let text: string;
-        try {
-          text = await fs.readFile(input.path, 'utf8');
-        } catch (err) {
-          throw fileError('read', err);
-        }
+      if (format !== 'jsonl') {
+        const text = await readWhole(input.path);
         bytesRead = size; // whole file is already in memory once parsed
-        records = parseJsonArray(text);
+        records = format === 'json' ? parseJsonArray(text) : csvRecords(text, input.csv!.columns);
       } else {
         records = jsonlRecords(createReadStream(input.path, { encoding: 'utf8' }), (n) => { bytesRead += n; });
       }
@@ -214,6 +231,16 @@ export class ImportService {
     }
   }
 
+  /** JSON arrays and CSV are parsed whole, so their size is capped; JSONL streams. */
+  private checkWholeFileSize(format: ImportFormat, size: number): void {
+    if (format === 'jsonl' || size <= this.maxArrayBytes) return;
+    const advice = format === 'json' ? ' — convert it to JSONL, which is read line by line' : '';
+    throw new ValidationError(
+      `a ${format === 'json' ? 'JSON array' : 'CSV'} file over ${this.maxArrayBytes} bytes cannot be imported${advice}`,
+      { size, maxBytes: this.maxArrayBytes },
+    );
+  }
+
   /** Re-checks the path the renderer sent: absolute, an allowed extension, a regular file. */
   private async checkFile(filePath: string): Promise<{ format: ImportFormat; size: number }> {
     if (!path.isAbsolute(filePath)) {
@@ -221,7 +248,7 @@ export class ImportService {
     }
     const byExtension = extensionFormat(filePath);
     if (byExtension === undefined) {
-      throw new ValidationError('only .json, .jsonl and .ndjson files can be imported', { field: 'path' });
+      throw new ValidationError('only .json, .jsonl, .ndjson and .csv files can be imported', { field: 'path' });
     }
     let stat;
     try {

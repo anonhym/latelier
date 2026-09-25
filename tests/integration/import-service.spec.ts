@@ -10,6 +10,7 @@ import { createReadStream } from 'node:fs';
 import { ImportService, jsonlRecords } from '../../electron/mongo/ImportService';
 import { importDigest, undoCaptureOf } from '../../electron/mongo/undo';
 import type { SecretsVault } from '../../electron/secrets/SecretsVault';
+import type { CsvColumnMapping, CsvColumnType } from '../../shared/types';
 import { getSharedServer, makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
 
 describe('ImportService.importFile', () => {
@@ -175,7 +176,7 @@ describe('ImportService.importFile', () => {
 
   it('refuses a relative path, an extension outside the allow-list, and a directory', async () => {
     await expect(run('people.json')).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'path' } });
-    await expect(run(await file('people.csv', 'a\n1'))).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'path' } });
+    await expect(run(await file('people.txt', 'a\n1'))).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'path' } });
     await fs.mkdir(path.join(dir, 'folder.json'));
     await expect(run(path.join(dir, 'folder.json'))).rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/not a file/) });
   });
@@ -271,6 +272,93 @@ describe('ImportService.importFile', () => {
         break;
       }
       expect(stream.destroyed).toBe(true);
+    });
+  });
+
+  describe('CSV', () => {
+    const col = (header: string, type: CsvColumnType = 'string', emptyAsNull = false): CsvColumnMapping =>
+      ({ header, type, emptyAsNull });
+    const runCsv = (p: string, columns: CsvColumnMapping[]) =>
+      svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, csv: { columns } });
+
+    it('imports each row through its column mapping, nesting dotted headers', async () => {
+      const oid = new ObjectId();
+      const p = await file('people.csv', [
+        '\uFEFF_id,name,age,active,born,ref,addr.city,addr.zip,note,nick',
+        `1,Ann,42,TRUE,2024-01-02T03:04:05Z,${oid.toHexString()},Paris,75001,"a, ""quoted""\nnote",`,
+        '2,Bob,,false,2020-05-06,,,,x,',
+      ].join('\r\n'));
+      const report = await runCsv(p, [
+        col('_id', 'number'), col('name'), col('age', 'number', true), col('active', 'boolean'), col('born', 'date'),
+        col('ref', 'objectId'), col('addr.city'), col('addr.zip'), col('note', 'skip'), col('nick', 'string', true),
+      ]);
+      expect(report).toEqual({ fileName: 'people.csv', format: 'csv', inserted: 2, failed: 0, errors: [], errorsTruncated: false, cancelled: false });
+      expect(await stored()).toEqual([
+        { _id: 1, name: 'Ann', age: 42, active: true, born: new Date('2024-01-02T03:04:05Z'), ref: oid, addr: { city: 'Paris', zip: '75001' }, nick: null },
+        { _id: 2, name: 'Bob', age: null, active: false, born: new Date('2020-05-06'), nick: null },
+      ]);
+    });
+
+    it('reports a cell that will not convert by its spreadsheet row, and imports the rest', async () => {
+      const p = await file('ages.csv', 'name,age\nann,3\n\nbob,old\ncid,4,extra\ndan,5\n');
+      const report = await runCsv(p, [col('name'), col('age', 'number')]);
+      expect(report).toMatchObject({ format: 'csv', inserted: 2, failed: 2 });
+      expect(report.errors).toEqual([
+        { at: 4, message: 'column "age": not a number' },
+        { at: 5, message: '3 fields, but the header row has 2' },
+      ]);
+      expect((await stored()).map((d) => d.name).sort((a, b) => String(a).localeCompare(String(b)))).toEqual(['ann', 'dan']);
+    });
+
+    it('refuses a CSV without a mapping, a mapping for another format, and a mapping the file has outgrown — before writing', async () => {
+      const p = await file('people.csv', 'a,b\n1,2\n');
+      await expect(run(p)).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'csv' } });
+      const json = await file('people.jsonl', '{"_id":1}\n');
+      await expect(runCsv(json, [col('a')])).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'csv' } });
+      await expect(runCsv(p, [col('a')])).rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/header row/) });
+      await expect(runCsv(p, [col('a'), col('a')])).rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/header row/) });
+      await expect(runCsv(await file('clash.csv', 'a,a.b\n1,2\n'), [col('a'), col('a.b')]))
+        .rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/same field/) });
+      await expect(runCsv(await file('open.csv', 'a\n"1\n'), [col('a')]))
+        .rejects.toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/never closes/) });
+      expect(await stored()).toEqual([]);
+    });
+
+    it('refuses a CSV over the size cap', async () => {
+      svc = new ImportService(pool, { maxArrayBytes: 5 });
+      const p = await file('big.csv', 'a\n1\n2\n3\n');
+      await expect(runCsv(p, [col('a')])).rejects.toMatchObject({
+        code: 'VALIDATION', message: expect.stringMatching(/^a CSV file over 5 bytes/), details: { maxBytes: 5 },
+      });
+      await expect(svc.previewCsv(p)).rejects.toMatchObject({ code: 'VALIDATION', details: { maxBytes: 5 } });
+    });
+
+    it('captures digests that match what the server stored', async () => {
+      const p = await file('undo.csv', `_id,when,ref,a.b\n1,2024-01-02,${new ObjectId().toHexString()},x\n`);
+      const report = await runCsv(p, [col('_id', 'number'), col('when', 'date'), col('ref', 'objectId'), col('a.b')]);
+      const [doc] = await stored();
+      expect(undoCaptureOf(report)?.digests).toEqual([importDigest(doc!)]);
+    });
+
+    describe('previewCsv', () => {
+      it('returns the file name, header, first rows and inferred types', async () => {
+        const p = await file('people.csv', 'name,age\nann,3\nbob,\n');
+        expect(await svc.previewCsv(p)).toEqual({
+          fileName: 'people.csv',
+          headers: ['name', 'age'],
+          rows: [['ann', '3'], ['bob', '']],
+          inferred: ['string', 'number'],
+        });
+      });
+
+      it('reads only an absolute path to a .csv file', async () => {
+        await expect(svc.previewCsv('people.csv')).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'path' } });
+        await expect(svc.previewCsv(await file('people.jsonl', '{"_id":1}\n')))
+          .rejects.toMatchObject({ code: 'VALIDATION', message: 'only a .csv file has a column preview' });
+        await expect(svc.previewCsv(await file('secret.pem', 'x'))).rejects.toMatchObject({ code: 'VALIDATION', details: { field: 'path' } });
+        await expect(svc.previewCsv(path.join(dir, 'gone.csv'))).rejects.toMatchObject({ code: 'INTERNAL' });
+        await expect(svc.previewCsv(await file('empty.csv', ''))).rejects.toMatchObject({ code: 'VALIDATION', message: 'the CSV file is empty' });
+      });
     });
   });
 

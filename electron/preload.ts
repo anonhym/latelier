@@ -153,6 +153,7 @@ const api: IpcApi = {
 
   data: {
     import: (input) => call(IPC_CHANNELS.dataImport, input),
+    previewCsv: (input) => call(IPC_CHANNELS.dataPreviewCsv, input),
     cancelImport: (input) => call(IPC_CHANNELS.dataCancelImport, input),
     onImportProgress: (cb) => {
       const listener = (_evt: unknown, payload: unknown) => cb(payload as DataImportProgressEvent);

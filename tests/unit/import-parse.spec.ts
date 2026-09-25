@@ -15,7 +15,8 @@ describe('extensionFormat', () => {
     expect(extensionFormat('/d/a.jsonl')).toBe('jsonl');
     expect(extensionFormat('/d/a.NDJSON')).toBe('jsonl');
     expect(extensionFormat('/d/a.Json')).toBe('sniff');
-    expect(extensionFormat('/d/a.csv')).toBeUndefined();
+    expect(extensionFormat('/d/a.CSV')).toBe('csv');
+    expect(extensionFormat('/d/a.tsv')).toBeUndefined();
     expect(extensionFormat('/d/json')).toBeUndefined();
     expect(extensionFormat('/d/a.constructor')).toBeUndefined();
   });
