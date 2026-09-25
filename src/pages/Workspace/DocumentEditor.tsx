@@ -145,10 +145,15 @@ function parseAs(kind: Kind, text: string): Parsed {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : 'Enter a decimal number' };
       }
-    case 'date':
-      return ISO_UTC.test(t)
-        ? { ok: true, value: new Date(Date.parse(t)) }
-        : { ok: false, error: 'Enter an ISO-8601 date with a zone, like 2026-09-24T20:31:00Z' };
+    case 'date': {
+      // The regex only checks shape; a text like `2026-13-01T00:00Z` passes
+      // it but parses to NaN, which would otherwise write an Invalid Date
+      // into the draft and strand the row as uneditable.
+      const ms = ISO_UTC.test(t) ? Date.parse(t) : Number.NaN;
+      return Number.isNaN(ms)
+        ? { ok: false, error: 'Enter an ISO-8601 date with a zone, like 2026-09-24T20:31:00Z' }
+        : { ok: true, value: new Date(ms) };
+    }
     case 'objectId':
       return HEX_24.test(t) ? { ok: true, value: new ObjectId(t) } : { ok: false, error: 'Enter 24 hexadecimal characters' };
     default:
@@ -227,7 +232,9 @@ export function DocumentEditor({ connectionId, dbName, collection, doc, onClose,
   };
 
   const send = async (guarded: boolean) => {
-    if (busy || rowErrors.size > 0) return;
+    // Same guard as the Save button's `disabled`: ⌘↵ calls send() directly,
+    // bypassing the button, so a deleted document must be checked here too.
+    if (busy || rowErrors.size > 0 || conflict === 'deleted') return;
     let request;
     try {
       request = buildUpdateRequest(original, draft);

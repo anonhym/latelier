@@ -198,6 +198,13 @@ describe('DocumentEditor — Fields view', () => {
     expect(within(row(name)).getByText(message)).toBeTruthy();
   });
 
+  it('refuses a date that matches the pattern but is not a real instant', () => {
+    setup();
+    fireEvent.change(field('at'), { target: { value: '2026-13-01T00:00:00Z' } });
+    expect(within(row('at')).getByText(/zone/)).toBeTruthy();
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('shows the W17 warning on a disagreeing row, and it never blocks Save', async () => {
     const sample = [1, 2, 3].map((i) => ({ _id: i, name: { $numberInt: String(i) } }));
     setup({ sample });
@@ -355,6 +362,20 @@ describe('DocumentEditor — conflicts', () => {
     expect(await within(editor()).findByText(/was deleted/)).toBeTruthy();
     expect((save() as HTMLButtonElement).disabled).toBe(true);
     expect(within(editor()).queryByRole('button', { name: 'Reload' })).toBeNull();
+  });
+
+  it('⌘↵ after a deleted conflict does not resend, and leaves the deleted notice in place', async () => {
+    const { updateOne } = setup({ updateOne: conflicted() });
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.click(save());
+    fireEvent.click(await within(editor()).findByRole('button', { name: 'Overwrite' }));
+    await waitFor(() => expect(within(editor()).getByText(/was deleted/)).toBeTruthy());
+    updateOne.mockClear();
+
+    fireEvent.keyDown(field('name'), { key: 'Enter', metaKey: true });
+    await settle();
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(within(editor()).getByText(/was deleted/)).toBeTruthy();
   });
 });
 
