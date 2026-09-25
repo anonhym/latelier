@@ -28,6 +28,8 @@ export interface CollectionWorkspaceActions {
   openDelete: (doc: unknown) => void;
   /** Open the delete-all-matching confirmation, scoped to the tab's current query filter. */
   openDeleteAll: () => void;
+  /** Open the update-all-matching confirmation, scoped to the tab's current query filter. */
+  openUpdateAll: () => void;
   /** Open the insert-document drawer. */
   openInsert: () => void;
   /** Open the save-query modal. */

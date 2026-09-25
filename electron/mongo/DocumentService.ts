@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, parseEjsonDocument, parseEjsonField } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
@@ -13,6 +13,17 @@ interface TokenEntry {
   dbName: string;
   collection: string;
   filterJson: string;
+  /**
+   * Which confirm flow minted this token. A `confirmDeleteMany` token must
+   * never authorize `updateMany` (or vice versa) even when the connection,
+   * database, collection and filter all happen to match — the two confirm
+   * screens showed the user two different actions.
+   */
+  op: 'deleteMany' | 'updateMany';
+  /** `updateMany` tokens only: sha256 of the exact `updateJson` string the
+   *  user reviewed, so an edit to the update body after Review invalidates
+   *  the token even though the filter/collection stayed the same. */
+  updateHash?: string;
   expiresAt: number;
 }
 
@@ -35,6 +46,33 @@ function assertNonEmptyFilter(filter: Record<string, unknown>, fieldName: string
   }
 }
 
+/**
+ * `updateMany`'s update document must be operator-only ($set/$unset/$inc/…) —
+ * a replacement-style document (`{ name: "x" }` with no `$` keys) would
+ * silently overwrite every matched document with the same body, which is a
+ * different and far more destructive operation than the "$set across matched
+ * documents" this affordance exists for. `parseEjsonDocument` already refused
+ * a pipeline (an array) and a bare sentinel before this runs; this only adds
+ * the operator-vs-replacement distinction on top of an already-plain document.
+ */
+function assertUpdateOperatorDocument(update: Record<string, unknown>, fieldName: string): void {
+  const keys = Object.keys(update);
+  if (keys.length === 0) {
+    throw new ValidationError(`${fieldName} must not be empty`, { field: fieldName });
+  }
+  if (!keys.every((k) => k.startsWith('$'))) {
+    throw new ValidationError(
+      `${fieldName} must be an update-operator document ($set, $unset, $inc, …) — replacement documents are not allowed for updateMany`,
+      { field: fieldName },
+    );
+  }
+}
+
+/** Binds a confirm token to the exact update body the user reviewed. */
+function hashUpdateJson(updateJson: string): string {
+  return createHash('sha256').update(updateJson).digest('hex');
+}
+
 /*
  * Two parsers, on purpose.
  *
@@ -51,10 +89,14 @@ function assertNonEmptyFilter(filter: Record<string, unknown>, fieldName: string
  * (`Cannot read properties of null (reading '_id')`) that surfaced as an
  * unclassified `MONGO_ERROR` instead of a clean `VALIDATION`.
  *
- * `docsJson` and `updateJson` stay on `parseEjsonField`, which does not check
- * document-ness: `insertMany` legitimately parses an array, and `updateJson`
- * legitimately parses either an update document OR an aggregation-pipeline
- * array — a blanket document check would break both.
+ * `docsJson` and `updateOne`'s `updateJson` stay on `parseEjsonField`, which
+ * does not check document-ness: `insertMany` legitimately parses an array, and
+ * `updateOne`'s `updateJson` legitimately parses either an update document OR
+ * an aggregation-pipeline array — a blanket document check would break both.
+ * `updateMany`'s `updateJson` is different: the bulk path refuses pipeline
+ * updates, so it goes through `parseEjsonDocument` like a filter, plus
+ * `assertUpdateOperatorDocument` on top to also refuse a replacement-style
+ * document.
  *
  * `assertNonEmptyFilter` is not redundant with either. It answers a different
  * question — "does this filter match everything" — and `{}` is a perfectly good
@@ -253,6 +295,7 @@ export class DocumentService {
       dbName: input.dbName,
       collection: input.collection,
       filterJson: input.filterJson,
+      op: 'deleteMany',
       expiresAt: Date.now() + this.tokenTtlMs,
     });
 
@@ -272,8 +315,11 @@ export class DocumentService {
       throw new ValidationError('confirmToken is invalid or expired', { field: 'confirmToken' });
     }
 
-    // Verify the filter matches what was confirmed
+    // Verify the filter matches what was confirmed, and that this token was
+    // minted for a delete — a confirmUpdateMany token must never authorize a
+    // deleteMany even if the filter/collection happen to match.
     if (
+      entry.op !== 'deleteMany' ||
       entry.connectionId !== input.connectionId ||
       entry.dbName !== input.dbName ||
       entry.collection !== input.collection ||
@@ -298,6 +344,107 @@ export class DocumentService {
         .collection(input.collection)
         .deleteMany(filter, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
       return { deletedCount: result.deletedCount };
+    } catch (err) {
+      throw classifyMongoOpError(err);
+    }
+  }
+
+  /**
+   * A read, like `confirmDeleteMany` — counts matches and mints a token, no
+   * write grant. The update shape (operator-only, non-empty, not a pipeline)
+   * is validated here rather than left to `updateMany`, so a bad update
+   * document is refused before the user ever gets to the type-the-collection
+   * step.
+   */
+  async confirmUpdateMany(input: {
+    connectionId: string;
+    dbName: string;
+    collection: string;
+    filterJson: string;
+    updateJson: string;
+  }): Promise<{ count: number; confirmToken: string }> {
+    const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
+    const update = parseEjsonDocument<Record<string, unknown>>(input.updateJson, 'updateJson');
+    assertUpdateOperatorDocument(update, 'updateJson');
+
+    const db = await this.pool.readDb(input.connectionId, input.dbName);
+    let count: number;
+    try {
+      count = await db
+        .collection(input.collection)
+        .countDocuments(filter, { maxTimeMS: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      throw classifyMongoOpError(err);
+    }
+
+    const confirmToken = randomUUID();
+    this.tokens.set(confirmToken, {
+      connectionId: input.connectionId,
+      dbName: input.dbName,
+      collection: input.collection,
+      filterJson: input.filterJson,
+      op: 'updateMany',
+      updateHash: hashUpdateJson(input.updateJson),
+      expiresAt: Date.now() + this.tokenTtlMs,
+    });
+
+    return { count, confirmToken };
+  }
+
+  async updateMany(input: {
+    connectionId: string;
+    dbName: string;
+    collection: string;
+    filterJson: string;
+    updateJson: string;
+    confirmToken: string;
+  }): Promise<{ matchedCount: number; modifiedCount: number }> {
+    // Write grant first, unlike deleteMany's token-then-grant order: refusal
+    // outranks validation (MongoPool.write's own contract), so a read-only
+    // connection reports READ_ONLY even against a bogus or mismatched token
+    // rather than a VALIDATION that reveals nothing about why the token failed.
+    const w = this.pool.write(input.connectionId);
+
+    const entry = this.tokens.get(input.confirmToken);
+    if (!entry || Date.now() > entry.expiresAt) {
+      this.tokens.delete(input.confirmToken);
+      throw new ValidationError('confirmToken is invalid or expired', { field: 'confirmToken' });
+    }
+
+    // Verify the filter/update match what was confirmed, and that this token
+    // was minted for an update — a confirmDeleteMany token must never
+    // authorize an updateMany even if the filter/collection happen to match.
+    // `updateHash` re-derives from the exact `updateJson` string being sent
+    // now: an edit to the update body after Review must invalidate the token
+    // even though the filter/collection stayed the same.
+    if (
+      entry.op !== 'updateMany' ||
+      entry.connectionId !== input.connectionId ||
+      entry.dbName !== input.dbName ||
+      entry.collection !== input.collection ||
+      entry.filterJson !== input.filterJson ||
+      entry.updateHash !== hashUpdateJson(input.updateJson)
+    ) {
+      throw new ValidationError('confirmToken does not match the provided filter/update/collection', {
+        field: 'confirmToken',
+      });
+    }
+
+    this.tokens.delete(input.confirmToken);
+
+    const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
+    const update = parseEjsonDocument<Record<string, unknown>>(input.updateJson, 'updateJson');
+    assertUpdateOperatorDocument(update, 'updateJson');
+
+    const db = await w.db(input.dbName);
+    try {
+      // Same admin budget as deleteMany — the confirm-gated bulk write, not
+      // atomic, so a bound firing mid-run leaves some documents already
+      // updated.
+      const result = await db
+        .collection(input.collection)
+        .updateMany(filter, update, { maxTimeMS: ADMIN_LONG_TIMEOUT_MS });
+      return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
     } catch (err) {
       throw classifyMongoOpError(err);
     }

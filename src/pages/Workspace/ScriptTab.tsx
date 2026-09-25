@@ -651,6 +651,7 @@ const SCRIPT_RESULT_ACTIONS: CollectionWorkspaceActions = Object.freeze({
   openEdit: noop,
   openDelete: noop,
   openDeleteAll: noop,
+  openUpdateAll: noop,
   openInsert: noop,
   openSave: noop,
 }) as CollectionWorkspaceActions;

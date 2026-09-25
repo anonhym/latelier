@@ -55,3 +55,18 @@ describe('ResultBar — delete-all-matching overflow action', () => {
     expect(screen.queryByRole('button', { name: 'Documents' })).toBeNull();
   });
 });
+
+describe('ResultBar — update-all-matching overflow action', () => {
+  it('calls actions.openUpdateAll() when "Update all matching…" is clicked (writable provider)', async () => {
+    const { actions } = renderBar();
+    await openOverflowMenu();
+    const item = await screen.findByRole('menuitem', { name: /Update all matching/ });
+    fireEvent.click(item);
+    expect(actions.openUpdateAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer update-all in a read-only provider', () => {
+    renderBar({ isReadOnly: true });
+    expect(screen.queryByRole('button', { name: 'Documents' })).toBeNull();
+  });
+});

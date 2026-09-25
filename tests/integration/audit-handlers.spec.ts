@@ -157,6 +157,16 @@ describe('audit log via the router', () => {
       filterJson: '{"_id":1}',
       updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-2` } }),
     });
+    const { confirmToken: updateManyToken } = await ok<{ confirmToken: string }>(
+      IPC_CHANNELS.docConfirmUpdateMany,
+      { ...target('orders'), filterJson: '{"_id":{"$gte":2}}', updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-3` } }) },
+    );
+    await ok(IPC_CHANNELS.docUpdateMany, {
+      ...target('orders'),
+      filterJson: '{"_id":{"$gte":2}}',
+      updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-3` } }),
+      confirmToken: updateManyToken,
+    });
     await ok(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":2}' });
     const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmDeleteMany, {
       ...target('orders'),
@@ -172,6 +182,7 @@ describe('audit log via the router', () => {
     expect(entries.map((e) => e.op)).toEqual([
       'insertMany',
       'updateOne',
+      'updateMany',
       'deleteOne',
       'deleteMany',
       'collectionRename',
@@ -181,6 +192,7 @@ describe('audit log via the router', () => {
     expect(entries.map((e) => e.summary)).toEqual([
       { op: 'insertMany', insertedCount: 3 },
       { op: 'updateOne', filter: '{"_id":1}', matchedCount: 1, modifiedCount: 1 },
+      { op: 'updateMany', filter: '{"_id":{"$gte":2}}', matchedCount: 2, modifiedCount: 2 },
       { op: 'deleteOne', filter: '{"_id":2}', deletedCount: 1 },
       { op: 'deleteMany', filter: '{"_id":{"$gte":1}}', deletedCount: 2 },
       { op: 'collectionRename', fromName: 'scratch', toName: 'scratch2' },
@@ -188,7 +200,7 @@ describe('audit log via the router', () => {
       { op: 'databaseDrop' },
     ]);
     expect(entries.map((e) => e.collection)).toEqual([
-      'orders', 'orders', 'orders', 'orders', 'scratch', 'scratch2', null,
+      'orders', 'orders', 'orders', 'orders', 'orders', 'scratch', 'scratch2', null,
     ]);
     for (const e of entries) {
       expect(e).toMatchObject({ connectionId: 'c1', dbName, outcome: 'ok', reversible: false });
@@ -199,6 +211,7 @@ describe('audit log via the router', () => {
     const raw = tmp.db.prepare('SELECT * FROM audit_log').all();
     expect(JSON.stringify(raw)).not.toContain(BODY_MARKER);
     expect(JSON.stringify(raw)).not.toContain(confirmToken);
+    expect(JSON.stringify(raw)).not.toContain(updateManyToken);
   });
 
   it('channels outside the audit table write no rows, even when they change data', async () => {
@@ -207,6 +220,7 @@ describe('audit log via the router', () => {
     await ok(IPC_CHANNELS.docReplace, { ...coll, filterJson: '{"_id":1}', docJson: '{"a":2}' });
     await ok(IPC_CHANNELS.queryFind, { ...coll, filter: '{}', limit: 10, skip: 0 });
     await ok(IPC_CHANNELS.docConfirmDeleteMany, { ...coll, filterJson: '{}' });
+    await ok(IPC_CHANNELS.docConfirmUpdateMany, { ...coll, filterJson: '{}', updateJson: '{"$set":{"a":1}}' });
     await ok(IPC_CHANNELS.indexCreate, { ...coll, fields: [{ field: 'a', direction: 1 }], options: { name: 'a_1' } });
     await ok(IPC_CHANNELS.indexDrop, { ...coll, name: 'a_1' });
     await ok(IPC_CHANNELS.userCreate, {

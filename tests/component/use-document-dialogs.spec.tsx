@@ -156,6 +156,55 @@ describe('useDocumentDialogs', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  // Update-all mirrors delete-all's atom (`useDocumentDialogs` reads its
+  // target the same way DeleteConfirm does — live off the Focused Tab), so it
+  // gets the same three behaviors: opened/closed via its own toggle,
+  // re-running on completion, and closing (not surviving) a tab switch.
+  it('handleUpdatedAll closes update-all and re-runs the query', () => {
+    const run = vi.fn(() => Promise.resolve());
+    const { result } = mountDialogs(run, 't1', tab());
+
+    act(() => result.current.openUpdateAllModal());
+    expect(result.current.updateAllOpen).toBe(true);
+
+    act(() => result.current.handleUpdatedAll());
+
+    expect(result.current.updateAllOpen).toBe(false);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('closeUpdateAllModal closes update-all without re-running', () => {
+    const run = vi.fn(() => Promise.resolve());
+    const { result } = mountDialogs(run, 't1', tab());
+
+    act(() => result.current.openUpdateAllModal());
+    act(() => result.current.closeUpdateAllModal());
+
+    expect(result.current.updateAllOpen).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('openUpdateAllModal is a no-op when there is no active collection', () => {
+    const { result } = mountDialogs(undefined, 't1', null);
+
+    act(() => result.current.openUpdateAllModal());
+
+    expect(result.current.updateAllOpen).toBe(false);
+  });
+
+  it('closes update-all when the Focused Tab changes, without re-running', () => {
+    const run = vi.fn(() => Promise.resolve());
+    const { result, rerender } = mountDialogs(run, 't1', tab());
+
+    act(() => result.current.openUpdateAllModal());
+    expect(result.current.updateAllOpen).toBe(true);
+
+    rerender({ activeTabId: 't2' });
+
+    expect(result.current.updateAllOpen).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('handleInserted closes the drawer, drops the duplicate payload and re-runs', () => {
     const run = vi.fn(() => Promise.resolve());
     const { result } = mountDialogs(run, 't1', tab());

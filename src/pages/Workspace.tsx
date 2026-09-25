@@ -356,6 +356,7 @@ function WorkspaceInner() {
     setDeleteDoc,
     openInsertModal,
     openDeleteAllModal,
+    openUpdateAllModal,
     openDuplicate,
   } = documentDialogs;
   const openSaveModal = React.useCallback(
@@ -400,6 +401,7 @@ function WorkspaceInner() {
       openEdit,
       openDelete: setDeleteDoc,
       openDeleteAll: openDeleteAllModal,
+      openUpdateAll: openUpdateAllModal,
       openInsert: openInsertModal,
       openSave: openSaveModal,
       expandBuilder,
@@ -414,6 +416,7 @@ function WorkspaceInner() {
       openEdit,
       setDeleteDoc,
       openDeleteAllModal,
+      openUpdateAllModal,
       openInsertModal,
       openSaveModal,
       expandBuilder,

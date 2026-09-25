@@ -57,6 +57,8 @@ describe('doc:* handlers via router', () => {
       deleteOne: async () => ({ deletedCount: 1 }),
       confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }),
       deleteMany: async () => ({ deletedCount: 3 }),
+      confirmUpdateMany: async () => ({ count: 3, confirmToken: 'tok-2' }),
+      updateMany: async () => ({ matchedCount: 3, modifiedCount: 3 }),
     };
     svc = { ...base, ...overrides } as DocumentService;
     const router = createRouter(shim.ipcMain, testSenderCheck);
@@ -183,5 +185,65 @@ describe('doc:* handlers via router', () => {
       confirmToken: 'tok-1',
     });
     expect(env).toEqual({ ok: true, data: { deletedCount: 3 } });
+  });
+
+  it('doc:confirmUpdateMany returns the count + token pair the updateMany flow depends on', async () => {
+    setupWith({ confirmUpdateMany: async () => ({ count: 5, confirmToken: 'upd-token' }) });
+    const env = await shim.invoke(IPC_CHANNELS.docConfirmUpdateMany, {
+      ...TARGET,
+      filterJson: '{"status":"stale"}',
+      updateJson: '{"$set":{"status":"archived"}}',
+    });
+    expect(env).toEqual({ ok: true, data: { count: 5, confirmToken: 'upd-token' } });
+  });
+
+  it('doc:confirmUpdateMany with a missing updateJson fails Zod (VALIDATION)', async () => {
+    setupWith();
+    const env = await shim.invoke(IPC_CHANNELS.docConfirmUpdateMany, {
+      ...TARGET,
+      filterJson: '{"status":"stale"}',
+    });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+  });
+
+  it('doc:updateMany with a missing confirmToken fails Zod (VALIDATION), never reaching the service', async () => {
+    const updateManySpy = vi.fn(async () => ({ matchedCount: 3, modifiedCount: 3 }));
+    setupWith({ updateMany: updateManySpy });
+    const env = await shim.invoke(IPC_CHANNELS.docUpdateMany, {
+      ...TARGET,
+      filterJson: '{"status":"stale"}',
+      updateJson: '{"$set":{"status":"archived"}}',
+    });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    expect(updateManySpy).not.toHaveBeenCalled();
+  });
+
+  it('doc:updateMany maps an invalid/expired confirmToken (ValidationError) to VALIDATION', async () => {
+    setupWith({
+      updateMany: async () => {
+        throw new ValidationError('confirmToken is invalid or expired', { field: 'confirmToken' });
+      },
+    });
+    const env = await shim.invoke(IPC_CHANNELS.docUpdateMany, {
+      ...TARGET,
+      filterJson: '{"status":"stale"}',
+      updateJson: '{"$set":{"status":"archived"}}',
+      confirmToken: 'expired-token',
+    });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+  });
+
+  it('doc:updateMany with a valid confirmToken forwards the service result', async () => {
+    setupWith({ updateMany: async () => ({ matchedCount: 5, modifiedCount: 4 }) });
+    const env = await shim.invoke(IPC_CHANNELS.docUpdateMany, {
+      ...TARGET,
+      filterJson: '{"status":"stale"}',
+      updateJson: '{"$set":{"status":"archived"}}',
+      confirmToken: 'tok-2',
+    });
+    expect(env).toEqual({ ok: true, data: { matchedCount: 5, modifiedCount: 4 } });
   });
 });

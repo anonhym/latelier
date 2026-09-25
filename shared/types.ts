@@ -430,7 +430,7 @@ export type AuditOutcome = 'ok' | 'error' | 'partial';
  */
 export type AuditSummary =
   | { op: 'insertMany'; insertedCount?: number }
-  | { op: 'updateOne'; filter: string; matchedCount?: number; modifiedCount?: number }
+  | { op: 'updateOne' | 'updateMany'; filter: string; matchedCount?: number; modifiedCount?: number }
   | { op: 'deleteOne' | 'deleteMany'; filter: string; deletedCount?: number }
   | { op: 'collectionRename'; fromName: string; toName: string }
   | { op: 'collectionDrop' | 'databaseDrop' };

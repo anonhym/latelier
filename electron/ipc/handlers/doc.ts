@@ -30,6 +30,12 @@ const DeleteManySchema = CollectionTargetSchema.extend({
   confirmToken: NonEmpty,
 });
 
+const ConfirmUpdateManySchema = UpdateOneSchema;
+
+const UpdateManySchema = UpdateOneSchema.extend({
+  confirmToken: NonEmpty,
+});
+
 export function registerDocChannels(router: Router, svc: DocumentService): void {
   router.register(
     IPC_CHANNELS.docInsert,
@@ -71,5 +77,17 @@ export function registerDocChannels(router: Router, svc: DocumentService): void 
     IPC_CHANNELS.docDeleteMany,
     zodValidator(DeleteManySchema),
     (input) => svc.deleteMany(input),
+  );
+
+  router.register(
+    IPC_CHANNELS.docConfirmUpdateMany,
+    zodValidator(ConfirmUpdateManySchema),
+    (input) => svc.confirmUpdateMany(input),
+  );
+
+  router.register(
+    IPC_CHANNELS.docUpdateMany,
+    zodValidator(UpdateManySchema),
+    (input) => svc.updateMany(input),
   );
 }
