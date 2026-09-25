@@ -242,3 +242,28 @@ describe('Query Builder — symbolic operators', () => {
     expect(await screen.findByText('is one of')).toBeTruthy();
   });
 });
+
+describe('Query Builder — op box suggests only field operators', () => {
+  it('lists $eq, $exists, $elemMatch for "$e" — not $expr, $exp or $expMovingAvg', async () => {
+    const opInput = await openConditionRow();
+    fireEvent.focus(opInput);
+    fireEvent.change(opInput, { target: { value: '$e' } });
+
+    const rows = await screen.findAllByRole('option');
+    const names = rows.map((r) => r.querySelector('span')?.textContent).sort();
+    expect(names).toEqual(['$elemMatch', '$eq', '$exists']);
+  });
+
+  it('never surfaces an expression, accumulator, window, stage or update operator', async () => {
+    const opInput = await openConditionRow();
+    fireEvent.focus(opInput);
+    // Bare "$" ranks the whole catalog; assert none of the excluded classes leak in.
+    fireEvent.change(opInput, { target: { value: '$' } });
+
+    const rows = await screen.findAllByRole('option');
+    const names = new Set(rows.map((r) => r.querySelector('span')?.textContent));
+    for (const excluded of ['$exp', '$expMovingAvg', '$expr', '$sum', '$group', '$set', '$setWindowFields']) {
+      expect(names.has(excluded)).toBe(false);
+    }
+  });
+});
