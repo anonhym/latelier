@@ -67,6 +67,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [W15](./W15-query-composition.md) | Query composition audit — projection / sort / limit / skip and the drawer's role after W13 — *post-iteration-1* | renderer |
 | [W16](./W16-structure-view.md) | Structure view — indexes + schema in the collection tab, plan badge, create-this-index (amends C09; ADR 0003) — *post-iteration-1* | renderer + main |
 | [W17](./W17-edit-drawer-type-warning.md) | A field-type warning in the Update drawer — *post-iteration-1* | renderer |
+| [W18](./W18-document-editor.md) | Document Editor — one modal for editing and creating documents, saved as a diff (supersedes W08's drawers; ADR 0012) — *post-iteration-1* | renderer |
 
 ### Aggregation (A)
 

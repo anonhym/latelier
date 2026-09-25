@@ -70,6 +70,16 @@ _Avoid_: query bar, search box
 The structured, row-per-condition panel beside the Filter Bar. It presents the same filter as editable rows, and stays in two-way sync with the Filter Bar.
 _Avoid_: filter panel, builder pane
 
+### Editing documents
+
+**Document Editor**:
+The popup for writing one document by hand, whether changing an existing one or creating a new one. It shows a single draft through two views, **Fields** (one typed row per field) and **JSON** (the whole document as text). Saving a change records one Operation containing only what changed.
+_Avoid_: edit drawer, insert drawer, edit popup, replace mode, update mode
+
+**Quick Edit**:
+Changing a single value in place, where it is displayed, without opening the Document Editor.
+_Avoid_: inline edit (as a user-facing name)
+
 ### Operations and history
 
 **Operation**:
