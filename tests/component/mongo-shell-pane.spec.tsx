@@ -253,4 +253,38 @@ describe('MongoShellPane', () => {
     // scrollTop must stay put — no forced jump to the bottom.
     expect(output.scrollTop).toBe(50);
   });
+
+  it('re-pins to the bottom when the user submits a command while scrolled up', async () => {
+    installAtelierMock({
+      mshell: {
+        start: async (): Promise<ShellSessionInfo> => ({
+          sessionId: 's1',
+          connectionId: 'c1',
+          startedAt: new Date().toISOString(),
+        }),
+        write: async () => undefined,
+        stop: async () => undefined,
+        list: async () => [],
+        onOutput: () => () => {},
+      },
+    });
+
+    mount();
+    const input = await screen.findByLabelText('Mongo shell input');
+    await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false));
+
+    const output = await screen.findByTestId('mongo-shell-output');
+    // Simulate the user having scrolled up, away from the bottom.
+    stubScrollMetrics(output, { scrollHeight: 500, clientHeight: 200, scrollTop: 50 });
+    fireEvent.scroll(output);
+    expect(output.scrollTop).toBe(50);
+
+    // Submitting a command — even while scrolled up — must surface its
+    // echo and output, like a real terminal.
+    fireEvent.change(input, { target: { value: 'db.stats()' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(output.textContent).toContain('db.stats()'));
+    expect(output.scrollTop).toBe(output.scrollHeight);
+  });
 });

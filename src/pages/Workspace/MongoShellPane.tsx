@@ -170,6 +170,10 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
     liveBufferRef.current = '';
     setInput('');
     if (line.length === 0) return;
+    // Submitting a command re-pins to the bottom even if the user had
+    // scrolled up to read scrollback — like a real terminal, entering
+    // input should always surface the command's echo and its output.
+    stickToBottomRef.current = true;
     // The REPL doesn't echo stdin — paint what the user typed locally so
     // they see their own command in the transcript.
     append(`> ${line}\n`);
