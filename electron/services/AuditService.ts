@@ -182,7 +182,11 @@ export class AuditService {
       // Exact-value match, not just "still present" — an insert that was
       // then edited must survive Undo, not get silently discarded because
       // its _id is still the one this entry created.
-      if (cur !== undefined && ejsonStringify(cur) === ejsonStringify(doc)) {
+      // The server stores `_id` first, but the driver appends a generated one
+      // last (and a pasted document can carry it anywhere), so compare with
+      // `_id` moved to the front — canonical EJSON is field-order sensitive.
+      const { _id, ...rest } = doc;
+      if (cur !== undefined && ejsonStringify(cur) === ejsonStringify({ _id, ...rest })) {
         toDelete.push(doc._id);
       } else {
         skipped++;

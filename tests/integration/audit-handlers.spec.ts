@@ -794,6 +794,17 @@ describe('audit log via the router', () => {
       expect(await orders().findOne({ _id: 2 })).toBeNull();
     });
 
+    it('insertMany undo removes documents inserted without an _id or with _id not first', async () => {
+      const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
+        ...target('orders'),
+        docsJson: JSON.stringify([{ v: 'no-id' }, { v: 'id-last', _id: 7 }]),
+      });
+      expect(await orders().countDocuments()).toBe(2);
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 0 } });
+      expect(await orders().countDocuments()).toBe(0);
+    });
+
     it('insertMany over the bulk capture ceiling is not reversible', async () => {
       const docs = Array.from({ length: 1001 }, (_, i) => ({ _id: i }));
       const res = await ok<{ insertedCount: number; auditId?: string }>(IPC_CHANNELS.docInsertMany, {
