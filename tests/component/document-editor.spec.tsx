@@ -70,6 +70,8 @@ const field = (name: string) => within(editor()).getByRole('textbox', { name }) 
 const row = (name: string) => editor().querySelector(`[data-field="${name}"]`) as HTMLElement;
 const save = () => within(editor()).getByRole('button', { name: 'Save' });
 const lastCall = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.at(-1)![0] as UpdateInput;
+const typeSelect = (name: string) => within(row(name)).getByRole('combobox', { name: `${name} type` }) as HTMLSelectElement;
+const addFieldBox = (parent = 'root') => within(editor()).getByTestId(`add-field-${parent}`);
 
 const settle = async () => {
   await act(async () => {
@@ -137,12 +139,15 @@ describe('DocumentEditor — Fields view', () => {
     expect(field('at').value).toBe('1970-01-01T00:00:00Z');
     expect(field('ref').value).toBe('aaaaaaaaaaaaaaaaaaaaaaaa');
     expect((within(editor()).getByRole('switch', { name: 'active' }) as HTMLInputElement).checked).toBe(true);
-    for (const readOnly of ['_id', 'gone', 'tags', 'nested']) {
+    // `_id` is always locked; `nested` is a container — it has no textbox of
+    // its own, its children (tested separately) do.
+    for (const readOnly of ['_id', 'nested']) {
       expect(within(editor()).queryByRole('textbox', { name: readOnly })).toBeNull();
     }
     expect(within(row('gone')).getByText('null')).toBeTruthy();
-    expect(within(row('qty')).getByText('Int32')).toBeTruthy();
-    expect(within(row('big')).getByText('Int64')).toBeTruthy();
+    expect(field('tags').value).toBe('["a"]');
+    expect((row('qty').querySelector('select') as HTMLSelectElement).value).toBe('int32');
+    expect((row('big').querySelector('select') as HTMLSelectElement).value).toBe('long');
   });
 
   it('shows the local time beneath a date', () => {
@@ -385,5 +390,180 @@ describe('DocumentEditor — dismissal', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
     expect(field('name').value).toBe('gadget');
+  });
+});
+
+describe('DocumentEditor — nested objects', () => {
+  it('edits a nested field in place, marking the field and its container edited', () => {
+    setup();
+    expect(field('nested.city').value).toBe('A');
+    fireEvent.change(field('nested.city'), { target: { value: 'B' } });
+    expect(row('nested.city').dataset.edited).toBe('true');
+    expect(row('nested').dataset.edited).toBe('true');
+    expect(row('name').dataset.edited).toBeUndefined();
+  });
+
+  it('saves a nested change as its dotted path, guarded by the value it loaded', async () => {
+    const { updateOne } = setup();
+    fireEvent.change(field('nested.city'), { target: { value: 'B' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    const call = lastCall(updateOne);
+    expect(JSON.parse(call.updateJson)).toEqual({ $set: { 'nested.city': 'B' } });
+    expect((JSON.parse(call.filterJson) as Record<string, unknown>)['nested.city']).toEqual({ $eq: 'A' });
+  });
+
+  it('resends the whole container when an unsafe-named nested field changes', async () => {
+    const { updateOne } = setup({
+      doc: { ...DOC, nested: { 'a.b': { $numberInt: '1' }, city: 'A' } },
+    });
+    fireEvent.change(field('nested.a.b'), { target: { value: '2' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({
+      $set: { nested: { 'a.b': { $numberInt: '2' }, city: 'A' } },
+    });
+  });
+
+  it('starts expanded; Collapse hides its rows without discarding their edits', () => {
+    setup();
+    fireEvent.change(field('nested.city'), { target: { value: 'B' } });
+    fireEvent.click(within(row('nested')).getByRole('button', { name: 'Collapse nested' }));
+    expect(row('nested.city')).toBeNull();
+    fireEvent.click(within(row('nested')).getByRole('button', { name: 'Expand nested' }));
+    expect(field('nested.city').value).toBe('B');
+  });
+});
+
+describe('DocumentEditor — arrays', () => {
+  it('shows the whole array as JSON text', () => {
+    setup();
+    expect(field('tags').value).toBe('["a"]');
+  });
+
+  it('saves an array change as the whole array, never by index', async () => {
+    const { updateOne } = setup();
+    fireEvent.change(field('tags'), { target: { value: '["a","b"]' } });
+    expect(row('tags').dataset.edited).toBe('true');
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { tags: ['a', 'b'] } });
+  });
+
+  it('blocks Save on invalid array JSON, and un-blocks once it parses again', () => {
+    setup();
+    fireEvent.change(field('tags'), { target: { value: '[' } });
+    expect(within(row('tags')).getByText(/JSON array/)).toBeTruthy();
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(field('tags'), { target: { value: '["a"]' } });
+    expect(within(row('tags')).queryByText(/JSON array/)).toBeNull();
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('DocumentEditor — type selector', () => {
+  it('is the only way a type changes, converting losslessly when it can', async () => {
+    const { updateOne } = setup();
+    fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
+    expect(row('qty').dataset.edited).toBe('true');
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { qty: { $numberDouble: '5.0' } } });
+  });
+
+  it('clears to the target zero value when the conversion is not lossless', () => {
+    setup();
+    fireEvent.change(typeSelect('name'), { target: { value: 'int32' } });
+    expect(field('name').value).toBe('0');
+  });
+
+  it('converting to Null drops the value input; converting away opens at the zero value', () => {
+    setup();
+    fireEvent.change(typeSelect('name'), { target: { value: 'null' } });
+    expect(within(editor()).queryByRole('textbox', { name: 'name' })).toBeNull();
+    expect(within(row('name')).getByText('null')).toBeTruthy();
+    fireEvent.change(typeSelect('name'), { target: { value: 'string' } });
+    expect(field('name').value).toBe('');
+  });
+
+  it('discards a pending parse error for text the new type no longer applies to', () => {
+    setup();
+    fireEvent.change(field('qty'), { target: { value: '1.5' } });
+    expect(within(row('qty')).getByText(/whole number/)).toBeTruthy();
+    fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
+    expect(within(row('qty')).queryByText(/whole number/)).toBeNull();
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('DocumentEditor — add field', () => {
+  it('adds a field as a draft-only String row', () => {
+    setup();
+    fireEvent.change(within(addFieldBox()).getByRole('textbox'), { target: { value: 'sku' } });
+    fireEvent.click(within(addFieldBox()).getByRole('button', { name: 'Add field' }));
+    expect(field('sku').value).toBe('');
+    expect(row('sku').dataset.edited).toBe('true');
+  });
+
+  it('refuses a duplicate name inline, leaving the draft untouched', () => {
+    setup();
+    fireEvent.change(within(addFieldBox()).getByRole('textbox'), { target: { value: 'name' } });
+    fireEvent.click(within(addFieldBox()).getByRole('button', { name: 'Add field' }));
+    expect(within(addFieldBox()).getByText(/already exists/)).toBeTruthy();
+    expect(row('name').dataset.edited).toBeUndefined();
+  });
+
+  it('refuses a name an update path could not address', () => {
+    setup();
+    fireEvent.change(within(addFieldBox()).getByRole('textbox'), { target: { value: 'a.b' } });
+    fireEvent.click(within(addFieldBox()).getByRole('button', { name: 'Add field' }));
+    expect(within(addFieldBox()).getByText(/cannot be saved/)).toBeTruthy();
+    expect(row('a.b')).toBeNull();
+  });
+
+  it('sends the new field on save, guarded by its absence', async () => {
+    const { updateOne } = setup();
+    fireEvent.change(within(addFieldBox()).getByRole('textbox'), { target: { value: 'sku' } });
+    fireEvent.click(within(addFieldBox()).getByRole('button', { name: 'Add field' }));
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    const call = lastCall(updateOne);
+    expect(JSON.parse(call.updateJson)).toEqual({ $set: { sku: '' } });
+    expect((JSON.parse(call.filterJson) as Record<string, unknown>).sku).toEqual({ $exists: false });
+  });
+
+  it('Escape with the suggestion popup open closes only the popup', async () => {
+    const { onClose } = setup({ sample: [{ _id: 1, sku: 'x' }] });
+    const input = within(addFieldBox()).getByRole('textbox');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 's' } });
+    expect(await screen.findByRole('listbox')).toBeTruthy();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+  });
+});
+
+describe('DocumentEditor — remove field', () => {
+  it('removes a field from the draft without confirmation', () => {
+    setup();
+    fireEvent.click(within(row('name')).getByRole('button', { name: 'Remove name' }));
+    expect(row('name')).toBeNull();
+  });
+
+  it('sends the removal as $unset, guarded by the value it loaded', async () => {
+    const { updateOne } = setup();
+    fireEvent.click(within(row('name')).getByRole('button', { name: 'Remove name' }));
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    const call = lastCall(updateOne);
+    expect(JSON.parse(call.updateJson)).toEqual({ $unset: { name: '' } });
+    expect((JSON.parse(call.filterJson) as Record<string, unknown>).name).toEqual({ $eq: 'widget' });
+  });
+
+  it('never offers Remove on _id', () => {
+    setup();
+    expect(within(row('_id')).queryByRole('button', { name: 'Remove _id' })).toBeNull();
   });
 });

@@ -148,12 +148,51 @@ export function applyDiff(doc: Doc, d: DocDiff): Doc {
 
 /** The value at a dotted path, or null when the path isn't there. */
 function lookup(doc: Doc, path: string): { value: unknown } | null {
+  return getAtSegments(doc, path.split('.'));
+}
+
+/**
+ * Segment-addressed counterparts of `lookup`/`applyDiff`'s path walk, for
+ * the Fields view: a segment is one literal object key, however it's
+ * spelled, so a field named `a.b` is one segment and never mistaken for
+ * nesting. `applyDiff` keeps its own dotted-string walk unchanged — its
+ * paths always come out of `diff`, which never emits a dotted path through
+ * an unsafe key, so splitting them on `.` is safe there.
+ */
+export function getAtSegments(doc: Doc, path: readonly string[]): { value: unknown } | null {
   let node: unknown = doc;
-  for (const part of path.split('.')) {
+  for (const part of path) {
     if (!isPlainDocument(node) || !has(node as Doc, part)) return null;
     node = (node as Doc)[part];
   }
   return { value: node };
+}
+
+/** `doc` with `value` written at `path`, creating missing intermediate objects. Never mutates `doc`. */
+export function setAtSegments(doc: Doc, path: readonly string[], value: unknown): Doc {
+  if (path.length === 0) throw new Error('setAtSegments needs at least one path segment');
+  const out = clone(doc) as Doc;
+  const parts = [...path];
+  const leaf = parts.pop()!;
+  let node = out;
+  for (const part of parts) {
+    if (!has(node, part) || !isPlainDocument(node[part])) put(node, part, Object.create(null));
+    node = node[part] as Doc;
+  }
+  put(node, leaf, clone(value));
+  return out;
+}
+
+/** `doc` with `path` removed. A missing intermediate object is a no-op. Never mutates `doc`. */
+export function deleteAtSegments(doc: Doc, path: readonly string[]): Doc {
+  if (path.length === 0) throw new Error('deleteAtSegments needs at least one path segment');
+  const out = clone(doc) as Doc;
+  const parts = [...path];
+  const leaf = parts.pop()!;
+  let node: unknown = out;
+  for (const part of parts) node = isPlainDocument(node) ? (node as Doc)[part] : undefined;
+  if (isPlainDocument(node)) delete (node as Doc)[leaf];
+  return out;
 }
 
 /**
