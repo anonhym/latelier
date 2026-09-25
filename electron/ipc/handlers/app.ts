@@ -1,4 +1,4 @@
-import { dialog, shell, type BrowserWindow } from 'electron';
+import { dialog, shell, type BrowserWindow, type FileFilter } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -30,6 +30,20 @@ const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
     { name: 'All files', extensions: ['*'] },
   ],
 };
+
+const SAVE_FILTER_NAMES: Record<string, string> = { json: 'JSON', jsonl: 'JSON Lines', csv: 'CSV' };
+
+/**
+ * The save dialog's type filter follows the suggested file's extension: on
+ * macOS a filter that doesn't list the extension being saved rewrites or
+ * rejects it, so a CSV export must not be offered only a JSON filter.
+ */
+export function saveFilters(defaultName: string): FileFilter[] {
+  const ext = path.extname(defaultName).slice(1).toLowerCase();
+  const all = { name: 'All files', extensions: ['*'] };
+  const name = Object.hasOwn(SAVE_FILTER_NAMES, ext) ? SAVE_FILTER_NAMES[ext] : undefined;
+  return name ? [{ name, extensions: [ext] }, all] : [all];
+}
 
 export function registerAppChannels(
   router: Router,
@@ -77,10 +91,7 @@ export function registerAppChannels(
         win ?? (undefined as unknown as BrowserWindow),
         {
           defaultPath: defaultName ?? 'export.json',
-          filters: [
-            { name: 'JSON', extensions: ['json'] },
-            { name: 'All files', extensions: ['*'] },
-          ],
+          filters: saveFilters(defaultName ?? 'export.json'),
         },
       );
       if (result.canceled || !result.filePath) return { path: null };

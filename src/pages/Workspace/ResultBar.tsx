@@ -1,3 +1,4 @@
+import React from 'react';
 import { ActionIcon, Button, Group, Menu, Select, SegmentedControl, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
@@ -6,6 +7,7 @@ import { useCollectionWorkspace } from './context';
 import { api } from '../../api/atelier';
 import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
 import { FieldsControl } from './FieldsControl';
+import { ExportDialog } from './ExportDialog';
 import { findProblem } from './builder';
 
 const VIEWS: ResultViewMode[] = ['Tree', 'JSON', 'Table'];
@@ -40,6 +42,7 @@ export function ResultBar() {
   const isLoading = meta.isLoading;
   const view = state.view;
   const isReadOnly = !!meta.isReadOnly;
+  const [exportOpen, setExportOpen] = React.useState(false);
 
   // X14 §5 — the dangerous half of the defect this ticket exists for.
   // A refused filter never re-runs, so `lastRun` keeps describing the query
@@ -311,6 +314,13 @@ export function ResultBar() {
               Update all matching…
             </Menu.Item>
             <Menu.Item
+              leftSection={I.download}
+              disabled={docCount === null || docCount === 0}
+              onClick={() => setExportOpen(true)}
+            >
+              Export…
+            </Menu.Item>
+            <Menu.Item
               color="red"
               leftSection={I.trash}
               onClick={() => actions.openDeleteAll()}
@@ -320,6 +330,8 @@ export function ResultBar() {
           </Menu.Dropdown>
         </Menu>
       )}
+
+      {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
 
       {/* View switch */}
       <SegmentedControl
