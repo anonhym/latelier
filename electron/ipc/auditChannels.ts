@@ -43,6 +43,13 @@ function importFormat(input: Fields, data: unknown): ImportFormat | undefined {
   return /\.(jsonl|ndjson)$/i.test(input.path as string) ? 'jsonl' : undefined;
 }
 
+// `undefined`, never `false`, when the run wasn't cancelled — keeps the
+// common case out of the persisted summary and off `toEqual` assertions that
+// predate cancel.
+function importCancelled(data: unknown): true | undefined {
+  return data !== null && typeof data === 'object' && (data as Fields).cancelled === true ? true : undefined;
+}
+
 /**
  * The audited channels. A channel absent from this table is not audited, so a
  * write channel added later stays unrecorded until someone decides what its
@@ -115,9 +122,11 @@ const AUDITED_CHANNELS: Readonly<Record<string, ChannelSpec>> = {
       format: importFormat(input, data),
       insertedCount: count(data, 'inserted'),
       failedCount: count(data, 'failed'),
+      cancelled: importCancelled(data),
     }),
-    // Rejected documents do not fail the import, but they do make it partial.
-    outcome: (data) => ((count(data, 'failed') ?? 0) > 0 ? 'partial' : 'ok'),
+    // Rejected documents do not fail the import, but they do make it
+    // partial — so does a cancel, whatever landed.
+    outcome: (data) => ((count(data, 'failed') ?? 0) > 0 || importCancelled(data) ? 'partial' : 'ok'),
   },
 };
 

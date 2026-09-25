@@ -60,7 +60,7 @@ import { MaintenanceService } from './services/MaintenanceService.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
 import { registerAuditChannels } from './ipc/handlers/audit.ts';
-import { registerDataChannels } from './ipc/handlers/data.ts';
+import { registerDataChannels, makeDataEmitter } from './ipc/handlers/data.ts';
 import { ImportService } from './mongo/ImportService.ts';
 import { QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
@@ -586,7 +586,10 @@ app.whenReady().then(() => {
   registerSavedChannels(router, savedSvc);
   registerRecentChannels(router, recentSvc);
   registerAuditChannels(router, auditSvc);
-  registerDataChannels(router, new ImportService(pool));
+  registerDataChannels(
+    router,
+    new ImportService(pool, { emit: makeDataEmitter(() => win?.webContents ?? null) }),
+  );
   registerAggChannels(router, aggSvc);
   registerShellChannels(router);
 

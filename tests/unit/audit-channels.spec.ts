@@ -134,6 +134,21 @@ describe('auditRecordFor', () => {
         .toMatchObject({ outcome: 'error', summary: { insertedCount: 0 } });
     });
 
+    it('records a cancelled import as partial and carries cancelled in the summary', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report({ cancelled: true, inserted: 1000, failed: 0 }))))
+        .toMatchObject({ outcome: 'partial', summary: { insertedCount: 1000, cancelled: true } });
+    });
+
+    it('omits cancelled from the summary when the run was not cancelled', () => {
+      expect(auditRecordFor(IPC_CHANNELS.dataImport, input, okEnv(report()))!.summary).toEqual({
+        op: 'import',
+        fileName: 'people.json',
+        format: 'jsonl',
+        insertedCount: 5,
+        failedCount: 0,
+      });
+    });
+
     it('takes a failed import\'s format from an extension that settles it, never from .json', () => {
       const failed = (p: string) =>
         auditRecordFor(IPC_CHANNELS.dataImport, { ...T, path: p }, errEnv({ code: 'READ_ONLY', message: 'ro' }))!.summary;

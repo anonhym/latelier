@@ -116,6 +116,8 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     data: {
       import: unused('data.import') as IpcApi['data']['import'],
+      cancelImport: async () => undefined,
+      onImportProgress: () => () => {},
     },
     audit: {
       list: async () => [],
@@ -414,6 +416,8 @@ function makePermissiveStub(): IpcApi {
     },
     data: {
       import: noopAsync as IpcApi['data']['import'],
+      cancelImport: async () => undefined,
+      onImportProgress: () => noopFn,
     },
     audit: {
       list: async () => [],

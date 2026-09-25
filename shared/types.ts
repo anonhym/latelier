@@ -287,6 +287,8 @@ export interface DataImportInput {
   collection: string;
   /** Absolute path the renderer got from `app.pickFile('data-import')`. */
   path: string;
+  /** Renderer-generated UUID; lets `data:cancelImport` and progress events target this run. */
+  cancelToken?: string;
 }
 
 export interface ImportReport {
@@ -299,6 +301,18 @@ export interface ImportReport {
   errors: { at: number; message: string }[];
   /** More documents failed than `errors` lists. */
   errorsTruncated: boolean;
+  /** Cancel was requested and the import stopped after its current batch. */
+  cancelled: boolean;
+}
+
+/** Pushed once per batch while `data:import` runs. */
+export interface DataImportProgressEvent {
+  cancelToken: string;
+  processed: number;
+  inserted: number;
+  failed: number;
+  bytesRead: number;
+  totalBytes: number;
 }
 
 // ─── Result view types (W06) ─────────────────────────────────────────────────
@@ -487,8 +501,8 @@ export type AuditSummary =
   | { op: 'deleteOne' | 'deleteMany'; filter: string; deletedCount?: number }
   | { op: 'collectionRename'; fromName: string; toName: string }
   | { op: 'collectionDrop' | 'databaseDrop' }
-  /** `format` is absent when the import failed before its file was read. */
-  | { op: 'import'; fileName: string; format?: ImportFormat; insertedCount?: number; failedCount?: number };
+  /** `format` is absent when the import failed before its file was read. `cancelled` is absent unless true. */
+  | { op: 'import'; fileName: string; format?: ImportFormat; insertedCount?: number; failedCount?: number; cancelled?: boolean };
 
 export interface AuditEntry {
   id: string;

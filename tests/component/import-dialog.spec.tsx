@@ -4,7 +4,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import { ImportDialog } from '../../src/pages/Workspace/ImportDialog';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type { DataImportInput, ImportReport } from '@shared/types';
+import type { DataImportInput, DataImportProgressEvent, ImportReport } from '@shared/types';
 import type { PickFilePurpose } from '@shared/ipc';
 
 const REPORT: ImportReport = {
@@ -17,18 +17,37 @@ const REPORT: ImportReport = {
     { at: 9, message: 'E11000 duplicate key error' },
   ],
   errorsTruncated: false,
+  cancelled: false,
 };
 
-function mockApi(opts: { path?: string | null; report?: ImportReport; fail?: unknown } = {}) {
+function mockApi(opts: {
+  path?: string | null;
+  report?: ImportReport;
+  fail?: unknown;
+  onImport?: (input: DataImportInput) => void | Promise<void>;
+} = {}) {
   const pickFile = vi.fn<(purpose: PickFilePurpose) => Promise<{ path: string | null }>>(
     async () => ({ path: opts.path === undefined ? '/home/me/people.jsonl' : opts.path }),
   );
-  const importFn = vi.fn<(input: DataImportInput) => Promise<ImportReport>>(async () => {
+  const importFn = vi.fn<(input: DataImportInput) => Promise<ImportReport>>(async (input) => {
+    await opts.onImport?.(input);
     if (opts.fail) throw opts.fail;
     return opts.report ?? REPORT;
   });
-  installAtelierMock({ app: { pickFile } as never, data: { import: importFn } });
-  return { pickFile, importFn };
+  const cancelImport = vi.fn<(input: { token: string }) => Promise<void>>(async () => undefined);
+  const progressListeners = new Set<(evt: DataImportProgressEvent) => void>();
+  const onImportProgress = vi.fn((cb: (evt: DataImportProgressEvent) => void) => {
+    progressListeners.add(cb);
+    return () => progressListeners.delete(cb);
+  });
+  const emitProgress = (evt: DataImportProgressEvent) => {
+    for (const cb of progressListeners) cb(evt);
+  };
+  installAtelierMock({
+    app: { pickFile } as never,
+    data: { import: importFn, cancelImport, onImportProgress },
+  });
+  return { pickFile, importFn, cancelImport, onImportProgress, emitProgress };
 }
 
 function renderDialog(props: Partial<React.ComponentProps<typeof ImportDialog>> = {}) {
@@ -57,7 +76,9 @@ describe('ImportDialog', () => {
       'Imported 1,200 documents from people.jsonl; 2 documents failed.',
     );
     expect(pickFile).toHaveBeenCalledWith('data-import');
-    expect(importFn).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop', collection: 'people', path: '/home/me/people.jsonl' });
+    expect(importFn).toHaveBeenCalledWith({
+      connectionId: 'c1', dbName: 'shop', collection: 'people', path: '/home/me/people.jsonl', cancelToken: expect.any(String),
+    });
     expect(onImported).toHaveBeenCalledWith(REPORT);
     expect(onClose).not.toHaveBeenCalled();
     const items = screen.getAllByRole('listitem').map((li) => li.textContent);
@@ -126,6 +147,46 @@ describe('ImportDialog', () => {
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(pickFile).not.toHaveBeenCalled();
+  });
+
+  it('shows progress from an emitted event and cancels with the same token import got', async () => {
+    let capturedInput: DataImportInput | undefined;
+    let releaseImport!: () => void;
+    const { cancelImport, emitProgress } = mockApi({
+      report: { ...REPORT, cancelled: true, inserted: 500, failed: 0, errors: [] },
+      onImport: async (input) => {
+        capturedInput = input;
+        emitProgress({ cancelToken: input.cancelToken!, processed: 500, inserted: 500, failed: 0, bytesRead: 50, totalBytes: 100 });
+        await new Promise<void>((resolve) => { releaseImport = resolve; });
+      },
+    });
+    renderDialog();
+    choose();
+
+    expect(await screen.findByRole('progressbar')).toBeTruthy();
+    expect(await screen.findByText('500 documents imported')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel import' }));
+    expect(cancelImport).toHaveBeenCalledWith({ token: capturedInput!.cancelToken });
+
+    releaseImport();
+    expect((await screen.findByRole('status')).textContent).toMatch(/^Cancelled/);
+  });
+
+  it('ignores a progress event for another run\'s token', async () => {
+    let releaseImport!: () => void;
+    const { emitProgress } = mockApi({
+      onImport: async () => {
+        emitProgress({ cancelToken: 'not-this-run', processed: 9, inserted: 9, failed: 0, bytesRead: 1, totalBytes: 10 });
+        await new Promise<void>((resolve) => { releaseImport = resolve; });
+      },
+    });
+    renderDialog();
+    choose();
+    await screen.findByRole('progressbar');
+    expect(screen.queryByText('9 documents imported')).toBeNull();
+    releaseImport();
+    await screen.findByRole('status');
   });
 });
 

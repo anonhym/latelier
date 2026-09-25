@@ -20,6 +20,7 @@ import type {
   ConnectionSummary,
   ConnectionUpdate,
   DataImportInput,
+  DataImportProgressEvent,
   DatabaseDropInput,
   ExplainInput,
   FindInput,
@@ -276,6 +277,9 @@ export interface IpcApi {
    */
   data: {
     import: (input: DataImportInput) => Promise<ImportReport>;
+    /** Sets a flag `ImportService` checks between batches; the current batch still lands. */
+    cancelImport: (input: { token: string }) => Promise<void>;
+    onImportProgress: (cb: (evt: DataImportProgressEvent) => void) => () => void;
   };
 
   /** The Audit Log: newest first, never carrying a Pre-image. */
@@ -467,6 +471,8 @@ export const IPC_CHANNELS = {
 
   // Bulk data -----------------------------------------
   dataImport: 'data:import',
+  dataCancelImport: 'data:cancelImport',
+  dataImportProgressEvent: 'data:import-progress-event',
 
   // Audit log -----------------------------------------
   auditList: 'audit:list',

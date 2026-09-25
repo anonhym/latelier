@@ -3,6 +3,7 @@ import { IPC_CHANNELS, type Envelope, type IpcApi } from '@shared/ipc';
 import type {
   AggResult,
   AggResultWire,
+  DataImportProgressEvent,
   FindResult,
   FindResultWire,
   ShellOutputEvent,
@@ -152,6 +153,12 @@ const api: IpcApi = {
 
   data: {
     import: (input) => call(IPC_CHANNELS.dataImport, input),
+    cancelImport: (input) => call(IPC_CHANNELS.dataCancelImport, input),
+    onImportProgress: (cb) => {
+      const listener = (_evt: unknown, payload: unknown) => cb(payload as DataImportProgressEvent);
+      ipcRenderer.on(IPC_CHANNELS.dataImportProgressEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.dataImportProgressEvent, listener);
+    },
   },
 
   audit: {
