@@ -110,6 +110,32 @@ describe('TreeView — rendering and interaction', () => {
     expect(container.textContent).not.toContain('aa:');
   });
 
+  it('hiding every field shows an empty collapsed preview, not the hidden fields', () => {
+    const docs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha', secret: 'topsecret' },
+    ];
+    const { container } = renderTree(docs, { columnConfig: { hidden: ['name', 'secret'] } });
+
+    const rendered = container.cloneNode(true) as HTMLElement;
+    rendered.querySelectorAll('style').forEach((el) => el.remove());
+    expect(rendered.textContent).not.toContain('alpha');
+    expect(rendered.textContent).not.toContain('topsecret');
+  });
+
+  it('with a Fields config, each sparse row previews its own visible fields, not a global slice', () => {
+    const docs = [
+      { _id: 1, a: 'zone-a', b: 'zone-b', c: 'zone-c', d: 'zone-d' },
+      { _id: 2, e: 'zone-e', f: 'zone-f' },
+    ];
+    // Hiding `a` pushes the visible list to [b, c, d, e, f]; a global first-4
+    // slice would cut `f` before the second doc's own fields are considered,
+    // even though that doc has none of b/c/d.
+    const { container } = renderTree(docs, { columnConfig: { hidden: ['a'] } });
+
+    expect(container.textContent).toContain('zone-e');
+    expect(container.textContent).toContain('zone-f');
+  });
+
   it('renders an expanded row with its top-level fields visible', () => {
     const docs = [
       { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha', visibleField: 'yes' },

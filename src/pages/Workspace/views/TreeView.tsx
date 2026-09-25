@@ -40,9 +40,10 @@ function getPreviewFields(
   override?: string[] | null,
 ): Array<[string, unknown]> {
   if (!isRecord(doc)) return [];
-  if (override && override.length > 0) {
+  if (override != null) {
     return override
       .filter((k) => k !== '_id' && k in doc)
+      .slice(0, 4)
       .map((k) => [k, doc[k]] as [string, unknown]);
   }
   const allKeys = Object.keys(doc).filter((k) => k !== '_id');
@@ -412,7 +413,7 @@ export function TreeView({
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
     const hidden = new Set(columnConfig?.hidden ?? []);
-    return ordered.filter((f) => f !== '_id' && !hidden.has(f)).slice(0, 4);
+    return ordered.filter((f) => f !== '_id' && !hidden.has(f));
   }, [hasFieldConfig, documents, columnConfig?.order, columnConfig?.hidden]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
