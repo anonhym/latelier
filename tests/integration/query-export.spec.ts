@@ -222,6 +222,29 @@ describe('QueryService.exportToFile', () => {
 
     await expect(fs.access(file)).rejects.toThrow();
   });
+
+  it('leaves a pre-existing file untouched when opening the target itself fails', async () => {
+    await seed(1);
+    const file = outPath('readonly.jsonl');
+    await fs.writeFile(file, 'keep me\n', 'utf8');
+    await fs.chmod(file, 0o444); // read-only — `fs.open(file, 'w')` itself must fail
+
+    try {
+      await expect(
+        svc.exportToFile(
+          { connectionId: connId, dbName, collection: collName, filter: '{}', format: 'jsonl' },
+          file,
+        ),
+      ).rejects.toThrow();
+
+      // Nothing was ever truncated or opened for this export, so the
+      // unrelated pre-existing content must survive — the catch path must
+      // not unlink a file it never actually opened.
+      expect(await fs.readFile(file, 'utf8')).toBe('keep me\n');
+    } finally {
+      await fs.chmod(file, 0o644); // restore so afterEach's rm can clean up
+    }
+  });
 });
 
 describe('query:export handler — save-panel cancel', () => {

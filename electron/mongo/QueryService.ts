@@ -219,11 +219,19 @@ export class QueryService {
     });
 
     let handle: FileHandle | undefined;
+    // `'w'` truncates/creates on a successful `fs.open` — only from that
+    // point on does a failure risk leaving a *partial* file behind. If
+    // `fs.open` itself throws (e.g. a permission error), nothing was
+    // touched at `filePath`, so the catch below must not unlink it — that
+    // path might be a save-dialog target the user picked over an existing
+    // file that has nothing to do with this export.
+    let opened = false;
     let written = 0;
     let truncated = false;
     let jsonArrayStarted = false;
     try {
       handle = await fs.open(filePath, 'w');
+      opened = true;
       if (input.format === 'csv') {
         await handle.write(csvHeaderLine(columns!) + '\n');
       }
@@ -256,7 +264,7 @@ export class QueryService {
     } catch (err) {
       if (handle) await handle.close().catch(() => {});
       handle = undefined;
-      await fs.unlink(filePath).catch(() => {});
+      if (opened) await fs.unlink(filePath).catch(() => {});
       throw classifyMongoOpError(err);
     } finally {
       await cursor.close().catch(() => {});
