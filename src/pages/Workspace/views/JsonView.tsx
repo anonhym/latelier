@@ -18,7 +18,7 @@ interface JsonViewProps {
 
 /**
  * Strip the Fields control's hidden top-level fields from a document before
- * it is serialized for display (#201). Rendering-only: every action on the
+ * it is serialized for display. Rendering-only: every action on the
  * document (Copy, Edit, Delete/Select) is handed the original `doc`, never
  * this redacted copy — hiding a field must never change what gets sent to
  * Mongo or the clipboard. Only top-level paths are handled, matching what
@@ -408,7 +408,7 @@ export function JsonView({ documents }: JsonViewProps) {
   const { state, actions } = useCollectionWorkspace();
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
-  // Fields control (#201): same top-level `columnConfig.hidden` Table already
+  // Fields control: same top-level `columnConfig.hidden` Table already
   // reads (`tableColumns.ts`'s `resolveColumns`) — display-only, so Copy/Edit/
   // Delete below always act on the untouched `doc`, never this set.
   const hiddenFields = React.useMemo(

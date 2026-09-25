@@ -96,9 +96,9 @@ describe('JsonView — rendering', () => {
 });
 
 /**
- * #201 — JSON honors the Fields control's hidden top-level fields.
+ * JSON honors the Fields control's hidden top-level fields.
  */
-describe('JsonView — hidden fields (#201)', () => {
+describe('JsonView — hidden fields', () => {
   it('omits a hidden top-level field from the rendered JSON', () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
     const { container } = renderJson(docs, {
