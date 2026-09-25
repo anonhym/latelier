@@ -49,7 +49,9 @@ async function loadEntry(
   if (pending) return pending;
 
   const startedIn = generation;
-  const fetchPromise: Promise<CacheEntry> = (async () => {
+  // Held in an object so the fetch's own `finally` can compare against it.
+  const self: { promise?: Promise<CacheEntry> } = {};
+  self.promise = (async () => {
     let entry: CacheEntry;
     try {
       const res = await api.recent.valuesForField({ connectionId, dbName, collection, field });
@@ -68,14 +70,14 @@ async function loadEntry(
     } finally {
       // An invalidation may already have dropped this entry and a newer fetch
       // taken its key; only remove our own.
-      if (inflight.get(key) === fetchPromise) inflight.delete(key);
+      if (inflight.get(key) === self.promise) inflight.delete(key);
     }
     if (startedIn === generation) cache.set(key, entry);
     return entry;
   })();
 
-  inflight.set(key, fetchPromise);
-  return fetchPromise;
+  inflight.set(key, self.promise);
+  return self.promise;
 }
 
 export const recentValuesSource: ValueSource = async (ctx) =>

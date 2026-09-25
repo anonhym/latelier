@@ -110,4 +110,18 @@ describe('recentValuesSource', () => {
     expect(await recentValuesSource(ctx('status'))).toEqual([]);
     expect(valuesForFieldSpy).toHaveBeenCalledTimes(2);
   });
+
+  it('clears its own in-flight entry even when an invalidation of another collection overtook it', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    valuesForFieldSpy.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }));
+    const { recentValuesSource, invalidateRecentValuesCache } = await loadModule();
+
+    const first = recentValuesSource(ctx('status'));
+    invalidateRecentValuesCache('c1', 'db', 'other');
+    resolveFirst({ values: [] });
+    await first;
+    // Not handed the settled promise again: a fresh lookup goes to main.
+    await recentValuesSource(ctx('status'));
+    expect(valuesForFieldSpy).toHaveBeenCalledTimes(2);
+  });
 });
