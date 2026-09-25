@@ -75,7 +75,7 @@ export function parseJsonArray(text: string): ImportRecord[] {
 }
 
 export function emptyReport(fileName: string, format: ImportFormat): ImportReport {
-  return { fileName, format, inserted: 0, failed: 0, errors: [], errorsTruncated: false };
+  return { fileName, format, inserted: 0, failed: 0, errors: [], errorsTruncated: false, cancelled: false };
 }
 
 export function recordFailure(report: ImportReport, at: number, message: string): void {

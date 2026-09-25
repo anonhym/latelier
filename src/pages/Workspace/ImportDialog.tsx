@@ -1,6 +1,6 @@
 import React from 'react';
-import { Alert, Button, Group, List, Modal, ScrollArea, Stack, Text } from '@mantine/core';
-import type { ImportReport } from '@shared/types';
+import { Alert, Button, Group, List, Modal, Progress, ScrollArea, Stack, Text } from '@mantine/core';
+import type { DataImportProgressEvent, ImportReport } from '@shared/types';
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
@@ -40,21 +40,44 @@ export function ImportDialog({
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [report, setReport] = React.useState<ImportReport | null>(null);
+  const [progress, setProgress] = React.useState<DataImportProgressEvent | null>(null);
+  const cancelTokenRef = React.useRef<string | null>(null);
+  const unsubscribeRef = React.useRef<(() => void) | null>(null);
+
+  // The import keeps running in main even if this component unmounts (e.g.
+  // the workspace tab closes mid-import), so this only stops listening —
+  // it never cancels the run.
+  React.useEffect(() => () => unsubscribeRef.current?.(), []);
 
   const chooseAndImport = async () => {
     setError(null);
     setRunning(true);
+    setProgress(null);
+    const cancelToken = crypto.randomUUID();
+    cancelTokenRef.current = cancelToken;
+    unsubscribeRef.current = api.data.onImportProgress((evt) => {
+      if (evt.cancelToken === cancelToken) setProgress(evt);
+    });
     try {
       const { path } = await api.app.pickFile('data-import');
       if (path === null) return; // cancelled picker: stay open, nothing ran
-      const result = await api.data.import({ connectionId, dbName, collection, path });
+      const result = await api.data.import({ connectionId, dbName, collection, path, cancelToken });
       setReport(result);
       onImported(result);
     } catch (err) {
       setError(getErrorMessage(err, 'Import failed'));
     } finally {
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+      cancelTokenRef.current = null;
       setRunning(false);
+      setProgress(null);
     }
+  };
+
+  const cancelImport = () => {
+    const token = cancelTokenRef.current;
+    if (token) void api.data.cancelImport({ token });
   };
 
   const at = (n: number) => (report?.format === 'jsonl' ? `Line ${n}` : `Index ${n}`);
@@ -72,13 +95,32 @@ export function ImportDialog({
     >
       <Stack gap="sm">
         {report === null ? (
-          <Text size="xs" c="dimmed">
-            A JSON array or JSONL file of Extended JSON documents (canonical or relaxed), into {dbName}.{collection}.
-          </Text>
+          running ? (
+            <Stack gap={4}>
+              <Progress
+                value={progress && progress.totalBytes > 0 ? Math.min(100, (progress.bytesRead / progress.totalBytes) * 100) : 0}
+                size="sm"
+                aria-label="Import progress"
+              />
+              <Group justify="space-between" gap="xs">
+                <Text size="xs" c="dimmed">
+                  {progress ? `${plural(progress.inserted, 'document')} imported` : 'Starting…'}
+                </Text>
+                <Button variant="subtle" size="compact-xs" onClick={cancelImport}>
+                  Cancel import
+                </Button>
+              </Group>
+            </Stack>
+          ) : (
+            <Text size="xs" c="dimmed">
+              A JSON array or JSONL file of Extended JSON documents (canonical or relaxed), into {dbName}.{collection}.
+            </Text>
+          )
         ) : (
           <>
             <Text size="sm" role="status">
-              Imported {plural(report.inserted, 'document')} from {report.fileName}
+              {report.cancelled ? 'Cancelled — ' : 'Imported '}
+              {plural(report.inserted, 'document')}{report.cancelled ? ' landed' : ''} from {report.fileName}
               {report.failed > 0 ? `; ${plural(report.failed, 'document')} failed.` : '.'}
             </Text>
             {report.errors.length > 0 && (

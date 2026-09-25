@@ -93,6 +93,7 @@ const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.mongoStatusEvent,
   IPC_CHANNELS.prefsThemeEvent,
   IPC_CHANNELS.mshellOutputEvent,
+  IPC_CHANNELS.dataImportProgressEvent,
 ]);
 
 describe('IPC channel registration — full router coverage', () => {

@@ -131,7 +131,7 @@ describe('DbCollectionNavigator — T1.1 admin actions', () => {
       { name: 'recent', type: 'view' as const, documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
     ]);
     const importFn = vi.fn(async () => ({
-      fileName: 'o.jsonl', format: 'jsonl' as const, inserted: 3, failed: 0, errors: [], errorsTruncated: false,
+      fileName: 'o.jsonl', format: 'jsonl' as const, inserted: 3, failed: 0, errors: [], errorsTruncated: false, cancelled: false,
     }));
     baseMocks({
       meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
@@ -151,7 +151,9 @@ describe('DbCollectionNavigator — T1.1 admin actions', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Choose file…' }));
 
     await screen.findByText('Imported 3 documents from o.jsonl.');
-    expect(importFn).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop', collection: 'orders', path: '/tmp/o.jsonl' });
+    expect(importFn).toHaveBeenCalledWith({
+      connectionId: 'c1', dbName: 'shop', collection: 'orders', path: '/tmp/o.jsonl', cancelToken: expect.any(String),
+    });
     await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
   });
 

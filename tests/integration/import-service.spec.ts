@@ -65,7 +65,7 @@ describe('ImportService.importFile', () => {
       { _id: 'b', at: { $date: '2024-01-02T03:04:05Z' }, age: 7 },
     ]));
     const report = await run(p);
-    expect(report).toEqual({ fileName: 'people.json', format: 'json', inserted: 2, failed: 0, errors: [], errorsTruncated: false });
+    expect(report).toEqual({ fileName: 'people.json', format: 'json', inserted: 2, failed: 0, errors: [], errorsTruncated: false, cancelled: false });
     const docs = await client.db(dbName).collection(coll).find().toArray();
     const byId = new Map(docs.map((d) => [String(d._id), d]));
     expect(byId.get(oid.toHexString())!.n).toEqual(Decimal128.fromString('1.5'));
@@ -209,5 +209,46 @@ describe('ImportService.importFile', () => {
     });
     const p = await file('net.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n{"_id":4}\n');
     await expect(run(p)).rejects.toMatchObject({ code: 'NETWORK', message: expect.stringMatching(/connection reset/), details: { insertedCount: 2 } });
+  });
+
+  describe('cancel', () => {
+    it('cancels after the first batch of a 2500-doc file, keeping only what landed', async () => {
+      const events: { processed: number; inserted: number; failed: number }[] = [];
+      svc = new ImportService(pool, {
+        batchSize: 1000,
+        emit: (e) => {
+          events.push({ processed: e.processed, inserted: e.inserted, failed: e.failed });
+          if (events.length === 1) svc.cancel('tok');
+        },
+      });
+      const lines = Array.from({ length: 2500 }, (_, i) => JSON.stringify({ _id: i })).join('\n');
+      const p = await file('many.jsonl', lines);
+      const report = await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'tok' });
+      expect(report.inserted).toBe(1000);
+      expect(report.cancelled).toBe(true);
+      expect(await stored()).toHaveLength(1000);
+    });
+
+    it('emits progress events with processed monotonically non-decreasing', async () => {
+      const processed: number[] = [];
+      svc = new ImportService(pool, {
+        batchSize: 500,
+        emit: (e) => processed.push(e.processed),
+      });
+      const lines = Array.from({ length: 1500 }, (_, i) => JSON.stringify({ _id: i })).join('\n');
+      const p = await file('progress.jsonl', lines);
+      await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'progress-tok' });
+      expect(processed.length).toBeGreaterThan(0);
+      for (let i = 1; i < processed.length; i++) expect(processed[i]).toBeGreaterThanOrEqual(processed[i - 1]!);
+      expect(processed.at(-1)).toBe(1500);
+    });
+
+    it('never emits without a cancelToken', async () => {
+      const emit = vi.fn();
+      svc = new ImportService(pool, { batchSize: 10, emit });
+      const p = await file('nocancel.jsonl', Array.from({ length: 25 }, (_, i) => JSON.stringify({ _id: i })).join('\n'));
+      await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p });
+      expect(emit).not.toHaveBeenCalled();
+    });
   });
 });

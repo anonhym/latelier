@@ -146,4 +146,41 @@ describe('data:import via the router', () => {
     const env = await invoke({ ...target() });
     expect(env).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   });
+
+  it('refuses an empty cancelToken rather than accepting an uncancellable run', async () => {
+    const p = await file('people.jsonl', '{"_id":1}\n');
+    const env = await invoke({ ...target(), path: p, cancelToken: '' });
+    expect(env).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  });
+
+  it('records a cancelled import as partial, with cancelled in the summary', async () => {
+    // A dedicated router+service for this test: the cancel must fire from
+    // inside the progress event, before `data:import`'s own promise settles.
+    const localHandlers = new Map<string, Handler>();
+    const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const auditSvc = new AuditService(new AuditRepo(tmp.db), pool, log);
+    const router = createRouter(
+      { handle: (channel: string, fn: Handler) => void localHandlers.set(channel, fn) },
+      testSenderCheck,
+      log,
+      auditSvc,
+    );
+    const importSvc = new ImportService(pool, {
+      batchSize: 5,
+      emit: (e) => {
+        void localHandlers.get(IPC_CHANNELS.dataCancelImport)!(invokeEvent, { token: e.cancelToken });
+      },
+    });
+    registerDataChannels(router, importSvc);
+    const lines = Array.from({ length: 12 }, (_, i) => JSON.stringify({ _id: i })).join('\n');
+    const p = await file('cancel.jsonl', lines);
+    const env = (await localHandlers.get(IPC_CHANNELS.dataImport)!(
+      invokeEvent,
+      { ...target(), path: p, cancelToken: 'ct1' },
+    )) as Envelope<ImportReport>;
+    expect(env).toMatchObject({ ok: true, data: { inserted: 5, cancelled: true } });
+    const [row] = tmp.db.prepare('SELECT * FROM audit_log').all() as Record<string, unknown>[];
+    expect(row).toMatchObject({ outcome: 'partial' });
+    expect(JSON.parse(row!.summary_json as string)).toMatchObject({ cancelled: true, insertedCount: 5 });
+  });
 });

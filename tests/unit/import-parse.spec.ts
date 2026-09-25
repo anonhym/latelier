@@ -75,7 +75,7 @@ describe('parseJsonArray', () => {
 describe('recordFailure', () => {
   it('lists the first failures and only counts the rest', () => {
     const report = emptyReport('f.json', 'json');
-    expect(report).toEqual({ fileName: 'f.json', format: 'json', inserted: 0, failed: 0, errors: [], errorsTruncated: false });
+    expect(report).toEqual({ fileName: 'f.json', format: 'json', inserted: 0, failed: 0, errors: [], errorsTruncated: false, cancelled: false });
     for (let i = 0; i < MAX_REPORTED_ERRORS; i++) recordFailure(report, i, `e${i}`);
     expect(report.errors).toHaveLength(50);
     expect(report.errors[49]).toEqual({ at: 49, message: 'e49' });

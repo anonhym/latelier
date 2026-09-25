@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { MongoBulkWriteError, type Collection, type Db, type Document } from 'mongodb';
-import type { DataImportInput, ImportFormat, ImportReport } from '@shared/types';
+import type { DataImportInput, DataImportProgressEvent, ImportFormat, ImportReport } from '@shared/types';
 import { AppError, NotFoundError, SystemError, ValidationError } from '../errors.ts';
 import { DEFAULT_MAX_EJSON_BYTES } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
@@ -20,6 +20,8 @@ import type { MongoPool } from './MongoPool.ts';
 import { QUERY_TIMEOUT_MS } from './timeouts.ts';
 
 const DEFAULT_BATCH_SIZE = 1000;
+
+type EmitFn = (event: DataImportProgressEvent) => void;
 
 // Filesystem failures are not driver errors, so they must never reach
 // `classifyMongoOpError` and come back labelled MONGO_ERROR.
@@ -43,11 +45,13 @@ async function sniffFile(filePath: string): Promise<ImportFormat> {
   return 'jsonl';
 }
 
-async function* jsonlRecords(filePath: string): AsyncGenerator<ImportRecord> {
-  const lines = createInterface({
-    input: createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
+// `onBytes` rides the same underlying stream `readline` consumes — attaching
+// a second `data` listener doesn't steal chunks from the first, so it gives
+// an exact read count without readline exposing one itself.
+async function* jsonlRecords(filePath: string, onBytes: (n: number) => void): AsyncGenerator<ImportRecord> {
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
+  stream.on('data', (chunk) => onBytes(Buffer.byteLength(chunk as string, 'utf8')));
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
   let lineNo = 0;
   for await (const line of lines) {
     // Counted before the blank check, so a reported line number is the
@@ -69,11 +73,25 @@ export class ImportService {
   private pool: MongoPool;
   private maxArrayBytes: number;
   private batchSize: number;
+  private emit?: EmitFn;
+  // Token -> live run's cancel flag. A plain mutable holder (not a boolean
+  // map) so `cancel()` can flip it after `importFile` has already captured
+  // its reference, the same shape as QueryService's `active` map.
+  private active = new Map<string, { cancelled: boolean }>();
 
-  constructor(pool: MongoPool, opts: { maxArrayBytes?: number; batchSize?: number } = {}) {
+  constructor(
+    pool: MongoPool,
+    opts: { maxArrayBytes?: number; batchSize?: number; emit?: EmitFn } = {},
+  ) {
     this.pool = pool;
     this.maxArrayBytes = opts.maxArrayBytes ?? DEFAULT_MAX_EJSON_BYTES;
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
+    this.emit = opts.emit;
+  }
+
+  cancel(token: string): void {
+    const state = this.active.get(token);
+    if (state) state.cancelled = true;
   }
 
   async importFile(input: DataImportInput): Promise<ImportReport> {
@@ -91,6 +109,11 @@ export class ImportService {
     const coll = db.collection(input.collection);
     const report = emptyReport(path.basename(input.path), format);
 
+    const token = input.cancelToken;
+    const state = token ? { cancelled: false } : undefined;
+    if (token && state) this.active.set(token, state);
+
+    let bytesRead = 0;
     let records: Iterable<ImportRecord> | AsyncIterable<ImportRecord>;
     if (format === 'json') {
       let text: string;
@@ -99,10 +122,23 @@ export class ImportService {
       } catch (err) {
         throw fileError('read', err);
       }
+      bytesRead = size; // whole file is already in memory once parsed
       records = parseJsonArray(text);
     } else {
-      records = jsonlRecords(input.path);
+      records = jsonlRecords(input.path, (n) => { bytesRead += n; });
     }
+
+    const emitProgress = () => {
+      if (!token) return;
+      this.emit?.({
+        cancelToken: token,
+        processed: report.inserted + report.failed,
+        inserted: report.inserted,
+        failed: report.failed,
+        bytesRead,
+        totalBytes: size,
+      });
+    };
 
     let batch: { at: number; doc: Record<string, unknown> }[] = [];
     try {
@@ -115,14 +151,27 @@ export class ImportService {
         if (batch.length >= this.batchSize) {
           await this.insertBatch(coll, batch, report);
           batch = [];
+          emitProgress();
+          // Never mid-batch: an aborted in-flight `insertMany` would leave the
+          // landed count unknowable, so cancel only takes effect once the
+          // batch that was already running has fully landed.
+          if (state?.cancelled) {
+            report.cancelled = true;
+            return report;
+          }
         }
       }
-      if (batch.length > 0) await this.insertBatch(coll, batch, report);
+      if (batch.length > 0) {
+        await this.insertBatch(coll, batch, report);
+        emitProgress();
+      }
     } catch (err) {
       // `insertBatch` has already classified its own errors; what is left is
       // the JSONL stream failing to read part-way.
       if (err instanceof AppError) throw err;
       throw fileError('read', err, { insertedCount: report.inserted });
+    } finally {
+      if (token) this.active.delete(token);
     }
     return report;
   }
