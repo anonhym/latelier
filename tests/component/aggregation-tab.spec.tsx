@@ -487,15 +487,17 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[0]!);
       await screen.findByRole('button', { name: 'Undo' });
 
-      // Remove what is now index 0 ($sort) — only one Undo toast survives.
-      fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[0]!);
+      // Remove what is now index 1 ($limit) — only one Undo toast survives.
+      // A non-zero index matters here: restoring at 0 instead of the
+      // captured index would put $limit first instead of last.
+      fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[1]!);
       await waitFor(() => expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1));
 
       fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
 
-      // $sort came back, not $match — the first toast's target was replaced.
-      await waitFor(() => expect(opAt(0)).toMatch(/\$sort/));
-      expect(opAt(1)).toMatch(/\$limit/);
+      // $limit came back at the end, not at 0; $match stays gone.
+      await waitFor(() => expect(opAt(1)).toMatch(/\$limit/));
+      expect(opAt(0)).toMatch(/\$sort/);
       expect(screen.queryByRole('button', { name: /currently \$match\)/ })).toBeNull();
     });
   });
