@@ -69,7 +69,7 @@ export function SuggestionPopover({
   // auto-highlight the user never asked for must not swallow Enter: WAI-ARIA's
   // combobox pattern (`aria-autocomplete="list"`) has Enter commit the typed
   // text unless an option is *actively* selected. Without this, typing a
-  // complete `{ name: 1 }` into the query bar's projection and pressing Enter
+  // complete `{ name: 1 }` into the projection input and pressing Enter
   // committed `{ name: 1 }_id` — the popover took the key first and pasted
   // whatever happened to rank first. Tab is deliberately still unconditional:
   // it means "complete this", and there's nothing else it could mean here.

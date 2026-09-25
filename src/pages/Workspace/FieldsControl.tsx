@@ -15,30 +15,154 @@ import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { deriveColumns, orderFields } from './views/tableColumns';
 import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
+import { useShellSyntaxField } from './useShellSyntaxField';
+import { projectionProblem } from './builder';
+import {
+  formatProjection,
+  isRawProjection,
+  notFetchedFields,
+  parseProjection,
+  type ProjectionFailure,
+} from './projection';
+import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
+import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
 
+// Deliberately two messages, not one: a typo and an exclusion need different
+// things from the user. `unmodelable` is only reached by text that is not an
+// EJSON document — an exclusion or `$slice` that is one commits to
+// `builder.projectionRaw` and runs verbatim (W15 §2.1). Text the Shell
+// Syntax transform refused shows the transform's own reason instead (X14 §5).
+const PROJECTION_ERRORS: Record<ProjectionFailure, string> = {
+  malformed: "Can't parse this projection. Expected { field: 1 } or a comma-separated field list.",
+  unmodelable:
+    'Exclusions and $slice run as a raw projection, but only as an EJSON document — this text is not one.',
+};
+
 /**
- * Fields control (T2.5, AC3/AC4/AC8) — show/hide + reorder the
- * schema-derived fields, shared by Tree, JSON and Table (Table consumes the
- * config for its columns; Tree reads it too, for its collapsed-row preview
- * — see `TreeView.tsx`. JSON reads the hidden list too — see `JsonView.tsx`).
- * Also add/remove dotted-path computed columns, but that section only
- * renders in Table — `computed` only ever feeds `TableView`'s column
- * resolution (`tableColumns.ts`), so offering it elsewhere would let a
- * user add a column that visibly does nothing.
+ * The projection's draft lifecycle. Lives on the always-mounted control, not
+ * in the dropdown: the dropdown unmounts on close, and a refused draft has to
+ * survive a close and reopen (W14 §3) rather than vanish with it.
+ *
+ * `builder.projection` (the modelled inclusion list) and
+ * `builder.projectionRaw` (W15 §9(b), sent verbatim) are mutually exclusive
+ * by construction — whichever route commits clears the other.
+ */
+function useProjectionDraft() {
+  const { state, actions, meta } = useCollectionWorkspace();
+  const display = state.builder.projectionRaw?.trim() || formatProjection(state.builder.projection);
+  const [draft, setDraft] = React.useState<string | null>(null);
+  // X14 §3 — the Shell Syntax transform runs first, and the two rules
+  // below judge the repaired text: `{_id: 0}` repairs to `{"_id": 0}` and
+  // takes the raw route. No `thenCheck`: `malformed` names its own fix even
+  // when the transform also refuses the text, so it outranks the transform.
+  const field = useShellSyntaxField({ value: draft ?? '' });
+  // The text last *classified* — set only at commit, cleared on change. A
+  // message derived from the live draft would re-announce a half-typed
+  // `{name:` through the `role="alert"` on every keystroke.
+  const [classified, setClassified] = React.useState<string | null>(null);
+  const message = React.useMemo(() => {
+    if (classified === null) return null;
+    const result = parseProjection(classified);
+    if (result.ok || (result.reason === 'unmodelable' && isRawProjection(classified))) return null;
+    if (result.reason === 'unmodelable') return field.refusal ?? PROJECTION_ERRORS.unmodelable;
+    return PROJECTION_ERRORS.malformed;
+  }, [classified, field.refusal]);
+
+  // The control is not keyed per tab, so tab A's refused draft would
+  // otherwise sit over tab B's projection.
+  const [draftTab, setDraftTab] = React.useState(meta.tabId);
+  if (draftTab !== meta.tabId) {
+    setDraftTab(meta.tabId);
+    setDraft(null);
+    setClassified(null);
+    field.onChange('');
+  }
+
+  /** Settles the draft; returns the builder it committed, or null when refused. */
+  const commit = (): CollectionTabState['builder'] | null => {
+    const base = state.builder;
+    if (draft === null) return base;
+    const { text, outcome } = field.repairNow();
+    if (outcome.kind === 'repaired') setDraft(text);
+    const result = parseProjection(text);
+    let next: CollectionTabState['builder'];
+    if (result.ok) {
+      next = { ...base, projection: result.fields, projectionRaw: undefined };
+    } else if (result.reason === 'unmodelable' && isRawProjection(text)) {
+      next = { ...base, projection: [], projectionRaw: text.trim() };
+    } else {
+      setClassified(text); // keep the draft — `message` now says why
+      return null;
+    }
+    setClassified(null);
+    setDraft(null);
+    actions.patch({ builder: next });
+    return next;
+  };
+
+  const onChange = (next: string) => {
+    setDraft(next);
+    // Stale complaint while the user is already fixing it.
+    setClassified(null);
+    field.onChange(next);
+  };
+
+  return { value: draft ?? display, message, commit, onChange };
+}
+
+/**
+ * Fields control (T2.5, AC3/AC4/AC8) — two questions about fields, kept in
+ * two visibly separate sections because they are different kinds of thing:
+ *
+ * - **Show in results** — display only, instant, nothing re-fetched.
+ *   Show/hide + reorder the schema-derived fields, shared by Tree, JSON and
+ *   Table (Table consumes the config for its columns; Tree reads it too, for
+ *   its collapsed-row preview — see `TreeView.tsx`. JSON reads the hidden
+ *   list too — see `JsonView.tsx`). Also add/remove dotted-path computed
+ *   columns, but that part only renders in Table — `computed` only ever
+ *   feeds `TableView`'s column resolution (`tableColumns.ts`), so offering it
+ *   elsewhere would let a user add a column that visibly does nothing.
+ * - **Fetch only these fields from the server** — the projection
+ *   (`builder.projection` / `builder.projectionRaw`), a query concern: it
+ *   changes what the server returns and applies on the next Run. It lives
+ *   here, not in the query bar's advanced row, because sitting beside the
+ *   display toggles is what teaches the difference (W14 §4). Hidden for
+ *   read-only consumers, which have no Run to apply it.
+ *
+ * A field the projection keeps off the wire is listed as "not fetched"
+ * rather than silently missing from the list.
+ *
  * A Popover-anchored-Button pattern; reads everything off
- * `useCollectionWorkspace()` (documents, `columnConfig`) so it can be
- * dropped into `<ResultBar>` with no prop plumbing, and writes back through
- * the existing `actions.patchWith` read-modify-write — the same pattern
- * `columns` / `expandedRows` / `schema` already use.
+ * `useCollectionWorkspace()` (documents, `columnConfig`, `builder`) so it can
+ * be dropped into `<ResultBar>` with no prop plumbing, and writes back
+ * through the existing `actions.patchWith` read-modify-write — the same
+ * pattern `columns` / `expandedRows` / `schema` already use — or, for the
+ * projection, `actions.patch({ builder })` as the query bar does for sort.
  */
 export function FieldsControl() {
   const T = themeVars;
-  const { state, actions } = useCollectionWorkspace();
+  const { state, actions, meta } = useCollectionWorkspace();
   const isTableView = state.view === 'Table';
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
   const [newPath, setNewPath] = React.useState('');
+  const canFetch = !meta.isReadOnly;
+  const projection = useProjectionDraft();
+  const projRawError = projectionProblem(state.builder);
+  const hasProjection =
+    state.builder.projection.length > 0 || !!state.builder.projectionRaw?.trim();
+  // Same four inputs `Workspace.tsx` feeds the query bar's completion, built
+  // here off the context so the control still needs no props.
+  const suggestionContext = React.useMemo<SuggestionContext>(
+    () => ({
+      connectionId: meta.connectionId,
+      dbName: meta.dbName,
+      collection: meta.collection,
+      recentDocs: documents,
+    }),
+    [meta.connectionId, meta.dbName, meta.collection, documents],
+  );
 
   const derived = React.useMemo(() => deriveColumns(documents), [documents]);
   const orderedFields = React.useMemo(
@@ -47,6 +171,24 @@ export function FieldsControl() {
   );
   const hidden = React.useMemo(() => new Set(config?.hidden ?? []), [config?.hidden]);
   const computed = config?.computed ?? [];
+  // Names known without asking the server: the fields in hand, plus any the
+  // tab's own config still remembers from before the projection dropped them.
+  const notFetched = React.useMemo(
+    () =>
+      new Set(
+        notFetchedFields(state.builder, [
+          ...new Set([...derived, ...(config?.order ?? []), ...(config?.hidden ?? [])]),
+        ]),
+      ),
+    [state.builder, derived, config?.order, config?.hidden],
+  );
+  const notFetchedOnly = [...notFetched].filter((f) => !derived.includes(f));
+  // A listed field is marked only once it is really gone from the results in
+  // hand — a projection committed but not yet run still has it on screen.
+  // In practice that is `_id`, which `deriveColumns` lists unconditionally.
+  const absentInPlace = (field: string) =>
+    notFetched.has(field) &&
+    !documents.some((d) => typeof d === 'object' && d !== null && Object.hasOwn(d, field));
 
   const patchColumnConfig = (
     updater: (prev: NonNullable<CollectionTabState['columnConfig']>) => CollectionTabState['columnConfig'],
@@ -143,6 +285,27 @@ export function FieldsControl() {
   };
 
   const hiddenCount = hidden.size;
+  const showCountBadge = hiddenCount > 0 || (isTableView && computed.length > 0);
+  const showProjectionBadge = canFetch && (hasProjection || projection.message !== null);
+
+  const sectionHeadingStyle: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: T.textMuted,
+  };
+  const sectionHelpStyle: React.CSSProperties = {
+    fontSize: 11,
+    color: T.textMuted,
+    margin: '2px 0 6px',
+  };
+  const noticeStyle: React.CSSProperties = {
+    marginTop: 4,
+    fontSize: 10,
+    lineHeight: 1.3,
+    color: T.warn,
+  };
 
   return (
     <Popover
@@ -163,24 +326,50 @@ export function FieldsControl() {
       // move's sentence. `aria-live` only announces mutations, never the
       // content a region mounts with, so that text is never spoken — it just
       // sits in the accessibility tree describing a move from last time.
-      onChange={(opened) => { if (!opened) setAnnouncement(''); }}
+      //
+      // Closing also settles the projection draft: jsdom and Chromium alike
+      // may skip the input's blur when the dropdown unmounts under it.
+      onChange={(opened) => {
+        if (opened) return;
+        setAnnouncement('');
+        projection.commit();
+      }}
     >
       <Popover.Target>
         <Button
           variant="default"
           size="compact-xs"
           rightSection={
-            hiddenCount > 0 || (isTableView && computed.length > 0) ? (
-              <Badge size="xs" variant="light" color="violet">
-                {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
-              </Badge>
+            showCountBadge || showProjectionBadge ? (
+              <>
+                {showCountBadge && (
+                  <Badge size="xs" variant="light" color="violet">
+                    {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
+                  </Badge>
+                )}
+                {/* The projection's only sign while the control is closed —
+                    it changes what Run returns, so it must not hide behind
+                    a click. Warn-coloured while it cannot run as written. */}
+                {showProjectionBadge && (
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color={projRawError || projection.message ? 'orange' : 'teal'}
+                    ml={4}
+                  >
+                    projection
+                  </Badge>
+                )}
+              </>
             ) : undefined
           }
         >
           Fields
         </Button>
       </Popover.Target>
-      <Popover.Dropdown p="xs">
+      <Popover.Dropdown p="xs" style={{ maxWidth: 320 }}>
+        <div id="fields-show-heading" style={sectionHeadingStyle}>Show in results</div>
+        <div style={sectionHelpStyle}>Display only — instant, nothing is re-fetched.</div>
         {documents.length === 0 ? (
           <div style={{ padding: '4px 8px', fontSize: 12, color: T.textMuted }}>
             No fields available
@@ -214,7 +403,15 @@ export function FieldsControl() {
                 <span style={{ color: T.textGhost, fontSize: 11, display: 'flex' }}>{I.drag}</span>
                 <Checkbox
                   size="xs"
-                  label={field}
+                  label={
+                    absentInPlace(field) ? (
+                      <>
+                        {field} <span style={{ color: T.textMuted }}>— not fetched</span>
+                      </>
+                    ) : (
+                      field
+                    )
+                  }
                   checked={!hidden.has(field)}
                   onChange={() => toggleHidden(field)}
                   style={{ flex: 1 }}
@@ -239,6 +436,18 @@ export function FieldsControl() {
                 >
                   {I.chevD}
                 </ActionIcon>
+              </div>
+            ))}
+          </Stack>
+        )}
+        {/* Outside the reorderable list on purpose: these rows have no data
+            to show or hide, and keeping them out of `orderedFields` leaves
+            the index-based drag and keyboard-move logic untouched. */}
+        {notFetchedOnly.length > 0 && (
+          <Stack gap={2} mt={4} data-testid="fields-not-fetched">
+            {notFetchedOnly.map((field) => (
+              <div key={field} style={{ fontSize: 12, color: T.textMuted, paddingLeft: 17 }}>
+                {field} — not fetched
               </div>
             ))}
           </Stack>
@@ -297,6 +506,69 @@ export function FieldsControl() {
               </Button>
             </div>
           </>
+        )}
+
+        {canFetch && (
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+            <div id="fields-fetch-heading" style={sectionHeadingStyle}>
+              Fetch only these fields from the server
+            </div>
+            <div id="fields-fetch-help" style={sectionHelpStyle}>
+              Changes what the server returns — applied on the next Run.
+            </div>
+            <FieldAutocompleteInput
+              value={projection.value}
+              onChange={projection.onChange}
+              context={suggestionContext}
+              mode="token"
+              onBlur={projection.commit}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.defaultPrevented) return;
+                // The panel-level ⌘↵ skips anything inside a dialog, and this
+                // dropdown is one — so Run-from-here is handled here, with
+                // the settled builder as the override since the patch it
+                // just made has not landed yet.
+                e.preventDefault();
+                const next = projection.commit();
+                if ((e.metaKey || e.ctrlKey) && next !== null && !meta.isLoading) {
+                  actions.run({ builder: next });
+                }
+              }}
+              placeholder="{ field: 1 }"
+              dataTestid="fields-projection"
+              ariaLabel="Projection"
+              ariaInvalid={projection.message !== null || projRawError !== null}
+              ariaDescribedBy={
+                projection.message
+                  ? 'fields-projection-error'
+                  : projRawError
+                    ? 'fields-projection-raw-error'
+                    : 'fields-fetch-help'
+              }
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: 11,
+                padding: '4px 6px',
+                border: `1px solid ${projection.message || projRawError ? T.warn : T.border}`,
+                borderRadius: T.rs,
+                background: 'transparent',
+                color: T.text,
+                outline: 'none',
+              }}
+            />
+            {projection.message && (
+              <div id="fields-projection-error" role="alert" style={noticeStyle}>
+                {projection.message}
+              </div>
+            )}
+            {projRawError && (
+              <div id="fields-projection-raw-error" role="alert" style={noticeStyle}>
+                {projRawError}
+              </div>
+            )}
+          </div>
         )}
       </Popover.Dropdown>
     </Popover>

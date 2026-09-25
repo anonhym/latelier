@@ -48,7 +48,7 @@ export class WorkspacePage {
   get queryBarRunButton() { return this.win.locator('[data-testid="query-run-btn"]'); }
 
   /**
-   * The collapsible advanced row (projection / sort / skip / limit). Only in
+   * The collapsible advanced row (sort / skip / limit). Only in
    * the DOM while expanded, so presence is the open/closed assertion (W14 §8).
    */
   get queryBarAdvanced() { return this.win.locator('#query-bar-advanced'); }
@@ -56,8 +56,11 @@ export class WorkspacePage {
   /** The QUERY label cell doubles as the advanced row's expand/collapse trigger. */
   get queryBarAdvancedToggle() { return this.win.locator('[aria-controls="query-bar-advanced"]'); }
 
-  /** PROJECTION input inside the advanced row. */
-  get queryBarProjection() { return this.win.locator('[data-testid="query-bar-projection"]'); }
+  /** The result bar's Fields control trigger; its name gains a badge's text when one shows. */
+  get fieldsButton() { return this.win.getByRole('button', { name: /^Fields/ }); }
+
+  /** Projection input in the Fields control's "fetch" section — only while the control is open. */
+  get fieldsProjection() { return this.win.locator('[data-testid="fields-projection"]'); }
 
   /** SORT input inside the advanced row. */
   get queryBarSort() { return this.win.locator('[data-testid="query-bar-sort"]'); }
