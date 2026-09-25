@@ -629,6 +629,14 @@ describe('DocumentEditor — arrays', () => {
     expect(row('cast.0.name').dataset.edited).toBeUndefined();
   });
 
+  it("removing an element doesn't hand its half-typed Add field name to the element that shifts into its place", () => {
+    setup({ doc: { ...DOC, cast: [{ a: 1 }, { b: 2 }] } });
+    fireEvent.change(within(editor()).getByLabelText('New field name under cast.0'), { target: { value: 'zzz' } });
+    fireEvent.click(within(row('cast.0')).getByRole('button', { name: 'Remove cast.0' }));
+    expect(field('cast.0.b').value).toBe('2');
+    expect((within(editor()).getByLabelText('New field name under cast.0') as HTMLInputElement).value).toBe('');
+  });
+
   it("a container's children sit inside its list item, below its own controls rather than beside them", () => {
     setup({ doc: { ...DOC, cast: [{ name: 'x' }] } });
     const nested = within(editor()).getByRole('list', { name: 'Fields of cast' });

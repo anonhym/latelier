@@ -544,8 +544,11 @@ function RowsList({ ctx, parentSegments }: { ctx: RowCtx; parentSegments: readon
     const length = found.value.length;
     return (
       <div role="list" aria-label={listLabel} style={{ minHeight: 0 }}>
+        {/* Keyed by length too: a removal shifts every later element down an
+            index, so each element's subtree remounts rather than inheriting
+            the local state (a half-typed Add field name) of the one before. */}
         {found.value.map((_, i) => (
-          <FieldRow key={i} ctx={ctx} segments={[...parentSegments, String(i)]} />
+          <FieldRow key={`${length}:${i}`} ctx={ctx} segments={[...parentSegments, String(i)]} />
         ))}
         <AddItemRow ctx={ctx} parentSegments={parentSegments} length={length} />
       </div>
