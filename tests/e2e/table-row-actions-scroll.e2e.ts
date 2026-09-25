@@ -32,8 +32,9 @@ test('Table row actions stay within view while scrolled horizontally, and back',
     // Click a data cell (not a button) to make its row the active row —
     // the same click a keyboard-reachable row would have from Enter/Space,
     // which is what makes the actions column's Edit button reachable at
-    // all (it shows on hover, active-row, or focus).
-    await win.getByText('val-aa', { exact: true }).click();
+    // all (it shows on hover, active-row, or focus). By role rather than
+    // exact text: the cell's text also carries its expand affordance's glyph.
+    await win.getByRole('gridcell', { name: /^val-aa\b/ }).click();
 
     const editButton = win.getByRole('button', { name: 'Edit document 1' });
     await expect(editButton).toBeVisible();
