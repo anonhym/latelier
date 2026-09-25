@@ -4,6 +4,7 @@ import {
   csvEscape,
   exportColumnsFrom,
   exportFileExtension,
+  neutralizeFormula,
   serializeCsv,
   serializeJsonArray,
   serializeJsonl,
@@ -203,6 +204,31 @@ describe('serializeCsv', () => {
     expect(serializeCsv(docs, [{ header: 'address.city', path: 'address.city' }])).toBe(
       'address.city\nNYC\n',
     );
+  });
+});
+
+describe('neutralizeFormula', () => {
+  it.each(['=HYPERLINK("x")', '+1', '-2', '@SUM(A1)', '\tcmd', '\rcmd'])(
+    'prefixes a string cell starting with a formula character: %j',
+    (cell) => {
+      expect(neutralizeFormula(cell, cell)).toBe(`'${cell}`);
+    },
+  );
+
+  it('leaves ordinary strings and non-string values alone', () => {
+    expect(neutralizeFormula('plain', 'plain')).toBe('plain');
+    expect(neutralizeFormula('a=b', 'a=b')).toBe('a=b');
+    expect(neutralizeFormula('-5', -5)).toBe('-5');
+    expect(neutralizeFormula('-5', { $numberInt: '-5' })).toBe('-5');
+  });
+
+  it('is applied by serializeCsv before quoting', () => {
+    const docs = [{ f: '=1+1', n: -3 }];
+    const columns = [
+      { header: 'f', path: 'f' },
+      { header: 'n', path: 'n' },
+    ];
+    expect(serializeCsv(docs, columns)).toBe("f,n\n'=1+1,-3\n");
   });
 });
 

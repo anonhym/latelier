@@ -141,10 +141,24 @@ export function csvEscape(cell: string): string {
  * resolved by dotted path (`getValueAtPath`, shared with `TableView`'s own
  * column rendering so the two never disagree about what a path resolves to).
  * LF line endings, matching `serializeJsonl`. */
+// A spreadsheet runs a cell that starts with one of these as a formula, so a
+// stored string like `=HYPERLINK(...)` would execute on open. Only raw
+// strings are neutralized; numbers keep their sign.
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+export function neutralizeFormula(cell: string, raw: unknown): string {
+  return typeof raw === 'string' && FORMULA_LEAD.test(cell) ? `'${cell}` : cell;
+}
+
 export function serializeCsv(documents: unknown[], columns: ExportColumn[]): string {
   const header = columns.map((c) => csvEscape(c.header)).join(',');
   const rows = documents.map((doc) =>
-    columns.map((c) => csvEscape(csvCellValue(getValueAtPath(doc, c.path)))).join(','),
+    columns
+      .map((c) => {
+        const raw = getValueAtPath(doc, c.path);
+        return csvEscape(neutralizeFormula(csvCellValue(raw), raw));
+      })
+      .join(','),
   );
   return [header, ...rows].join('\n') + '\n';
 }

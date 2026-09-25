@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button, Checkbox, Group, Modal, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
-import { api } from '../../api/atelier';
+import { api, getErrorMessage } from '../../api/atelier';
+import { notify } from '../../theme/notifications';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { deriveColumns, resolveColumns } from './views/tableColumns';
@@ -59,13 +60,12 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
             ? serializeJsonl(documents, relaxed)
             : serializeJsonArray(documents, relaxed);
       const defaultName = `${meta.collection}.${exportFileExtension(format)}`;
-      await api.app.saveFile({ defaultName, content });
-      close();
-    } catch {
-      // Save dialog cancel throws through the same path as a real failure
-      // (`OutputPanel`'s download button treats it the same way) — the
-      // dialog stays open so the user can just try again rather than losing
-      // their format choice to a misread cancel.
+      const { path } = await api.app.saveFile({ defaultName, content });
+      // `null` is a cancelled save panel: stay open with the format choice
+      // intact so the user can just try again.
+      if (path !== null) close();
+    } catch (err) {
+      notify.error(`Export failed: ${getErrorMessage(err, 'the file could not be written')}`);
     } finally {
       setSaving(false);
     }

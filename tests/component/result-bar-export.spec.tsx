@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { notify } from '../../src/theme/notifications';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
@@ -86,6 +87,38 @@ describe('ResultBar — Export current page', () => {
     expect(JSON.parse(content)).toEqual([
       { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'Ann, A.', age: { $numberInt: '30' } },
     ]);
+  });
+
+  it('keeps the dialog open when the save panel is cancelled', async () => {
+    const saveFile = vi.fn(async () => ({ path: null }));
+    installAtelierMock({ app: { saveFile } as never });
+    renderBar({}, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect((screen.getByRole('button', { name: /^Export…$/ }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByRole('dialog', { name: 'Export current page' })).not.toBeNull();
+  });
+
+  it('reports a failed write instead of swallowing it, and stays open', async () => {
+    const saveFile = vi.fn(async () => {
+      throw new Error('EACCES: permission denied');
+    });
+    installAtelierMock({ app: { saveFile } as never });
+    const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
+    renderBar({}, { collection: 'orders' });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(1));
+    expect(error.mock.calls[0]![0]).toMatch(/Export failed: .*permission denied/);
+    expect(screen.queryByRole('dialog', { name: 'Export current page' })).not.toBeNull();
+    error.mockRestore();
   });
 
   it('writes CSV using the visible Fields control columns, quoting a field with a comma', async () => {
