@@ -35,6 +35,7 @@
     "src/pages/Workspace/filterTree.ts",
     "src/pages/Workspace/legacyBuilder.ts",
     "src/pages/Workspace/views/tableColumns.ts",
+    "src/pages/Workspace/exportFormat.ts",
     "src/utils/displayValue.ts",
     "src/utils/shellSyntax.ts",
     "electron/log.ts",
