@@ -46,7 +46,6 @@ import {
 } from './filterTree';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
-import { SavedStrip } from './SavedStrip';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
@@ -1580,16 +1579,11 @@ function BuilderPaneInner({
             </div>
           </div>
 
-          {/* Pinned bottom: saved strip + footer */}
-          <SavedStrip
-            connectionId={connectionId}
-            dbName={dbName}
-            collection={collection}
-            refreshKey={savedRefreshKey}
-            onRunHere={handleSavedRunHere}
-            onOpenInTab={onOpenInTab}
-            onOpenSavedTab={() => setActiveTab('Saved')}
-          />
+          {/* Pinned bottom footer: Reset / Copy code. Save lived here too
+              until the QueryBar toolbar Save (always visible, next to
+              Run/History) made this one a duplicate; `saved.create`'s hint
+              anchor moved with it. `SavedStrip` — a preview of the Saved tab
+              one click away — is gone for the same reason. */}
           <div
             style={{
               display: 'flex',
@@ -1611,19 +1605,6 @@ function BuilderPaneInner({
             >
               Copy code
             </Button>
-            <span style={{ flex: 1 }} />
-            <Tooltip label="Save this query" withArrow>
-              <Button
-                data-hint-anchor="saved.create"
-                variant="default"
-                size="compact-xs"
-                leftSection={I.save}
-                onClick={actions.openSave}
-                aria-label="Save query"
-              >
-                Save
-              </Button>
-            </Tooltip>
           </div>
         </Tabs.Panel>
 
@@ -1634,6 +1615,7 @@ function BuilderPaneInner({
             collection={collection}
             refreshKey={savedRefreshKey}
             onRunHere={handleSavedRunHere}
+            onOpenInTab={onOpenInTab}
           />
         </Tabs.Panel>
 
