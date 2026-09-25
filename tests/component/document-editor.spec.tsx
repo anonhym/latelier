@@ -238,7 +238,10 @@ describe('DocumentEditor — Fields view', () => {
       expect(within(editor()).queryByRole('textbox', { name: readOnly })).toBeNull();
     }
     expect(within(row('gone')).getByText('null')).toBeTruthy();
-    expect(field('tags').value).toBe('["a"]');
+    // `tags` is a container row (arrays as expandable element rows), not a
+    // textbox of its own; its element gets one (tested separately).
+    expect(within(editor()).queryByRole('textbox', { name: 'tags' })).toBeNull();
+    expect(field('tags.0').value).toBe('a');
     expect((row('qty').querySelector('select') as HTMLSelectElement).value).toBe('int32');
     expect((row('big').querySelector('select') as HTMLSelectElement).value).toBe('long');
   });
@@ -558,28 +561,98 @@ describe('DocumentEditor — nested objects', () => {
 });
 
 describe('DocumentEditor — arrays', () => {
-  it('shows the whole array as JSON text', () => {
+  it('renders each element as its own row, labelled [i], with no value control on the array itself', () => {
     setup();
-    expect(field('tags').value).toBe('["a"]');
+    expect(within(row('tags')).queryByRole('textbox', { name: 'tags' })).toBeNull();
+    expect(field('tags.0').value).toBe('a');
+    expect(within(row('tags.0')).getByText('[0]')).toBeTruthy();
   });
 
-  it('saves an array change as the whole array, never by index', async () => {
+  it('starts expanded, like an Object row', () => {
+    setup();
+    expect(row('tags.0')).toBeTruthy();
+    expect(within(row('tags')).getByRole('button', { name: 'Collapse tags' })).toBeTruthy();
+  });
+
+  it('edits an element and saves the whole array, never by index', async () => {
     const { updateOne } = setup();
-    fireEvent.change(field('tags'), { target: { value: '["a","b"]' } });
-    expect(row('tags').dataset.edited).toBe('true');
+    fireEvent.change(field('tags.0'), { target: { value: 'b' } });
     fireEvent.click(save());
     await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
-    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { tags: ['a', 'b'] } });
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { tags: ['b'] } });
   });
 
-  it('blocks Save on invalid array JSON, and un-blocks once it parses again', () => {
+  it('marks the array edited, but not the element row itself', () => {
     setup();
-    fireEvent.change(field('tags'), { target: { value: '[' } });
-    expect(within(row('tags')).getByText(/JSON array/)).toBeTruthy();
-    expect((save() as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(field('tags'), { target: { value: '["a"]' } });
-    expect(within(row('tags')).queryByText(/JSON array/)).toBeNull();
-    expect((save() as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(field('tags.0'), { target: { value: 'b' } });
+    expect(row('tags').dataset.edited).toBe('true');
+    expect(row('tags.0').dataset.edited).toBeUndefined();
+  });
+
+  it('Add item appends a new empty-string element', () => {
+    setup();
+    fireEvent.click(within(within(editor()).getByTestId('add-item-tags')).getByRole('button', { name: 'Add item' }));
+    expect(field('tags.1').value).toBe('');
+    expect(row('tags').dataset.edited).toBe('true');
+  });
+
+  it('removing an element splices it out and shifts later indices down', async () => {
+    const { updateOne } = setup({ doc: { ...DOC, tags: ['a', 'b', 'c'] } });
+    fireEvent.click(within(row('tags.0')).getByRole('button', { name: 'Remove tags.0' }));
+    expect(field('tags.0').value).toBe('b');
+    expect(field('tags.1').value).toBe('c');
+    expect(row('tags.2')).toBeNull();
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { tags: ['b', 'c'] } });
+  });
+
+  it('purges pending text under the whole array on remove, so a reused index never inherits stale text', () => {
+    setup({ doc: { ...DOC, tags: [1, 2] } });
+    // An invalid edit at index 1 lives only in `texts`, keyed by that index,
+    // never reaching the draft.
+    fireEvent.change(field('tags.1'), { target: { value: 'oops' } });
+    fireEvent.click(within(row('tags.0')).getByRole('button', { name: 'Remove tags.0' }));
+    // Add item re-appends at index 1 — without purging the array's whole
+    // state on remove, that slot would inherit the dead 'oops' text instead
+    // of the fresh default.
+    fireEvent.click(within(within(editor()).getByTestId('add-item-tags')).getByRole('button', { name: 'Add item' }));
+    expect(field('tags.1').value).toBe('');
+  });
+
+  it('an array of objects recurses: an element is an expandable row of its own', () => {
+    setup({ doc: { ...DOC, cast: [{ name: 'x' }] } });
+    expect(field('cast.0.name').value).toBe('x');
+    fireEvent.change(field('cast.0.name'), { target: { value: 'y' } });
+    expect(row('cast').dataset.edited).toBe('true');
+    expect(row('cast.0').dataset.edited).toBeUndefined();
+    expect(row('cast.0.name').dataset.edited).toBeUndefined();
+  });
+
+  it("removing an element doesn't hand its half-typed Add field name to the element that shifts into its place", () => {
+    setup({ doc: { ...DOC, cast: [{ a: 1 }, { b: 2 }] } });
+    fireEvent.change(within(editor()).getByLabelText('New field name under cast.0'), { target: { value: 'zzz' } });
+    fireEvent.click(within(row('cast.0')).getByRole('button', { name: 'Remove cast.0' }));
+    expect(field('cast.0.b').value).toBe('2');
+    expect((within(editor()).getByLabelText('New field name under cast.0') as HTMLInputElement).value).toBe('');
+  });
+
+  it("a container's children sit inside its list item, below its own controls rather than beside them", () => {
+    setup({ doc: { ...DOC, cast: [{ name: 'x' }] } });
+    const nested = within(editor()).getByRole('list', { name: 'Fields of cast' });
+    expect(nested.parentElement!.closest('[role="listitem"]')).toBe(row('cast'));
+    const controls = within(row('cast')).getByRole('button', { name: 'Remove cast' }).closest('div[style*="flex"]')!;
+    expect(controls.contains(nested)).toBe(false);
+  });
+
+  it('a nested array edits and saves as the whole outer array', async () => {
+    const { updateOne } = setup({ doc: { ...DOC, m: [[1, 2]] } });
+    fireEvent.change(field('m.0.0'), { target: { value: '9' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({
+      $set: { m: [[{ $numberInt: '9' }, { $numberInt: '2' }]] },
+    });
   });
 });
 

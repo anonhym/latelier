@@ -153,6 +153,60 @@ describe('getAtSegments / setAtSegments / deleteAtSegments', () => {
     expect(() => setAtSegments({}, [], 1)).toThrow(/at least one/);
     expect(() => deleteAtSegments({}, [])).toThrow(/at least one/);
   });
+
+  it('reads an array element by its decimal index', () => {
+    expect(getAtSegments({ tags: ['a', 'b'] }, ['tags', '0'])).toEqual({ value: 'a' });
+    expect(getAtSegments({ tags: ['a', 'b'] }, ['tags', '1'])).toEqual({ value: 'b' });
+    expect(getAtSegments({ tags: ['a'] }, ['tags', '1'])).toBeNull(); // out of range
+    expect(getAtSegments({ tags: ['a'] }, ['tags', '01'])).toBeNull(); // not a plain decimal index
+  });
+
+  it('reads through nested arrays and arrays of objects', () => {
+    expect(getAtSegments({ m: [[1, 2], [3]] }, ['m', '0', '1'])).toEqual({ value: 2 });
+    expect(getAtSegments({ cast: [{ name: 'x' }] }, ['cast', '0', 'name'])).toEqual({ value: 'x' });
+  });
+
+  it('sets an array element by index, without turning the array into an object', () => {
+    const doc = { tags: ['a', 'b'] };
+    const out = setAtSegments(doc, ['tags', '1'], 'x');
+    expect(plain(out)).toEqual({ tags: ['a', 'x'] });
+    expect(Array.isArray((out as { tags: unknown }).tags)).toBe(true);
+    expect(doc).toEqual({ tags: ['a', 'b'] }); // unmutated
+  });
+
+  it('appends when the index is exactly the array length, Add item\'s case', () => {
+    const out = setAtSegments({ tags: ['a'] }, ['tags', '1'], 'b');
+    expect(plain(out)).toEqual({ tags: ['a', 'b'] });
+  });
+
+  it('refuses setting an array index beyond length + 1', () => {
+    expect(() => setAtSegments({ tags: ['a'] }, ['tags', '5'], 'x')).toThrow(/out of range/);
+  });
+
+  it('sets a field nested inside an array element, creating a missing intermediate object', () => {
+    const out = setAtSegments({ cast: [{ name: 'x' }] }, ['cast', '0', 'addr', 'city'], 'A');
+    expect(plain(out)).toEqual({ cast: [{ name: 'x', addr: { city: 'A' } }] });
+  });
+
+  it('replaces a non-container array element on the way down when setting', () => {
+    expect(plain(setAtSegments({ arr: [1] }, ['arr', '0', 'k'], 'v'))).toEqual({ arr: [{ k: 'v' }] });
+  });
+
+  it('deletes (splices) an array element, shifting later indices down', () => {
+    const doc = { tags: ['a', 'b', 'c'] };
+    const out = deleteAtSegments(doc, ['tags', '0']);
+    expect(plain(out)).toEqual({ tags: ['b', 'c'] });
+    expect(doc).toEqual({ tags: ['a', 'b', 'c'] }); // unmutated
+  });
+
+  it('deleting an out-of-range array index is a no-op', () => {
+    expect(plain(deleteAtSegments({ tags: ['a'] }, ['tags', '9']))).toEqual({ tags: ['a'] });
+  });
+
+  it('deletes a field nested inside an array element, keeping the array', () => {
+    const out = deleteAtSegments({ cast: [{ name: 'x', extra: 1 }] }, ['cast', '0', 'extra']);
+    expect(plain(out)).toEqual({ cast: [{ name: 'x' }] });
+  });
 });
 
 describe('isUnsafeFieldName', () => {

@@ -220,14 +220,9 @@ describe('parseAs', () => {
     expect(parseAs('boolean', 'yes')).toEqual({ ok: false, error: 'Enter true or false' });
   });
 
-  it('parses a JSON array and refuses anything else, with the same message either way', () => {
-    expect(parseAs('array', '[1,2,3]')).toEqual({ ok: true, value: [1, 2, 3] });
-    expect(parseAs('array', '{}')).toEqual({ ok: false, error: 'Enter a JSON array' });
-    expect(parseAs('array', 'not json')).toEqual({ ok: false, error: 'Enter a JSON array' });
-  });
-
-  it('refuses a kind with no typed input of its own', () => {
+  it('refuses a kind with no typed input of its own — a container row has none', () => {
     expect(parseAs('object', 'x')).toEqual({ ok: false, error: 'This type is not editable here' });
+    expect(parseAs('array', 'x')).toEqual({ ok: false, error: 'This type is not editable here' });
     expect(parseAs('other', 'x')).toEqual({ ok: false, error: 'This type is not editable here' });
   });
 });

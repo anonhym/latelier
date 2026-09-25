@@ -150,6 +150,29 @@ function purgeUnder(m: ReadonlyMap<string, string>, segments: readonly string[])
   return next;
 }
 
+/** Same as `purgeUnder`, for the collapsed-row `Set` rather than the texts `Map`. */
+function purgeCollapsedUnder(s: ReadonlySet<string>, segments: readonly string[]): Set<string> {
+  const next = new Set(s);
+  for (const key of next) if (isUnderSegments(key, segments)) next.delete(key);
+  return next;
+}
+
+/**
+ * The first position in `segments` that indexes into an array in `draft`, or
+ * -1 if none does. `diff` (§5a) always sends an array whole, never by
+ * element, so an edited marker below that point would never match anything
+ * the diff actually contains.
+ */
+function firstArraySegment(draft: Doc, segments: readonly string[]): number {
+  let node: unknown = draft;
+  for (let i = 0; i < segments.length; i++) {
+    if (Array.isArray(node)) return i;
+    if (!isPlainDocument(node)) break;
+    node = (node as Doc)[segments[i]!];
+  }
+  return -1;
+}
+
 /**
  * The dotted path to check with `isEdited` (and the W17 warning) for a row at
  * `segments`. A field name with a `.` or a leading `$` can't be its own
@@ -157,10 +180,15 @@ function purgeUnder(m: ReadonlyMap<string, string>, segments: readonly string[])
  * whose own path is safe, so that's what has to be checked here too. A
  * top-level unsafe name has no such ancestor; the row is locked read-only in
  * that case (see `locked` below), so its address is never actually used to
- * decide anything save-relevant.
+ * decide anything save-relevant. The same fallback applies to an element
+ * under an array: the array itself (and its ancestors) carry the "edited"
+ * marker, never one of its elements individually.
  */
-function editAddress(segments: readonly string[]): string {
-  const cut = segments.findIndex((s) => isUnsafeFieldName(s));
+function editAddress(draft: Doc, segments: readonly string[]): string {
+  const unsafeCut = segments.findIndex((s) => isUnsafeFieldName(s));
+  const arrayCut = firstArraySegment(draft, segments);
+  const cuts = [unsafeCut, arrayCut].filter((c) => c !== -1);
+  const cut = cuts.length > 0 ? Math.min(...cuts) : -1;
   const safe = cut === -1 ? segments : segments.slice(0, cut);
   return (safe.length > 0 ? safe : segments).join('.');
 }
@@ -178,6 +206,7 @@ interface RowCtx {
   filterText: string;
   patchDraft: (updater: (d: Doc) => Doc) => void;
   patchTexts: (updater: (m: ReadonlyMap<string, string>) => ReadonlyMap<string, string>) => void;
+  patchCollapsed: (updater: (s: ReadonlySet<string>) => ReadonlySet<string>) => void;
   toggleCollapsed: (key: string) => void;
   setErr: (e: string | null) => void;
   /** The "Edit in JSON" link on a read-only ("other" kind) row. */
@@ -204,7 +233,12 @@ function warningFor(entriesByPath: Map<string, SchemaSampleEntry>, field: string
   return actual === 'object' ? null : checkFieldType(entriesByPath, field, actual);
 }
 
-function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; depth: number }) {
+/** One level of indent for a container's children — a constant step per level, applied once per nesting, never multiplied by depth. */
+const INDENT = 16;
+/** How far the Add-field/Add-item row sits in from the rows it adds to, so it reads as belonging to that level. */
+const ADD_ROW_OFFSET = 16;
+
+function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
   const T = themeVars;
   const found = getAtSegments(ctx.draft, segments);
   if (!found) return null; // removed by a sibling edit in the same render pass
@@ -215,18 +249,31 @@ function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; d
   const locked = isRoot && (name === '_id' || isUnsafeFieldName(name));
   const dotted = segments.join('.');
   const key = keyOf(segments);
-  const edited = isEdited(ctx.changes, editAddress(segments));
+  // `editAddress` redirects a row under an unsafe name or an array to its
+  // nearest safe/array ancestor — the only path the diff could actually
+  // contain. Whether that redirected address is the row's own tells apart
+  // the ancestor that legitimately owns the mark from a descendant (an
+  // array element, or anything nested under one) that merely shares it;
+  // only the former claims the "edited" marker.
+  const safeAddress = editAddress(ctx.draft, segments);
+  const edited = safeAddress === dotted && isEdited(ctx.changes, safeAddress);
   const warning = isRoot ? warningFor(ctx.entriesByPath, name, value) : null;
 
+  const parentSegments = segments.slice(0, -1);
+  const parentValue = parentSegments.length > 0 ? getAtSegments(ctx.draft, parentSegments)?.value : undefined;
+  const isArrayElement = Array.isArray(parentValue);
+  const displayName = isArrayElement ? `[${name}]` : name;
+
+  const isContainer = kind === 'object' || kind === 'array';
   const hasTypeSelector = !locked && kind !== 'other';
-  const hasValueControl = hasTypeSelector && kind !== 'null' && kind !== 'object';
+  const hasValueControl = hasTypeSelector && kind !== 'null' && !isContainer;
   const removable = !locked;
   // A container stays open, even if the user collapsed it, while a row
   // nested under it holds text that doesn't parse — collapsing must never
   // hide the only explanation for why Save is disabled.
   const isCollapsed = ctx.collapsed.has(key) && !hasPendingErrorUnder(ctx, segments);
 
-  const text = ctx.texts.get(key) ?? (kind === 'array' ? textOf(kind, value) : hasValueControl ? textOf(kind, value) : '');
+  const text = ctx.texts.get(key) ?? (hasValueControl ? textOf(kind, value) : '');
   const parsedText = hasValueControl && ctx.texts.has(key) ? parseAs(kind, ctx.texts.get(key)!) : null;
   const rowError = parsedText && !parsedText.ok ? parsedText.error : undefined;
 
@@ -244,146 +291,153 @@ function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; d
     ctx.setErr(null);
   };
 
+  // Removing an array *element* shifts every later index down, so any
+  // pending text/collapsed state keyed by index would now point at the
+  // wrong element — purge the whole array's state, not just this row's.
+  // Removing an object field never reindexes anything, so purging its own
+  // segments is enough there.
+  const purgeSegments = isArrayElement ? parentSegments : segments;
   const onRemove = () => {
     ctx.patchDraft((d) => deleteAtSegments(d, segments));
-    ctx.patchTexts((m) => purgeUnder(m, segments));
+    ctx.patchTexts((m) => purgeUnder(m, purgeSegments));
+    ctx.patchCollapsed((s) => purgeCollapsedUnder(s, purgeSegments));
     ctx.setErr(null);
   };
 
   return (
-    <div
-      role="listitem"
-      data-field={dotted}
-      data-edited={edited || undefined}
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 8,
-        padding: '4px 6px',
-        marginLeft: depth * 16,
-        borderLeft: `2px solid ${edited ? T.accent : 'transparent'}`,
-      }}
-    >
-      <div style={{ width: 180, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingTop: 4 }}>
-        {kind === 'object' && (
-          <button
-            type="button"
-            aria-expanded={!isCollapsed}
-            aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dotted}`}
-            onClick={() => ctx.toggleCollapsed(key)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 11, lineHeight: 1 }}
-          >
-            {isCollapsed ? '▸' : '▾'}
-          </button>
-        )}
-        <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
-          {name}
-          {edited && (
-            <Text span size="xs" c={T.accent} ml={6}>
-              edited
+    // The listitem wraps the row and its children, so a nested list stays
+    // inside an item rather than becoming a bare child of the parent list.
+    <div role="listitem" data-field={dotted} data-edited={edited || undefined}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          padding: '4px 6px',
+          borderLeft: `2px solid ${edited ? T.accent : 'transparent'}`,
+        }}
+      >
+        <div style={{ width: 180, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingTop: 4 }}>
+          {isContainer && (
+            <button
+              type="button"
+              aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dotted}`}
+              onClick={() => ctx.toggleCollapsed(key)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 11, lineHeight: 1 }}
+            >
+              {isCollapsed ? '▸' : '▾'}
+            </button>
+          )}
+          <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
+            {displayName}
+            {edited && (
+              <Text span size="xs" c={T.accent} ml={6}>
+                edited
+              </Text>
+            )}
+          </Text>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {!hasValueControl ? (
+            isContainer ? null : (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
+                  {kind === 'null' ? 'null' : textOf(kind, value)}
+                </Text>
+                {kind === 'other' && (
+                  <Button size="compact-xs" variant="subtle" onClick={ctx.switchToJson} px={4}>
+                    Edit in JSON
+                  </Button>
+                )}
+              </div>
+            )
+          ) : kind === 'boolean' ? (
+            <Switch
+              aria-label={dotted}
+              checked={value === true}
+              onChange={(e) => {
+                const { checked } = e.currentTarget;
+                ctx.setErr(null);
+                ctx.patchDraft((d) => setAtSegments(d, segments, checked));
+              }}
+              mt={6}
+            />
+          ) : kind === 'string' ? (
+            <Textarea
+              aria-label={dotted}
+              value={text}
+              onChange={(e) => editText(e.currentTarget.value)}
+              error={rowError}
+              // Grows past one line natively (Chromium's `field-sizing`),
+              // without Mantine's JS autosize.
+              rows={1}
+              styles={{ input: { fieldSizing: 'content', maxHeight: 160 } }}
+              size="xs"
+              ff="monospace"
+              spellCheck={false}
+            />
+          ) : (
+            <TextInput
+              aria-label={dotted}
+              value={text}
+              onChange={(e) => editText(e.currentTarget.value)}
+              error={rowError}
+              inputMode={kind === 'date' || kind === 'objectId' ? undefined : 'decimal'}
+              size="xs"
+              ff="monospace"
+              spellCheck={false}
+              description={kind === 'date' && value instanceof Date ? `Local: ${value.toLocaleString()}` : undefined}
+              inputWrapperOrder={['label', 'input', 'description', 'error']}
+            />
+          )}
+          {warning && (
+            <Text size="xs" c="dimmed" mt={2} data-testid="document-editor-type-warning">
+              {`Field "${warning.field}" is usually ${warning.expectedType} (${warning.percent}% of sampled documents). This value is ${warning.actualType}.`}
             </Text>
           )}
-        </Text>
+        </div>
+        <div style={{ width: 110, flexShrink: 0, paddingTop: 2 }}>
+          {hasTypeSelector ? (
+            <NativeSelect
+              aria-label={`${dotted} type`}
+              value={kind}
+              // A bare JS number isn't a selectable target — bson infers its
+              // saved type, not this selector — so it gets a disabled
+              // placeholder option instead of being folded into 'double',
+              // which would make Double look already selected and take a
+              // click to convert without firing onChange.
+              data={[
+                ...(kind === 'number' ? [{ value: 'number', label: TYPE_LABEL.number, disabled: true }] : []),
+                ...SELECTABLE_KINDS.map((k) => ({ value: k, label: TYPE_LABEL[k] })),
+              ]}
+              onChange={(e) => onTypeChange(e.currentTarget.value as FieldKind)}
+              size="xs"
+            />
+          ) : (
+            <Text size="xs" c="dimmed" style={{ paddingTop: 6 }}>
+              {typeLabel(kind, value)}
+            </Text>
+          )}
+        </div>
+        <div style={{ width: 28, flexShrink: 0 }}>
+          {removable && (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="red"
+              aria-label={`Remove ${dotted}`}
+              onClick={onRemove}
+              px={4}
+            >
+              &times;
+            </Button>
+          )}
+        </div>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {!hasValueControl ? (
-          kind === 'object' ? null : (
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-              <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
-                {kind === 'null' ? 'null' : textOf(kind, value)}
-              </Text>
-              {kind === 'other' && (
-                <Button size="compact-xs" variant="subtle" onClick={ctx.switchToJson} px={4}>
-                  Edit in JSON
-                </Button>
-              )}
-            </div>
-          )
-        ) : kind === 'boolean' ? (
-          <Switch
-            aria-label={dotted}
-            checked={value === true}
-            onChange={(e) => {
-              const { checked } = e.currentTarget;
-              ctx.setErr(null);
-              ctx.patchDraft((d) => setAtSegments(d, segments, checked));
-            }}
-            mt={6}
-          />
-        ) : kind === 'string' || kind === 'array' ? (
-          <Textarea
-            aria-label={dotted}
-            value={text}
-            onChange={(e) => editText(e.currentTarget.value)}
-            error={rowError}
-            // Grows past one line natively (Chromium's `field-sizing`),
-            // without Mantine's JS autosize.
-            rows={1}
-            styles={{ input: { fieldSizing: 'content', maxHeight: 160 } }}
-            size="xs"
-            ff="monospace"
-            spellCheck={false}
-          />
-        ) : (
-          <TextInput
-            aria-label={dotted}
-            value={text}
-            onChange={(e) => editText(e.currentTarget.value)}
-            error={rowError}
-            inputMode={kind === 'date' || kind === 'objectId' ? undefined : 'decimal'}
-            size="xs"
-            ff="monospace"
-            spellCheck={false}
-            description={kind === 'date' && value instanceof Date ? `Local: ${value.toLocaleString()}` : undefined}
-            inputWrapperOrder={['label', 'input', 'description', 'error']}
-          />
-        )}
-        {warning && (
-          <Text size="xs" c="dimmed" mt={2} data-testid="document-editor-type-warning">
-            {`Field "${warning.field}" is usually ${warning.expectedType} (${warning.percent}% of sampled documents). This value is ${warning.actualType}.`}
-          </Text>
-        )}
-      </div>
-      <div style={{ width: 110, flexShrink: 0, paddingTop: 2 }}>
-        {hasTypeSelector ? (
-          <NativeSelect
-            aria-label={`${dotted} type`}
-            value={kind}
-            // A bare JS number isn't a selectable target — bson infers its
-            // saved type, not this selector — so it gets a disabled
-            // placeholder option instead of being folded into 'double',
-            // which would make Double look already selected and take a
-            // click to convert without firing onChange.
-            data={[
-              ...(kind === 'number' ? [{ value: 'number', label: TYPE_LABEL.number, disabled: true }] : []),
-              ...SELECTABLE_KINDS.map((k) => ({ value: k, label: TYPE_LABEL[k] })),
-            ]}
-            onChange={(e) => onTypeChange(e.currentTarget.value as FieldKind)}
-            size="xs"
-          />
-        ) : (
-          <Text size="xs" c="dimmed" style={{ paddingTop: 6 }}>
-            {typeLabel(kind, value)}
-          </Text>
-        )}
-      </div>
-      <div style={{ width: 28, flexShrink: 0 }}>
-        {removable && (
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            color="red"
-            aria-label={`Remove ${dotted}`}
-            onClick={onRemove}
-            px={4}
-          >
-            &times;
-          </Button>
-        )}
-      </div>
-      {kind === 'object' && !isCollapsed && (
-        <div style={{ width: '100%' }}>
-          <RowsList ctx={ctx} parentSegments={segments} depth={depth + 1} />
+      {isContainer && !isCollapsed && (
+        <div style={{ paddingLeft: INDENT }}>
+          <RowsList ctx={ctx} parentSegments={segments} />
         </div>
       )}
     </div>
@@ -394,12 +448,10 @@ function AddFieldRow({
   ctx,
   parentSegments,
   existing,
-  depth,
 }: {
   ctx: RowCtx;
   parentSegments: readonly string[];
   existing: readonly string[];
-  depth: number;
 }) {
   const [name, setName] = React.useState('');
   const [err, setErrLocal] = React.useState<string | null>(null);
@@ -431,7 +483,7 @@ function AddFieldRow({
   return (
     <div
       data-testid={`add-field-${isRootLevel ? 'root' : parentSegments.join('.')}`}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: (depth + 1) * 16 }}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
     >
       <div style={{ flex: 1, minWidth: 0, maxWidth: 260 }}>
         <FieldAutocompleteInput
@@ -464,9 +516,45 @@ function AddFieldRow({
   );
 }
 
-function RowsList({ ctx, parentSegments, depth }: { ctx: RowCtx; parentSegments: readonly string[]; depth: number }) {
+/** The array counterpart of `AddFieldRow`: no name to type, just appends an empty-string element. */
+function AddItemRow({ ctx, parentSegments, length }: { ctx: RowCtx; parentSegments: readonly string[]; length: number }) {
+  const submit = () => {
+    ctx.patchDraft((d) => setAtSegments(d, [...parentSegments, String(length)], ''));
+    ctx.setErr(null);
+  };
+
+  return (
+    <div
+      data-testid={`add-item-${parentSegments.join('.')}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
+    >
+      <Button size="compact-xs" variant="default" onClick={submit}>
+        Add item
+      </Button>
+    </div>
+  );
+}
+
+function RowsList({ ctx, parentSegments }: { ctx: RowCtx; parentSegments: readonly string[] }) {
   const isRoot = parentSegments.length === 0;
   const found = isRoot ? { value: ctx.draft as unknown } : getAtSegments(ctx.draft, parentSegments);
+  const listLabel = isRoot ? 'Fields' : `Fields of ${parentSegments.join('.')}`;
+
+  if (Array.isArray(found?.value)) {
+    const length = found.value.length;
+    return (
+      <div role="list" aria-label={listLabel} style={{ minHeight: 0 }}>
+        {/* Keyed by length too: a removal shifts every later element down an
+            index, so each element's subtree remounts rather than inheriting
+            the local state (a half-typed Add field name) of the one before. */}
+        {found.value.map((_, i) => (
+          <FieldRow key={`${length}:${i}`} ctx={ctx} segments={[...parentSegments, String(i)]} />
+        ))}
+        <AddItemRow ctx={ctx} parentSegments={parentSegments} length={length} />
+      </div>
+    );
+  }
+
   const obj = found && isPlainDocument(found.value) ? (found.value as Doc) : {};
   const allKeys = Object.keys(obj);
   // The filter box is root-only (W18 §3): a nested object's own rows are
@@ -474,15 +562,11 @@ function RowsList({ ctx, parentSegments, depth }: { ctx: RowCtx; parentSegments:
   const needle = isRoot ? ctx.filterText.trim().toLowerCase() : '';
   const keys = needle ? allKeys.filter((k) => k.toLowerCase().includes(needle)) : allKeys;
   return (
-    <div
-      role="list"
-      aria-label={isRoot ? 'Fields' : `Fields of ${parentSegments.join('.')}`}
-      style={{ minHeight: 0 }}
-    >
+    <div role="list" aria-label={listLabel} style={{ minHeight: 0 }}>
       {keys.map((k) => (
-        <FieldRow key={k} ctx={ctx} segments={[...parentSegments, k]} depth={depth} />
+        <FieldRow key={k} ctx={ctx} segments={[...parentSegments, k]} />
       ))}
-      <AddFieldRow ctx={ctx} parentSegments={parentSegments} existing={allKeys} depth={depth} />
+      <AddFieldRow ctx={ctx} parentSegments={parentSegments} existing={allKeys} />
     </div>
   );
 }
@@ -791,7 +875,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
         const next = new Map<string, string>();
         for (const [key, text] of m) {
           const segments = decodeKey(key);
-          if (segments && isEdited(baseChanges, editAddress(segments))) next.set(key, text);
+          if (segments && isEdited(baseChanges, editAddress(merged, segments))) next.set(key, text);
         }
         return next;
       });
@@ -934,6 +1018,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     filterText,
     patchDraft: (updater) => setDraft(updater),
     patchTexts: (updater) => setTexts(updater),
+    patchCollapsed: (updater) => setCollapsed(updater),
     toggleCollapsed: (key) =>
       setCollapsed((s) => {
         const next = new Set(s);
@@ -1017,7 +1102,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
             )}
           </div>
         ) : (
-          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <div data-testid="document-editor-fields-body" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
             {Object.keys(draft).length > FILTER_BOX_THRESHOLD && (
               <TextInput
                 aria-label="Filter fields"
@@ -1028,7 +1113,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
                 mb={4}
               />
             )}
-            <RowsList ctx={ctx} parentSegments={[]} depth={0} />
+            <RowsList ctx={ctx} parentSegments={[]} />
           </div>
         )}
 

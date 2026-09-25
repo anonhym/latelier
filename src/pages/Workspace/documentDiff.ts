@@ -155,43 +155,97 @@ function lookup(doc: Doc, path: string): { value: unknown } | null {
  * Segment-addressed counterparts of `lookup`/`applyDiff`'s path walk, for
  * the Fields view: a segment is one literal object key, however it's
  * spelled, so a field named `a.b` is one segment and never mistaken for
- * nesting. `applyDiff` keeps its own dotted-string walk unchanged — its
- * paths always come out of `diff`, which never emits a dotted path through
- * an unsafe key, so splitting them on `.` is safe there.
+ * nesting. When the node being walked is an array, a segment is instead its
+ * decimal index (`'0'`, `'1'`, …) — an element row's address (W18, arrays as
+ * expandable element rows). `applyDiff` keeps its own dotted-string walk
+ * unchanged — its paths always come out of `diff`, which sends an array
+ * whole rather than by index, so splitting them on `.` never has to cross
+ * one.
  */
+
+/** A segment that addresses an array element: `'0'`, `'1'`, … — no leading zeros. */
+function arrayIndexOf(segment: string): number | null {
+  return /^(0|[1-9]\d*)$/.test(segment) ? Number(segment) : null;
+}
+
 export function getAtSegments(doc: Doc, path: readonly string[]): { value: unknown } | null {
   let node: unknown = doc;
   for (const part of path) {
-    if (!isPlainDocument(node) || !has(node as Doc, part)) return null;
-    node = (node as Doc)[part];
+    if (Array.isArray(node)) {
+      const idx = arrayIndexOf(part);
+      if (idx === null || idx >= node.length) return null;
+      node = node[idx];
+    } else if (isPlainDocument(node) && has(node as Doc, part)) {
+      node = (node as Doc)[part];
+    } else {
+      return null;
+    }
   }
   return { value: node };
 }
 
-/** `doc` with `value` written at `path`, creating missing intermediate objects. Never mutates `doc`. */
+/**
+ * `doc` with `value` written at `path`, creating missing intermediate
+ * objects. An array along the way is never turned into an object — its
+ * element is written (or, at exactly its current length, appended) in
+ * place — and a missing intermediate object is still created the same way
+ * `setAtSegments` always has. Never mutates `doc`.
+ */
 export function setAtSegments(doc: Doc, path: readonly string[], value: unknown): Doc {
   if (path.length === 0) throw new Error('setAtSegments needs at least one path segment');
   const out = clone(doc) as Doc;
   const parts = [...path];
   const leaf = parts.pop()!;
-  let node = out;
+  let node: Doc | unknown[] = out;
   for (const part of parts) {
-    if (!has(node, part) || !isPlainDocument(node[part])) put(node, part, Object.create(null));
-    node = node[part] as Doc;
+    if (Array.isArray(node)) {
+      const idx = arrayIndexOf(part);
+      if (idx === null || idx >= node.length) throw new Error(`setAtSegments: array index "${part}" out of range`);
+      if (!isPlainDocument(node[idx]) && !Array.isArray(node[idx])) node[idx] = Object.create(null) as Doc;
+      node = node[idx] as Doc | unknown[];
+    } else {
+      const child = (node as Doc)[part];
+      if (!has(node as Doc, part) || (!isPlainDocument(child) && !Array.isArray(child))) {
+        put(node as Doc, part, Object.create(null));
+      }
+      node = (node as Doc)[part] as Doc | unknown[];
+    }
   }
-  put(node, leaf, clone(value));
+  if (Array.isArray(node)) {
+    const idx = arrayIndexOf(leaf);
+    if (idx === null || idx > node.length) throw new Error(`setAtSegments: array index "${leaf}" out of range`);
+    node[idx] = clone(value);
+  } else {
+    put(node, leaf, clone(value));
+  }
   return out;
 }
 
-/** `doc` with `path` removed. A missing intermediate object is a no-op. Never mutates `doc`. */
+/**
+ * `doc` with `path` removed. A missing intermediate object is a no-op; an
+ * array element is spliced out, shifting later indices down. Never mutates
+ * `doc`.
+ */
 export function deleteAtSegments(doc: Doc, path: readonly string[]): Doc {
   if (path.length === 0) throw new Error('deleteAtSegments needs at least one path segment');
   const out = clone(doc) as Doc;
   const parts = [...path];
   const leaf = parts.pop()!;
   let node: unknown = out;
-  for (const part of parts) node = isPlainDocument(node) ? (node as Doc)[part] : undefined;
-  if (isPlainDocument(node)) delete (node as Doc)[leaf];
+  for (const part of parts) {
+    if (Array.isArray(node)) {
+      const idx = arrayIndexOf(part);
+      node = idx !== null && idx < node.length ? node[idx] : undefined;
+    } else {
+      node = isPlainDocument(node) ? (node as Doc)[part] : undefined;
+    }
+  }
+  if (Array.isArray(node)) {
+    const idx = arrayIndexOf(leaf);
+    if (idx !== null && idx < node.length) node.splice(idx, 1);
+  } else if (isPlainDocument(node)) {
+    delete (node as Doc)[leaf];
+  }
   return out;
 }
 
