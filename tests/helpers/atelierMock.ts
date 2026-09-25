@@ -98,7 +98,6 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     doc: {
       insert: unused('doc.insert') as IpcApi['doc']['insert'],
       insertMany: unused('doc.insertMany') as IpcApi['doc']['insertMany'],
-      replace: unused('doc.replace') as IpcApi['doc']['replace'],
       updateOne: unused('doc.updateOne') as IpcApi['doc']['updateOne'],
       deleteOne: unused('doc.deleteOne') as IpcApi['doc']['deleteOne'],
       confirmDeleteMany: unused('doc.confirmDeleteMany') as IpcApi['doc']['confirmDeleteMany'],
@@ -392,7 +391,6 @@ function makePermissiveStub(): IpcApi {
     doc: {
       insert: noopAsync as IpcApi['doc']['insert'],
       insertMany: noopAsync as IpcApi['doc']['insertMany'],
-      replace: noopAsync as IpcApi['doc']['replace'],
       updateOne: noopAsync as IpcApi['doc']['updateOne'],
       deleteOne: noopAsync as IpcApi['doc']['deleteOne'],
       confirmDeleteMany: noopAsync as IpcApi['doc']['confirmDeleteMany'],

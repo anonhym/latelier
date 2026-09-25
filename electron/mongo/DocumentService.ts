@@ -90,7 +90,7 @@ function hashUpdateJson(updateJson: string): string {
  * refused, and the user got a raw `MongoServerError` after a pointless round
  * trip instead of a `VALIDATION` naming the field.
  *
- * `docJson` (a single-document write field, on `insert`/`replace`) is on
+ * `docJson` (the single-document write field, on `insert`) is on
  * `parseEjsonDocument` too, for the same reason as `filterJson` — a bug fuzz
  * pass found `docJson: 'null'` and `docJson: '"abc"'` both parsed as valid
  * EJSON and reached the driver, which then threw an internal TypeError
@@ -223,28 +223,6 @@ export class DocumentService {
         err,
         insertedCount !== undefined ? { insertedCount } : undefined,
       );
-    }
-  }
-
-  async replace(input: {
-    connectionId: string;
-    dbName: string;
-    collection: string;
-    filterJson: string;
-    docJson: string;
-  }): Promise<{ matchedCount: number; modifiedCount: number }> {
-    const w = this.pool.write(input.connectionId);
-    const filter = parseEjsonDocument<Record<string, unknown>>(input.filterJson, 'filterJson');
-    assertNonEmptyFilter(filter, 'filterJson');
-    const doc = parseEjsonDocument<Record<string, unknown>>(input.docJson, 'docJson');
-    const db = await w.db(input.dbName);
-    try {
-      const result = await db
-        .collection(input.collection)
-        .replaceOne(filter, doc, { maxTimeMS: QUERY_TIMEOUT_MS });
-      return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
-    } catch (err) {
-      throw classifyMongoOpError(err);
     }
   }
 

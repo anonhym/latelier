@@ -242,7 +242,6 @@ export interface IpcApi {
   doc: {
     insert: (input: { connectionId: string; dbName: string; collection: string; docJson: string }) => Promise<{ insertedId: unknown }>;
     insertMany: (input: { connectionId: string; dbName: string; collection: string; docsJson: string }) => Promise<{ insertedCount: number; insertedIds: unknown[] }>;
-    replace: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; docJson: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
     // `auditId` is present only when the write was recorded Reversible: it is
     // the entry to hand `audit.undo`, so its presence is what offers Undo.
     updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
@@ -428,7 +427,6 @@ export const IPC_CHANNELS = {
   // Document write ops -----------------------------------------
   docInsert:             'doc:insert',
   docInsertMany:         'doc:insertMany',
-  docReplace:            'doc:replace',
   docUpdateOne:          'doc:updateOne',
   docDeleteOne:          'doc:deleteOne',
   docConfirmDeleteMany:  'doc:confirmDeleteMany',

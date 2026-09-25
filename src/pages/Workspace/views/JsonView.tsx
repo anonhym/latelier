@@ -9,7 +9,7 @@ import { ejsonStringify } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
-import { anchorFromRect } from '../../../utils/contextMenuKey';
+import { anchorFromRect, isEditKey } from '../../../utils/contextMenuKey';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { useCollectionWorkspace } from '../context';
 import { useResultSelection } from '../resultSelection';
@@ -256,6 +256,14 @@ function DocCard({
   return (
     <div
       onClick={handleCardClick}
+      // JSON has no roving row focus; the card is "focused" when one of its
+      // own controls is, and `E` there opens the editor like it does on a
+      // Table or Tree row. Only buttons live inside, so no typing reaches it.
+      onKeyDown={(e) => {
+        if (!isEditKey(e)) return;
+        e.preventDefault();
+        onEdit(doc);
+      }}
       // `group`, deliberately not `button`. `button` is "children
       // presentational" in ARIA, and this card holds real <button>s — the
       // corner actions below, and the JSON body's own collapse toggles at

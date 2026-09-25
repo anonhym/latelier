@@ -29,6 +29,8 @@ export function useDocumentDialogs(deps: {
   activeTabId: string | null;
   /** Resolves a tab's current runner target at write-completion time; `null` if the tab is gone. */
   resolveRunnerTarget: (tabId: string) => RunnerTarget | null;
+  /** The Focused Tab's Connection is read-only, so the Document Editor never opens. */
+  readOnly: boolean;
 }): {
   editing: { doc: unknown; target: DocTarget } | null;
   deleteDoc: unknown | null;
@@ -46,7 +48,7 @@ export function useDocumentDialogs(deps: {
   closeInsertDrawer: () => void;
   handleInserted: () => void;
   handlePartialInsert: () => void;
-  closeEditDrawer: () => void;
+  closeEditor: () => void;
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
   handleDeleted: (auditId: string | undefined, message: string) => void;
@@ -58,7 +60,7 @@ export function useDocumentDialogs(deps: {
    * page). */
   writeVersion: number;
 } {
-  const { activeCollectionRef, activeTabId, resolveRunnerTarget } = deps;
+  const { activeCollectionRef, activeTabId, resolveRunnerTarget, readOnly } = deps;
   const { run } = deps.queryRunner;
 
   // Target travels inside editing/inserting with the payload, captured at
@@ -81,9 +83,15 @@ export function useDocumentDialogs(deps: {
     (doc: unknown) => {
       const a = activeCollectionRef.current;
       if (!a) return;
+      if (readOnly) {
+        notify.info('This connection is read-only, so its documents cannot be edited.', {
+          title: 'Read-only connection',
+        });
+        return;
+      }
       setEditing({ doc, target: targetOf(a) });
     },
-    [activeCollectionRef],
+    [activeCollectionRef, readOnly],
   );
   const openInsertModal = React.useCallback(() => {
     const a = activeCollectionRef.current;
@@ -144,7 +152,7 @@ export function useDocumentDialogs(deps: {
     if (inserting) refreshSource(inserting.target);
   }, [inserting, refreshSource]);
 
-  const closeEditDrawer = React.useCallback(() => setEditing(null), []);
+  const closeEditor = React.useCallback(() => setEditing(null), []);
   const handleDocSaved = React.useCallback((auditId?: string) => {
     const target = editing?.target;
     setEditing(null);
@@ -231,7 +239,7 @@ export function useDocumentDialogs(deps: {
     closeInsertDrawer,
     handleInserted,
     handlePartialInsert,
-    closeEditDrawer,
+    closeEditor,
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,

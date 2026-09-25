@@ -351,6 +351,7 @@ function WorkspaceInner() {
     queryRunner,
     activeTabId: tabs.activeId,
     resolveRunnerTarget,
+    readOnly: focusedConnection?.readOnly ?? false,
   });
   const {
     openEdit,

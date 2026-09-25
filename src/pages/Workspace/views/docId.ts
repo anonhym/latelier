@@ -43,9 +43,10 @@ export function getFullDocId(doc: unknown): string {
 }
 
 /**
- * Build the `{_id}` filter shared by the drawer's replace/update paths
- * (`EditDrawer.tsx`) and inline cell edits (T2.6) — one source of truth so
- * the two write surfaces cannot drift.
+ * Build the `{_id}` filter shared by inline cell edits (T2.6) and single
+ * document deletes — one source of truth so the write surfaces cannot drift.
+ * The Document Editor holds revived BSON rather than sentinels, so it builds
+ * its filter with `ejsonStringify` in `documentDiff.ts` instead.
  *
  * `JSON.stringify`, NOT `ejsonStringify` — `doc._id` is already a canonical
  * EJSON sentinel from `parseFindResult` (plain `JSON.parse`, not bson
@@ -74,8 +75,8 @@ export function buildIdFilter(doc: unknown): string | null {
  * revive — see `electron/preload.ts`), so letting the user retype one as
  * text and `$set` it back would silently flip the field's BSON type
  * (e.g. int32 -> double). Booleans, null, arrays, and plain objects are also
- * out of scope for v1 — all of these route through the existing EditDrawer,
- * which preserves type via EJSON. `_id` is never inline-editable regardless
+ * out of scope for v1 — all of these route through the Document Editor,
+ * which preserves type. `_id` is never inline-editable regardless
  * of its value's shape.
  *
  * Deliberately doesn't know about column *kind* (field vs. computed

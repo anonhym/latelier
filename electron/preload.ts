@@ -132,7 +132,6 @@ const api: IpcApi = {
   doc: {
     insert: (input) => call(IPC_CHANNELS.docInsert, input),
     insertMany: (input) => call(IPC_CHANNELS.docInsertMany, input),
-    replace: (input) => call(IPC_CHANNELS.docReplace, input),
     updateOne: (input) => call(IPC_CHANNELS.docUpdateOne, input),
     deleteOne: (input) => call(IPC_CHANNELS.docDeleteOne, input),
     confirmDeleteMany: (input) => call(IPC_CHANNELS.docConfirmDeleteMany, input),

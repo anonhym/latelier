@@ -108,8 +108,8 @@ export function DeleteConfirm({
     try {
       if (!isMulti && docs[0] !== undefined) {
         const doc = docs[0];
-        // `buildIdFilter` is the same helper Workspace.tsx's `updateField` and
-        // EditDrawer's `handleSave` use — it returns null when the document
+        // `buildIdFilter` is the same helper Workspace.tsx's `updateField`
+        // uses — it returns null when the document
         // has no `_id` (e.g. a find with `{_id: 0}` projection), which this
         // path must refuse rather than fall through to `{}` and delete an
         // ARBITRARY document (N0.1).

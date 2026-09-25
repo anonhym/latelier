@@ -169,7 +169,7 @@ describe('checkFieldType', () => {
   });
 
   it('shares one type vocabulary with inferType, sentinels included', () => {
-    // The regression this guards: EditDrawer must read {"$oid": …} as
+    // The regression this guards: the W17 warning must read {"$oid": …} as
     // `objectid`, not as `object`, or a correct edit warns.
     const entries = byPath([entry('ref', { objectid: 10 })]);
     expect(inferType({ $oid: '507f1f77bcf86cd799439011' })).toBe('objectid');

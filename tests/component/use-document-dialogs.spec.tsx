@@ -89,6 +89,7 @@ function mountDialogs(
         queryRunner,
         activeTabId: props.activeTabId,
         resolveRunnerTarget,
+        readOnly: false,
       });
     },
     { initialProps: { activeTabId } },
@@ -222,7 +223,7 @@ describe('useDocumentDialogs', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  // `EditDrawer`/`InsertDrawer` carry the same live-target hazard
+  // The Document Editor and `InsertDrawer` carry the same live-target hazard
   // `DeleteConfirm` had before its own fix, but closing them on a tab change would
   // silently discard unsaved input. ADR-001's remedy is to pin the target
   // captured at open time instead, so these two assert the pin survives a

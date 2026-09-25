@@ -211,31 +211,45 @@ describe('workspace doc dialogs (T2)', () => {
     expect(screen.getByRole('dialog', { name: 'Insert document' })).toBeTruthy();
   });
 
-  // NOTE: the dialog closing after Save is EditDrawer's OWN doing (it calls
-  // `onSaved(); onClose();` itself once the write succeeds — see
-  // EditDrawer.tsx:263-264), not something Workspace's `onSaved` wiring is
-  // responsible for; that assertion stays here as an honest description of
-  // current behavior, but it would pass even if Workspace's `onSaved` did
-  // nothing at all. The part of this wiring that's actually Workspace's own
-  // — and the part a mutation check confirmed this test catches — is the
-  // re-run (`void queryRunner.run()`): drop that and `find` never fires.
-  it('row "Edit" opens EditDrawer carrying that document; onSaved re-runs the query, and the drawer closes', async () => {
-    const replace = vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+  // The re-run is the part of this wiring that is Workspace's own
+  // (`handleDocSaved` → `refreshSource`): drop it and `find` never fires.
+  it('row "Edit" opens the Document Editor on that document; a save sends only the change, re-runs the query, and closes', async () => {
+    const updateOne = vi.fn(async () => ({ matchedCount: 1, modifiedCount: 1 }));
     const find = vi.fn(async () => ({ documents: [], durationMs: 0, hasMore: false }));
-    mount({ doc: { replace }, query: { find } });
+    mount({ doc: { updateOne }, query: { find } });
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByTitle('Edit document'));
 
     const dialog = await screen.findByRole('dialog', { name: 'Edit document' });
-    const textarea = within(dialog).getByRole('textbox') as HTMLTextAreaElement;
-    expect(textarea.value).toContain('"widget"');
+    const sku = within(dialog).getByRole('textbox', { name: 'sku' }) as HTMLTextAreaElement;
+    expect(sku.value).toBe('widget');
 
-    fireEvent.change(textarea, { target: { value: '{"_id":"1","sku":"edited"}' } });
+    fireEvent.change(sku, { target: { value: 'edited' } });
     fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }));
 
-    await waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filterJson: JSON.stringify({ _id: '1', sku: { $eq: 'widget' } }),
+        updateJson: JSON.stringify({ $set: { sku: 'edited' } }),
+      }),
+    );
     await waitFor(() => expect(find).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit document' })).toBeNull());
+  });
+
+  it('on a read-only connection, row "Edit" never opens the editor', async () => {
+    installAtelierMock({
+      tabs: { list: async () => [tab()] },
+      conn: { list: async () => [connectionFixture({ id: 'c1', readOnly: true })] },
+    });
+    mountWorkspace();
+
+    await screen.findByText(/widget/);
+    fireEvent.click(screen.getByTitle('Edit document'));
+
+    expect(await screen.findByText('Read-only connection')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Edit document' })).toBeNull();
   });
 });

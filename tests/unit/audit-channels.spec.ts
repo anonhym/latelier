@@ -10,7 +10,6 @@ describe('auditRecordFor', () => {
   it('returns null for a channel outside the audit table', () => {
     for (const channel of [
       IPC_CHANNELS.docInsert,
-      IPC_CHANNELS.docReplace,
       IPC_CHANNELS.docConfirmDeleteMany,
       IPC_CHANNELS.docConfirmUpdateMany,
       IPC_CHANNELS.queryFind,

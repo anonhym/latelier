@@ -16,7 +16,7 @@ import { FeatureHint } from '../../hints/FeatureHint';
 import type { UseFeatureHintResult } from '../../hints/useFeatureHint';
 import { SaveModal } from './SaveModal';
 import { InsertDrawer } from './InsertDrawer';
-import { EditDrawer } from './EditDrawer';
+import { DocumentEditor } from './DocumentEditor';
 import { DeleteConfirm } from './DeleteConfirm';
 import { UpdateConfirm } from './UpdateConfirm';
 import { resolveDeleteDialog } from './deleteMode';
@@ -272,7 +272,7 @@ export function DialogStack({
     closeInsertDrawer,
     handleInserted,
     handlePartialInsert,
-    closeEditDrawer,
+    closeEditor,
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,
@@ -361,12 +361,12 @@ export function DialogStack({
       )}
 
       {editing && (
-        <EditDrawer
+        <DocumentEditor
           connectionId={editing.target.connectionId}
           dbName={editing.target.dbName}
           collection={editing.target.collection}
           doc={editing.doc}
-          onClose={closeEditDrawer}
+          onClose={closeEditor}
           onSaved={handleDocSaved}
         />
       )}

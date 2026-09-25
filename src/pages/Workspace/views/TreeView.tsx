@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { anchorFromRect } from '../../../utils/contextMenuKey';
+import { anchorFromRect, isEditKey } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -622,6 +622,12 @@ export function TreeView({
       // mirrored on DocRow itself; that copy went when the rows stopped
       // being focusable, so this is now the only one.
       if (e.target !== e.currentTarget) return;
+      if (isEditKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        onEditDoc(documents[roving.activeIndex]);
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -631,7 +637,7 @@ export function TreeView({
       const docId = getFullDocId(doc);
       onRowExpand(docId, !ownGet(expandedRows, docId));
     },
-    [roving, documents, expandedRows, onRowExpand],
+    [roving, documents, expandedRows, onRowExpand, onEditDoc],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh

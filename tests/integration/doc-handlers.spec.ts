@@ -3,7 +3,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { createRouter } from '../../electron/ipc/router';
 import { registerDocChannels } from '../../electron/ipc/handlers/doc';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { ValidationError, ConflictError } from '../../electron/errors';
+import { ValidationError } from '../../electron/errors';
 import type { DocumentService } from '../../electron/mongo/DocumentService';
 import type { Envelope } from '../../shared/ipc';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
@@ -52,7 +52,6 @@ describe('doc:* handlers via router', () => {
     const base: Partial<DocumentService> = {
       insert: async () => ({ insertedId: 'oid-1' }),
       insertMany: async () => ({ insertedCount: 2, insertedIds: ['oid-1', 'oid-2'] }),
-      replace: async () => ({ matchedCount: 1, modifiedCount: 1 }),
       updateOne: async () => ({ matchedCount: 1, modifiedCount: 1 }),
       deleteOne: async () => ({ deletedCount: 1 }),
       confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }),
@@ -90,21 +89,6 @@ describe('doc:* handlers via router', () => {
     });
     expect(env).toEqual({ ok: true, data: { insertedCount: 3, insertedIds: ['a', 'b', 'c'] } });
     expect(insertManySpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('doc:replace maps ConflictError to CONFLICT', async () => {
-    setupWith({
-      replace: async () => {
-        throw new ConflictError('duplicate key', { field: '_id' });
-      },
-    });
-    const env = await shim.invoke(IPC_CHANNELS.docReplace, {
-      ...TARGET,
-      filterJson: '{"_id":"x"}',
-      docJson: '{"a":1}',
-    });
-    expect(env.ok).toBe(false);
-    if (!env.ok) expect(env.error.code).toBe('CONFLICT');
   });
 
   it('doc:updateOne maps ValidationError (e.g. an empty filter) to VALIDATION', async () => {
