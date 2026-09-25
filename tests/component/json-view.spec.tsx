@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -37,16 +38,23 @@ function emptyState(): CollectionTabState {
   };
 }
 
-function renderJson(docs: unknown[]) {
-  return render(
+function renderJson(
+  docs: unknown[],
+  overrides?: { state?: Partial<CollectionTabState>; actions?: ReturnType<typeof emptyWorkspaceActions> },
+) {
+  const actions = overrides?.actions ?? emptyWorkspaceActions();
+  return {
+    ...render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
-        actions={emptyWorkspaceActions()}
+        state={{ ...emptyState(), ...overrides?.state }}
+        actions={actions}
         meta={emptyWorkspaceMeta()}
       >
         <JsonView documents={docs} />
       </CollectionWorkspaceProvider>
-  );
+    ),
+    actions,
+  };
 }
 
 /**
@@ -84,5 +92,86 @@ describe('JsonView — rendering', () => {
     renderJson(docs);
     const selectBtn = screen.getByRole('button', { name: 'Select document' });
     expect(within(selectBtn).queryAllByRole('button')).toHaveLength(0);
+  });
+});
+
+/**
+ * JSON honors the Fields control's hidden top-level fields.
+ */
+describe('JsonView — hidden fields', () => {
+  it('omits a hidden top-level field from the rendered JSON', () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    const { container } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret'] } },
+    });
+    expect(container.textContent).toContain('name');
+    expect(container.textContent).not.toContain('secret');
+    expect(container.textContent).not.toContain('shh');
+  });
+
+  it('shows a "N fields hidden" note reflecting the hidden count', () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh', other: 1 }];
+    const { container } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret', 'other'] } },
+    });
+    expect(container.textContent).toContain('2 fields hidden');
+  });
+
+  it('shows no hidden-fields note when nothing is hidden', () => {
+    const docs = [{ _id: 1, name: 'alpha' }];
+    const { container } = renderJson(docs);
+    expect(container.textContent).not.toContain('field hidden');
+    expect(container.textContent).not.toContain('fields hidden');
+  });
+
+  it('still hands the FULL document (including hidden fields) to Edit', async () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    const { actions } = renderJson(docs, {
+      state: { columnConfig: { hidden: ['secret'] } },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(actions.openEdit).toHaveBeenCalledWith(docs[0]);
+  });
+
+  it('still copies the FULL document (including hidden fields)', async () => {
+    const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
+    renderJson(docs, { state: { columnConfig: { hidden: ['secret'] } } });
+    await userEvent.click(screen.getByRole('button', { name: 'Copy JSON' }));
+    const written = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(written).toContain('secret');
+    expect(written).toContain('shh');
+  });
+
+  it('resets collapse state when hiding a field shifts group node ids', async () => {
+    // `_id` is a string, not a number, so it doesn't get its own EJSON
+    // wrapper group. Node ids are assigned in token order over `{`/`[`
+    // tokens, so with nothing hidden: document=0, a=1, b=2, c=3.
+    const docs = [
+      { _id: 'id1', a: { w: 'wvalue' }, b: { y: 'yvalue' }, c: { z: 'zvalue' } },
+    ];
+    const { rerender } = renderJson(docs);
+
+    // Collapse 'b' (id 2) — its content 'yvalue' should disappear.
+    const collapseButtons = screen.getAllByRole('button', { name: 'Collapse' });
+    await userEvent.click(collapseButtons[2]!);
+    expect(screen.queryByText(/yvalue/)).toBeNull();
+
+    // Hiding 'a' removes an earlier group, so ids shift: document=0, b=1,
+    // c=2. Without a reset, the stale `docKey:2` collapse key now matches
+    // 'c' instead of 'b'.
+    rerender(
+      <CollectionWorkspaceProvider
+        state={{ ...emptyState(), columnConfig: { hidden: ['a'] } }}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
+      >
+        <JsonView documents={docs} />
+      </CollectionWorkspaceProvider>,
+    );
+
+    // Both b and c must render expanded — collapse state should not have
+    // silently moved onto 'c'.
+    expect(screen.getByText(/yvalue/)).toBeTruthy();
+    expect(screen.getByText(/zvalue/)).toBeTruthy();
   });
 });
