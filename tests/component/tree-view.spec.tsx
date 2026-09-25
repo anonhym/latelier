@@ -3,6 +3,7 @@ import {
   render,
   screen,
   fireEvent,
+  within,
   act,
   emptyWorkspaceActions,
   emptyWorkspaceMeta,
@@ -314,6 +315,40 @@ describe('TreeView — rendering and interaction', () => {
       );
       expect(outlined).toHaveLength(1);
       expect(outlined[0].id).toBe('tree-row-0');
+    });
+  });
+
+  // Edit/Delete already had their own visible per-row buttons here; this
+  // adds a "More actions" button for parity with Table's context menu
+  // (Duplicate), opening the same shared menu content.
+  describe('"More actions" per-row menu', () => {
+    it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+      const openDuplicate = vi.fn();
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole } = renderTree(docs, { actions: { openDuplicate } });
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      const menu = getByRole('group', { name: 'Document actions' });
+      fireEvent.click(within(menu).getByText('Duplicate document'));
+
+      expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
+    });
+
+    it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole, queryByText } = renderTree(docs);
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(queryByText('Duplicate document')).toBeNull();
+    });
+
+    it('does not expand or collapse the row it belongs to', () => {
+      const onRowExpand = vi.fn();
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+      const { getByRole } = renderTree(docs, { onRowExpand });
+
+      fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      expect(onRowExpand).not.toHaveBeenCalled();
     });
   });
 });

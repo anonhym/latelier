@@ -9,10 +9,13 @@ import { ejsonStringify } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { anchorFromRect } from '../../../utils/contextMenuKey';
+import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { useCollectionWorkspace } from '../context';
 import { useResultSelection } from '../resultSelection';
 import { getDocId } from './docId';
 import { SelectToggle } from './SelectToggle';
+import { RowActionsMenu } from './RowActionsMenu';
 
 interface JsonViewProps {
   documents: unknown[];
@@ -209,6 +212,13 @@ interface DocCardProps {
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
   onDelete: (doc: unknown) => void;
+  // Opens the shared `RowActionsMenu` (Duplicate — Edit/Delete already have
+  // their own always-visible buttons on this card).
+  onOpenRowMenu: (
+    doc: unknown,
+    anchor: { x: number; y: number },
+    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+  ) => void;
 }
 
 function DocCard({
@@ -223,6 +233,7 @@ function DocCard({
   onCopy,
   onEdit,
   onDelete,
+  onOpenRowMenu,
 }: DocCardProps) {
   const json = React.useMemo(() => {
     const visible = redactHidden(doc, hiddenFields);
@@ -329,6 +340,30 @@ function DocCard({
         >
           {I.trash}
         </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const viaKeyboard = e.detail === 0;
+            onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
+              returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
+              focusMenuOnOpen: viaKeyboard,
+            });
+          }}
+          title="More actions"
+          aria-label={`More actions for document ${getDocId(doc)}`}
+          style={{
+            background: 'var(--atelier-surface)',
+            border: '1px solid var(--atelier-border)',
+            borderRadius: 'var(--atelier-radius-xs)',
+            padding: '2px 5px',
+            cursor: 'pointer',
+            color: 'var(--atelier-text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {I.more}
+        </button>
       </div>
       <HighlightedJson
         json={json}
@@ -353,6 +388,7 @@ interface JsonRowProps {
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
   onDelete: (doc: unknown) => void;
+  onOpenRowMenu: DocCardProps['onOpenRowMenu'];
 }
 
 function JsonRow({
@@ -368,6 +404,7 @@ function JsonRow({
   onCopy,
   onEdit,
   onDelete,
+  onOpenRowMenu,
 }: RowComponentProps<JsonRowProps>) {
   const doc = documents[index];
   return (
@@ -384,15 +421,17 @@ function JsonRow({
         onCopy={onCopy}
         onEdit={onEdit}
         onDelete={onDelete}
+        onOpenRowMenu={onOpenRowMenu}
       />
     </div>
   );
 }
 
 export function JsonView({ documents }: JsonViewProps) {
-  const { state, actions } = useCollectionWorkspace();
+  const { state, actions, meta } = useCollectionWorkspace();
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
+  const onDuplicateDoc = actions.openDuplicate;
   // Fields control: same top-level `columnConfig.hidden` Table already
   // reads (`tableColumns.ts`'s `resolveColumns`) — display-only, so Copy/Edit/
   // Delete below always act on the untouched `doc`, never this set.
@@ -428,6 +467,29 @@ export function JsonView({ documents }: JsonViewProps) {
     });
   }, []);
 
+  // "More actions" per-card menu — Duplicate only, since Edit/Delete already
+  // have their own always-visible buttons on the card.
+  const [docMenu, setDocMenu] = React.useState<{
+    x: number;
+    y: number;
+    doc: unknown;
+    returnFocusTo?: HTMLElement | null;
+    focusMenuOnOpen?: boolean;
+  } | null>(null);
+  const docMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const handleOpenRowMenu = React.useCallback(
+    (
+      doc: unknown,
+      anchor: { x: number; y: number },
+      focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    ) => {
+      setDocMenu({ ...anchor, doc, returnFocusTo: focus?.returnFocusTo, focusMenuOnOpen: focus?.focusMenuOnOpen });
+    },
+    [],
+  );
+  const closeDocMenu = React.useCallback(() => setDocMenu(null), []);
+  useMenuFocus(docMenuRef, docMenu, closeDocMenu);
+
   // Cards are variable-height (driven by the doc's serialized size). The
   // estimate is intentionally generous; useDynamicRowHeight refines on render.
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 180 });
@@ -447,6 +509,7 @@ export function JsonView({ documents }: JsonViewProps) {
       onCopy: copyDoc,
       onEdit: onEditDoc,
       onDelete: onDeleteDoc,
+      onOpenRowMenu: handleOpenRowMenu,
     }),
     [
       documents,
@@ -459,6 +522,7 @@ export function JsonView({ documents }: JsonViewProps) {
       copyDoc,
       onEditDoc,
       onDeleteDoc,
+      handleOpenRowMenu,
     ],
   );
 
@@ -487,6 +551,35 @@ export function JsonView({ documents }: JsonViewProps) {
           padding: '8px 12px',
         }}
       />
+      {docMenu && (
+        <div
+          ref={docMenuRef}
+          role="group"
+          aria-label="Document actions"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: docMenu.y,
+            left: docMenu.x,
+            background: 'var(--atelier-surface)',
+            border: '1px solid var(--atelier-border-med)',
+            borderRadius: 'var(--atelier-radius-sm)',
+            boxShadow: 'var(--atelier-shadow)',
+            zIndex: 1000,
+            minWidth: 160,
+            padding: '4px 0',
+          }}
+        >
+          <RowActionsMenu
+            doc={docMenu.doc}
+            onEdit={onEditDoc}
+            onDuplicate={onDuplicateDoc}
+            onDelete={onDeleteDoc}
+            isReadOnly={meta.isReadOnly}
+            onClose={closeDocMenu}
+          />
+        </div>
+      )}
     </div>
   );
 }

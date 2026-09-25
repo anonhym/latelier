@@ -960,6 +960,98 @@ describe('TableView — rendering and interaction', () => {
       return { trigger };
     });
   });
+
+  // Table rows previously exposed Edit/Duplicate/Delete only via a
+  // right-click context menu, unlike Tree/JSON's always-visible per-row
+  // buttons. This adds a matching visible Edit/Delete pair plus a "More
+  // actions" button that opens the same context menu, keeping it reachable
+  // by keyboard and under horizontal scroll.
+  describe('per-row actions column', () => {
+    it('Edit and Delete buttons are named with the document and call the workspace actions', () => {
+      const openEdit = vi.fn();
+      const openDelete = vi.fn();
+      const docs = [{ _id: 1, sku: 'a' }];
+      const { getByRole } = renderTable(docs, { actions: { openEdit, openDelete } });
+
+      fireEvent.click(getByRole('button', { name: 'Edit document 1' }));
+      expect(openEdit).toHaveBeenCalledWith(docs[0]);
+
+      fireEvent.click(getByRole('button', { name: 'Delete document 1' }));
+      expect(openDelete).toHaveBeenCalledWith(docs[0]);
+    });
+
+    it('is not a data column: FieldsControl lists no "Actions" entry', () => {
+      const { getByRole, queryByRole } = renderStatefulTable(
+        emptyState({
+          lastRun: {
+            documents: [{ _id: 1, sku: 'a' }],
+            durationMs: 1,
+            ranAt: '2026-01-01T00:00:00Z',
+          },
+        }),
+      );
+
+      fireEvent.click(getByRole('button', { name: /fields/i }));
+      expect(queryByRole('checkbox', { name: /actions/i })).toBeNull();
+    });
+
+    it('clicking Edit or "More actions" does not move the active row or change selection', () => {
+      const docs = [{ _id: 1, sku: 'a' }, { _id: 2, sku: 'b' }];
+      const { getByRole, container } = renderTable(docs);
+      // Excludes the header strip — it also carries `role="row"` (its
+      // `columnheader` children need a valid row parent) but never
+      // `data-selected`, only document rows do.
+      const rows = () =>
+        Array.from(
+          container.querySelectorAll('[data-selected] [role="row"]'),
+        ) as HTMLElement[];
+      const grid = getByRole('grid');
+
+      act(() => grid.focus());
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+
+      // `aria-activedescendant` tracks the roving index itself, unlike the
+      // visual outline — which also depends on the grid still holding real
+      // DOM focus, and clicking any real button (this one included) moves
+      // focus onto it regardless of `stopPropagation`. So this is the
+      // signal that survives the click and actually proves the row 1
+      // buttons never called `onSelect` for row 1.
+      fireEvent.click(getByRole('button', { name: 'Edit document 2' }));
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+      expect(rows()[1].getAttribute('aria-selected')).toBe('false');
+
+      fireEvent.click(getByRole('button', { name: 'More actions for document 2' }));
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-0');
+      expect(rows()[1].getAttribute('aria-selected')).toBe('false');
+    });
+
+    it('"More actions" opens the same cell-level menu the right-click path opens, including Duplicate', () => {
+      const openDuplicate = vi.fn();
+      const docs = [{ _id: 1, sku: 'a' }];
+      const { getByRole } = renderTable(docs, { actions: { openDuplicate } });
+
+      fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
+
+      const menu = getByRole('group', { name: 'Cell actions' });
+      expect(within(menu).getByText('Duplicate document')).toBeTruthy();
+
+      fireEvent.click(within(menu).getByText('Duplicate document'));
+      expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
+    });
+
+    it('focusing the Edit button on a non-active row makes the actions column visible', () => {
+      const docs = [{ _id: 1, sku: 'a' }];
+      const { getByRole } = renderTable(docs);
+      const editBtn = getByRole('button', { name: 'Edit document 1' }) as HTMLElement;
+      const actionsCell = editBtn.closest('[role="gridcell"]') as HTMLElement;
+
+      expect(actionsCell.style.opacity).toBe('0');
+      fireEvent.focus(editBtn);
+      expect(actionsCell.style.opacity).toBe('1');
+      fireEvent.blur(editBtn);
+      expect(actionsCell.style.opacity).toBe('0');
+    });
+  });
 });
 
 function clipboardWriteTextWasCalled(): boolean {

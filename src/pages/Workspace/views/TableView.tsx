@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { isContextMenuKey, anchorForRow } from '../../../utils/contextMenuKey';
+import { isContextMenuKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -31,6 +31,7 @@ import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId, isInlineEditable } from './docId';
 import { SelectToggle } from './SelectToggle';
+import { RowActionsMenu } from './RowActionsMenu';
 import {
   deriveColumns,
   resolveColumns,
@@ -62,6 +63,13 @@ interface TableViewProps {
 // any derived field including `_id`, so the expand control can't live in a data cell.
 // Wide enough for both the expand chevron and the select checkbox side by side.
 const GUTTER_WIDTH = 54;
+
+// Sticky right-edge actions column (Edit/Delete/More) — not a data column,
+// so it stays out of `deriveColumns`/`columnConfig`/`FieldsControl` (the
+// Fields control drives which document fields show, not this). Pinned with
+// `position: sticky; right: 0` on each cell so it stays reachable under
+// horizontal scroll, matching the recommendation in the issue this closes.
+const ACTIONS_WIDTH = 92;
 
 const EMPTY_EXPANDED_ROWS: Record<string, boolean> = {};
 
@@ -510,6 +518,22 @@ interface TableRowProps {
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
+  onEditDoc: (doc: unknown) => void;
+  onDeleteDoc: (doc: unknown) => void;
+  // Opens the same cell-level context menu the right-click/Shift+F10 paths
+  // use (Edit/Duplicate/Delete), anchored to the "More actions" button
+  // rather than the cursor. `focus` carries the keyboard-open pair
+  // (`returnFocusTo`/`focusMenuOnOpen`) only when the click itself came
+  // from the keyboard — see the button's own `onClick` for how that's told
+  // apart from a mouse click.
+  onOpenRowMenu: (
+    doc: unknown,
+    anchor: { x: number; y: number },
+    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+  ) => void;
+  // Hand-computed pin for the actions column — see `TableView`'s own
+  // `actionsOffset` for why native `position: sticky` can't be used here.
+  actionsOffset: number;
 }
 
 // `ariaAttributes` is intentionally not destructured off the row props.
@@ -541,12 +565,32 @@ function TableRowImpl({
   onRefHoverLeave,
   onRefOpen,
   rowId,
+  onEditDoc,
+  onDeleteDoc,
+  onOpenRowMenu,
+  actionsOffset,
 }: RowComponentProps<TableRowProps>) {
   const doc = documents[index];
   const isSelected = indices.has(index);
   const isActive = index === activeIndex;
   const docId = getFullDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
+  // The actions column shows on row hover (mouse), when the row is the
+  // roving-focus target (`isActive`, keyboard), or when real DOM focus is
+  // inside it (Tab reaches these buttons the same way it already reaches
+  // TableCell's own hover-revealed pencil/expand buttons — see those for
+  // why `focused` state, not `:focus-within`, catches that: this project's
+  // component tests read `getComputedStyle`, which doesn't reflect dynamic
+  // pseudo-classes in jsdom). Local hover/focus state rather than CSS for
+  // the same reason.
+  const [rowHovered, setRowHovered] = React.useState(false);
+  const [actionsFocused, setActionsFocused] = React.useState(false);
+  const actionsVisible = rowHovered || isActive || actionsFocused;
+  const rowBackground = isSelected
+    ? 'var(--atelier-accent-soft)'
+    : index % 2 === 0
+    ? 'var(--atelier-surface-raised)'
+    : 'var(--atelier-surface)';
 
   return (
     <div
@@ -555,11 +599,7 @@ function TableRowImpl({
       data-selected={isSelected}
       style={{
         ...style,
-        background: isSelected
-          ? 'var(--atelier-accent-soft)'
-          : index % 2 === 0
-          ? 'var(--atelier-surface-raised)'
-          : 'var(--atelier-surface)',
+        background: rowBackground,
       }}
     >
       {/* This strip behaves like an activatable row (plain click makes it
@@ -611,6 +651,8 @@ function TableRowImpl({
           outlineOffset: isActive ? '-2px' : undefined,
         }}
         onClick={(e) => onSelect(e, index)}
+        onMouseEnter={() => setRowHovered(true)}
+        onMouseLeave={() => setRowHovered(false)}
       >
         {/* Fixed expand+select gutter — independent of the (hide/reorder-able)
             data columns. A `gridcell` like the rest, so the row owns nothing
@@ -699,6 +741,112 @@ function TableRowImpl({
             />
           );
         })}
+
+        {/* Right-edge actions column — Edit/Delete always visible (matching
+            Tree/JSON, which never gate them on `isReadOnly`; they're no-ops
+            for read-only providers), plus a "More actions" button that
+            opens the same cell-level context menu the right-click/
+            Shift+F10 paths use (it already gates Duplicate on
+            `!meta.isReadOnly`, so nothing new to gate here). Kept reachable
+            under horizontal scroll via `actionsOffset`, a hand-computed
+            `transform` rather than native `position: sticky` — see
+            `TableView`'s own comment on `actionsOffset` for why sticky
+            doesn't reach across react-window's `List`. Not a data column:
+            it's rendered here directly rather than through `columns`/
+            `deriveColumns`, so it never reaches `columnConfig` or the
+            Fields control. */}
+        <div
+          role="gridcell"
+          style={{
+            width: ACTIONS_WIDTH,
+            minWidth: ACTIONS_WIDTH,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 2,
+            padding: '0 6px',
+            borderBottom: '1px solid var(--atelier-border)',
+            borderLeft: '1px solid var(--atelier-border)',
+            boxSizing: 'border-box',
+            background: rowBackground,
+            transform: `translateX(${actionsOffset}px)`,
+            opacity: actionsVisible ? 1 : 0,
+            pointerEvents: actionsVisible ? 'auto' : 'none',
+          }}
+          onFocus={() => setActionsFocused(true)}
+          onBlur={() => setActionsFocused(false)}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditDoc(doc);
+            }}
+            title="Edit document"
+            aria-label={`Edit document ${getDocId(doc)}`}
+            style={{
+              background: 'none',
+              border: '1px solid var(--atelier-border)',
+              borderRadius: 'var(--atelier-radius-xs)',
+              padding: '3px 5px',
+              cursor: 'pointer',
+              color: 'var(--atelier-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {I.edit}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteDoc(doc);
+            }}
+            title="Delete document"
+            aria-label={`Delete document ${getDocId(doc)}`}
+            style={{
+              background: 'none',
+              border: '1px solid var(--atelier-border)',
+              borderRadius: 'var(--atelier-radius-xs)',
+              padding: '3px 5px',
+              cursor: 'pointer',
+              color: 'var(--atelier-red)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {I.trash}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              // A keyboard-activated click (Enter/Space) reports `detail:
+              // 0` in Chromium (the app's only runtime — a mouse click is
+              // always >= 1); only that path grabs focus into the menu and
+              // returns it to this button on dismiss, matching the
+              // keyboard-open convention the field/cell menus above use.
+              const viaKeyboard = e.detail === 0;
+              onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
+                returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
+                focusMenuOnOpen: viaKeyboard,
+              });
+            }}
+            title="More actions"
+            aria-label={`More actions for document ${getDocId(doc)}`}
+            style={{
+              background: 'none',
+              border: '1px solid var(--atelier-border)',
+              borderRadius: 'var(--atelier-radius-xs)',
+              padding: '3px 5px',
+              cursor: 'pointer',
+              color: 'var(--atelier-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {I.more}
+          </button>
+        </div>
       </div>
 
       {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree the
@@ -937,9 +1085,49 @@ export function TableView({
     return out;
   }, [columns, getWidth]);
   const totalWidth = React.useMemo(
-    () => GUTTER_WIDTH + columns.reduce((sum, c) => sum + (ownGet(widths, c.field) ?? 160), 0),
+    () =>
+      GUTTER_WIDTH +
+      ACTIONS_WIDTH +
+      columns.reduce((sum, c) => sum + (ownGet(widths, c.field) ?? 160), 0),
     [columns, widths],
   );
+
+  // The sticky actions column can't use native `position: sticky; right: 0`:
+  // its nearest ancestor with non-`visible` overflow is react-window's own
+  // `List` element (forced non-`visible` on both axes by its own
+  // `overflowY: 'auto'` — the CSS rule that couples the two axes once
+  // either one opts out of `visible`), not this wrapping div, even though
+  // this div is the one that actually scrolls horizontally (`List`'s own
+  // box is sized to fit its content exactly, via `minWidth: totalWidth`
+  // below, so it never overflows itself). Native sticky would silently
+  // resolve against `List` instead and never move — confirmed empirically
+  // with a throwaway Playwright repro of the same nesting, deleted after
+  // use. So the offset is computed by hand and applied as a `transform`,
+  // the same trick TreeView's sticky field-header overlay uses for an
+  // analogous case where react-window's row positioning breaks a native
+  // CSS mechanism.
+  const tableWrapperRef = React.useRef<HTMLDivElement>(null);
+  const [actionsOffset, setActionsOffset] = React.useState(0);
+  const computeActionsOffset = React.useCallback(() => {
+    const el = tableWrapperRef.current;
+    if (!el) return;
+    setActionsOffset(el.clientWidth - totalWidth + el.scrollLeft);
+  }, [totalWidth]);
+  const scrollRaf = React.useRef<number | null>(null);
+  const handleTableScroll = React.useCallback(() => {
+    if (scrollRaf.current != null) return;
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = null;
+      computeActionsOffset();
+    });
+  }, [computeActionsOffset]);
+  React.useLayoutEffect(() => {
+    computeActionsOffset();
+  }, [computeActionsOffset]);
+  React.useEffect(() => {
+    window.addEventListener('resize', computeActionsOffset);
+    return () => window.removeEventListener('resize', computeActionsOffset);
+  }, [computeActionsOffset]);
 
   const dragState = React.useRef<{
     field: string;
@@ -1085,6 +1273,28 @@ export function TableView({
     [listRef],
   );
 
+  // The "More actions" button's own open path — anchored to the button
+  // rather than the cursor, same shape as the Shift+F10 path below
+  // (`field: null`/`hasValue: false`, since this isn't a specific cell).
+  const handleOpenRowMenu = React.useCallback(
+    (
+      doc: unknown,
+      anchor: { x: number; y: number },
+      focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    ) => {
+      setContextMenu({
+        ...anchor,
+        doc,
+        field: null,
+        value: undefined,
+        hasValue: false,
+        returnFocusTo: focus?.returnFocusTo ?? listRef.current?.element ?? null,
+        focusMenuOnOpen: focus?.focusMenuOnOpen,
+      });
+    },
+    [listRef],
+  );
+
   // Row-expand makes rows variable-height; measure each rendered row rather
   // than assuming a fixed height (mirrors TreeView).
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 24 });
@@ -1162,6 +1372,10 @@ export function TableView({
       onRefHoverLeave,
       onRefOpen,
       rowId: roving.rowId,
+      onEditDoc,
+      onDeleteDoc,
+      onOpenRowMenu: handleOpenRowMenu,
+      actionsOffset,
     }),
     [
       documents,
@@ -1186,11 +1400,17 @@ export function TableView({
       onRefHoverLeave,
       onRefOpen,
       roving.rowId,
+      onEditDoc,
+      onDeleteDoc,
+      handleOpenRowMenu,
+      actionsOffset,
     ],
   );
 
   return (
     <div
+      ref={tableWrapperRef}
+      onScroll={handleTableScroll}
       style={{
         flex: 1,
         minHeight: 0,
@@ -1414,6 +1634,26 @@ export function TableView({
             </div>
           );
         })}
+
+        {/* Header cell for the actions column below — same width and the
+            same `actionsOffset` transform, so it stays aligned with the
+            body's actions column under horizontal scroll. No label: the
+            column holds icon-only buttons. */}
+        <div
+          role="columnheader"
+          aria-label="Actions"
+          style={{
+            width: ACTIONS_WIDTH,
+            minWidth: ACTIONS_WIDTH,
+            flexShrink: 0,
+            transform: `translateX(${actionsOffset}px)`,
+            borderBottom: '1px solid var(--atelier-border)',
+            borderLeft: '1px solid var(--atelier-border)',
+            boxSizing: 'border-box',
+            background: 'var(--atelier-surface)',
+            zIndex: 1,
+          }}
+        />
       </div>
 
       <List<TableRowProps>
@@ -1567,68 +1807,19 @@ export function TableView({
               }}
             />
           )}
-          <button
-            onClick={() => {
-              onEditDoc(contextMenu.doc);
-              setContextMenu(null);
-            }}
-            style={{
-              display: 'block',
-              width: '100%',
-              textAlign: 'left',
-              padding: '6px 12px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'var(--atelier-text)',
-            }}
-          >
-            Edit
-          </button>
-          {/* T2.6 — omitted for read-only providers (preview/snapshot,
-              ScriptTab's synthetic result provider), which either set
-              `meta.isReadOnly` or simply don't wire `openDuplicate`. */}
-          {!meta.isReadOnly && onDuplicateDoc && (
-            <button
-              onClick={() => {
-                onDuplicateDoc(contextMenu.doc);
-                setContextMenu(null);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 12px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 12,
-                color: 'var(--atelier-text)',
-              }}
-            >
-              Duplicate document
-            </button>
-          )}
-          <button
-            onClick={() => {
-              onDeleteDoc(contextMenu.doc);
-              setContextMenu(null);
-            }}
-            style={{
-              display: 'block',
-              width: '100%',
-              textAlign: 'left',
-              padding: '6px 12px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'var(--atelier-red)',
-            }}
-          >
-            Delete
-          </button>
+          {/* T2.6 — Duplicate omitted for read-only providers
+              (preview/snapshot, ScriptTab's synthetic result provider),
+              which either set `meta.isReadOnly` or simply don't wire
+              `openDuplicate`. Shared with Tree/JSON's own "More actions"
+              menu, which has no field-specific items above it. */}
+          <RowActionsMenu
+            doc={contextMenu.doc}
+            onEdit={onEditDoc}
+            onDuplicate={onDuplicateDoc}
+            onDelete={onDeleteDoc}
+            isReadOnly={meta.isReadOnly}
+            onClose={() => setContextMenu(null)}
+          />
         </div>
       )}
 
