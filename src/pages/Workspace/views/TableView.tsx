@@ -408,7 +408,7 @@ function TableCell({
           shadow="md"
           // #79 — without this, closing on a click outside a focusable
           // element drops focus to <body>. Safe here because this dropdown
-          // has no focusable content to autofocus (see `ColumnChooser`'s
+          // has no focusable content to autofocus (see `FieldsControl`'s
           // comment for why an autofocus would break this).
           returnFocus
         >

@@ -15,7 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
-import { ColumnChooser } from '../../src/pages/Workspace/ColumnChooser';
+import { FieldsControl } from '../../src/pages/Workspace/FieldsControl';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
@@ -91,7 +91,7 @@ function renderTable(
 }
 
 /**
- * Real `useState` harness for the ColumnChooser <-> TableView round-trip
+ * Real `useState` harness for the FieldsControl <-> TableView round-trip
  * (AC3/AC4): patches from the chooser must come back through props and
  * actually change what TableView renders. A static-prop render can't
  * observe this (known gotcha) — see also treeview/table-view specs for the
@@ -119,7 +119,7 @@ function renderStatefulTable(initial: CollectionTabState) {
     };
     return (
       <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
-        <ColumnChooser />
+        <FieldsControl />
         <TableView
           documents={documents}
           columns={state.columns}
@@ -423,7 +423,7 @@ describe('TableView — rendering and interaction', () => {
       expect(queryByTestId('table-header-apple')).toBeTruthy();
       expect(container.textContent).toContain('a-val');
 
-      fireEvent.click(getByRole('button', { name: /columns/i }));
+      fireEvent.click(getByRole('button', { name: /fields/i }));
       const appleCheckbox = getByRole('checkbox', { name: 'apple' });
       fireEvent.click(appleCheckbox);
 
@@ -438,7 +438,7 @@ describe('TableView — rendering and interaction', () => {
     it('reordering via drag changes the header order', () => {
       const { getByRole, getByTestId } = renderStatefulTable(stateWithDocs());
 
-      fireEvent.click(getByRole('button', { name: /columns/i }));
+      fireEvent.click(getByRole('button', { name: /fields/i }));
       // Scope to the chooser's own popover dropdown — TableView's cells are
       // also `draggable`, so an unscoped document-wide query would be
       // ambiguous between the two.
@@ -473,7 +473,7 @@ describe('TableView — rendering and interaction', () => {
         }),
       );
 
-      fireEvent.click(getByRole('button', { name: /columns/i }));
+      fireEvent.click(getByRole('button', { name: /fields/i }));
       const input = getByRole('textbox', { name: /computed column path/i });
       fireEvent.change(input, { target: { value: 'address.city' } });
       fireEvent.click(getByRole('button', { name: /add column/i }));

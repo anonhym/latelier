@@ -5,7 +5,7 @@ import type { ResultViewMode } from '@shared/types';
 import { useCollectionWorkspace } from './context';
 import { api } from '../../api/atelier';
 import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
-import { ColumnChooser } from './ColumnChooser';
+import { FieldsControl } from './FieldsControl';
 import { findProblem } from './builder';
 
 const VIEWS: ResultViewMode[] = ['Tree', 'JSON', 'Table'];
@@ -245,8 +245,10 @@ export function ResultBar() {
 
       <span style={{ flex: 1 }} />
 
-      {/* Column chooser — Table-only (T2.5). */}
-      {view === 'Table' && <ColumnChooser />}
+      {/* Fields control — all three views (#199); Tree/JSON don't consume
+          `columnConfig` yet (later slices of #144), but the control itself
+          is common. */}
+      <FieldsControl />
 
       {/* View switch */}
       <SegmentedControl

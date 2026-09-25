@@ -5,7 +5,7 @@ import type { SortDir } from '../builder';
 /**
  * Schema-derived field list — scans the first 50 documents, keeping `_id`
  * first and the rest alphabetized. Shared by `TableView` (the rendered
- * columns) and `ColumnChooser` (the show/hide/reorder field list), so both
+ * columns) and `FieldsControl` (the show/hide/reorder field list), so both
  * always agree on which fields exist.
  */
 export function deriveColumns(documents: unknown[]): string[] {

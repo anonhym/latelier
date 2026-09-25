@@ -18,17 +18,23 @@ import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
 
 /**
- * Table-view column chooser (T2.5, AC3/AC4/AC8) — show/hide + reorder the
- * schema-derived fields, and add/remove dotted-path computed columns.
+ * Fields control (T2.5, AC3/AC4/AC8; #199) — show/hide + reorder the
+ * schema-derived fields, shared by Tree, JSON and Table (only Table
+ * consumes the config so far; Tree/JSON wiring is later slices of #144).
+ * Also add/remove dotted-path computed columns, but that section only
+ * renders in Table — `computed` only ever feeds `TableView`'s column
+ * resolution (`tableColumns.ts`), so offering it elsewhere would let a
+ * user add a column that visibly does nothing.
  * Modeled on `PreviewPicker.tsx`'s Popover-anchored-Button pattern; reads
  * everything off `useCollectionWorkspace()` (documents, `columnConfig`) so
  * it can be dropped into `<ResultBar>` with no prop plumbing, and writes
  * back through the existing `actions.patchWith` read-modify-write — the
  * same pattern `columns` / `expandedRows` / `schema` already use.
  */
-export function ColumnChooser() {
+export function FieldsControl() {
   const T = themeVars;
   const { state, actions } = useCollectionWorkspace();
+  const isTableView = state.view === 'Table';
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
   const [newPath, setNewPath] = React.useState('');
@@ -163,14 +169,14 @@ export function ColumnChooser() {
           variant="default"
           size="compact-xs"
           rightSection={
-            hiddenCount > 0 || computed.length > 0 ? (
+            hiddenCount > 0 || (isTableView && computed.length > 0) ? (
               <Badge size="xs" variant="light" color="violet">
-                {computed.length > 0 ? `+${computed.length}` : hiddenCount}
+                {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
               </Badge>
             ) : undefined
           }
         >
-          Columns
+          Fields
         </Button>
       </Popover.Target>
       <Popover.Dropdown p="xs">
@@ -240,51 +246,57 @@ export function ColumnChooser() {
             otherwise silent to anyone not watching the list (#57). */}
         <VisuallyHidden aria-live="polite">{announcement}</VisuallyHidden>
 
-        {computed.length > 0 && (
-          <Stack gap={4} mt="xs" style={{ minWidth: 200 }}>
-            {computed.map((c) => (
-              <div
-                key={c.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}
-              >
-                <span style={{ flex: 1, color: T.text, fontFamily: 'monospace' }}>
-                  {c.label ?? c.path}
-                </span>
-                <ActionIcon
-                  size="xs"
-                  variant="subtle"
-                  color="red"
-                  aria-label={`Remove ${c.label ?? c.path}`}
-                  onClick={() => removeComputedColumn(c.id)}
-                >
-                  {I.close}
-                </ActionIcon>
-              </div>
-            ))}
-          </Stack>
-        )}
+        {/* Computed columns only feed TableView's rendering — meaningless
+            in Tree/JSON, so the whole section (list + add form) is Table-only. */}
+        {isTableView && (
+          <>
+            {computed.length > 0 && (
+              <Stack gap={4} mt="xs" style={{ minWidth: 200 }}>
+                {computed.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}
+                  >
+                    <span style={{ flex: 1, color: T.text, fontFamily: 'monospace' }}>
+                      {c.label ?? c.path}
+                    </span>
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
+                      color="red"
+                      aria-label={`Remove ${c.label ?? c.path}`}
+                      onClick={() => removeComputedColumn(c.id)}
+                    >
+                      {I.close}
+                    </ActionIcon>
+                  </div>
+                ))}
+              </Stack>
+            )}
 
-        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-          <TextInput
-            size="xs"
-            aria-label="Computed column path"
-            placeholder="e.g. address.city"
-            value={newPath}
-            onChange={(e) => setNewPath(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') addComputedColumn();
-            }}
-            style={{ flex: 1 }}
-          />
-          <Button
-            size="compact-xs"
-            aria-label="Add column"
-            disabled={!canAdd}
-            onClick={addComputedColumn}
-          >
-            Add
-          </Button>
-        </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <TextInput
+                size="xs"
+                aria-label="Computed column path"
+                placeholder="e.g. address.city"
+                value={newPath}
+                onChange={(e) => setNewPath(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addComputedColumn();
+                }}
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="compact-xs"
+                aria-label="Add column"
+                disabled={!canAdd}
+                onClick={addComputedColumn}
+              >
+                Add
+              </Button>
+            </div>
+          </>
+        )}
       </Popover.Dropdown>
     </Popover>
   );
