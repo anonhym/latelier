@@ -47,6 +47,11 @@ export function useDocumentDialogs(deps: {
   handleDocSaved: () => void;
   closeDeleteDialogs: () => void;
   handleDeleted: () => void;
+  /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
+   * that only cares "did a write just land" (e.g. the header's stats fetch)
+   * doesn't have to re-run on every read-only query re-run (sort, filter,
+   * page). */
+  writeVersion: number;
 } {
   const { activeCollectionRef, activeTabId, resolveRunnerTarget } = deps;
   const { run } = deps.queryRunner;
@@ -64,6 +69,7 @@ export function useDocumentDialogs(deps: {
     target: DocTarget;
     duplicateDocJson: string | null;
   } | null>(null);
+  const [writeVersion, setWriteVersion] = React.useState(0);
 
   const openEdit = React.useCallback(
     (doc: unknown) => {
@@ -106,6 +112,7 @@ export function useDocumentDialogs(deps: {
       const runnerTarget = resolveRunnerTarget(target.tabId);
       if (!runnerTarget) return;
       void run(undefined, runnerTarget);
+      setWriteVersion((v) => v + 1);
     },
     [resolveRunnerTarget, run],
   );
@@ -137,6 +144,7 @@ export function useDocumentDialogs(deps: {
   const handleDeleted = React.useCallback(() => {
     closeDeleteDialogs();
     void run();
+    setWriteVersion((v) => v + 1);
   }, [closeDeleteDialogs, run]);
   // DeleteConfirm's target is read live from the Focused Tab, so any route
   // that moves focus off the tab it was opened against (⌘1-9, ⌘W, cycling,
@@ -171,5 +179,6 @@ export function useDocumentDialogs(deps: {
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,
+    writeVersion,
   };
 }
