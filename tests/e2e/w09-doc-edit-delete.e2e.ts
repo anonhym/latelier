@@ -156,10 +156,10 @@ test('doc writes: update ($set) changes one field and leaves the others untouche
       // Load-bearing assertion: fields never mentioned in the patch survive
       // untouched — proof this is a $set patch, not a full-document rewrite.
       await expect(win.getByText('multi-field')).toBeVisible();
-      // Scoped to the result tree: an exact '5' page-wide would also match the
+      // Scoped to the result tree (the navigator is a tree too): an exact '5' page-wide would also match the
       // ResultBar's query duration whenever the run takes 5 ms.
       await expect(
-        win.getByRole('tree').first().getByText('5', { exact: true }).first(),
+        win.getByRole('tree', { name: 'Documents' }).getByText('5', { exact: true }).first(),
       ).toBeVisible();
     });
   });
