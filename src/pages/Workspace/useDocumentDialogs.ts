@@ -72,7 +72,8 @@ export function useDocumentDialogs(deps: {
   // Holds the selected documents, not just ids, so the $in filter can be
   // recomputed from the canonical revived-BSON _id values.
   const [deleteSelected, setDeleteSelected] = React.useState<unknown[] | null>(null);
-  // `null` duplicateDocJson means opened via plain Insert; InsertDrawer falls back to '{}'.
+  // `null` duplicateDocJson means opened via plain Insert; the Document
+  // Editor's insert mode falls back to '{}'.
   const [inserting, setInserting] = React.useState<{
     target: DocTarget;
     duplicateDocJson: string | null;

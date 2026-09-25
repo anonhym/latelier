@@ -223,11 +223,11 @@ describe('useDocumentDialogs', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  // The Document Editor and `InsertDrawer` carry the same live-target hazard
-  // `DeleteConfirm` had before its own fix, but closing them on a tab change would
-  // silently discard unsaved input. ADR-001's remedy is to pin the target
-  // captured at open time instead, so these two assert the pin survives a
-  // tab change rather than asserting a close.
+  // The Document Editor's edit and insert modes both carry the same
+  // live-target hazard `DeleteConfirm` had before its own fix, but closing
+  // them on a tab change would silently discard unsaved input. ADR-001's
+  // remedy is to pin the target captured at open time instead, so these two
+  // assert the pin survives a tab change rather than asserting a close.
   it('openEdit pins the target captured at open time; a later activeTabId change does not retarget or discard the draft', () => {
     const { result, rerender, activeCollectionRef } = mountDialogs(undefined, 't1', tab());
 

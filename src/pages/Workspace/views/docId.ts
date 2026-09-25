@@ -90,14 +90,15 @@ export function isInlineEditable(value: unknown, fieldPath: string): boolean {
 }
 
 /**
- * EJSON body for "Duplicate document" (T2.6) — the source document's
- * canonical EJSON with `_id` stripped, so the Insert drawer lets Mongo
- * assign a fresh `_id` instead of colliding with the original on insert.
+ * EJSON body for "Duplicate document" — the source document's canonical
+ * EJSON with `_id` stripped, so the Document Editor's insert mode lets
+ * Mongo assign a fresh `_id` instead of colliding with the original on
+ * insert.
  *
  * Round-trips through `ejsonParse` -> delete -> `ejsonStringify` (rather
  * than deleting the key from the raw JS object and reusing `JSON.stringify`)
  * so a BSON-typed `_id` — or any BSON-typed sibling field — survives the
- * strip without corruption. Falls back to `'{}'` (the Insert drawer's own
+ * strip without corruption. Falls back to `'{}'` (the insert mode's own
  * empty-document default) on any failure, including non-record input.
  */
 export function stripIdForDuplicate(doc: unknown): string {

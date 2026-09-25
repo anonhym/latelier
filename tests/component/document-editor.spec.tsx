@@ -98,6 +98,7 @@ function setup({
   });
   render(
     <DocumentEditor
+      mode="edit"
       connectionId="c1"
       dbName="shop"
       collection="orders"
@@ -108,6 +109,38 @@ function setup({
   );
   return { onClose, onSaved, updateOne };
 }
+
+function setupInsert({
+  insert = vi.fn<IpcApi['doc']['insert']>(async () => ({ insertedId: { $oid: OID } })),
+  insertMany,
+  initialDocJson,
+}: {
+  insert?: ReturnType<typeof vi.fn<IpcApi['doc']['insert']>>;
+  insertMany?: IpcApi['doc']['insertMany'];
+  initialDocJson?: string;
+} = {}) {
+  const onClose = vi.fn();
+  const onInserted = vi.fn();
+  const onPartialInsert = vi.fn();
+  installAtelierMock({
+    doc: { insert, ...(insertMany ? { insertMany } : {}) },
+  });
+  render(
+    <DocumentEditor
+      mode="insert"
+      connectionId="c1"
+      dbName="shop"
+      collection="orders"
+      initialDocJson={initialDocJson}
+      onClose={onClose}
+      onInserted={onInserted}
+      onPartialInsert={onPartialInsert}
+    />,
+  );
+  return { onClose, onInserted, onPartialInsert, insert };
+}
+
+const insertEditor = () => screen.getByRole('dialog', { name: 'Insert document' });
 
 const editor = () => screen.getByRole('dialog', { name: 'Edit document' });
 const field = (name: string) => within(editor()).getByRole('textbox', { name }) as HTMLInputElement;
@@ -871,5 +904,145 @@ describe('DocumentEditor — Escape layering (JSON view)', () => {
     fireEvent.click(viewSwitch('JSON'));
     fireEvent.keyDown(jsonBox(), { key: 'Escape' });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// W18 §6 — Insert and Duplicate on the Document Editor: insert-many routing,
+// the duplicate seed, the partial-insert banner, plus the mode-specific bits
+// only the editor has — Fields as the default view, and Fields being
+// unavailable for an array draft.
+const insertField = (name: string) => within(insertEditor()).getByRole('textbox', { name }) as HTMLInputElement;
+const insertSaveButton = () => within(insertEditor()).getByRole('button', { name: /^Insert/ });
+const insertViewSwitch = (label: 'Fields' | 'JSON') =>
+  within(insertEditor()).getByRole('radio', { name: label }) as HTMLInputElement;
+const insertJsonBox = () => within(insertEditor()).getByRole('textbox', { name: 'Document JSON' }) as HTMLTextAreaElement;
+
+describe('DocumentEditor — insert mode — creating a document', () => {
+  it('is a dialog named "Insert document", opening on Fields with an empty draft', () => {
+    setupInsert();
+    expect(insertEditor()).toBeTruthy();
+    expect(insertViewSwitch('Fields').checked).toBe(true);
+    expect(within(insertEditor()).queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('Duplicate seeds the draft from the source document minus _id', () => {
+    setupInsert({ initialDocJson: '{\n  "sku": "widget"\n}' });
+    expect(insertField('sku').value).toBe('widget');
+    expect(within(insertEditor()).queryByText('_id')).toBeNull();
+  });
+
+  it('a Duplicate pre-fill on its own is not dirty: Escape closes without prompting', async () => {
+    const { onClose } = setupInsert({ initialDocJson: '{\n  "sku": "widget"\n}' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+  });
+
+  it('Save with no edits sends the whole (empty) draft to doc:insert, not a diff', async () => {
+    const { insert, onInserted } = setupInsert();
+    fireEvent.click(insertSaveButton());
+    await waitFor(() => expect(insert).toHaveBeenCalledTimes(1));
+    expect(insert).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'shop',
+      collection: 'orders',
+      docJson: '{}',
+    });
+    await waitFor(() => expect(onInserted).toHaveBeenCalledTimes(1));
+  });
+
+  it('sends the whole draft edited through Fields, with types preserved', async () => {
+    const { insert } = setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '{"sku": "widget", "qty": 5}' } });
+    fireEvent.click(insertViewSwitch('Fields'));
+    fireEvent.click(insertSaveButton());
+    await waitFor(() => expect(insert).toHaveBeenCalledTimes(1));
+    expect(insert).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'shop',
+      collection: 'orders',
+      docJson: '{"sku":"widget","qty":{"$numberInt":"5"}}',
+    });
+  });
+
+  it('the button label tracks further edits after a refused switch to Fields, not the text at the time of refusal', async () => {
+    setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1}]' } });
+    // Refused: Fields shows one document, so this stays on JSON.
+    fireEvent.click(insertViewSwitch('Fields'));
+    expect(await screen.findByText(/Fields view is not available/)).toBeTruthy();
+
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1},{"b":2},{"c":3}]' } });
+    expect(await screen.findByRole('button', { name: 'Insert 3 documents' })).toBeTruthy();
+    // The refusal message is stale advice now that the text has changed.
+    expect(screen.queryByText(/Fields view is not available/)).toBeNull();
+
+    fireEvent.change(insertJsonBox(), { target: { value: '{"a":1}' } });
+    expect(await screen.findByRole('button', { name: 'Insert' })).toBeTruthy();
+  });
+
+  it('a top-level array in the JSON view inserts many, with the count on the button', async () => {
+    const insertMany = vi.fn<IpcApi['doc']['insertMany']>(async () => ({ insertedCount: 2, insertedIds: [] }));
+    const { onInserted } = setupInsert({ insertMany });
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1},{"b":2}]' } });
+    expect(await screen.findByRole('button', { name: 'Insert 2 documents' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Insert 2 documents' }));
+    await waitFor(() => expect(insertMany).toHaveBeenCalledTimes(1));
+    expect(insertMany).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'shop',
+      collection: 'orders',
+      docsJson: '[{"a":{"$numberInt":"1"}},{"b":{"$numberInt":"2"}}]',
+    });
+    await waitFor(() => expect(onInserted).toHaveBeenCalledTimes(1));
+  });
+
+  it('refuses an empty array, disabling Insert', async () => {
+    setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[]' } });
+    expect(await screen.findByText('Array must contain at least one document')).toBeTruthy();
+    expect(insertSaveButton()).toHaveProperty('disabled', true);
+  });
+
+  it('refuses an array with a non-object item, disabling Insert', async () => {
+    setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1},"oops"]' } });
+    expect(await screen.findByText('Every array item must be a document')).toBeTruthy();
+    expect(insertSaveButton()).toHaveProperty('disabled', true);
+  });
+
+  it('Fields view is unavailable for an array draft, and says why', async () => {
+    setupInsert();
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1}]' } });
+    fireEvent.click(insertViewSwitch('Fields'));
+    expect(await screen.findByText(/Fields view is not available for an array/)).toBeTruthy();
+    // Stayed on JSON: the Fields row list never mounted.
+    expect(within(insertEditor()).queryByRole('list', { name: 'Fields' })).toBeNull();
+  });
+
+  it('on a partial insertMany failure, keeps the editor open, shows the banner, and fires onPartialInsert instead of onInserted/onClose', async () => {
+    const insertMany = vi.fn<IpcApi['doc']['insertMany']>(async () => {
+      const err = new Error('E11000 duplicate key error') as Error & { code?: string; details?: unknown };
+      err.code = 'CONFLICT';
+      err.details = { insertedCount: 1 };
+      throw err;
+    });
+    const { onClose, onInserted, onPartialInsert } = setupInsert({ insertMany });
+    fireEvent.click(insertViewSwitch('JSON'));
+    fireEvent.change(insertJsonBox(), { target: { value: '[{"a":1},{"b":2},{"c":3}]' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Insert 3 documents' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('1 of 3');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onInserted).not.toHaveBeenCalled();
+    expect(onPartialInsert).toHaveBeenCalledTimes(1);
+    expect(insertEditor()).toBeTruthy();
   });
 });

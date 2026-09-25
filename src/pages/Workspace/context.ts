@@ -52,8 +52,9 @@ export interface CollectionWorkspaceActions {
    */
   updateField?: (doc: unknown, fieldPath: string, newValue: string) => void;
   /**
-   * Open the Insert drawer pre-filled with `doc`'s EJSON minus `_id` (T2.6,
-   * "Duplicate document"). Optional for the same reason as `updateField`.
+   * Open the Document Editor's insert mode pre-filled with `doc`'s EJSON
+   * minus `_id` ("Duplicate document"). Optional for the same reason as
+   * `updateField`.
    */
   openDuplicate?: (doc: unknown) => void;
 }
