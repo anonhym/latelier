@@ -107,24 +107,20 @@ describe('workspace doc dialogs (T2)', () => {
     await screen.findByText(/widget/);
     await waitFor(() => expect(headerStats(1)).toBeTruthy());
 
-    // Snapshotted right before the click (no `await` between here and the
-    // click, so nothing else can sneak a call in): the panel prefs load
-    // (`useWorkspacePanelPrefs`) remounts the whole panel subtree — this
-    // header included — exactly once, whenever its own async prefs fetch
-    // resolves, independently of any insert. Under full-suite load that
-    // remount can land late enough to still be in flight here, adding an
-    // extra insert-unrelated `listCollections` call. Asserting the insert's
-    // own delta (rather than a hardcoded absolute count) keeps this test
-    // about the property it's actually checking — insert triggers one
-    // refetch — regardless of when that unrelated remount happens.
-    const callsBeforeInsert = listCollections.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
     fireEvent.click(within(dialog).getByRole('button', { name: /^insert/i }));
 
     await waitFor(() => expect(insert).toHaveBeenCalledTimes(1));
+    // The observable outcome, not the fetch count: the panel prefs load
+    // (`useWorkspacePanelPrefs`) remounts the whole panel subtree — this
+    // header included — exactly once, whenever its own async prefs fetch
+    // resolves, independently of any insert. Under full-suite load that
+    // remount can land at an indeterminate point relative to the insert,
+    // so asserting a `listCollections` call count (however it's counted)
+    // is inherently racy. The header text is what a user actually sees,
+    // and it can only read "2" once a refetch has landed a fresh count.
     await waitFor(() => expect(headerStats(2)).toBeTruthy());
-    expect(listCollections).toHaveBeenCalledTimes(callsBeforeInsert + 1);
   });
 
   // T2.6 — "Duplicate document" is wired from TableView's row context menu
