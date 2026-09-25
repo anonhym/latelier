@@ -15,6 +15,14 @@ interface CollectionHeaderProps {
   previewKnownFields: string[];
   previewFields: string[] | null;
   onPreviewFieldsChange: (fields: string[]) => void;
+  /**
+   * `useDocumentDialogs`'s write-completion counter — bumps once per
+   * finished insert/edit/delete/delete-many. Reusing that existing signal
+   * (rather than the query re-run itself) keeps this effect from firing on
+   * every sort/filter/page re-run too: `listCollections` fans out a
+   * per-collection stats call across the whole database, so it isn't free.
+   */
+  refreshSignal?: number;
 }
 
 /**
@@ -32,6 +40,7 @@ export function CollectionHeader({
   previewKnownFields,
   previewFields,
   onPreviewFieldsChange,
+  refreshSignal,
 }: CollectionHeaderProps) {
   const T = themeVars;
   const cacheKey = `${connectionId}|${dbName}|${collection}`;
@@ -59,14 +68,15 @@ export function CollectionHeader({
           });
         }
       } catch {
-        // Best-effort: leave the stats as null and the header just shows the
-        // breadcrumb. A noisy fallback would be worse than a silent one.
+        // Best-effort — but a failed refresh must not leave a pre-write count
+        // on screen looking current, so clear rather than hold the last value.
+        if (!cancelled) setStats(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [connectionId, dbName, collection, cacheKey]);
+  }, [connectionId, dbName, collection, cacheKey, refreshSignal]);
 
   return (
     <Group

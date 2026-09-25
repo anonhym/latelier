@@ -76,6 +76,46 @@ describe('workspace doc dialogs (T2)', () => {
     expect((within(dialog).getByRole('textbox') as HTMLTextAreaElement).value).toBe('{}');
   });
 
+  // The header's doc count used to be fetched once at open and never again —
+  // a completed insert re-runs the query but the header kept the stale
+  // number. This drives the real toolbar Insert flow end to end and checks
+  // the header text, not just that a refresh function was called.
+  it('a completed insert bumps the header doc count', async () => {
+    let call = 0;
+    const listCollections = vi.fn(async () => {
+      call += 1;
+      return [
+        {
+          name: 'orders',
+          type: 'collection' as const,
+          documentCount: call === 1 ? 1 : 2,
+          sizeBytes: 0,
+          indexCount: 1,
+          capped: false,
+        },
+      ];
+    });
+    const insert = vi.fn().mockResolvedValue({ insertedId: 'x' });
+    mount({ meta: { listCollections }, doc: { insert } });
+
+    // Matched by its own textContent ("N docs · 1 indexes") rather than a
+    // bare digit — a bare "1" also matches pagination/row-count text
+    // elsewhere in the mounted Workspace.
+    const headerStats = (n: number) =>
+      screen.getByText((_, el) => el?.textContent?.startsWith(`${n} docs`) ?? false);
+
+    await screen.findByText(/widget/);
+    await waitFor(() => expect(headerStats(1)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insert document' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^insert/i }));
+
+    await waitFor(() => expect(insert).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(headerStats(2)).toBeTruthy());
+    expect(listCollections).toHaveBeenCalledTimes(2);
+  });
+
   // T2.6 — "Duplicate document" is wired from TableView's row context menu
   // only (TreeView/JsonView don't offer it), so this seeds the tab in Table
   // view rather than driving a view switch through the SegmentedControl.

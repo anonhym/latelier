@@ -354,6 +354,7 @@ export function PanelBody({
                         previewKnownFields={collection.previewKnownFields}
                         previewFields={collection.activePreviewFields}
                         onPreviewFieldsChange={collection.setActivePreviewFields}
+                        refreshSignal={documentDialogs.writeVersion}
                       />
                       <QueryBar
                         suggestionContext={collection.suggestionContext}
