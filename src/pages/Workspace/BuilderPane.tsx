@@ -49,7 +49,7 @@ import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
-import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
+import { DEFAULT_FIELD_SOURCES, DEFAULT_VALUE_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
 import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -71,6 +71,9 @@ interface BuilderPaneProps {
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
+
+/** The only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
+const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
@@ -411,6 +414,26 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
+  // Value suggestions: gated on a non-empty field and one of
+  // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
+  // gets no popover, mirroring what `RecentFieldValueService` will ever
+  // record for it.
+  const valueInputRef = React.useRef<HTMLInputElement>(null);
+  const [valuePopoverOpen, setValuePopoverOpen] = React.useState(false);
+  const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
+  const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
+    () =>
+      suggestionContext && valueSuggestionsAllowed
+        ? { ...suggestionContext, target: { field: node.field, operator: node.op } }
+        : null,
+    [suggestionContext, valueSuggestionsAllowed, node.field, node.op],
+  );
+  const { items: valueSuggestionItems } = useSuggestions(
+    valuePopoverOpen ? valueSuggestionCtx : null,
+    node.value,
+    { valueSources: DEFAULT_VALUE_SOURCES },
+  );
+
   const patch = (p: Partial<CondNode>) => applyEdit(updateAt(root, path, { ...node, ...p }));
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
@@ -693,14 +716,36 @@ function CondRow({
         {node.op !== '$exists' && (
           <>
             <TextInput
+              ref={valueInputRef}
               placeholder="value"
               value={node.value}
               disabled={readOnly}
-              onChange={(e) => patch({ value: e.target.value })}
+              onChange={(e) => {
+                patch({ value: e.target.value });
+                if (!valuePopoverOpen) setValuePopoverOpen(true);
+              }}
+              onFocus={() => setValuePopoverOpen(true)}
+              onBlur={() => {
+                window.setTimeout(() => setValuePopoverOpen(false), 100);
+              }}
               size="xs"
               style={{ flex: 1 }}
               styles={{ input: { fontFamily: 'monospace' } }}
             />
+            {valueSuggestionsAllowed && (
+              <SuggestionPopover
+                open={valuePopoverOpen}
+                items={valueSuggestionItems}
+                anchorRef={valueInputRef}
+                label="Value suggestions"
+                onSelect={(s) => {
+                  if (s.kind === 'value') patch({ value: s.display });
+                  setValuePopoverOpen(false);
+                  valueInputRef.current?.blur();
+                }}
+                onClose={() => setValuePopoverOpen(false)}
+              />
+            )}
             <Tooltip label={formatCondPreview(node)} withArrow>
               <span
                 style={{

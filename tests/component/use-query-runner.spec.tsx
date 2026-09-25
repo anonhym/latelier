@@ -725,4 +725,111 @@ describe('useQueryRunner', () => {
     expect(findSpy.mock.calls[0]?.[0].sort).toBeUndefined();
     expect(patch.mock.calls.some((c) => c[1].builder !== undefined)).toBe(false);
   });
+
+  // A successful run fire-and-forgets the filter's conditions
+  // to `recent:recordFieldValues` for the value-suggestion popover.
+  describe('value-suggestion recording', () => {
+    it('records a scalar $eq condition after a successful run', async () => {
+      const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+        documents: [],
+        durationMs: 1,
+        hasMore: false,
+      }));
+      const recordFieldValues = vi.fn(async () => ({ recorded: 1 }));
+      installAtelierMock({
+        query: { find: findSpy, count: async () => ({ count: 0 }) },
+        recent: { recordFieldValues: recordFieldValues as never } as never,
+      });
+
+      const patch = vi.fn();
+      const { result } = renderHook(() =>
+        useQueryRunner({
+          active: makeTarget({ queryRaw: '{"status":{"$eq":"shipped"}}' }),
+          patchCollectionState: patch,
+          loadingDelayMs: 0,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.run();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(recordFieldValues).toHaveBeenCalledWith({
+        connectionId: 'c1',
+        dbName: 'app',
+        collection: 'users',
+        entries: [{ field: 'status', value: 'shipped', valType: 'string', op: '$eq' }],
+      });
+    });
+
+    it('splits an $in condition element-wise and drops an empty element', async () => {
+      const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+        documents: [],
+        durationMs: 1,
+        hasMore: false,
+      }));
+      const recordFieldValues = vi.fn(async () => ({ recorded: 1 }));
+      installAtelierMock({
+        query: { find: findSpy, count: async () => ({ count: 0 }) },
+        recent: { recordFieldValues: recordFieldValues as never } as never,
+      });
+
+      const patch = vi.fn();
+      const { result } = renderHook(() =>
+        useQueryRunner({
+          active: makeTarget({ queryRaw: '{"tags":{"$in":["","x"]}}' }),
+          patchCollectionState: patch,
+          loadingDelayMs: 0,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.run();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(recordFieldValues).toHaveBeenCalledWith({
+        connectionId: 'c1',
+        dbName: 'app',
+        collection: 'users',
+        entries: [{ field: 'tags', value: 'x', valType: 'string', op: '$in' }],
+      });
+    });
+
+    it('does not call recordFieldValues when the filter has no recordable condition', async () => {
+      const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+        documents: [],
+        durationMs: 1,
+        hasMore: false,
+      }));
+      const recordFieldValues = vi.fn(async () => ({ recorded: 0 }));
+      installAtelierMock({
+        query: { find: findSpy, count: async () => ({ count: 0 }) },
+        recent: { recordFieldValues: recordFieldValues as never } as never,
+      });
+
+      const patch = vi.fn();
+      const { result } = renderHook(() =>
+        useQueryRunner({
+          active: makeTarget({ queryRaw: '{"tags":{"$exists":true}}' }),
+          patchCollectionState: patch,
+          loadingDelayMs: 0,
+        }),
+      );
+
+      await act(async () => {
+        await result.current.run();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(recordFieldValues).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -56,6 +56,8 @@ import { SavedQueryRepo } from './db/repositories/SavedQueryRepo.ts';
 import { SavedQueryService } from './services/SavedQueryService.ts';
 import { RecentQueryRepo } from './db/repositories/RecentQueryRepo.ts';
 import { RecentQueryService } from './services/RecentQueryService.ts';
+import { RecentFieldValueRepo } from './db/repositories/RecentFieldValueRepo.ts';
+import { RecentFieldValueService } from './services/RecentFieldValueService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
@@ -552,6 +554,8 @@ app.whenReady().then(() => {
   const savedSvc = new SavedQueryService(savedRepo);
   const recentRepo = new RecentQueryRepo(db);
   const recentSvc = new RecentQueryService(recentRepo);
+  const recentFieldValueRepo = new RecentFieldValueRepo(db);
+  const recentFieldValueSvc = new RecentFieldValueService(recentFieldValueRepo);
   const querySvc = new QueryService(pool, recentSvc);
   docSvc = new DocumentService(pool, { log });
   const aggSvc = new AggregationService(pool, recentSvc);
@@ -584,7 +588,7 @@ app.whenReady().then(() => {
   });
   registerDocChannels(router, docSvc);
   registerSavedChannels(router, savedSvc);
-  registerRecentChannels(router, recentSvc);
+  registerRecentChannels(router, recentSvc, recentFieldValueSvc);
   registerAuditChannels(router, auditSvc);
   registerDataChannels(
     router,

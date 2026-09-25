@@ -41,6 +41,7 @@ import type {
   UserUpdateInput,
   RecentKind,
   RecentQuery,
+  ValType,
   ReferenceAutodetectCandidate,
   ReferenceAutodetectInput,
   ReferenceResolveInput,
@@ -300,6 +301,23 @@ export interface IpcApi {
       collection?: string;
       kind?: RecentKind;
     }) => Promise<{ deleted: number }>;
+    /** Past values typed into the builder for this `(conn, db, coll, field)`; fails open to `{ values: [] }`. */
+    valuesForField: (input: {
+      connectionId: string;
+      dbName: string;
+      collection: string;
+      field: string;
+      limit?: number;
+    }) => Promise<{ values: Array<{ value: string; valType: ValType; frequency: number; lastUsedAt: string }> }>;
+    /** Fire-and-forget after a successful find — records the values a run's builder conditions actually carried. */
+    recordFieldValues: (input: {
+      connectionId: string;
+      dbName: string;
+      collection: string;
+      entries: Array<{ field: string; value: string; valType: ValType; op: string }>;
+    }) => Promise<{ recorded: number }>;
+    /** Settings' "Clear value history" — wipes every `recent_field_values` row. */
+    clearFieldValues: () => Promise<{ deleted: number }>;
   };
 
   agg: {
@@ -468,6 +486,9 @@ export const IPC_CHANNELS = {
   recentList:  'recent:list',
   recentGet:   'recent:get',
   recentClear: 'recent:clear',
+  recentValuesForField:   'recent:valuesForField',
+  recentRecordFieldValues: 'recent:recordFieldValues',
+  recentClearFieldValues:  'recent:clearFieldValues',
 
   // Bulk data -----------------------------------------
   dataImport: 'data:import',
