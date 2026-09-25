@@ -96,6 +96,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.recentList,
   IPC_CHANNELS.recentGet,
   IPC_CHANNELS.recentClear,
+  IPC_CHANNELS.auditList,
   IPC_CHANNELS.aggCancel,
   IPC_CHANNELS.refsList,
   IPC_CHANNELS.refsGet,

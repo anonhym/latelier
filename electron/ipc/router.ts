@@ -8,6 +8,21 @@ import { classifyIfDriverError } from '../mongo/errors.ts';
 export type Validator<I> = (payload: unknown) => I;
 export type Handler<I, O> = (input: I) => Promise<O> | O;
 
+/**
+ * Receives every validated invocation once its envelope is settled. Decides
+ * for itself whether the channel is audited. May throw; the router logs that
+ * and returns the envelope unchanged.
+ */
+export interface AuditSink {
+  record(
+    channel: string,
+    input: unknown,
+    envelope: Envelope<unknown>,
+    startedAt: number,
+    durationMs: number,
+  ): void;
+}
+
 export interface Router {
   register<I, O>(
     channel: string,
@@ -90,6 +105,7 @@ export function createRouter(
   ipcMain: Pick<IpcMain, 'handle'>,
   isTrustedSender: SenderCheck,
   log?: Logger,
+  audit?: AuditSink,
 ): Router {
   return {
     register<I, O>(
@@ -110,17 +126,23 @@ export function createRouter(
         // DB request — including the filter / sort / projection that was
         // actually sent to MongoDB.
         log?.debug('ipc.req', channel, { input: raw });
+        // Set only once validation passes: a payload that fails its schema
+        // never reached a server, and has no trustworthy namespace to record.
+        let validated: { input: I } | null = null;
+        let envelope: Envelope<O>;
+        let durationMs: number;
         try {
           const input = validate(raw);
+          validated = { input };
           const data = await handler(input);
-          const durationMs = Date.now() - t0;
+          durationMs = Date.now() - t0;
           log?.info('ipc.ok', channel, {
             durationMs,
             req: summarizeRequest(raw),
           });
-          return success<O>(data);
+          envelope = success<O>(data);
         } catch (err) {
-          const durationMs = Date.now() - t0;
+          durationMs = Date.now() - t0;
           // Services classify their own driver errors, and the envelope only
           // knows `AppError`. A service that forgets leaves `toIpcError` with
           // a bare driver error to label `INTERNAL`, which is a wrong code
@@ -135,8 +157,19 @@ export function createRouter(
             message: ipcErr.message,
             req: summarizeRequest(raw),
           });
-          return { ok: false, error: ipcErr };
+          envelope = { ok: false, error: ipcErr };
         }
+        // Outside the try above on purpose: an audit write that throws must
+        // not turn a completed Operation into an error envelope. The entry is
+        // lost and the Operation's result stands (ADR 0002).
+        if (audit && validated) {
+          try {
+            audit.record(channel, validated.input, envelope, t0, durationMs);
+          } catch (err) {
+            log?.error('audit.write', channel, { message: toIpcError(err).message });
+          }
+        }
+        return envelope;
       });
     },
   };

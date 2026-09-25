@@ -36,6 +36,7 @@
     "src/utils/shellSyntax.ts",
     "electron/log.ts",
     "electron/ipc/envelope.ts",
+    "electron/ipc/auditChannels.ts",
     "electron/ipc/senderGuard.ts",
     "electron/security/appLocation.ts",
     "electron/mongo/uri.ts"

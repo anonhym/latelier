@@ -112,6 +112,9 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       delete: async () => undefined,
       duplicate: unused('saved.duplicate') as IpcApi['saved']['duplicate'],
     },
+    audit: {
+      list: async () => [],
+    },
     recent: {
       list: async () => [],
       get: unused('recent.get') as IpcApi['recent']['get'],
@@ -176,6 +179,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     query:  { ...base.query,  ...(overrides.query  ?? {}) } as IpcApi['query'],
     doc:    { ...base.doc,    ...(overrides.doc    ?? {}) } as IpcApi['doc'],
     saved:  { ...base.saved,  ...(overrides.saved  ?? {}) } as IpcApi['saved'],
+    audit:  { ...base.audit,  ...(overrides.audit  ?? {}) } as IpcApi['audit'],
     recent: { ...base.recent, ...(overrides.recent ?? {}) } as IpcApi['recent'],
     agg:    { ...base.agg,    ...(overrides.agg    ?? {}) } as IpcApi['agg'],
     refs:   { ...base.refs,   ...(overrides.refs   ?? {}) } as IpcApi['refs'],
@@ -398,6 +402,9 @@ function makePermissiveStub(): IpcApi {
       update: noopAsync as IpcApi['saved']['update'],
       delete: async () => undefined,
       duplicate: noopAsync as IpcApi['saved']['duplicate'],
+    },
+    audit: {
+      list: async () => [],
     },
     recent: {
       list: async () => [],
