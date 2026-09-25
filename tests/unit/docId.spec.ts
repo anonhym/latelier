@@ -49,8 +49,8 @@ describe('getFullDocId', () => {
   });
 });
 
-// T2.6 — shared `{_id}` filter for inline edit + EditDrawer (no drift between
-// the two write surfaces).
+// T2.6 — shared `{_id}` filter for inline edit and delete (no drift between
+// the write surfaces).
 describe('buildIdFilter', () => {
   it('builds a JSON.stringify (not ejsonStringify) filter for an ObjectId sentinel _id', () => {
     const doc = { _id: { $oid: '507f1f77bcf86cd799439011' } };

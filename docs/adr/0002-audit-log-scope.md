@@ -28,8 +28,8 @@ honest.
 **Nine Operations are audited**, chosen by blast radius on documents rather than by API level:
 `docInsertMany`, `docUpdateOne`, `docUpdateMany`, `docDeleteOne`, `docDeleteMany`,
 `collectionDrop`, `collectionRename`, `databaseDrop`, and a data import. The `op` set is frozen in
-the migration's `CHECK`, because SQLite cannot alter one in place. `docReplace` is not audited: it is
-being removed from the Document Editor in favour of `docUpdateOne`.
+the migration's `CHECK`, because SQLite cannot alter one in place. There is no `docReplace`
+to audit: the Document Editor saves through `docUpdateOne`, and the `doc:replace` channel is gone.
 
 Excluded, deliberately:
 

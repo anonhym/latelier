@@ -1012,3 +1012,12 @@ describe('currentFilterJson', () => {
     }
   });
 });
+
+// A stray write (`DEFAULT_COLLECTION_TAB_STATE.page = 5`) would otherwise
+// leak into every tab seeded from the default afterwards.
+describe('DEFAULT_COLLECTION_TAB_STATE', () => {
+  it('is frozen, builder included', () => {
+    expect(Object.isFrozen(DEFAULT_COLLECTION_TAB_STATE)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_COLLECTION_TAB_STATE.builder)).toBe(true);
+  });
+});

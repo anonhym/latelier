@@ -22,7 +22,7 @@ export interface CollectionWorkspaceActions {
   run: (override?: Partial<CollectionTabState>) => void;
   /** Cancel the in-flight find, if any. A no-op otherwise. */
   cancel: () => void;
-  /** Open the per-document edit drawer. */
+  /** Open the Document Editor on one document. */
   openEdit: (doc: unknown) => void;
   /** Open the per-document delete confirmation. */
   openDelete: (doc: unknown) => void;
@@ -44,7 +44,7 @@ export interface CollectionWorkspaceActions {
   expandBuilder?: () => void;
   /**
    * Inline single-field edit (T2.6) — writes only `fieldPath` via a `$set`
-   * (`api.doc.updateOne`), unlike `openEdit`'s replace-mode default. Optional
+   * (`api.doc.updateOne`) without opening the Document Editor. Optional
    * because it's a leaf-only affordance: read-only providers (saved-query
    * preview, ScriptTab's synthetic result provider) simply omit it, and
    * consumers must treat a missing `updateField` the same as `isReadOnly` —

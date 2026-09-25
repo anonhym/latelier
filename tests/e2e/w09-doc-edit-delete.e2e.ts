@@ -16,7 +16,7 @@ test.afterAll(stopAllMemoryServers);
  * TreeView per-row buttons. (DeleteMany requires the multi-doc confirmation
  * flow which is also a separate surface.)
  */
-test('doc writes: insert adds a row; edit replaces a field; delete removes the row', async () => {
+test('doc writes: insert adds a row; edit changes a field; delete removes the row', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -53,8 +53,7 @@ test('doc writes: insert adds a row; edit replaces a field; delete removes the r
       await win.getByRole('button', { name: /Insert document/ }).click();
 
       // The drawer's textarea is the last on the page (rendered after the
-      // QueryBar's `placeholder="{}"` textarea). Same `.last()` convention
-      // as the EditDrawer textarea below.
+      // QueryBar's `placeholder="{}"` textarea).
       await expect(win.getByText('Insert document', { exact: true })).toBeVisible({
         timeout: 5000,
       });
@@ -71,17 +70,14 @@ test('doc writes: insert adds a row; edit replaces a field; delete removes the r
       // Per-row Edit button: `<button title="Edit document">` in TreeView.
       await win.locator('button[title="Edit document"]').first().click();
 
-      // EditDrawer opens — header text "Edit document" is the unique signal.
-      // The drawer's textarea is the last on the page (rendered after the
-      // QueryBar's `placeholder="{}"` textarea).
-      await expect(win.getByText('Edit document')).toBeVisible({ timeout: 5000 });
-      const editTextarea = win.locator('textarea').last();
-      await editTextarea.fill('{"_id": 1, "sku": "before-edit", "status": "shipped"}');
+      // The Document Editor opens, one labelled input per field.
+      const editor = win.getByRole('dialog', { name: 'Edit document' });
+      await expect(editor).toBeVisible({ timeout: 5000 });
+      await editor.getByRole('textbox', { name: 'status' }).fill('shipped');
+      await editor.getByRole('button', { name: 'Save' }).click();
 
-      // The Save button inside the drawer is also the last "Save" rendered.
-      await win.getByRole('button', { name: /^Save$/ }).last().click();
-
-      // Drawer closes, run reruns automatically (Workspace.tsx:1816).
+      // The editor closes and the query re-runs.
+      await expect(editor).not.toBeVisible({ timeout: 8000 });
       await expect(win.getByText('shipped')).toBeVisible({ timeout: 8000 });
 
       // ── Delete ──────────────────────────────────────────────────────────
@@ -106,12 +102,11 @@ test('doc writes: insert adds a row; edit replaces a field; delete removes the r
 });
 
 /**
- * T0.3 — Update fields ($set) mode in EditDrawer. Distinct from the Replace
- * scenario above: this proves the update only touches the field the user
- * typed, leaving other fields on the document untouched — the whole point
- * of exposing `doc:updateOne` instead of always full-document replace.
+ * The Document Editor saves a diff: this proves the save only touches the
+ * field the user changed, leaving the others on the document untouched, and
+ * that `E` on the focused Tree row opens the editor.
  */
-test('doc writes: update ($set) changes one field and leaves the others untouched', async () => {
+test('doc writes: E opens the editor; a number edit saves one field and leaves the others untouched', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -136,31 +131,25 @@ test('doc writes: update ($set) changes one field and leaves the others untouche
       await ws.queryBarRunButton.click();
       await expect(win.getByText('multi-field')).toBeVisible({ timeout: 8000 });
 
-      // Per-row Edit button opens the EditDrawer.
-      await win.locator('button[title="Edit document"]').first().click();
-      await expect(win.getByText('Edit document')).toBeVisible({ timeout: 5000 });
+      // `E` on the focused result tree opens the editor on its active row.
+      const results = win.getByRole('tree', { name: 'Documents' });
+      await results.focus();
+      await win.keyboard.press('e');
+      const editor = win.getByRole('dialog', { name: 'Edit document' });
+      await expect(editor).toBeVisible({ timeout: 5000 });
 
-      // Switch to Update fields ($set) mode.
-      await win.getByRole('button', { name: /Update fields/i }).click();
+      await editor.getByRole('textbox', { name: 'qty' }).fill('6');
+      // ⌘↵ / Ctrl+↵ saves from anywhere in the editor.
+      await win.keyboard.press('ControlOrMeta+Enter');
+      await expect(editor).not.toBeVisible({ timeout: 8000 });
 
-      // The drawer's textarea is the last on the page (same convention as
-      // the Replace scenario above).
-      const updateTextarea = win.locator('textarea').last();
-      await updateTextarea.fill('{"status": "shipped"}');
-
-      await win.getByRole('button', { name: /^Apply update$/ }).click();
-
-      // Drawer closes, run reruns automatically.
-      await expect(win.getByText('shipped')).toBeVisible({ timeout: 8000 });
-
-      // Load-bearing assertion: fields never mentioned in the patch survive
-      // untouched — proof this is a $set patch, not a full-document rewrite.
-      await expect(win.getByText('multi-field')).toBeVisible();
-      // Scoped to the result tree (the navigator is a tree too): an exact '5' page-wide would also match the
-      // ResultBar's query duration whenever the run takes 5 ms.
-      await expect(
-        win.getByRole('tree', { name: 'Documents' }).getByText('5', { exact: true }).first(),
-      ).toBeVisible();
+      // Scoped to the result tree (the navigator is a tree too): an exact
+      // digit page-wide would also match the ResultBar's query duration.
+      await expect(results.getByText('6', { exact: true }).first()).toBeVisible({ timeout: 8000 });
+      // Load-bearing: fields the user never touched survive — the save is a
+      // diff, not a full-document rewrite.
+      await expect(results.getByText('multi-field')).toBeVisible();
+      await expect(results.getByText('pending')).toBeVisible();
     });
   });
 });

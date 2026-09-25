@@ -22,7 +22,6 @@ import { IPC_CHANNELS } from '@shared/ipc';
 const WRITE_CHANNELS = new Set<string>([
   IPC_CHANNELS.docInsert,
   IPC_CHANNELS.docInsertMany,
-  IPC_CHANNELS.docReplace,
   IPC_CHANNELS.docUpdateOne,
   IPC_CHANNELS.docDeleteOne,
   IPC_CHANNELS.docDeleteMany,

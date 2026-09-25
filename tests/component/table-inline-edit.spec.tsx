@@ -169,17 +169,12 @@ function renderRerenderableInlineEditHarness(
 }
 
 describe('TableView — inline cell editing (T2.6)', () => {
-  it('inline-edits a string cell via Enter: calls doc.updateOne with a $set patch (never replace), then refreshes', async () => {
+  it('inline-edits a string cell via Enter: calls doc.updateOne with a $set patch, then refreshes', async () => {
     const updateCalls: Array<{ filterJson: string; updateJson: string }> = [];
-    const replaceCalls: unknown[] = [];
     installAtelierMock({
       doc: {
         updateOne: async (input) => {
           updateCalls.push(input);
-          return { matchedCount: 1, modifiedCount: 1 };
-        },
-        replace: async (input) => {
-          replaceCalls.push(input);
           return { matchedCount: 1, modifiedCount: 1 };
         },
       },
@@ -199,7 +194,6 @@ describe('TableView — inline cell editing (T2.6)', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => expect(updateCalls.length).toBe(1));
-    expect(replaceCalls.length).toBe(0);
     expect(JSON.parse(updateCalls[0]!.filterJson)).toEqual({
       _id: { $oid: '507f1f77bcf86cd799439011' },
     });

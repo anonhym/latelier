@@ -63,13 +63,18 @@ export function InsertDrawer({
     if (discard) close();
   };
 
-  // see the note in `EditDrawer.tsx`. The transform runs in front of
-  // `isValidEjson` and `classifyInsertPayload`, never inside them, so the
-  // array-vs-document rules below are unchanged and still read Canonical
-  // EJSON.
+  // Shell Syntax reaches this write surface. ADR 0004 held it strict because a
+  // misread value corrupts a document, but the transform splices source spans
+  // and never evaluates, so it has nothing to misread that the Filter Bar
+  // would not; and blur rewrites the buffer in place, so the text on screen
+  // at Insert is the Canonical EJSON that gets written. The transform runs in
+  // front of `isValidEjson` and `classifyInsertPayload`, never inside them,
+  // so the array-vs-document rules below are unchanged and still read
+  // Canonical EJSON.
   const shell = useShellSyntaxField({ value: docJson, commit: setDocJson });
   const canonical = shell.outcome.kind === 'repaired' ? shell.outcome.text : docJson;
-  // `liveRefusal`, not `refusal` — same reasoning as `EditDrawer.tsx`.
+  // `liveRefusal`, not `refusal`: the notice tracks the buffer as it is
+  // typed, the same asymmetry that has the Insert gate read a live `outcome`.
   const refusal = shell.liveRefusal;
 
   const isValid = isValidEjson(canonical);
@@ -107,9 +112,8 @@ export function InsertDrawer({
     setSaving(true);
     setErr(null);
     try {
-      // Same rule as `EditDrawer`'s replace path: the wire format is
-      // Canonical EJSON, and `submitted` may not be. "Duplicate document"
-      // seeds this drawer from `stripIdForDuplicate`, which renders the
+      // The wire format is Canonical EJSON, and `submitted` may not be.
+      // "Duplicate document" seeds this drawer from `stripIdForDuplicate`, which renders the
       // readable form — insert it unedited and Relaxed spellings
       // reach the boundary. `submitted` already parsed once for `payload`,
       // so this round trip cannot fail on text that got this far.

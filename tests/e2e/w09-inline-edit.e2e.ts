@@ -13,9 +13,8 @@ test.afterAll(stopAllMemoryServers);
 
 /**
  * T2.6 — in-place cell editing in the Table view. Writes a single-field
- * `$set` directly via `api.doc.updateOne`, with no drawer involved — distinct
- * from W09/T0.3's EditDrawer "Update fields" mode, which goes through the
- * drawer's own textarea. Proves, end-to-end, that only the edited field
+ * `$set` directly via `api.doc.updateOne`, without opening the Document
+ * Editor. Proves, end-to-end, that only the edited field
  * changes and every other field on the document survives untouched.
  */
 test('table inline edit: hover pencil -> edit one cell -> only that field changes', async () => {

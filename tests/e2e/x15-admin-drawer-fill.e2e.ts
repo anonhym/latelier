@@ -23,7 +23,7 @@ test.afterAll(stopAllMemoryServers);
  * This has to be e2e. jsdom does no layout — every `getBoundingClientRect()`
  * there returns zeroes — so deleting either `styles` block leaves all 19 of
  * the component cases for these drawers green. Same reason
- * `x15-drawer-body-fill.e2e.ts` exists for `EditDrawer` and the fill assertion
+ * `x15-drawer-body-fill.e2e.ts` exists for the Document Editor and the fill assertion
  * in `a06-explain-plan.e2e.ts` exists for `ExplainDrawer`.
  *
  * These two tabs had no e2e coverage of any kind before this.

@@ -567,6 +567,21 @@ describe('TableView — rendering and interaction', () => {
       expect(rows[1].getAttribute('data-selected')).toBe('true');
     });
 
+    it('E on the grid opens the editor on the active row; a modified E or one from a nested control does not', () => {
+      const openEdit = vi.fn();
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+      const { container } = renderTable(docs, { actions: { openEdit } });
+      const grid = container.querySelector('[role="grid"]')!;
+
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      fireEvent.keyDown(grid, { key: 'e', metaKey: true });
+      fireEvent.keyDown(container.querySelector('[aria-label="Expand document"]')!, { key: 'e' });
+      expect(openEdit).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(grid, { key: 'e' });
+      expect(openEdit).toHaveBeenCalledWith(docs[1]);
+    });
+
     // The mutation this guards against: dropping `e.target !== e.currentTarget`
     // at the grid level would make Enter on the row's own nested expand
     // button ALSO select the active row (mirrors the pre-existing guard on

@@ -133,6 +133,17 @@ describe('JsonView — hidden fields', () => {
     expect(actions.openEdit).toHaveBeenCalledWith(docs[0]);
   });
 
+  it('E with focus inside a card opens the editor on that card', () => {
+    const docs = [{ _id: 1, name: 'alpha' }, { _id: 2, name: 'beta' }];
+    const { actions } = renderJson(docs);
+    const card = screen.getByRole('group', { name: 'Document 2' });
+
+    fireEvent.keyDown(within(card).getByRole('button', { name: 'Copy JSON' }), { key: 'e', ctrlKey: true });
+    expect(actions.openEdit).not.toHaveBeenCalled();
+    fireEvent.keyDown(within(card).getByRole('button', { name: 'Copy JSON' }), { key: 'e' });
+    expect(actions.openEdit).toHaveBeenCalledWith(docs[1]);
+  });
+
   it('still copies the FULL document (including hidden fields)', async () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
     renderJson(docs, { state: { columnConfig: { hidden: ['secret'] } } });

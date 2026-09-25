@@ -235,7 +235,6 @@ describe('audit log via the router', () => {
   it('channels outside the audit table write no rows, even when they change data', async () => {
     const coll = target('things');
     await ok(IPC_CHANNELS.docInsert, { ...coll, docJson: '{"_id":1,"a":1}' });
-    await ok(IPC_CHANNELS.docReplace, { ...coll, filterJson: '{"_id":1}', docJson: '{"a":2}' });
     await ok(IPC_CHANNELS.queryFind, { ...coll, filter: '{}', limit: 10, skip: 0 });
     await ok(IPC_CHANNELS.docConfirmDeleteMany, { ...coll, filterJson: '{}' });
     await ok(IPC_CHANNELS.docConfirmUpdateMany, { ...coll, filterJson: '{}', updateJson: '{"$set":{"a":1}}' });

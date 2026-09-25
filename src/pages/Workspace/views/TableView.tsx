@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { isContextMenuKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
+import { isContextMenuKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
 import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -1355,6 +1355,12 @@ export function TableView({
         });
         return;
       }
+      if (isEditKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        onEditDoc(documents[roving.activeIndex]);
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -1365,7 +1371,7 @@ export function TableView({
     // `roving` itself is a fresh object every render (see `handleSelect`
     // above) — depend on the members this actually reads instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc],
   );
 
   const rowProps = React.useMemo<TableRowProps>(

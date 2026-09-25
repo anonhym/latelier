@@ -11,11 +11,6 @@ const InsertManySchema = CollectionTargetSchema.extend({
   docsJson: NonEmpty,
 });
 
-const ReplaceSchema = CollectionTargetSchema.extend({
-  filterJson: NonEmpty,
-  docJson: NonEmpty,
-});
-
 const UpdateOneSchema = CollectionTargetSchema.extend({
   filterJson: NonEmpty,
   updateJson: NonEmpty,
@@ -47,12 +42,6 @@ export function registerDocChannels(router: Router, svc: DocumentService): void 
     IPC_CHANNELS.docInsertMany,
     zodValidator(InsertManySchema),
     (input) => svc.insertMany(input),
-  );
-
-  router.register(
-    IPC_CHANNELS.docReplace,
-    zodValidator(ReplaceSchema),
-    (input) => svc.replace(input),
   );
 
   router.register(

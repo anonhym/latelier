@@ -239,6 +239,17 @@ describe('TreeView — rendering and interaction', () => {
       expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439012', true);
     });
 
+    it('E on the tree opens the editor on the active row', () => {
+      const openEdit = vi.fn();
+      const { container } = renderTree(threeDocs, { actions: { openEdit } });
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      fireEvent.keyDown(tree, { key: 'E' });
+
+      expect(openEdit).toHaveBeenCalledWith(threeDocs[1]);
+    });
+
     // Mirrors the existing per-row guard test above, at the container level:
     // Enter bubbling from a nested button must not also expand the row.
     it('Enter bubbling up from a nested button does not double-expand', async () => {
