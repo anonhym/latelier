@@ -20,6 +20,8 @@ export interface CollectionWorkspaceActions {
   patchWith: (fn: (s: CollectionTabState) => Partial<CollectionTabState>) => void;
   /** Trigger a find run. Optional override merges into the in-flight patch. */
   run: (override?: Partial<CollectionTabState>) => void;
+  /** Cancel the in-flight find, if any. A no-op otherwise. */
+  cancel: () => void;
   /** Open the per-document edit drawer. */
   openEdit: (doc: unknown) => void;
   /** Open the per-document delete confirmation. */

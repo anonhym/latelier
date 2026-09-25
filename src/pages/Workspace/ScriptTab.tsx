@@ -647,6 +647,7 @@ const SCRIPT_RESULT_ACTIONS: CollectionWorkspaceActions = Object.freeze({
   patch: noop,
   patchWith: noop,
   run: noop,
+  cancel: noop,
   openEdit: noop,
   openDelete: noop,
   openDeleteAll: noop,

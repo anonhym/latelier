@@ -108,6 +108,7 @@ function QueryBarInner({
   const isLoading = meta.isLoading;
   const onPatch = actions.patch;
   const onRun = actions.run;
+  const onCancel = actions.cancel;
   const onSave = actions.openSave;
   // the Recent list lives in the builder pane, which is unmounted
   // while collapsed. Switching its tab without making it visible is a click
@@ -568,22 +569,36 @@ function QueryBarInner({
         />
 
         <Button.Group>
-          <Tooltip
-            label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
-            withArrow
-          >
-            <Button
-              variant="filled"
-              size="compact-xs"
-              onClick={() => canRun && onRun()}
-              disabled={!canRun}
-              data-testid="query-run-btn"
-              leftSection={I.play}
-              styles={{ root: { fontWeight: 700 } }}
+          {isLoading ? (
+            <Tooltip label="Cancel" withArrow>
+              <Button
+                variant="outline"
+                color="red"
+                size="compact-xs"
+                onClick={onCancel}
+                data-testid="query-cancel-btn"
+              >
+                Cancel
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip
+              label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
+              withArrow
             >
-              Run
-            </Button>
-          </Tooltip>
+              <Button
+                variant="filled"
+                size="compact-xs"
+                onClick={() => canRun && onRun()}
+                disabled={!canRun}
+                data-testid="query-run-btn"
+                leftSection={I.play}
+                styles={{ root: { fontWeight: 700 } }}
+              >
+                Run
+              </Button>
+            </Tooltip>
+          )}
           <Menu position="bottom-end" shadow="md" width={190}>
             <Menu.Target>
               <Tooltip label="Run options" withArrow>

@@ -81,7 +81,7 @@ function mountDialogs(
   const view = renderHook(
     (props: { activeTabId: string | null }) => {
       renders += 1;
-      const queryRunner: UseQueryRunnerResult = { run, isLoading: false };
+      const queryRunner: UseQueryRunnerResult = { run, cancel: () => {}, isLoading: false };
       return useDocumentDialogs({
         activeCollectionRef,
         queryRunner,
