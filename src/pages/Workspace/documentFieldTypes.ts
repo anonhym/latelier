@@ -200,19 +200,6 @@ export function parseAs(kind: Kind, text: string): Parsed {
         ? { ok: true, value: lower === 'true' }
         : { ok: false, error: 'Enter true or false' };
     }
-    case 'array': {
-      // A dynamic `import` would make this async for one call site; the
-      // JSON view (X14) takes the same shortcut with `JSON.parse` today.
-      // A parse failure leaves `parsed` undefined, which `Array.isArray`
-      // below refuses exactly like any other non-array text.
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(t) as unknown;
-      } catch {
-        /* falls through to the same refusal as valid-but-non-array JSON */
-      }
-      return Array.isArray(parsed) ? { ok: true, value: parsed } : { ok: false, error: 'Enter a JSON array' };
-    }
     default:
       return { ok: false, error: 'This type is not editable here' };
   }
