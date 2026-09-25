@@ -125,4 +125,13 @@ describe('undoneMessage', () => {
     expect(undoneMessage({ restored: 1, skipped: 0 })).toBe('Restored 1 document');
     expect(undoneMessage({ restored: 3, skipped: 0 })).toBe('Restored 3 documents');
   });
+
+  it('names a partial restore honestly (X13 §6: "restored 47 of 50, 3 already exist")', () => {
+    expect(undoneMessage({ restored: 2, skipped: 1 })).toBe('Restored 2 of 3 documents (1 skipped)');
+  });
+
+  it('uses the singular only when the total is exactly one document', () => {
+    expect(undoneMessage({ restored: 0, skipped: 1 })).toBe('Restored 0 of 1 document (1 skipped)');
+    expect(undoneMessage({ restored: 1, skipped: 1 })).toBe('Restored 1 of 2 documents (1 skipped)');
+  });
 });

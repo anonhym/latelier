@@ -184,7 +184,7 @@ export class AuditService {
       // Pre-images were never actually written back.
       if (err instanceof MongoBulkWriteError) {
         const writeErrors = Array.isArray(err.writeErrors) ? err.writeErrors : [err.writeErrors];
-        if (writeErrors.every((e) => e.code === 11000)) {
+        if (writeErrors.length > 0 && writeErrors.every((e) => e.code === 11000)) {
           return { restored: err.result.insertedCount, skipped: docs.length - err.result.insertedCount };
         }
       }

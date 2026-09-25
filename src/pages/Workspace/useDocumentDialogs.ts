@@ -51,7 +51,7 @@ export function useDocumentDialogs(deps: {
   closeDeleteDialogs: () => void;
   handleDeleted: (auditId?: string) => void;
   closeUpdateAllModal: () => void;
-  handleUpdatedAll: (auditId?: string) => void;
+  handleUpdatedAll: (auditId: string | undefined, message: string) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
    * doesn't have to re-run on every read-only query re-run (sort, filter,
@@ -175,14 +175,20 @@ export function useDocumentDialogs(deps: {
   // the Focused Tab (see the tab-switch effect below), so it's closed the
   // same way rather than routed through refreshSource's captured target.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
-  const handleUpdatedAll = React.useCallback((auditId?: string) => {
+  const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
     closeUpdateAllModal();
     void run();
     setWriteVersion((v) => v + 1);
+    // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
+    // update over the bulk capture ceiling still needs to say what happened.
+    if (auditId === undefined) {
+      notify.success(message);
+      return;
+    }
     const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
-      offerUndo('Documents updated', auditId, () => refreshSource(target));
+      offerUndo(message, auditId, () => refreshSource(target));
     }
   }, [activeCollectionRef, closeUpdateAllModal, refreshSource, run]);
 

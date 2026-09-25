@@ -169,7 +169,7 @@ describe('useDocumentDialogs', () => {
     act(() => result.current.openUpdateAllModal());
     expect(result.current.updateAllOpen).toBe(true);
 
-    act(() => result.current.handleUpdatedAll());
+    act(() => result.current.handleUpdatedAll(undefined, '2 matched, 2 modified'));
 
     expect(result.current.updateAllOpen).toBe(false);
     expect(run).toHaveBeenCalledTimes(1);
@@ -464,7 +464,7 @@ describe('useDocumentDialogs', () => {
       const t2 = tab({ id: 't2', collection: 'users' });
       const { result, activeCollectionRef } = mountDialogs(run, 't1', t1, [t1, t2]);
 
-      act(() => result.current.handleUpdatedAll('a3'));
+      act(() => result.current.handleUpdatedAll('a3', '2 matched, 2 modified'));
       activeCollectionRef.current = t2;
       fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
 
@@ -473,13 +473,14 @@ describe('useDocumentDialogs', () => {
       expect(run).toHaveBeenLastCalledWith(undefined, runnerTargetOf(t1));
     });
 
-    it('an update-all with no Reversible entry offers nothing', async () => {
+    it('an update-all with no Reversible entry still shows the matched/modified count, with no Undo button', async () => {
       const t1 = tab();
       const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
 
-      act(() => result.current.handleUpdatedAll());
+      act(() => result.current.handleUpdatedAll(undefined, '5 matched, 5 modified'));
 
-      await waitFor(() => expect(screen.queryByText('Documents updated')).toBeNull());
+      await waitFor(() => expect(screen.getByText('5 matched, 5 modified')).toBeTruthy());
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     });
   });
 });

@@ -19,8 +19,9 @@ interface UpdateConfirmProps {
   readOnly?: boolean;
   onClose: () => void;
   /** `auditId` is set when the update can be undone — within X13's bulk
-   *  capture ceiling. */
-  onUpdated: (auditId?: string) => void;
+   *  capture ceiling. `message` carries the matched/modified counts so the
+   *  caller's one toast (Undo-bearing or plain) still reports them. */
+  onUpdated: (auditId: string | undefined, message: string) => void;
 }
 
 /**
@@ -142,9 +143,7 @@ export function UpdateConfirm({
     setRunning(true);
     setErr(null);
     try {
-      // Undo's own toast (X13 §8) carries the outcome; no separate success
-      // notification here, or a bulk update would show two toasts.
-      const { auditId } = await api.doc.updateMany({
+      const { matchedCount, modifiedCount, auditId } = await api.doc.updateMany({
         connectionId,
         dbName,
         collection,
@@ -152,7 +151,10 @@ export function UpdateConfirm({
         updateJson: reviewed.updateJson,
         confirmToken: reviewed.confirmToken,
       });
-      onUpdated(auditId);
+      // One toast either way (Undo-bearing when `auditId` is set, plain
+      // otherwise) — the caller decides which, so a reversible and an
+      // irreversible bulk update never show two.
+      onUpdated(auditId, `${matchedCount.toLocaleString()} matched, ${modifiedCount.toLocaleString()} modified`);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Update failed'));
@@ -175,7 +177,7 @@ export function UpdateConfirm({
     reviewed === null
       ? null
       : reviewed.count <= AUDIT_UNDO_DOC_LIMIT
-        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered unless the matched documents are unusually large.`
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered if they total under 1 MB.`
         : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`;
 
   return (

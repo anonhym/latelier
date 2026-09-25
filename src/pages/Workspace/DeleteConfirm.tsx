@@ -161,7 +161,7 @@ export function DeleteConfirm({
     ? 'This can be undone.'
     : countState.status === 'ready'
       ? countState.count <= AUDIT_UNDO_DOC_LIMIT
-        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered unless the matched documents are unusually large.`
+        ? `Within the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — Undo will be offered if they total under 1 MB.`
         : `Above the ${AUDIT_UNDO_DOC_LIMIT.toLocaleString()}-document undo limit — this cannot be undone.`
       : null;
 

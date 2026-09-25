@@ -31,6 +31,16 @@ export function undoFailureMessage(e: unknown): string {
   }
 }
 
+/**
+ * A skip is neutral on purpose (X13 §6 example: "restored 47 of 50, 3
+ * already exist") — it covers both a document a bulk undo found already
+ * recreated (`deleteMany`/`insertMany`) and one it found changed again
+ * (`updateMany`), and this message doesn't know which.
+ */
 export function undoneMessage(r: UndoResult): string {
-  return `Restored ${r.restored} document${r.restored === 1 ? '' : 's'}`;
+  if (r.skipped === 0) {
+    return `Restored ${r.restored} document${r.restored === 1 ? '' : 's'}`;
+  }
+  const total = r.restored + r.skipped;
+  return `Restored ${r.restored} of ${total} document${total === 1 ? '' : 's'} (${r.skipped} skipped)`;
 }

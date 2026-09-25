@@ -198,7 +198,7 @@ describe('UpdateConfirm', () => {
       updateJson: '{"$set":{"status":"active"}}',
       confirmToken: 'tok-xyz',
     });
-    expect(onUpdated).toHaveBeenCalledWith('a1');
+    expect(onUpdated).toHaveBeenCalledWith('a1', '2 matched, 2 modified');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
