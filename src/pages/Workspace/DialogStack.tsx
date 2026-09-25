@@ -235,7 +235,6 @@ export interface DialogStackProps {
   refsConfigureHint: UseFeatureHintResult;
   tabsPinHint: UseFeatureHintResult;
   savedCreateHint: UseFeatureHintResult;
-  previewConfigureHint: UseFeatureHintResult;
   runExecuteHint: UseFeatureHintResult;
 }
 
@@ -259,7 +258,6 @@ export function DialogStack({
   refsConfigureHint,
   tabsPinHint,
   savedCreateHint,
-  previewConfigureHint,
   runExecuteHint,
 }: DialogStackProps) {
   const { refHover, refEditorOpen, setRefEditorOpen } = refDrawer;
@@ -411,17 +409,6 @@ export function DialogStack({
         id="saved.create"
         visible={savedCreateHint.visible}
         onDismiss={savedCreateHint.dismiss}
-      />
-      <FeatureHint
-        id="preview.configure"
-        visible={previewConfigureHint.visible}
-        onDismiss={previewConfigureHint.dismiss}
-        onCta={() => {
-          const btn = document.querySelector(
-            '[data-hint-anchor="preview.configure"]',
-          ) as HTMLElement | null;
-          btn?.click();
-        }}
       />
 
       {connectionFormTarget !== null && (

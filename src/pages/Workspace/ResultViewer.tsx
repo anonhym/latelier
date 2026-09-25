@@ -55,8 +55,6 @@ interface BodyProps {
   onColumnResize: (field: string, width: number) => void;
   onRowExpand: (docId: string, expanded: boolean) => void;
   onSortField?: (field: string) => void;
-  /** User-configured preview field set; `null` while loading, `[]` if unset. */
-  previewFields?: string[] | null;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -68,7 +66,6 @@ function Body({
   onColumnResize,
   onRowExpand,
   onSortField,
-  previewFields,
   refsByField,
   onRefHover,
   onRefHoverLeave,
@@ -125,7 +122,6 @@ function Body({
           {state.view === 'Tree' && (
             <Tree
               onRowExpand={onRowExpand}
-              previewFields={previewFields}
               refsByField={refsByField}
               onRefHover={onRefHover}
               onRefHoverLeave={onRefHoverLeave}
@@ -184,7 +180,6 @@ function EmptyState({ onClearFilter }: { onClearFilter: () => void }) {
 
 interface TreeSlotProps {
   onRowExpand: (docId: string, expanded: boolean) => void;
-  previewFields?: string[] | null;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -193,7 +188,6 @@ interface TreeSlotProps {
 
 function Tree({
   onRowExpand,
-  previewFields,
   refsByField,
   onRefHover,
   onRefHoverLeave,
@@ -207,7 +201,6 @@ function Tree({
       expandedRows={state.expandedRows}
       onSelect={() => {/* selection is internal to TreeView */}}
       onRowExpand={onRowExpand}
-      previewFields={previewFields}
       refsByField={refsByField}
       onRefHover={onRefHover}
       onRefHoverLeave={onRefHoverLeave}

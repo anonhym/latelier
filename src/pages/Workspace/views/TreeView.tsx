@@ -20,6 +20,7 @@ import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
+import { deriveColumns, orderFields } from './tableColumns';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -27,8 +28,6 @@ interface TreeViewProps {
   expandedRows?: Record<string, boolean>;
   onSelect: (doc: unknown) => void;
   onRowExpand: (docId: string, expanded: boolean) => void;
-  /** Fields shown in the collapsed preview strip; `null`/empty falls back to the first 4 keys. */
-  previewFields?: string[] | null;
   /** Map from dotted source-field path to the matching reference rule. */
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
@@ -393,13 +392,28 @@ export function TreeView({
   expandedRows: expandedRowsProp,
   onSelect,
   onRowExpand,
-  previewFields,
   refsByField,
   onRefHover,
   onRefHoverLeave,
   onRefOpen,
 }: TreeViewProps) {
   const { state, actions, meta } = useCollectionWorkspace();
+  // Collapsed-row preview strip: the Fields control's per-tab columnConfig
+  // (hidden + order), same source TableView/FieldsControl already read —
+  // reordering or hiding a field in Fields changes the Tree preview too.
+  // No config at all (a fresh tab) falls back to `getPreviewFields`'s own
+  // per-doc default (that document's own first 4 keys), which is why this
+  // is `null` rather than `[]` in that case.
+  const columnConfig = state.columnConfig;
+  const hasFieldConfig =
+    (columnConfig?.order?.length ?? 0) > 0 || (columnConfig?.hidden?.length ?? 0) > 0;
+  const previewFields = React.useMemo(() => {
+    if (!hasFieldConfig) return null;
+    const derived = deriveColumns(documents);
+    const ordered = orderFields(derived, columnConfig?.order);
+    const hidden = new Set(columnConfig?.hidden ?? []);
+    return ordered.filter((f) => f !== '_id' && !hidden.has(f)).slice(0, 4);
+  }, [hasFieldConfig, documents, columnConfig?.order, columnConfig?.hidden]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   // Falls back to local state when rendered standalone (no provider mounted).
