@@ -143,6 +143,11 @@ export function IndexesTab({
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [createPrefill, setCreatePrefill] = React.useState<IndexSuggestion | null>(null);
+  // Only set for the `initialCreate` open path — see that effect below for
+  // why the drawer's own default focus-return capture can't be trusted
+  // there. `null` for the plain "+ New index" click: `document.activeElement`
+  // at that mount is the button itself, which is exactly right already.
+  const [createReturnFocusTo, setCreateReturnFocusTo] = React.useState<HTMLElement | null>(null);
   const [dropName, setDropName] = React.useState<string | null>(null);
   // Captured alongside `dropName`, in the same click handler that sets it —
   // reading a ref's `.current` has to happen in an event handler or effect,
@@ -194,14 +199,31 @@ export function IndexesTab({
   // index for this query" (W16 Tier 4). `onInitialCreateConsumed` nulls the
   // request at its source right away — see that prop's own doc comment for
   // why a remount must not find it still set.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  //
+  // `useDialogFocusReturn`'s default capture (`document.activeElement` at
+  // `CreateIndexDrawer`'s own first render) is wrong here and `returnFocusTo`
+  // has to override it: the click that led here was on a button inside
+  // `ExplainDrawer`, in the Documents view, which the Structure-view switch
+  // this same click triggers then unmounts. The previously-focused trigger
+  // is gone from the DOM by the time this drawer mounts, so the browser has
+  // already reset focus to `<body>` — capturing that gives Escape/Cancel a
+  // `trigger.focus()` that's a silent no-op instead of a real return target.
+  // `scrollRegionRef` is mounted for this tab's whole lifetime, same
+  // fallback `DropConfirmDialog`'s `returnFocusTo` uses below for the
+  // equivalent "the opener won't exist when this closes" case.
+  // Deliberately keyed on `requestId` alone, not the whole `initialCreate`
+  // object: two refused clicks in a row both carry `suggestion: null`, and
+  // keying on the object would rely on the caller giving each click a new
+  // object identity rather than on anything this effect actually checks.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   React.useEffect(() => {
     if (!initialCreate) return;
     setCreatePrefill(initialCreate.suggestion);
+    setCreateReturnFocusTo(scrollRegionRef.current);
     setDrawerOpen(true);
     onInitialCreateConsumed?.();
-  }, [initialCreate, onInitialCreateConsumed]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  }, [initialCreate?.requestId, onInitialCreateConsumed]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   // `flex: 'none'` + `overflow: 'visible'`, not the `flex: 1; overflow:
   // hidden` this used before it moved into the collection tab's Structure
@@ -229,6 +251,7 @@ export function IndexesTab({
           variant="filled"
           onClick={() => {
             setCreatePrefill(null);
+            setCreateReturnFocusTo(null);
             setDrawerOpen(true);
           }}
         >
@@ -299,6 +322,7 @@ export function IndexesTab({
             connectionId={connectionId}
             initialFields={createPrefill?.keys.map((k) => ({ field: k.field, direction: k.direction }))}
             reason={createPrefill?.reason}
+            returnFocusTo={createReturnFocusTo}
           />
         )}
 
@@ -523,6 +547,7 @@ function CreateIndexDrawer({
   onCreated,
   initialFields,
   reason,
+  returnFocusTo,
 }: {
   target: { dbName: string; collection: string };
   connectionId: string;
@@ -532,9 +557,18 @@ function CreateIndexDrawer({
   initialFields?: FieldRow[];
   /** The prefill's rationale line, shown above the fields when `initialFields` is set. */
   reason?: string;
+  /**
+   * Overrides `useDialogFocusReturn`'s default capture. Required for the
+   * `initialFields` open path — see that effect's own comment in
+   * `IndexesTab` for why the default (`document.activeElement` at this
+   * component's own first render) is `<body>` there, not a useful target.
+   * `null` for the plain "+ New index" open, where the default capture is
+   * already correct.
+   */
+  returnFocusTo?: HTMLElement | null;
 }) {
   const T = themeVars;
-  const close = useDialogFocusReturn(onCancel);
+  const close = useDialogFocusReturn(onCancel, returnFocusTo);
   // The baseline both the initial value and the dirty check compare
   // against — a prefilled drawer that the user hasn't touched must not
   // read as dirty, or closing it prompts "Discard changes?" over nothing.

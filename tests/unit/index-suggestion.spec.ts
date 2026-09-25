@@ -105,6 +105,15 @@ describe('suggestIndex', () => {
     ).toBeNull();
   });
 
+  it('refuses a $nor nested under $and — flattening promotes it to top level first', () => {
+    // "A top-level $and is flattened and processing continues" reads as
+    // flatten-then-check: once flattened, this $nor IS a top-level key,
+    // same as if it had been written at the filter's own top level.
+    expect(
+      suggestIndex({ $and: [{ status: 'active' }, { $nor: [{ a: 1 }, { b: 2 }] }] }),
+    ).toBeNull();
+  });
+
   it('refuses an unanchored $regex (plain-object form)', () => {
     expect(suggestIndex({ name: { $regex: 'abc' } })).toBeNull();
   });
@@ -224,6 +233,12 @@ describe('suggestIndex', () => {
       keys: [{ field: 'status', direction: 1 }],
       reason: "Equality on `status` — MongoDB's ESR order.",
     });
+  });
+
+  it('refuses when only one of several array elements is a refusal (.some, not .every)', () => {
+    expect(
+      suggestIndex({ status: 'active', list: [{ ok: 1 }, { $or: [{ a: 1 }] }] }),
+    ).toBeNull();
   });
 
   it('a $nor nested inside an array value is not a refusal', () => {

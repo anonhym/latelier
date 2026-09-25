@@ -135,6 +135,32 @@ describe('AggregationTab — smoke', () => {
       expect(dialog.textContent).toContain('Stages with write ops were omitted');
     });
   });
+
+  // W16 Tier 4 acceptance: "a COLLSCAN explain for a find shows the action;
+  // an aggregation explain does not". AggregationTab passes no
+  // `onCreateIndex` to ExplainDrawer — only a find has a filter
+  // `suggestIndex` can read — so the button must never render here, even on
+  // a COLLSCAN with an otherwise-identical summary strip to the find case.
+  it('a COLLSCAN explain shows no "Create an index for this query" action', async () => {
+    const explainSpy = vi.fn<IpcApi['agg']['explain']>(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+      verbosity: 'queryPlanner',
+      writeStageOmitted: false,
+    }));
+    installAtelierMock({ agg: { explain: explainSpy, cancel: async () => undefined } });
+
+    const state: AggregationTabState = {
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    };
+    renderTab(state);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Explain' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
+    await waitFor(() => expect(dialog.textContent).toContain('COLLSCAN'));
+    expect(screen.queryByTestId('explain-create-index')).toBeNull();
+  });
 });
 
 /**

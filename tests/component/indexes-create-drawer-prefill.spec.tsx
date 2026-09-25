@@ -40,7 +40,10 @@ const drawer = () => screen.getByRole('dialog', { name: 'New index — alpha.peo
 const discardPrompt = () => screen.queryByRole('dialog', { name: 'Discard changes?' });
 
 describe('IndexesTab — initialCreate prefill', () => {
-  it('opens the drawer prefilled in ESR order with the rationale line, and submitting creates it', async () => {
+  // Submitting (and that it never happens automatically) is covered by the
+  // full ExplainDrawer → Structure flow in query-bar-create-index.spec.tsx —
+  // this is IndexesTab in isolation, so it only pins the prefill itself.
+  it('opens the drawer prefilled in ESR order, with the rationale line', async () => {
     setupMocks();
     const request: IndexCreateRequest = {
       requestId: 'r1',

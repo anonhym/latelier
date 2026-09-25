@@ -85,7 +85,24 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
       plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
       verbosity: 'queryPlanner',
     }));
-    const indexList = vi.fn(async () => [ID_INDEX]);
+    let indexes: IndexInfo[] = [ID_INDEX];
+    const indexList = vi.fn(async () => indexes);
+    const STATUS_CREATED_AT_INDEX: IndexInfo = {
+      name: 'status_1_createdAt_-1',
+      key: [
+        { field: 'status', direction: 1 },
+        { field: 'createdAt', direction: -1 },
+      ],
+      isIdIndex: false,
+      unique: false,
+      sparse: false,
+      hidden: false,
+      version: 2,
+    };
+    const indexCreate = vi.fn<IpcApi['index']['create']>(async () => {
+      indexes = [...indexes, STATUS_CREATED_AT_INDEX];
+      return { name: STATUS_CREATED_AT_INDEX.name };
+    });
 
     installAtelierMock({
       tabs: {
@@ -99,7 +116,7 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
         count: async () => ({ count: 0 }),
         explain: explainSpy,
       },
-      index: { list: indexList },
+      index: { list: indexList, create: indexCreate },
       meta: { sampleSchema: async () => ({ docs: [] }) },
     });
 
@@ -135,6 +152,67 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
     expect((screen.getByLabelText('Field 2') as HTMLInputElement).value).toBe('createdAt');
     expect((screen.getByLabelText('Direction 2') as HTMLSelectElement).value).toBe('-1');
     expect(createDialog.textContent).toContain("MongoDB's ESR order");
+
+    // The action never creates an index on its own — arriving here prefilled
+    // is not a submission. Submitting stays the user's own act.
+    expect(indexCreate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create index' }));
+
+    await waitFor(() => expect(indexCreate).toHaveBeenCalledTimes(1));
+    expect(indexCreate.mock.calls[0]?.[0]).toMatchObject({
+      dbName: 'mydb',
+      collection: 'users',
+      fields: [
+        { field: 'status', direction: 1 },
+        { field: 'createdAt', direction: -1 },
+      ],
+    });
+
+    // The created index appears in Structure (list refetched and rendered).
+    await waitFor(() => expect(indexList).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByText('status_1_createdAt_-1')).toBeTruthy(),
+    );
+  });
+
+  it('closing the prefilled drawer returns focus somewhere real, not <body> — the trigger that opened it (a button inside the now-unmounted ExplainDrawer) no longer exists', async () => {
+    const explainSpy = vi.fn<IpcApi['query']['explain']>(async () => ({
+      plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
+      verbosity: 'queryPlanner',
+    }));
+
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab()],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: { list: async () => [baseConn] },
+      query: {
+        find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
+        count: async () => ({ count: 0 }),
+        explain: explainSpy,
+      },
+      index: { list: async () => [ID_INDEX] },
+      meta: { sampleSchema: async () => ({ docs: [] }) },
+    });
+
+    mountWorkspace();
+
+    await openExplainMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    await screen.findByRole('dialog', { name: 'Explain plan' });
+    fireEvent.click(await screen.findByTestId('explain-create-index'));
+
+    await screen.findByRole('dialog', { name: /New index/ });
+    await waitFor(() => expect((screen.getByLabelText('Field 1') as HTMLInputElement).value).toBe('status'));
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /New index/ })).toBeNull());
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).not.toBeNull();
   });
 
   it('a query with no valid suggestion still opens the drawer, with the fields empty', async () => {

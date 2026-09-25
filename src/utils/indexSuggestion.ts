@@ -33,9 +33,16 @@ export function suggestIndex(
   filter: Record<string, unknown>,
   sort?: Record<string, 1 | -1>,
 ): IndexSuggestion | null {
-  if (hasRefusal(filter, true)) return null;
-
+  // Flatten before refusing: "a top-level $and is flattened and processing
+  // continues" reads as flatten-then-check, so an $and branch's own $nor
+  // (which is now a top-level key of `flattened`) refuses too, the same as
+  // if it had been written at the filter's own top level. `hasRefusal`'s
+  // deep scan still runs (rather than just checking `flattened`'s own
+  // top-level keys) because an $or/$text/$where/$expr/unanchored $regex can
+  // be nested some other way flattening doesn't reach — inside an $in
+  // array, for instance.
   const flattened = flattenAnd(filter);
+  if (hasRefusal(flattened, true)) return null;
 
   const equality: string[] = [];
   const filterRange: string[] = [];
@@ -74,11 +81,12 @@ export function suggestIndex(
 }
 
 /**
- * `$or` refuses wherever it appears (top level or nested); `$nor` only at
- * the filter's own top level — an `$and` branch containing `$nor` is not a
- * refusal by this rule, only by whatever `$or` check it also trips. A
- * `$regex` is a refusal only when unanchored; an anchored one (`^prefix`) is
- * left for `classifyFilterField` to class as Range.
+ * `$or` refuses wherever it appears (top level or nested); `$nor` only when
+ * `topLevel` is true for the node holding it. The caller passes the
+ * *flattened* filter, so a `$nor` written inside a top-level `$and` branch
+ * refuses too — flattening already promoted it to a top-level key by the
+ * time this runs. A `$regex` is a refusal only when unanchored; an anchored
+ * one (`^prefix`) is left for `classifyFilterField` to class as Range.
  */
 function hasRefusal(node: unknown, topLevel: boolean): boolean {
   if (node instanceof BSONRegExp) return !node.pattern.startsWith('^');
