@@ -11,6 +11,8 @@ import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHig
 import { copyToClipboard } from '../../../utils/clipboard';
 import { useCollectionWorkspace } from '../context';
 import { useResultSelection } from '../resultSelection';
+import { getDocId } from './docId';
+import { SelectToggle } from './SelectToggle';
 
 interface JsonViewProps {
   documents: unknown[];
@@ -231,9 +233,18 @@ function DocCard({
     }
   }, [doc, hiddenFields]);
 
+  // A plain click no longer does anything to selection — it used to toggle
+  // this card into/out of the multi-selection, which surprised anyone who'd
+  // learned Table or Tree's own click behavior first. ⌘/Ctrl+click still
+  // toggles it, matching the other two views; the visible checkbox below is
+  // the plain-click-free way in.
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey) onToggle(idx);
+  };
+
   return (
     <div
-      onClick={() => onToggle(idx)}
+      onClick={handleCardClick}
       // `group`, deliberately not `button`. `button` is "children
       // presentational" in ARIA, and this card holds real <button>s — the
       // corner actions below, and the JSON body's own collapse toggles at
@@ -246,9 +257,6 @@ function DocCard({
       // a handler, not specifically an interactive one — the `role="group"`
       // context menus in TableView carry an onClick and came back clean on the
       // #18 scan. So the wide-area click survives without either finding.
-      //
-      // The keyboard path is the dedicated Select button below, which is a
-      // leaf; this div is mouse convenience on top of it.
       role="group"
       aria-label={`Document ${idx + 1}`}
       style={{
@@ -256,35 +264,12 @@ function DocCard({
         borderRadius: 'var(--atelier-radius-sm)',
         background: isSelected ? 'var(--atelier-accent-soft)' : 'var(--atelier-surface-raised)',
         padding: '8px 10px',
-        cursor: 'pointer',
+        cursor: 'default',
         position: 'relative',
       }}
     >
       <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle(idx);
-          }}
-          aria-pressed={isSelected}
-          aria-label={isSelected ? 'Deselect document' : 'Select document'}
-          title={isSelected ? 'Deselect document' : 'Select document'}
-          style={{
-            background: isSelected ? 'var(--atelier-accent-soft)' : 'var(--atelier-surface)',
-            border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
-            borderRadius: 'var(--atelier-radius-xs)',
-            padding: '2px 5px',
-            margin: 0,
-            font: 'inherit',
-            cursor: 'pointer',
-            color: isSelected ? 'var(--atelier-accent)' : 'var(--atelier-text-ghost)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          {I.check}
-        </button>
+        <SelectToggle selected={isSelected} docLabel={getDocId(doc)} onToggle={() => onToggle(idx)} />
         <button
           onClick={(e) => {
             e.stopPropagation();

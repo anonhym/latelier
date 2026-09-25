@@ -146,6 +146,22 @@ describe('TreeView — rendering and interaction', () => {
     expect(onRowExpand).toHaveBeenCalledWith('507f1f77bcf86cd799439011', true);
   });
 
+  // N4.1 — Tree had no visible way to select without ⌘/Ctrl+click; the
+  // checkbox added alongside the expand chevron is that path.
+  it('the checkbox selects a row without expanding it, and names the document', () => {
+    const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
+    const onRowExpand = vi.fn();
+    const { getByRole, container } = renderTree(docs, { onRowExpand });
+    const checkbox = getByRole('button', { name: 'Select document 99439011' });
+
+    fireEvent.click(checkbox);
+
+    expect(onRowExpand).not.toHaveBeenCalled();
+    expect(checkbox.getAttribute('aria-pressed')).toBe('true');
+    expect(getByRole('button', { name: 'Deselect document 99439011' })).toBe(checkbox);
+    expect(container.querySelector('[data-selected="true"]')).not.toBeNull();
+  });
+
   // #20 — roving focus: the tree itself is the widget's only tab stop.
   describe('roving focus (#20)', () => {
     const threeDocs = [

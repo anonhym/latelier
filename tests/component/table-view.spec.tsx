@@ -260,6 +260,33 @@ describe('TableView — rendering and interaction', () => {
       expect(rows[1].getAttribute('data-selected')).toBe('true');
     });
 
+    // N4.1 — a plain click used to select the row outright; it now only
+    // makes it the active row, leaving selection to the checkbox or
+    // ⌘/Ctrl+click, so the same gesture means the same thing in every view.
+    it('a plain click on a row makes it active but does not select it', () => {
+      const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+      const { container, getAllByTitle } = renderTable(docs);
+      const grid = container.querySelector('[role="grid"]')!;
+      const rows = container.querySelectorAll('[data-selected]');
+      const cells = getAllByTitle(/Drag to add "name/);
+
+      fireEvent.click(cells[1]);
+
+      expect(rows[0].getAttribute('data-selected')).toBe('false');
+      expect(rows[1].getAttribute('data-selected')).toBe('false');
+      expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-1');
+    });
+
+    it('the gutter checkbox selects a row without moving it via a plain click, and names the document', () => {
+      const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }];
+      const { getByRole } = renderTable(docs);
+      const checkbox = getByRole('button', { name: 'Select document 99439011' });
+
+      fireEvent.click(checkbox);
+      expect(checkbox.getAttribute('aria-pressed')).toBe('true');
+      expect(getByRole('button', { name: 'Deselect document 99439011' })).toBe(checkbox);
+    });
+
     it('double-click on a cell copies its value to the clipboard', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
       const { getByTitle } = renderTable(docs);
@@ -730,7 +757,7 @@ describe('TableView — rendering and interaction', () => {
       const grid = container.querySelector('[role="grid"]')! as HTMLElement;
       const strip1 = grid.querySelectorAll('[role="row"]')[1] as HTMLElement;
 
-      fireEvent.click(strip1); // selects row 1 and makes it the active row too.
+      fireEvent.click(strip1, { metaKey: true }); // ⌘+click selects row 1 and makes it the active row too.
       act(() => grid.focus());
 
       const row1 = container.querySelector('#table-row-1') as HTMLElement;

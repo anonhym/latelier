@@ -21,6 +21,7 @@ import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
+import { SelectToggle } from './SelectToggle';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -257,6 +258,14 @@ function DocRowImpl({
           outlineOffset: isActive ? '-2px' : undefined,
         }}
       >
+        <SelectToggle
+          selected={isSelected}
+          docLabel={getDocId(doc)}
+          onToggle={() => {
+            onToggleSelect(index);
+            setActiveIndex(index);
+          }}
+        />
         <button
           onClick={(e) => {
             e.stopPropagation();
