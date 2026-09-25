@@ -202,7 +202,7 @@ Not a workspace tab: `workspace_tabs.kind` is a SQL `CHECK` constraint, so a new
 
 **Confirm dialogs.** `DeleteConfirm`, `DropCollectionConfirm` and `DropDatabaseConfirm` each gain one line stating whether the action can be undone. `confirmDeleteMany` already counts matches, so the delete dialog can say *"250,000 documents — above the 1,000-document undo limit, this cannot be undone"* with no new query. The drops always say they cannot be undone. This copy states a fact about the specific action; it never changes which dialogs get type-to-confirm versus an undo toast in the first place — that's [ADR 0013](../docs/adr/0013-destructive-friction.md).
 
-`UpdateConfirm` (`updateMany`'s confirm dialog) postdates this list and gets the same line once its own confirmed count is known (after Review). Below the 1,000-document line, the copy says Undo *will be offered*, not that it definitely will — the count alone doesn't prove the 1 MB capture ceiling holds too, so it names that number rather than promising an outcome the byte size could still take away.
+`UpdateConfirm` (`updateMany`'s confirm dialog) postdates this list and gets the same line once its own confirmed count is known (after Review). Below the 1,000-document line, the copy states the byte condition rather than promising Undo outright ("…Undo will be offered if they total under 1 MB") — the confirmed count only proves the document-count half of the capture ceiling.
 
 ## 9. Acceptance criteria
 

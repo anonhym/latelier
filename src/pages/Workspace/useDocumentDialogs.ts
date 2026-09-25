@@ -49,7 +49,7 @@ export function useDocumentDialogs(deps: {
   closeEditDrawer: () => void;
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
-  handleDeleted: (auditId?: string) => void;
+  handleDeleted: (auditId: string | undefined, message: string) => void;
   closeUpdateAllModal: () => void;
   handleUpdatedAll: (auditId: string | undefined, message: string) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
@@ -160,14 +160,21 @@ export function useDocumentDialogs(deps: {
   }, []);
   // Not routed through refreshSource: DeleteConfirm reads its target live
   // from the Focused Tab, so a delete can only complete against it.
-  const handleDeleted = React.useCallback((auditId?: string) => {
+  const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
     closeDeleteDialogs();
     void run();
     setWriteVersion((v) => v + 1);
+    // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
+    // delete-all over the bulk capture ceiling still needs to say what
+    // happened.
+    if (auditId === undefined) {
+      notify.success(message);
+      return;
+    }
     const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
-      offerUndo('Document deleted', auditId, () => refreshSource(target));
+      offerUndo(message, auditId, () => refreshSource(target));
     }
   }, [activeCollectionRef, closeDeleteDialogs, refreshSource, run]);
 

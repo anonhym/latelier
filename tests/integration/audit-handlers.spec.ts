@@ -402,7 +402,8 @@ describe('audit log via the router', () => {
   });
 
   describe('audit:undo', () => {
-    const orders = () => client.db(dbName).collection<{ _id: ObjectId | number; [k: string]: unknown }>('orders');
+    const orders = () =>
+      client.db(dbName).collection<{ _id: ObjectId | number | { k: number }; [k: string]: unknown }>('orders');
     // Raw BSON bytes: "restored exactly" means the same bytes, not a
     // document that merely compares equal after type promotion.
     const rawDoc = async (id: ObjectId) =>
@@ -801,6 +802,22 @@ describe('audit log via the router', () => {
       expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 1, skipped: 1 } });
       expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 0 });
       expect(await orders().findOne({ _id: 2 })).toEqual({ _id: 2, v: 2 });
+    });
+
+    it('updateMany undoes documents with non-scalar _ids without pairing the wrong Pre-image to the wrong document', async () => {
+      // `String(_id)` collides both of these to the same key
+      // ("[object Object]"); undo must pair each Pre-image with its own
+      // document, not whichever post-image the collision left in the map.
+      await orders().insertMany([
+        { _id: { k: 1 }, v: 0 },
+        { _id: { k: 2 }, v: 0 },
+      ]);
+      const res = await confirmedUpdateMany('{}', '{"$set":{"v":1}}');
+      expect(res.matchedCount).toBe(2);
+
+      expect(await undo(res.auditId!)).toEqual({ ok: true, data: { restored: 2, skipped: 0 } });
+      expect(await orders().findOne({ _id: { k: 1 } })).toEqual({ _id: { k: 1 }, v: 0 });
+      expect(await orders().findOne({ _id: { k: 2 } })).toEqual({ _id: { k: 2 }, v: 0 });
     });
 
     it('collectionRename undo restores the original name', async () => {

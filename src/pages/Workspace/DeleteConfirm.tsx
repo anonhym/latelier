@@ -17,8 +17,11 @@ interface DeleteConfirmProps {
   readOnly?: boolean;
   onClose: () => void;
   /** `auditId` is set when the delete can be undone — single document
-   *  always; delete-all-matching only within X13's bulk capture ceiling. */
-  onDeleted: (auditId?: string) => void;
+   *  always; delete-all-matching only within X13's bulk capture ceiling.
+   *  `message` names what happened (singular for one document, a count for
+   *  delete-all), so the caller's one toast (Undo-bearing or plain) reports
+   *  it correctly either way. */
+  onDeleted: (auditId: string | undefined, message: string) => void;
 }
 
 /**
@@ -101,6 +104,7 @@ export function DeleteConfirm({
     setLoading(true);
     setErr(null);
     let auditId: string | undefined;
+    let message: string;
     try {
       if (!isMulti && docs[0] !== undefined) {
         const doc = docs[0];
@@ -115,17 +119,20 @@ export function DeleteConfirm({
           return;
         }
         ({ auditId } = await api.doc.deleteOne({ connectionId, dbName, collection, filterJson }));
+        message = 'Document deleted';
       } else {
         if (countState.status !== 'ready') return;
-        ({ auditId } = await api.doc.deleteMany({
+        const res = await api.doc.deleteMany({
           connectionId,
           dbName,
           collection,
           filterJson: matchFilterJson,
           confirmToken: countState.confirmToken,
-        }));
+        });
+        auditId = res.auditId;
+        message = `${res.deletedCount.toLocaleString()} document${res.deletedCount === 1 ? '' : 's'} deleted`;
       }
-      onDeleted(auditId);
+      onDeleted(auditId, message);
       onClose();
     } catch (e) {
       setErr(getErrorMessage(e, 'Delete failed'));

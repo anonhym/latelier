@@ -524,8 +524,12 @@ export class DocumentService {
       .toArray()
       .catch((err: unknown) => this.captureFailed(err));
     if (!postByFound) return counts;
-    const postById = new Map(postByFound.map((d) => [String(d._id), d]));
-    const postImages = preImages.map((d) => postById.get(String(d._id)));
+    // `_id` is immutable, so pre- and post-image carry the exact same stored
+    // bytes — a type-exact key, not `String(_id)`, which collides a
+    // subdocument `_id` to `"[object Object]"` and `1`/`"1"` to the same
+    // string.
+    const postById = new Map(postByFound.map((d) => [ejsonStringify(d._id), d]));
+    const postImages = preImages.map((d) => postById.get(ejsonStringify(d._id)));
     if (postImages.some((p) => p === undefined)) return counts;
     return attachUndo(counts, { preImages, postImages: postImages as Record<string, unknown>[] });
   }
