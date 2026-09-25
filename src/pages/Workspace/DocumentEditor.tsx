@@ -123,6 +123,18 @@ interface RowCtx {
   setErr: (e: string | null) => void;
 }
 
+/** Whether some row nested under `segments` holds text that doesn't parse. */
+function hasPendingErrorUnder(ctx: RowCtx, segments: readonly string[]): boolean {
+  for (const [key, text] of ctx.texts) {
+    const rowSegments = decodeKey(key);
+    if (!rowSegments || rowSegments.length <= segments.length) continue;
+    if (!segments.every((s, i) => rowSegments[i] === s)) continue;
+    const found = getAtSegments(ctx.draft, rowSegments);
+    if (found && !parseAs(kindOf(found.value), text).ok) return true;
+  }
+  return false;
+}
+
 function warningFor(entriesByPath: Map<string, SchemaSampleEntry>, field: string, value: unknown): TypeWarning | null {
   if (entriesByPath.size === 0 || field.includes('.')) return null;
   // `inferType` reads sentinel shapes, the vocabulary the sample was
@@ -148,7 +160,10 @@ function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; d
   const hasTypeSelector = !locked && kind !== 'other';
   const hasValueControl = hasTypeSelector && kind !== 'null' && kind !== 'object';
   const removable = !locked;
-  const isCollapsed = ctx.collapsed.has(key);
+  // A container stays open, even if the user collapsed it, while a row
+  // nested under it holds text that doesn't parse — collapsing must never
+  // hide the only explanation for why Save is disabled.
+  const isCollapsed = ctx.collapsed.has(key) && !hasPendingErrorUnder(ctx, segments);
 
   const text = ctx.texts.get(key) ?? (kind === 'array' ? textOf(kind, value) : hasValueControl ? textOf(kind, value) : '');
   const parsedText = hasValueControl && ctx.texts.has(key) ? parseAs(kind, ctx.texts.get(key)!) : null;
@@ -265,8 +280,16 @@ function FieldRow({ ctx, segments, depth }: { ctx: RowCtx; segments: string[]; d
         {hasTypeSelector ? (
           <NativeSelect
             aria-label={`${dotted} type`}
-            value={kind === 'number' ? 'double' : kind}
-            data={SELECTABLE_KINDS.map((k) => ({ value: k, label: TYPE_LABEL[k] }))}
+            value={kind}
+            // A bare JS number isn't a selectable target — bson infers its
+            // saved type, not this selector — so it gets a disabled
+            // placeholder option instead of being folded into 'double',
+            // which would make Double look already selected and take a
+            // click to convert without firing onChange.
+            data={[
+              ...(kind === 'number' ? [{ value: 'number', label: TYPE_LABEL.number, disabled: true }] : []),
+              ...SELECTABLE_KINDS.map((k) => ({ value: k, label: TYPE_LABEL[k] })),
+            ]}
             onChange={(e) => onTypeChange(e.currentTarget.value as FieldKind)}
             size="xs"
           />

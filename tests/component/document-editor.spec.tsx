@@ -454,6 +454,14 @@ describe('DocumentEditor — nested objects', () => {
     fireEvent.click(within(row('nested')).getByRole('button', { name: 'Expand nested' }));
     expect(field('nested.city').value).toBe('B');
   });
+
+  it('keeps a collapsed container open while a nested row still has a parse error', () => {
+    setup({ doc: { ...DOC, nested: { city: 'A', qty: { $numberInt: '5' } } } });
+    fireEvent.change(field('nested.qty'), { target: { value: '1.5' } });
+    fireEvent.click(within(row('nested')).getByRole('button', { name: 'Collapse nested' }));
+    expect(row('nested.qty')).not.toBeNull();
+    expect(within(row('nested.qty')).getByText(/whole number/)).toBeTruthy();
+  });
 });
 
 describe('DocumentEditor — arrays', () => {
@@ -514,6 +522,15 @@ describe('DocumentEditor — type selector', () => {
     fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
     expect(within(row('qty')).queryByText(/whole number/)).toBeNull();
     expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('gives a bare JS number its own disabled placeholder, so picking Double is a real change', async () => {
+    const { updateOne } = setup({ doc: { ...DOC, raw: 7 } });
+    expect(typeSelect('raw').value).toBe('number');
+    fireEvent.change(typeSelect('raw'), { target: { value: 'double' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { raw: { $numberDouble: '7.0' } } });
   });
 });
 
