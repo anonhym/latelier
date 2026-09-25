@@ -1387,7 +1387,7 @@ describe('DocumentService — every driver call carries maxTimeMS', () => {
     await client.db(dbName).collection<{ _id: number }>(coll).insertMany([{ _id: 1 }, { _id: 2 }]);
 
     const replaceSpy = vi.spyOn(Collection.prototype, 'replaceOne');
-    const updateSpy = vi.spyOn(Collection.prototype, 'updateOne');
+    const updateSpy = vi.spyOn(Collection.prototype, 'findOneAndUpdate');
     const findOneSpy = vi.spyOn(Collection.prototype, 'findOne');
     const deleteSpy = vi.spyOn(Collection.prototype, 'findOneAndDelete');
 
@@ -1410,17 +1410,17 @@ describe('DocumentService — every driver call carries maxTimeMS', () => {
     expect((replaceSpy.mock.calls[0]![2] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
       QUERY_TIMEOUT_MS,
     );
-    expect((updateSpy.mock.calls[0]![2] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
+    expect(((updateSpy.mock.calls[0] as unknown[])[2] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
       QUERY_TIMEOUT_MS,
     );
     expect(((deleteSpy.mock.calls[0] as unknown[])[1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
       QUERY_TIMEOUT_MS,
     );
-    // updateOne's Pre-image and post-image reads.
-    expect(findOneSpy.mock.calls).toHaveLength(2);
-    for (const call of findOneSpy.mock.calls) {
-      expect(((call as unknown[])[1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(QUERY_TIMEOUT_MS);
-    }
+    // updateOne's Pre-image read.
+    expect(findOneSpy.mock.calls).toHaveLength(1);
+    expect(((findOneSpy.mock.calls[0] as unknown[])[1] as { maxTimeMS?: number } | undefined)?.maxTimeMS).toBe(
+      QUERY_TIMEOUT_MS,
+    );
   });
 
   it('confirmDeleteMany carries PROBE_TIMEOUT_MS and deleteMany carries ADMIN_LONG_TIMEOUT_MS', async () => {

@@ -154,7 +154,7 @@ Pre-image capture lives in the services, because only they run before the write.
 
 Either ceiling breached: **the Operation still runs**, the entry records `reversible = 0`, and nothing partial is stored.
 
-`updateOne` additionally records what the Operation *left behind*, so §6 can detect a later change. `updateOne` returns only counts, so this is a second read after the write.
+`updateOne` additionally records what the Operation *left behind*, so §6 can detect a later change. Both images are taken atomically with the write, or not at all: the Pre-image is read first, then the write runs as a `findOneAndUpdate` whose filter also requires the document to still equal that Pre-image (`$expr: { $eq: ['$$ROOT', { $literal: preImage }] }`) and which returns the post-image in the same step. A separate read on either side would let another client's write land between the image and the Operation, and Undo would then restore over it. When the pinned write matches nothing — the document changed after the Pre-image was read — the caller's plain `updateOne` runs instead and the entry records `reversible = 0`; a Pre-image too large to put in the filter (over 4 MB) is treated the same way. The capture never blocks or alters the write.
 
 ## 6. Undo
 
@@ -275,4 +275,4 @@ Three known ceilings, recorded so nobody mistakes them for oversights:
 
 - **Scripts and the shell are invisible.** A `scriptRun` that deletes 400 documents leaves no entry. Instrumenting `dbProxy` is the upgrade path if this ever stings.
 - **Partial `insertMany` can't be undone.** Making it undoable means pre-generating `_id`s before the call — a change to how insert works, and its own ticket.
-- **`updateOne` costs a second read** when audited, to record what it left behind for the `AUDIT_TARGET_CHANGED` check. If that shows up in profiling, the alternative is comparing structurally against the Pre-image plus the update document rather than re-reading.
+- **`updateOne` costs a Pre-image read** when audited, and its write carries the whole Pre-image in its filter so both images stay atomic with it (§5). `$eq` treats numerically equal values of different types (`1` and `1.0`) as equal, so a change between them goes unseen by the compare-and-set.

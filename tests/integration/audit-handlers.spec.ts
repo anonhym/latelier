@@ -574,6 +574,63 @@ describe('audit log via the router', () => {
       expect(await undoError('no-such-entry')).toBe('NOT_FOUND');
     });
 
+    /**
+     * Runs `write` from another client right after the next call to `method`
+     * returns — the gap between two steps of a capture.
+     */
+    function interleaveAfter(method: 'findOne' | 'findOneAndUpdate', write: () => Promise<unknown>) {
+      const original = Collection.prototype[method] as (...args: unknown[]) => Promise<unknown>;
+      vi.spyOn(Collection.prototype, method).mockImplementationOnce(async function (
+        this: Collection,
+        ...args: unknown[]
+      ) {
+        const result = await original.apply(this, args);
+        await write();
+        return result;
+      } as never);
+    }
+
+    it('a write from another client right after the update is not overwritten by Undo', async () => {
+      await orders().insertOne({ _id: 1, v: 0, other: 'a' });
+      interleaveAfter('findOneAndUpdate', () => orders().updateOne({ _id: 1 }, { $set: { other: 'theirs' } }));
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(await undoError(res.auditId!)).toBe('AUDIT_TARGET_CHANGED');
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1, other: 'theirs' });
+    });
+
+    it('a write from another client between the Pre-image read and the update costs the Undo, not the update', async () => {
+      await orders().insertOne({ _id: 1, v: 0, other: 'a' });
+      interleaveAfter('findOne', () => orders().updateOne({ _id: 1 }, { $set: { other: 'theirs' } }));
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toEqual({ matchedCount: 1, modifiedCount: 1 });
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1, other: 'theirs' });
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+    });
+
+    it('an update that changes nothing reports modified 0 and still undoes cleanly', async () => {
+      await orders().insertOne({ _id: 1, v: 1 });
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toMatchObject({ matchedCount: 1, modifiedCount: 0 });
+      expect((await undo(res.auditId!)).ok).toBe(true);
+      expect(await orders().findOne({ _id: 1 })).toEqual({ _id: 1, v: 1 });
+    });
+
+    it('a Pre-image too large to pin the write to still updates, offering no Undo', async () => {
+      await orders().insertOne({ _id: 1, v: 0, blob: 'x'.repeat(5 * 1024 * 1024) });
+
+      const res = await updateOne(1, { v: 1 });
+
+      expect(res).toEqual({ matchedCount: 1, modifiedCount: 1 });
+      expect((await orders().findOne({ _id: 1 }, { projection: { v: 1 } }))).toEqual({ _id: 1, v: 1 });
+      expect((await list())[0]).toMatchObject({ outcome: 'ok', reversible: false });
+    });
+
     it('a failed Pre-image read still runs the update, offering no Undo', async () => {
       await orders().insertOne({ _id: 1, v: 0 });
       vi.spyOn(Collection.prototype, 'findOne').mockRejectedValueOnce(new Error('read refused'));

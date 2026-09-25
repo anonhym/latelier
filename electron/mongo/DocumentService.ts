@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, parseEjsonDocument, parseEjsonField } from './ejson.ts';
+import { calculateObjectSize } from 'bson';
+import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, ejsonStringify, parseEjsonDocument, parseEjsonField } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
@@ -8,6 +9,10 @@ import { EXACT_BSON, attachUndo } from './undo.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
 const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
+// updateOne's capture puts the whole Pre-image in the write's filter. Past
+// this size the command could outgrow the server's 16 MB limit, so the write
+// runs unpinned and without Undo instead.
+const MAX_PINNED_PRE_IMAGE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000;
 
 interface TokenEntry {
@@ -247,31 +252,40 @@ export class DocumentService {
     const update = parseEjsonField<Record<string, unknown>>(input.updateJson, 'updateJson');
     assertNonEmptyFilter(filter, 'filterJson');
     const coll = (await w.db(input.dbName)).collection(input.collection);
-    const readOpts = { maxTimeMS: QUERY_TIMEOUT_MS, ...EXACT_BSON };
-    // The Pre-image and post-image reads never decide whether the write runs
-    // or how it reports: a read that fails costs the Operation its Undo, not
-    // its result (ADR 0002).
-    const preImage = await coll.findOne(filter, readOpts).catch((err: unknown) => this.captureFailed(err));
-    let counts: { matchedCount: number; modifiedCount: number };
+    // A Pre-image read that fails costs the Operation its Undo, never its
+    // result (ADR 0002).
+    const preImage = await coll
+      .findOne(filter, { maxTimeMS: QUERY_TIMEOUT_MS, ...EXACT_BSON })
+      .catch((err: unknown) => this.captureFailed(err));
     try {
-      // Pinned to the document just read, so the Pre-image and the write are
-      // about the same document even when the filter could match several.
-      const result = await coll.updateOne(
-        preImage ? { $and: [filter, { _id: preImage._id }] } : filter,
-        update,
-        { maxTimeMS: QUERY_TIMEOUT_MS },
-      );
-      counts = { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
+      if (preImage && calculateObjectSize(preImage) <= MAX_PINNED_PRE_IMAGE_BYTES) {
+        // Both images are exact only if nothing else writes the document
+        // between them, so the write itself guarantees it: it applies only
+        // while the document still equals the Pre-image, and hands back what
+        // it left behind in the same atomic step. Undo's own compare-and-set
+        // against that post-image then refuses any later write rather than
+        // overwriting it.
+        const postImage = await coll.findOneAndUpdate(
+          { $and: [filter, { _id: preImage._id, $expr: { $eq: ['$$ROOT', { $literal: preImage }] } }] },
+          update,
+          { returnDocument: 'after', maxTimeMS: QUERY_TIMEOUT_MS, ...EXACT_BSON },
+        );
+        if (postImage) {
+          const modifiedCount = ejsonStringify(postImage) === ejsonStringify(preImage) ? 0 : 1;
+          return attachUndo({ matchedCount: 1, modifiedCount }, { preImage, postImage });
+        }
+        // The document changed after the Pre-image was read. Fall through to
+        // the write the caller asked for; the caller's filter decides whether
+        // it still applies, and there is no honest Pre-image to offer Undo on.
+        this.log?.warn('audit.capture', 'Document changed during capture; this Operation cannot be undone');
+      } else if (preImage) {
+        this.captureFailed(new Error('Pre-image too large to pin the write to'));
+      }
+      const result = await coll.updateOne(filter, update, { maxTimeMS: QUERY_TIMEOUT_MS });
+      return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
     } catch (err) {
       throw classifyMongoOpError(err);
     }
-    if (!preImage || counts.matchedCount === 0) return counts;
-    // What the update left behind, so Undo can refuse once anything changes
-    // it again (X13 §5).
-    const postImage = await coll
-      .findOne({ _id: preImage._id }, readOpts)
-      .catch((err: unknown) => this.captureFailed(err));
-    return postImage ? attachUndo(counts, { preImage, postImage }) : counts;
   }
 
   private captureFailed(err: unknown): null {
