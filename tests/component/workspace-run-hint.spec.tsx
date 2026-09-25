@@ -112,4 +112,72 @@ describe('Workspace — the run.execute hint fires on an edit past auto-run', ()
     // The edit was never run.
     expect(findSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('stays hidden while the filter is unparseable, even though it has never been run', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [{ _id: { $oid: 'abc123abc123abc123abc123' }, name: 'Alice' }],
+      durationMs: 5,
+      hasMore: false,
+    }));
+
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab()],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: { list: async () => connections },
+      query: { find: findSpy, count: async () => ({ count: 1 }) },
+    });
+
+    const { container } = mountWorkspace();
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(container.textContent).toContain('Alice'));
+
+    // Not a repairable Shell Syntax typo (`query-error-feedback.spec.tsx`
+    // covers that string specifically) — the transform leaves it refused,
+    // so Run stays disabled on it.
+    const filterInput = screen.getByTestId('query-bar-input');
+    fireEvent.change(filterInput, { target: { value: '{status: active}' } });
+    fireEvent.blur(filterInput);
+
+    const runBtn = await screen.findByTestId('query-run-btn');
+    await waitFor(() => expect((runBtn as HTMLButtonElement).disabled).toBe(true));
+
+    // Long enough to clear the hint's 1.5s post-mount settle window.
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(screen.queryByRole('dialog', { name: /press run/i })).toBeNull();
+  });
+
+  it('stays hidden while a find is in flight (Run has become Cancel)', async () => {
+    let resolveFind!: (v: { documents: unknown[]; durationMs: number; hasMore: boolean }) => void;
+    const pending = new Promise<{ documents: unknown[]; durationMs: number; hasMore: boolean }>(
+      (resolve) => {
+        resolveFind = resolve;
+      },
+    );
+    const findSpy = vi.fn<IpcApi['query']['find']>(() => pending);
+
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab()],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: { list: async () => connections },
+      query: { find: findSpy, count: async () => ({ count: 0 }) },
+    });
+
+    mountWorkspace();
+
+    // The auto-run's find is now stuck pending — `isLoading` stays true and
+    // Run has become Cancel — for long enough to clear the hint's settle
+    // window while it's still in flight.
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('query-cancel-btn');
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(screen.queryByRole('dialog', { name: /press run/i })).toBeNull();
+
+    resolveFind({ documents: [], durationMs: 1, hasMore: false });
+  });
 });
