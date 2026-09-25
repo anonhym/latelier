@@ -149,7 +149,12 @@ export class WorkspacePage {
     await this.dbRow(dbName).click();
     await expect(this.collectionRow(dbName, collection)).toBeVisible({ timeout: 5000 });
     await this.collectionRow(dbName, collection).click();
-    await expect(this.tabByName(collection)).toHaveAttribute('aria-selected', 'true', {
+    // The navigator row's own selection follows the focused tab's database
+    // and collection. A tab-name check can't tell same-named collections in
+    // two databases apart: with one already open it either matches both
+    // tabs, or passes against the old one before the new tab (created after
+    // an async IPC round-trip) exists.
+    await expect(this.collectionRow(dbName, collection)).toHaveAttribute('aria-selected', 'true', {
       timeout: 5000,
     });
   }
