@@ -1,0 +1,115 @@
+// Issue #177's actual regression: `App.tsx` mounts `<HintsProvider>` above
+// `<Workspace />`, but every other Workspace-level test mounts `<Workspace />`
+// bare, so its `useHints()` falls back to the inert `NULL_HINTS` default and
+// no hint can ever become visible there. This file adds the provider back so
+// `run.execute`'s real trigger — wired in `Workspace.tsx`, not reproducible
+// by importing a pure function — gets exercised end to end.
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { MemoryRouter } from 'react-router-dom';
+import Workspace from '../../src/pages/Workspace';
+import { HintsProvider } from '../../src/hints/HintsProvider';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import type { IpcApi } from '@shared/ipc';
+import type { CollectionTab } from '@shared/types';
+
+const now = '2026-06-01T12:00:00.000Z';
+
+function makeCollectionTab(overrides: Partial<CollectionTab> = {}): CollectionTab {
+  return {
+    id: 't1',
+    kind: 'collection',
+    connectionId: 'c1',
+    dbName: 'mydb',
+    collection: 'users',
+    position: 0,
+    isActive: true,
+    openedAt: now,
+    pinned: false,
+    state: {
+      view: 'Tree',
+      builder: { projection: [], sort: '', limit: '' },
+      queryRaw: '{}',
+      page: 0,
+      pageSize: 50,
+      activeBuilderTab: 'Builder',
+    },
+    ...overrides,
+  };
+}
+
+const connections = [
+  {
+    id: 'c1',
+    name: 'Local',
+    color: '#1A6835',
+    host: 'localhost',
+    port: 27017,
+    connectionType: 'standard' as const,
+    readOnly: false,
+    status: 'connected' as const,
+  },
+];
+
+afterEach(() => {
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+function mountWorkspace() {
+  return render(
+    <MemoryRouter initialEntries={['/workspace']}>
+      <HintsProvider>
+        <Workspace />
+      </HintsProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('Workspace — the run.execute hint fires on an edit past auto-run', () => {
+  it('stays hidden right after auto-run, then appears on the Run button once the filter is edited without running', async () => {
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
+      documents: [{ _id: { $oid: 'abc123abc123abc123abc123' }, name: 'Alice' }],
+      durationMs: 5,
+      hasMore: false,
+    }));
+
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab()],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: { list: async () => connections },
+      query: { find: findSpy, count: async () => ({ count: 1 }) },
+    });
+
+    const { container } = mountWorkspace();
+
+    // Let the collection auto-run — the same landing `workspace-auto-run.spec.tsx`
+    // covers, and the case a `!lastRun` trigger would have kept firing on.
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(container.textContent).toContain('Alice'));
+
+    // Its own query just ran; nothing to teach yet.
+    expect(screen.queryByRole('dialog', { name: /press run/i })).toBeNull();
+
+    // Edit the Filter Bar to a different query, without running it.
+    const filterInput = screen.getByTestId('query-bar-input');
+    fireEvent.change(filterInput, { target: { value: '{"name":"Bob"}' } });
+    fireEvent.blur(filterInput);
+
+    const popover = await waitFor(
+      () => screen.getByRole('dialog', { name: /press run/i }),
+      { timeout: 3000 },
+    );
+    expect(popover).toBeTruthy();
+    // Anchored on the real Run button — always mounted, unlike ResultBar's
+    // pre-run affordance, which stops rendering once lastRun is set.
+    expect(document.querySelector('[data-hint-anchor="run.execute"]')).toBe(
+      screen.getByTestId('query-run-btn'),
+    );
+    // The edit was never run.
+    expect(findSpy).toHaveBeenCalledTimes(1);
+  });
+});
