@@ -29,7 +29,8 @@ import { useCollectionWorkspace } from '../context';
 import { insertAt, parseFilter, printFilter } from '../filterTree';
 import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
-import { getDocId, getFullDocId, isInlineEditable } from './docId';
+import { getDocId, getFullDocId, isInlineEditable, reviveTableValue } from './docId';
+import { kindOf, parseAs, textOf, type FieldKind } from '../documentFieldTypes';
 import { SelectToggle } from './SelectToggle';
 import { RowActionsMenu } from './RowActionsMenu';
 import {
@@ -115,6 +116,13 @@ interface TableCellProps {
   /** Inline-edit eligibility, computed by the caller since only it knows `col.kind`
    * (a computed accessor column's `fieldPath` is a display label, not a real `$set` target). */
   editable: boolean;
+  /**
+   * `col.kind === 'field'` — a real document field, as opposed to a computed
+   * accessor column. W18 §8: a field this narrow but `!editable` (Date,
+   * ObjectId, Object, Array, …) still gets an edit affordance, just one that
+   * opens the Document Editor on it instead of inline-editing it.
+   */
+  isFieldColumn: boolean;
   /** The row's document, needed to build the `{_id}` filter for inline-edit writes. */
   doc: unknown;
   width: number;
@@ -143,6 +151,7 @@ function TableCell({
   value,
   fieldPath,
   editable,
+  isFieldColumn,
   doc,
   width,
   cellKey,
@@ -163,8 +172,23 @@ function TableCell({
   const [focused, setFocused] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState('');
+  const [inputError, setInputError] = React.useState<string | null>(null);
+  // The boolean toggle's own in-flight guard: unlike the text/number path,
+  // it commits immediately with no separate draft to hold a second edit
+  // apart from the first, so a second click before the first write settles
+  // would guard its compare-and-set on the stale pre-write value and land a
+  // spurious conflict. `pending` overrides the checked state (and disables
+  // it) until `updateField`'s returned promise resolves.
+  const [pendingBoolean, setPendingBoolean] = React.useState<boolean | null>(null);
   const commitGuardRef = React.useRef(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  // W18 §8 — the cell's real BSON kind, revived from the wire sentinel the
+  // same way `isInlineEditable` classifies it, so the two can't disagree
+  // about what this value is.
+  const revived = React.useMemo(() => reviveTableValue(value), [value]);
+  const kind = React.useMemo(() => kindOf(revived), [revived]);
+  const isNumericKind = kind === 'int32' || kind === 'long' || kind === 'double' || kind === 'decimal';
 
   // Index-virtualization rebinds this same TableCell instance to a different
   // document when the array swaps mid-edit; without cancelling here, the
@@ -177,7 +201,9 @@ function TableCell({
       commitGuardRef.current = true;
       setEditing(false);
       setDraft('');
+      setInputError(null);
     }
+    if (pendingBoolean !== null) setPendingBoolean(null);
   }
 
   // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
@@ -197,9 +223,21 @@ function TableCell({
   const affordanceVisible = hovered || expandOpen || focused;
 
   const canInlineEdit = editable && !meta.isReadOnly && typeof actions.updateField === 'function';
+  // W18 §8 — a real field this cell can't inline-edit (Date, ObjectId,
+  // Object, Array, …) still gets an edit affordance; it opens the Document
+  // Editor on the field instead. `_id` keeps neither: it already has the
+  // row-level Edit action, and highlighting it as "editable here" would be
+  // misleading.
+  const canOpenEditorHere =
+    !editable && isFieldColumn && fieldPath !== '_id' && draggable && !meta.isReadOnly;
 
   const startEdit = () => {
-    setDraft(typeof value === 'string' ? value : '');
+    if (isNumericKind) {
+      setDraft(textOf(kind as FieldKind, revived));
+    } else {
+      setDraft(typeof value === 'string' ? value : '');
+    }
+    setInputError(null);
     commitGuardRef.current = false;
     setEditing(true);
   };
@@ -208,14 +246,31 @@ function TableCell({
     // doesn't reproduce it) that would otherwise commit the cancelled draft.
     commitGuardRef.current = true;
     setEditing(false);
+    setInputError(null);
   };
   // Guarded against a double-fire: Enter's setEditing(false) unmounts the
   // input, and the browser also emits a blur for the same interaction.
   const commitEdit = () => {
     if (commitGuardRef.current) return;
+    if (isNumericKind) {
+      const parsed = parseAs(kind as FieldKind, draft);
+      if (!parsed.ok) {
+        // Refuse and stay in edit mode — never coerce or silently drop the
+        // edit. The guard resets so a fix-then-Enter/blur can still commit.
+        setInputError(parsed.error);
+        return;
+      }
+      commitGuardRef.current = true;
+      setEditing(false);
+      setInputError(null);
+      actions.updateField?.(doc, fieldPath, parsed.value);
+      return;
+    }
     commitGuardRef.current = true;
     setEditing(false);
-    if (draft === value) return; // unchanged — AC: no IPC call
+    // An unchanged value still reaches `updateField`, which is now the same
+    // guarded builder the Document Editor uses (W18 §5b: an empty diff sends
+    // no request) — one no-op rule instead of a second one duplicated here.
     actions.updateField?.(doc, fieldPath, draft);
   };
 
@@ -297,42 +352,93 @@ function TableCell({
           : undefined
       }
     >
-      {editing ? (
+      {canInlineEdit && kind === 'boolean' ? (
+        // W18 §8 — booleans are always live, not gated behind a pencil-click
+        // "editing" mode: flipping the toggle is the whole interaction.
+        // Disabled while a write is in flight: `checked` has no separate
+        // draft to protect a second click's guard from the first click's
+        // still-unsettled value (see `pendingBoolean`'s own comment).
         <input
-          ref={inputRef}
+          type="checkbox"
           aria-label={`Edit ${fieldPath}`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              e.stopPropagation();
-              commitEdit();
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              e.stopPropagation();
-              cancelEdit();
-            }
+          checked={pendingBoolean ?? value === true}
+          disabled={pendingBoolean !== null}
+          onChange={(e) => {
+            const next = e.currentTarget.checked;
+            setPendingBoolean(next);
+            void Promise.resolve(actions.updateField?.(doc, fieldPath, next)).finally(() => {
+              setPendingBoolean(null);
+            });
           }}
-          onBlur={commitEdit}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.stopPropagation()}
           draggable={false}
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            fontFamily: 'inherit',
-            fontSize: 'inherit',
-            color: 'var(--atelier-text)',
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-accent)',
-            borderRadius: 2,
-            padding: '0 2px',
-            outline: 'none',
-          }}
+          style={{ cursor: 'pointer' }}
         />
+      ) : editing ? (
+        <>
+          <input
+            ref={inputRef}
+            aria-label={`Edit ${fieldPath}`}
+            value={draft}
+            inputMode={isNumericKind ? 'decimal' : undefined}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setInputError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                commitEdit();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelEdit();
+              }
+            }}
+            onBlur={commitEdit}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
+            draggable={false}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              fontFamily: 'inherit',
+              fontSize: 'inherit',
+              color: 'var(--atelier-text)',
+              background: 'var(--atelier-surface)',
+              border: `1px solid ${inputError ? 'var(--atelier-red)' : 'var(--atelier-accent)'}`,
+              borderRadius: 2,
+              padding: '0 2px',
+              outline: 'none',
+            }}
+          />
+          {inputError && (
+            <span
+              role="alert"
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: '100%',
+                zIndex: 1,
+                marginTop: 2,
+                padding: '2px 4px',
+                borderRadius: 2,
+                background: 'var(--atelier-surface-raised)',
+                color: 'var(--atelier-red)',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {inputError}
+            </span>
+          )}
+        </>
       ) : isCopied ? (
         '✓ Copied'
       ) : rule ? (
@@ -367,19 +473,56 @@ function TableCell({
         String(display)
       )}
 
-      {/* T2.6 — inline single-field edit: hover-revealed pencil turns the
-          cell into a text input. Own stopPropagation so it doesn't steal
+      {/* W18 §8 — inline single-field edit: hover-revealed pencil turns the
+          cell into a text/number input (booleans get their own always-on
+          toggle above, no pencil). Own stopPropagation so it doesn't steal
           row-select / drag / dblclick-copy / contextmenu, matching the
-          expand affordance below. Gated on `canInlineEdit` (string values on
-          a real field column, not a computed accessor or `_id`, and never
-          on a read-only workspace) so a sentinel-typed or computed cell
-          can't be silently corrupted via `$set`. */}
-      {canInlineEdit && !editing && (
+          expand affordance below. Gated on `canInlineEdit` (string, Int32,
+          Int64, Double or Decimal128 values on a real field column, not a
+          computed accessor or `_id`, and never on a read-only workspace) so
+          a sentinel-typed or computed cell can't be silently corrupted via
+          `$set`. */}
+      {canInlineEdit && kind !== 'boolean' && !editing && (
         <button
           aria-label="Edit cell value"
           onClick={(e) => {
             e.stopPropagation();
             startEdit();
+          }}
+          style={{
+            position: 'absolute',
+            right: 20,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            opacity: affordanceVisible ? 1 : 0,
+            pointerEvents: affordanceVisible ? 'auto' : 'none',
+            width: 16,
+            height: 16,
+            padding: 0,
+            border: 'none',
+            borderRadius: 3,
+            background: 'var(--atelier-surface-raised)',
+            color: 'var(--atelier-text-ghost)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {I.edit}
+        </button>
+      )}
+
+      {/* W18 §8 — a field this cell can't edit inline (Date, ObjectId,
+          Object, Array, …) still gets an edit affordance; it opens the
+          Document Editor on the field rather than turning the cell itself
+          into an input. */}
+      {canOpenEditorHere && (
+        <button
+          aria-label="Edit cell value"
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.openEdit(doc, fieldPath);
           }}
           style={{
             position: 'absolute',
@@ -728,6 +871,7 @@ function TableRowImpl({
               value={val}
               fieldPath={fieldPath}
               editable={editable}
+              isFieldColumn={col.kind === 'field'}
               doc={doc}
               width={width}
               cellKey={cellKey}

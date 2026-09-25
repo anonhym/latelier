@@ -22,8 +22,13 @@ export interface CollectionWorkspaceActions {
   run: (override?: Partial<CollectionTabState>) => void;
   /** Cancel the in-flight find, if any. A no-op otherwise. */
   cancel: () => void;
-  /** Open the Document Editor on one document. */
-  openEdit: (doc: unknown) => void;
+  /**
+   * Open the Document Editor on one document. `focusPath` (W18 §8's
+   * "open the Document Editor on that field") scrolls that top-level row
+   * into view and focuses it once the editor mounts, instead of leaving the
+   * editor at its default scroll position.
+   */
+  openEdit: (doc: unknown, focusPath?: string) => void;
   /** Open the per-document delete confirmation. */
   openDelete: (doc: unknown) => void;
   /** Open the delete-all-matching confirmation, scoped to the tab's current query filter. */
@@ -43,14 +48,22 @@ export interface CollectionWorkspaceActions {
    */
   expandBuilder?: () => void;
   /**
-   * Inline single-field edit (T2.6) — writes only `fieldPath` via a `$set`
-   * (`api.doc.updateOne`) without opening the Document Editor. Optional
-   * because it's a leaf-only affordance: read-only providers (saved-query
-   * preview, ScriptTab's synthetic result provider) simply omit it, and
-   * consumers must treat a missing `updateField` the same as `isReadOnly` —
-   * no affordance shown.
+   * Inline single-field edit (W18 §8, Quick Edit) — writes `fieldPath`
+   * through the Document Editor's own guarded save path (`documentDiff.ts`'s
+   * `buildUpdateRequest`: a one-path `$set`/`$unset` with a compare-and-set
+   * guard), without opening the editor. `newValue` is the field's own typed
+   * value — a `string`, a `boolean`, or a revived BSON numeric instance
+   * (`Int32`/`Long`/`Double`/`Decimal128`) — never a re-typed string for a
+   * non-string field, so the loaded BSON type survives the round trip.
+   * Optional because it's a leaf-only affordance: read-only providers
+   * (saved-query preview, ScriptTab's synthetic result provider) simply omit
+   * it, and consumers must treat a missing `updateField` the same as
+   * `isReadOnly` — no affordance shown. Returns the write's settlement
+   * (never its outcome — callers read notifications for that): the boolean
+   * toggle has no separate draft to gate a second click on, so it disables
+   * itself until this resolves.
    */
-  updateField?: (doc: unknown, fieldPath: string, newValue: string) => void;
+  updateField?: (doc: unknown, fieldPath: string, newValue: unknown) => Promise<void>;
   /**
    * Open the Document Editor's insert mode pre-filled with `doc`'s EJSON
    * minus `_id` ("Duplicate document"). Optional for the same reason as
