@@ -82,8 +82,13 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await createDrawer.getByRole('button', { name: 'Create index' }).click();
       await expect(createDrawer).not.toBeVisible({ timeout: 8000 });
 
-      // The created index appears in Structure's own index list.
-      await expect(win.getByText(/status_1/)).toBeVisible({ timeout: 8000 });
+      // The created index appears in Structure's own index list. Scoped to
+      // the "Indexes" region so strict mode can't trip on a second match
+      // elsewhere in the pane (the create-drawer's own field prefill also
+      // says "status").
+      await expect(
+        win.getByRole('region', { name: 'Indexes' }).getByText('status_1', { exact: true }),
+      ).toBeVisible({ timeout: 8000 });
 
       // Re-explaining the same query now shows the index in use, not a scan.
       await win.getByRole('tab', { name: /Documents/ }).click();

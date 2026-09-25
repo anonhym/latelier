@@ -105,6 +105,16 @@ describe('suggestIndex', () => {
     ).toBeNull();
   });
 
+  it('refuses on the RAW filter, not the flattened one — an $and branch cannot erase an earlier branch\'s refusal by overwriting the same field', () => {
+    // Flattening merges same-named $and branches with Object.assign (later
+    // branch wins), so `name` ends up `'x'` in the flattened result — but
+    // the filter as written still has an unanchored $regex on `name`, and
+    // that has to refuse regardless of what a later branch does to the key.
+    expect(
+      suggestIndex({ $and: [{ name: { $regex: 'abc' } }, { name: 'x' }] }),
+    ).toBeNull();
+  });
+
   it('refuses a $nor nested under $and — flattening promotes it to top level first', () => {
     // "A top-level $and is flattened and processing continues" reads as
     // flatten-then-check: once flattened, this $nor IS a top-level key,

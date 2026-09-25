@@ -33,16 +33,24 @@ export function suggestIndex(
   filter: Record<string, unknown>,
   sort?: Record<string, 1 | -1>,
 ): IndexSuggestion | null {
-  // Flatten before refusing: "a top-level $and is flattened and processing
-  // continues" reads as flatten-then-check, so an $and branch's own $nor
-  // (which is now a top-level key of `flattened`) refuses too, the same as
-  // if it had been written at the filter's own top level. `hasRefusal`'s
-  // deep scan still runs (rather than just checking `flattened`'s own
-  // top-level keys) because an $or/$text/$where/$expr/unanchored $regex can
-  // be nested some other way flattening doesn't reach — inside an $in
-  // array, for instance.
+  // `hasRefusal` scans the RAW filter, not the flattened one — flattening
+  // merges same-named `$and` branches with `Object.assign` (later branch
+  // wins), which would silently drop an earlier branch's `$or`/`$text`/
+  // `$where`/`$expr`/unanchored `$regex` before this ever saw it: e.g.
+  // `{$and:[{name:{$regex:'abc'}}, {name:'x'}]}` must still refuse even
+  // though the flattened `name` is just `'x'`.
+  //
+  // `$nor` is the one exception, checked separately against `flattened`:
+  // "a top-level $and is flattened and processing continues" reads as
+  // flatten-then-check, so a `$nor` written inside a top-level `$and`
+  // branch refuses too, the same as if it had been written at the filter's
+  // own top level. `Object.assign` can't lose a `$nor` refusal the way it
+  // can lose the others above — a `$nor` key survives the merge untouched,
+  // it just isn't at the position `hasRefusal`'s own top-level check
+  // would find it at, since that runs on `filter`, not `flattened`.
+  if (hasRefusal(filter)) return null;
   const flattened = flattenAnd(filter);
-  if (hasRefusal(flattened, true)) return null;
+  if ('$nor' in flattened) return null;
 
   const equality: string[] = [];
   const filterRange: string[] = [];
@@ -81,28 +89,39 @@ export function suggestIndex(
 }
 
 /**
- * `$or` refuses wherever it appears (top level or nested); `$nor` only when
- * `topLevel` is true for the node holding it. The caller passes the
- * *flattened* filter, so a `$nor` written inside a top-level `$and` branch
- * refuses too — flattening already promoted it to a top-level key by the
- * time this runs. A `$regex` is a refusal only when unanchored; an anchored
- * one (`^prefix`) is left for `classifyFilterField` to class as Range.
+ * `$or`/`$text`/`$where`/`$expr` refuse wherever they appear, at any depth —
+ * `$nor` is handled separately in `suggestIndex` (against the *flattened*
+ * filter; see its own comment for why this one has to stay on the raw
+ * filter instead). A `$regex` is a refusal only when unanchored; an
+ * anchored one (`^prefix`) is left for `classifyFilterField` to class as
+ * Range.
  */
-function hasRefusal(node: unknown, topLevel: boolean): boolean {
+function hasRefusal(node: unknown): boolean {
   if (node instanceof BSONRegExp) return !node.pattern.startsWith('^');
-  if (Array.isArray(node)) return node.some((el) => hasRefusal(el, false));
+  if (Array.isArray(node)) return node.some((el) => hasRefusal(el));
   if (!isPlainDocument(node)) return false;
   for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
     if (k === '$or') return true;
-    if (topLevel && k === '$nor') return true;
     if (k === '$text' || k === '$where' || k === '$expr') return true;
     if (k === '$regex' && typeof v === 'string' && !v.startsWith('^')) return true;
-    if (hasRefusal(v, false)) return true;
+    if (hasRefusal(v)) return true;
   }
   return false;
 }
 
-/** Merges a top-level `$and`'s branches into the surrounding document, recursively (an `$and` branch may itself hold an `$and`). Non-`$and` keys pass through unchanged. */
+/**
+ * Merges a top-level `$and`'s branches into the surrounding document,
+ * recursively (an `$and` branch may itself hold an `$and`). Non-`$and` keys
+ * pass through unchanged.
+ *
+ * Known gap: this is a plain-object merge, so two branches predicating the
+ * *same* field (`{$and:[{a:1},{a:{$gt:0}}]}`) collapse to whichever branch
+ * came last, not the earliest-class one W16 §4.1's "placed once, in the
+ * earliest" calls for — the classifier only ever sees one predicate per
+ * field here, never both. Refusal-triggering keys don't have this problem;
+ * see `suggestIndex`'s own comment for why that scan runs on the raw filter
+ * instead of this merged one.
+ */
 function flattenAnd(doc: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(doc)) {
