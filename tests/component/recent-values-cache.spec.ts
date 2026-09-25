@@ -92,4 +92,22 @@ describe('recentValuesSource', () => {
     await recentValuesSource(ctx('status', { collection: 'invoices' })); // cached
     expect(valuesForFieldSpy).toHaveBeenCalledTimes(3);
   });
+
+  it('does not cache a fetch that an invalidation overtook', async () => {
+    let resolveStale!: (v: unknown) => void;
+    valuesForFieldSpy.mockImplementationOnce(() => new Promise((r) => { resolveStale = r; }));
+    valuesForFieldSpy.mockImplementationOnce(async () => ({ values: [] }));
+    const { recentValuesSource, invalidateRecentValuesCache } = await loadModule();
+
+    const stale = recentValuesSource(ctx('status'));
+    invalidateRecentValuesCache();
+    resolveStale({
+      values: [{ value: 'cleared', valType: 'string', frequency: 1, lastUsedAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    // The overtaken fetch still answers its own caller…
+    expect((await stale).map((s) => s.value)).toEqual(['cleared']);
+    // …but the next lookup refetches instead of serving the cleared value.
+    expect(await recentValuesSource(ctx('status'))).toEqual([]);
+    expect(valuesForFieldSpy).toHaveBeenCalledTimes(2);
+  });
 });

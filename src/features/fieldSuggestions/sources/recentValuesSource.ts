@@ -18,6 +18,11 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<CacheEntry>>();
+// Bumped by every invalidation. A fetch that started under an older
+// generation still answers its own caller but never writes the cache, so a
+// response racing a "Clear value history" or a post-run recording can't put
+// stale values back for a whole TTL.
+let generation = 0;
 
 function keyFor(connectionId: string, dbName: string, collection: string, field: string): string {
   return `${connectionId}:${dbName}:${collection}:${field}`;
@@ -43,7 +48,8 @@ async function loadEntry(
   const pending = inflight.get(key);
   if (pending) return pending;
 
-  const fetchPromise = (async () => {
+  const startedIn = generation;
+  const fetchPromise: Promise<CacheEntry> = (async () => {
     let entry: CacheEntry;
     try {
       const res = await api.recent.valuesForField({ connectionId, dbName, collection, field });
@@ -60,9 +66,11 @@ async function loadEntry(
     } catch {
       entry = { fetchedAt: Date.now(), suggestions: [] };
     } finally {
-      inflight.delete(key);
+      // An invalidation may already have dropped this entry and a newer fetch
+      // taken its key; only remove our own.
+      if (inflight.get(key) === fetchPromise) inflight.delete(key);
     }
-    cache.set(key, entry);
+    if (startedIn === generation) cache.set(key, entry);
     return entry;
   })();
 
@@ -79,17 +87,15 @@ export function invalidateRecentValuesCache(
   dbName?: string,
   collection?: string,
 ): void {
-  if (!connectionId) {
-    cache.clear();
-    return;
-  }
-  if (dbName && collection) {
-    for (const k of [...cache.keys()]) {
-      if (k.startsWith(`${connectionId}:${dbName}:${collection}:`)) cache.delete(k);
+  generation++;
+  const prefix = !connectionId
+    ? ''
+    : dbName && collection
+      ? `${connectionId}:${dbName}:${collection}:`
+      : `${connectionId}:`;
+  for (const map of [cache, inflight]) {
+    for (const k of [...map.keys()]) {
+      if (k.startsWith(prefix)) map.delete(k);
     }
-    return;
-  }
-  for (const k of [...cache.keys()]) {
-    if (k.startsWith(`${connectionId}:`)) cache.delete(k);
   }
 }
