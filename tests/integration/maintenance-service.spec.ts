@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
+import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
 import { MaintenanceService } from '../../electron/services/MaintenanceService';
 import { createTempDb, type TempDb } from '../helpers/db';
 
@@ -87,7 +88,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.vacuum', () => {
       },
     };
 
-    const svc = new MaintenanceService(repo);
+    const svc = new MaintenanceService(repo, new AuditRepo(tmp.db));
 
     // First run — old row gone, lastRunAt set.
     svc.runIfNeeded(appState);
@@ -103,5 +104,27 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.vacuum', () => {
     expect(calls).toHaveLength(0);
     // still-old should remain because vacuum did not re-run.
     expect(repo.findById('still-old')).not.toBeNull();
+  });
+
+  it('the sweep deletes audit rows past 90 days and keeps newer ones', () => {
+    const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const insertAudit = (id: string, ranAt: string) =>
+      tmp.db.prepare(`
+        INSERT INTO audit_log (id, connection_id, db_name, collection, op, summary_json, outcome, ran_at, duration_ms)
+        VALUES (?, ?, 'mydb', 'items', 'collectionDrop', '{"op":"collectionDrop"}', 'ok', ?, 3)
+      `).run(id, CONNECTION_ID, ranAt);
+    insertAudit('audit-91d', daysAgo(91));
+    insertAudit('audit-89d', daysAgo(89));
+    insertAudit('audit-now', daysAgo(0));
+    const store = new Map<string, unknown>();
+    const appState = {
+      get: <T>(key: string) => (store.get(key) ?? null) as T | null,
+      set: <T>(key: string, value: T) => void store.set(key, value),
+    };
+
+    new MaintenanceService(new RecentQueryRepo(tmp.db), new AuditRepo(tmp.db)).runIfNeeded(appState);
+
+    const ids = (tmp.db.prepare('SELECT id FROM audit_log ORDER BY id').all() as { id: string }[]).map((r) => r.id);
+    expect(ids).toEqual(['audit-89d', 'audit-now']);
   });
 });

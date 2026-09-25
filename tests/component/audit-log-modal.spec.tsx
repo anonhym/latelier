@@ -1,0 +1,141 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent, act, waitFor, within } from '../helpers/render';
+import { MemoryRouter } from 'react-router-dom';
+import { CommandPaletteRoot, usePaletteApi, _resetPaletteStoreForTests } from '../../src/commands/CommandPalette';
+import { PaletteContextProvider } from '../../src/commands/PaletteContext';
+import { GlobalCommands } from '../../src/commands/GlobalCommands';
+import { SettingsProvider } from '../../src/pages/SettingsContext';
+import { commandRegistry } from '../../src/commands/registry';
+import { setFocusedConnectionId } from '../../src/state/focusedConnection';
+import { AuditLogModal } from '../../src/pages/AuditLogModal';
+import type { AuditEntry, AuditListInput, ConnectionSummary } from '../../shared/types';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+
+const CONNECTIONS = [
+  { id: 'c1', name: 'Local' },
+  { id: 'c2', name: 'Staging' },
+] as ConnectionSummary[];
+
+const ENTRY_BASE = { connectionId: 'c1', dbName: 'shop', reversible: false, durationMs: 4 };
+const ENTRIES: AuditEntry[] = [
+  {
+    ...ENTRY_BASE,
+    id: 'e1',
+    collection: 'orders',
+    op: 'deleteMany',
+    summary: { op: 'deleteMany', filter: '{"status":"void"}', deletedCount: 40 },
+    outcome: 'ok',
+    ranAt: '2026-09-01T10:00:00.000Z',
+  },
+  {
+    ...ENTRY_BASE,
+    id: 'e2',
+    collection: 'orders',
+    op: 'insertMany',
+    summary: { op: 'insertMany', insertedCount: 3 },
+    outcome: 'partial',
+    errorCode: 'CONFLICT',
+    ranAt: '2026-09-01T09:00:00.000Z',
+  },
+  {
+    ...ENTRY_BASE,
+    id: 'e3',
+    collection: 'orders',
+    op: 'collectionRename',
+    summary: { op: 'collectionRename', fromName: 'orders', toName: 'orders_old' },
+    outcome: 'error',
+    errorCode: 'UNAUTHORIZED',
+    ranAt: '2026-09-01T08:00:00.000Z',
+  },
+];
+
+function mockApi(entries: AuditEntry[] = ENTRIES) {
+  const list = vi.fn<(input: AuditListInput) => Promise<AuditEntry[]>>(async () => entries);
+  installAtelierMock({ conn: { list: async () => CONNECTIONS }, audit: { list } });
+  return list;
+}
+
+function ToggleButton() {
+  const palette = usePaletteApi();
+  return <button onClick={palette.toggle}>toggle</button>;
+}
+
+afterEach(() => {
+  commandRegistry._resetForTests();
+  _resetPaletteStoreForTests();
+  setFocusedConnectionId(null);
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+describe('AuditLogModal', () => {
+  it('opens from the command palette on the Focused Tab\'s Connection', async () => {
+    const list = mockApi([]);
+    act(() => setFocusedConnectionId('c2'));
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <PaletteContextProvider>
+          <SettingsProvider>
+            <CommandPaletteRoot>
+              <GlobalCommands />
+              <ToggleButton />
+            </CommandPaletteRoot>
+          </SettingsProvider>
+        </PaletteContextProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('toggle'));
+    fireEvent.click(screen.getByText('Open audit log'));
+
+    expect(await screen.findByText('No Operations recorded.')).toBeTruthy();
+    expect(list).toHaveBeenCalledWith({ connectionId: 'c2', dbName: undefined, collection: undefined });
+    await waitFor(() => expect((screen.getByLabelText('Connection') as HTMLSelectElement).value).toBe('c2'));
+  });
+
+  it('falls back to the first Connection when no tab is focused', async () => {
+    const list = mockApi();
+    render(<AuditLogModal initialConnectionId={null} onClose={() => {}} />);
+
+    await waitFor(() => expect(list).toHaveBeenCalledWith({ connectionId: 'c1', dbName: undefined, collection: undefined }));
+  });
+
+  it('re-lists for the picked Connection and the typed database and collection', async () => {
+    const list = mockApi();
+    render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+    await screen.findByText('shop.orders → orders_old');
+
+    fireEvent.change(await screen.findByLabelText('Connection'), { target: { value: 'c2' } });
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ connectionId: 'c2', dbName: undefined, collection: undefined }));
+
+    fireEvent.change(screen.getByLabelText('Database'), { target: { value: ' shop ' } });
+    fireEvent.change(screen.getByLabelText('Collection'), { target: { value: 'orders' } });
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ connectionId: 'c2', dbName: 'shop', collection: 'orders' }));
+  });
+
+  it('shows each Operation read-only, with its target, counts and outcome', async () => {
+    mockApi();
+    render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+    const rows = (await screen.findAllByRole('row')).slice(1);
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByText('shop.orders')).toBeTruthy();
+    expect(within(rows[0]!).getByText('{"status":"void"} · 40 deleted')).toBeTruthy();
+    expect(within(rows[0]!).getByText('Done')).toBeTruthy();
+    expect(within(rows[1]!).getByText('3 inserted')).toBeTruthy();
+    expect(within(rows[1]!).getByText('Partial (CONFLICT)')).toBeTruthy();
+    expect(within(rows[2]!).getByText('Failed (UNAUTHORIZED)')).toBeTruthy();
+    expect(screen.getAllByRole('button').map((b) => b.textContent?.trim()).filter(Boolean)).toEqual(['Close']);
+  });
+
+  it('surfaces a failed load instead of an empty log', async () => {
+    installAtelierMock({
+      conn: { list: async () => CONNECTIONS },
+      audit: { list: async () => Promise.reject({ code: 'DB_ERROR', message: 'database is locked' }) },
+    });
+    render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+    expect((await screen.findByRole('alert')).textContent).toBe('database is locked');
+    expect(screen.queryByText('No Operations recorded.')).toBeNull();
+  });
+});

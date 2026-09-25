@@ -1,0 +1,371 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
+import type { IpcMainInvokeEvent } from 'electron';
+import type { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoClient } from 'mongodb';
+import { randomUUID } from 'node:crypto';
+import { createRouter } from '../../electron/ipc/router';
+import { registerDocChannels } from '../../electron/ipc/handlers/doc';
+import { registerCollectionAdminChannels } from '../../electron/ipc/handlers/collectionAdmin';
+import { registerAuditChannels } from '../../electron/ipc/handlers/audit';
+import { registerQueryChannels } from '../../electron/ipc/handlers/query';
+import { registerIndexChannels } from '../../electron/ipc/handlers/indexes';
+import { registerUserChannels } from '../../electron/ipc/handlers/users';
+import { registerScriptChannels } from '../../electron/ipc/handlers/script';
+import { MongoPool } from '../../electron/mongo/MongoPool';
+import { DocumentService } from '../../electron/mongo/DocumentService';
+import { CollectionAdminService } from '../../electron/mongo/CollectionAdminService';
+import { QueryService } from '../../electron/mongo/QueryService';
+import { IndexService } from '../../electron/mongo/IndexService';
+import { UserService } from '../../electron/mongo/UserService';
+import { ScriptService } from '../../electron/services/ScriptService';
+import { RecentQueryService } from '../../electron/services/RecentQueryService';
+import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
+import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
+import { ConnectionRepo } from '../../electron/db/repositories/ConnectionRepo';
+import { AuditService } from '../../electron/services/AuditService';
+import { SecretsVault } from '../../electron/secrets/SecretsVault';
+import type { Logger } from '../../electron/log';
+import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
+import type { AuditEntry } from '../../shared/types';
+import { createSafeStorageMock } from '../helpers/safeStorageMock';
+import { createTempDb, type TempDb } from '../helpers/db';
+import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
+import { getSharedServer, stopSharedServer, uriToHostPort, makeConnection, makeReader } from '../helpers/mongo';
+
+type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
+
+function createShim() {
+  const handlers = new Map<string, Handler>();
+  return {
+    ipcMain: {
+      handle(channel: string, fn: Handler) {
+        handlers.set(channel, fn);
+      },
+    } as const,
+    async invoke<T>(channel: string, payload: unknown): Promise<Envelope<T>> {
+      const h = handlers.get(channel);
+      if (!h) throw new Error(`no handler for ${channel}`);
+      return (await h(invokeEvent, payload)) as Envelope<T>;
+    },
+  };
+}
+
+function seedConnectionRow(db: TempDb['db'], id: string): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO connections (id, name, connection_type, host, port, auth_mech, created_at, updated_at)
+     VALUES (?, ?, 'standard', 'localhost', 27017, 'none', ?, ?)`,
+  ).run(id, `conn-${id}`, now, now);
+}
+
+function silentLogger() {
+  const error = vi.fn<Logger['error']>();
+  const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error };
+  return { log, error };
+}
+
+// A value that exists only inside document bodies. If it ever shows up in an
+// audit row, a summary has started persisting what it must not.
+const BODY_MARKER = 'body-only-value-7f3a';
+
+describe('audit log via the router', () => {
+  let server: MongoMemoryServer;
+  let hp: { host: string; port: number };
+  let client: MongoClient;
+  let tmp: TempDb;
+  let pool: MongoPool;
+  let docSvc: DocumentService;
+  let scriptSvc: ScriptService;
+  let auditRepo: AuditRepo;
+  let logSpy: ReturnType<typeof silentLogger>;
+  let shim: ReturnType<typeof createShim>;
+  let dbName: string;
+
+  beforeAll(async () => {
+    server = await getSharedServer();
+    hp = uriToHostPort(server.getUri());
+    client = await MongoClient.connect(server.getUri());
+  }, 60_000);
+
+  afterAll(async () => {
+    await client.close();
+    await stopSharedServer();
+  });
+
+  beforeEach(() => {
+    tmp = createTempDb();
+    for (const id of ['c1', 'c2', 'c-ro']) seedConnectionRow(tmp.db, id);
+    const vault = new SecretsVault(tmp.db, createSafeStorageMock());
+    pool = new MongoPool({
+      repo: makeReader([
+        makeConnection('c1', hp),
+        makeConnection('c2', hp),
+        makeConnection('c-ro', hp, { readOnly: true }),
+      ]),
+      vault,
+    });
+    docSvc = new DocumentService(pool);
+    scriptSvc = new ScriptService({ pool });
+    auditRepo = new AuditRepo(tmp.db);
+    logSpy = silentLogger();
+    shim = createShim();
+    const router = createRouter(shim.ipcMain, testSenderCheck, logSpy.log, new AuditService(auditRepo));
+    registerDocChannels(router, docSvc);
+    registerCollectionAdminChannels(router, new CollectionAdminService(pool));
+    registerAuditChannels(router, new AuditService(auditRepo));
+    registerQueryChannels(router, new QueryService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db))));
+    registerIndexChannels(router, new IndexService(pool));
+    registerUserChannels(router, new UserService(pool));
+    registerScriptChannels(router, scriptSvc);
+    dbName = `audit_${randomUUID().slice(0, 8)}`;
+  });
+
+  afterEach(async () => {
+    docSvc.dispose();
+    scriptSvc.cancelAll();
+    await pool.disconnectAll();
+    tmp.cleanup();
+  });
+
+  async function ok<T>(channel: string, payload: unknown): Promise<T> {
+    const env = await shim.invoke<T>(channel, payload);
+    if (!env.ok) throw new Error(`${channel} failed: ${env.error.code} ${env.error.message}`);
+    return env.data;
+  }
+
+  async function list(input: Record<string, unknown> = {}): Promise<AuditEntry[]> {
+    return ok<AuditEntry[]>(IPC_CHANNELS.auditList, { connectionId: 'c1', ...input });
+  }
+
+  function rowCount(): number {
+    return (tmp.db.prepare('SELECT COUNT(*) AS c FROM audit_log').get() as { c: number }).c;
+  }
+
+  const target = (collection: string) => ({ connectionId: 'c1', dbName, collection });
+
+  it('each audited channel writes one row with its op, namespace, outcome and duration', async () => {
+    await ok(IPC_CHANNELS.docInsertMany, {
+      ...target('orders'),
+      docsJson: JSON.stringify([
+        { _id: 1, note: BODY_MARKER },
+        { _id: 2, note: BODY_MARKER },
+        { _id: 3, note: BODY_MARKER },
+      ]),
+    });
+    await ok(IPC_CHANNELS.docUpdateOne, {
+      ...target('orders'),
+      filterJson: '{"_id":1}',
+      updateJson: JSON.stringify({ $set: { note: `${BODY_MARKER}-2` } }),
+    });
+    await ok(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":2}' });
+    const { confirmToken } = await ok<{ confirmToken: string }>(IPC_CHANNELS.docConfirmDeleteMany, {
+      ...target('orders'),
+      filterJson: '{"_id":{"$gte":1}}',
+    });
+    await ok(IPC_CHANNELS.docDeleteMany, { ...target('orders'), filterJson: '{"_id":{"$gte":1}}', confirmToken });
+    await client.db(dbName).collection('scratch').insertOne({ a: 1 });
+    await ok(IPC_CHANNELS.collectionRename, { ...target('scratch'), newName: 'scratch2' });
+    await ok(IPC_CHANNELS.collectionDrop, target('scratch2'));
+    await ok(IPC_CHANNELS.databaseDrop, { connectionId: 'c1', dbName });
+
+    const entries = (await list()).reverse();
+    expect(entries.map((e) => e.op)).toEqual([
+      'insertMany',
+      'updateOne',
+      'deleteOne',
+      'deleteMany',
+      'collectionRename',
+      'collectionDrop',
+      'databaseDrop',
+    ]);
+    expect(entries.map((e) => e.summary)).toEqual([
+      { op: 'insertMany', insertedCount: 3 },
+      { op: 'updateOne', filter: '{"_id":1}', matchedCount: 1, modifiedCount: 1 },
+      { op: 'deleteOne', filter: '{"_id":2}', deletedCount: 1 },
+      { op: 'deleteMany', filter: '{"_id":{"$gte":1}}', deletedCount: 2 },
+      { op: 'collectionRename', fromName: 'scratch', toName: 'scratch2' },
+      { op: 'collectionDrop' },
+      { op: 'databaseDrop' },
+    ]);
+    expect(entries.map((e) => e.collection)).toEqual([
+      'orders', 'orders', 'orders', 'orders', 'scratch', 'scratch2', null,
+    ]);
+    for (const e of entries) {
+      expect(e).toMatchObject({ connectionId: 'c1', dbName, outcome: 'ok', reversible: false });
+      expect(e.errorCode).toBeUndefined();
+      expect(Number.isInteger(e.durationMs) && e.durationMs >= 0).toBe(true);
+      expect(Number.isNaN(Date.parse(e.ranAt))).toBe(false);
+    }
+    const raw = tmp.db.prepare('SELECT * FROM audit_log').all();
+    expect(JSON.stringify(raw)).not.toContain(BODY_MARKER);
+    expect(JSON.stringify(raw)).not.toContain(confirmToken);
+  });
+
+  it('channels outside the audit table write no rows, even when they change data', async () => {
+    const coll = target('things');
+    await ok(IPC_CHANNELS.docInsert, { ...coll, docJson: '{"_id":1,"a":1}' });
+    await ok(IPC_CHANNELS.docReplace, { ...coll, filterJson: '{"_id":1}', docJson: '{"a":2}' });
+    await ok(IPC_CHANNELS.queryFind, { ...coll, filter: '{}', limit: 10, skip: 0 });
+    await ok(IPC_CHANNELS.docConfirmDeleteMany, { ...coll, filterJson: '{}' });
+    await ok(IPC_CHANNELS.indexCreate, { ...coll, fields: [{ field: 'a', direction: 1 }], options: { name: 'a_1' } });
+    await ok(IPC_CHANNELS.indexDrop, { ...coll, name: 'a_1' });
+    await ok(IPC_CHANNELS.userCreate, {
+      connectionId: 'c1',
+      dbName,
+      username: 'auditee',
+      password: 'pw-not-for-the-log',
+      roles: [{ role: 'read', db: dbName }],
+    });
+    await ok(IPC_CHANNELS.scriptRun, { connectionId: 'c1', dbName, source: 'db.things.deleteMany({})' });
+
+    expect(rowCount()).toBe(0);
+  });
+
+  it('records a refused Operation as an error with its code, never reversible', async () => {
+    const env = await shim.invoke(IPC_CHANNELS.docDeleteOne, {
+      connectionId: 'c-ro',
+      dbName,
+      collection: 'orders',
+      filterJson: '{"_id":1}',
+    });
+    expect(env.ok).toBe(false);
+
+    const [entry] = await list({ connectionId: 'c-ro' });
+    expect(entry).toMatchObject({
+      op: 'deleteOne',
+      outcome: 'error',
+      errorCode: 'READ_ONLY',
+      reversible: false,
+      summary: { op: 'deleteOne', filter: '{"_id":1}' },
+    });
+    expect(entry!.summary).not.toHaveProperty('deletedCount');
+  });
+
+  it('records a failure the service raises after the schema passed, but not a payload the schema rejects', async () => {
+    const refused = await shim.invoke(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{}' });
+    expect(refused.ok).toBe(false);
+    const malformed = await shim.invoke(IPC_CHANNELS.docDeleteOne, { ...target('orders') });
+    expect(malformed.ok).toBe(false);
+
+    const entries = await list();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ outcome: 'error', errorCode: 'VALIDATION' });
+  });
+
+  it('records a part-applied insertMany as partial with its inserted count', async () => {
+    // Ten documents; the fourth repeats the first document's `_id`.
+    const docs = Array.from({ length: 10 }, (_, i) => ({ _id: i === 3 ? 0 : i }));
+    const env = await shim.invoke(IPC_CHANNELS.docInsertMany, { ...target('orders'), docsJson: JSON.stringify(docs) });
+    expect(env.ok).toBe(false);
+    expect(await client.db(dbName).collection('orders').countDocuments()).toBe(3);
+
+    const [entry] = await list();
+    expect(entry).toMatchObject({
+      op: 'insertMany',
+      outcome: 'partial',
+      reversible: false,
+      summary: { op: 'insertMany', insertedCount: 3 },
+    });
+    expect(entry!.errorCode).toBe(env.ok ? undefined : env.error.code);
+  });
+
+  it('records an insertMany that failed on its first document as an error, not a partial', async () => {
+    await client.db(dbName).collection<{ _id: number }>('orders').insertOne({ _id: 1 });
+    await shim.invoke(IPC_CHANNELS.docInsertMany, { ...target('orders'), docsJson: '[{"_id":1},{"_id":2}]' });
+
+    const [entry] = await list();
+    expect(entry).toMatchObject({ outcome: 'error', summary: { op: 'insertMany', insertedCount: 0 } });
+  });
+
+  it('records an updateOne that matched nothing as ok with matched 0', async () => {
+    await ok(IPC_CHANNELS.docUpdateOne, {
+      ...target('orders'),
+      filterJson: '{"_id":"missing"}',
+      updateJson: '{"$set":{"a":1}}',
+    });
+
+    const [entry] = await list();
+    expect(entry).toMatchObject({
+      outcome: 'ok',
+      reversible: false,
+      summary: { op: 'updateOne', matchedCount: 0, modifiedCount: 0 },
+    });
+  });
+
+  it('an audit write that throws leaves the Operation succeeded and logs the loss', async () => {
+    await client.db(dbName).collection<{ _id: number }>('orders').insertOne({ _id: 1 });
+    vi.spyOn(auditRepo, 'insert').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    const env = await shim.invoke(IPC_CHANNELS.docDeleteOne, { ...target('orders'), filterJson: '{"_id":1}' });
+
+    expect(env).toEqual({ ok: true, data: { deletedCount: 1 } });
+    expect(await client.db(dbName).collection('orders').countDocuments()).toBe(0);
+    expect(logSpy.error).toHaveBeenCalledWith('audit.write', IPC_CHANNELS.docDeleteOne, { message: 'disk full' });
+  });
+
+  describe('audit:list', () => {
+    function seed(id: string, over: { connectionId?: string; dbName?: string; collection?: string; ranAt: string }) {
+      auditRepo.insert({
+        id,
+        connection_id: over.connectionId ?? 'c1',
+        db_name: over.dbName ?? 'shop',
+        collection: over.collection ?? 'orders',
+        op: 'deleteOne',
+        summary_json: '{"op":"deleteOne","filter":"{}"}',
+        outcome: 'ok',
+        error_code: null,
+        ran_at: over.ranAt,
+        duration_ms: 1,
+        reversible: 0,
+        undone_at: null,
+      });
+    }
+
+    beforeEach(() => {
+      seed('a', { ranAt: '2026-01-01T00:00:01.000Z' });
+      seed('b', { ranAt: '2026-01-01T00:00:02.000Z', collection: 'users' });
+      seed('c', { ranAt: '2026-01-01T00:00:03.000Z', dbName: 'crm' });
+      seed('d', { ranAt: '2026-01-01T00:00:04.000Z' });
+      seed('other', { ranAt: '2026-01-01T00:00:05.000Z', connectionId: 'c2' });
+      tmp.db.prepare(`UPDATE audit_log SET undo_json = '{"preImage":1}', reversible = 1`).run();
+    });
+
+    it('lists one Connection newest-first', async () => {
+      expect((await list()).map((e) => e.id)).toEqual(['d', 'c', 'b', 'a']);
+    });
+
+    it('filters by database and collection', async () => {
+      expect((await list({ dbName: 'shop' })).map((e) => e.id)).toEqual(['d', 'b', 'a']);
+      expect((await list({ dbName: 'shop', collection: 'orders' })).map((e) => e.id)).toEqual(['d', 'a']);
+    });
+
+    it('honours limit and the before cursor', async () => {
+      expect((await list({ limit: 2 })).map((e) => e.id)).toEqual(['d', 'c']);
+      expect((await list({ before: '2026-01-01T00:00:03.000Z' })).map((e) => e.id)).toEqual(['b', 'a']);
+    });
+
+    it('never returns the Pre-image', async () => {
+      const entries = await list();
+      expect(entries[0]!.reversible).toBe(true);
+      for (const e of entries) {
+        expect(Object.keys(e)).not.toContain('undo_json');
+        expect(Object.keys(e)).not.toContain('undoJson');
+        expect(JSON.stringify(e)).not.toContain('preImage');
+      }
+    });
+
+    it('rejects a list without a connection', async () => {
+      const env = await shim.invoke(IPC_CHANNELS.auditList, {});
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it('deleting a Connection removes its rows and no other Connection\'s', () => {
+      new ConnectionRepo(tmp.db).deleteById('c1');
+      const left = tmp.db.prepare('SELECT id FROM audit_log').all() as { id: string }[];
+      expect(left.map((r) => r.id)).toEqual(['other']);
+    });
+  });
+});

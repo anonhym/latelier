@@ -57,6 +57,9 @@ import { SavedQueryService } from './services/SavedQueryService.ts';
 import { RecentQueryRepo } from './db/repositories/RecentQueryRepo.ts';
 import { RecentQueryService } from './services/RecentQueryService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
+import { AuditRepo } from './db/repositories/AuditRepo.ts';
+import { AuditService } from './services/AuditService.ts';
+import { registerAuditChannels } from './ipc/handlers/audit.ts';
 import { QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
@@ -531,10 +534,13 @@ app.whenReady().then(() => {
   // this point, so the trusted frame is read through a closure rather than
   // captured — and it is re-read per message, which is what keeps it correct
   // across a reload.
+  const auditRepo = new AuditRepo(db);
+  const auditSvc = new AuditService(auditRepo);
   const router = createRouter(
     ipcMain,
     senderCheck(() => win?.webContents.mainFrame ?? null, isAppLocation),
     log,
+    auditSvc,
   );
   // Workspace tabs
   const tabsRepo = new WorkspaceTabRepo(db);
@@ -551,7 +557,7 @@ app.whenReady().then(() => {
   const indexSvc = new IndexService(pool);
   const collectionAdminSvc = new CollectionAdminService(pool);
   const userSvc = new UserService(pool);
-  const maintenance = new MaintenanceService(recentRepo);
+  const maintenance = new MaintenanceService(recentRepo, auditRepo);
   maintenance.runIfNeeded(appState);
 
   const diagnostic = new DiagnosticService({ userDataDir, connRepo });
@@ -569,6 +575,7 @@ app.whenReady().then(() => {
   registerDocChannels(router, docSvc);
   registerSavedChannels(router, savedSvc);
   registerRecentChannels(router, recentSvc);
+  registerAuditChannels(router, auditSvc);
   registerAggChannels(router, aggSvc);
   registerShellChannels(router);
 

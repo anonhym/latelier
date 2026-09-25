@@ -6,6 +6,8 @@ import type {
   AggResult,
   AggRunAndSaveInput,
   AggStagePreview,
+  AuditEntry,
+  AuditListInput,
   CollectionCreateInput,
   CollectionDropInput,
   CollectionRenameInput,
@@ -251,6 +253,11 @@ export interface IpcApi {
     duplicate: (input: { id: string; newName: string }) => Promise<SavedQuery>;
   };
 
+  /** The Audit Log: newest first, never carrying a Pre-image. */
+  audit: {
+    list: (input: AuditListInput) => Promise<AuditEntry[]>;
+  };
+
   recent: {
     list: (input: { connectionId?: string; dbName?: string; collection?: string; kind?: RecentKind; limit?: number }) => Promise<RecentQuery[]>;
     get: (input: { id: string }) => Promise<RecentQuery>;
@@ -428,6 +435,9 @@ export const IPC_CHANNELS = {
   recentList:  'recent:list',
   recentGet:   'recent:get',
   recentClear: 'recent:clear',
+
+  // Audit log -----------------------------------------
+  auditList: 'audit:list',
 
   // Aggregation runner -----------------------------------------
   aggRun:             'agg:run',

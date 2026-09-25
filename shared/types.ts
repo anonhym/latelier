@@ -406,6 +406,59 @@ export interface RecentQuery {
   errorCode?: string;
 }
 
+// ─── Audit log (X13) ─────────────────────────────────────────────────────────
+
+/** Mirrors the `audit_log.op` CHECK constraint (migration 012). */
+export type AuditOp =
+  | 'insertMany'
+  | 'updateOne'
+  | 'updateMany'
+  | 'deleteOne'
+  | 'deleteMany'
+  | 'collectionDrop'
+  | 'collectionRename'
+  | 'databaseDrop'
+  | 'import';
+
+export type AuditOutcome = 'ok' | 'error' | 'partial';
+
+/**
+ * What the audit modal renders — never a document body. `filter` is the EJSON
+ * text the Operation was sent; counts are absent when the Operation failed
+ * before the server reported them.
+ */
+export type AuditSummary =
+  | { op: 'insertMany'; insertedCount?: number }
+  | { op: 'updateOne'; filter: string; matchedCount?: number; modifiedCount?: number }
+  | { op: 'deleteOne' | 'deleteMany'; filter: string; deletedCount?: number }
+  | { op: 'collectionRename'; fromName: string; toName: string }
+  | { op: 'collectionDrop' | 'databaseDrop' };
+
+export interface AuditEntry {
+  id: string;
+  connectionId: string;
+  dbName: string;
+  /** Null only for `databaseDrop`. */
+  collection: string | null;
+  op: AuditOp;
+  summary: AuditSummary;
+  outcome: AuditOutcome;
+  errorCode?: string;
+  ranAt: string;
+  durationMs: number;
+  reversible: boolean;
+  undoneAt?: string;
+}
+
+export interface AuditListInput {
+  connectionId: string;
+  dbName?: string;
+  collection?: string;
+  limit?: number;
+  /** `ranAt` cursor: only entries strictly older are returned. */
+  before?: string;
+}
+
 /**
  * A Table-view column addressed by a dotted path into each document rather
  * than a literal top-level key (T2.5, AC8). v1 is a plain accessor — no
