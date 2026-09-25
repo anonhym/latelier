@@ -547,9 +547,17 @@ function QueryBarInner({
       {/* Top toolbar — Save · History · Run (split). W15 §7.1 deletes
           "Set default": it wrote `query.default.<conn>.<db>.<coll>` and
           nothing anywhere read it back. Saved queries already own "reuse this
-          query on this collection". */}
+          query on this collection". This is now the one Save button in the
+          Documents view — the builder-drawer footer's copy was deleted, and
+          `saved.create`'s hint anchor moved here with it. */}
       <Group gap={8} wrap="nowrap" style={{ padding: '8px 12px' }}>
-        <Button variant="default" size="compact-xs" leftSection={I.save} onClick={onSave}>
+        <Button
+          data-hint-anchor="saved.create"
+          variant="default"
+          size="compact-xs"
+          leftSection={I.save}
+          onClick={onSave}
+        >
           Save
         </Button>
         <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>

@@ -10,9 +10,22 @@ interface SavedTabProps {
   collection: string;
   refreshKey?: number;
   onRunHere: (saved: SavedQuery) => void;
+  /**
+   * Opens a saved aggregation or script as its own top-level workspace tab.
+   * Those kinds don't share a runtime surface with the Documents view, so
+   * they can't run in place the way a find query does.
+   */
+  onOpenInTab: (saved: SavedQuerySummary) => void;
 }
 
-export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHere }: SavedTabProps) {
+export function SavedTab({
+  connectionId,
+  dbName,
+  collection,
+  refreshKey,
+  onRunHere,
+  onOpenInTab,
+}: SavedTabProps) {
   const [items, setItems] = React.useState<SavedQuerySummary[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -22,7 +35,7 @@ export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHe
     setLoading(true);
     setErr(null);
     try {
-      const list = await api.saved.list({ connectionId, dbName, collection, kind: 'find' });
+      const list = await api.saved.list({ connectionId, dbName, collection });
       setItems(list);
     } catch (e) {
       setErr(getErrorMessage(e, 'Failed to load saved queries'));
@@ -35,7 +48,11 @@ export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHe
     queueMicrotask(() => { void load(); });
   }, [load, refreshKey]);
 
-  const handleRunHere = async (summary: SavedQuerySummary) => {
+  const handlePrimary = async (summary: SavedQuerySummary) => {
+    if (summary.kind !== 'find') {
+      onOpenInTab(summary);
+      return;
+    }
     try {
       const full = await api.saved.get({ id: summary.id });
       onRunHere(full);
@@ -119,7 +136,7 @@ export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHe
 
       {!loading && !err && items.length === 0 && (
         <div style={{ padding: '4px 10px 10px', fontSize: 12, color: 'var(--atelier-text-muted)' }}>
-          No saved queries yet. Save one from the Filter tab to keep it here.
+          Nothing saved yet. Use Save in the toolbar above to keep one here.
         </div>
       )}
 
@@ -167,9 +184,13 @@ export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHe
             )}
           </div>
           <button
-            onClick={() => void handleRunHere(item)}
-            title="Run here"
-            aria-label={`Run "${item.name}" in this tab`}
+            onClick={() => void handlePrimary(item)}
+            title={item.kind === 'find' ? 'Run here' : 'Open in a new tab'}
+            aria-label={
+              item.kind === 'find'
+                ? `Run "${item.name}" in this tab`
+                : `Open "${item.name}" in a new tab`
+            }
             style={{
               padding: '2px 7px',
               fontSize: 10,
@@ -183,7 +204,7 @@ export function SavedTab({ connectionId, dbName, collection, refreshKey, onRunHe
               gap: 3,
             }}
           >
-            {I.play} Run
+            {item.kind === 'find' ? <>{I.play} Run</> : '↗ Open'}
           </button>
           {/* W15 §13.5 — `title` is not an accessible name for an
               icon-only button; it is kept for the hover tooltip and
