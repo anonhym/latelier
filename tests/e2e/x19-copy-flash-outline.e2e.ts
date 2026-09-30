@@ -14,7 +14,7 @@ import { decodePng } from './helpers/pngPixels';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * X19 #83 — the #60 active-row outline (`outline: 2px solid
+ * X19 — the active-row outline (`outline: 2px solid
  * var(--atelier-accent)`, `outline-offset: -2px`) and the copy-confirmation
  * flash (`background: var(--atelier-accent)`, same colour) used to collide on
  * a row that is both active and mid-flash: TableView's outline is inset 2px
@@ -28,7 +28,7 @@ test.afterAll(stopAllMemoryServers);
  * *style* (`table-view.spec.tsx`) but not prove the two colours actually
  * separate on screen. This samples the rendered pixels.
  */
-test('table copy flash keeps the active-row outline visible at WCAG 1.4.11 contrast (X19 #83)', async () => {
+test('table copy flash keeps the active-row outline visible at WCAG 1.4.11 contrast (X19)', async () => {
   test.setTimeout(120_000);
   const { host, port } = await startMemoryServer();
 
@@ -46,7 +46,7 @@ test('table copy flash keeps the active-row outline visible at WCAG 1.4.11 contr
       await ws.openCollectionFromNavigator('shop', 'orders');
       // The auto-run on open is the only query run. A second Run click used to
       // land its result mid-test on a slow CI runner, replacing `documents`
-      // and resetting the active row (PR #122's shard 4).
+      // and resetting the active row.
       await ws.viewTableButton.click();
 
       const grid = win.getByRole('grid', { name: 'Documents' });

@@ -323,12 +323,12 @@ describe('TableView — rendering and interaction', () => {
       expect(getByTitle(/Drag to add "name/).textContent).not.toContain('Copied');
     });
 
-    // X19 #83 — the flash and the #60 active-row outline are both
+    // X19 — the flash and the active-row outline are both
     // `var(--atelier-accent)`; clipping the flash to the content box keeps
     // it off the 2px inset band the outline occupies. jsdom paints nothing,
     // so this only guards the style is set — `x19-copy-flash-outline.e2e.ts`
     // proves the pixels actually separate.
-    it('a copied cell clips its flash background to the content box (#83)', async () => {
+    it('a copied cell clips its flash background to the content box', async () => {
       const { getByTitle } = renderTable([{ _id: 1, name: 'alpha' }]);
       const cell = getByTitle(/Drag to add "name/);
 
@@ -512,13 +512,13 @@ describe('TableView — rendering and interaction', () => {
     });
   });
 
-  // #20 — roving focus: the grid itself is the widget's only tab stop, and
+  // Roving focus: the grid itself is the widget's only tab stop, and
   // arrow/Home/End move `aria-activedescendant` between mounted rows instead
   // of putting every row in the tab order.
-  describe('roving focus (#20)', () => {
-    // #72 — the four tests below all mounted the same 3-doc grid; the setup
-    // was byte-identical each time (SonarCloud flagged it as a self-
-    // duplicate). One fixture and one helper, kept behind the describe so it
+  describe('roving focus', () => {
+    // The four tests below all mount the same 3-doc grid; inline, that
+    // setup would be byte-identical each time (SonarCloud flags it as a
+    // self-duplicate). One fixture and one helper, kept behind the describe so it
     // can't leak into the Enter-selection tests below, which need their own
     // doc shapes.
     const THREE_DOCS = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
@@ -612,8 +612,8 @@ describe('TableView — rendering and interaction', () => {
       const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
       const { container } = renderTable(docs);
       const grid = container.querySelector('[role="grid"]')!;
-      // Scoped to the grid, not `container` — #53 gives the sticky header
-      // row its own `role="row"` too (for its `columnheader` children), and
+      // Scoped to the grid, not `container` — the sticky header row has
+      // its own `role="row"` too (for its `columnheader` children), and
       // it's a DOM sibling of the grid, not a descendant, so this excludes
       // it without depending on index order.
       const strip = grid.querySelectorAll('[role="row"]')[0] as HTMLElement;
@@ -642,10 +642,11 @@ describe('TableView — rendering and interaction', () => {
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
     });
 
-    // #55 — the shared ContextMenu had no keyboard open path; this cell menu
-    // is TableView's own hand-rolled one (not the shared `ContextMenu`
-    // component), so it needs its own keyboard trigger and focus management.
-    describe('keyboard: opening the context menu (#55)', () => {
+    // The shared ContextMenu's keyboard open path doesn't reach this cell
+    // menu: it is TableView's own hand-rolled one (not the shared
+    // `ContextMenu` component), so it needs its own keyboard trigger and
+    // focus management.
+    describe('keyboard: opening the context menu', () => {
       it('Shift+F10 opens the menu for the active row, with Edit/Delete reachable', async () => {
         const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
         const { container, getByText } = renderTable(docs);
@@ -719,7 +720,7 @@ describe('TableView — rendering and interaction', () => {
         await waitFor(() => expect(document.activeElement).toBe(grid));
       });
 
-      it('right-click does not force focus into the menu — unchanged from before #69', () => {
+      it('right-click does not force focus into the menu', () => {
         const docs = [{ _id: 1, name: 'a' }];
         const { getByTitle, getByText } = renderTable(docs);
         const cell = getByTitle(/Drag to add "name/);
@@ -733,7 +734,7 @@ describe('TableView — rendering and interaction', () => {
         expect(document.activeElement?.closest('[role="group"]')).toBeNull();
       });
 
-      // #69 — right-click open, then Escape, used to strand focus on
+      // Right-click open, then Escape, used to strand focus on
       // `<body>` (nothing set `returnFocusTo` for a mouse open). Now both
       // open paths share the same mechanism.
       it('right-click open, then Escape, returns focus to the grid — not <body>', () => {
@@ -754,9 +755,9 @@ describe('TableView — rendering and interaction', () => {
     });
   });
 
-  // #60 — the active row is announced (aria-activedescendant, #20) but was
-  // never drawn. These assert the real inline outline, not an attribute.
-  describe('active-row visual highlight (#60)', () => {
+  // The active row is announced (aria-activedescendant) but was never
+  // drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight', () => {
     it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
       const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }, { _id: 3, name: 'c' }];
       const { container } = renderTable(docs);
@@ -812,11 +813,11 @@ describe('TableView — rendering and interaction', () => {
     });
   });
 
-  // #53 — the sort mechanism (a real <button>) already worked; the sorted
-  // header cell just never said so to assistive tech, and the hover-gated
+  // The sort mechanism (a real <button>) already worked; the sorted header
+  // cell just never said so to assistive tech, and the hover-gated
   // pencil/expand affordances were invisible to a keyboard user who tabbed
   // onto them.
-  describe('aria-sort and focus-visible affordances (#53)', () => {
+  describe('aria-sort and focus-visible affordances', () => {
     it('a sortable column header is a columnheader with aria-sort="none" while unsorted', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
       const { getByTestId } = renderTable(docs, { onSortField: vi.fn() });
@@ -958,12 +959,12 @@ describe('TableView — rendering and interaction', () => {
     });
   });
 
-  // #79 — closing the "Expand cell value" popover on a click that lands on a
+  // Closing the "Expand cell value" popover on a click that lands on a
   // non-focusable area used to drop focus to <body>. `returnFocus` fixes it
   // here because this dropdown has no focusable content to autofocus (see
   // the prop's comment on `TableView.tsx`). Shared with column-chooser/
   // preview-picker specs — see the helper's docstring.
-  describe('expand-cell popover — focus return on close (#79)', () => {
+  describe('expand-cell popover — focus return on close', () => {
     itReturnsFocusToPopoverTrigger(async () => {
       const docs = [{ _id: 1, note: 'hello' }];
       const ctx = renderTable(docs);

@@ -13,11 +13,11 @@ import {
 } from '../helpers/atelierMock';
 import type { CollectionInfo } from '../../shared/ipc';
 
-// #66 — X19: arrow keys used to index blindly into the flattened row list,
-// so ArrowDown/Up/Home/End/Right could land `focusedId` on a skeleton, an
+// Arrow keys used to index blindly into the flattened row list, so
+// ArrowDown/Up/Home/End/Right could land `focusedId` on a skeleton, an
 // empty placeholder, or a connection-error row — none of which carry an id
-// or a focus treatment. The decided direction (recorded on #66): skip them
-// entirely in keyboard navigation. A connection error stays reachable
+// or a focus treatment. The decided direction: skip them entirely in
+// keyboard navigation. A connection error stays reachable
 // because its Retry button is a real, Tab-reachable `<button role="alert">`
 // child, and the connection row now `aria-describedby`s the error message.
 
@@ -42,7 +42,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('DbCollectionNavigator — Retry stays reachable and usable from the keyboard (#66)', () => {
+describe('DbCollectionNavigator — Retry stays reachable and usable from the keyboard', () => {
   it('Tab reaches the Retry button, and Enter on it retries without also toggling the root', async () => {
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
     installAtelierMock({ mongo: { connect } });
@@ -107,7 +107,7 @@ describe('DbCollectionNavigator — Retry stays reachable and usable from the ke
   });
 });
 
-describe('DbCollectionNavigator — a connection error is described, not just labelled (#66)', () => {
+describe('DbCollectionNavigator — a connection error is described, not just labelled', () => {
   it('the connection row aria-describedby names the error message element', async () => {
     installAtelierMock();
     const ERR = connectionFixture({ id: 'c1', name: 'Prod', status: 'error' });
@@ -136,7 +136,7 @@ describe('DbCollectionNavigator — a connection error is described, not just la
 // `coll` rows). No error connection here, and only two dbs, deliberately:
 //
 // - A THIRD expanded db alongside one stuck forever in `collsLoading`
-//   reproduces a pre-existing virtualization/render quirk unrelated to #66:
+//   reproduces a pre-existing virtualization/render quirk unrelated to placeholder skipping:
 //   clicking to expand a third db row while another is permanently loading
 //   leaves that third row's own `aria-expanded` stuck at `false` even though
 //   the click handler ran (reproduced against unmodified `main`, so it
@@ -196,7 +196,7 @@ function isTreeitemOrUndefined(activeDescendant: string | null): boolean {
 
 const KEYS = ['ArrowUp', 'ArrowDown', 'Home', 'End', 'ArrowLeft', 'ArrowRight'] as const;
 
-describe('DbCollectionNavigator — property: keyboard nav never lands off a treeitem (#66)', () => {
+describe('DbCollectionNavigator — property: keyboard nav never lands off a treeitem', () => {
   it('after any sequence of Up/Down/Home/End/Left/Right, aria-activedescendant is undefined or names a treeitem', async () => {
     await fc.assert(
       fc.asyncProperty(
@@ -228,7 +228,7 @@ describe('DbCollectionNavigator — property: keyboard nav never lands off a tre
   });
 });
 
-describe('DbCollectionNavigator — the placeholder kinds the mixed fixture cannot host (#66)', () => {
+describe('DbCollectionNavigator — the placeholder kinds the mixed fixture cannot host', () => {
   it('coll-empty: Down from a db with no collections skips the "No collections" placeholder', async () => {
     installAtelierMock({
       meta: {

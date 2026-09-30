@@ -34,7 +34,7 @@ export async function launchApp(userDataDir: string): Promise<ElectronApplicatio
   });
   // A test instance never shows its window (`electron/main.ts`). macOS still
   // renders a hidden window, but Linux under xvfb (CI) backgrounds it.
-  // Measured on CI (PR #122): 0 of 49 `setTimeout(0)` callbacks ran in 3s,
+  // Measured on CI: 0 of 49 `setTimeout(0)` callbacks ran in 3s,
   // one scroll event fired for a full scroll, and a CSS transition never
   // advanced. Turning background throttling off brought the timers back but
   // not the frames, so on Linux the window is also shown, inactive: under

@@ -1,5 +1,5 @@
 /**
- * X19/#55 — the shared `ContextMenu` had a mouse trigger (`onContextMenu`) at
+ * X19 — the shared `ContextMenu` had a mouse trigger (`onContextMenu`) at
  * every call site and no keyboard trigger anywhere. These two platform
  * conventions open "the context menu for the focused thing": the dedicated
  * ContextMenu key, and Shift+F10. Every caller (DbCollectionNavigator,
@@ -41,7 +41,7 @@ interface Boxed {
 }
 
 /**
- * #133 — the anchor for a keyboard-opened menu on a virtualized list's active
+ * The anchor for a keyboard-opened menu on a virtualized list's active
  * row. PageDown/PageUp or the wheel scroll the list natively, so the active
  * row can be unmounted when the key arrives. Anchor to the row when it is
  * there, otherwise to the list's top-left corner, so the open never silently

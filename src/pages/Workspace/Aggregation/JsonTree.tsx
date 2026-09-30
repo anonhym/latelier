@@ -185,7 +185,7 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
 // on a single toggle. Skip re-render unless THIS node's own expansion state
 // changed, or (when expanded) a descendant path's expansion state changed —
 // descendant paths are always prefixed with `${path}.` since paths are built
-// by dot-joining escaped segments from the root (`fieldPathKey.ts`, #86), so
+// by dot-joining escaped segments from the root (`fieldPathKey.ts`), so
 // a bare `.` at that boundary is always a real level separator, never one
 // escaped inside a name — this also covers deeper descendants, not just
 // immediate children.

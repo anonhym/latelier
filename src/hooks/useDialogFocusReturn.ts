@@ -47,7 +47,7 @@ import React from 'react';
  * `onInserted`) is the handoff case above by default, because after a drop
  * or a rename the trigger is usually a row that no longer exists — but it
  * may be wrapped too, on its own separate call, when the caller passes an
- * explicit `returnFocusTo` that outlives the mutation. #74 is the precedent:
+ * explicit `returnFocusTo` that outlives the mutation. The precedent:
  * `IndexesTab`'s `DropConfirmDialog` and `UsersTab`'s `DropUserDialog` each
  * make two calls — one for `onCancel` using the render-time captured trigger
  * (still there after a Cancel), and a second for `onDropped` passing the

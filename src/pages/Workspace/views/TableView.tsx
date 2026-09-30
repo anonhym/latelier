@@ -214,7 +214,7 @@ function TableCell({
     }
   }
 
-  // #53 — WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
+  // WCAG 2.4.11: hover alone leaves a Tab'd-to affordance invisible.
   // `onFocus`/`onBlur` here (React routes both through native `focusin`/
   // `focusout`, which bubble) act like CSS `:focus-within` on this cell —
   // real CSS was tried first and rejected for a narrower reason than an
@@ -337,7 +337,7 @@ function TableCell({
         textOverflow: 'ellipsis',
         cursor: draggable ? 'grab' : 'default',
         background: isCopied ? 'var(--atelier-accent)' : undefined,
-        // #83 — keep the flash inside the padding: the #60 active-row outline is the
+        // Keep the flash inside the padding: the active-row outline is the
         // same accent, inset 2px, and would vanish into a full-cell flash.
         backgroundClip: isCopied ? 'content-box' : undefined,
         transition: 'background 120ms',
@@ -568,7 +568,7 @@ function TableCell({
           position="bottom-start"
           withinPortal
           shadow="md"
-          // #79 — without this, closing on a click outside a focusable
+          // Without this, closing on a click outside a focusable
           // element drops focus to <body>. Safe here because this dropdown
           // has no focusable content to autofocus (see `FieldsControl`'s
           // comment for why an autofocus would break this).
@@ -631,7 +631,7 @@ interface TableRowProps {
   widths: Record<string, number>;
   indices: Set<number>;
   /**
-   * #60 — the row `useRovingFocus`'s `highlightIndex` currently names, or
+   * The row `useRovingFocus`'s `highlightIndex` currently names, or
    * `-1` when the grid doesn't have focus. Compared against a row's own
    * `index` to decide whether it paints the active-row outline — a
    * different channel from `indices` (selection), so a row can be active,
@@ -794,7 +794,7 @@ function TableRowImpl({
           cursor: 'pointer',
           fontSize: 11,
           fontFamily: 'monospace',
-          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // Sighted-visible counterpart to `aria-activedescendant`.
           // An inset outline (paints on top, reserves no layout space) so it
           // never shifts the row, and it's a different channel from the
           // selected background above it, so active-and-selected still
@@ -999,8 +999,8 @@ function TableRowImpl({
 
       {/* Row expand (AC1/AC2) — the same recursive FIELD|VALUE|TYPE tree the
           Tree view renders, via the shared `DocFieldTree`, which owns its
-          own `role="tree"`/`data-expanded-doc-section` wrapper and (#20)
-          its own roving-focus tab stop. */}
+          own `role="tree"`/`data-expanded-doc-section` wrapper and its own
+          roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
           doc={doc}
@@ -1020,14 +1020,14 @@ function TableRowImpl({
   );
 }
 
-// X19 #82 — this used to be `React.memo(TableRowImpl, comparator)` with a
-// careful index-keyed comparator (selection, copy-flash, expansion, #60
-// active row). Deleted: none of it ever ran. react-window's `List` rebuilds
-// its row array in a `useMemo` keyed on `rowProps` and hands every rebuilt
-// row a brand-new inline `style` object, so the comparator's mandatory
+// This used to be `React.memo(TableRowImpl, comparator)` with a careful
+// index-keyed comparator (selection, copy-flash, expansion, active row).
+// Deleted: none of it ever ran. react-window's `List` rebuilds its row
+// array in a `useMemo` keyed on `rowProps` and hands every rebuilt row a
+// brand-new inline `style` object, so the comparator's mandatory
 // `prev.style !== next.style` top guard returned `false` for every mounted
-// row, every time — the rest of the comparator body was unreachable. See
-// #82 for the full writeup and the render-count probe that confirmed it.
+// row, every time — the rest of the comparator body was unreachable. A
+// render-count probe confirmed it.
 //
 // Measured before deleting, not guessed. Method: a prod build, 500 seeded
 // docs (8 fields), a 1280x800 window, 28 mounted rows x 10 columns; an
@@ -1046,7 +1046,7 @@ function TableRowImpl({
 // re-measure before assuming the margin still holds; a value-based `style`
 // comparison measured 0.8ms median / 1.4ms p95 in the same conditions and
 // is the fallback if it doesn't. Every mounted row re-rendering today is
-// also what makes selection, copy-flash, expansion, and #60's active-row
+// also what makes selection, copy-flash, expansion, and the active-row
 // outline repaint; removing the memo is a no-op on behaviour, just honest
 // about it.
 
@@ -1077,10 +1077,10 @@ export function TableView({
     field: string | null;
     value: unknown;
     hasValue: boolean;
-    // #55/#69 — set by both open paths now, so Escape/click-away always has
-    // somewhere to send focus back to instead of stranding it on `<body>`.
+    // Set by both open paths, so Escape/click-away always has somewhere to
+    // send focus back to instead of stranding it on `<body>`.
     returnFocusTo?: HTMLElement | null;
-    // #69 — grabbing focus *into* the menu on open stays keyboard-only; see
+    // Grabbing focus *into* the menu on open stays keyboard-only; see
     // `useMenuFocus`'s docstring for why `returnFocusTo` alone isn't enough
     // to decide that.
     focusMenuOnOpen?: boolean;
@@ -1146,7 +1146,7 @@ export function TableView({
     y: number;
     fieldPath: string;
     value: unknown;
-    // #68/#69 — same split as the cell menu above: `returnFocusTo` is set on
+    // Same split as the cell menu above: `returnFocusTo` is set on
     // both the mouse and keyboard open paths (`DocFieldTree` injects it),
     // `focusMenuOnOpen` only on the keyboard one.
     returnFocusTo?: HTMLElement | null;
@@ -1347,7 +1347,7 @@ export function TableView({
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
   useMenuFocus(cellMenuRef, contextMenu, closeContextMenu);
 
-  // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
+  // The grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to
   // the DOM: a stable `id` per row (set in `TableRowImpl` above) named by the
   // grid's `aria-activedescendant`, kept in sync with react-window's
@@ -1426,11 +1426,11 @@ export function TableView({
         hasValue: boolean;
       },
     ) => {
-      // #69 — same restore-on-close target the keyboard path uses below, so
-      // Escape/click-away no longer strands focus on `<body>` after a
-      // right-click. `focusMenuOnOpen` stays unset: a mouse open still
-      // doesn't grab focus into the menu, only Escape now has somewhere to
-      // send it back to.
+      // Same restore-on-close target the keyboard path uses below, so
+      // Escape/click-away doesn't strand focus on `<body>` after a
+      // right-click. `focusMenuOnOpen` stays unset: a mouse open doesn't
+      // grab focus into the menu, Escape just has somewhere to send it
+      // back to.
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
@@ -1477,7 +1477,7 @@ export function TableView({
       // longer focusable at all (see the row strip's own comment), so this
       // is now the ONLY place that guard can matter.
       if (e.target !== e.currentTarget) return;
-      // #55 — Shift+F10 / ContextMenu key: open the (doc-level) cell menu for
+      // Shift+F10 / ContextMenu key: open the (doc-level) cell menu for
       // the active row. No specific field/value — `field: null` is exactly
       // what a right-click on the row background (rather than a cell) would
       // pass, so Copy value/Copy field path correctly don't render while
@@ -1485,7 +1485,7 @@ export function TableView({
       if (isContextMenuKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
-        // #133 — PageDown or the wheel can have scrolled the active row out
+        // PageDown or the wheel can have scrolled the active row out
         // and unmounted it: open anyway (anchored to the grid) and bring the
         // row back into view.
         const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
@@ -1602,7 +1602,7 @@ export function TableView({
     >
       {/* Header — sits above the List inside the same horizontal scroll
           container so columns stay aligned when the user scrolls right.
-          #53 — `role="row"` so its `columnheader` children below are valid.
+          `role="row"` so its `columnheader` children below are valid.
           It's a DOM sibling of the grid below (sticky positioning needs it
           outside the scrolling/virtualized body), not a descendant, so
           `aria-owns` on the grid (below) is what tells assistive tech this
@@ -1633,7 +1633,7 @@ export function TableView({
         {/* Gutter — keeps the header aligned with the body's fixed expand
             column, and hosts the table-level sort note. `columnheader` to
             match its row's required-owned-elements, same as the data
-            columns below (#53). */}
+            columns below. */}
         <div
           role="columnheader"
           style={{
@@ -1844,11 +1844,11 @@ export function TableView({
         role="grid"
         aria-label="Documents"
         aria-rowcount={documents.length + 1}
-        // #53 — the sticky header row lives outside this element in the DOM
+        // The sticky header row lives outside this element in the DOM
         // (see the comment above it), so `aria-owns` is what makes it the
         // grid's first row for assistive tech instead of an orphaned `row`.
         aria-owns="table-header-row"
-        // #20 — the grid is the widget's only tab stop; see `roving` above.
+        // The grid is the widget's only tab stop; see `roving` above.
         listRef={listRef}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
@@ -1879,7 +1879,7 @@ export function TableView({
         // window, beside the click-outside dismiss, so it fires the same way
         // whether or not this div happens to hold focus right now. A mouse
         // open still never focuses it; a keyboard open does, via
-        // `useMenuFocus` (#55/#87) — which is also what returns focus to the
+        // `useMenuFocus` — which is also what returns focus to the
         // grid once the window listener calls `setContextMenu(null)`, unless
         // the click that dismissed it landed on another focusable control.
         <div

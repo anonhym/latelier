@@ -30,9 +30,9 @@ export function DropCollectionConfirm({
   onDropped,
   returnFocusTo,
 }: DropCollectionConfirmProps) {
-  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
-  // container survives a drop, unlike #74's tabs which had nothing to
-  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // Both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a drop, unlike the Indexes/Users tabs' dropped rows,
+  // which leave nothing to restore to). Two calls because `useDialogFocusReturn` memoizes on its
   // own `onClose`, so one hook can't serve two different close reasons.
   const close = useDialogFocusReturn(onCancel, returnFocusTo);
   const finish = useDialogFocusReturn(onDropped, returnFocusTo);

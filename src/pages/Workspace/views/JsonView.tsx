@@ -274,8 +274,8 @@ function DocCard({
       //
       // It also keeps S6848 closed. That rule wants a role on an element with
       // a handler, not specifically an interactive one — the `role="group"`
-      // context menus in TableView carry an onClick and came back clean on the
-      // #18 scan. So the wide-area click survives without either finding.
+      // context menus in TableView carry an onClick and came back clean on a
+      // Sonar scan. So the wide-area click survives without either finding.
       role="group"
       aria-label={`Document ${idx + 1}`}
       style={{

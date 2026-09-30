@@ -54,7 +54,7 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-// #72 — was a local copy identical to navigator-disconnect.spec.tsx's own;
+// Was a local copy identical to navigator-disconnect.spec.tsx's own;
 // SonarCloud flagged the pair. Now shared, see `navigatorRoot`'s own doc.
 const root = navigatorRoot;
 
@@ -247,7 +247,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(root('Archive').getAttribute('aria-expanded')).toBe('false');
   });
 
-  // #72 — the two tests below were flagged as a self-duplicate: same
+  // The two tests below were flagged as a self-duplicate: same
   // "press keys, assert which root is expanded" shape, just with different
   // keys/roots each time. `press`/`expectExpanded` name the shape once; the
   // key sequence and expected root stay literal at each call site.
@@ -288,7 +288,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expectExpanded('Archive', false);
   });
 
-  // #58 — the roving highlight already worked (the tests above); nothing told
+  // The roving highlight already worked (the tests above); nothing told
   // assistive tech it moved. `aria-activedescendant` on the container, naming
   // a real per-row DOM `id`, is the missing half.
   it('keyboard: aria-activedescendant names the focused row as Down moves it', () => {
@@ -304,11 +304,11 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(root('Staging').id).toBe('navigator-row-conn:c2');
   });
 
-  // #58 — a row used to carry `tabIndex={-1}`, which the HTML focusing-steps
+  // A row used to carry `tabIndex={-1}`, which the HTML focusing-steps
   // algorithm still treats as click-focusable even though it's excluded from
   // Tab order. `userEvent.click` (not `fireEvent.click`, which does no focus
-  // management at all — see the CLAUDE.md/#20 note on this exact trap) moves
-  // real focus, so this is the only kind of click that can catch the bug.
+  // management at all) moves real focus, so this is the only kind of click
+  // that can catch the bug.
   it('click on a row keeps real focus on the tree container and sets the row active', async () => {
     mockTree();
     mount();
@@ -348,10 +348,9 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     expect(screen.queryByTestId('nav-db-shop')).toBeNull();
   });
 
-  // #55 — the shared ContextMenu had no keyboard open path. Shift+F10 and the
-  // dedicated ContextMenu key are the platform conventions for "open the
-  // context menu for the focused thing".
-  describe('keyboard: opening the context menu (#55)', () => {
+  // Shift+F10 and the dedicated ContextMenu key are the platform conventions
+  // for "open the context menu for the focused thing".
+  describe('keyboard: opening the context menu', () => {
     async function focusOrdersRow() {
       mockTree();
       mount({ focusedConnectionId: 'c1', activeDbName: 'shop', activeCollection: 'orders' });
@@ -369,7 +368,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       expect(await screen.findByRole('menuitem', { name: 'Rename collection' })).toBeTruthy();
     });
 
-    // #133 — the navigator is virtualized: PageDown or the wheel can scroll
+    // The navigator is virtualized: PageDown or the wheel can scroll
     // the focused row out and unmount it. jsdom mounts every row, so the
     // lookup is made to miss the way a real unmounted row would.
     it('Shift+F10 still opens the menu when the focused row is not mounted', async () => {
@@ -447,7 +446,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
       await waitFor(() => expect(document.activeElement).toBe(treeEl));
     });
 
-    // #69 — this used to assert the bug: `openMenuFor`'s mouse path left
+    // This used to assert the bug: `openMenuFor`'s mouse path left
     // `returnFocusTo` `undefined`, so closing a right-click-opened menu
     // stranded focus on `<body>` (`focusBefore`, here, since nothing had
     // focus yet). `openMenuFor` now sets `returnFocusTo: trigger` (the tree)
@@ -469,9 +468,9 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
     });
 
     // Mantine's own `FocusTrap` grabs focus into the menu on any open,
-    // mouse or keyboard, independent of `returnFocusTo` — so #69's fix
-    // (setting `returnFocusTo` on the mouse path too) only changes what
-    // happens on *close*. This is the one thing #69 says must stay true.
+    // mouse or keyboard, independent of `returnFocusTo` — so setting
+    // `returnFocusTo` on the mouse path too only changes what happens on
+    // *close*. This is the one thing that must stay true.
     it('right-click still opens without a pointer-driven focus change of its own — Mantine grabs it either way', async () => {
       const { rowEl } = await focusOrdersRow();
 

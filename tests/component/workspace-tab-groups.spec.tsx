@@ -178,11 +178,11 @@ describe('the tab strip groups tabs by Connection', () => {
     expect(within(tab('xray')).getByLabelText('Read-only')).toBeTruthy();
   });
 
-  // #55 — the shared ContextMenu had no keyboard open path; TabStrip is one
-  // of its two real call sites (the other is DbCollectionNavigator) and each
+  // The shared ContextMenu's keyboard open path. TabStrip is one of its
+  // two real call sites (the other is DbCollectionNavigator) and each
   // tab is already its own focusable element, so `e.currentTarget` doubles as
   // both the anchor and the focus-return target.
-  describe('keyboard: opening the tab context menu (#55)', () => {
+  describe('keyboard: opening the tab context menu', () => {
     it('Shift+F10 opens the menu for that tab', async () => {
       mountTwoConnections();
       await waitFor(() => expect(tabOrder()).toHaveLength(4));
@@ -277,10 +277,9 @@ describe('the tab strip groups tabs by Connection', () => {
       expect(document.activeElement).toBe(screen.getByRole('tablist', { name: 'Open tabs' }));
     });
 
-    // #69 — the mouse path (`onContextMenu`) used to leave `returnFocusTo`
-    // unset, so a right-click-opened menu closed without restoring focus
-    // anywhere. It now passes `e.currentTarget` (the tab itself), same as
-    // the keyboard path above.
+    // The mouse path (`onContextMenu`) passes `e.currentTarget` (the tab
+    // itself) as `returnFocusTo`, same as the keyboard path above, so a
+    // right-click-opened menu restores focus when it closes.
     it('a right-click-opened menu closes and returns focus to the tab, not <body>', async () => {
       mountTwoConnections();
       await waitFor(() => expect(tabOrder()).toHaveLength(4));

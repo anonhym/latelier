@@ -51,7 +51,7 @@ async function tabUntilFocused(
 }
 
 /**
- * #72 — the tests below all open the same seeded table before doing their
+ * The tests below all open the same seeded table before doing their
  * own thing with it; this was a byte-identical block (SonarCloud flagged it
  * as a self-duplicate) apart from the connection name. Pure mechanical
  * hoist: same awaits, same order, nothing added or dropped — each test
@@ -80,8 +80,7 @@ async function openSeededRovingFocusTable(
   // the widget, then going keyboard-only once there. No Run click: the
   // auto-run on open is the only query run. A second one used to land its
   // result mid-test on a slow CI runner, replacing `documents` and
-  // resetting the active row (PR #122's shard 4: 49 ArrowDowns ended on
-  // row 48).
+  // resetting the active row (49 ArrowDowns once ended on row 48).
   await ws.viewTableButton.click();
 
   const grid = win.getByRole('grid', { name: 'Documents' });
@@ -90,13 +89,14 @@ async function openSeededRovingFocusTable(
 }
 
 /**
- * #60 — `openSeededRovingFocusTable` above hoisted the *seeding*; everything
+ * `openSeededRovingFocusTable` above hoisted the *seeding*; everything
  * around it stayed copied. By the third test the memory server, the app
  * window, the `domcontentloaded` wait and the `expectConsoleClean` wrapper
  * were a third identical prologue, and SonarCloud flagged the span. Same
- * mechanical hoist as #72's: same awaits, same order, nothing added or
- * dropped. Each test keeps its own visibility assertions afterwards — the
- * first one asserts more than the other two, deliberately.
+ * mechanical hoist as `openSeededRovingFocusTable`'s: same awaits, same
+ * order, nothing added or dropped. Each test keeps its own visibility
+ * assertions afterwards — the first one asserts more than the other two,
+ * deliberately.
  */
 async function withRovingFocusTable(
   connectionName: string,
@@ -116,15 +116,15 @@ async function withRovingFocusTable(
 }
 
 /**
- * #20's roving-focus driver, driven with the keyboard alone against a real
- * Electron window and a real `mongodb-memory-server` — no `.click()` once
- * the grid itself is reached.
+ * The `useRovingFocus` roving-focus driver, driven with the keyboard alone
+ * against a real Electron window and a real `mongodb-memory-server` — no
+ * `.click()` once the grid itself is reached.
  *
  * The component suite (`table-view.spec.tsx`) already covers the
  * `aria-activedescendant` contract in isolation. What it cannot cover
  * honestly is virtualization: jsdom's `offsetWidth`/`offsetHeight` shim
  * (`tests/helpers/jsdomSetup.ts`) is sized so react-window renders the
- * *whole* list, which is exactly the condition #20 exists to handle
+ * *whole* list, which is exactly the condition the driver exists to handle
  * correctly when it's false. Only a real window has a real viewport height,
  * real `overscanCount` math, and a real `listRef.scrollToRow` — this test
  * seeds enough documents that some are provably unmounted at rest, then
@@ -163,8 +163,8 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
     // 3. End jumps to the last row — the virtualization case. The row
     // must exist in the DOM (react-window actually scrolled to mount it,
     // not just moved an index that names nothing) — a dropped or
-    // made-async `scrollToRow` call would leave it absent instead. #62 —
-    // it must also land fully on-screen, not merely mounted: on the first
+    // made-async `scrollToRow` call would leave it absent instead. It
+    // must also land fully on-screen, not merely mounted: on the first
     // jump, 47 intervening rows have never rendered, so
     // `useDynamicRowHeight` (TableView.tsx) still has each at its 24px
     // default estimate, and `scrollToRow({index: 49, align: 'auto'})`
@@ -193,18 +193,18 @@ test('table roving focus: keyboard-only navigation, including a row virtualizati
   }));
 
 /**
- * #62 — the acceptance criteria on this issue cover more than the single
- * `End` jump: "also holds for a long ArrowDown run that crosses unmeasured
- * rows". This does NOT reproduce #62 and is green before the fix too: each
- * `ArrowDown` moves by one row, so there's never an unmeasured span for
- * react-window's estimate to drift over — confirmed in the round that added
- * this test, not assumed. It's a regression guard for the long-ArrowDown
- * path specifically (a fresh grid, so every row past the initial mounted
- * range is genuinely unmeasured, unlike the test above where `End`/`Home`
+ * The fully-in-viewport guarantee covers more than the single `End` jump:
+ * it also holds for a long ArrowDown run that crosses unmeasured rows.
+ * This does NOT reproduce the clipped-row bug and is green before the fix
+ * too: each `ArrowDown` moves by one row, so there's never an unmeasured
+ * span for react-window's estimate to drift over — confirmed in the round
+ * that added this test, not assumed. It's a regression guard for the
+ * long-ArrowDown path specifically (a fresh grid, so every row past the
+ * initial mounted range is genuinely unmeasured, unlike the test above where `End`/`Home`
  * have already measured a chunk of the list), not evidence the fix holds
  * for the general case — the `End` test above is what actually proves that.
  */
-// #133 — the wheel (or PageDown) scrolls the focused grid natively, so the
+// The wheel (or PageDown) scrolls the focused grid natively, so the
 // active row can unmount. Shift+F10 used to find no row element and silently
 // do nothing; it must still open the row menu and bring the row back.
 test('table: Shift+F10 opens the row menu after the wheel scrolled the active row out', async () =>
@@ -237,11 +237,11 @@ test('table roving focus: a long ArrowDown run lands fully in the viewport, not 
   }));
 
 /**
- * #62 — `TreeView.tsx` wires the identical `useDynamicRowHeight` +
+ * `TreeView.tsx` wires the identical `useDynamicRowHeight` +
  * `scrollToRow({ align: 'auto' })` pattern through the same
  * `useRovingFocus` driver as `TableView`, so the fix belongs in the shared
  * hook rather than either view. This proves it actually holds there too,
- * not just in the view the issue happened to be filed against.
+ * not just in `TableView`.
  */
 test('tree roving focus: End lands the last row fully in the viewport', async () => {
   const { host, port } = await startMemoryServer();
@@ -262,7 +262,7 @@ test('tree roving focus: End lands the last row fully in the viewport', async ()
       await ws.openCollectionFromNavigator('shop', 'orders');
       // The auto-run on open is the only query run. A second Run click used to
       // land its result mid-test on a slow CI runner, replacing `documents`
-      // and resetting the active row (PR #122's shard 4).
+      // and resetting the active row.
       await ws.viewTreeButton.click();
 
       const tree = win.getByRole('tree', { name: 'Documents' });
@@ -310,7 +310,7 @@ test('table roving focus: a real click does not trap focus on the row — ArrowD
   }));
 
 /**
- * X19 #60 — `table-view.spec.tsx` already proves the active-row outline is
+ * X19 — `table-view.spec.tsx` already proves the active-row outline is
  * set as an inline style; that's the source of truth for whether the code
  * decided to paint it, but it's not proof the browser actually paints it.
  * Only a real window's `getComputedStyle` closes that gap, and only a real

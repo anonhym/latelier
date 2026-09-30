@@ -144,7 +144,7 @@ describe('IndexesTab — render', () => {
     await userEvent.click(screen.getByText('Drop').closest('button')!);
 
     await waitFor(() => expect(screen.queryByText('email_unique')).toBeNull());
-    // #74 fixed this — focus now lands on the tab's scroll region, not <body>.
+    // Focus lands on the tab's scroll region, not <body>.
     expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Indexes' }));
   });
 

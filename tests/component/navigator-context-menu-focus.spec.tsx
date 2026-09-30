@@ -24,13 +24,12 @@ import {
  * nothing, so the capture would be `<body>` from the start and the test would
  * pass without ever reproducing the defect.
  *
- * #58 — the trigger these dialogs get handed changed from the row to the tree
- * container. Rows no longer carry a `tabIndex` (real focus lives on the
- * container; a row is only ever named via `aria-activedescendant` — see
- * `DbCollectionNavigator.tsx`'s `onRowContextMenu`), and a plain `<div>` with
- * no `tabIndex` is not a `.focus()` target at all, so keeping `menuTrigger` as
- * the row would silently reproduce the exact `<body>` bug this file exists to
- * catch. What still must hold: focus returns *inside the tree* and
+ * The trigger these dialogs get handed is the tree container, not the row.
+ * Rows carry no `tabIndex` (real focus lives on the container; a row is only
+ * ever named via `aria-activedescendant` — see `DbCollectionNavigator.tsx`'s
+ * `onRowContextMenu`), and a plain `<div>` with no `tabIndex` is not a
+ * `.focus()` target at all, so making `menuTrigger` the row would silently
+ * reproduce the exact `<body>` bug this file exists to catch. What still must hold: focus returns *inside the tree* and
  * `aria-activedescendant` still names the row the menu was opened from.
  */
 
@@ -52,7 +51,7 @@ function mountNavigator(props: Partial<DbCollectionNavigatorProps> = {}) {
   return {
     ...result,
     /**
-     * #89 — re-render with changed `activeDbName`/`activeCollection`, the way
+     * Re-render with changed `activeDbName`/`activeCollection`, the way
      * the real parent does. `ShellSection` wires `onCollectionDropped` /
      * `onDatabaseDropped` to `tabs.closeForNamespace` and `onCollectionRenamed`
      * to `tabs.retargetCollection`, so a successful mutation always moves the
@@ -108,7 +107,7 @@ const ordersColl = {
 /**
  * A stateful `listDatabases`/`listCollections` pair, so a drop/rename/create
  * actually changes what the next fetch returns — a static mock would leave
- * the dropped row in `rows` forever and the box-2 `aria-activedescendant`
+ * the dropped row in `rows` forever and the `aria-activedescendant`
  * assertions below would pass against the unfixed `DbCollectionNavigator.tsx`
  * fallback regardless (the row it should have fallen back from would never
  * actually be gone). The `document.activeElement` assertion doesn't depend on
@@ -197,9 +196,9 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
 });
 
 /**
- * #89 — the success path of the same four dialogs. `useDialogFocusReturn`
- * used to wrap only `onCancel`; the success callback (`onDropped`/`onRenamed`/
- * `onCreated`) called straight through and stranded focus on `<body>`, even
+ * The success path of the same four dialogs. `useDialogFocusReturn` must
+ * wrap the success callback (`onDropped`/`onRenamed`/`onCreated`) as well as
+ * `onCancel`: called straight through, it strands focus on `<body>`, even
  * though every one of these dialogs is already handed the same
  * `returnFocusTo={menuTrigger}` the cancel case above proves works.
  *
@@ -214,12 +213,12 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
  * collection case below still goes red on unfixed code (`<body>`, not the
  * tree) — `fireEvent` never focuses the button, but closing the dialog still
  * leaves `document.activeElement` on `<body>` once it unmounts, so the
- * missing restore still shows. `userEvent` is kept because it's what box 4
- * asks for and because it's the trajectory a real user produces, not because
- * `fireEvent` would falsely pass here.
+ * missing restore still shows. `userEvent` is kept because it's the
+ * trajectory a real user produces, not because `fireEvent` would falsely
+ * pass here.
  *
- * Box 2 (`aria-activedescendant` still names a row that exists) rides along,
- * and needed no production code. It looks broken if you hold `activeDbName` /
+ * The `aria-activedescendant` check (it still names a row that exists) rides
+ * along, and needed no production code. It looks broken if you hold `activeDbName` /
  * `activeCollection` static across the mutation: `activeId`
  * (`coll:<conn>:<db>:<activeCollection>`) is a template string built from
  * props, not a lookup, so it stays non-null even once that exact row has been
@@ -245,11 +244,12 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
  * `DbCollectionNavigator.tsx` go green — but it was guarding a state only the
  * test produced, and it regressed seven `navigator-accordion.spec.tsx` cases
  * and then disconnect/reconnect on the way. Reverted; the assertion below
- * checks the id names a live element, which is what box 2 actually asks for.
+ * checks the id names a live element, which is what actually matters.
  *
- * Box 3 (mechanism is `useDialogFocusReturn` with an explicit `returnFocusTo`,
- * not a hand-rolled `.focus()`) is satisfied structurally by the two-hook-call
- * shape in each dialog, matching #74. It is *not* separately provable by a red
+ * That the mechanism is `useDialogFocusReturn` with an explicit
+ * `returnFocusTo`, not a hand-rolled `.focus()`, is satisfied structurally by
+ * the two-hook-call shape in each dialog, matching IndexesTab's and UsersTab's
+ * drop dialogs. It is *not* separately provable by a red
  * test in this file: `ContextMenu`'s own `handleClose` (`ContextMenu.tsx`)
  * already calls `(focusTo ?? menu.returnFocusTo)?.focus()` synchronously,
  * inside the menu item's `onClick`, before React ever renders the dialog that
@@ -258,15 +258,15 @@ describe('DbCollectionNavigator — context-menu dialogs return focus to the tre
  * time any of them mount, independent of whether `returnFocusTo` is passed
  * down explicitly. Verified by instrumenting the hook and logging `trigger`
  * with the second argument temporarily omitted: it printed the tree element,
- * not a detached node. Box 1's kill line (delete the second hook call and use
- * the raw callback — see each dialog) is what actually enforces wrapping the
- * success path at all; passing `returnFocusTo` explicitly is still correct
- * (it's what #74 established, and it stops being redundant the moment a
- * caller opens one of these dialogs some other way), but has no independent
- * red state to point at here.
+ * not a detached node. The success-path kill line (delete the second hook
+ * call and use the raw callback — see each dialog) is what actually enforces
+ * wrapping the success path at all; passing `returnFocusTo` explicitly is
+ * still correct (it's the IndexesTab/UsersTab precedent, and it stops being
+ * redundant the moment a caller opens one of these dialogs some other way),
+ * but has no independent red state to point at here.
  */
 /**
- * #89 box 2 — `aria-activedescendant` must name a row that *exists*, not merely
+ * `aria-activedescendant` must name a row that *exists*, not merely
  * be present. `activeDescendantId` only renders once `rows.find(...)` succeeds,
  * so a stale id shows up as the attribute going absent rather than dangling;
  * asserting both catches either failure.
@@ -285,7 +285,7 @@ async function expectActiveDescendantExists(tree: HTMLElement, expected: string)
  *
  * `setActive` is the per-case difference that matters: it plays the parent's
  * half of the contract after the mutation (see `mountNavigator`). Freezing it
- * instead is what made the reverted box-2 heuristic look necessary.
+ * instead is what made the reverted `activeId` heuristic look necessary.
  */
 const successCases: {
   label: string;

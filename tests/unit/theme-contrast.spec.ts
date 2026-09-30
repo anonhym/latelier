@@ -113,7 +113,7 @@ describe('contrast.ts helpers', () => {
   });
 });
 
-// X19 #83 — the #60 active-row outline is `2px solid var(--atelier-accent)`.
+// X19 — the active-row outline is `2px solid var(--atelier-accent)`.
 // It has to clear WCAG 1.4.11 (non-text contrast, >= 3:1) against every
 // *plain* background a row can show behind that outline band — the copy-flash
 // itself is handled separately (`backgroundClip: 'content-box'` on
@@ -123,7 +123,7 @@ describe('contrast.ts helpers', () => {
 // TreeView.tsx/DocFieldTree.tsx: zebra rows are `--atelier-surface` /
 // `--atelier-surface-raised`, and a selected row is the translucent
 // `--atelier-accent-soft` painted over `--atelier-surface`.
-describe('active-row outline contrast against every plain row surface (WCAG 1.4.11, X19 #83)', () => {
+describe('active-row outline contrast against every plain row surface (WCAG 1.4.11, X19)', () => {
   for (const [themeName, theme] of Object.entries(THEMES)) {
     const accent = parseColor(readVar(theme.block, '--atelier-accent'));
     const surface = parseColor(readVar(theme.block, '--atelier-surface'));

@@ -135,7 +135,7 @@ interface DocRowProps {
   /** Selected row indices (T0.4 — index-based, shared across Table/Tree/JSON). */
   indices: Set<number>;
   /**
-   * #60 — the row `useRovingFocus`'s `highlightIndex` currently names, or
+   * The row `useRovingFocus`'s `highlightIndex` currently names, or
    * `-1` when the tree doesn't have focus. Compared against a row's own
    * `index` to decide whether it paints the active-row outline — a
    * different channel from `indices` (selection), so a row can be active,
@@ -165,11 +165,10 @@ interface DocRowProps {
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
-  // #20 — stable per-row DOM id so the tree's `aria-activedescendant` (set
-  // by `useRovingFocus` in the component below) always names a real element.
+  // Stable per-row DOM id so the tree's `aria-activedescendant` (set by
+  // `useRovingFocus` in the component below) always names a real element.
   rowId: (index: number) => string;
-  // #20 — found in review: a click needs to make the clicked row the roving
-  // index too, or the next Arrow key jumps from wherever the highlight was
+  // A click needs to make the clicked row the roving index too, or the next Arrow key jumps from wherever the highlight was
   // sitting rather than from the row just clicked.
   setActiveIndex: (index: number) => void;
 }
@@ -232,14 +231,13 @@ function DocRowImpl({
           : '3px solid transparent',
       }}
     >
-      {/* Collapsed row. No `tabIndex` at all — #20 originally left
-          `tabIndex={-1}` here, but review found that any declared
-          `tabIndex` (negative included) is enough to make an element
-          click-focusable per the HTML focusing-steps algorithm, even though
-          it's excluded from *sequential* (Tab) focus. A click was leaving
-          real DOM focus on the row, so the next Arrow/Home/End reached the
-          tree's own `onKeyDown` with `e.target` = this row rather than the
-          tree, and its own-target guard swallowed it. Removing `tabIndex`
+      {/* Collapsed row. No `tabIndex` at all, not even `tabIndex={-1}`:
+          any declared `tabIndex` (negative included) is enough to make an
+          element click-focusable per the HTML focusing-steps algorithm, even
+          though it's excluded from *sequential* (Tab) focus. With one, a
+          click left real DOM focus on the row, so the next Arrow/Home/End
+          reached the tree's own `onKeyDown` with `e.target` = this row rather
+          than the tree, and its own-target guard swallowed it. Removing `tabIndex`
           lets a click's focusing steps walk up to the nearest focusable
           ancestor — the tree itself — instead, which is what makes this
           row's own former Enter/Space handler dead code (a keydown can only
@@ -263,7 +261,7 @@ function DocRowImpl({
           fontSize: 12,
           minHeight: 44,
           userSelect: 'none',
-          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // Sighted-visible counterpart to `aria-activedescendant`.
           // Inset outline, a different channel from the selected
           // background/left-border above it, so active-and-selected still
           // reads as both.
@@ -396,7 +394,7 @@ function DocRowImpl({
           which prevents native `position: sticky` from escaping the row.
           `DocFieldTree` owns its own `role="tree"`/`data-expanded-doc-section`
           wrapper (the sticky-header effect below still finds it by that
-          attribute) and, since #20, its own roving-focus tab stop. */}
+          attribute) and its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
           doc={doc}
@@ -416,9 +414,8 @@ function DocRowImpl({
   );
 }
 
-// X19 #82 — this used to be `React.memo(DocRowImpl, comparator)` with a
-// careful docId-keyed comparator (selection, copy-flash, expansion, #60
-// active row). Deleted: none of it ever ran, for the same reason as
+// This used to be `React.memo(DocRowImpl, comparator)` with a careful
+// docId-keyed comparator (selection, copy-flash, expansion, active row). Deleted: none of it ever ran, for the same reason as
 // `TableView.tsx`'s `TableRowImpl` (see the comment there for the method) —
 // react-window's `List` hands every rebuilt row a brand-new inline `style`
 // object, so the comparator's mandatory `prev.style !== next.style` top
@@ -430,7 +427,7 @@ function DocRowImpl({
 // and p95 0.5-0.6ms per keypress — an order of magnitude under the 8.3ms
 // half-frame line, unlike Table's borderline result. No re-render cost
 // worth memoizing away here. Every mounted row re-rendering is also what
-// makes selection, copy-flash, expansion, and #60's active-row outline
+// makes selection, copy-flash, expansion, and the active-row outline
 // repaint today; removing the memo is a no-op on behaviour.
 
 export function TreeView({
@@ -481,7 +478,7 @@ export function TreeView({
     y: number;
     fieldPath: string;
     value: unknown;
-    // #68/#69 — `DocFieldTree` sets `returnFocusTo` on both the mouse and
+    // `DocFieldTree` sets `returnFocusTo` on both the mouse and
     // keyboard open paths, `focusMenuOnOpen` only on the keyboard one. See
     // `useMenuFocus`'s docstring.
     returnFocusTo?: HTMLElement | null;
@@ -566,9 +563,8 @@ export function TreeView({
     [state.queryRaw, state.activeBuilderTab, actions],
   );
 
-  // #68 — this menu previously had no Escape path at all, only
-  // click-outside; a keyboard-opened menu with no keyboard way out would
-  // fail #68's own acceptance. `useMenuFocus` owns dismiss and focus both.
+  // A keyboard-opened menu needs a keyboard way out, not just
+  // click-outside. `useMenuFocus` owns dismiss and focus both.
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
   useMenuFocus(fieldMenuRef, contextMenu, closeContextMenu);
 
@@ -590,7 +586,7 @@ export function TreeView({
   // no library-side scroll correction on resize.
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 44 });
 
-  // #20 — the tree is the widget's single tab stop; see `TableView`'s
+  // The tree is the widget's single tab stop; see `TableView`'s
   // identical wiring (and `useRovingFocus`'s docstring) for why the scroll
   // has to happen synchronously with the index change.
   const listRef = useListRef(null);
@@ -750,7 +746,7 @@ export function TreeView({
           // aria-required-parent). `tree` is the one they need.
           role="tree"
           aria-label="Documents"
-          // #20 — the tree is the widget's only tab stop; see `roving` above.
+          // The tree is the widget's only tab stop; see `roving` above.
           listRef={listRef}
           tabIndex={roving.containerProps.tabIndex}
           aria-activedescendant={roving.containerProps['aria-activedescendant']}

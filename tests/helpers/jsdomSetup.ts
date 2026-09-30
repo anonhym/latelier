@@ -102,7 +102,7 @@ beforeEach(() => {
 // priority, and the run fails as an unhandled rejection with every individual
 // test passing. It surfaces only under load, so it reads as a flake.
 //
-// `installJsdomTeardown` (see tests/helpers/jsdomTeardown.ts, #110) kills the
+// `installJsdomTeardown` (see tests/helpers/jsdomTeardown.ts) kills the
 // whole class — including `@mantine/notifications`' 4-6s auto-close timer,
 // which no per-component fix can reach, and including components that don't
 // exist yet. The `unit` project's jsdom-opt-in hook specs call it directly,

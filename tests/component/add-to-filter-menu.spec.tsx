@@ -56,10 +56,10 @@ const DOC = { _id: { $oid: DOC_OID }, name: 'alpha' };
 // Expansion state is keyed by `getFullDocId` (the full `$oid`), not the
 // short 8-char label the collapsed row displays — see `docId.ts`.
 const EXPANDED = { [DOC_OID]: true };
-// A second field, for the #87 replacement test below — one Shift+F10 on
-// "name" then another on "role", with no close in between.
+// A second field, for the menu-replacement case — one Shift+F10 on "name"
+// then another on "role", with no close in between.
 const DOC2 = { ...DOC, role: 'admin' };
-// A second document, for #87's cell-level-menu replacement test — a
+// A second document, for the cell-level menu's replacement case — a
 // different row's cell, right-clicked with no close in between.
 const DOC_B = { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'bravo' };
 
@@ -71,11 +71,11 @@ function fieldTreeOf(container: HTMLElement): HTMLElement {
 }
 
 /**
- * X19 #87 — shared coverage for dismissing one of the three hand-rolled
- * menus behind `useMenuFocus`, parameterized per call site since each opens
+ * X19 — shared coverage for dismissing one of the three hand-rolled menus
+ * behind `useMenuFocus`, parameterized per call site since each opens
  * differently and returns focus to a different container. The assertions
- * are identical everywhere — acceptance box 5, "one mechanism, not one per
- * menu" — only how each site opens/targets differs.
+ * are identical everywhere — one mechanism, not one per menu — only how
+ * each site opens/targets differs.
  */
 function describeMenuFocusOnDismiss(opts: {
   mount: () => { container: HTMLElement };
@@ -87,7 +87,7 @@ function describeMenuFocusOnDismiss(opts: {
   /** Label of a menu item that both acts and closes the menu. */
   activateItemLabel: string;
 }): void {
-  describe('focus on dismiss (#87)', () => {
+  describe('focus on dismiss', () => {
     it('clicking a focusable control while the menu is open leaves focus on that control', async () => {
       const user = userEvent.setup();
       const { container } = opts.mount();
@@ -155,7 +155,7 @@ function describeMenuFocusOnDismiss(opts: {
       await waitFor(() => expect(document.activeElement).toBe(target));
     });
 
-    // #87 review finding — a suppressed close leaves `suppressRef.current`
+    // A suppressed close leaves `suppressRef.current`
     // `true`. Escape and an outside click both recompute or clear it
     // themselves on their own next run, but item activation does neither:
     // React flushes the `setContextMenu(null)` from the item's own `onClick`
@@ -184,22 +184,22 @@ function describeMenuFocusOnDismiss(opts: {
       elsewhere.remove();
     });
 
-    // #87's second facet (a second right-click on a different cell/field,
-    // no close in between, must never restore the *previous* menu's target)
-    // is deliberately NOT re-asserted here with a `focus` spy. Measured: a
-    // right-click on a non-focusable row already makes jsdom's own
-    // mousedown-focusing-steps call `.focus()` on this same target (the
-    // nearest focusable ancestor) before `useMenuFocus` ever runs — exactly
-    // the masking `useMenuDismiss`'s #87 comment describes for the mouse
-    // path. A spy at this level counts that native call as well as any of
-    // the hook's own, so it cannot isolate the hook's behavior. `useMenuFocus.spec.ts`'s
-    // `renderHook` tests own this acceptance box instead, against a bare
-    // ref with no browser click involved.
+    // The menu-replacement case (a second right-click on a different
+    // cell/field, no close in between, must never restore the *previous*
+    // menu's target) is deliberately NOT re-asserted here with a `focus`
+    // spy. Measured: a right-click on a non-focusable row already makes
+    // jsdom's own mousedown-focusing-steps call `.focus()` on this same
+    // target (the nearest focusable ancestor) before `useMenuFocus` ever
+    // runs, which masks the hook's own call on the mouse path. A spy at this
+    // level counts that native call as well as any of the hook's own, so it
+    // cannot isolate the hook's behavior. `useMenuFocus.spec.ts`'s
+    // `renderHook` tests own this case instead, against a bare ref with no
+    // browser click involved.
   });
 }
 
 /**
- * X19 #87 — `TreeView` and `TableView` reach the *same* field menu (both
+ * X19 — `TreeView` and `TableView` reach the *same* field menu (both
  * render a `DocFieldTree`), so both open it and return focus to it exactly
  * alike. Only `mount` differs. Declared once for the same reason
  * `describeFieldMenuKeyboardAndFocusReturn` below is: the two copies were
@@ -240,17 +240,17 @@ async function confirmAdd() {
 }
 
 /**
- * X19 #68/#69 — `TreeView` and `TableView` reach the *same* field menu: both
+ * X19 — `TreeView` and `TableView` reach the *same* field menu: both
  * render a `DocFieldTree`, and the menu belongs to that tree, not to either
  * view. The two copies of this block were identical apart from which view
  * `mount` rendered, and SonarCloud measured the file at 47.9% duplication.
  * Declared once here and called from inside each view's own `describe`, so
  * each still runs against its own mount.
  *
- * `userEvent`, not `fireEvent`, per #68's own acceptance — `fireEvent` does
- * no focus management at all, which is how #20's defect survived 48 passing
- * tests. The one `fireEvent.keyDown` below is deliberate: the ContextMenu
- * key has no `userEvent` spelling.
+ * `userEvent`, not `fireEvent` — `fireEvent` does no focus management at
+ * all, so a focus defect can pass a whole suite of `fireEvent` tests. The
+ * one `fireEvent.keyDown` below is deliberate: the ContextMenu key has no
+ * `userEvent` spelling.
  */
 function describeFieldMenuKeyboardAndFocusReturn(
   mount: () => { container: HTMLElement },
@@ -262,7 +262,7 @@ function describeFieldMenuKeyboardAndFocusReturn(
   const rowOf = (container: HTMLElement) =>
     within(fieldTreeOf(container)).getByTitle(/Drag to add "name/);
 
-  describe('keyboard open and focus return (#68/#69)', () => {
+  describe('keyboard open and focus return', () => {
     it('Shift+F10 opens the menu with all three items reachable, and Escape returns focus to the field tree', async () => {
       const user = userEvent.setup();
       const { container } = mount();
@@ -274,8 +274,8 @@ function describeFieldMenuKeyboardAndFocusReturn(
       expect(await screen.findByText('Copy value')).toBeTruthy();
       expect(screen.getByText('Copy field path')).toBeTruthy();
       expect(screen.getByText('Add to filter')).toBeTruthy();
-      // Focus entered the menu on open — keyboard-only (#69), unlike the
-      // mouse path below.
+      // Focus entered the menu on open — keyboard-only, unlike the mouse
+      // path below.
       await waitFor(() =>
         expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
       );
@@ -293,9 +293,9 @@ function describeFieldMenuKeyboardAndFocusReturn(
       expect(await screen.findByText('Copy value')).toBeTruthy();
     });
 
-    // #69 — one mechanism for both open paths: a right-click still does not
-    // grab focus into the menu, but Escape now has somewhere real to send
-    // focus back to instead of stranding it on `<body>`.
+    // One mechanism for both open paths: a right-click does not grab focus
+    // into the menu, but Escape has somewhere real to send focus back to
+    // instead of stranding it on `<body>`.
     it('a right-click on a field row, then Escape, returns focus to the field tree — not <body>', async () => {
       const user = userEvent.setup();
       const { container } = mount();
@@ -303,7 +303,7 @@ function describeFieldMenuKeyboardAndFocusReturn(
 
       await user.pointer({ keys: '[MouseRight]', target: rowOf(container) });
       expect(await screen.findByText('Copy value')).toBeTruthy();
-      // Unchanged from before #69: a mouse open does not steal focus.
+      // A mouse open does not steal focus.
       expect(document.activeElement?.closest('[role="group"]')).toBeNull();
 
       await user.keyboard('{Escape}');
@@ -552,7 +552,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       actions?: Partial<CollectionWorkspaceActions>;
       meta?: Partial<CollectionWorkspaceMeta>;
       doc?: Record<string, unknown>;
-      // #87 — a second row, for the replacement test: right-click "name" on
+      // A second row, for the replacement case: right-click "name" on
       // row 0, then again on row 1, with no close in between.
       docs?: Record<string, unknown>[];
     } = {}) {

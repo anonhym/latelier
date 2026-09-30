@@ -189,8 +189,8 @@ describe('TreeView — rendering and interaction', () => {
     expect(container.querySelector('[data-selected="true"]')).not.toBeNull();
   });
 
-  // #20 — roving focus: the tree itself is the widget's only tab stop.
-  describe('roving focus (#20)', () => {
+  // Roving focus: the tree itself is the widget's only tab stop.
+  describe('roving focus', () => {
     const threeDocs = [
       { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' },
       { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'b' },
@@ -294,9 +294,9 @@ describe('TreeView — rendering and interaction', () => {
     });
   });
 
-  // #60 — the active row is announced (aria-activedescendant, #20) but was
-  // never drawn. These assert the real inline outline, not an attribute.
-  describe('active-row visual highlight (#60)', () => {
+  // The active row is announced (aria-activedescendant) and must also be
+  // drawn. These assert the real inline outline, not an attribute.
+  describe('active-row visual highlight', () => {
     const threeDocs = [
       { _id: 1, name: 'a' },
       { _id: 2, name: 'b' },

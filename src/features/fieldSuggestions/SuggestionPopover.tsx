@@ -42,7 +42,7 @@ interface Props {
   onClose: () => void;
   /** When false, the component renders nothing. */
   open: boolean;
-  /** #130 — the listbox's accessible name; the builder's operator box passes its own. */
+  /** The listbox's accessible name; the builder's operator box passes its own. */
   label?: string;
 }
 

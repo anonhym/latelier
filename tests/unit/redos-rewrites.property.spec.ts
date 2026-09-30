@@ -35,7 +35,7 @@ function mk(overrides: Partial<Connection>): Connection {
 }
 
 /**
- * S8786 — the regexes rewritten in #13 group 3 all had two variable-length
+ * S8786 — the rewritten regexes covered below all had two variable-length
  * parts that could be re-split against each other, so rejecting a long input
  * cost O(n^2). Each rewrite is supposed to accept exactly what it accepted
  * before, only without that ambiguity.

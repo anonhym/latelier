@@ -292,7 +292,7 @@ describe('deriveColumns field ordering', () => {
   });
 });
 
-describe('ariaSortFor (#53)', () => {
+describe('ariaSortFor', () => {
   it('is undefined for a non-sortable column regardless of dir', () => {
     expect(ariaSortFor(false, undefined)).toBeUndefined();
     expect(ariaSortFor(false, 1)).toBeUndefined();

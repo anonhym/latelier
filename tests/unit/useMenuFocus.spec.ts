@@ -9,7 +9,7 @@ import { renderHook } from '../helpers/render';
 import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useMenuFocus } from '../../src/hooks/useMenuFocus';
 
-// #110 — unmount and clear pending timers after each test; see
+// Unmount and clear pending timers after each test; see
 // tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
 installJsdomTeardown();
 
@@ -164,7 +164,7 @@ describe('useMenuFocus', () => {
     ).not.toThrow();
   });
 
-  // --- #87: replacement must not fire the restore ---
+  // --- replacement must not fire the restore ---
 
   it('replacing an open menu with another open (no close in between) never calls returnFocusTo.focus()', () => {
     const { container } = mountMenu();
@@ -184,7 +184,7 @@ describe('useMenuFocus', () => {
     expect(focusSpyB).not.toHaveBeenCalled();
   });
 
-  // #87's actual regression target: a naive "do nothing on replace" fix
+  // The actual regression target: a naive "do nothing on replace" fix
   // would also silently stop grabbing focus into a *replacement* keyboard
   // open. `focusMenuOnOpen` must still fire every time it's set, replacement
   // included.
@@ -216,9 +216,9 @@ describe('useMenuFocus', () => {
     expect(document.activeElement).toBe(button);
   });
 
-  // --- #87: suppress-on-outside-click, and its staleness across a replace ---
+  // --- suppress-on-outside-click, and its staleness across a replace ---
 
-  describe('outside-click suppression (#87)', () => {
+  describe('outside-click suppression', () => {
     it('suppresses the restore when a window click lands on another focusable control', async () => {
       const user = userEvent.setup();
       const { container } = mountMenu();

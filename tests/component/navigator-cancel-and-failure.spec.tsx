@@ -286,9 +286,9 @@ describe('DbCollectionNavigator — a failure surfaces where it happened (X16 §
     expect(rootsAndFailuresInOrder()).toEqual(['root:c1', 'root:c2', 'failure:c2']);
   });
 
-  // #66 — a failure row is a placeholder (like a skeleton or an empty
+  // A failure row is a placeholder (like a skeleton or an empty
   // state): it carries no `id` and nothing an `aria-activedescendant` could
-  // land on, so arrow navigation now steps over it entirely instead of
+  // land on, so arrow navigation steps over it entirely instead of
   // visiting it. This replaces the old two-hop "Down onto the failure row,
   // then Down again" version of this same test.
   it('keyboard: Down skips a root’s own failure row and reaches the next root directly', async () => {

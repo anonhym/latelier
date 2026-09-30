@@ -1,16 +1,16 @@
 import React from 'react';
 
 /**
- * X19/#55/#68/#69/#87 — dismiss and focus management for a hand-rolled
+ * X19 — dismiss and focus management for a hand-rolled
  * (non-`ContextMenu`-component) context menu: `TableView`'s cell/field
  * menus, `TreeView`'s field menu. Replaces `useKeyboardMenuFocus` and
- * `useMenuDismiss`, which used to split this job in two — see #87 for why
- * that split was the bug.
+ * `useMenuDismiss`, which used to split this job in two — see "Two
+ * independent defects, one root cause" below for why that split was the bug.
  *
  * The shared Mantine-backed `ContextMenu` doesn't need this: `Menu`'s own
  * `FocusTrap` grabs focus on open regardless of how it was opened, and its
- * `handleClose` restores focus itself. #87 measured whether `ContextMenu`
- * has the same "outside click steals focus back" defect this hook fixes,
+ * `handleClose` restores focus itself. Whether `ContextMenu` has the same
+ * "outside click steals focus back" defect this hook fixes was measured
  * against jsdom + `userEvent` (`ContextMenu`, an `outside` button, a click on
  * that button) — it does not: Mantine's outside-click dismiss fires on
  * `pointerdown`, before the click's own focusing step runs, so `handleClose`'s
@@ -26,11 +26,11 @@ import React from 'react';
  * `close` fires on any window click, wherever it lands — a click is a
  * deliberate statement of where the user wants to be, and the old dismiss
  * listener couldn't tell "landed on nothing focusable" from "landed on
- * another control" (#87's first facet). Separately, the old focus hook's
+ * another control". Separately, the old focus hook's
  * cleanup fired on *any* dependency change, including one open being
  * replaced by another (a second right-click, no close in between) — so it
  * restored focus to the *previous* menu's target even though nothing had
- * closed (#87's second facet, filed as a comment on the same issue).
+ * closed.
  *
  * Both are fixed by moving the restore out of an effect cleanup and into the
  * effect body, gated on `menu` having actually become `null`: a replacement
@@ -129,7 +129,7 @@ export function useMenuFocus(
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // Mutation review — this reset survives deletion today (every
+      // This reset survives mutation-test deletion today (every
       // *human* Escape reaches here through the same synchronous handler
       // that already computed a fresh `suppressRef` on the open, or none
       // at all), but it is kept deliberately rather than ceded: `close()`
@@ -142,11 +142,9 @@ export function useMenuFocus(
       // still reach this same `onKey` while a prior click's `suppressRef =
       // true` is live, and without this line it would suppress an Escape
       // that must never be suppressed. Cheap to keep, load-bearing under a
-      // plausible-if-rare interleaving — #60 kept its index-keyed row
-      // comparator checks unreachable-today for the same reason (blocked
-      // on the open #82, not yet resolved either way), rather than delete
-      // them, specifically so a later fix elsewhere can't silently turn
-      // into a regression.
+      // plausible-if-rare interleaving — kept rather than deleted
+      // specifically so a later fix elsewhere can't silently turn into a
+      // regression.
       suppressRef.current = false;
       close();
     };

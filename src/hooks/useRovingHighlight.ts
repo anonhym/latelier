@@ -24,7 +24,7 @@ function clampedIndex(stored: Stored, count: number, resetKey: unknown): number 
  * a manual `window`/anchor `addEventListener`) to unify that too; this hook
  * only owns "what index is highlighted right now."
  *
- * `move` computes from the latest highlight a setter wrote (#126), clamped
+ * `move` computes from the latest highlight a setter wrote, clamped
  * with the same rules as `index`, not from the raw stored one — this is `ConnectionSwitcher`'s original approach (the one named
  * "the better base" when this hook was extracted), which stays correct
  * even when `count` shrinks out from under a standing highlight for a
@@ -44,7 +44,7 @@ export function useRovingHighlight(count: number, resetKey?: unknown): RovingHig
   const [state, setState] = React.useState<Stored>({ raw: 0, key: resetKey });
   const index = clampedIndex(state, count, resetKey);
 
-  // #126 — the latest value either setter wrote, before React re-renders.
+  // The latest value either setter wrote, before React re-renders.
   // Two key events can reach a handler before the first one's render
   // commits (seen on CI: the second ArrowDown re-computed from the same
   // render-time `index`, and one step was lost). `move` therefore reads

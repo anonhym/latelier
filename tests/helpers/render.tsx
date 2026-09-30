@@ -92,7 +92,7 @@ export function titleBar(): ReturnType<typeof within> {
 }
 
 /**
- * X19 #54 — asserts the shared `DisclosureToggle` shape used by IndexesTab
+ * X19 — asserts the shared `DisclosureToggle` shape used by IndexesTab
  * and UsersTab: `aria-expanded` toggles on both Enter and Space, the detail
  * content behind `detailMatcher` follows it, and focus never leaves the
  * toggle across either interaction. One helper rather than copying this
@@ -119,12 +119,12 @@ export async function expectKeyboardDisclosureToggle(
 }
 
 /**
- * X19 #56 — the two `role="separator"` assertions that three resize specs
+ * X19 — the two `role="separator"` assertions that three resize specs
  * (output-panel, script-tab, resize-handle-edges) had written out verbatim.
  *
  * Both take the *physical* arrow keys, never an `edge` or an axis. Which
- * arrow grows and which shrinks is exactly what went wrong twice on this
- * ticket; if these helpers derived the keys the way `ResizeHandle` does,
+ * arrow grows and which shrinks is exactly what has gone wrong before; if
+ * these helpers derived the keys the way `ResizeHandle` does,
  * the two would share a derivation and no test could ever catch an
  * inversion again. The call site states the keys, the helper owns only the
  * clamp/step/focus mechanics.
@@ -168,7 +168,7 @@ export async function expectSeparatorResizesPanel(
 }
 
 /**
- * X19 #60 — the active-row outline lifecycle common to every roving-focus
+ * X19 — the active-row outline lifecycle common to every roving-focus
  * widget's spec (`TableView`'s grid, `TreeView`'s tree, `DocFieldTree`'s own
  * tree): no row carries the outline before the container has focus, the row
  * at `from` gains it once the container does, `key` moves it from `from` to
@@ -176,8 +176,8 @@ export async function expectSeparatorResizesPanel(
  *
  * Asserts the real inline style (`el.style.outline`), never an attribute —
  * an attribute-only assertion cannot go red when the paint itself is
- * deleted, which is exactly how #56 shipped. Takes `key`/`from`/`to` as
- * explicit parameters rather than deriving them from the widget under test,
+ * deleted. Takes `key`/`from`/`to` as explicit parameters rather than
+ * deriving them from the widget under test,
  * so the test states what it expects instead of recomputing the code's own
  * index arithmetic and agreeing with a bug.
  */
@@ -201,7 +201,7 @@ export function expectActiveRowOutlineLifecycle(
 }
 
 /**
- * #72 — byte-identical in `tree-view.spec.tsx` and `table-view.spec.tsx`
+ * Byte-identical in `tree-view.spec.tsx` and `table-view.spec.tsx`
  * (SonarCloud flagged the pair as duplicated). Every field is a stub;
  * override individual actions with `overrides` the way both call sites did.
  */
@@ -224,7 +224,7 @@ export function emptyWorkspaceActions(
 }
 
 /**
- * #72 — see `emptyWorkspaceActions` above; same duplicate pair. `overrides`
+ * See `emptyWorkspaceActions` above; same duplicate pair. `overrides`
  * carries the same defaults every local copy of this stub had picked
  * (`c1`/`app`/`orders`/`t1`), so a call site that varied one field keeps
  * varying exactly that field.
@@ -243,7 +243,7 @@ export function emptyWorkspaceMeta(
 }
 
 /**
- * #72 — `DbCollectionNavigator`'s root row, by the name a person reads on
+ * `DbCollectionNavigator`'s root row, by the name a person reads on
  * it. Byte-identical in `navigator-accordion.spec.tsx` and
  * `navigator-disconnect.spec.tsx` (SonarCloud flagged the pair).
  */

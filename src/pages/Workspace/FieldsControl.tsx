@@ -225,12 +225,12 @@ export function FieldsControl() {
 
   const dragIndex = React.useRef<number | null>(null);
 
-  // Keyboard reorder path (#57): same `moveField` entry point as onDrop, plus
+  // Keyboard reorder path: same `moveField` entry point as onDrop, plus
   // focus management drag never needed. Moving a field to an end disables
   // the button the user just pressed (acceptance: disabled, not a no-op) —
-  // a disabled focused button drops focus to <body> (the #55/#70 defect), so
-  // `pendingMoveRef` records which button was pressed and a layout effect,
-  // once `orderedFields` reflects the real reorder, redirects focus to the
+  // a disabled focused button drops focus to <body>, so `pendingMoveRef`
+  // records which button was pressed and a layout effect, once
+  // `orderedFields` reflects the real reorder, redirects focus to the
   // still-enabled sibling button on that same row.
   const buttonRefs = React.useRef(new Map<string, { up: HTMLButtonElement | null; down: HTMLButtonElement | null }>());
   const pendingMoveRef = React.useRef<{ field: string; direction: MoveDirection } | null>(null);
@@ -333,7 +333,7 @@ export function FieldsControl() {
       position="bottom-end"
       shadow="md"
       withinPortal
-      // #79 — a click that closes the popover on a non-focusable area
+      // A click that closes the popover on a non-focusable area
       // otherwise drops focus to <body>. Mantine's own `useFocusReturn` only
       // restores when the element focused at close is still `null`/`<body>`/
       // itself, so a click on another control still keeps focus there. Safe
@@ -472,7 +472,7 @@ export function FieldsControl() {
           </Stack>
         )}
         {/* `aria-live`: announces a keyboard reorder's result, which is
-            otherwise silent to anyone not watching the list (#57). */}
+            otherwise silent to anyone not watching the list. */}
         <VisuallyHidden aria-live="polite">{announcement}</VisuallyHidden>
 
         {/* Computed columns only feed TableView's rendering — meaningless

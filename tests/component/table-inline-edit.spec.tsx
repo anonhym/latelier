@@ -70,7 +70,7 @@ function stateWithDocs(
  * `$set`+guard shape or the error-feedback path (T2.6 plan validation:
  * "real/stateful actions object, not a noop spy").
  *
- * #72 — both harnesses below had their own byte-identical copy of this.
+ * Both harnesses below had their own byte-identical copy of this.
  * They differed in one respect: the rerenderable harness hardcoded
  * `openDuplicate: vi.fn()` rather than honouring `opts`. Unifying on
  * `opts.openDuplicate ?? vi.fn()` changes nothing today — that harness's

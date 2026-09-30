@@ -3,13 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { waitFor } from './render';
 
 /**
- * #79 — every Popover-anchored trigger in the Data View owes the same three
+ * Every Popover-anchored trigger in the Data View owes the same three
  * cases: an Escape guard, a click-another-control guard, and the regression
  * itself (a click that closes the popover on a non-focusable area must not
  * drop focus to `<body>`). Column chooser, preview picker, and the table's
- * expand-cell popover were three near-identical copies of this block —
- * SonarCloud's new-code duplication gate on this repo, same shape #56/#72
- * already hit — so it lives here once.
+ * expand-cell popover were three near-identical copies of this block — the
+ * shape SonarCloud's new-code duplication gate on this repo flags — so it
+ * lives here once.
  *
  * `open` renders and opens the popover fresh for each case (state must not
  * leak between them) and returns the now-focused trigger; `focusInside`, if

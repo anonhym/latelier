@@ -101,7 +101,7 @@ export function UsersTab({
   // never during render (`react-hooks/refs`), so this can't be
   // `scrollRegionRef.current` inline in the JSX below.
   const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
-  // #74's focus-return target for a successful drop: the row is gone by then,
+  // Focus-return target for a successful drop: the row is gone by then,
   // but this scroll region is mounted for the tab's whole lifetime. Not the
   // "Refresh" button, the obvious-looking alternative — it's `disabled={loading}`,
   // and the success path kicks off a reload, so it is disabled at the exact

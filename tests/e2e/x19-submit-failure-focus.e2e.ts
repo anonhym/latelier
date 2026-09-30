@@ -13,7 +13,7 @@ import { expectConsoleClean } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * #91 — a confirm/submit button inside a dialog (Modal or Drawer) that goes
+ * A confirm/submit button inside a dialog (Modal or Drawer) that goes
  * real-`disabled` on activation gets blurred to `<body>` by Chromium a beat
  * later (`disabled={... || submitting}` was the shape every one of these
  * dialogs shared) — see the timing note below. On a failure that leaves the

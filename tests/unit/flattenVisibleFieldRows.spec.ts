@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { flattenVisibleFieldRows } from '../../src/pages/Workspace/views/docFieldFlatten';
 
 // Pure — no React, no DOM — so this runs in plain Node, unlike the
-// roving-focus hook specs alongside it. Backs #20's field-tree navigation:
-// `DocFieldTree`'s roving container needs the exact order `FieldNode`'s own
-// recursion renders rows in, recomputed from `expandedPaths` on every call.
+// roving-focus hook specs alongside it. Backs the field tree's keyboard
+// navigation: `DocFieldTree`'s roving container needs the exact order
+// `FieldNode`'s own recursion renders rows in, recomputed from
+// `expandedPaths` on every call.
 describe('flattenVisibleFieldRows', () => {
   it('lists top-level fields in document order, none expandable', () => {
     const rows = flattenVisibleFieldRows({ a: 1, b: 'x' }, 'doc1', new Set());
@@ -39,7 +40,7 @@ describe('flattenVisibleFieldRows', () => {
       'doc1::obj.y',
       'doc1::leaf',
     ]);
-    // #68 — the field menu's keyboard-open path needs `fieldPath`/`value`
+    // The field menu's keyboard-open path needs `fieldPath`/`value`
     // straight off the flat row, dot-joined without the docId prefix.
     expect(rows.map((r) => r.fieldPath)).toEqual(['obj', 'obj.x', 'obj.y', 'leaf']);
     expect(rows.map((r) => r.value)).toEqual([{ x: 1, y: 2 }, 1, 2, 'v']);
@@ -74,7 +75,7 @@ describe('flattenVisibleFieldRows', () => {
     expect(flattenVisibleFieldRows({}, 'doc1', new Set())).toEqual([]);
   });
 
-  // #86 — a field named "a.b" used to produce the same `path` as nested
+  // A field named "a.b" used to produce the same `path` as nested
   // field `b` under top-level `a` (`${docId}::a.b` either way). Escaping `.`
   // in a segment before joining (`fieldPathKey.ts`) keeps them distinct.
   it('a field name containing a dot does not collide with a same-shaped nested path', () => {
@@ -82,8 +83,8 @@ describe('flattenVisibleFieldRows', () => {
     const paths = rows.map((r) => r.path);
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual(['doc1::a\\.b', 'doc1::a', 'doc1::a.b']);
-    // `fieldPath` (the real Mongo dot-path, unescaped) is untouched by #86 —
-    // it still collides, which is a separate, out-of-scope `$getField` issue.
+    // `fieldPath` (the real Mongo dot-path, unescaped) is untouched by that
+    // escaping — it still collides, which is a separate, out-of-scope `$getField` issue.
     expect(rows.map((r) => r.fieldPath)).toEqual(['a.b', 'a', 'a.b']);
   });
 });

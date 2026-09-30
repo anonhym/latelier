@@ -125,7 +125,7 @@ export function reorder<T>(list: T[], from: number, to: number): T[] {
 }
 
 /**
- * `aria-sort` for a Table header cell (#53). A non-sortable column (a
+ * `aria-sort` for a Table header cell. A non-sortable column (a
  * computed accessor column, or a plain column when the view has no
  * `onSortField` at all) gets `undefined` — no attribute at all — rather than
  * `'none'`, which ARIA reserves for a sortable-but-currently-unsorted column.

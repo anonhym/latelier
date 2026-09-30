@@ -31,10 +31,11 @@ export function RenameCollectionModal({
   const trimmed = newName.trim();
   const canSubmit = trimmed.length > 0 && trimmed !== collection;
 
-  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
-  // container survives a rename, unlike #74's tabs which had nothing to
-  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
-  // own `onClose`, so one hook can't serve two different close reasons.
+  // Both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a rename, unlike a drop in the Users/Indexes tabs,
+  // which leaves nothing to restore to). Two calls because
+  // `useDialogFocusReturn` memoizes on its own `onClose`, so one hook can't
+  // serve two different close reasons.
   const close = useDialogFocusReturn(onCancel, returnFocusTo);
   const finish = useDialogFocusReturn(() => onRenamed(trimmed), returnFocusTo);
 

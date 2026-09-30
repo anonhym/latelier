@@ -392,7 +392,7 @@ export function ConnectionSwitcher({
   // Deferred rather than checked in the effect body: a click on a
   // non-focusable area closes the popover on mousedown, and Chromium's own
   // mousedown default action blurs to <body> only *after* that — a synchronous
-  // check sees focus still in the dropdown and misses it (#79).
+  // check sees focus still in the dropdown and misses it.
   React.useEffect(() => {
     if (opened) {
       wasOpenRef.current = true;

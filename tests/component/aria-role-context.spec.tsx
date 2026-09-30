@@ -8,8 +8,7 @@ import type { CollectionTabState } from '@shared/types';
 
 /**
  * Two ARIA rules that a lint-driven accessibility pass gets wrong in opposite
- * directions, both found by review on #13's PR after the lint findings were
- * already green:
+ * directions, both still present once the lint findings are already green:
  *
  * 1. **Required context.** `treeitem` needs a `tree` ancestor and `option`
  *    needs a `listbox`. react-window labels its own container `role="list"`,
@@ -54,7 +53,7 @@ function wrap(view: CollectionTabState['view'], node: React.ReactNode) {
 
 /**
  * Nearest ancestor carrying an explicit role — generic elements are
- * transparent. Falls back to `aria-owns` (#53): a sticky/virtualized header
+ * transparent. Falls back to `aria-owns`: a sticky/virtualized header
  * row can be a DOM *sibling* of its grid rather than a descendant, and
  * `aria-owns` is ARIA's own mechanism for declaring that logical parentage
  * without moving anything in the DOM — a plain ancestor walk alone can't see
@@ -85,7 +84,7 @@ describe('required role context', () => {
     for (const row of rows) {
       expect(nearestRoleAncestor(row)).toBe('grid');
       // A row owns cells, not arbitrary content — the header row's are
-      // `columnheader` (#53), every other row's are `gridcell`.
+      // `columnheader`, every other row's are `gridcell`.
       expect(
         row.querySelectorAll('[role="gridcell"], [role="columnheader"]').length,
       ).toBeGreaterThan(0);

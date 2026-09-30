@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { resizeKeyStep, RESIZE_STEP } from '../../src/pages/Workspace/resizeKeyStep';
 
 /**
- * Pure arithmetic behind keyboard resize on every `role="separator"` handle
- * (#56). Component tests prove the DOM wiring; this proves the numbers,
+ * Pure arithmetic behind keyboard resize on every `role="separator"` handle.
+ * Component tests prove the DOM wiring; this proves the numbers,
  * fast and without a render.
  */
 describe('resizeKeyStep', () => {

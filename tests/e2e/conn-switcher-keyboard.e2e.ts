@@ -76,7 +76,7 @@ test('switcher: keyboard-only find-and-switch, and focus returns to the trigger'
     await win.keyboard.press('Enter');
 
     await expect(switcher.listbox).toHaveCount(0);
-    // #79 — ↵ closes the popover with focus still in its search field, and
+    // ↵ closes the popover with focus still in its search field, and
     // the dropdown stays mounted through its exit transition; focus must
     // come back to the trigger rather than go down with the dropdown to
     // <body>. Asserted before `expectStatusDot`, which clicks the trigger

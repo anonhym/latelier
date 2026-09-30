@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isContextMenuKey, isEditKey, anchorFromRect, anchorForRow } from '../../src/utils/contextMenuKey';
 
-// X19/#55 — the platform-conventional keys for "open the context menu for the
+// X19 — the platform-conventional keys for "open the context menu for the
 // focused thing": the dedicated ContextMenu key, and Shift+F10. Every caller
 // (DbCollectionNavigator, TableView, TabStrip) shares this one predicate
 // rather than re-deriving it, so the five assertions below are what actually
@@ -34,7 +34,7 @@ describe('anchorFromRect', () => {
   });
 });
 
-// #133 — the active row of a virtualized list can be scrolled out and
+// The active row of a virtualized list can be scrolled out and
 // unmounted; the keyboard open must still land somewhere visible.
 describe('anchorForRow', () => {
   const box = (left: number, top: number, bottom: number) => ({

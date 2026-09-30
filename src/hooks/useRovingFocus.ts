@@ -1,12 +1,12 @@
 import React from 'react';
 import { useRovingHighlight } from './useRovingHighlight';
 
-// #119 — cap for `scrollThenSettle`'s convergence loop below. Frames, not
+// Cap for `scrollThenSettle`'s convergence loop below. Frames, not
 // wall-clock time: react-window's dynamic-height cache is only corrected
 // inside a frame's rendering step (mount -> layout effect -> ResizeObserver),
 // so "elapsed ms" can't tell a slow-but-progressing settle from a stuck one —
 // a time cap would give up early under exactly the CPU load that causes the
-// bug this is fixing (#119's own repro is a 14-process `yes` load). 60 frames
+// bug this is fixing (it reproduces under a 14-process `yes` load). 60 frames
 // is ~1s at 60fps; it also bounds a row that can never fully fit (taller
 // than the viewport), which would otherwise loop forever.
 const MAX_SETTLE_FRAMES = 60;
@@ -85,7 +85,7 @@ export interface UseRovingFocusOptions {
    */
   scrollToIndex?: (index: number) => void;
   /**
-   * #119 — after the synchronous scroll, keep re-scrolling each frame until
+   * After the synchronous scroll, keep re-scrolling each frame until
    * the `${idPrefix}${index}` row is fully in view (see `scrollThenSettle`).
    * That exists for react-window's estimated row heights. Pass `false` from
    * a non-virtualized caller whose `scrollToIndex` is already exact, or
@@ -99,7 +99,7 @@ export interface RovingFocus {
   /** Index of the row `aria-activedescendant` currently names. */
   activeIndex: number;
   /**
-   * #60 — the row to paint the visual active-row treatment on, or `-1` to
+   * The row to paint the visual active-row treatment on, or `-1` to
    * paint none. Deliberately not the same value as `activeIndex`: a
    * screen reader hears `aria-activedescendant` whether or not the
    * container has real DOM focus (it's just an ARIA attribute, always
@@ -179,7 +179,7 @@ export function useRovingFocus({
   // to row 0, and a settle could still fire after the list itself had
   // unmounted.
   const pendingFrame = React.useRef<number | null>(null);
-  // #62 follow-up — `count` can shrink out from under a still-pending settle
+  // `count` can shrink out from under a still-pending settle
   // (a query re-run, a filter, a delete, same "count shrinks out from under"
   // case `useRovingHighlight.ts` already documents) before a deferred call
   // fires. `i` was captured when it was still a valid index; by settle time
@@ -252,7 +252,7 @@ export function useRovingFocus({
     [scrollToIndex, settle, cancelPendingSettle, rowId],
   );
 
-  // #60 — tracks real DOM focus on the container so `highlightIndex` can
+  // Tracks real DOM focus on the container so `highlightIndex` can
   // collapse to `-1` while it's elsewhere, without touching `activeIndex`
   // (see that field's docstring on `RovingFocus`). Guarded the same way
   // `onKeyDown` already documents: React's `onFocus`/`onBlur` map to

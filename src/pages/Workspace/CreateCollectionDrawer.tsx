@@ -135,9 +135,9 @@ export function CreateCollectionDrawer({
     if (discard) close();
   };
 
-  // #89 — both paths restore focus to the same `returnFocusTo` (the tree
-  // container survives a create, unlike #74's tabs which had nothing to
-  // restore to). Two calls because `useDialogFocusReturn` memoizes on its
+  // Both paths restore focus to the same `returnFocusTo` (the tree
+  // container survives a create, unlike the row an IndexesTab/UsersTab drop
+  // removes). Two calls because `useDialogFocusReturn` memoizes on its
   // own `onClose`, so one hook can't serve two different close reasons.
   const finish = useDialogFocusReturn(
     () => onCreated({ dbName: effectiveDbName, name: trimmedName }),

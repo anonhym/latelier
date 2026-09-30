@@ -11,7 +11,7 @@ export type ContextMenuItem =
       disabledTitle?: string;
       destructive?: boolean;
       /**
-       * X19/#70 — overrides `ContextMenuState.returnFocusTo` for this one
+       * X19 — overrides `ContextMenuState.returnFocusTo` for this one
        * item. `returnFocusTo` is picked once, at menu-open time, as "the
        * widget's own focusable element" — right for most items, but wrong
        * for one that goes on to destroy that exact element (e.g. TabStrip's
@@ -31,12 +31,11 @@ export interface ContextMenuState {
   y: number;
   items: ContextMenuItem[];
   /**
-   * X19/#55/#69 — where to send real DOM focus back to when this menu
-   * closes. Originally set only by a keyboard-open call site (Shift+F10 /
-   * the ContextMenu key); #69 has every call site set it on a mouse-driven
-   * right-click too, since a right-click's own focus origin (or the widget
-   * it belongs to) is just as restorable a target — see each call site's own
-   * comment for what it passes and why.
+   * X19 — where to send real DOM focus back to when this menu closes.
+   * Every call site sets it on a keyboard open (Shift+F10 / the ContextMenu
+   * key) and on a mouse-driven right-click alike, since a right-click's own
+   * focus origin (or the widget it belongs to) is just as restorable a
+   * target — see each call site's own comment for what it passes and why.
    *
    * Mantine's own `returnFocus` can't do this: it hangs off `useFocusReturn`'s
    * `useDidUpdate([opened, ...])`, which only fires on a *transition* of
@@ -63,8 +62,8 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
   // `??`, not a default parameter. A per-item `focusReturnTo` thunk that
   // returns `null` (its ref not yet attached) would satisfy a default
   // parameter — defaults only fill in for `undefined` — and silently focus
-  // nothing, which is the exact `<body>` bug #70 was fixing. Coalescing
-  // falls back to the menu-wide target instead.
+  // nothing, which is the exact `<body>` bug the per-item override exists
+  // to prevent. Coalescing falls back to the menu-wide target instead.
   const handleClose = (focusTo?: HTMLElement | null) => {
     onClose();
     (focusTo ?? menu.returnFocusTo)?.focus();
@@ -95,7 +94,7 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
               disabled={it.disabled}
               color={it.destructive ? 'red' : undefined}
               title={it.disabled ? it.disabledTitle : undefined}
-              // X19/#70 — Mantine's own item click also auto-closes the menu
+              // X19 — Mantine's own item click also auto-closes the menu
               // (`closeOnItemClick`, default true), calling `onClose` a
               // second time with none of our arguments. Harmless when every
               // item shares one `returnFocusTo`, but that second, bare call

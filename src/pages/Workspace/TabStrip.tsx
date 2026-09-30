@@ -64,7 +64,7 @@ export function TabStrip({
     tabId: string;
     x: number;
     y: number;
-    // #55/#69 — set for both a keyboard open (Shift+F10 / ContextMenu key)
+    // Set for both a keyboard open (Shift+F10 / ContextMenu key)
     // and a mouse-driven right-click, so `ContextMenu` always has somewhere
     // to hand focus back to on close instead of stranding it on `<body>`.
     returnFocusTo?: HTMLElement | null;
@@ -306,7 +306,7 @@ export function TabStrip({
                       e.preventDefault();
                       onActivate(tab.id);
                     } else if (isContextMenuKey(e)) {
-                      // #55 — the tab is already the widget's own focusable
+                      // The tab is already the widget's own focusable
                       // element (unlike the grid/tree surfaces), so it is
                       // both the anchor and the default focus-return target —
                       // right for Pin/Unpin and for Escape/click-outside,
@@ -323,10 +323,10 @@ export function TabStrip({
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    // #69 — same target the keyboard path above uses: the
-                    // tab is right-clicked while it already has (or is) the
-                    // sensible focus-return element, so Escape/click-away no
-                    // longer strands focus on `<body>` after a right-click.
+                    // Same target the keyboard path above uses: the tab is
+                    // right-clicked while it already has (or is) the
+                    // sensible focus-return element, so Escape/click-away
+                    // doesn't strand focus on `<body>` after a right-click.
                     setMenu({
                       tabId: tab.id,
                       x: e.clientX,
@@ -456,7 +456,7 @@ export function TabStrip({
                 kind: 'item',
                 label: 'Close tab',
                 onClick: () => onClose(menu.tabId),
-                // #70 — overrides `menu.returnFocusTo` (the tab itself):
+                // Overrides `menu.returnFocusTo` (the tab itself):
                 // Close destroys that exact DOM node, once `tabs.close`
                 // resolves and the tab unmounts, so focusing it is a silent
                 // no-op and focus drops to <body>. The strip container is

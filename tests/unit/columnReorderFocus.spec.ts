@@ -3,7 +3,7 @@ import { focusTargetAfterMove } from '../../src/pages/Workspace/columnReorderFoc
 
 /**
  * The four branches are two mirror-image pairs, which is exactly the shape
- * that shipped #56's inverted keyboard resize. Each case states its expected
+ * that once shipped an inverted keyboard resize. Each case states its expected
  * button as a literal rather than deriving it from the direction, so an
  * inverted branch reddens here instead of agreeing with itself.
  */

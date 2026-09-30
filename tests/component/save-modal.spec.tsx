@@ -93,12 +93,12 @@ describe('SaveModal — description field', () => {
     expect(payload.description).toBeUndefined();
   });
 
-  // #91 — the submit button now stays real-enabled while `saving` (only
+  // The submit button stays real-enabled while `saving` (only
   // `data-disabled`/`aria-disabled`, not `disabled`), so a submit button's
-  // own `disabled` attribute is no longer what blocks the form's implicit
+  // own `disabled` attribute is not what blocks the form's implicit
   // Enter-to-submit while a save is in flight. `handleSubmit`'s `canSubmit`
-  // guard (still `fieldsValid && !saving`) is what has to stop a second
-  // `api.saved.create` call now.
+  // guard (`fieldsValid && !saving`) is what has to stop a second
+  // `api.saved.create` call.
   it('ignores a form submit that arrives while a save is already in flight', async () => {
     let resolveCreate!: (v: { id: string }) => void;
     const create = vi.fn(() => new Promise<{ id: string }>((r) => (resolveCreate = r)));

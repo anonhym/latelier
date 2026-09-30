@@ -17,7 +17,7 @@ export const DOC_FIELD_TREE_GRID_TEMPLATE = '140px 1fr 72px';
 
 // `path` (`rootKey`/`childKey` in `fieldPathKey.ts`) embeds `docId` and
 // escapes `.`/`:`/`\` in every segment before joining, so two different
-// field paths can never collapse to the same string (#86) — it's globally
+// field paths can never collapse to the same string — it's globally
 // unique on its own, no need to mix in anything else to make the DOM id
 // collision-safe across documents.
 function fieldRowDomId(path: string): string {
@@ -78,7 +78,7 @@ export function TypeBadge({ type }: { type: DisplayType }) {
 }
 
 /**
- * #68/#69 — payload a field row's context-menu open hands upward. `anchor`
+ * Payload a field row's context-menu open hands upward. `anchor`
  * replaces a raw `React.MouseEvent` so a keyboard open (no mouse event at
  * all) can produce the exact same shape as a right-click — see
  * `anchorFromRect`/`isContextMenuKey` in `utils/contextMenuKey.ts`.
@@ -111,26 +111,26 @@ interface FieldNodeProps {
   onToggle: (path: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` (and, for
+  // Mouse path only; `DocFieldTree` injects `returnFocusTo` (and, for
   // its own keyboard path, `focusMenuOnOpen`) before this reaches the caller.
   onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => void;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
-  // #20 — stable per-row DOM id so the field tree's `aria-activedescendant`
+  // Stable per-row DOM id so the field tree's `aria-activedescendant`
   // (set by `useRovingFocus` in `DocFieldTree` below) always names a real
   // element. Keyed by `path`, not position — expanding an earlier sibling
   // shifts every later row's *index* in the flat order, which a memoized
   // `FieldNode` further down may not re-render for, but never changes a
   // row's own `path`.
   rowId: (path: string) => string;
-  // #20 — found in review: a click needs to make the clicked row the roving
-  // index too (even a non-expandable leaf, which has no `onToggle` action of
-  // its own), or the next Arrow key jumps from wherever the highlight was
-  // sitting rather than from the row just clicked.
+  // A click needs to make the clicked row the roving index too (even a
+  // non-expandable leaf, which has no `onToggle` action of its own), or the
+  // next Arrow key jumps from wherever the highlight was sitting rather than
+  // from the row just clicked.
   onActivate: (path: string) => void;
-  // #60 — the path of the row the container's `highlightIndex` currently
+  // The path of the row the container's `highlightIndex` currently
   // names, or `null` when the tree doesn't have focus (or has no rows).
   // Compared against this node's own `path` — not an index, since this tree
   // is keyed by path (see `rowId`'s docstring above) — to decide whether to
@@ -203,23 +203,21 @@ function FieldNodeImpl({
         draggable={draggable}
         onDragStart={draggable ? handleDragStart : undefined}
         // Always marks the clicked row active (even a non-expandable leaf,
-        // which has no toggle of its own) — found in review: without this,
-        // a click left the roving index sitting wherever it was before, so
-        // the next Arrow key jumped from there instead of from the row just
-        // clicked. No `tabIndex` on this row at all (see below) — #20
-        // originally left `tabIndex={-1}` plus a matching keydown guard
-        // here, but review found any declared `tabIndex` (negative
-        // included) makes an element click-focusable per the HTML
-        // focusing-steps algorithm, even though it's excluded from Tab
-        // order. That left real DOM focus on the row after a click, so the
-        // next Arrow/Home/End reached this tree's own `onKeyDown` with
-        // `e.target` = this row rather than the tree, and its own-target
-        // guard swallowed it. Removing `tabIndex` lets a click's focusing
-        // steps walk up to the nearest focusable ancestor — the tree
-        // itself — instead, which is what makes this row's former
-        // Enter/Space handler dead code (a keydown can only ever target an
-        // element that can hold real focus): deleted, in favour of the
-        // tree-level handling in `DocFieldTree` below.
+        // which has no toggle of its own) — without this, a click would
+        // leave the roving index sitting wherever it was before, so the
+        // next Arrow key would jump from there instead of from the row just
+        // clicked. No `tabIndex` on this row at all (see below): any
+        // declared `tabIndex` (negative included) makes an element
+        // click-focusable per the HTML focusing-steps algorithm, even
+        // though it's excluded from Tab order. That would leave real DOM
+        // focus on the row after a click, so the next Arrow/Home/End would
+        // reach this tree's own `onKeyDown` with `e.target` = this row
+        // rather than the tree, and its own-target guard would swallow it.
+        // Without `tabIndex`, a click's focusing steps walk up to the
+        // nearest focusable ancestor — the tree itself — instead, which
+        // would make a row-level Enter/Space handler dead code (a keydown
+        // can only ever target an element that can hold real focus), so
+        // that lives in the tree-level handling in `DocFieldTree` below.
         onClick={() => {
           onActivate(path);
           if (rowClickable) onToggle(path);
@@ -253,12 +251,12 @@ function FieldNodeImpl({
           cursor: rowClickable ? 'pointer' : 'grab',
           userSelect: 'none',
           background: isCopied ? 'var(--atelier-accent)' : undefined,
-          // #83 — keep the flash inside the padding: the #60 outline below is the
-          // same accent, inset 2px, and would vanish into a full-row flash.
+          // Keep the flash inside the padding: the active-row outline below is
+          // the same accent, inset 2px, and would vanish into a full-row flash.
           backgroundClip: isCopied ? 'content-box' : undefined,
           color: isCopied ? '#fff' : undefined,
           transition: 'background 120ms',
-          // #60 — sighted-visible counterpart to `aria-activedescendant`.
+          // Sighted-visible counterpart to `aria-activedescendant`.
           // Driven by `path`, not a CSS descendant selector off the outer
           // Table/Tree grid's `aria-activedescendant` — this tree mounts
           // *inside* an expanded outer row, and a descendant selector would
@@ -412,8 +410,7 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   ) {
     return false;
   }
-  // #60 — a "did THIS row's own flag change" check is not enough, and review
-  // caught it. A `FieldNode` renders its expanded children itself, so each
+  // A "did THIS row's own flag change" check is not enough. A `FieldNode` renders its expanded children itself, so each
   // child's `activePath`/`copiedPath` comes from *this* node's render. When
   // the value moves between two children of the same node (or clears while a
   // descendant holds it), this node's own flag is unchanged, a path-only
@@ -421,8 +418,8 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
   // with `a` expanded is the smallest case: `a` is neither `a.b` nor `a.c`.
   //
   // So: re-render when the value changed AND it was, or now is, inside this
-  // node's subtree (`pathCoversSubtree`). #85 hit the identical bug on
-  // `copiedPath`, written to the same own-path-only idiom — same fix, reused.
+  // node's subtree (`pathCoversSubtree`). `copiedPath` has the identical
+  // problem under the same own-path-only idiom — same fix, reused.
   if (
     prev.activePath !== next.activePath &&
     (pathCoversSubtree(next.path, prev.activePath) || pathCoversSubtree(next.path, next.activePath))
@@ -464,7 +461,7 @@ export interface DocFieldTreeProps {
   onToggle: (path: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
+  // Widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
   // keyboard open (no `MouseEvent`) and a mouse open converge on one shape.
   onOpenMenu: (payload: FieldMenuOpenPayload) => void;
   refsByField?: Map<string, ReferenceRule>;
@@ -485,7 +482,7 @@ export interface DocFieldTreeProps {
  * an expanded section is in view. It keys off this component's own
  * `data-expanded-doc-section="true"` wrapper below.
  *
- * #20 — this is its own independent roving-focus widget: each expanded
+ * This is its own independent roving-focus widget: each expanded
  * document mounts a separate `DocFieldTree`, so each gets its own single tab
  * stop rather than sharing one with the outer Table/Tree grid, and its
  * active row is scoped to `flattenVisibleFieldRows`'s current flat order for
@@ -526,19 +523,19 @@ export function DocFieldTree({
       const path = flatRows[i]?.path;
       if (path) document.getElementById(fieldRowDomId(path))?.scrollIntoView({ block: 'nearest' });
     },
-    // #119 — `scrollIntoView` on a mounted row is exact, and these rows are
+    // `scrollIntoView` on a mounted row is exact, and these rows are
     // keyed by path, not `${idPrefix}${i}`, so the settle loop has nothing
     // to converge on and could never see it done.
     settle: false,
   });
   const activeRow = flatRows[roving.activeIndex] as FlatFieldRow | undefined;
-  // #60 — `flatRows[-1]` is `undefined`, which is exactly what makes
+  // `flatRows[-1]` is `undefined`, which is exactly what makes
   // `highlightIndex`'s `-1` (no container focus) mean "paint nothing" here
   // for free — no extra guard needed.
   const highlightRow = flatRows[roving.highlightIndex] as FlatFieldRow | undefined;
 
-  // #68 — the focus-return target for both a keyboard-opened field menu and
-  // (#69) a mouse-opened one: this container already carries `tabIndex={0}`
+  // The focus-return target for both a keyboard-opened field menu and a
+  // mouse-opened one: this container already carries `tabIndex={0}`
   // (see the `role="tree"` div below) and, unlike a row, never unmounts out
   // from under a click.
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -578,7 +575,7 @@ export function DocFieldTree({
       // tree itself has focus toggles the active row — one bubbling up from
       // a nested control (the expand button) is that control's own action.
       if (e.target !== e.currentTarget) return;
-      // #68 — Shift+F10 / ContextMenu key: open the field menu for the
+      // Shift+F10 / ContextMenu key: open the field menu for the
       // active row. Order matches `TableView`'s `handleGridKeyDown`: after
       // the own-target guard, before Enter/Space.
       if (isContextMenuKey(e)) {
@@ -612,8 +609,8 @@ export function DocFieldTree({
     <div
       // Ancestor role FieldNode's `treeitem` rows need (axe's
       // aria-required-parent) — previously a wrapper both DocRow and
-      // TableView rendered around this component; folded in here since #20
-      // needs the roving-focus container to be the same element and the two
+      // TableView rendered around this component; folded in here since roving
+      // focus needs the container to be the same element and the two
       // call sites had grown byte-for-byte identical copies of it.
       data-expanded-doc-section="true"
       ref={containerRef}

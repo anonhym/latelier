@@ -202,7 +202,7 @@ export function SaveModal({
           </button>
           <button
             type="submit"
-            disabled={!fieldsValid} // #91 — real disabled excludes `saving`, see SubmitButton.tsx
+            disabled={!fieldsValid} // Real disabled excludes `saving`, see SubmitButton.tsx
             {...submittingProps(saving)}
             style={{
               padding: '6px 14px',

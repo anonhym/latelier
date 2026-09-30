@@ -82,9 +82,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// #130 — the operator box reuses SuggestionPopover; its listbox must not
+// The operator box reuses SuggestionPopover; its listbox must not
 // announce itself as the field list.
-describe('Query Builder — operator suggestions listbox (#130)', () => {
+describe('Query Builder — operator suggestions listbox', () => {
   it('is named "Operator suggestions", not "Field suggestions"', async () => {
     const opInput = await openConditionRow();
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { childKey, escapeKeySegment, pathCoversSubtree, rootKey } from '../../src/pages/Workspace/views/fieldPathKey';
 
-// #86 — a field row's identity key used to be built by plain concatenation
+// A field row's identity key used to be built by plain concatenation
 // (`${docId}::${field}`, then `.`-joined per nested level), so a top-level
 // field literally named "a.b" and a nested field `b` under top-level "a"
 // produced the identical string. These keys escape `.`/`:`/`\` in every
@@ -29,7 +29,7 @@ describe('fieldPathKey', () => {
     expect(childKey('doc1::a', 'b.c')).toBe('doc1::a.b\\.c');
   });
 
-  // The #86 repro: `{ "a.b": 1, "a": { "b": 2 } }`.
+  // The collision repro: `{ "a.b": 1, "a": { "b": 2 } }`.
   it('a dotted top-level field name no longer collides with a nested field of the same shape', () => {
     const dottedTopLevel = rootKey('doc1', 'a.b');
     const nested = childKey(rootKey('doc1', 'a'), 'b');

@@ -2,20 +2,20 @@ export type MoveDirection = 'up' | 'down';
 
 /**
  * Which of a row's two Move buttons should hold focus after the field has
- * moved (#57).
+ * moved.
  *
  * The button the user pressed is disabled the moment its field reaches an
  * end of the list — acceptance says the first row's "up" and the last row's
  * "down" are disabled rather than no-ops — and a disabled button cannot hold
- * focus, so the browser drops it to `<body>`. That is the defect #55 and #70
- * fixed on other surfaces. Focus therefore hands over to the row's other
+ * focus, so the browser drops it to `<body>` — the same defect other surfaces
+ * already guard against. Focus therefore hands over to the row's other
  * button, which is always still enabled there.
  *
  * Pure and extracted rather than inlined in the layout effect, for the same
  * reason `useRovingHighlight` owns the clamp/wrap arithmetic (X19 §2): this
  * is a four-branch decision whose two halves are mirror images, and an
- * inverted branch typechecks, lints and renders perfectly. #56 shipped
- * exactly that failure — a keyboard resize running backwards against the
+ * inverted branch typechecks, lints and renders perfectly. An earlier change
+ * shipped exactly that failure — a keyboard resize running backwards against the
  * mouse on one edge — and it was caught by review, not by a green suite.
  *
  * There is deliberately no `direction` check on either end. Mutation testing

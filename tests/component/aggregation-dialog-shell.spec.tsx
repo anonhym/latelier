@@ -50,7 +50,7 @@ const settle = async () => {
 /**
  * A `vi.fn()` whose promise stays pending until `resolve` is called —
  * shared by the `SavePipelineModal`/`SaveAsCollectionModal` double-submit
- * guard tests below (#91), so a second submit fired while the first is
+ * guard tests below, so a second submit fired while the first is
  * still in flight has something to actually be "in flight" against.
  */
 function deferredCall<T>() {
@@ -434,12 +434,12 @@ describe('SavePipelineModal — dialog shell + guard (X15 T6)', () => {
     });
 
     /**
-     * #91 — the Save button is a native `type="submit"` button, and no
-     * longer goes real-`disabled` while `saving` (only
-     * `data-disabled`/`aria-disabled`). Its own attribute can no longer be
-     * what stops a second click or a second implicit form submit from
-     * firing a second `saved.create` — `submit`'s own `canSubmit` check
-     * (which still folds in `!saving`) has to do that job now.
+     * The Save button is a native `type="submit"` button, and does not go
+     * real-`disabled` while `saving` (only `data-disabled`/`aria-disabled`).
+     * Its own attribute can't be what stops a second click or a second
+     * implicit form submit from firing a second `saved.create` —
+     * `submit`'s own `canSubmit` check (which folds in `!saving`) has to do
+     * that job.
      */
     it('a second submit while a save is in flight makes only one saved.create call', async () => {
       const { spy: create, resolve } = deferredCall<unknown>();
@@ -811,12 +811,11 @@ describe('SaveAsCollectionModal — dialog shell + guard (X15 T6)', () => {
     });
 
     /**
-     * #91 — the Confirm button is a native `type="submit"` button, and no
-     * longer goes real-`disabled` while `saving` (only
-     * `data-disabled`/`aria-disabled`). Its own attribute can no longer be
-     * what stops a second click from firing a second `agg.runAndSave` —
-     * `submit`'s own `canSubmit` check (which still folds in `!saving`) has
-     * to do that job now.
+     * The Confirm button is a native `type="submit"` button, and does not go
+     * real-`disabled` while `saving` (only `data-disabled`/`aria-disabled`).
+     * Its own attribute can't be what stops a second click from firing a
+     * second `agg.runAndSave` — `submit`'s own `canSubmit` check (which
+     * folds in `!saving`) has to do that job.
      */
     it('a second submit while a write is in flight makes only one agg.runAndSave call', async () => {
       const { spy: runAndSave, resolve } = deferredCall<{ writtenCount: number }>();

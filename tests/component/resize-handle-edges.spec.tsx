@@ -99,7 +99,7 @@ describe('ResizeHandle edges', () => {
  * `value`/`onChange` are controlled — a bare `vi.fn()` spy proves a callback
  * fired, not that `aria-valuenow` moved. This wrapper feeds `onChange` back
  * into real state so the assertions below are on the rendered attribute,
- * the thing #56 says the old tests never checked.
+ * the thing a spy-only test never checks.
  */
 function ControlledResizeHandle({
   edge,
@@ -130,7 +130,7 @@ function ControlledResizeHandle({
   );
 }
 
-describe('ResizeHandle keyboard resize (#56)', () => {
+describe('ResizeHandle keyboard resize', () => {
   it('is reachable by Tab alone', async () => {
     const user = userEvent.setup();
     render(<ControlledResizeHandle edge="right" initial={380} min={160} max={560} onCommit={vi.fn()} />);

@@ -12,7 +12,7 @@ import { renderHook, act } from '../helpers/render';
 import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useRovingHighlight } from '../../src/hooks/useRovingHighlight';
 
-// #110 — unmount and clear pending timers after each test; see
+// Unmount and clear pending timers after each test; see
 // tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
 installJsdomTeardown();
 
@@ -35,11 +35,11 @@ if (typeof window.matchMedia !== 'function') {
 }
 
 describe('useRovingHighlight', () => {
-  // #126 — two key events can reach a handler before React commits the
-  // first one (seen on CI: the second press re-computed from the same
-  // render-time index and one step was lost). Each call below comes from
-  // one captured closure, inside one `act`, so no re-render happens between.
-  describe('several updates before one re-render (#126)', () => {
+  // Two key events can reach a handler before React commits the first one
+  // (seen on CI: the second press re-computed from the same render-time
+  // index and one step was lost). Each call below comes from one captured
+  // closure, inside one `act`, so no re-render happens between.
+  describe('several updates before one re-render', () => {
     it('two move(1) calls both count', () => {
       const { result } = renderHook(() => useRovingHighlight(5));
       const { move } = result.current;

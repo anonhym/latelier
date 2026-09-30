@@ -19,7 +19,7 @@ interface SelectionActionBarProps {
   onDeleteSelected: (docs: unknown[]) => void;
 }
 
-// #106 — the strip's height, fixed regardless of selection state. The first
+// The strip's height, fixed regardless of selection state. The first
 // selection ever made used to mount this bar and shift the grid below it by
 // this exact amount mid-double-click, so the second click of a dblclick with
 // no prior selection landed on the row above and copied the wrong value.
@@ -32,7 +32,7 @@ const BAR_HEIGHT = 31;
 /**
  * Contextual bulk-action strip (T0.4 — quick win for a previously
  * dead-ended selection). The outer strip always renders when the workspace
- * isn't read-only (#106 — see `BAR_HEIGHT`); its contents (count, Copy,
+ * isn't read-only (see `BAR_HEIGHT`); its contents (count, Copy,
  * Delete, Clear) render only once something is selected. `ResultViewer`
  * composes this as the `SelectionBar` slot; `ScriptTab`'s read-only
  * snapshot composition never renders it at all (AC7), and `meta.isReadOnly`

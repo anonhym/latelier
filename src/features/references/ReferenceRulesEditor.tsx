@@ -398,7 +398,7 @@ export function ReferenceRulesEditor({
                     <>
                       <span style={{ fontSize: 11, color: T.red }}>Delete?</span>
                       <button
-                        onClick={() => void handleDelete(r.id)} // #91 — see SubmitButton.tsx
+                        onClick={() => void handleDelete(r.id)} // see SubmitButton.tsx
                         aria-label="Confirm delete"
                         {...submittingProps(deletingId === r.id)}
                         style={{

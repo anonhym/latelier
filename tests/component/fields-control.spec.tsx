@@ -181,7 +181,7 @@ describe('FieldsControl', () => {
     expect(patchWith).not.toHaveBeenCalled();
   });
 
-  // #57 — keyboard reorder path. orderedFields for baseState() is
+  // Keyboard reorder path. orderedFields for baseState() is
   // ['_id', 'apple', 'banana'].
 
   it('exposes a Move up/down button pair per field, labelled with the field name', () => {
@@ -210,8 +210,7 @@ describe('FieldsControl', () => {
 
   // Both directions reach `moveField` and produce the order the user asked
   // for. Parameterised rather than written out twice — two 15-line near-copies
-  // is what took SonarCloud's new-duplication gate to 12.7% here, the same
-  // shape that blocked #56.
+  // is what took SonarCloud's new-duplication gate to 12.7% here.
   const MOVE_CASES: ReadonlyArray<{ button: string; order: string[] }> = [
     { button: 'Move _id down', order: ['apple', '_id', 'banana'] },
     { button: 'Move banana up', order: ['_id', 'banana', 'apple'] },
@@ -295,11 +294,12 @@ describe('FieldsControl', () => {
   it('is operable with the keyboard alone: Tab reaches the buttons and Enter moves repeatedly', async () => {
     // Acceptance criterion 1 is "every field can be moved up and down with
     // the keyboard alone", and every other test here drives the buttons with
-    // a click. #20 shipped a critical focus defect precisely because all 48
-    // of its tests used the wrong event, so this one uses only keys: Tab to
-    // reach the control, Enter to press it, and a *second* Enter without
-    // re-focusing — which only works if the focus redirect leaves the user
-    // standing on a button that still moves the same field.
+    // a click. The roving-focus change shipped a critical focus defect
+    // precisely because all 48 of its tests used the wrong event, so this
+    // one uses only keys: Tab to reach the control, Enter to press it, and a
+    // *second* Enter without re-focusing — which only works if the focus
+    // redirect leaves the user standing on a button that still moves the
+    // same field.
     const patchWith = vi.fn();
     const state = baseState();
     const ctx = renderChooser(state, { patchWith });
@@ -332,8 +332,8 @@ describe('FieldsControl', () => {
    * The end-of-list focus trap. Pressing the button that carries a field to an
    * end disables that very button, and a disabled button cannot hold focus —
    * without a redirect `document.activeElement` really does become `<body>`
-   * (verified by disabling the redirect and watching both cases redden), which
-   * is the defect #55 and #70 fixed elsewhere.
+   * (verified by disabling the redirect and watching both cases redden) — the
+   * same defect other surfaces already guard against.
    *
    * `pressed` and `keepsFocus` are named per case rather than derived, so the
    * fact that "up to the top hands focus to *down*" stays stated in the test
@@ -359,11 +359,11 @@ describe('FieldsControl', () => {
     });
   });
 
-  // #79 — closing the popover on a click that lands on a non-focusable area
-  // used to drop focus to <body>. `returnFocus` fixes it here because
+  // Closing the popover on a click that lands on a non-focusable area
+  // otherwise drops focus to <body>. `returnFocus` fixes it here because
   // nothing in this dropdown autofocuses on open (see the prop's comment).
   // Shared with preview-picker/table-view specs — see the helper's docstring.
-  describe('focus return on close (#79)', () => {
+  describe('focus return on close', () => {
     itReturnsFocusToPopoverTrigger(async () => {
       const ctx = renderChooser(baseState());
       const trigger = ctx.getByRole('button', { name: /fields/i });

@@ -1,10 +1,10 @@
 /**
  * Identity keys for field-tree rows (`DocFieldTree`, `JsonTree`) that stay
- * collision-free even when a field's own name contains `.` or `:` (#86).
+ * collision-free even when a field's own name contains `.` or `:`.
  *
- * The pre-#86 scheme joined segments with plain concatenation
- * (`${parent}.${name}`), so a top-level field literally named `"a.b"` and a
- * nested field `b` under top-level `"a"` produced the identical string.
+ * Joining segments with plain concatenation (`${parent}.${name}`) would
+ * make a top-level field literally named `"a.b"` and a nested field `b`
+ * under top-level `"a"` produce the identical string.
  * Escaping each segment before joining removes the ambiguity: `\` is escaped
  * first (so an escaped separator round-trips unambiguously), then `.` and
  * `:` — the two characters these keys use as structural separators (`:`

@@ -9,7 +9,7 @@ import { renderHook, act } from '../helpers/render';
 import { installJsdomTeardown } from '../helpers/jsdomTeardown';
 import { useRovingFocus } from '../../src/hooks/useRovingFocus';
 
-// #110 — unmount and clear pending timers after each test; see
+// Unmount and clear pending timers after each test; see
 // tests/helpers/jsdomTeardown.ts for why a jsdom unit spec needs this.
 installJsdomTeardown();
 
@@ -129,8 +129,8 @@ describe('useRovingFocus', () => {
     expect(scrollToIndex).toHaveBeenCalledWith(2);
   });
 
-  // #126 — two ArrowDowns handled before a re-render (one captured closure,
-  // one `act`) must advance two rows and scroll to each, not scroll to row 1
+  // Two ArrowDowns handled before a re-render (one captured closure, one
+  // `act`) must advance two rows and scroll to each, not scroll to row 1
   // twice.
   it('two ArrowDowns before a re-render advance two rows and scroll to each', () => {
     const scrollToIndex = vi.fn();
@@ -155,7 +155,7 @@ describe('useRovingFocus', () => {
     expect(scrollToIndex).toHaveBeenCalledWith(2);
   });
 
-  // #62 — Home's own case had no direct assertion (only ArrowDown/ArrowUp/End
+  // Home's own case had no direct assertion (only ArrowDown/ArrowUp/End
   // did), so nothing distinguished calling `scrollThenSettle(0)` from not
   // calling it at all.
   it('calls scrollToIndex with 0 on Home', () => {
@@ -167,10 +167,10 @@ describe('useRovingFocus', () => {
     expect(scrollToIndex).toHaveBeenCalledWith(0);
   });
 
-  // #60 — highlightIndex drives the visual active-row treatment; it must
-  // track real container focus separately from activeIndex (which Enter/
-  // Space handling reads and must never see go to -1).
-  describe('highlightIndex (#60)', () => {
+  // highlightIndex drives the visual active-row treatment; it must track
+  // real container focus separately from activeIndex (which Enter/Space
+  // handling reads and must never see go to -1).
+  describe('highlightIndex', () => {
     it('is -1 before the container has focus', () => {
       const { result } = renderHook(() => useRovingFocus({ count: 3, idPrefix: 'row-' }));
       expect(result.current.highlightIndex).toBe(-1);
@@ -222,14 +222,14 @@ describe('useRovingFocus', () => {
     expect(result.current.activeId).toBe('b-0');
   });
 
-  // #119 — `scrollThenSettle` (the wrapper around `scrollToIndex`) runs a
+  // `scrollThenSettle` (the wrapper around `scrollToIndex`) runs a
   // convergence loop: each animation frame, check whether the target row is
   // now fully visible before deciding whether to re-scroll (see the hook's
-  // own comment for why #62's fixed two-frame re-scroll wasn't enough).
+  // own comment for why a fixed two-frame re-scroll wasn't enough).
   // These tests need per-frame control real rAF timing can't give reliably,
   // so they swap in a manual, synchronously-flushable queue instead of
   // `vi.useFakeTimers()` (which doesn't cover rAF at all).
-  describe('scrollThenSettle convergence (#119, #62)', () => {
+  describe('scrollThenSettle convergence', () => {
     /**
      * A fake `requestAnimationFrame`/`cancelAnimationFrame` pair. `flush`
      * only runs callbacks queued *before* it was called and clears them
@@ -350,9 +350,9 @@ describe('useRovingFocus', () => {
       expect(scrollToIndex).toHaveBeenCalledTimes(1);
       expect(scrollToIndex).toHaveBeenLastCalledWith(4);
 
-      // Three frames of "still not visible" (advisor: N >= 2 needed to tell
-      // this apart from #62's old fixed two-frame re-scroll, which would
-      // also produce exactly 2 calls at N=1).
+      // Three frames of "still not visible" (N >= 2 needed to tell this
+      // apart from a fixed two-frame re-scroll, which would also produce
+      // exactly 2 calls at N=1).
       for (let frame = 0; frame < 3; frame += 1) {
         act(() => queue.flush());
       }
@@ -714,7 +714,7 @@ describe('useRovingFocus', () => {
       expect(queue.pending()).toBe(0);
     });
 
-    // #119 review — a non-virtualized caller (DocFieldTree) scrolls exactly
+    // A non-virtualized caller (DocFieldTree) scrolls exactly
     // with one `scrollIntoView`, and its rows don't carry `${idPrefix}${i}`
     // ids, so the geometry check could never see it settle and would spin
     // to the frame cap on every arrow key.
@@ -770,7 +770,7 @@ describe('useRovingFocus', () => {
       expect(scrollToIndex).toHaveBeenCalledWith(4);
     });
 
-    // #62 follow-up (reviewer-found) — `count` can shrink out from under a
+    // `count` can shrink out from under a
     // still-pending settle (a query re-run, a filter, a delete). `i` was a
     // valid index when captured; by settle time it can be `>= count`, and
     // react-window's real `scrollToRow` throws `RangeError` for that —

@@ -46,7 +46,7 @@ function mount(props: Partial<DbCollectionNavigatorProps> = {}) {
   return render(<DbCollectionNavigator {...baseProps} />);
 }
 
-// #72 — was a local copy identical to navigator-accordion.spec.tsx's own;
+// Was a local copy identical to navigator-accordion.spec.tsx's own;
 // SonarCloud flagged the pair. Now shared, see `navigatorRoot`'s own doc.
 const root = navigatorRoot;
 
@@ -142,10 +142,9 @@ describe('DbCollectionNavigator — context-menu Disconnect returns focus to the
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod"?' });
     await user.click(within(dialog).getByText('Cancel'));
 
-    // #58 — the trigger `onDisconnect` is handed is the tree container now,
-    // not the row (see `navigator-context-menu-focus.spec.tsx`'s header
-    // comment: a row has no `tabIndex` any more, so it's no longer a
-    // `.focus()` target at all).
+    // The trigger `onDisconnect` is handed is the tree container, not the
+    // row (see `navigator-context-menu-focus.spec.tsx`'s header comment: a
+    // row has no `tabIndex`, so it's not a `.focus()` target at all).
     const tree = screen.getByRole('tree');
     await waitFor(() => expect(document.activeElement).toBe(tree));
     expect(tree.getAttribute('aria-activedescendant')).toBe(row.id);

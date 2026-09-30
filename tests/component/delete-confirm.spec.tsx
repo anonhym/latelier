@@ -77,7 +77,7 @@ describe('DeleteConfirm — single document (regression)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  // #91 — the Delete button no longer goes real-`disabled` while `loading`
+  // The Delete button no longer goes real-`disabled` while `loading`
   // (only `data-disabled`/`aria-disabled` — a focused button that goes
   // real `disabled` gets blurred to `<body>` by Chromium, with nothing to
   // restore it on a failure). Two layers now stop a second click from

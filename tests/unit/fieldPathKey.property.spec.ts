@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { childKey, pathCoversSubtree, rootKey } from '../../src/pages/Workspace/views/fieldPathKey';
 
-// #86 — proves the escaping scheme in `fieldPathKey.ts` is collision-free in
+// Proves the escaping scheme in `fieldPathKey.ts` is collision-free in
 // general, not just for the one hand-picked repro in `fieldPathKey.spec.ts`.
 //
 // Alphabet limited to `.`, `:`, `\` (the two structural separators these
 // keys use, plus the escape character itself) and one plain letter, so
 // distinct segment lists collide on their RAW concatenation as often as
-// possible — this is exactly the shape of #86's dotted-field-name bug, and
+// possible — this is exactly the shape of the dotted-field-name bug, and
 // the swapped-escape-order mutant (escaping `.`/`:` before `\`) is far more
 // likely to be caught against this alphabet than against arbitrary strings.
 const charArb = fc.constantFrom('a', '.', '\\', ':');
@@ -30,10 +30,9 @@ function isSegmentPrefixOf(a: readonly string[], b: readonly string[]): boolean 
 }
 
 /**
- * Test-side decoder — the inverse of `keyFor`. Reviewer-requested (#86):
- * generating two INDEPENDENT random `(docId, segments)` pairs and checking
- * they collide only when equal is too weak in practice — with a 4-symbol
- * alphabet, two independently generated pairs almost never land on one of
+ * Test-side decoder — the inverse of `keyFor`. Generating two INDEPENDENT
+ * random `(docId, segments)` pairs and checking they collide only when
+ * equal is too weak in practice — with a 4-symbol alphabet, two independently generated pairs almost never land on one of
  * the rare colliding shapes (e.g. `docId: "a:"`, `segments: ["b"]` vs
  * `docId: "a"`, `segments: [":b"]`, both of which land on the raw string
  * `"a:::b"` if the `:` escape is missing). A round-trip property instead
@@ -84,7 +83,7 @@ function decodeKey(key: string): { docId: string; segments: string[] } {
   return { docId: parts[0], segments: parts.slice(1) };
 }
 
-describe('fieldPathKey — property (#86)', () => {
+describe('fieldPathKey — property', () => {
   it('decodeKey(keyFor(docId, segments)) recovers the exact input — proves injectivity directly', () => {
     fc.assert(
       fc.property(segmentArb, nonEmptySegmentsArb, (docId, segments) => {

@@ -2,7 +2,7 @@ import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 /**
- * #110 — a React/Mantine effect (e.g. `ModalBase`'s `useLockScroll`, which
+ * A React/Mantine effect (e.g. `ModalBase`'s `useLockScroll`, which
  * `ModalsProvider` mounts even while closed) can schedule a `setTimeout`
  * that only fires later, on a real clock. If nothing unmounts the component
  * between tests, that effect's cleanup never runs and the timer outlives

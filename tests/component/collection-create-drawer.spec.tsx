@@ -45,9 +45,9 @@ describe('CreateCollectionDrawer — fixed dbName (navigator mode)', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ dbName: 'shop', name: 'orders' }));
   });
 
-  // #91 — `submit` had no `submitting` guard at all before; the button
-  // stayed real-enabled while submitting (SubmitButton) is what makes this
-  // guard load-bearing rather than cosmetic.
+  // `submit` needs its own `submitting` guard: the button staying
+  // real-enabled while submitting (SubmitButton) is what makes this guard
+  // load-bearing rather than cosmetic.
   it('ignores a second click while a create is in flight, making one api.collection.create call', async () => {
     let resolveCreate!: (v: { name: string }) => void;
     const create = vi.fn(() => new Promise<{ name: string }>((r) => (resolveCreate = r)));

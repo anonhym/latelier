@@ -12,7 +12,7 @@ import { expectConsoleClean } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * #106 — TableView double-click-to-copy copied the row ABOVE the one the
+ * TableView double-click-to-copy copied the row ABOVE the one the
  * user clicked, whenever nothing was already selected. The first click of
  * the dblclick selected the row, which used to mount the "1 selected"
  * SelectionActionBar above the grid and shift it down 31px; the second
@@ -20,7 +20,7 @@ test.afterAll(stopAllMemoryServers);
  * `dblclick` fired there instead. The fix reserves the bar's space so
  * nothing shifts (`SelectionActionBar.tsx`).
  */
-test('double-clicking a cell with no prior selection copies that cell, not the row above (#106)', async () => {
+test('double-clicking a cell with no prior selection copies that cell, not the row above', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -41,7 +41,7 @@ test('double-clicking a cell with no prior selection copies that cell, not the r
       await ws.openCollectionFromNavigator('shop', 'orders');
       // The auto-run on open is the only query run. A second Run click used to
       // land its result mid-test on a slow CI runner, replacing `documents`
-      // and resetting the active row (PR #122's shard 4).
+      // and resetting the active row.
       await ws.viewTableButton.click();
 
       const grid = win.getByRole('grid', { name: 'Documents' });

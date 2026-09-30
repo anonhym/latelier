@@ -285,7 +285,7 @@ function ControlledScriptTab({ initial }: { initial: ScriptTabModel }) {
   return <ScriptTab tab={t} onPatch={onPatch} />;
 }
 
-describe('ScriptTab result-panel resize keyboard support (#56)', () => {
+describe('ScriptTab result-panel resize keyboard support', () => {
   function renderWithResult() {
     installAtelierMock();
     return render(

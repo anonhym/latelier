@@ -12,7 +12,7 @@ import { expectConsoleClean, expectStatusDot } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * Fix for #270: the Document Editor's Fields view used to squeeze a nested
+ * The Document Editor's Fields view used to squeeze a nested
  * container's children onto the same line as its own row (a flex item next
  * to name/value/type/remove), so four levels of nesting scrolled the modal
  * body horizontally — and arrays had no per-element editing at all. This

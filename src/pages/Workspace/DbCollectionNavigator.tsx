@@ -82,7 +82,7 @@ type TreeRow =
       isExpanded: boolean;
       isConnected: boolean;
       dbCount: number | null;
-      // #66 — DOM id of this root's own `conn-error` row (`connerr:`/`dberr:`),
+      // DOM id of this root's own `conn-error` row (`connerr:`/`dberr:`),
       // when one is present, so the row can `aria-describedby` it. A
       // connection can only ever have one of the two at a time (the first
       // needs `status === 'error'`, the second needs a connected, expanded
@@ -124,14 +124,14 @@ type TreeRow =
 
 type MenuItem = ContextMenuItem;
 
-// #58 — `row.id` (`conn:…`/`db:…:…`/`coll:…:…:…`) is already globally unique,
+// `row.id` (`conn:…`/`db:…:…`/`coll:…:…:…`) is already globally unique,
 // same reasoning as DocFieldTree's `fieldRowDomId`; just namespaced so it
 // can't collide with an unrelated `id` elsewhere on the page.
 function navigatorRowDomId(id: string): string {
   return `navigator-row-${id}`;
 }
 
-// #66 — the only three kinds a keyboard/AT user can land on. Everything else
+// The only three kinds a keyboard/AT user can land on. Everything else
 // (skeleton/db-skeleton/coll-empty/db-empty/conn-error) is inert content: it
 // has no `id`, no focus treatment, and nothing to act on. Used everywhere
 // "navigable" is decided, so there's exactly one place that list can drift.
@@ -542,7 +542,7 @@ export function DbCollectionNavigator({
         connectionsWithTabs.has(conn.id);
       if (!hasRoot) continue;
       const isExpanded = conn.id === connectionId;
-      // #66 — computed up front so the row below can carry it: `cache` is
+      // Computed up front so the row below can carry it: `cache` is
       // only ever this connection's own cache when `isExpanded` (it's a
       // single value keyed by the one open root), so `dberr` can only apply
       // here, never to a collapsed sibling.
@@ -736,7 +736,7 @@ export function DbCollectionNavigator({
   }, [openFromRow]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // #66 — a key bubbling up from a nested real control (Retry, Cancel,
+    // A key bubbling up from a nested real control (Retry, Cancel,
     // Create collection, Refresh…) is that control's own action, not the
     // tree's roving-focus navigation. Without this, an ancestor
     // `preventDefault()` on the bubble phase cancels the button's own
@@ -747,11 +747,11 @@ export function DbCollectionNavigator({
     const idx = focusedId ? rows.findIndex((r) => r.id === focusedId) : -1;
     const row = idx >= 0 ? rows[idx] : null;
 
-    // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row,
-    // anchored to its bounding rect, not a stale cursor position. #133 — the
-    // list is virtualized, and PageDown or the wheel can have scrolled that
-    // row out and unmounted it: open anyway (anchored to the tree) and bring
-    // the row back into view.
+    // Shift+F10 / ContextMenu key: open the menu for the focused row,
+    // anchored to its bounding rect, not a stale cursor position. The list
+    // is virtualized, and PageDown or the wheel can have scrolled that row
+    // out and unmounted it: open anyway (anchored to the tree) and bring the
+    // row back into view.
     if (isContextMenuKey(e)) {
       if (!row) return;
       e.preventDefault();
@@ -766,11 +766,11 @@ export function DbCollectionNavigator({
     switch (e.key) {
       case 'ArrowDown': {
         e.preventDefault();
-        // #66 — start the search AT `idx` (not `idx + 1`) whenever the
-        // currently focused row isn't itself navigable, so a stray
-        // placeholder focus (should never happen — see the audit at this
-        // ticket's call sites) still recovers to the nearest navigable row
-        // below it, rather than skipping one past it.
+        // Start the search AT `idx` (not `idx + 1`) whenever the currently
+        // focused row isn't itself navigable, so a stray placeholder focus
+        // (should never happen — see the `isNavigableRow` call sites) still
+        // recovers to the nearest navigable row below it, rather than
+        // skipping one past it.
         const from = idx < 0 ? 0 : row && isNavigableRow(row) ? idx + 1 : idx;
         const next = nearestNavigableIndex(rows, from, 1);
         if (next >= 0) setFocusedId(rows[next].id);
@@ -806,11 +806,9 @@ export function DbCollectionNavigator({
       case 'ArrowLeft': {
         if (!row) return;
         e.preventDefault();
-        // #66 — `row` can only ever be `connection`/`db`/`coll` now (the
-        // invariant every other case here maintains), so the old
-        // `conn-error` branch and its final `else if (connectionId)`
-        // catch-all — the fallback for a placeholder having somehow been
-        // focused — are unreachable and gone.
+        // `row` can only ever be `connection`/`db`/`coll` (the invariant
+        // every other case here maintains), so there is no `conn-error`
+        // branch and no catch-all fallback for a focused placeholder.
         if (row.kind === 'connection' && row.isExpanded) {
           toggleConnection(row.conn.id);
         } else if (row.kind === 'db' && row.isExpanded) {
@@ -852,7 +850,7 @@ export function DbCollectionNavigator({
     }
   };
 
-  // #58/#66 — the container (not a row) always holds real DOM focus; the
+  // The container (not a row) always holds real DOM focus; the
   // active row is only named via `aria-activedescendant`, and only when it's
   // `isNavigableRow` — `focusedId` can no longer land on a placeholder (see
   // the onKeyDown audit above), but this stays defensive rather than assuming.
@@ -1012,17 +1010,17 @@ export function DbCollectionNavigator({
     return items;
   }, [refreshAll, onEditConnection, onDisconnect, disconnect, reconnect]);
 
-  // #55/#69 — shared by the mouse (`onRowContextMenu`) and keyboard
-  // (Shift+F10 / ContextMenu key, in `onKeyDown` above) open paths; only the
-  // anchor coordinate differs between them now — both hand `ContextMenu` the
+  // Shared by the mouse (`onRowContextMenu`) and keyboard (Shift+F10 /
+  // ContextMenu key, in `onKeyDown` above) open paths; only the anchor
+  // coordinate differs between them — both hand `ContextMenu` the
   // same `returnFocusTo` (see below).
   const openMenuFor = React.useCallback(
     (row: TreeRow, anchor: { x: number; y: number }) => {
       setFocusedId(row.id);
-      // #58 — used to be `e.currentTarget` (the row itself). Rows no longer
-      // carry a `tabIndex` (see ConnectionRow/DbRow/CollRow below), so a row
-      // is not a valid `.focus()` target any more — `useDialogFocusReturn`
-      // would silently no-op and drop focus to `<body>`. The tree container
+      // Not `e.currentTarget` (the row itself): rows carry no `tabIndex`
+      // (see ConnectionRow/DbRow/CollRow below), so a row is not a valid
+      // `.focus()` target — `useDialogFocusReturn` would silently no-op and
+      // drop focus to `<body>`. The tree container
       // is the one thing here that always holds real focus and always stays
       // mounted (a row can scroll out of the virtualized window and unmount),
       // so it's what every dialog this menu can open — and `onEditConnection`/
@@ -1039,13 +1037,13 @@ export function DbCollectionNavigator({
       setMenu({
         ...anchor,
         items,
-        // #69 — set on both open paths now (`trigger` is a valid focus
-        // target for either — see the comment above), so Escape/click-away
-        // no longer strands focus on `<body>` after a right-click. Mantine's
-        // own `FocusTrap` already grabs focus into the menu on any open
+        // Set on both open paths (`trigger` is a valid focus target for
+        // either — see the comment above), so Escape/click-away doesn't
+        // strand focus on `<body>` after a right-click. Mantine's own
+        // `FocusTrap` already grabs focus into the menu on any open
         // regardless of this field (see `ContextMenuState.returnFocusTo`'s
-        // docstring) — only the close-time restore was missing for a mouse
-        // open, and this is that.
+        // docstring) — this field supplies the close-time restore a mouse
+        // open would otherwise lack.
         returnFocusTo: trigger,
       });
     },
@@ -1341,7 +1339,7 @@ function NavRowImpl({
   onRowContextMenu,
 }: RowComponentProps<NavRowProps>) {
   const row = rows[index]!;
-  // #66 — guarded by `isNavigableRow` too: only these three kinds carry the
+  // Guarded by `isNavigableRow` too: only these three kinds carry the
   // `id`/outline `isFocused` drives (see the `activeDescendantId` comment above).
   const isFocused = isNavigableRow(row) && row.id === focusedId;
   let content: React.ReactNode;
@@ -1577,7 +1575,7 @@ function ConnectionRow({
   isExpanded: boolean;
   dbCount: number | null;
   isFocused: boolean;
-  /** #66 — DOM id of this root's own conn-error row, when it has one. */
+  /** DOM id of this root's own conn-error row, when it has one. */
   errorRowId: string | null;
   onClick: () => void;
   onCancel: () => void;
@@ -1598,13 +1596,13 @@ function ConnectionRow({
       aria-level={1}
       aria-expanded={isExpanded}
       aria-label={`${conn.name}. ${statusWord}${conn.readOnly ? '. Read-only' : ''}`}
-      // #66 — names this root's own error message, when it has one, so a
+      // Names this root's own error message, when it has one, so a
       // keyboard/AT user landed on the root (not just on the Retry button)
       // hears why it failed, not just that it did.
       aria-describedby={errorRowId ?? undefined}
       data-testid="nav-connection"
       data-connection-id={conn.id}
-      // #58 — no `tabIndex` here, not even -1. Per the HTML focusing-steps
+      // No `tabIndex` here, not even -1. Per the HTML focusing-steps
       // algorithm any declared tabindex (negative included) makes an
       // element click-focusable, and with rows virtualized inside a
       // react-window `<List>` a row that holds real focus can unmount
@@ -1738,7 +1736,7 @@ function DbRow({
       aria-level={2}
       aria-expanded={row.isExpanded}
       data-testid={`nav-db-${row.db.name}`}
-      // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
+      // See ConnectionRow's comment: no `tabIndex`, real focus stays
       // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}
       onContextMenu={onContextMenu}
@@ -1925,7 +1923,7 @@ function CollRow({
       // the closest persistently-mounted stand-in for "where References now
       // lives" (the context menu item itself only exists while open).
       {...(isActive ? { 'data-hint-anchor': 'refs.configure' } : {})}
-      // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
+      // See ConnectionRow's comment: no `tabIndex`, real focus stays
       // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}
       onContextMenu={onContextMenu}

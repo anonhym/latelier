@@ -12,7 +12,7 @@ import { expectConsoleClean } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * #79 — a Popover that closes on a click landing on a non-focusable area
+ * A Popover that closes on a click landing on a non-focusable area
  * drops focus to `<body>` instead of returning it to the trigger. The
  * component suite (`fields-control.spec.tsx`, `connection-switcher.spec.tsx`)
  * covers this with a synthetic `<div>` click, which jsdom + `userEvent`
@@ -59,7 +59,7 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       await ws.openCollectionFromNavigator('shop', 'orders');
       // The auto-run on open is the only query run. A second Run click used to
       // land its result mid-test on a slow CI runner, replacing `documents`
-      // and resetting the active row (PR #122's shard 4).
+      // and resetting the active row.
       await ws.viewTableButton.click();
 
       // --- FieldsControl: uncontrolled Popover, `returnFocus` fix. ---

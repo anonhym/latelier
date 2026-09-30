@@ -27,10 +27,10 @@ function renderFieldTree(
   );
 }
 
-// #20 — roving focus over one expanded document's field tree. Each expanded
+// Roving focus over one expanded document's field tree. Each expanded
 // document mounts its own independent `DocFieldTree`, so it owns its own
 // single tab stop rather than joining the outer Table/Tree grid's.
-describe('DocFieldTree — roving focus (#20)', () => {
+describe('DocFieldTree — roving focus', () => {
   it('is its own tab stop and names the first field row as the active descendant', () => {
     const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
     const tree = container.querySelector('[role="tree"]')!;
@@ -163,12 +163,12 @@ describe('DocFieldTree — roving focus (#20)', () => {
   });
 });
 
-// #60 — the active row is announced (aria-activedescendant, #20) but was
-// never drawn. Asserts the real inline outline, not an attribute.
-// #119 review — DocFieldTree isn't virtualized, so one `scrollIntoView` per
-// move is exact. It must not enter `useRovingFocus`'s settle loop, which
-// can't find its path-keyed rows and would re-scroll for 60 frames per key.
-describe('DocFieldTree — scroll on arrow keys (#119)', () => {
+// The active row is announced (aria-activedescendant) but was never drawn.
+// Asserts the real inline outline, not an attribute.
+// DocFieldTree isn't virtualized, so one `scrollIntoView` per move is
+// exact. It must not enter `useRovingFocus`'s settle loop, which can't
+// find its path-keyed rows and would re-scroll for 60 frames per key.
+describe('DocFieldTree — scroll on arrow keys', () => {
   it('ArrowDown scrolls the new row into view once and schedules no animation frame', () => {
     const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
     const tree = container.querySelector('[role="tree"]')!;
@@ -187,7 +187,7 @@ describe('DocFieldTree — scroll on arrow keys (#119)', () => {
   });
 });
 
-describe('DocFieldTree — active-row visual highlight (#60)', () => {
+describe('DocFieldTree — active-row visual highlight', () => {
   it('no row is outlined before focus, the active row gains it on focus, ArrowDown moves it, blur clears it', () => {
     const { container } = renderFieldTree({ a: 1, b: 2, c: 3 });
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
@@ -213,7 +213,7 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;
     // `document.getElementById`, not a CSS selector: these ids carry `::`
     // and `.` (a `#id`/`[id="…"]` selector reads those as a pseudo-element,
-    // a class, or — once #86 started escaping segments — a CSS escape
+    // a class, or — since `fieldPathKey.ts` escapes segments — a CSS escape
     // sequence), and RTL's `render` mounts into `document.body`.
     const rowFor = (path: string) =>
       document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
@@ -231,12 +231,12 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
     expect(rowFor('a.b').style.outline).not.toContain('2px');
   });
 
-  // X19 #83 — the flash and this outline are both `var(--atelier-accent)`;
+  // X19 — the flash and this outline are both `var(--atelier-accent)`;
   // clipping the flash to the content box keeps it off the 2px inset band
   // the outline occupies. jsdom paints nothing, so this only guards the
   // style is set — `x19-copy-flash-outline.e2e.ts` proves the pixels
   // actually separate.
-  it('a copied row clips its flash background to the content box (#83)', () => {
+  it('a copied row clips its flash background to the content box', () => {
     const { container } = renderFieldTree({ a: 1 }, { copiedPath: 'doc1::a' });
     const row = container.querySelector('[role="treeitem"]') as HTMLElement;
 
@@ -244,15 +244,15 @@ describe('DocFieldTree — active-row visual highlight (#60)', () => {
   });
 });
 
-// #85 — `copiedPath` was written to the same own-path-only idiom `activePath`
-// had (#60), and has the same bug: a `FieldNode` renders its expanded
+// `copiedPath` was written to the same own-path-only idiom `activePath` had,
+// and has the same bug: a `FieldNode` renders its expanded
 // children itself, so moving `copiedPath` between two children of the same
 // node — or clearing it while a nested row is marked — leaves that node's own
 // flag unchanged, the comparator skips the render, and the children keep the
 // stale mark. `{ a: { b, c } }` with `a` expanded is the smallest repro.
-describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
-  // `document.getElementById`, not a CSS selector — see the #60 outline
-  // test's `rowFor` above for why.
+describe('DocFieldTree — copy-confirmation mark subtree bug', () => {
+  // `document.getElementById`, not a CSS selector — see the active-row
+  // outline test's `rowFor` above for why.
   const rowFor = (path: string) => document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
   const isMarked = (row: HTMLElement) => row.textContent?.includes('Copied') ?? false;
 
@@ -286,13 +286,13 @@ describe('DocFieldTree — copy-confirmation mark subtree bug (#85)', () => {
   });
 });
 
-// #68/#69 — the field menu (Copy value / Copy field path / Add to filter)
-// was reachable only by right-click; this covers the keyboard-open path this
-// component now owns, and the mouse-path payload shape #69 needs both to
-// share.
-describe('DocFieldTree — field menu open payload (#68/#69)', () => {
-  // `document.getElementById`, not a CSS selector — see the #60 outline
-  // test's `rowFor` above for why.
+// The field menu (Copy value / Copy field path / Add to filter) was
+// reachable only by right-click; this covers the keyboard-open path this
+// component now owns, and the payload shape the keyboard and mouse paths
+// both need to share.
+describe('DocFieldTree — field menu open payload', () => {
+  // `document.getElementById`, not a CSS selector — see the active-row
+  // outline test's `rowFor` above for why.
   function stubActiveRowRect(path: string, rect: Partial<DOMRect>) {
     const el = document.getElementById(`field-row-doc1::${path}`) as HTMLElement;
     vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
@@ -375,8 +375,8 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
   // A mouse-driven open can't reach the tree's own container ref (it fires
   // from a `FieldNode` deep in the recursion) — `DocFieldTree` injects
   // `returnFocusTo` on the way up. `focusMenuOnOpen` stays unset: a
-  // right-click still shouldn't steal focus into the menu (#69's own
-  // "right-click behaviour is otherwise unchanged" requirement).
+  // right-click still shouldn't steal focus into the menu — right-click
+  // behaviour is otherwise unchanged.
   it('a right-click on a field row gets returnFocusTo but not focusMenuOnOpen', () => {
     const onOpenMenu = vi.fn();
     const { container } = renderFieldTree({ a: 1 }, { onOpenMenu });
@@ -394,12 +394,12 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
   });
 });
 
-// #86 — a field named "a.b" used to compute the same identity `path` as a
+// A field named "a.b" used to compute the same identity `path` as a
 // nested field `b` under top-level "a" (`${docId}::a.b` either way), so the
 // two rows shared a DOM id, shared expansion state, and could both be
 // outlined active at once. `fieldPathKey.ts` escapes `.`/`:`/`\` in every
 // segment before joining, so they no longer collide.
-describe('DocFieldTree — dotted field name does not collide with a nested path (#86)', () => {
+describe('DocFieldTree — dotted field name does not collide with a nested path', () => {
   const collisionDoc = { 'a.b': { x: 1 }, a: { b: { y: 2 } } };
 
   it('all three rows (including both colliding shapes) get distinct DOM ids', () => {
@@ -409,8 +409,8 @@ describe('DocFieldTree — dotted field name does not collide with a nested path
     expect(rows).toHaveLength(3);
     const ids = rows.map((r) => r.id);
     expect(new Set(ids).size).toBe(3);
-    // The exact #86 repro: the dotted top-level row and the nested "b" row
-    // used to both be "field-row-doc1::a.b".
+    // The exact collision repro: the dotted top-level row and the nested "b"
+    // row used to both be "field-row-doc1::a.b".
     expect(ids).toContain('field-row-doc1::a\\.b');
     expect(ids).toContain('field-row-doc1::a.b');
   });
@@ -466,11 +466,11 @@ describe('DocFieldTree — dotted field name does not collide with a nested path
   });
 });
 
-// #86 — the "one-place" cross-check: `flattenVisibleFieldRows`'s own output
+// The "one-place" cross-check: `flattenVisibleFieldRows`'s own output
 // (`tests/unit/flattenVisibleFieldRows.spec.ts`) must be exactly the set of
 // paths `DocFieldTree` actually renders, so the roving-focus flat order and
 // the real DOM never drift apart on a colliding document.
-describe('DocFieldTree — flattenVisibleFieldRows matches the rendered rows (#86)', () => {
+describe('DocFieldTree — flattenVisibleFieldRows matches the rendered rows', () => {
   it('rendered row ids equal flattenVisibleFieldRows(doc, docId, expanded).map(r => r.path)', () => {
     const doc = { 'a.b': { x: 1 }, a: { b: { y: 2 } } };
     const expandedPaths = new Set(['doc1::a']);

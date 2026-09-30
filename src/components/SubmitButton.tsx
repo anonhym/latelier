@@ -32,7 +32,7 @@ export function submittingProps(submitting: boolean): {
  * `<body>` focused around 50ms later. A button that goes
  * `disabled={submitting}` while still focused gets ejected from the dialog
  * a beat after the user clicks it; on a failure that leaves the dialog open,
- * nothing ever restores focus (#91). Fix: stay enabled while submitting and
+ * nothing ever restores focus. Fix: stay enabled while submitting and
  * fake the disabled *look* with `data-disabled`/`aria-disabled` — styling
  * only (`Button.mjs:74`), not the real DOM attribute. Don't use Mantine's
  * `loading` prop instead: it sets the real `disabled` (`Button.mjs:72`) and

@@ -106,7 +106,7 @@ describe('ReferenceRulesEditor — delete confirm', () => {
   });
 
   /**
-   * #91 — Confirm delete is a native `<button>` that no longer goes
+   * Confirm delete is a native `<button>` that no longer goes
    * real-`disabled` while deleting (only `data-disabled`/`aria-disabled` —
    * a focused button that goes real `disabled` gets blurred to `<body>` by
    * Chromium, with nothing to restore it on a failure). `handleDelete`'s own

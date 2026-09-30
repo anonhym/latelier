@@ -1998,14 +1998,14 @@ describe('ConnectionSwitcher keyboard contract', () => {
     expect(titleBar().getByText('Prod — US East')).toBeTruthy();
   });
 
-  // #79 — the Escape guard already passed before this fix, since the
-  // Switcher's own (pre-existing) effect already special-cased "focus is
-  // still inside the dropdown". What it missed is a click that closes the
-  // popover on a non-focusable area: Chromium's mousedown default action
-  // blurs the search field to <body> there, and nothing recovered from it.
+  // The Switcher's own effect special-cases "focus is still inside the
+  // dropdown", which is what the Escape guard relies on. The harder case is
+  // a click that closes the popover on a non-focusable area: Chromium's
+  // mousedown default action blurs the search field to <body> there, only
+  // after the popover has closed.
   // Shared with column-chooser/preview-picker/table-view specs — see the
   // helper's docstring.
-  describe('focus return on close (#79)', () => {
+  describe('focus return on close', () => {
     itReturnsFocusToPopoverTrigger(async () => {
       mount({ focusedConnectionId: 'c1' });
       const trigger = await screen.findByRole('button', { name: /Connection: Prod — US East/i });

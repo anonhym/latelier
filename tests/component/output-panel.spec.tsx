@@ -179,7 +179,7 @@ function ControlledOutputPanel() {
   );
 }
 
-describe('OutputPanel resize keyboard support (#56)', () => {
+describe('OutputPanel resize keyboard support', () => {
   it('is reachable by Tab alone', async () => {
     const user = userEvent.setup();
     render(<ControlledOutputPanel />);

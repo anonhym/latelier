@@ -115,10 +115,10 @@ describe('JsonTree', () => {
     expect(mockedToDisplayValue.mock.calls.some((call) => call[0] === 3)).toBe(false);
   });
 
-  // #86 — a top-level key literally named "a.b" used to compute the same
+  // A top-level key literally named "a.b" used to compute the same
   // `path` as nested field `b` under top-level "a" (plain `.`-joining), so
   // expanding one toggled the other's expansion state too.
-  it('a dotted top-level key does not share expansion state with a same-shaped nested path (#86)', () => {
+  it('a dotted top-level key does not share expansion state with a same-shaped nested path', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<JsonTree value={{ 'a.b': { x: 1 }, a: { b: { y: 2 } } }} />);
 

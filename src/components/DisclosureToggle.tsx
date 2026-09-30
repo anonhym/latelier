@@ -3,7 +3,7 @@ import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
 
 /**
- * X19 #54 — the keyboard-operable half of a click-to-expand table row.
+ * X19 — the keyboard-operable half of a click-to-expand table row.
  *
  * IndexesTab and UsersTab both expand a detail row by making the whole
  * `<Table.Tr>` clickable with no `role`/`tabIndex`/`onKeyDown` — unreachable

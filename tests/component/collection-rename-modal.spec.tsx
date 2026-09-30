@@ -51,7 +51,7 @@ describe('RenameCollectionModal', () => {
     await waitFor(() => expect(onRenamed).toHaveBeenCalledWith('purchase_orders'));
   });
 
-  // #91 — the button stays real-enabled while submitting (SubmitButton), so
+  // The button stays real-enabled while submitting (SubmitButton), so
   // the handler's own `submitting` guard is what stops a second activation
   // from firing a second request.
   it('ignores a second click while a rename is in flight, making one api.collection.rename call', async () => {

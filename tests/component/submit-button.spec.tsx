@@ -3,7 +3,7 @@ import { render, screen } from '../helpers/render';
 import { SubmitButton } from '../../src/components/SubmitButton';
 
 /**
- * #91 — the contract this component exists to hold: `submitting` never sets
+ * The contract this component exists to hold: `submitting` never sets
  * the real `disabled` attribute (that's what let Chromium blur a focused
  * confirm button to `<body>` on activation, with nothing to restore it on a
  * failure — see the e2e spec `x19-submit-failure-focus.e2e.ts`; jsdom does

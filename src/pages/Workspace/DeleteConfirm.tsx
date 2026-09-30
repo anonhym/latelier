@@ -100,7 +100,7 @@ export function DeleteConfirm({
   }, [isMulti, connectionId, dbName, collection, matchFilterJson]);
 
   const handleDelete = async () => {
-    if (loading) return; // #91 — see SubmitButton.tsx
+    if (loading) return; // see SubmitButton.tsx
     setLoading(true);
     setErr(null);
     let auditId: string | undefined;
