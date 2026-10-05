@@ -397,7 +397,7 @@ bar's don't). W13 resolves it by deletion rather than reconciliation:
 | limit | query bar advanced grid |
 | projection | query bar advanced grid |
 | skip | pagination (display-only in the grid, unchanged) |
-| Run | **one** button, in the toolbar |
+| Run | **one** button, at the right end of the toolbar |
 
 The drawer stops rendering sort / limit / projection editors. That work is
 therefore **subsumed by W13**, not implemented separately — building it would
@@ -407,12 +407,31 @@ the superseded design, and is closed as superseded when W13 ships.
 
 One Run, in the always-visible toolbar, resolves the adjacency complaint that
 opened this redesign: the drawer's Run sat ~400px below the row being edited
-and ran under a *different* enabled rule than the bar's. `⌘↵` runs from
-anywhere in the drawer, so no travel is required at all.
+and ran under a *different* enabled rule than the bar's. That mangled-but-valid-EJSON
+hazard cannot recur, because the only writer of `queryRaw` other than the user
+is a printer that fails closed.
 
-Run's enabled rule collapses to `isValidEjson(queryRaw)`. That
-mangled-but-valid-EJSON hazard cannot recur, because the only writer of
-`queryRaw` other than the user is a printer that fails closed.
+**Amended.** Two gaps survived the first pass. `⌘↵` was bound only to the
+filter textarea and the drawer root, so it did nothing from a result row — which is
+where focus stays after dragging a field into the drawer — or from the sort,
+projection and limit inputs. And Run sat at the toolbar's left end, the width of the
+results column away from the drawer. So:
+
+- **Position.** The toolbar reads `Save · History · (spacer) · Run ▾`; Run and its
+  options chevron sit at the right end, beside the drawer. Still one Run.
+- **One handler.** `⌘↵` is bound once, on the Collection tab root, and replaces the
+  textarea and drawer handlers. It acts only in the Documents view (Aggregation
+  keeps its own; Structure has no Run), ignores events from inside
+  `[role="dialog"]` / `[role="alertdialog"]` (each dialog keeps its own `⌘↵`), and
+  commits pending Shell Syntax edits before it gates.
+- **One gate.** Button and shortcut share `findProblem(state) === null && !isLoading`.
+  The drawer's old `isEjsonDocument`-only rule let a bad sort reach the runner.
+- **Blocked feedback.** A refused `⌘↵` shows the same reason the Run tooltip shows,
+  in a `role="alert"` line under the Query Bar, cleared by the next edit or run.
+  Every refused press remounts the line, so a repeat press is announced again. The
+  one exception: when the press itself raises the filter or projection refusal
+  notice, that notice is the announcement and the line stays away — two alerts for
+  one press would say it twice. Nothing is shown while a run is in flight.
 
 ## 8. Persistence & migration
 
@@ -534,6 +553,10 @@ Retired test ids and controls, so the churn isn't a surprise:
 **Integration**
 - [x] No sync pill, "Re-sync builder", "Accept builder", or "Builder disabled" control exists anywhere.
 - [x] Exactly one Run button; `⌘↵` runs from inside any drawer input.
+- [x] Run is the last control in the toolbar, after History.
+- [x] `⌘↵` runs from anywhere in the Documents view — result rows, sort/projection/limit inputs, drawer inputs — and after a drag-and-drop into the drawer with no further click.
+- [x] `⌘↵` inside a dialog never runs the find query; in the Aggregation view it runs the pipeline exactly once.
+- [x] Run button and `⌘↵` share one gate (`findProblem`); a refused `⌘↵` announces its reason in a `role="alert"` line.
 - [x] Sort, limit, and projection are editable in exactly one place.
 - [x] `currentFilterJson` returns `null` for blank or invalid-EJSON text, returns `'{}'` for the empty filter, and delete-all refuses to arm on `null`.
 - [x] A saved find payload with `builder.conditions` and no `queryRaw` hydrates to its original filter, not `{}`, and its sort/limit/projection survive hydration.

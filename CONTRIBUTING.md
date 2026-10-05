@@ -53,9 +53,11 @@ written.
 - **Migrations are append-only.** Never edit a merged file in
   `electron/db/migrations/`; add `NNN-name.sql`.
 - **Never `console.log`.** Use `electron/log.ts`.
-- **Don't write ticket references into code comments.** No "PR number", no
-  "reviewer finding", no date stamps. Comments explain *why the code is this
-  way*; the tracker holds the history.
+- **Issue numbers in comments point to the history; they don't replace it.**
+  `(#87)` in a comment or test title is welcome, but the comment still
+  explains *why the code is this way* without opening the issue. A bare `#<n>`
+  means an issue in this repository; cite anything else as `owner/repo#<n>`
+  or a full URL. No "reviewer finding" tags or date stamps.
 
 [CLAUDE.md](./CLAUDE.md) carries the full set, including the IPC envelope
 contract, the main-process layering, and how Extended JSON travels on the wire.
@@ -86,14 +88,13 @@ Two points worth calling out because they surprise people:
 - **`npm run test:mutation` is not in CI.** Neither is the `ipc-channel-auditor`
   agent. A gate that CI cannot run is still owed; someone runs it by hand.
 
-Tier is picked once, from the change as a whole. Docs-only — Markdown, comments,
-or `specs/` and nothing else — owes a subset. A change touching both docs and
-code is a code change.
+Tier is picked once, from the change as a whole. Docs-only — Markdown files and
+nothing else, `specs/` included — owes only the discovered-issues gate. A
+comment-only edit to a source file owes a subset. A change touching both docs
+and code is a code change.
 
 CI runs lint, typecheck, `audit:ipc`, the Vitest suite **and E2E** on pushes to
-`main` and on PRs targeting `main`. The E2E job takes ~26 minutes on a runner
-against ~2 locally, because Playwright runs `workers: 1` and each test pays an
-Electron launch plus a `mongodb-memory-server` spin-up.
+`main` and on PRs targeting `main`.
 
 ## Testing
 

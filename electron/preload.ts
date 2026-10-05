@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, type Envelope, type IpcApi } from '@shared/ipc';
+import { IPC_CHANNELS, type Envelope, type IpcApi, type MenuCommand } from '@shared/ipc';
 import type {
   AggResult,
   AggResultWire,
+  DataImportProgressEvent,
   FindResult,
   FindResultWire,
   ShellOutputEvent,
@@ -46,6 +47,11 @@ const api: IpcApi = {
     touchUsed: (id) => call(IPC_CHANNELS.connTouchUsed, { id }),
     parseUri: (uri) => call(IPC_CHANNELS.connParseUri, { uri }),
     test: (input) => call(IPC_CHANNELS.connTest, input),
+    export: (input) => call(IPC_CHANNELS.connExport, input),
+    importPreview: () => call(IPC_CHANNELS.connImportPreview, {}),
+    importCommit: (input) => call(IPC_CHANNELS.connImportCommit, input),
+    previewUris: (uris) => call(IPC_CHANNELS.connPreviewUris, { uris }),
+    createFromUris: (input) => call(IPC_CHANNELS.connCreateFromUris, input),
   },
 
   app: {
@@ -53,6 +59,11 @@ const api: IpcApi = {
     openExternal: (url) => call(IPC_CHANNELS.appOpenExternal, url),
     saveFile: (input) => call(IPC_CHANNELS.appSaveFile, input),
     diagnosticBundle: () => call(IPC_CHANNELS.appDiagnosticBundle, {}),
+    onMenuCommand: (cb) => {
+      const listener = (_evt: unknown, command: unknown) => cb(command as MenuCommand);
+      ipcRenderer.on(IPC_CHANNELS.appMenuCommandEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.appMenuCommandEvent, listener);
+    },
   },
 
   shell: {
@@ -110,8 +121,6 @@ const api: IpcApi = {
   prefs: {
     get: (key) => call(IPC_CHANNELS.prefsGet, { key }),
     set: (key, value) => call(IPC_CHANNELS.prefsSet, { key, value }),
-    getPreviewFields: (input) => call(IPC_CHANNELS.prefsGetPreviewFields, input),
-    setPreviewFields: (input) => call(IPC_CHANNELS.prefsSetPreviewFields, input),
     getTheme: () => call(IPC_CHANNELS.prefsGetTheme),
     setTheme: (mode) => call(IPC_CHANNELS.prefsSetTheme, { mode }),
     onThemeChanged: (cb) => {
@@ -119,6 +128,11 @@ const api: IpcApi = {
       ipcRenderer.on(IPC_CHANNELS.prefsThemeEvent, listener);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.prefsThemeEvent, listener);
     },
+  },
+
+  secrets: {
+    setPlaintextFallback: (enabled) =>
+      call(IPC_CHANNELS.secretsSetPlaintextFallback, { enabled }),
   },
 
   query: {
@@ -129,16 +143,18 @@ const api: IpcApi = {
     findOne: (input) => call(IPC_CHANNELS.queryFindOne, input),
     explain: (input) => call(IPC_CHANNELS.queryExplain, input),
     cancel: (input) => call(IPC_CHANNELS.queryCancel, input),
+    export: (input) => call(IPC_CHANNELS.queryExport, input),
   },
 
   doc: {
     insert: (input) => call(IPC_CHANNELS.docInsert, input),
     insertMany: (input) => call(IPC_CHANNELS.docInsertMany, input),
-    replace: (input) => call(IPC_CHANNELS.docReplace, input),
     updateOne: (input) => call(IPC_CHANNELS.docUpdateOne, input),
     deleteOne: (input) => call(IPC_CHANNELS.docDeleteOne, input),
     confirmDeleteMany: (input) => call(IPC_CHANNELS.docConfirmDeleteMany, input),
     deleteMany: (input) => call(IPC_CHANNELS.docDeleteMany, input),
+    confirmUpdateMany: (input) => call(IPC_CHANNELS.docConfirmUpdateMany, input),
+    updateMany: (input) => call(IPC_CHANNELS.docUpdateMany, input),
   },
 
   saved: {
@@ -150,10 +166,28 @@ const api: IpcApi = {
     duplicate: (input) => call(IPC_CHANNELS.savedDuplicate, input),
   },
 
+  data: {
+    import: (input) => call(IPC_CHANNELS.dataImport, input),
+    previewCsv: (input) => call(IPC_CHANNELS.dataPreviewCsv, input),
+    cancelImport: (input) => call(IPC_CHANNELS.dataCancelImport, input),
+    onImportProgress: (cb) => {
+      const listener = (_evt: unknown, payload: unknown) => cb(payload as DataImportProgressEvent);
+      ipcRenderer.on(IPC_CHANNELS.dataImportProgressEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.dataImportProgressEvent, listener);
+    },
+  },
+
+  audit: {
+    list: (input) => call(IPC_CHANNELS.auditList, input),
+    undo: (input) => call(IPC_CHANNELS.auditUndo, input),
+  },
   recent: {
     list: (input) => call(IPC_CHANNELS.recentList, input),
     get: (input) => call(IPC_CHANNELS.recentGet, input),
     clear: (input) => call(IPC_CHANNELS.recentClear, input),
+    valuesForField: (input) => call(IPC_CHANNELS.recentValuesForField, input),
+    recordFieldValues: (input) => call(IPC_CHANNELS.recentRecordFieldValues, input),
+    clearFieldValues: () => call(IPC_CHANNELS.recentClearFieldValues, {}),
   },
 
   agg: {

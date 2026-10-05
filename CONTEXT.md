@@ -28,7 +28,7 @@ The tabbed, IDE-like screen where the user browses Databases/Collections and run
 _Avoid_: editor, explorer
 
 **Connection Switcher**:
-A lightweight popup, reachable from within the Data View, that lists saved Connections and offers an "add connection" action — the entry point that replaces bouncing out to a separate connections screen.
+A lightweight popup, reachable from within the Data View, that lists saved Connections and opens the full Connections table ("Manage connections"), where adding, importing and exporting live — the entry point that replaces bouncing out to a separate connections screen.
 _Avoid_: database picker
 
 **Open Connection**:
@@ -46,6 +46,18 @@ _Avoid_: active tab, selected tab
 **Read-Only Connection**:
 A Connection with a persisted flag that blocks every MongoDB write reachable through it — document writes, collection/database/index/user admin operations, `$out`/`$merge` aggregation stages, and script/shell-pane writes. Enforced in the main process, never only hidden in the renderer, because the shell pane is unsandboxed (see [ADR 0005](docs/adr/0005-read-only-connection-enforcement.md)). A whole-connection property, not scoped to individual Databases within it. Unrelated to the pre-existing `readOnly` prop on components like `ScriptEditor`/`BuilderPane`, which is renderer-only editor/view state and enforces nothing against MongoDB.
 _Avoid_: read-only mode (ambiguous with the unrelated UI-state prop of the same name)
+
+**Connection Export**:
+A file holding one or more Connections, written by **Export** and read by **Import**. Carries Connections only — never their saved queries, tabs or Audit Log — and never credential file paths. Importing one always adds new Connections; it never changes an existing one.
+_Avoid_: backup (implies the whole app state), config, profile
+
+**Checked Connection**:
+A row ticked in the Connections table for a batch action — export or delete. Not the same as the *selected* row, whose details are open. A search unchecks the rows it hides, so a batch never reaches a Connection the user cannot see.
+_Avoid_: selected (that is the open row), marked
+
+**Export Passphrase**:
+The passphrase that protects the secrets inside a Connection Export. A Connection Export without secrets has none.
+_Avoid_: password (that word belongs to the Connection's own credentials)
 
 ### Query language and surfaces
 
@@ -70,6 +82,16 @@ _Avoid_: query bar, search box
 The structured, row-per-condition panel beside the Filter Bar. It presents the same filter as editable rows, and stays in two-way sync with the Filter Bar.
 _Avoid_: filter panel, builder pane
 
+### Editing documents
+
+**Document Editor**:
+The popup for writing one document by hand, whether changing an existing one or creating a new one. It shows a single draft through two views, **Fields** (one typed row per field) and **JSON** (the whole document as text). Saving a change records one Operation containing only what changed.
+_Avoid_: edit drawer, insert drawer, edit popup, replace mode, update mode
+
+**Quick Edit**:
+Changing a single value in place, where it is displayed, without opening the Document Editor.
+_Avoid_: inline edit (as a user-facing name)
+
 ### Operations and history
 
 **Operation**:
@@ -79,12 +101,16 @@ _Avoid_: action, event, mutation, write
 **Query**:
 A read the user might want to run again. The unit of recent queries, and never an Operation — the two histories are separate on purpose.
 
+**Run**:
+Executing the Focused Tab's current Query — the Filter Bar's filter plus sort and projection — against its Collection. Always a read, never an Operation. It always includes the latest Query Builder edits; there is no separate "apply" step before it.
+_Avoid_: execute, search, apply
+
 **Audit Log**:
 The durable, per-Connection record of Operations. Survives relaunch; dies with its Connection. Distinct from the transient notification history, which records failures the user might otherwise miss and keeps nothing.
 _Avoid_: activity log, history, event log
 
 **Pre-image**:
-The document or documents as they existed immediately before an Operation. Captured only when small enough to be worth keeping, and only for as long as Undo is still plausible.
+The document or documents as they existed immediately before an Operation. Captured only when small enough to be worth keeping, and held in memory for the running session only — never written to disk, so a restart forgets them, and only the most recent ones are kept even within a session.
 _Avoid_: snapshot, backup, previous version
 
 **Reversible**:

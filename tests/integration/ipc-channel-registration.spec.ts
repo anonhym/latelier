@@ -18,6 +18,7 @@ vi.mock('electron', () => ({
 const { createRouter } = await import('../../electron/ipc/router');
 const { IPC_CHANNELS } = await import('../../shared/ipc');
 const { registerConnChannels } = await import('../../electron/ipc/handlers/conn');
+const { registerConnExportChannels } = await import('../../electron/ipc/handlers/connExport');
 const { registerAppChannels } = await import('../../electron/ipc/handlers/app');
 const { registerMongoChannels } = await import('../../electron/ipc/handlers/mongo');
 const { registerMetaChannels } = await import('../../electron/ipc/handlers/meta');
@@ -27,17 +28,21 @@ const { registerCollectionAdminChannels } = await import(
 );
 const { registerUserChannels } = await import('../../electron/ipc/handlers/users');
 const { registerPrefsChannels } = await import('../../electron/ipc/handlers/prefs');
+const { registerSecretsChannels } = await import('../../electron/ipc/handlers/secrets');
 const { registerTabsChannels } = await import('../../electron/ipc/handlers/tabs');
 const { registerQueryChannels } = await import('../../electron/ipc/handlers/query');
 const { registerDocChannels } = await import('../../electron/ipc/handlers/doc');
 const { registerSavedChannels } = await import('../../electron/ipc/handlers/saved');
 const { registerRecentChannels } = await import('../../electron/ipc/handlers/recent');
+const { registerAuditChannels } = await import('../../electron/ipc/handlers/audit');
+const { registerDataChannels } = await import('../../electron/ipc/handlers/data');
 const { registerAggChannels } = await import('../../electron/ipc/handlers/agg');
 const { registerShellChannels } = await import('../../electron/ipc/handlers/shell');
 const { registerMshellChannels } = await import('../../electron/ipc/handlers/mshell');
 const { registerScriptChannels } = await import('../../electron/ipc/handlers/script');
 const { registerRefsChannels } = await import('../../electron/ipc/handlers/refs');
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
+import { createPickedCredentialPaths } from '../../electron/security/credentialPaths';
 
 type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
 
@@ -91,6 +96,8 @@ const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.mongoStatusEvent,
   IPC_CHANNELS.prefsThemeEvent,
   IPC_CHANNELS.mshellOutputEvent,
+  IPC_CHANNELS.dataImportProgressEvent,
+  IPC_CHANNELS.appMenuCommandEvent,
 ]);
 
 describe('IPC channel registration — full router coverage', () => {
@@ -100,12 +107,13 @@ describe('IPC channel registration — full router coverage', () => {
     shim = createShim();
     const router = createRouter(shim.ipcMain, testSenderCheck);
 
-    registerConnChannels(router, stubSvc<Parameters<typeof registerConnChannels>[1]>());
+    registerConnChannels(router, stubSvc<Parameters<typeof registerConnChannels>[1]>(), createPickedCredentialPaths());
+    registerConnExportChannels(router, stubSvc<Parameters<typeof registerConnExportChannels>[1]>());
     // appDiagnosticBundle's `diagnostic` param is left undefined on purpose:
     // it's optional, and the handler already treats "no diagnostic service"
     // as a controlled INTERNAL error — that still exercises registration +
     // the envelope path without needing a stub.
-    registerAppChannels(router, () => null);
+    registerAppChannels(router, () => null, new Set(), createPickedCredentialPaths());
     registerMongoChannels(
       router,
       stubSvc<Parameters<typeof registerMongoChannels>[1]>(),
@@ -122,13 +130,27 @@ describe('IPC channel registration — full router coverage', () => {
       router,
       stubSvc<Parameters<typeof registerPrefsChannels>[1]>(),
       () => null,
-      stubSvc<Parameters<typeof registerPrefsChannels>[3]>(),
+    );
+    registerSecretsChannels(
+      router,
+      stubSvc<Parameters<typeof registerSecretsChannels>[1]>(),
+      async () => false,
     );
     registerTabsChannels(router, stubSvc<Parameters<typeof registerTabsChannels>[1]>());
-    registerQueryChannels(router, stubSvc<Parameters<typeof registerQueryChannels>[1]>());
+    registerQueryChannels(
+      router,
+      stubSvc<Parameters<typeof registerQueryChannels>[1]>(),
+      async () => null,
+    );
     registerDocChannels(router, stubSvc<Parameters<typeof registerDocChannels>[1]>());
     registerSavedChannels(router, stubSvc<Parameters<typeof registerSavedChannels>[1]>());
-    registerRecentChannels(router, stubSvc<Parameters<typeof registerRecentChannels>[1]>());
+    registerRecentChannels(
+      router,
+      stubSvc<Parameters<typeof registerRecentChannels>[1]>(),
+      stubSvc<Parameters<typeof registerRecentChannels>[2]>(),
+    );
+    registerAuditChannels(router, stubSvc<Parameters<typeof registerAuditChannels>[1]>());
+    registerDataChannels(router, stubSvc<Parameters<typeof registerDataChannels>[1]>(), new Set());
     registerAggChannels(router, stubSvc<Parameters<typeof registerAggChannels>[1]>());
     registerShellChannels(router);
     registerMshellChannels(router, stubSvc<Parameters<typeof registerMshellChannels>[1]>());
@@ -150,6 +172,14 @@ describe('IPC channel registration — full router coverage', () => {
     const unexpected = shim.channels().filter((channel) => !known.has(channel));
 
     expect(unexpected).toEqual([]);
+  });
+
+  it('offers every importable extension in the data-import picker', async () => {
+    const { dialog } = await import('electron');
+    await shim.invoke(IPC_CHANNELS.appPickFile, 'data-import');
+    // Called as (window, options); the mocked type only knows the one-argument overload.
+    const options = (vi.mocked(dialog.showOpenDialog).mock.lastCall as unknown[]).at(-1) as Electron.OpenDialogOptions;
+    expect(options.filters!.flatMap((f) => f.extensions)).toEqual(['json', 'jsonl', 'ndjson', 'csv']);
   });
 
   const coveredEntries = Object.entries(IPC_CHANNELS).filter(

@@ -11,7 +11,6 @@ import {
 import { confirmDestructive } from '../../utils/confirm';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { isEjsonDocument } from '../../utils/ejson';
 import { copyToClipboard } from '../../utils/clipboard';
 import { notify } from '../../theme/notifications';
 import {
@@ -47,11 +46,10 @@ import {
 } from './filterTree';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
-import { SavedStrip } from './SavedStrip';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
-import { DEFAULT_FIELD_SOURCES, operatorSource } from '../../features/fieldSuggestions/sources';
+import { DEFAULT_FIELD_SOURCES, DEFAULT_VALUE_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
 import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -73,6 +71,9 @@ interface BuilderPaneProps {
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
+
+/** The only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
+const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
@@ -400,10 +401,37 @@ function CondRow({
     () => (suggestionContext ? { ...suggestionContext, operatorContext: 'matchKey' } : null),
     [suggestionContext],
   );
+  // The op box is a draft until it's finished: typing writes here, not
+  // to `node.op`, so a half-typed operator never reaches `printFilter` and
+  // never turns on the "not applied" banner or the red border mid-keystroke.
+  // `null` means "no draft" (nothing typed since the last commit); the box
+  // then shows the committed `node.op`.
+  const [opDraft, setOpDraft] = React.useState<string | null>(null);
+  const opValue = opDraft ?? node.op;
   const { items: opSuggestionItems } = useSuggestions(
     opPopoverOpen ? opSuggestionCtx : null,
-    node.op,
-    { fieldSources: [operatorSource] },
+    opValue,
+    { fieldSources: [fieldOperatorSource] },
+  );
+
+  // Value suggestions: gated on a non-empty field and one of
+  // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
+  // gets no popover, mirroring what `RecentFieldValueService` will ever
+  // record for it.
+  const valueInputRef = React.useRef<HTMLInputElement>(null);
+  const [valuePopoverOpen, setValuePopoverOpen] = React.useState(false);
+  const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
+  const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
+    () =>
+      suggestionContext && valueSuggestionsAllowed
+        ? { ...suggestionContext, target: { field: node.field, operator: node.op } }
+        : null,
+    [suggestionContext, valueSuggestionsAllowed, node.field, node.op],
+  );
+  const { items: valueSuggestionItems } = useSuggestions(
+    valuePopoverOpen ? valueSuggestionCtx : null,
+    node.value,
+    { valueSources: DEFAULT_VALUE_SOURCES },
   );
 
   const patch = (p: Partial<CondNode>) => applyEdit(updateAt(root, path, { ...node, ...p }));
@@ -422,13 +450,35 @@ function CondRow({
   // no row to click and no clobber to have. It costs three lines and it is the
   // only thing standing between a future ranking change and a wrong operator.
   const symbolResolvedByPopover = React.useRef(false);
-  const resolveTypedSymbol = () => {
+  // Commits the draft (if any) to `node.op` — the point the banner/border can
+  // finally turn on, since `patch` is what feeds `printFilter`. A suggestion
+  // pick already patched directly (`onSelect` below) and cleared the draft,
+  // so the popover guard here just means "nothing left to commit".
+  // Escape sets this ref (not just state) because the keydown handler blurs
+  // the input in the same tick — the blur listener below runs against the
+  // still-stale `opDraft` closure before React re-renders, so a state-only
+  // revert would race and re-commit the very draft it just discarded.
+  const opDraftRevertedRef = React.useRef(false);
+  const commitOpDraft = () => {
+    if (opDraftRevertedRef.current) {
+      opDraftRevertedRef.current = false;
+      return;
+    }
     if (symbolResolvedByPopover.current) {
       symbolResolvedByPopover.current = false;
       return;
     }
-    const resolved = resolveOperatorSymbol(node.op);
-    if (resolved) patch({ op: resolved });
+    if (opDraft === null) return;
+    const resolved = resolveOperatorSymbol(opDraft);
+    patch({ op: resolved ?? opDraft });
+    setOpDraft(null);
+  };
+  // Escape is the box's own cancel — it discards the draft and falls back to
+  // the last-committed op, the same "undo the in-progress edit" contract
+  // Shell Syntax's fields already give the user.
+  const revertOpDraft = () => {
+    opDraftRevertedRef.current = true;
+    setOpDraft(null);
   };
 
   /**
@@ -443,26 +493,39 @@ function CondRow({
    *   this input, so it runs before React's root-delegated handler and
    *   `defaultPrevented` is already true here. Without the check, arrowing to
    *   `$in` over a typed `>` would land `$gt`.
-   * - ⌘/Ctrl+Enter, which `handleDrawerKeyDown` runs the query on. Resolving
+   * - ⌘/Ctrl+Enter, which the Documents view's tab-wide handler runs the
+   *   query on (`PanelBody`). Resolving
    *   first would show `$gt` in the box while the run still used the
    *   last-committed filter — the state has not re-rendered. Leaving it alone
    *   keeps the row visibly unfinished, which is the truth.
    */
   const handleOpKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      revertOpDraft();
+      opInputRef.current?.blur();
+      return;
+    }
     if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
-    resolveTypedSymbol();
+    commitOpDraft();
   };
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
-  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode(node)));
+  // Converts on the *typed* op, not only the committed one: `toRawNode` falls
+  // back to a blank pending raw node whenever the op is uncompilable (below),
+  // regardless of which uncompilable text it was given, so a still-drafted
+  // `$elemMatch` converts the same as a committed one would.
+  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
   // offer a one-click escape to a raw clause the instant the op looks
   // unencodable, independent of whether the row currently has a print
-  // problem (a pending row with an empty field never has one — §5.4).
-  const showConvertToRaw = node.op.startsWith('$') && !isCompilableOp(node.op);
+  // problem (a pending row with an empty field never has one — §5.4). Keyed
+  // on the draft (`opValue`), not the committed `node.op` — the whole point
+  // is not waiting for a commit that would otherwise never come for text
+  // like `$elemMatch`.
+  const showConvertToRaw = opValue.startsWith('$') && !isCompilableOp(opValue);
   const showOpDocs = node.op.startsWith('$') && !problem && hasOperatorDocs(node.op, 'query');
 
   // The row's one Remove control names what it removes. A row whose field is
@@ -523,16 +586,16 @@ function CondRow({
         <TextInput
           ref={opInputRef}
           placeholder="$op"
-          value={node.op}
+          value={opValue}
           disabled={readOnly}
           onChange={(e) => {
-            patch({ op: e.target.value });
+            setOpDraft(e.target.value);
             if (!opPopoverOpen) setOpPopoverOpen(true);
           }}
           onFocus={() => setOpPopoverOpen(true)}
           onKeyDown={handleOpKeyDown}
           onBlur={() => {
-            resolveTypedSymbol();
+            commitOpDraft();
             window.setTimeout(() => setOpPopoverOpen(false), 100);
           }}
           aria-invalid={!!problem}
@@ -557,6 +620,10 @@ function CondRow({
               // functional update.
               symbolResolvedByPopover.current = true;
               patch({ op: s.name });
+              // A pick is itself a commit (per the issue's fix shape) — clear
+              // the draft so the box falls back to `node.op` (about to become
+              // `s.name`) instead of showing the typed text the pick replaced.
+              setOpDraft(null);
             }
             setOpPopoverOpen(false);
             opInputRef.current?.blur();
@@ -649,14 +716,36 @@ function CondRow({
         {node.op !== '$exists' && (
           <>
             <TextInput
+              ref={valueInputRef}
               placeholder="value"
               value={node.value}
               disabled={readOnly}
-              onChange={(e) => patch({ value: e.target.value })}
+              onChange={(e) => {
+                patch({ value: e.target.value });
+                if (!valuePopoverOpen) setValuePopoverOpen(true);
+              }}
+              onFocus={() => setValuePopoverOpen(true)}
+              onBlur={() => {
+                window.setTimeout(() => setValuePopoverOpen(false), 100);
+              }}
               size="xs"
               style={{ flex: 1 }}
               styles={{ input: { fontFamily: 'monospace' } }}
             />
+            {valueSuggestionsAllowed && (
+              <SuggestionPopover
+                open={valuePopoverOpen}
+                items={valueSuggestionItems}
+                anchorRef={valueInputRef}
+                label="Value suggestions"
+                onSelect={(s) => {
+                  if (s.kind === 'value') patch({ value: s.display });
+                  setValuePopoverOpen(false);
+                  valueInputRef.current?.blur();
+                }}
+                onClose={() => setValuePopoverOpen(false)}
+              />
+            )}
             <Tooltip label={formatCondPreview(node)} withArrow>
               <span
                 style={{
@@ -1474,42 +1563,8 @@ function BuilderPaneInner({
     }
   };
 
-  // W13 §7 — ⌘/Ctrl+Enter runs from any drawer input now that the drawer
-  // lost its own footer Run button. Scoped to this root: React bubbles the
-  // synthetic keydown up through every input inside the drawer and no
-  // further, so — unlike a `document`-level listener — nothing outside the
-  // drawer (a modal, another pane) can trigger it and nothing has to opt out.
-  const handleDrawerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      // Same rule as the bar's own ⌘↵ (QueryBar's `canRun`, minus the
-      // `!isLoading` half — `useQueryRunner.run` already no-ops on
-      // `runningRef.current`). Without this, a hand-typed invalid filter in
-      // the bar (Run correctly disabled) would still run from a drawer
-      // input — the same two-Runs-two-rules trap, just moved into the
-      // keyboard shortcut.
-      // Document-shaped, not merely parseable — same rule as the bar's Run
-      // and as `currentFilterJson`. `[1,2]` is parseable JSON but not a
-      // filter document, and would otherwise run from here while the
-      // button next to it stays disabled.
-      if (isEjsonDocument(state.queryRaw)) onRun();
-    }
-  };
-
   return (
-    // S6848 is accepted here, not fixed. This div carries `onKeyDown` and
-    // nothing else — no `onClick`, no `role`, no `tabIndex` — so it is never a
-    // focus target and cannot be mistaken for a control. It exists to scope the
-    // Cmd/Ctrl+Enter Run shortcut to this drawer, catching the event as it
-    // bubbles from whichever natively-focusable descendant (a tab, a TextInput,
-    // the filter textarea) actually has focus. The rule's stated harm — that a
-    // keyboard user cannot reach the handler — is inverted here: focus is
-    // already inside by design. Both offered fixes make it worse. `role="button"`
-    // on a container holding a tablist and several inputs is invalid nested-
-    // interactive ARIA, and a bare `tabIndex={0}` adds a tab stop that does
-    // nothing. Same pattern, same accept, in ScriptTab.tsx.
     <div
-      onKeyDown={handleDrawerKeyDown}
       style={{
         width: '100%',
         borderLeft: `1px solid ${T.border}`,
@@ -1569,16 +1624,11 @@ function BuilderPaneInner({
             </div>
           </div>
 
-          {/* Pinned bottom: saved strip + footer */}
-          <SavedStrip
-            connectionId={connectionId}
-            dbName={dbName}
-            collection={collection}
-            refreshKey={savedRefreshKey}
-            onRunHere={handleSavedRunHere}
-            onOpenInTab={onOpenInTab}
-            onOpenSavedTab={() => setActiveTab('Saved')}
-          />
+          {/* Pinned bottom footer: Reset / Copy code. Save lived here too
+              until the QueryBar toolbar Save (always visible, next to
+              Run/History) made this one a duplicate; `saved.create`'s hint
+              anchor moved with it. `SavedStrip` — a preview of the Saved tab
+              one click away — is gone for the same reason. */}
           <div
             style={{
               display: 'flex',
@@ -1600,19 +1650,6 @@ function BuilderPaneInner({
             >
               Copy code
             </Button>
-            <span style={{ flex: 1 }} />
-            <Tooltip label="Save this query" withArrow>
-              <Button
-                data-hint-anchor="saved.create"
-                variant="default"
-                size="compact-xs"
-                leftSection={I.save}
-                onClick={actions.openSave}
-                aria-label="Save query"
-              >
-                Save
-              </Button>
-            </Tooltip>
           </div>
         </Tabs.Panel>
 
@@ -1623,6 +1660,7 @@ function BuilderPaneInner({
             collection={collection}
             refreshKey={savedRefreshKey}
             onRunHere={handleSavedRunHere}
+            onOpenInTab={onOpenInTab}
           />
         </Tabs.Panel>
 

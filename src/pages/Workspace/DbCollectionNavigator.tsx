@@ -6,7 +6,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import type { CollectionInfo, DbInfo, IpcError } from '@shared/ipc';
-import type { ConnectionSummary } from '@shared/types';
+import type { ConnectionSummary, ProbeErrorCode } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
 import { copyToClipboard } from '../../utils/clipboard';
 import { disconnectConnection } from '../../features/connections/disconnectConnection';
@@ -20,6 +20,7 @@ import {
 } from '../../components/ContextMenu';
 import { CreateCollectionDrawer } from './CreateCollectionDrawer';
 import { RenameCollectionModal } from './RenameCollectionModal';
+import { ImportDialog } from './ImportDialog';
 import { DropCollectionConfirm } from './DropCollectionConfirm';
 import { DropDatabaseConfirm } from './DropDatabaseConfirm';
 import { useNavigatorDialogs } from './useNavigatorDialogs';
@@ -50,7 +51,11 @@ export interface DbCollectionNavigatorProps {
   ) => void;
   onOpenAggregation: (input: NavigatorOpenInput) => void;
   /** `returnFocusTo`: the row to refocus, since the menu item that opened the form unmounts first. */
-  onEditConnection?: (connectionId: string, returnFocusTo?: HTMLElement | null) => void;
+  onEditConnection?: (
+    connectionId: string,
+    returnFocusTo?: HTMLElement | null,
+    opts?: { focus?: 'password' },
+  ) => void;
   /** Real Disconnect (not "Cancel connecting"); caller owns confirming and closing tabs. */
   onDisconnect?: (connectionId: string, returnFocusTo?: HTMLElement | null) => void;
   /** Fired after a collection/view drop, so the caller can close any tab still pointing at it. */
@@ -64,6 +69,13 @@ export interface DbCollectionNavigatorProps {
     oldName: string,
     newName: string,
   ) => void;
+  /**
+   * Opens the reference-rules drawer for the Focused Tab's collection. Scoped
+   * to the active row: the drawer reads its rules off the currently open
+   * collection tab, not off whichever row the menu was opened from, so the
+   * "References…" item is disabled on any other row.
+   */
+  onOpenReferences?: () => void;
 }
 
 type TreeRow =
@@ -110,6 +122,7 @@ type TreeRow =
       conn: ConnectionSummary;
       title: string;
       message: string;
+      code?: ProbeErrorCode;
       retry: 'connect' | 'databases';
       retryLabel: string;
     };
@@ -190,6 +203,7 @@ export function DbCollectionNavigator({
   onCollectionDropped,
   onDatabaseDropped,
   onCollectionRenamed,
+  onOpenReferences,
 }: DbCollectionNavigatorProps) {
   const T = themeVars;
   const { state: tree, dispatch } = useNavigatorTree();
@@ -308,6 +322,7 @@ export function DbCollectionNavigator({
           type: 'connectErrorSet',
           id: runtime.id,
           message: runtime.errorMessage ?? GENERIC_CONNECT_ERROR,
+          code: runtime.errorCode,
         });
       } else {
         dispatch({ type: 'connectErrorClear', id: runtime.id });
@@ -344,7 +359,7 @@ export function DbCollectionNavigator({
         const runtime = await api.mongo.status(id).catch(() => null);
         if (!runtime || runtime.status !== 'error' || !runtime.errorMessage) return;
         const message = runtime.errorMessage;
-        dispatch({ type: 'connectErrorBackfill', id, message });
+        dispatch({ type: 'connectErrorBackfill', id, message, code: runtime.errorCode });
       })();
     }
   }, [connections, dispatch]);
@@ -475,12 +490,14 @@ export function DbCollectionNavigator({
     renameTarget,
     dropCollTarget,
     dropDbTarget,
+    importTarget,
     menuTrigger,
     setMenu,
     setCreateCollDb,
     setRenameTarget,
     setDropCollTarget,
     setDropDbTarget,
+    setImportTarget,
     setMenuTrigger,
     closeMenu,
     cancelCreateColl,
@@ -491,6 +508,8 @@ export function DbCollectionNavigator({
     handleCollectionDropped,
     cancelDropDb,
     handleDatabaseDropped,
+    closeImport,
+    handleImported,
   } = useNavigatorDialogs({
     refreshDb,
     refreshAll,
@@ -555,7 +574,8 @@ export function DbCollectionNavigator({
           id: `connerr:${conn.id}`,
           conn,
           title: 'Could not connect',
-          message: ownGet(connectErrors, conn.id) ?? GENERIC_CONNECT_ERROR,
+          message: ownGet(connectErrors, conn.id)?.message ?? GENERIC_CONNECT_ERROR,
+          code: ownGet(connectErrors, conn.id)?.code,
           retry: 'connect',
           retryLabel: `Retry connecting to ${conn.name}`,
         });
@@ -857,6 +877,29 @@ export function DbCollectionNavigator({
     { kind: 'item', label: 'Copy name', icon: I.copy, onClick: () => void copyToClipboard(row.coll.name, 'Collection name copied to the clipboard.') },
     { kind: 'item', label: 'Copy namespace', icon: I.copy, onClick: () => void copyToClipboard(`${row.dbName}.${row.coll.name}`, 'Namespace copied to the clipboard.') },
     { kind: 'sep' },
+    {
+      kind: 'item',
+      label: 'References…',
+      icon: I.link,
+      onClick: () => onOpenReferences?.(),
+      disabled: !row.isActive || !onOpenReferences,
+      disabledTitle: 'Open this collection first',
+    },
+    { kind: 'sep' },
+    // A view holds no documents of its own to import into.
+    ...(row.coll.type === 'view'
+      ? []
+      : [{
+          kind: 'item' as const,
+          label: 'Import documents…',
+          icon: I.upload,
+          onClick: () =>
+            setImportTarget({
+              connectionId: row.connectionId,
+              dbName: row.dbName,
+              collection: row.coll.name,
+            }),
+        }]),
     row.coll.type === 'view'
       ? {
           kind: 'item',
@@ -889,7 +932,7 @@ export function DbCollectionNavigator({
         }),
       destructive: true,
     },
-  ], [openFromRow, setRenameTarget, setDropCollTarget]);
+  ], [openFromRow, setRenameTarget, setDropCollTarget, setImportTarget, onOpenReferences]);
 
   const buildDbMenu = React.useCallback((row: Extract<TreeRow, { kind: 'db' }>): MenuItem[] => [
     {
@@ -1056,6 +1099,7 @@ export function DbCollectionNavigator({
       refreshDb,
       cancelConnection: disconnect,
       retryConnection: reconnect,
+      reenterPassword: onEditConnection,
       retryDatabases,
       onCreateCollection,
       handleCollClick,
@@ -1075,6 +1119,7 @@ export function DbCollectionNavigator({
       refreshDb,
       disconnect,
       reconnect,
+      onEditConnection,
       retryDatabases,
       onCreateCollection,
       handleCollClick,
@@ -1234,6 +1279,18 @@ export function DbCollectionNavigator({
         />
       )}
 
+      {importTarget && (
+        <ImportDialog
+          connectionId={importTarget.connectionId}
+          dbName={importTarget.dbName}
+          collection={importTarget.collection}
+          readOnly={readOnlyOf(importTarget.connectionId)}
+          returnFocusTo={menuTrigger}
+          onClose={closeImport}
+          onImported={handleImported}
+        />
+      )}
+
       {dropDbTarget && (
         <DropDatabaseConfirm
           connectionId={dropDbTarget.connectionId}
@@ -1264,6 +1321,8 @@ interface NavRowProps {
   /** Cancels an in-flight connect — this is `mongo:disconnect`. */
   cancelConnection: (connectionId: string) => void;
   retryConnection: (connectionId: string) => void;
+  /** Opens the edit form with the password field focused (#396). */
+  reenterPassword?: DbCollectionNavigatorProps['onEditConnection'];
   retryDatabases: (connectionId: string) => void;
   onCreateCollection: (connectionId: string, dbName: string) => void;
   handleCollClick: (e: React.MouseEvent, row: Extract<TreeRow, { kind: 'coll' }>) => void;
@@ -1287,6 +1346,7 @@ function NavRowImpl({
   refreshDb,
   cancelConnection,
   retryConnection,
+  reenterPassword,
   retryDatabases,
   onCreateCollection,
   handleCollClick,
@@ -1325,6 +1385,10 @@ function NavRowImpl({
           row.retry === 'connect'
             ? retryConnection(row.conn.id)
             : retryDatabases(row.conn.id)
+        }
+        onReenterPassword={
+          reenterPassword &&
+          ((el) => reenterPassword(row.conn.id, el, { focus: 'password' }))
         }
       />
     );
@@ -1460,11 +1524,22 @@ function ConnErrorRow({
   T,
   row,
   onRetry,
+  onReenterPassword,
 }: {
   T: Theme;
   row: Extract<TreeRow, { kind: 'conn-error' }>;
   onRetry: () => void;
+  onReenterPassword?: (trigger: HTMLElement) => void;
 }) {
+  const buttonStyle: React.CSSProperties = {
+    padding: '3px 10px',
+    fontSize: 11,
+    border: `1px solid ${T.border}`,
+    borderRadius: T.rs,
+    background: T.surface,
+    color: T.text,
+    cursor: 'pointer',
+  };
   return (
     <div
       id={navigatorRowDomId(row.id)}
@@ -1493,18 +1568,23 @@ function ConnErrorRow({
           e.stopPropagation();
           onRetry();
         }}
-        style={{
-          padding: '3px 10px',
-          fontSize: 11,
-          border: `1px solid ${T.border}`,
-          borderRadius: T.rs,
-          background: T.surface,
-          color: T.text,
-          cursor: 'pointer',
-        }}
+        style={buttonStyle}
       >
         Retry
       </button>
+      {row.code === 'SECRET_UNREADABLE' && onReenterPassword && (
+        <button
+          type="button"
+          aria-label={`Re-enter password for ${row.conn.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onReenterPassword(e.currentTarget);
+          }}
+          style={{ ...buttonStyle, marginLeft: 6 }}
+        >
+          Re-enter password
+        </button>
+      )}
     </div>
   );
 }
@@ -1872,6 +1952,11 @@ function CollRow({
       aria-level={3}
       aria-selected={isActive}
       data-testid={`nav-coll-${row.dbName}-${coll.name}`}
+      // `refs.configure`'s anchor moved here from the header's now-removed
+      // References button: the row for the Focused Tab's own collection is
+      // the closest persistently-mounted stand-in for "where References now
+      // lives" (the context menu item itself only exists while open).
+      {...(isActive ? { 'data-hint-anchor': 'refs.configure' } : {})}
       // #58 — see ConnectionRow's comment: no `tabIndex`, real focus stays
       // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}

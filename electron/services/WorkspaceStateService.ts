@@ -15,6 +15,7 @@ import {
 } from '@shared/defaults';
 import type { WorkspaceTabRepo, WorkspaceTabRow } from '../db/repositories/WorkspaceTabRepo.ts';
 import { NotFoundError, ValidationError } from '../errors.ts';
+import { serializeTabState } from './tabStateResults.ts';
 
 export interface OpenCollectionInput {
   connectionId: string;
@@ -100,7 +101,7 @@ export class WorkspaceStateService {
       kind: 'collection',
       db_name: input.dbName,
       collection: input.collection,
-      state_json: JSON.stringify(state),
+      state_json: serializeTabState({ ...state }),
       position: this.repo.nextPosition(),
       is_active: 1,
       opened_at: new Date().toISOString(),
@@ -180,7 +181,7 @@ export class WorkspaceStateService {
       kind: 'script',
       db_name: '',
       collection: '',
-      state_json: JSON.stringify(state),
+      state_json: serializeTabState({ ...state }),
       position: this.repo.nextPosition(),
       is_active: 1,
       opened_at: new Date().toISOString(),
@@ -317,12 +318,25 @@ function parseState<T>(raw: string): Partial<T> {
   return {};
 }
 
+/**
+ * Maps a persisted `activeView` value to the current `CollectionView` union.
+ * `'schema'` is the retired value and migrates to `'structure'`; anything
+ * else outside the union (a future value read by an older build, or
+ * corrupted `state_json`) falls back to `'documents'` rather than leaving a
+ * tab stuck on a view the renderer no longer knows how to render.
+ */
+function normalizeActiveView(raw: unknown): CollectionView {
+  if (raw === 'aggregation' || raw === 'structure') return raw;
+  if (raw === 'schema') return 'structure';
+  return 'documents';
+}
+
 function mergeState(
   currentJson: string,
   patch: Partial<CollectionTabState> | Partial<ScriptTabState>,
 ): string {
   const current = parseState<Record<string, unknown>>(currentJson);
-  return JSON.stringify({ ...current, ...patch });
+  return serializeTabState({ ...current, ...patch });
 }
 
 function rowToTab(row: WorkspaceTabRow): WorkspaceTab {
@@ -350,7 +364,7 @@ function rowToTab(row: WorkspaceTabRow): WorkspaceTab {
   const state: CollectionTabState = {
     ...DEFAULT_COLLECTION_TAB_STATE,
     ...parsed,
-    activeView: (parsed.activeView ?? 'documents') as CollectionView,
+    activeView: normalizeActiveView(parsed.activeView),
   };
   const tab: CollectionTab = {
     id: row.id,

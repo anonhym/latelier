@@ -15,9 +15,9 @@ import { ConnectionExpandedTable } from '../../features/connections/ConnectionEx
 import { FeatureHint } from '../../hints/FeatureHint';
 import type { UseFeatureHintResult } from '../../hints/useFeatureHint';
 import { SaveModal } from './SaveModal';
-import { InsertDrawer } from './InsertDrawer';
-import { EditDrawer } from './EditDrawer';
+import { DocumentEditor } from './DocumentEditor';
 import { DeleteConfirm } from './DeleteConfirm';
+import { UpdateConfirm } from './UpdateConfirm';
 import { resolveDeleteDialog } from './deleteMode';
 import { currentFilterJson } from './builder';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
@@ -48,7 +48,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
   React.useEffect(() => {
     if (!connectionId) return;
     let active = true;
-    (async () => {
+    void (async () => {
       try {
         const rows = await api.meta.listDatabases({ connectionId });
         if (!active) return;
@@ -69,7 +69,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
     if (!connectionId || !selectedDb) return;
     if (ownGet(collsByDb, selectedDb)) return;
     let active = true;
-    (async () => {
+    void (async () => {
       try {
         const rows = await api.meta.listCollections({ connectionId, dbName: selectedDb });
         if (!active) return;
@@ -190,7 +190,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
             >
               <option value="documents">Documents</option>
               <option value="aggregation">Aggregation</option>
-              <option value="schema">Schema</option>
+              <option value="structure">Structure</option>
             </select>
           </label>
         </div>
@@ -235,7 +235,7 @@ export interface DialogStackProps {
   refsConfigureHint: UseFeatureHintResult;
   tabsPinHint: UseFeatureHintResult;
   savedCreateHint: UseFeatureHintResult;
-  previewConfigureHint: UseFeatureHintResult;
+  runExecuteHint: UseFeatureHintResult;
 }
 
 export function DialogStack({
@@ -258,22 +258,25 @@ export function DialogStack({
   refsConfigureHint,
   tabsPinHint,
   savedCreateHint,
-  previewConfigureHint,
+  runExecuteHint,
 }: DialogStackProps) {
   const { refHover, refEditorOpen, setRefEditorOpen } = refDrawer;
   const {
     editing,
     deleteDoc,
     deleteAllOpen,
+    updateAllOpen,
     deleteSelected,
     inserting,
     closeInsertDrawer,
     handleInserted,
     handlePartialInsert,
-    closeEditDrawer,
+    closeEditor,
     handleDocSaved,
     closeDeleteDialogs,
     handleDeleted,
+    closeUpdateAllModal,
+    handleUpdatedAll,
   } = documentDialogs;
   const {
     connectionFormTarget,
@@ -292,6 +295,9 @@ export function DialogStack({
     editFromExpandedTable,
     deleteFromExpandedTable,
     addFromExpandedTable,
+    importFromExpandedTable,
+    tabCountFor,
+    deleteConnections,
     confirmDeleteConnection,
     handleConnectionSaved,
   } = connectionDialogs;
@@ -345,7 +351,8 @@ export function DialogStack({
       )}
 
       {inserting && (
-        <InsertDrawer
+        <DocumentEditor
+          mode="insert"
           collection={inserting.target.collection}
           connectionId={inserting.target.connectionId}
           dbName={inserting.target.dbName}
@@ -357,15 +364,37 @@ export function DialogStack({
       )}
 
       {editing && (
-        <EditDrawer
+        <DocumentEditor
+          mode="edit"
           connectionId={editing.target.connectionId}
           dbName={editing.target.dbName}
           collection={editing.target.collection}
           doc={editing.doc}
-          onClose={closeEditDrawer}
+          focusPath={editing.focusPath}
+          onClose={closeEditor}
           onSaved={handleDocSaved}
         />
       )}
+
+      {updateAllOpen && activeCollection && (() => {
+        const filterJson = currentFilterJson(activeCollection.state);
+        // Same defensive stance as delete-all: openUpdateAllModal already
+        // refused to open without a runnable filter, but the filter is read
+        // live from the Focused Tab, which can change out from under an open
+        // dialog (builder edit, tab restore) — never fall through to `{}`.
+        if (filterJson === null) return null;
+        return (
+          <UpdateConfirm
+            connectionId={activeCollection.connectionId}
+            dbName={activeCollection.dbName}
+            collection={activeCollection.collection}
+            readOnly={focusedConnectionReadOnly}
+            filter={filterJson}
+            onClose={closeUpdateAllModal}
+            onUpdated={handleUpdatedAll}
+          />
+        );
+      })()}
 
       {(() => {
         if (!activeCollection) return null;
@@ -390,6 +419,11 @@ export function DialogStack({
       })()}
 
       <FeatureHint
+        id="run.execute"
+        visible={runExecuteHint.visible}
+        onDismiss={runExecuteHint.dismiss}
+      />
+      <FeatureHint
         id="refs.configure"
         visible={refsConfigureHint.visible}
         onDismiss={refsConfigureHint.dismiss}
@@ -405,17 +439,6 @@ export function DialogStack({
         visible={savedCreateHint.visible}
         onDismiss={savedCreateHint.dismiss}
       />
-      <FeatureHint
-        id="preview.configure"
-        visible={previewConfigureHint.visible}
-        onDismiss={previewConfigureHint.dismiss}
-        onCta={() => {
-          const btn = document.querySelector(
-            '[data-hint-anchor="preview.configure"]',
-          ) as HTMLElement | null;
-          btn?.click();
-        }}
-      />
 
       {connectionFormTarget !== null && (
         <ConnectionFormModal
@@ -424,6 +447,7 @@ export function DialogStack({
           onSaved={handleConnectionSaved}
           onClose={closeConnectionFormModal}
           returnFocusTo={tableReturnFocus}
+          initialFocus={connectionFormTarget === 'new' ? undefined : connectionFormTarget.focus}
         />
       )}
 
@@ -456,6 +480,9 @@ export function DialogStack({
           onConnect={connectFromExpandedTable}
           onManage={manageFromExpandedTable}
           onAdd={addFromExpandedTable}
+          onImport={importFromExpandedTable}
+          tabCountFor={tabCountFor}
+          onDeleteMany={deleteConnections}
           onEdit={editFromExpandedTable}
           onDelete={deleteFromExpandedTable}
         />

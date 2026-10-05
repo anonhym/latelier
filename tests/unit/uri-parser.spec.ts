@@ -124,6 +124,36 @@ describe('parseConnectionUri', () => {
     expect(dropped).toContain('w');
   });
 
+  it.each(['tlsInsecure', 'tlsAllowInvalidHostnames'])(
+    '%s is reported as dropped and leaves verification on',
+    (key) => {
+      const { input, warnings } = parseConnectionUri(`mongodb://db.example.com/?tls=true&${key}=true`);
+      expect(warnings).toContainEqual({ code: 'OPTION_DROPPED', detail: key.toLowerCase() });
+      expect(input.tls?.verify).toBe(true);
+      expect(warnings.some((w) => w.code === 'TLS_VERIFY_DISABLED')).toBe(false);
+    },
+  );
+
+  it.each([
+    'mongodb://db.example.com/?tls=true&tlsAllowInvalidCertificates=true',
+    'mongodb://db.example.com/?ssl=true&tlsAllowInvalidCertificates=true',
+    'mongodb+srv://cluster.example.com/?tlsAllowInvalidCertificates=true',
+  ])('tlsAllowInvalidCertificates=true warns that verification is off: %s', (uri) => {
+    const { input, warnings } = parseConnectionUri(uri);
+    expect(input.tls?.verify).toBe(false);
+    const w = warnings.filter((x) => x.code === 'TLS_VERIFY_DISABLED');
+    expect(w).toHaveLength(1);
+    expect(w[0]?.detail).toMatch(/verification is turned off/i);
+  });
+
+  it.each(['false', 'nope'])('tlsAllowInvalidCertificates=%s adds no TLS warning', (v) => {
+    const { input, warnings } = parseConnectionUri(
+      `mongodb://db.example.com/?tls=true&tlsAllowInvalidCertificates=${v}`,
+    );
+    expect(input.tls?.verify).toBe(true);
+    expect(warnings.some((w) => w.code === 'TLS_VERIFY_DISABLED')).toBe(false);
+  });
+
   it('rejects missing scheme', () => {
     expect(() => parseConnectionUri('localhost:27017')).toThrow(ValidationError);
   });
@@ -309,5 +339,40 @@ describe('parseConnectionUri', () => {
   it('parseIntParam: a fractional value is rounded', () => {
     const { input } = parseConnectionUri('mongodb://localhost/?maxPoolSize=25.6');
     expect(input.advanced?.maxPoolSize).toBe(26);
+  });
+
+  it('an SRV host with a non-numeric suffix after the colon is rejected, not silently truncated', () => {
+    // The port-strip regex is anchored with `$` so it only matches a colon
+    // followed by digits-to-end-of-string. Without that anchor, a host like
+    // `cluster.mongodb.net:1234abc` would partially match `:1234` and the
+    // `abc` suffix would be silently dropped, producing a valid-looking host
+    // instead of surfacing the malformed input.
+    expect(() =>
+      parseConnectionUri('mongodb+srv://cluster.mongodb.net:1234abc/mydb'),
+    ).toThrow(ValidationError);
+  });
+
+  it('rejects an SRV URI with multiple comma-separated hosts (the port-strip rejoins with a comma)', () => {
+    // Each host segment has its port stripped independently, then rejoined
+    // with `,` before being handed to ConnectionString. Rejoining with `''`
+    // instead would silently glue two distinct hostnames into one
+    // (`a.example.comb.example.com`), which ConnectionString happily accepts
+    // as a single SRV host — hiding the fact that the user pasted a
+    // multi-host list SRV doesn't support.
+    expect(() =>
+      parseConnectionUri(
+        'mongodb+srv://a.example.com:27017,b.example.com:27018/mydb',
+      ),
+    ).toThrow(/multiple service names/);
+  });
+
+  it('a numeric-only host with no port is not misread as a bare port number', () => {
+    // firstHost.lastIndexOf(':') is -1 here (no colon at all). If the port
+    // split ran unconditionally, `firstHost.slice(idx + 1)` with idx === -1
+    // would re-parse the whole host string as a port number and truncate the
+    // last character off the host via `slice(0, idx)`.
+    const { input } = parseConnectionUri('mongodb://12345/db');
+    expect(input.host).toBe('12345');
+    expect(input.port).toBe(27017);
   });
 });

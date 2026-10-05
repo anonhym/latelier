@@ -59,14 +59,16 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
   React.useEffect(() => {
     let cancelled = false;
     const dbName = state.dbName?.trim() || 'test';
-    (async () => {
+    void (async () => {
       try {
         const rows = await api.meta.listCollections({
           connectionId: tab.connectionId,
           dbName,
         });
         if (!cancelled) setCollections(rows.map((r) => r.name));
-      } catch {
+      } catch (err) {
+        // Completion falls back to no collection names; the script still runs.
+        console.warn('[script] could not list collections for completion', err);
         if (!cancelled) setCollections([]);
       }
     })();
@@ -149,11 +151,15 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
   );
 
   return (
-    // S6848 accepted, not fixed — same keyboard-shortcut delegation pattern as
-    // BuilderPane's filter drawer, where the reasoning is written out in full.
-    // `onKeyDown` with no `onClick`, `role` or `tabIndex`: the Cmd/Ctrl+Enter
-    // Run shortcut is caught as it bubbles from the title input or the editor,
-    // both of which are natively focusable.
+    // S6848 accepted, not fixed. `onKeyDown` with no `onClick`, `role` or
+    // `tabIndex`: the Cmd/Ctrl+Enter Run shortcut is caught as it bubbles from
+    // the title input or the editor, both of which are natively focusable, so
+    // this div is never a focus target and cannot be mistaken for a control.
+    // The rule's stated harm — that a keyboard user cannot reach the handler —
+    // is inverted here: focus is already inside by design. Both offered fixes
+    // make it worse: `role="button"` on a container holding inputs is invalid
+    // nested-interactive ARIA, and a bare `tabIndex={0}` adds a tab stop that
+    // does nothing.
     <div
       onKeyDown={onTabKeyDown}
       style={{
@@ -643,9 +649,11 @@ const SCRIPT_RESULT_ACTIONS: CollectionWorkspaceActions = Object.freeze({
   patch: noop,
   patchWith: noop,
   run: noop,
+  cancel: noop,
   openEdit: noop,
   openDelete: noop,
   openDeleteAll: noop,
+  openUpdateAll: noop,
   openInsert: noop,
   openSave: noop,
 }) as CollectionWorkspaceActions;

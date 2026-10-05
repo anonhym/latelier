@@ -156,6 +156,25 @@ describe('SuggestionPopover — Enter only selects an actively chosen item', () 
     expect(evt.defaultPrevented).toBe(true);
   });
 
+  // ⌘/Ctrl+Enter is Run, never Select. The popover used to take it
+  // as a pick, and the key then bubbled on to the Run handler, so one press
+  // both inserted the suggestion and ran the query.
+  it.each([
+    ['metaKey', { metaKey: true }],
+    ['ctrlKey', { ctrlKey: true }],
+  ])('leaves %s+Enter to the Run handler even after arrowing', (_name, mod) => {
+    const picked: Suggestion[] = [];
+    render(<Harness items={items} onSelect={(s) => picked.push(s)} />);
+
+    const anchor = screen.getByTestId('anchor');
+    fireEvent.keyDown(anchor, { key: 'ArrowDown' });
+    const evt = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...mod });
+    anchor.dispatchEvent(evt);
+
+    expect(picked).toEqual([]);
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
   it('claims aria-selected exactly when Enter would take the row', () => {
     // The other half of the acceptance criterion. Asserting only "false before
     // ArrowDown" would also pass against a popover that had stopped setting
@@ -209,5 +228,38 @@ describe('SuggestionPopover — Enter only selects an actively chosen item', () 
     fireEvent.keyDown(screen.getByTestId('anchor'), { key: 'Tab' });
 
     expect(picked.map((s) => (s.kind === 'field' ? s.path : ''))).toEqual(['name']);
+  });
+});
+
+// Escape belongs to the innermost thing on screen. The list claims it only
+// while it is showing — `defaultPrevented` for a bubble-phase host (the
+// Fields control's popover), and `data-mantine-stop-propagation` on the input
+// for a Mantine Modal/Drawer, whose capture-phase window listener runs first
+// and skips a target carrying that attribute.
+describe('SuggestionPopover — Escape layering', () => {
+  const ITEMS: Suggestion[] = [{ kind: 'field', path: 'name', source: 'schema' }];
+
+  it('claims Escape and marks the input while the list is showing', () => {
+    render(<Harness items={ITEMS} />);
+    const anchor = screen.getByTestId('anchor');
+    expect(screen.getByRole('listbox')).toBeTruthy();
+    expect(anchor.getAttribute('data-mantine-stop-propagation')).toBe('true');
+    expect(fireEvent.keyDown(anchor, { key: 'Escape' })).toBe(false); // prevented
+  });
+
+  it('leaves Escape to the host, and the input unmarked, when nothing is showing', () => {
+    render(<Harness items={[]} />);
+    const anchor = screen.getByTestId('anchor');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(anchor.hasAttribute('data-mantine-stop-propagation')).toBe(false);
+    expect(fireEvent.keyDown(anchor, { key: 'Escape' })).toBe(true); // not prevented
+  });
+
+  it('unmarks the input when the list closes', () => {
+    const { rerender } = render(<Harness items={ITEMS} />);
+    const anchor = screen.getByTestId('anchor');
+    expect(anchor.getAttribute('data-mantine-stop-propagation')).toBe('true');
+    rerender(<Harness items={ITEMS} open={false} />);
+    expect(anchor.hasAttribute('data-mantine-stop-propagation')).toBe(false);
   });
 });

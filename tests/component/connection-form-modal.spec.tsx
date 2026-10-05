@@ -58,6 +58,28 @@ describe('ConnectionFormModal', () => {
     });
   });
 
+  it('initialFocus="password" opens on the Auth tab with the password field focused (#396)', async () => {
+    installAtelierMock({ conn: { get: async () => CANNED_CONNECTION } });
+    render(
+      <ConnectionFormModal connectionId="c1" initialFocus="password" onSaved={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Connection' });
+    await waitFor(() => {
+      const password = within(dialog).getByPlaceholderText(/stored — enter new to replace/);
+      expect(document.activeElement).toBe(password);
+    });
+  });
+
+  it('without initialFocus the form still opens on General', async () => {
+    installAtelierMock({ conn: { get: async () => CANNED_CONNECTION } });
+    render(<ConnectionFormModal connectionId="c1" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Connection' });
+    await waitFor(() => within(dialog).getByPlaceholderText(/My MongoDB Server/i));
+    expect(within(dialog).queryByPlaceholderText(/stored — enter new to replace/)).toBeNull();
+  });
+
   it('create mode: saving calls conn.create and onSaved with the new id — does not call onClose itself', async () => {
     const createSpy = vi.fn(async () => ({ id: 'new-id' }) as never);
     installAtelierMock({ conn: { create: createSpy as never } });
@@ -101,10 +123,10 @@ describe('ConnectionFormModal', () => {
       if (callCount === 1) throw { code: 'SECRETS_UNAVAILABLE', message: 'OS keychain not accessible' };
       return { id: 'c1' } as never;
     });
-    const setSpy = vi.fn(async (_k: string, v: unknown) => v);
+    const setSpy = vi.fn(async (enabled: boolean) => ({ enabled }));
     installAtelierMock({
       conn: { create: createSpy as never },
-      prefs: { get: async () => null, set: setSpy } as never,
+      secrets: { setPlaintextFallback: setSpy },
     });
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={vi.fn()} />);
 
@@ -123,7 +145,7 @@ describe('ConnectionFormModal', () => {
     const fallbackModal = await screen.findByTestId('plaintext-fallback-modal');
     fireEvent.click(within(fallbackModal).getByText(/Store as plaintext/i));
 
-    await waitFor(() => expect(setSpy).toHaveBeenCalledWith('secrets.allowPlaintextFallback', true));
+    await waitFor(() => expect(setSpy).toHaveBeenCalledWith(true));
     await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(2));
   });
 

@@ -1,15 +1,22 @@
-import { dialog, shell, type BrowserWindow } from 'electron';
+import { dialog, shell, type BrowserWindow, type FileFilter } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { IPC_CHANNELS, type PickFilePurpose } from '@shared/ipc';
 import type { Router } from '../router.ts';
 import { zodValidator } from '../validators.ts';
-import { SystemError, ValidationError } from '../../errors.ts';
+import { SystemError } from '../../errors.ts';
 import type { DiagnosticService } from '../../services/DiagnosticService.ts';
+import { parseAllowedExternalUrl } from '../../security/externalUrl.ts';
+import type { PickedCredentialPaths } from '../../security/credentialPaths.ts';
 
-const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key']);
+const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key', 'data-import']);
 const OpenExternalInput = z.string().url();
+// Hosts the renderer may open in the system browser: the project repo (the
+// troubleshooting drawer's doc link) and MongoDB's site. A new link to another
+// host must be added here. GitHub is not path-pinned, so a repo rename cannot
+// silently break the drawer link.
+const EXTERNAL_HOSTS: ReadonlySet<string> = new Set(['github.com', 'www.mongodb.com']);
 const SaveFileInput = z.object({
   defaultName: z.string().optional(),
   content: z.string(),
@@ -29,11 +36,40 @@ const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
     { name: 'Private keys', extensions: ['pem', 'key', 'ppk'] },
     { name: 'All files', extensions: ['*'] },
   ],
+  // No "All files" entry: `data:import` refuses any other extension anyway.
+  'data-import': [
+    { name: 'JSON / JSON Lines / CSV', extensions: ['json', 'jsonl', 'ndjson', 'csv'] },
+  ],
 };
 
+const SAVE_FILTER_NAMES: Record<string, string> = { json: 'JSON', jsonl: 'JSON Lines', csv: 'CSV' };
+
+/**
+ * The save dialog's type filter follows the suggested file's extension: on
+ * macOS a filter that doesn't list the extension being saved rewrites or
+ * rejects it, so a CSV export must not be offered only a JSON filter.
+ */
+export function saveFilters(defaultName: string): FileFilter[] {
+  const ext = path.extname(defaultName).slice(1).toLowerCase();
+  const all = { name: 'All files', extensions: ['*'] };
+  const name = Object.hasOwn(SAVE_FILTER_NAMES, ext) ? SAVE_FILTER_NAMES[ext] : undefined;
+  return name ? [{ name, extensions: [ext] }, all] : [all];
+}
+
+/**
+ * `pickedImports` collects every path the open dialog returned for
+ * `data-import`: the data channels read a file only when it is in here, so
+ * the renderer can hand back a file the user picked but never name another.
+ * `pickedCredentialPaths` does the same for the TLS CA, TLS client-cert and SSH
+ * key dialogs; the connection channels accept such a path only if it is in
+ * there. Both are required, not optional, for the same reason the router's
+ * sender check is.
+ */
 export function registerAppChannels(
   router: Router,
   getWindow: () => BrowserWindow | null,
+  pickedImports: Set<string>,
+  pickedCredentialPaths: PickedCredentialPaths,
   diagnostic?: DiagnosticService,
 ): void {
   router.register(
@@ -46,7 +82,10 @@ export function registerAppChannels(
         filters: PURPOSE_FILTERS[purpose],
       });
       if (result.canceled || result.filePaths.length === 0) return { path: null };
-      return { path: result.filePaths[0]! };
+      const picked = result.filePaths[0]!;
+      if (purpose === 'data-import') pickedImports.add(picked);
+      else pickedCredentialPaths.record(purpose, picked);
+      return { path: picked };
     },
   );
 
@@ -54,16 +93,8 @@ export function registerAppChannels(
     IPC_CHANNELS.appOpenExternal,
     zodValidator(OpenExternalInput),
     async (url) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
-        throw new ValidationError('invalid URL');
-      }
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-        throw new ValidationError(`unsupported protocol: ${parsed.protocol}`);
-      }
-      await shell.openExternal(url);
+      const parsed = parseAllowedExternalUrl(url, EXTERNAL_HOSTS);
+      await shell.openExternal(parsed.href);
       return { opened: true };
     },
   );
@@ -77,16 +108,14 @@ export function registerAppChannels(
         win ?? (undefined as unknown as BrowserWindow),
         {
           defaultPath: defaultName ?? 'export.json',
-          filters: [
-            { name: 'JSON', extensions: ['json'] },
-            { name: 'All files', extensions: ['*'] },
-          ],
+          filters: saveFilters(defaultName ?? 'export.json'),
         },
       );
       if (result.canceled || !result.filePath) return { path: null };
       try {
         await fs.mkdir(path.dirname(result.filePath), { recursive: true });
-        await fs.writeFile(result.filePath, content, 'utf8');
+        // Export file contents can include user data; write owner-only (0600).
+        await fs.writeFile(result.filePath, content, { encoding: 'utf8', mode: 0o600 });
       } catch (err) {
         throw new SystemError(
           'INTERNAL',
@@ -122,7 +151,8 @@ export function registerAppChannels(
       const content = await diagnostic.serialize();
       try {
         await fs.mkdir(path.dirname(result.filePath), { recursive: true });
-        await fs.writeFile(result.filePath, content, 'utf8');
+        // Diagnostic bundle contains connection metadata; write owner-only (0600).
+        await fs.writeFile(result.filePath, content, { encoding: 'utf8', mode: 0o600 });
       } catch (err) {
         throw new SystemError(
           'INTERNAL',

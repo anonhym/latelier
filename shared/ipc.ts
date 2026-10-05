@@ -6,27 +6,42 @@ import type {
   AggResult,
   AggRunAndSaveInput,
   AggStagePreview,
+  AuditEntry,
+  AuditListInput,
+  UndoResult,
   CollectionCreateInput,
   CollectionDropInput,
   CollectionRenameInput,
   CollectionTab,
   CollectionTabState,
   Connection,
+  ConnectionExportInput,
+  ConnectionExportResult,
   ConnectionInput,
+  ImportCommitInput,
+  ImportCommitResult,
+  UriCommitInput,
+  UriPreview,
+  ImportPreview,
   ConnectionRuntime,
   ConnectionSummary,
   ConnectionUpdate,
+  CsvPreview,
+  DataImportInput,
+  DataImportProgressEvent,
   DatabaseDropInput,
   ExplainInput,
   FindInput,
   FindResult,
+  ImportReport,
   IndexCreateInput,
   IndexDropInput,
   IndexInfo,
   ParsedUri,
-  PreviewFields,
   PreviewInput,
   ProbeResult,
+  QueryExportInput,
+  QueryExportResult,
   RoleInfo,
   UserCreateInput,
   UserDropInput,
@@ -34,6 +49,7 @@ import type {
   UserUpdateInput,
   RecentKind,
   RecentQuery,
+  ValType,
   ReferenceAutodetectCandidate,
   ReferenceAutodetectInput,
   ReferenceResolveInput,
@@ -53,6 +69,9 @@ import type {
   WorkspaceTab,
 } from './types.ts';
 
+/** A native menu item that opens a renderer dialog. */
+export type MenuCommand = 'connections.export' | 'connections.import';
+
 export type IpcErrorCode =
   | 'VALIDATION'
   | 'NOT_FOUND'
@@ -64,7 +83,12 @@ export type IpcErrorCode =
   | 'DB_ERROR'
   | 'SECRETS_UNAVAILABLE'
   | 'SECRET_DECRYPT_FAILED'
+  | 'BAD_PASSPHRASE'
   | 'READ_ONLY'
+  | 'AUDIT_NOT_REVERSIBLE'
+  | 'AUDIT_UNDO_EXPIRED'
+  | 'AUDIT_ALREADY_UNDONE'
+  | 'AUDIT_TARGET_CHANGED'
   // Deliberately distinct from UNAUTHORIZED, which the renderer already reads
   // as "your MongoDB user lacks permission" in several places. This one means
   // the IPC message did not come from the app's own document, which is a very
@@ -148,6 +172,14 @@ export interface IpcApi {
     touchUsed: (id: string) => Promise<{ id: string }>;
     parseUri: (uri: string) => Promise<ParsedUri>;
     test: (input: ConnectionInput) => Promise<ProbeResult>;
+    /** Main shows the save dialog and writes the file; secrets never come back. */
+    export: (input: ConnectionExportInput) => Promise<ConnectionExportResult>;
+    /** Main shows the open dialog and parses the file; the result holds a token, not the contents. */
+    importPreview: () => Promise<ImportPreview>;
+    importCommit: (input: ImportCommitInput) => Promise<ImportCommitResult>;
+    /** Parses pasted connection strings and plans their names; passwords never come back. */
+    previewUris: (uris: string[]) => Promise<UriPreview>;
+    createFromUris: (input: UriCommitInput) => Promise<ImportCommitResult>;
   };
 
   app: {
@@ -160,6 +192,8 @@ export interface IpcApi {
      * location. Returns the chosen path, or `null` on user cancel.
      */
     diagnosticBundle: () => Promise<{ path: string | null }>;
+    /** Native File-menu commands pushed from main; returns the unsubscribe. */
+    onMenuCommand: (cb: (command: MenuCommand) => void) => () => void;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -186,7 +220,7 @@ export interface IpcApi {
   collection: {
     create: (input: CollectionCreateInput) => Promise<{ name: string }>;
     drop: (input: CollectionDropInput) => Promise<{ dropped: boolean }>;
-    rename: (input: CollectionRenameInput) => Promise<{ name: string }>;
+    rename: (input: CollectionRenameInput) => Promise<{ name: string; auditId?: string }>;
   };
 
   database: {
@@ -220,11 +254,17 @@ export interface IpcApi {
   prefs: {
     get: <T>(key: string) => Promise<T | null>;
     set: <T>(key: string, value: T) => Promise<T>;
-    getPreviewFields: (input: { connectionId: string; dbName: string; collection: string }) => Promise<PreviewFields | null>;
-    setPreviewFields: (input: { connectionId: string; dbName: string; collection: string; fields: string[] }) => Promise<PreviewFields>;
     getTheme: () => Promise<'light' | 'dark' | 'system'>;
     setTheme: (mode: 'light' | 'dark' | 'system') => Promise<void>;
     onThemeChanged: (cb: (mode: 'light' | 'dark' | 'system') => void) => () => void;
+  };
+
+  secrets: {
+    /**
+     * Enabling makes main show its own warning dialog first; the result is the
+     * value now in force, so a cancelled enable comes back `{ enabled: false }`.
+     */
+    setPlaintextFallback: (enabled: boolean) => Promise<{ enabled: boolean }>;
   };
 
   query: {
@@ -233,16 +273,21 @@ export interface IpcApi {
     findOne: (input: Pick<FindInput, 'connectionId' | 'dbName' | 'collection' | 'filter' | 'projection' | 'sort'>) => Promise<{ document: unknown | null; durationMs: number }>;
     explain: (input: ExplainInput) => Promise<{ plan: unknown; verbosity: string }>;
     cancel: (input: { token: string }) => Promise<void>;
+    /** Export every matching document (up to a hard cap) straight to a file the user picks. */
+    export: (input: QueryExportInput) => Promise<QueryExportResult>;
   };
 
   doc: {
     insert: (input: { connectionId: string; dbName: string; collection: string; docJson: string }) => Promise<{ insertedId: unknown }>;
     insertMany: (input: { connectionId: string; dbName: string; collection: string; docsJson: string }) => Promise<{ insertedCount: number; insertedIds: unknown[] }>;
-    replace: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; docJson: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
-    updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number }>;
-    deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number }>;
+    // `auditId` is present only when the write was recorded Reversible: it is
+    // the entry to hand `audit.undo`, so its presence is what offers Undo.
+    updateOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
+    deleteOne: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ deletedCount: number; auditId?: string }>;
     confirmDeleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string }) => Promise<{ count: number; confirmToken: string }>;
-    deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number }>;
+    deleteMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; confirmToken: string }) => Promise<{ deletedCount: number; auditId?: string }>;
+    confirmUpdateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string }) => Promise<{ count: number; confirmToken: string }>;
+    updateMany: (input: { connectionId: string; dbName: string; collection: string; filterJson: string; updateJson: string; confirmToken: string }) => Promise<{ matchedCount: number; modifiedCount: number; auditId?: string }>;
   };
 
   saved: {
@@ -252,6 +297,36 @@ export interface IpcApi {
     update: (input: { id: string; patch: Partial<Pick<SavedQuery, 'name' | 'payload'>> }) => Promise<SavedQuery>;
     delete: (input: { id: string }) => Promise<void>;
     duplicate: (input: { id: string; newName: string }) => Promise<SavedQuery>;
+  };
+
+  /**
+   * Bulk data in and out of a collection. `import` takes the path the
+   * renderer got back from `app.pickFile('data-import')`. Main remembers
+   * every path that dialog returned and refuses any other, so the renderer
+   * can hand back a file the user picked but never name one; it then
+   * re-validates the path (absolute, allowed extension, a regular file)
+   * before reading. It opens no dialog of its own, so a cancelled pick never
+   * reaches this audited channel and records no row.
+   */
+  data: {
+    import: (input: DataImportInput) => Promise<ImportReport>;
+    /**
+     * Reads a `.csv` file the renderer got from `app.pickFile('data-import')`
+     * — refused unless that dialog returned it, then re-validated as for
+     * `import` — and returns its header, first rows
+     * and an inferred type per column, for the dialog's mapping step.
+     */
+    previewCsv: (input: { path: string }) => Promise<CsvPreview>;
+    /** Sets a flag `ImportService` checks between batches; the current batch still lands. */
+    cancelImport: (input: { token: string }) => Promise<void>;
+    onImportProgress: (cb: (evt: DataImportProgressEvent) => void) => () => void;
+  };
+
+  /** The Audit Log: newest first, never carrying a Pre-image. */
+  audit: {
+    list: (input: AuditListInput) => Promise<AuditEntry[]>;
+    /** Puts back what a Reversible entry changed; records no entry of its own. */
+    undo: (input: { entryId: string }) => Promise<UndoResult>;
   };
 
   recent: {
@@ -265,6 +340,23 @@ export interface IpcApi {
       collection?: string;
       kind?: RecentKind;
     }) => Promise<{ deleted: number }>;
+    /** Past values typed into the builder for this `(conn, db, coll, field)`; fails open to `{ values: [] }`. */
+    valuesForField: (input: {
+      connectionId: string;
+      dbName: string;
+      collection: string;
+      field: string;
+      limit?: number;
+    }) => Promise<{ values: Array<{ value: string; valType: ValType; frequency: number; lastUsedAt: string }> }>;
+    /** Fire-and-forget after a successful find — records the values a run's builder conditions actually carried. */
+    recordFieldValues: (input: {
+      connectionId: string;
+      dbName: string;
+      collection: string;
+      entries: Array<{ field: string; value: string; valType: ValType; op: string }>;
+    }) => Promise<{ recorded: number }>;
+    /** Settings' "Clear value history" — wipes every `recent_field_values` row. */
+    clearFieldValues: () => Promise<{ deleted: number }>;
   };
 
   agg: {
@@ -352,10 +444,16 @@ export const IPC_CHANNELS = {
   connUpdate:    'conn:update',    // SECRET_INPUT
   connDelete:    'conn:delete',
   connTouchUsed: 'conn:touchUsed',
-  connParseUri:  'conn:parseUri',
+  connParseUri:  'conn:parseUri',  // SECRET_INPUT
   connTest:      'conn:test',      // SECRET_INPUT
+  connExport:        'conn:export',        // SECRET_INPUT
+  connImportPreview: 'conn:importPreview',
+  connImportCommit:  'conn:importCommit',  // SECRET_INPUT
+  connPreviewUris:    'conn:previewUris',    // SECRET_INPUT
+  connCreateFromUris: 'conn:createFromUris', // SECRET_INPUT
 
   // App-level utilities -----------------------------------------
+  appMenuCommandEvent: 'app:menu-command-event',
   appPickFile:     'app:pickFile',
   appOpenExternal: 'app:openExternal',
   appSaveFile:     'app:saveFile',
@@ -399,11 +497,12 @@ export const IPC_CHANNELS = {
   // App state preferences ----------------------------------------
   prefsGet: 'prefs:get',
   prefsSet: 'prefs:set',
-  prefsGetPreviewFields: 'prefs:getPreviewFields',
-  prefsSetPreviewFields: 'prefs:setPreviewFields',
   prefsGetTheme:  'prefs:getTheme',
   prefsSetTheme:  'prefs:setTheme',
   prefsThemeEvent: 'prefs:theme-event',
+
+  // Secrets settings (main-confirmed) -----------------------------
+  secretsSetPlaintextFallback: 'secrets:set-plaintext-fallback',
 
   // Query runner -----------------------------------------
   queryFind:             'query:find',
@@ -411,15 +510,17 @@ export const IPC_CHANNELS = {
   queryFindOne:          'query:findOne',
   queryExplain:          'query:explain',
   queryCancel:           'query:cancel',
+  queryExport:           'query:export',
 
   // Document write ops -----------------------------------------
   docInsert:             'doc:insert',
   docInsertMany:         'doc:insertMany',
-  docReplace:            'doc:replace',
   docUpdateOne:          'doc:updateOne',
   docDeleteOne:          'doc:deleteOne',
   docConfirmDeleteMany:  'doc:confirmDeleteMany',
   docDeleteMany:         'doc:deleteMany',
+  docConfirmUpdateMany:  'doc:confirmUpdateMany',
+  docUpdateMany:         'doc:updateMany',
 
   // Saved queries -----------------------------------------
   savedList:      'saved:list',
@@ -433,6 +534,19 @@ export const IPC_CHANNELS = {
   recentList:  'recent:list',
   recentGet:   'recent:get',
   recentClear: 'recent:clear',
+  recentValuesForField:   'recent:valuesForField',
+  recentRecordFieldValues: 'recent:recordFieldValues',
+  recentClearFieldValues:  'recent:clearFieldValues',
+
+  // Bulk data -----------------------------------------
+  dataImport: 'data:import',
+  dataPreviewCsv: 'data:previewCsv',
+  dataCancelImport: 'data:cancelImport',
+  dataImportProgressEvent: 'data:import-progress-event',
+
+  // Audit log -----------------------------------------
+  auditList: 'audit:list',
+  auditUndo: 'audit:undo',
 
   // Aggregation runner -----------------------------------------
   aggRun:             'agg:run',
@@ -476,4 +590,4 @@ export const IPC_CHANNELS = {
 } as const;
 
 /** Allowed purposes for app:pickFile — restricts the file dialog filter. */
-export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key';
+export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key' | 'data-import';

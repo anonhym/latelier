@@ -140,7 +140,7 @@ describe(' a blank or invalid filter text has no runnable filter', () => {
     // can't silently defang the guard.
     const { confirmDeleteManySpy } = mountWith(makeState({ queryRaw: '   ' }));
 
-    const overflow = await screen.findByLabelText('More result actions');
+    const overflow = await screen.findByRole('button', { name: 'Documents' });
     fireEvent.click(overflow);
     const deleteAllItem = await screen.findByRole('menuitem', { name: /Delete all matching/ });
     fireEvent.click(deleteAllItem);
@@ -206,21 +206,28 @@ describe(' one SaveModal, owned above the builder pane', () => {
   // counts mounted modals wherever they render.
   const mountedSaveModals = () => screen.queryAllByLabelText(/Name/).length;
 
-  it('the drawer footer Save opens exactly one modal', async () => {
+  it('exactly one Save button renders in the Documents view, and it carries the save hint anchor', async () => {
     mountWith(makeState());
 
-    const drawerSave = await screen.findByRole('button', { name: 'Save query' });
-    expect(mountedSaveModals()).toBe(0);
-    fireEvent.click(drawerSave);
+    // The toolbar's Save exists…
+    await screen.findByRole('button', { name: /^Save$/ });
+    // …and the drawer footer's copy is gone rather than just hidden —
+    // `queryAllByRole` over the whole rendered tree, not a scoped query, so a
+    // stray second Save anywhere in the Documents view would fail this.
+    expect(screen.queryAllByRole('button', { name: /^Save$/ })).toHaveLength(1);
 
-    await waitFor(() => expect(mountedSaveModals()).toBe(1));
+    // The `saved.create` feature hint moved with the toolbar Save.
+    expect(document.querySelectorAll('[data-hint-anchor="saved.create"]')).toHaveLength(1);
   });
 
-  it('the toolbar Save opens the same single modal', async () => {
+  it('the toolbar Save opens exactly one modal', async () => {
     mountWith(makeState());
 
-    // The toolbar button is labelled by its visible text, not an aria-label.
+    // The toolbar button is labelled by its visible text, not an aria-label —
+    // it is the only Save button left; the builder-drawer footer's copy is
+    // gone.
     const toolbarSave = await screen.findByRole('button', { name: /^Save$/ });
+    expect(mountedSaveModals()).toBe(0);
     fireEvent.click(toolbarSave);
 
     await waitFor(() => expect(mountedSaveModals()).toBe(1));
@@ -230,13 +237,11 @@ describe(' one SaveModal, owned above the builder pane', () => {
     // The behavioural half of the fix: `query.save` used to be registered
     // inside BuilderPane, which is unmounted while collapsed — so the palette
     // command silently vanished exactly when the drawer's own Save button was
-    // also unreachable.
+    // also unreachable. The toolbar Save lives in QueryBar, outside
+    // BuilderPane, so it — and the command — survive the collapse.
     mountWith(makeState(), { 'ui.workspace.builderCollapsed': true });
 
-    await screen.findByTestId('query-run-btn');
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Save query' })).toBeNull();
-    });
+    await screen.findByRole('button', { name: /^Save$/ });
 
     const ctx = { pathname: '/workspace', connectionId: 'c1' };
     const saveCmd = commandRegistry.list().find((c) => c.id === 'query.save');
@@ -331,10 +336,9 @@ describe('W13 §7 — single owner, single Run', () => {
     // W13 §6a freezes the drawer read-only while the bar holds invalid
     // JSON — every add/edit control is disabled, so there's no editable
     // condition row to dispatch on here. The "Filter" tab button is still
-    // inside the same root element the ⌘↵ handler is scoped to
-    // (`BuilderPane`'s outermost div, see `handleDrawerKeyDown`) and stays
-    // enabled even while frozen, so it still proves the handler is reachable
-    // — and inert — from within the drawer.
+    // inside the Documents view the ⌘↵ handler covers (`PanelBody`'s panel
+    // group) and stays enabled even while frozen, so it still proves the
+    // handler is reachable — and inert — from within the drawer.
     const { findSpy } = mountWith(makeState({ queryRaw: 'not valid json{{{' }));
 
     const runBtn = await screen.findByTestId('query-run-btn');
@@ -348,6 +352,144 @@ describe('W13 §7 — single owner, single Run', () => {
     // Give any (wrongly) queued run a tick to land, then assert it didn't.
     await new Promise((r) => setTimeout(r, 0));
     expect(findSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── ⌘↵ from anywhere in the Documents view ──────────────────────────────
+//
+// The key used to be bound to the filter textarea and the drawer root only,
+// so after dragging a field from the results into the drawer — focus stays
+// on the result row — ⌘↵ did nothing. One handler on the panel group now
+// covers the whole view, and repairs every draft before it gates.
+describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
+  const DOC = { _id: '1', sku: 'widget' };
+  const cmdEnter = { key: 'Enter', metaKey: true };
+
+  it('runs once from the result tree without expanding the focused row', async () => {
+    const { findSpy } = mountWith(
+      makeState({ lastRun: { documents: [DOC], durationMs: 0, ranAt: now } }),
+    );
+    const tree = await screen.findByRole('tree', { name: 'Documents' });
+
+    fireEvent.keyDown(tree, cmdEnter);
+
+    // Checked before the run lands, whose empty result unmounts the row. The
+    // tree's own Enter expands the active row; ⌘↵ must not also do that.
+    expect(within(tree).queryByRole('button', { name: 'Collapse document' })).toBeNull();
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('runs once from the result table without toggling the row selection', async () => {
+    const { findSpy } = mountWith(
+      makeState({ view: 'Table', lastRun: { documents: [DOC], durationMs: 0, ranAt: now } }),
+    );
+    const grid = await screen.findByRole('grid');
+    act(() => grid.focus()); // focus makes the first row the active one
+
+    fireEvent.keyDown(grid, cmdEnter);
+
+    // Checked before the run lands: its empty result would clear a selection
+    // anyway. The table's own ⌘+Space (and, before, ⌘+Enter) toggles it.
+    expect(screen.queryByTestId('selection-bar-count')).toBeNull();
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('repairs a Shell Syntax sort that was never blurred, and runs it', async () => {
+    const { findSpy } = mountWith(
+      makeState({ builder: { projection: [], sort: '{sku: 1}', limit: '' } }),
+    );
+
+    fireEvent.keyDown(await screen.findByTestId('query-bar-sort'), { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0][0].sort).toBe('{"sku": 1}');
+  });
+
+  // The projection's input sits in the Fields control's dropdown, a dialog
+  // the panel-level ⌘↵ skips — so the control runs this one itself.
+  it('commits a projection draft that was never blurred, and runs it', async () => {
+    const { findSpy } = mountWith(makeState());
+    fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+    const projection = await screen.findByTestId('fields-projection');
+
+    fireEvent.change(projection, { target: { value: '{sku: 1}' } });
+    fireEvent.keyDown(projection, cmdEnter);
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0][0].projection).toContain('sku');
+  });
+
+  it('refuses an invalid sort from a drawer input, says why, and clears on the next edit', async () => {
+    const { findSpy } = mountWith(
+      makeState({ builder: { projection: [], sort: '[1,2]', limit: '' } }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+
+    fireEvent.keyDown(await screen.findByPlaceholderText('field'), cmdEnter);
+
+    const line = await screen.findByText('Not run: Invalid sort');
+    expect(line.getAttribute('role')).toBe('alert');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(findSpy).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '{"sku": 1}' } });
+    await waitFor(() => expect(screen.queryByText('Not run: Invalid sort')).toBeNull());
+  });
+
+  it('announces a repeated refused press again', async () => {
+    mountWith(makeState({ builder: { projection: [], sort: '[1,2]', limit: '' } }));
+    const sort = await screen.findByTestId('query-bar-sort');
+
+    fireEvent.keyDown(sort, cmdEnter);
+    const first = await screen.findByText('Not run: Invalid sort');
+    fireEvent.keyDown(sort, cmdEnter);
+
+    // A new alert node, not the same one re-rendered — only a fresh
+    // `role="alert"` is announced.
+    await waitFor(() => expect(screen.getByText('Not run: Invalid sort')).not.toBe(first));
+  });
+
+  it('names a refused filter whose notice was already on screen', async () => {
+    const { findSpy } = mountWith(makeState({ queryRaw: '[1,2]' }));
+    const textarea = await screen.findByTestId('query-bar-input');
+    fireEvent.blur(textarea);
+    await screen.findByText(/A filter must be a document/);
+
+    // That notice is old news by now; the press has to say something itself.
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Filter' }), cmdEnter);
+
+    expect(await screen.findByText('Not run: Invalid MQL')).toBeTruthy();
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('leaves ⌘↵ inside a dialog to that dialog', async () => {
+    const { findSpy } = mountWith(makeState());
+    fireEvent.click(await screen.findByTestId('query-bar-expand-btn'));
+    const dialog = await screen.findByRole('dialog');
+
+    fireEvent.keyDown(within(dialog).getByRole('textbox'), cmdEnter);
+
+    // The expand modal's own ⌘↵ applies and closes; the find query stays put.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not run a find query from the Aggregation view', async () => {
+    const { findSpy } = mountWith(makeState({ activeView: 'aggregation' }));
+    const result = await screen.findByRole('button', { name: /Run/ });
+
+    fireEvent.keyDown(result, cmdEnter);
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('puts Run last in the toolbar, after History', async () => {
+    mountWith(makeState());
+    const run = await screen.findByTestId('query-run-btn');
+    const history = screen.getByRole('button', { name: 'History' });
+
+    expect(history.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -375,7 +517,7 @@ describe('X15 T5 — ⌘B does not reach the builder from inside a dialog', () =
   it('⌘B from inside the portaled SaveModal leaves the builder alone', async () => {
     mountWith(makeState());
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Save query' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Save$/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Save query' });
 
     fireEvent.keyDown(within(dialog).getByLabelText(/Name/), { key: 'b', metaKey: true });
