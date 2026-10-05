@@ -16,6 +16,7 @@
   "mutate": [
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
+    "electron/services/UpdateService.ts",
     "electron/services/connectionExportFormat.ts",
     "electron/services/connectionBulkAdd.ts",
     "src/utils/ejson.ts",
