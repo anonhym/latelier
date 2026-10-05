@@ -38,7 +38,7 @@ Main's Vite build externalizes a fixed list (`vite.config.ts`, `rolldownOptions.
 
 ## 2. When it runs
 
-`shouldCheckForUpdates({ isPackaged, userDataOverride })` is a pure function: true only when `app.isPackaged` is true and the `ATELIER_USER_DATA_DIR` override is unset. Everywhere else (`electron:dev`, the Playwright e2e harness, a packaged app run against a throwaway data folder) the updater is never loaded.
+`shouldCheckForUpdates({ isPackaged, userDataOverride, platform })` is a pure function: true only on `darwin` or `win32`, when `app.isPackaged` is true and the `ATELIER_USER_DATA_DIR` override is unset. Everywhere else (`electron:dev`, the Playwright e2e harness, a packaged app run against a throwaway data folder, and Linux, for which no feed is published) the updater is never loaded.
 
 The check runs once, after the main window has been created, off the critical path. It is not repeated while the app runs.
 
@@ -132,7 +132,7 @@ Accessibility: the action is a native button inside the notification; no click h
 ## Test cases
 
 Unit (`tests/unit/update-service.spec.ts`, fake `UpdaterLike`, no network):
-- `shouldCheckForUpdates`: packaged and no override → true; not packaged → false; override set → false; both → false.
+- `shouldCheckForUpdates`: darwin or win32, packaged and no override → true; linux → false; not packaged → false; override set → false.
 - `start()` disabled: the updater is never touched.
 - `start()` enabled: `autoDownload` and `autoInstallOnAppQuit` are true; `checkForUpdates` called once.
 - `update-downloaded` → state `ready` with the version; the emitter is called with it.

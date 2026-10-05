@@ -13,14 +13,17 @@ export interface UpdaterLike {
 }
 
 /**
- * Updates run only in a packaged build that is not pointed at a throwaway data
- * folder: never under `electron:dev`, never under the e2e harness.
+ * Updates run only in a packaged macOS or Windows build that is not pointed at
+ * a throwaway data folder: never under `electron:dev`, never under the e2e
+ * harness, and never on Linux (no feed is published for it).
  */
 export function shouldCheckForUpdates(env: {
   isPackaged: boolean;
   userDataOverride: string | undefined;
+  platform: NodeJS.Platform;
 }): boolean {
-  return env.isPackaged && !env.userDataOverride;
+  const supported = env.platform === 'darwin' || env.platform === 'win32';
+  return supported && env.isPackaged && !env.userDataOverride;
 }
 
 /**

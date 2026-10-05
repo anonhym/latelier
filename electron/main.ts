@@ -753,6 +753,7 @@ app.whenReady().then(() => {
     shouldCheckForUpdates({
       isPackaged: app.isPackaged,
       userDataOverride: process.env.ATELIER_USER_DATA_DIR,
+      platform: process.platform,
     }),
   );
   registerUpdatesChannels(router, updateSvc);

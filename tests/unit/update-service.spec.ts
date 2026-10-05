@@ -32,16 +32,20 @@ function setup(opts: { enabled?: boolean; check?: () => Promise<unknown> } = {})
 
 describe('shouldCheckForUpdates', () => {
   it.each([
-    [true, undefined, true],
-    [false, undefined, false],
-    [true, '/tmp/throwaway', false],
-    [false, '/tmp/throwaway', false],
-  ])('isPackaged=%s override=%s -> %s', (isPackaged, userDataOverride, expected) => {
-    expect(shouldCheckForUpdates({ isPackaged, userDataOverride })).toBe(expected);
+    ['darwin', true, undefined, true],
+    ['win32', true, undefined, true],
+    ['linux', true, undefined, false],
+    ['darwin', false, undefined, false],
+    ['win32', false, undefined, false],
+    ['darwin', true, '/tmp/throwaway', false],
+    ['win32', true, '/tmp/throwaway', false],
+    ['linux', false, '/tmp/throwaway', false],
+  ] as const)('%s packaged=%s override=%s -> %s', (platform, isPackaged, userDataOverride, expected) => {
+    expect(shouldCheckForUpdates({ isPackaged, userDataOverride, platform })).toBe(expected);
   });
 
   it('treats an empty override as unset', () => {
-    expect(shouldCheckForUpdates({ isPackaged: true, userDataOverride: '' })).toBe(true);
+    expect(shouldCheckForUpdates({ isPackaged: true, userDataOverride: '', platform: 'darwin' })).toBe(true);
   });
 });
 

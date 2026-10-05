@@ -259,6 +259,15 @@ this directory; rely on OS disk encryption (FileVault, BitLocker, LUKS).
   attribute, build from source at the tag you want (`npm ci`, then the
   `electron:build-mac` or `electron:build-win` script in
   [package.json](package.json)); reproducibility of the output is not claimed.
+- **Auto-update.** A packaged macOS or Windows build checks this repository's
+  GitHub Releases (`anonhym/latelier`) once per launch, downloads an update in
+  the background and offers a restart; nothing is sent besides that request, and
+  there is no telemetry. macOS applies an update only if its Developer ID
+  signature matches the running app. Windows builds are unsigned, so a Windows
+  update is checked only against the sha512 in the release's `latest.yml`, over
+  HTTPS: anyone with write access to the GitHub release could replace both, the
+  same trust a first download already carries
+  ([specs/X20-auto-update.md](specs/X20-auto-update.md)).
 - **Electron fuses** are set on the packaged binary: `RunAsNode`,
   `NODE_OPTIONS` and the `--inspect` CLI arguments are off; cookie encryption,
   `OnlyLoadAppFromAsar` and embedded ASAR integrity validation are on.
