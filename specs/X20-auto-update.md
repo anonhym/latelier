@@ -46,9 +46,9 @@ The check runs once, after the main window has been created, off the critical pa
 
 ### 3.1 UpdateService
 
-`electron/services/UpdateService.ts` owns the state and the policy, and depends on an injected `UpdaterLike` (the narrow subset of `autoUpdater` it uses) so it is unit-testable without a network, Electron or `electron-updater`.
+`electron/services/UpdateService.ts` owns the state and the policy, and depends on an injected loader that resolves to an `UpdaterLike` (the narrow subset of `autoUpdater` it uses) so it is unit-testable without a network, Electron or `electron-updater`.
 
-- `start()`: when disabled (section 2) does nothing. Otherwise sets `autoDownload = true`, `autoInstallOnAppQuit = true`, subscribes to `update-downloaded` and `error`, calls `checkForUpdates()` and logs a rejection.
+- `start()` (async, never rejects): when disabled (section 2) does nothing and never loads the updater. Otherwise loads it, sets `autoDownload = true`, `autoInstallOnAppQuit = true`, subscribes to `update-downloaded` and `error`, calls `checkForUpdates()` and logs any rejection, including a failed load.
 - State: `{ status: 'idle' } | { status: 'ready', version }`. `update-downloaded` moves it to `ready` and emits it to the renderer. Nothing else changes visible state; checking, downloading and "no update available" are invisible.
 - `restart()`: when `ready`, calls `quitAndInstall(true, true)` (silent, relaunch). When not `ready`, throws a `ValidationError` naming the actual state; it never installs speculatively.
 - Errors: both a rejected `checkForUpdates()` and the updater's `error` event are written with `electron/log.ts` (`warn`, tag `updater`) and nothing else. Never a modal, never a notification, never thrown into the IPC envelope.
