@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   classifyMongoError,
   KEYCHAIN_BLOCKED_MESSAGE,
@@ -46,10 +46,16 @@ describe('classifyMongoError', () => {
       expect(classifyMongoError(decryptFailed(details), platform).code).toBe('SECRET_UNREADABLE');
     });
 
-    it('defaults to the running platform', () => {
-      const probe = decryptFailed({ encryptionAvailable: false });
-      const expected = process.platform === 'darwin' ? 'KEYCHAIN_BLOCKED' : 'SECRET_UNREADABLE';
-      expect(classifyMongoError(probe).code).toBe(expected);
+    it.each([
+      ['darwin', 'KEYCHAIN_BLOCKED'],
+      ['linux', 'SECRET_UNREADABLE'],
+    ] as const)('defaults to the running platform (%s → %s)', (platform, expected) => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue(platform);
+      try {
+        expect(classifyMongoError(decryptFailed({ encryptionAvailable: false })).code).toBe(expected);
+      } finally {
+        vi.restoreAllMocks();
+      }
     });
   });
 

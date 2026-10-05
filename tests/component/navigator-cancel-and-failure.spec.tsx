@@ -274,7 +274,7 @@ describe('DbCollectionNavigator — a failure surfaces where it happened (X16 §
       expect(await screen.findByRole('button', { name: 'Re-enter password for Staging' })).toBeTruthy();
     });
 
-    it('a blocked macOS keychain shows the reopen guidance with no Re-enter button, Retry kept', async () => {
+    it('a blocked macOS keychain shows the reopen guidance with neither Re-enter nor Retry', async () => {
       const stream = statusStream();
       installAtelierMock({ mongo: { onStatus: stream.onStatus } });
       mount({ connections: [PROD, { ...STAGING, status: 'error' }], onEditConnection: vi.fn() });
@@ -288,6 +288,16 @@ describe('DbCollectionNavigator — a failure surfaces where it happened (X16 §
 
       expect(screen.getByText(/Quit and reopen L'Atelier/)).toBeTruthy();
       expect(screen.queryByRole('button', { name: /Re-enter password/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Retry connecting to Staging' })).toBeNull();
+    });
+
+    it('an unreadable saved password keeps Retry next to Re-enter', async () => {
+      const stream = statusStream();
+      installAtelierMock({ mongo: { onStatus: stream.onStatus } });
+      mount({ connections: [PROD, { ...STAGING, status: 'error' }], onEditConnection: vi.fn() });
+      await stream.ready();
+      await stream.emit(unreadable);
+
       expect(screen.getByRole('button', { name: 'Retry connecting to Staging' })).toBeTruthy();
     });
 

@@ -1561,17 +1561,20 @@ function ConnErrorRow({
       <div style={{ color: T.textMuted, marginBottom: 6, overflowWrap: 'anywhere' }}>
         {row.message}
       </div>
-      <button
-        type="button"
-        aria-label={row.retryLabel}
-        onClick={(e) => {
-          e.stopPropagation();
-          onRetry();
-        }}
-        style={buttonStyle}
-      >
-        Retry
-      </button>
+      {/* A denied macOS keychain stays denied until relaunch, so Retry cannot succeed. */}
+      {row.code !== 'KEYCHAIN_BLOCKED' && (
+        <button
+          type="button"
+          aria-label={row.retryLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRetry();
+          }}
+          style={buttonStyle}
+        >
+          Retry
+        </button>
+      )}
       {row.code === 'SECRET_UNREADABLE' && onReenterPassword && (
         <button
           type="button"
