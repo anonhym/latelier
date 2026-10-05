@@ -159,11 +159,17 @@ export function classifyMongoOpError(
 export const SECRET_UNREADABLE_MESSAGE =
   "This connection's saved password can't be read on this install. Re-enter it.";
 
+export const KEYCHAIN_BLOCKED_MESSAGE =
+  'macOS blocked access to this app\'s saved passwords. Quit and reopen L\'Atelier, then click "Always Allow" when macOS asks.';
+
 /**
  * Classify a raw error thrown by the `mongodb` driver (or surrounding I/O)
  * into a coarse category useful for the renderer banner.
  */
-export function classifyMongoError(err: unknown): {
+export function classifyMongoError(
+  err: unknown,
+  platform: NodeJS.Platform = process.platform,
+): {
   code: ProbeErrorCode;
   message: string;
 } {
@@ -173,6 +179,12 @@ export function classifyMongoError(err: unknown): {
   // The vault threw before any client existed: the stored secret belongs to
   // another install (or a reset keychain), which no retry can fix.
   if (err instanceof AppError && err.code === 'SECRET_DECRYPT_FAILED') {
+    // Denying the macOS keychain prompt leaves encryption unavailable for the
+    // rest of the process; only a relaunch can ask again.
+    const details = err.details as { encryptionAvailable?: unknown } | undefined;
+    if (platform === 'darwin' && details?.encryptionAvailable === false) {
+      return { code: 'KEYCHAIN_BLOCKED', message: KEYCHAIN_BLOCKED_MESSAGE };
+    }
     return { code: 'SECRET_UNREADABLE', message: SECRET_UNREADABLE_MESSAGE };
   }
   const e = err as {

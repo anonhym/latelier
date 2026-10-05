@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { classifyMongoError, SECRET_UNREADABLE_MESSAGE } from '../../electron/mongo/errors';
+import {
+  classifyMongoError,
+  KEYCHAIN_BLOCKED_MESSAGE,
+  SECRET_UNREADABLE_MESSAGE,
+} from '../../electron/mongo/errors';
 import { SystemError, ValidationError } from '../../electron/errors';
 
 describe('classifyMongoError', () => {
@@ -14,6 +18,39 @@ describe('classifyMongoError', () => {
   it('only the vault error code maps to SECRET_UNREADABLE, not its text or another AppError', () => {
     expect(classifyMongoError(new Error('SECRET_DECRYPT_FAILED')).code).not.toBe('SECRET_UNREADABLE');
     expect(classifyMongoError(new ValidationError('bad')).code).not.toBe('SECRET_UNREADABLE');
+  });
+
+  describe('macOS keychain denied (#396)', () => {
+    const decryptFailed = (details?: unknown) =>
+      new SystemError('SECRET_DECRYPT_FAILED', 'decrypt failed', details);
+
+    it('darwin + encryption unavailable → KEYCHAIN_BLOCKED with reopen guidance, no re-enter', () => {
+      expect(classifyMongoError(decryptFailed({ encryptionAvailable: false }), 'darwin')).toEqual({
+        code: 'KEYCHAIN_BLOCKED',
+        message: KEYCHAIN_BLOCKED_MESSAGE,
+      });
+      expect(KEYCHAIN_BLOCKED_MESSAGE).toBe(
+        'macOS blocked access to this app\'s saved passwords. Quit and reopen L\'Atelier, then click "Always Allow" when macOS asks.',
+      );
+      expect(KEYCHAIN_BLOCKED_MESSAGE).not.toMatch(/re-enter/i);
+    });
+
+    it.each([
+      ['darwin, encryption available', 'darwin', { encryptionAvailable: true }],
+      ['linux, encryption unavailable', 'linux', { encryptionAvailable: false }],
+      ['win32, encryption unavailable', 'win32', { encryptionAvailable: false }],
+      ['darwin, no details', 'darwin', undefined],
+      ['darwin, details without the flag', 'darwin', { cause: 'x' }],
+      ['darwin, non-boolean flag', 'darwin', { encryptionAvailable: 'false' }],
+    ] as const)('%s → SECRET_UNREADABLE', (_label, platform, details) => {
+      expect(classifyMongoError(decryptFailed(details), platform).code).toBe('SECRET_UNREADABLE');
+    });
+
+    it('defaults to the running platform', () => {
+      const probe = decryptFailed({ encryptionAvailable: false });
+      const expected = process.platform === 'darwin' ? 'KEYCHAIN_BLOCKED' : 'SECRET_UNREADABLE';
+      expect(classifyMongoError(probe).code).toBe(expected);
+    });
   });
 
   it('AuthenticationFailed → AUTH', () => {

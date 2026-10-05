@@ -274,6 +274,23 @@ describe('DbCollectionNavigator — a failure surfaces where it happened (X16 §
       expect(await screen.findByRole('button', { name: 'Re-enter password for Staging' })).toBeTruthy();
     });
 
+    it('a blocked macOS keychain shows the reopen guidance with no Re-enter button, Retry kept', async () => {
+      const stream = statusStream();
+      installAtelierMock({ mongo: { onStatus: stream.onStatus } });
+      mount({ connections: [PROD, { ...STAGING, status: 'error' }], onEditConnection: vi.fn() });
+      await stream.ready();
+      await stream.emit({
+        id: 'c2',
+        status: 'error',
+        errorCode: 'KEYCHAIN_BLOCKED',
+        errorMessage: 'macOS blocked access to this app\'s saved passwords. Quit and reopen L\'Atelier, then click "Always Allow" when macOS asks.',
+      });
+
+      expect(screen.getByText(/Quit and reopen L'Atelier/)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /Re-enter password/ })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Retry connecting to Staging' })).toBeTruthy();
+    });
+
     it('an ordinary AUTH failure offers no such button', async () => {
       const stream = statusStream();
       installAtelierMock({ mongo: { onStatus: stream.onStatus } });
