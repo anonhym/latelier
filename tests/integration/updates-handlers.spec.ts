@@ -1,0 +1,84 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { IpcMainInvokeEvent } from 'electron';
+import { createRouter } from '../../electron/ipc/router';
+import { registerUpdatesChannels } from '../../electron/ipc/handlers/updates';
+import { UpdateService, type UpdaterLike } from '../../electron/services/UpdateService';
+import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
+import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
+
+type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
+
+function createShim() {
+  const handlers = new Map<string, Handler>();
+  return {
+    ipcMain: { handle: (c: string, fn: Handler) => void handlers.set(c, fn) } as const,
+    async invoke<T>(channel: string, payload: unknown): Promise<Envelope<T>> {
+      const h = handlers.get(channel);
+      if (!h) throw new Error(`no handler for ${channel}`);
+      return (await h(invokeEvent, payload)) as Envelope<T>;
+    },
+  };
+}
+
+describe('updates:* handlers', () => {
+  let shim: ReturnType<typeof createShim>;
+  let quitAndInstall: ReturnType<typeof vi.fn>;
+  let fire: (version: string) => void;
+  let svc: UpdateService;
+
+  beforeEach(async () => {
+    shim = createShim();
+    quitAndInstall = vi.fn();
+    let downloaded: ((i: { version: string }) => void) | undefined;
+    const updater = {
+      autoDownload: false,
+      autoInstallOnAppQuit: false,
+      on: (event: string, l: never) => {
+        if (event === 'update-downloaded') downloaded = l;
+      },
+      checkForUpdates: async () => undefined,
+      quitAndInstall,
+    } as unknown as UpdaterLike;
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    svc = new UpdateService(async () => updater, log, () => {}, true);
+    await svc.start();
+    fire = (version) => downloaded?.({ version });
+    registerUpdatesChannels(createRouter(shim.ipcMain, testSenderCheck), svc);
+  });
+
+  it('getState returns the service state in an ok envelope', async () => {
+    expect(await shim.invoke(IPC_CHANNELS.updatesGetState, undefined)).toEqual({
+      ok: true,
+      data: { status: 'idle' },
+    });
+    fire('2.0.0');
+    expect(await shim.invoke(IPC_CHANNELS.updatesGetState, {})).toEqual({
+      ok: true,
+      data: { status: 'ready', version: '2.0.0' },
+    });
+  });
+
+  it('restart installs and answers ok when an update is ready', async () => {
+    fire('2.0.0');
+    expect(await shim.invoke(IPC_CHANNELS.updatesRestart, {})).toEqual({
+      ok: true,
+      data: { restarting: true },
+    });
+    expect(quitAndInstall).toHaveBeenCalledWith(true, true);
+  });
+
+  it('restart answers a VALIDATION error envelope when nothing is ready', async () => {
+    const env = await shim.invoke(IPC_CHANNELS.updatesRestart, {});
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    expect(quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('a payload with unexpected fields is a VALIDATION error, never a throw', async () => {
+    fire('2.0.0');
+    const env = await shim.invoke(IPC_CHANNELS.updatesRestart, { force: true });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    expect(quitAndInstall).not.toHaveBeenCalled();
+  });
+});
