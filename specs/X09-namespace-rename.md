@@ -26,7 +26,7 @@ Finish the L'Atelier rebrand in code, after [X08](./X08-brand-identity.md) shipp
 - The remaining `mongolab` filenames (`mongolab.db`, the log filename pattern, the diagnostic filename, doc paths) are tracked separately.
 - Moving data out of the old `MongoLab` userData directory (only v0.1.0 to v0.4.0 shipped under that name) is not automated: the user moves the folder by hand, per [the troubleshooting guide](../docs/troubleshooting.md).
 - Moving Connections between machines or installs is not part of this phase; that is [C13](./C13-connection-export-import.md).
-- No in-app notice warns about the passwords the next version cannot read. The signed release ships without one.
+- The signed release removes the 0.16.0 pre-signing notice. Saved passwords stay readable: macOS asks once for keychain access at the first connect, and "Always Allow" keeps them; the app explains the recovery if access is denied.
 
 ### Out (also deferred)
 - Spec body rewrites in `specs/F*`, `specs/C*`, `specs/W*`, `specs/A*`, `specs/X*` that reference "MongoLab" in prose. These are historical design docs; updating them is documentation hygiene, not blocking.
