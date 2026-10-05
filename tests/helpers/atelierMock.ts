@@ -46,6 +46,11 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       diagnosticBundle: async () => ({ path: null }),
       onMenuCommand: () => () => {},
     },
+    updates: {
+      getState: async () => ({ status: 'idle' as const }),
+      restart: async () => ({ restarting: true as const }),
+      onState: () => () => {},
+    },
     shell: {
       openExternal: async () => ({ opened: true as const }),
     },
@@ -188,6 +193,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     ...(overrides as Partial<IpcApi>),
     conn:   { ...base.conn,   ...(overrides.conn   ?? {}) } as IpcApi['conn'],
     app:    { ...base.app,    ...(overrides.app    ?? {}) } as IpcApi['app'],
+    updates: { ...base.updates, ...(overrides.updates ?? {}) } as IpcApi['updates'],
     shell:  { ...base.shell,  ...(overrides.shell  ?? {}) } as IpcApi['shell'],
     mongo:  { ...base.mongo,  ...(overrides.mongo  ?? {}) } as IpcApi['mongo'],
     meta:   { ...base.meta,   ...(overrides.meta   ?? {}) } as IpcApi['meta'],
@@ -361,6 +367,11 @@ function makePermissiveStub(): IpcApi {
       saveFile: async () => ({ path: null }),
       diagnosticBundle: async () => ({ path: null }),
       onMenuCommand: () => () => {},
+    },
+    updates: {
+      getState: async () => ({ status: 'idle' as const }),
+      restart: async () => ({ restarting: true as const }),
+      onState: () => () => {},
     },
     shell: {
       openExternal: async () => ({ opened: true as const }),

@@ -41,6 +41,7 @@ const { registerShellChannels } = await import('../../electron/ipc/handlers/shel
 const { registerMshellChannels } = await import('../../electron/ipc/handlers/mshell');
 const { registerScriptChannels } = await import('../../electron/ipc/handlers/script');
 const { registerRefsChannels } = await import('../../electron/ipc/handlers/refs');
+const { registerUpdatesChannels } = await import('../../electron/ipc/handlers/updates');
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
 import { createPickedCredentialPaths } from '../../electron/security/credentialPaths';
 
@@ -90,14 +91,15 @@ const stubSvc = <T,>(): T => new Proxy({}, { get: () => vi.fn(async () => ({})) 
 // mshell.ts:59. This is NOT the hardcoded channel list the issue forbids:
 // the coverage assertion below still walks `Object.entries(IPC_CHANNELS)`
 // live, so a newly added invoke channel is covered automatically (proved by
-// mutation #2 in the PR description) — only these three known one-way event
-// names are carved out.
+// mutation #2 in the PR description) — only the known one-way event
+// names listed here are carved out.
 const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.mongoStatusEvent,
   IPC_CHANNELS.prefsThemeEvent,
   IPC_CHANNELS.mshellOutputEvent,
   IPC_CHANNELS.dataImportProgressEvent,
   IPC_CHANNELS.appMenuCommandEvent,
+  IPC_CHANNELS.updatesStateEvent,
 ]);
 
 describe('IPC channel registration — full router coverage', () => {
@@ -156,6 +158,7 @@ describe('IPC channel registration — full router coverage', () => {
     registerMshellChannels(router, stubSvc<Parameters<typeof registerMshellChannels>[1]>());
     registerScriptChannels(router, stubSvc<Parameters<typeof registerScriptChannels>[1]>());
     registerRefsChannels(router, stubSvc<Parameters<typeof registerRefsChannels>[1]>());
+    registerUpdatesChannels(router, stubSvc<Parameters<typeof registerUpdatesChannels>[1]>());
   });
 
   it('registers every non-event IPC_CHANNELS value on the router', () => {

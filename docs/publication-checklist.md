@@ -134,9 +134,17 @@ decide it deliberately.
       This is load-bearing for the AI workflows below.
 - [ ] Add the `CLAUDE_CODE_OAUTH_TOKEN` secret if `claude.yml` and
       `claude-code-review.yml` are kept.
-- [ ] Add code-signing secrets if releases are to be signed:
-      `CSC_LINK`, `CSC_KEY_PASSWORD`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`.
-      Unsigned builds are what ship today.
+- [ ] Add the five macOS signing and notarization secrets; `release.yml` fails
+      the macOS job if any is empty:
+      - `CSC_LINK` — base64 of the Developer ID Application certificate `.p12`.
+      - `CSC_KEY_PASSWORD` — the password of that `.p12`.
+      - `APPLE_API_KEY` — the contents of the App Store Connect API key `.p8`
+        (the workflow writes it to a file and points electron-builder at it).
+      - `APPLE_API_KEY_ID` — the Key ID of that API key.
+      - `APPLE_API_ISSUER` — the Issuer ID shown on the App Store Connect
+        Keys page.
+
+      Windows builds stay unsigned; no `WIN_*` secret is read.
 
 ### The AI workflows — read this before re-arming either
 

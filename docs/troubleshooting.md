@@ -190,6 +190,30 @@ A user with `read` on `appA` cannot read `appB`. Some operations
 
 ---
 
+## keychain-blocked
+
+**You see:** `errorCode: KEYCHAIN_BLOCKED`. macOS asked whether
+L'Atelier may read its saved passwords and the answer was Deny.
+
+### Fix
+
+Quit L'Atelier completely, reopen it and connect again. When macOS
+asks for keychain access, click **Always Allow**. The refusal lasts
+until the app is relaunched, so retrying without a relaunch fails.
+
+---
+
+## secret-unreadable
+
+**You see:** `errorCode: SECRET_UNREADABLE`. The saved password was
+encrypted by another install or a keychain that has since been reset.
+
+### Fix
+
+Open the connection's edit form, type the password again and save.
+
+---
+
 ## unknown
 
 **You see:** Something else entirely. The drawer's "Connection failed"
@@ -217,6 +241,19 @@ recipes above.
   `serverStatus`, `dbStats`) are blocked for free-tier users. We fail
   open and degrade the affected views, but the underlying error class
   may still appear in logs.
+
+### Data from an old MongoLab install
+
+Installs of v0.4.0 or older ran as "MongoLab" and kept their data in a
+folder of that name. L'Atelier uses a different folder and does not move
+the old one. To bring the data across, quit the app, then move the
+contents of the old folder into the L'Atelier folder:
+
+| Platform | Old folder | L'Atelier folder |
+|---|---|---|
+| macOS | `~/Library/Application Support/MongoLab` | `~/Library/Application Support/L'Atelier` |
+| Windows | `%APPDATA%\MongoLab` | `%APPDATA%\L'Atelier` |
+| Linux | `~/.config/MongoLab` | `~/.config/L'Atelier` |
 
 If none of the above match, open
 [a GitHub issue](https://github.com/anonhym/latelier/issues) with the

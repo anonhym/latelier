@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
-import { SECRET_UNREADABLE_MESSAGE } from '../../electron/mongo/errors';
+import { KEYCHAIN_BLOCKED_MESSAGE, SECRET_UNREADABLE_MESSAGE } from '../../electron/mongo/errors';
 import { ConnectionRepo } from '../../electron/db/repositories/ConnectionRepo';
 import { ConnectionService, connectionReader } from '../../electron/mongo/ConnectionService';
 import type { ConnectionInput } from '@shared/types';
@@ -57,6 +57,7 @@ describe('MongoPool', () => {
 
   afterEach(() => {
     tmp?.cleanup();
+    vi.restoreAllMocks();
   });
 
   it('readClient happy path: status transitions disconnected → connecting → connected', async () => {
@@ -186,6 +187,32 @@ describe('MongoPool', () => {
     expect(status.status).toBe('error');
     expect(status.errorCode).toBe('SECRET_UNREADABLE');
     expect(status.errorMessage).toBe(SECRET_UNREADABLE_MESSAGE);
+
+    await pool.disconnectAll();
+  });
+
+  it('on macOS, a decrypt failure with the keychain unavailable connects as KEYCHAIN_BLOCKED', async () => {
+    tmp = createTempDb();
+    const safeStorage = createSafeStorageMock();
+    vault = new SecretsVault(tmp.db, safeStorage);
+    const repo = new ConnectionRepo(tmp.db);
+    const pool = new MongoPool({ repo: connectionReader(repo, vault), vault });
+    const created = await new ConnectionService({ repo, vault, pool }).create({
+      ...validConnectionInput,
+      authMech: 'scram256',
+      authUsername: 'u',
+      password: 'hunter2',
+    });
+    // Same state as a denied keychain prompt: nothing decrypts, and the
+    // availability check now reports false for the rest of the process.
+    safeStorage.reset();
+    safeStorage.setAvailable(false);
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+
+    await pool.connect(created.id);
+    const status = pool.status(created.id);
+    expect(status.errorCode).toBe('KEYCHAIN_BLOCKED');
+    expect(status.errorMessage).toBe(KEYCHAIN_BLOCKED_MESSAGE);
 
     await pool.disconnectAll();
   });
