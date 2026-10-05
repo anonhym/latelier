@@ -36,6 +36,9 @@ import { registerIndexChannels } from './ipc/handlers/indexes.ts';
 import { registerCollectionAdminChannels } from './ipc/handlers/collectionAdmin.ts';
 import { registerUserChannels } from './ipc/handlers/users.ts';
 import { registerPrefsChannels } from './ipc/handlers/prefs.ts';
+import { registerUpdatesChannels } from './ipc/handlers/updates.ts';
+import { UpdateService, shouldCheckForUpdates } from './services/UpdateService.ts';
+import { loadUpdater } from './updater/loadUpdater.ts';
 import { registerSecretsChannels } from './ipc/handlers/secrets.ts';
 import { PLAINTEXT_FALLBACK_KEY } from './ipc/prefKeys.ts';
 import { registerTabsChannels } from './ipc/handlers/tabs.ts';
@@ -740,8 +743,25 @@ app.whenReady().then(() => {
   const refsSvc = new ReferenceRulesService(refsRepo, pool);
   registerRefsChannels(router, refsSvc);
 
+  const updateLog = log;
+  const updateSvc = new UpdateService(
+    () => loadUpdater(updateLog),
+    updateLog,
+    (state) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.updatesStateEvent, state);
+    },
+    shouldCheckForUpdates({
+      isPackaged: app.isPackaged,
+      userDataOverride: process.env.ATELIER_USER_DATA_DIR,
+      platform: process.platform,
+    }),
+  );
+  registerUpdatesChannels(router, updateSvc);
+
   // 6. Window
   createWindow();
+  // Off the critical path: start() never rejects.
+  void updateSvc.start();
 
   // 7. Dev niceties
   registerDevResetShortcut();

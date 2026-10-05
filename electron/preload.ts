@@ -66,6 +66,16 @@ const api: IpcApi = {
     },
   },
 
+  updates: {
+    getState: () => call(IPC_CHANNELS.updatesGetState, {}),
+    restart: () => call(IPC_CHANNELS.updatesRestart, {}),
+    onState: (cb) => {
+      const listener = (_evt: unknown, state: unknown) => cb(state as Parameters<typeof cb>[0]);
+      ipcRenderer.on(IPC_CHANNELS.updatesStateEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.updatesStateEvent, listener);
+    },
+  },
+
   shell: {
     openExternal: (input) => call(IPC_CHANNELS.shellOpenExternal, input),
   },

@@ -38,7 +38,7 @@ Main's Vite build externalizes a fixed list (`vite.config.ts`, `rolldownOptions.
 
 ## 2. When it runs
 
-`shouldCheckForUpdates({ isPackaged, userDataOverride })` is a pure function: true only when `app.isPackaged` is true and the `ATELIER_USER_DATA_DIR` override is unset. Everywhere else (`electron:dev`, the Playwright e2e harness, a packaged app run against a throwaway data folder) the updater is never loaded.
+`shouldCheckForUpdates({ isPackaged, userDataOverride, platform })` is a pure function: true only on `darwin` or `win32`, when `app.isPackaged` is true and the `ATELIER_USER_DATA_DIR` override is unset. Everywhere else (`electron:dev`, the Playwright e2e harness, a packaged app run against a throwaway data folder, and Linux, for which no feed is published) the updater is never loaded.
 
 The check runs once, after the main window has been created, off the critical path. It is not repeated while the app runs.
 
@@ -46,9 +46,9 @@ The check runs once, after the main window has been created, off the critical pa
 
 ### 3.1 UpdateService
 
-`electron/services/UpdateService.ts` owns the state and the policy, and depends on an injected `UpdaterLike` (the narrow subset of `autoUpdater` it uses) so it is unit-testable without a network, Electron or `electron-updater`.
+`electron/services/UpdateService.ts` owns the state and the policy, and depends on an injected loader that resolves to an `UpdaterLike` (the narrow subset of `autoUpdater` it uses) so it is unit-testable without a network, Electron or `electron-updater`.
 
-- `start()`: when disabled (section 2) does nothing. Otherwise sets `autoDownload = true`, `autoInstallOnAppQuit = true`, subscribes to `update-downloaded` and `error`, calls `checkForUpdates()` and logs a rejection.
+- `start()` (async, never rejects): when disabled (section 2) does nothing and never loads the updater. Otherwise loads it, sets `autoDownload = true`, `autoInstallOnAppQuit = true`, subscribes to `update-downloaded` and `error`, calls `checkForUpdates()` and logs any rejection, including a failed load.
 - State: `{ status: 'idle' } | { status: 'ready', version }`. `update-downloaded` moves it to `ready` and emits it to the renderer. Nothing else changes visible state; checking, downloading and "no update available" are invisible.
 - `restart()`: when `ready`, calls `quitAndInstall(true, true)` (silent, relaunch). When not `ready`, throws a `ValidationError` naming the actual state; it never installs speculatively.
 - Errors: both a rejected `checkForUpdates()` and the updater's `error` event are written with `electron/log.ts` (`warn`, tag `updater`) and nothing else. Never a modal, never a notification, never thrown into the IPC envelope.
@@ -56,11 +56,14 @@ The check runs once, after the main window has been created, off the critical pa
 
 ### 3.2 Binding
 
-`electron/updater/loadUpdater.ts` loads `electron-updater` with a dynamic import and returns `autoUpdater`, tolerating both module shapes (default export or named). `electron-updater` is CommonJS and exposes `autoUpdater` through a lazy getter, so a static named import fails in an ESM main. A dynamic import also means it is never loaded in dev or under e2e.
+`electron/updater/loadUpdater.ts` loads `electron-updater` with a dynamic import and returns `autoUpdater`. `electron-updater` is CommonJS and exposes `autoUpdater` through a lazy getter that Node's named-export detection cannot see, so under the ESM main the named export is `undefined` and the instance lives on `default.autoUpdater`. This was checked by importing the package under the real Electron binary: `Object.keys(mod)` has no `autoUpdater`, `mod.autoUpdater` is `undefined`, `mod.default.autoUpdater` is an object with `checkForUpdates`. The loader reads exactly that and throws a descriptive error when it is absent. A dynamic import also means the package is never loaded in dev or under e2e.
 
 ### 3.3 Before-quit
 
-`electron/main.ts` runs a graceful shutdown in `before-quit` (it calls `preventDefault()`, shuts down, then `app.exit(0)`). `quitAndInstall` and the install-on-quit hook both pass through that path. The implementation must verify, on a signed build, that the install still happens (open question, section 8).
+`electron/main.ts` runs a graceful shutdown in `before-quit` (it calls `preventDefault()`, shuts down, then `app.exit(0)`). Both install paths survive that:
+
+- **Windows.** `electron-updater` installs on quit from `app.once('quit')` (`ElectronAppAdapter.onQuit`), running the installer silently without relaunch. A probe under the real Electron binary showed that `quit` still fires, with exit code 0, when a `before-quit` handler calls `preventDefault()` and then `app.exit(0)`. An explicit Restart calls `quitAndInstall(true, true)`, which spawns the installer and then calls `app.quit()`; the `quit` hook sees `quitAndInstallCalled` and does nothing, so the installer runs once.
+- **macOS.** `MacUpdater` does not use the `quit` event. With `autoInstallOnAppQuit` set it hands the downloaded zip to Squirrel.Mac as soon as the download finishes, and Squirrel applies it when the app process exits. Whether it still applies after `app.exit(0)` needs a signed build to confirm (section 8).
 
 ## 4. IPC (5-file contract)
 
@@ -95,7 +98,7 @@ Files: `shared/types.ts` (`UpdateState`), `shared/ipc.ts` (`IpcApi.updates`, `IP
 
 `src/features/updates/UpdateReadyPrompt.tsx` renders nothing itself. On mount it reads `api.updates.getState()` and subscribes with `api.updates.onState`. On `ready` it shows one Mantine notification through the existing `notify` wrapper: id `update-ready` (so a repeat replaces instead of stacking), `autoClose: false`, message "Version X is ready", action **Restart to update**. The action calls `api.updates.restart()`.
 
-Dismissing the notification (its close button) does nothing else: the update installs on the next quit (`autoInstallOnAppQuit`). It is mounted once in `src/App.tsx`, inside the providers, where the app's other launch-time layers sit.
+Dismissing the notification (its close button) does nothing else: the update installs on the next quit (`autoInstallOnAppQuit`; section 3.3). It is mounted once in `src/App.tsx`, inside the providers, where the app's other launch-time layers sit.
 
 A failed `restart()` is the only user-visible error: a `notify.error` stating the update could not be applied now and will be applied on quit. It is not a modal.
 
@@ -109,9 +112,9 @@ Accessibility: the action is a native button inside the notification; no click h
 
 ## 8. Open questions (settle by running a signed build)
 
-- Does install-on-quit still happen on macOS and Windows when `before-quit` is re-driven through `app.exit(0)`? If not, dismissing the prompt only defers to the next explicit Restart, and the prompt text must say so.
-- Does `import('electron-updater')` yield `autoUpdater` under the built ESM main as `default.autoUpdater`, `autoUpdater`, or both? The loader tolerates both; confirm in the packaged app's log.
+- Does Squirrel.Mac still apply the staged update on macOS when the process leaves through `app.exit(0)` after the `before-quit` shutdown? (Windows is settled by the probe in section 3.3.) If not, dismissing the prompt only defers to the next explicit Restart, and the prompt text must say so.
 - Does `build/installer.nsh` (the running-app check override) interfere with the silent updater run on Windows?
+- Do the published `latest-mac.yml` and `latest.yml` urls resolve on the real release (`curl -I`)? A local unsigned build already shows every url and path in `latest-mac.yml` naming a file that exists, with `arm64` in the name; only the Windows file name could not be built off a Windows host.
 
 ## Acceptance criteria
 
@@ -129,7 +132,7 @@ Accessibility: the action is a native button inside the notification; no click h
 ## Test cases
 
 Unit (`tests/unit/update-service.spec.ts`, fake `UpdaterLike`, no network):
-- `shouldCheckForUpdates`: packaged and no override → true; not packaged → false; override set → false; both → false.
+- `shouldCheckForUpdates`: darwin or win32, packaged and no override → true; linux → false; not packaged → false; override set → false.
 - `start()` disabled: the updater is never touched.
 - `start()` enabled: `autoDownload` and `autoInstallOnAppQuit` are true; `checkForUpdates` called once.
 - `update-downloaded` → state `ready` with the version; the emitter is called with it.

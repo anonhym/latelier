@@ -15,6 +15,7 @@ import { GlobalCommands } from './commands/GlobalCommands';
 import { ConnectionPaletteCommands } from './commands/ConnectionPaletteCommands';
 import { TroubleshootingProvider } from './troubleshooting/TroubleshootingProvider';
 import { TroubleshootingPaletteCommand } from './troubleshooting/TroubleshootingPaletteCommand';
+import { UpdateReadyPrompt } from './features/updates/UpdateReadyPrompt';
 import { Splash } from './components/Splash';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './ThemeContext';
@@ -53,6 +54,7 @@ export default function App() {
                 <CommandPaletteRoot>
                   <TroubleshootingProvider>
                     <GlobalCommands />
+                    <UpdateReadyPrompt />
                     <ConnectionPaletteCommands />
                     <TroubleshootingPaletteCommand />
                     <ErrorBoundary>

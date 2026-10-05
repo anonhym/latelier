@@ -1196,3 +1196,9 @@ export interface ShellOutputEvent {
   /** Present only when kind === 'exit' and the process was signalled. */
   signal?: string | null;
 }
+
+/**
+ * What the renderer may know about auto-update. Checking, downloading and "no
+ * update" are deliberately invisible: only a finished download is a state.
+ */
+export type UpdateState = { status: 'idle' } | { status: 'ready'; version: string };
