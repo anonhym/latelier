@@ -1,4 +1,4 @@
-appId: dev.mongolab.app
+appId: io.github.anonhym.latelier
 productName: L'Atelier
 asar: true
 asarUnpack:
