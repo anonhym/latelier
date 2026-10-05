@@ -218,6 +218,19 @@ recipes above.
   open and degrade the affected views, but the underlying error class
   may still appear in logs.
 
+### Data from an old MongoLab install
+
+Installs of v0.4.0 or older ran as "MongoLab" and kept their data in a
+folder of that name. L'Atelier uses a different folder and does not move
+the old one. To bring the data across, quit the app, then move the
+contents of the old folder into the L'Atelier folder:
+
+| Platform | Old folder | L'Atelier folder |
+|---|---|---|
+| macOS | `~/Library/Application Support/MongoLab` | `~/Library/Application Support/L'Atelier` |
+| Windows | `%APPDATA%\MongoLab` | `%APPDATA%\L'Atelier` |
+| Linux | `~/.config/MongoLab` | `~/.config/L'Atelier` |
+
 If none of the above match, open
 [a GitHub issue](https://github.com/anonhym/latelier/issues) with the
 exact error message, your connection form (with credentials redacted),
