@@ -29,8 +29,20 @@ electronFuses:
   # replaces it; without one (a contributor's local unsigned build) it keeps
   # the app launchable on Apple Silicon.
   resetAdHocDarwinSignature: true
+# `--publish never` still writes app-update.yml and the latest*.yml feed; the
+# explicit block keeps both independent of repository auto-detection.
+publish:
+  provider: github
+  owner: anonhym
+  repo: latelier
 mac:
-  target: dmg
+  # The zip is what Squirrel.Mac installs from; the dmg stays the human download.
+  target: [dmg, zip]
+  # GitHub rewrites the apostrophe in "L'Atelier" on upload, and the feed would
+  # name a different "safe" file, so every update download would 404. A
+  # GitHub-safe pattern makes the uploaded name and the feed url identical. The
+  # arch must be in the name: the updater picks arm64 vs x64 by that substring.
+  artifactName: L-Atelier-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
   icon: build/icon.icns
 linux:
@@ -58,6 +70,7 @@ nsis:
   # is a bundle identifier and names no directory. So this is the safe
   # default, and the directory does not move when `appId` eventually does.
   deleteAppDataOnUninstall: false
-  artifactName: ${productName}-${version}-setup.${ext}
+  # GitHub-safe for the same reason as mac.artifactName.
+  artifactName: L-Atelier-${version}-setup.${ext}
   # Override the running-app check (see build/installer.nsh for why).
   include: build/installer.nsh

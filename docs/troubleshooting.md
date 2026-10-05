@@ -190,6 +190,30 @@ A user with `read` on `appA` cannot read `appB`. Some operations
 
 ---
 
+## keychain-blocked
+
+**You see:** `errorCode: KEYCHAIN_BLOCKED`. macOS asked whether
+L'Atelier may read its saved passwords and the answer was Deny.
+
+### Fix
+
+Quit L'Atelier completely, reopen it and connect again. When macOS
+asks for keychain access, click **Always Allow**. The refusal lasts
+until the app is relaunched, so retrying without a relaunch fails.
+
+---
+
+## secret-unreadable
+
+**You see:** `errorCode: SECRET_UNREADABLE`. The saved password was
+encrypted by another install or a keychain that has since been reset.
+
+### Fix
+
+Open the connection's edit form, type the password again and save.
+
+---
+
 ## unknown
 
 **You see:** Something else entirely. The drawer's "Connection failed"

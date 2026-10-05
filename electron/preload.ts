@@ -66,6 +66,16 @@ const api: IpcApi = {
     },
   },
 
+  updates: {
+    getState: () => call(IPC_CHANNELS.updatesGetState, {}),
+    restart: () => call(IPC_CHANNELS.updatesRestart, {}),
+    onState: (cb) => {
+      const listener = (_evt: unknown, state: unknown) => cb(state as Parameters<typeof cb>[0]);
+      ipcRenderer.on(IPC_CHANNELS.updatesStateEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.updatesStateEvent, listener);
+    },
+  },
+
   shell: {
     openExternal: (input) => call(IPC_CHANNELS.shellOpenExternal, input),
   },
@@ -255,9 +265,14 @@ contextBridge.exposeInMainWorld('atelier', api);
 // `process.env.NODE_ENV` — the previous member-access form was being
 // folded to a literal `false` at build time, which silently disabled the
 // test-mode suppression in every packaged preload.
-const __envProcess = process as { env: Record<string, string | undefined> };
+const __envProcess = process as {
+  env: Record<string, string | undefined>;
+  platform: string;
+};
 contextBridge.exposeInMainWorld('__atelierEnv__', {
   isTest:
     __envProcess.env['NODE_ENV'] === 'test' &&
     !!__envProcess.env['ATELIER_USER_DATA_DIR'],
+  // Sandboxed preloads still get `process.platform` (probed on Electron).
+  platform: __envProcess.platform,
 });

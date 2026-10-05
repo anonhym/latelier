@@ -24,6 +24,7 @@ jobs:
               release/*.dmg
               release/*.dmg.blockmap
               release/*.zip
+              release/*.zip.blockmap
               release/latest-mac.yml
             build_script: electron-builder --mac --x64 --arm64
           - os: windows-latest

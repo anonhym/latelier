@@ -23,6 +23,7 @@ import type {
   UriCommitInput,
   UriPreview,
   ImportPreview,
+  UpdateState,
   ConnectionRuntime,
   ConnectionSummary,
   ConnectionUpdate,
@@ -194,6 +195,15 @@ export interface IpcApi {
     diagnosticBundle: () => Promise<{ path: string | null }>;
     /** Native File-menu commands pushed from main; returns the unsubscribe. */
     onMenuCommand: (cb: (command: MenuCommand) => void) => () => void;
+  };
+
+  /** Auto-update: one state, one action. See specs/X20-auto-update.md. */
+  updates: {
+    getState: () => Promise<UpdateState>;
+    /** Quits, installs the downloaded update and relaunches. Rejects unless `ready`. */
+    restart: () => Promise<{ restarting: true }>;
+    /** Main pushes the state when a download finishes; returns the unsubscribe. */
+    onState: (cb: (state: UpdateState) => void) => () => void;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -458,6 +468,11 @@ export const IPC_CHANNELS = {
   appOpenExternal: 'app:openExternal',
   appSaveFile:     'app:saveFile',
   appDiagnosticBundle: 'app:diagnosticBundle',
+
+  // Auto-update -----------------------------------------
+  updatesGetState:   'updates:getState',
+  updatesRestart:    'updates:restart',
+  updatesStateEvent: 'updates:state-event',
 
   // Docs-restricted external opener -----------------------------------------
   shellOpenExternal: 'shell:openExternal',

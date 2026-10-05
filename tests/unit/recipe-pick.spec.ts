@@ -6,6 +6,11 @@ describe('pickRecipe', () => {
     expect(pickRecipe({ errorCode: 'AUTH' }).id).toBe('auth-default');
   });
 
+  it('matches the secret codes to their own recipes', () => {
+    expect(pickRecipe({ errorCode: 'KEYCHAIN_BLOCKED' }).id).toBe('keychain-blocked');
+    expect(pickRecipe({ errorCode: 'SECRET_UNREADABLE' }).id).toBe('secret-unreadable');
+  });
+
   it('matches TIMEOUT + ECONNRESET to docker-tls (legacy backstop)', () => {
     expect(
       pickRecipe({

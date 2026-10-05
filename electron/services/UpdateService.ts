@@ -1,0 +1,85 @@
+import { ValidationError } from '../errors.ts';
+import type { Logger } from '../log.ts';
+import type { UpdateState } from '@shared/types';
+
+/** The subset of electron-updater's `autoUpdater` this service touches. */
+export interface UpdaterLike {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  on(event: 'update-downloaded', listener: (info: { version: string }) => void): unknown;
+  on(event: 'error', listener: (err: Error) => void): unknown;
+  checkForUpdates(): Promise<unknown>;
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
+}
+
+/**
+ * Updates run only in a packaged macOS or Windows build that is not pointed at
+ * a throwaway data folder: never under `electron:dev`, never under the e2e
+ * harness, and never on Linux (no feed is published for it).
+ */
+export function shouldCheckForUpdates(env: {
+  isPackaged: boolean;
+  userDataOverride: string | undefined;
+  platform: NodeJS.Platform;
+}): boolean {
+  const supported = env.platform === 'darwin' || env.platform === 'win32';
+  return supported && env.isPackaged && !env.userDataOverride;
+}
+
+/**
+ * Owns the one piece of update state the renderer sees. Every failure is a log
+ * line, never a thrown error and never UI.
+ */
+export class UpdateService {
+  private state: UpdateState = { status: 'idle' };
+  private updater: UpdaterLike | null = null;
+
+  private readonly loadUpdater: () => Promise<UpdaterLike>;
+  private readonly log: Logger;
+  private readonly emit: (state: UpdateState) => void;
+  private readonly enabled: boolean;
+
+  constructor(
+    loadUpdater: () => Promise<UpdaterLike>,
+    log: Logger,
+    emit: (state: UpdateState) => void,
+    enabled: boolean,
+  ) {
+    this.loadUpdater = loadUpdater;
+    this.log = log;
+    this.emit = emit;
+    this.enabled = enabled;
+  }
+
+  /** Resolves once the check has settled; never rejects. */
+  async start(): Promise<void> {
+    if (!this.enabled) return;
+    try {
+      const updater = await this.loadUpdater();
+      this.updater = updater;
+      updater.autoDownload = true;
+      updater.autoInstallOnAppQuit = true;
+      updater.on('update-downloaded', (info) => {
+        this.state = { status: 'ready', version: info.version };
+        this.emit(this.state);
+      });
+      updater.on('error', (err) => {
+        this.log.warn('updater', 'updater error', { err: String(err) });
+      });
+      await updater.checkForUpdates();
+    } catch (err) {
+      this.log.warn('updater', 'update check failed', { err: String(err) });
+    }
+  }
+
+  getState(): UpdateState {
+    return this.state;
+  }
+
+  restart(): void {
+    if (this.state.status !== 'ready') {
+      throw new ValidationError(`No update is ready to install (state: ${this.state.status})`);
+    }
+    this.updater?.quitAndInstall(true, true);
+  }
+}
