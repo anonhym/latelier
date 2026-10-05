@@ -91,8 +91,8 @@ const stubSvc = <T,>(): T => new Proxy({}, { get: () => vi.fn(async () => ({})) 
 // mshell.ts:59. This is NOT the hardcoded channel list the issue forbids:
 // the coverage assertion below still walks `Object.entries(IPC_CHANNELS)`
 // live, so a newly added invoke channel is covered automatically (proved by
-// mutation #2 in the PR description) — only these three known one-way event
-// names are carved out.
+// mutation #2 in the PR description) — only the known one-way event
+// names listed here are carved out.
 const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.mongoStatusEvent,
   IPC_CHANNELS.prefsThemeEvent,
