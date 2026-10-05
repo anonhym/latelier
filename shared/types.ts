@@ -204,6 +204,11 @@ export type ProbeErrorCode =
   | 'UNAUTHORIZED'
   /** The saved password exists but can't be decrypted on this install. */
   | 'SECRET_UNREADABLE'
+  /**
+   * macOS refused this app access to its keychain item (the user clicked
+   * Deny); safeStorage stays unavailable until the app is restarted.
+   */
+  | 'KEYCHAIN_BLOCKED'
   | 'UNKNOWN';
 
 export interface ProbeResult {

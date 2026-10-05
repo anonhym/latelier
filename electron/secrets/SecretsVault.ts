@@ -110,7 +110,11 @@ export class SecretsVault {
       throw new SystemError(
         'SECRET_DECRYPT_FAILED',
         'Stored secret could not be decrypted. You may need to re-enter it.',
-        { cause: err instanceof Error ? err.message : String(err) },
+        {
+          cause: err instanceof Error ? err.message : String(err),
+          // Lets the classifier tell a denied macOS keychain from a foreign key.
+          encryptionAvailable: this.safeStorage.isEncryptionAvailable(),
+        },
       );
     }
   }
