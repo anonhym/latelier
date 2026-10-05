@@ -114,8 +114,10 @@ export function SuggestionPopover({
   // exactly while the list is on screen. (A Mantine Popover's capture-phase
   // Escape ignores the attribute; a popover hosting one of these inputs has
   // to close on bubble-phase Escape and honour `defaultPrevented` instead —
-  // see `FieldsControl`.)
-  React.useEffect(() => {
+  // see `FieldsControl`.) A layout effect, not a passive one: the attribute
+  // must land in the same commit as the list, or an Escape pressed before the
+  // passive flush reaches the Modal and discards the draft.
+  React.useLayoutEffect(() => {
     const el = (keyboardRef ?? anchorRef).current;
     if (!el || !shown) return;
     el.setAttribute('data-mantine-stop-propagation', 'true');
