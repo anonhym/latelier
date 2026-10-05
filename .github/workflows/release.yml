@@ -115,8 +115,12 @@ jobs:
           # Prepend to the user search list, keeping the existing keychains.
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm -f "$RUNNER_TEMP/cert.p12"
-          security find-identity -v -p codesigning "$KEYCHAIN" | grep -q "Developer ID Application" || { echo "::error::No Developer ID Application identity in the imported certificate"; exit 1; }
-          security find-identity -v -p codesigning "$KEYCHAIN"
+          identities="$(security find-identity -v -p codesigning "$KEYCHAIN")"
+          echo "$identities"
+          if ! grep -q "Developer ID Application" <<<"$identities"; then
+            echo "::error::No Developer ID Application identity in the imported certificate"
+            exit 1
+          fi
 
       # No CSC_LINK and no CSC_IDENTITY_AUTO_DISCOVERY here: electron-builder
       # finds the Developer ID identity imported above, signs and notarizes
