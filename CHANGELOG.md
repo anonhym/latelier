@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-10-06
+
+A maintenance release with no user-facing changes. It is the first version
+0.17.0 can update to on its own, so it exercises the automatic update path
+on macOS and Windows end to end.
+
 ## [0.17.0] — 2026-10-05
 
 This is the first release signed and notarized by Apple, with the new app
