@@ -550,9 +550,11 @@ app.whenReady().then(() => {
     dialog.showErrorBox(
       "L'Atelier failed to start",
       // Deleting the DB does not fix a permissions problem on a healthy one.
+      // The side files are named too: a `-wal` left behind on its own is
+      // replayed onto the fresh, empty database created in its place.
       err instanceof PrivateModeError
         ? `Could not open the database.\n\n${message}`
-        : `Could not open the database.\n\n${message}\n\nYou may need to delete:\n${userDataDir}/${dbFilename}`,
+        : `Could not open the database.\n\n${message}\n\nYou may need to delete these files, together:\n${['', '-wal', '-shm'].map((s) => `${userDataDir}/${dbFilename}${s}`).join('\n')}`,
     );
     app.exit(1);
     return;
