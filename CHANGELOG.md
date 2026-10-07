@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The local database file is now `latelier.db`,** renamed from `mongolab.db`
+  the first time you start this version. Your connections and settings carry
+  over. Log files and the diagnostic file use the L'Atelier name too
+  (`latelier.<date>.log`, `latelier-diagnostic-<time>.json`); older logs keep
+  their name and age out as usual. Going back to 0.17.1 or older needs one
+  manual step, described in the troubleshooting guide.
+
 ## [0.17.1] — 2026-10-06
 
 A maintenance release with no user-facing changes. It is the first version

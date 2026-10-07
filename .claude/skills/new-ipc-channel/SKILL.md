@@ -56,7 +56,7 @@ Read `electron/ipc/handlers/saved.ts` — it shows the full pattern (Zod schemas
 - **Zod schemas** use `z.string().min(1)` for non-empty, `z.number().int().min(0)` for counts, `z.enum([...])` for unions. Look at `FindInputSchema` in `electron/ipc/handlers/query.ts` for the canonical style.
 - **Envelope handling is automatic** — the router wraps success/error. Your service method just returns the raw value or throws an `AppError`.
 - **Never leak a raw `Error`** across the boundary. Classify Mongo errors via `classifyQueryError` or `classifyDocError` patterns in their respective services.
-- **Renderer never imports `electron/*`** — the IPC call from the UI goes through `src/api/mongolab.ts` (`api.<domain>.<verb>(input)`), which is auto-typed from `IpcApi`.
+- **Renderer never imports `electron/*`** — the IPC call from the UI goes through `src/api/atelier.ts` (`api.<domain>.<verb>(input)`), which is auto-typed from `IpcApi`.
 
 ## Output
 

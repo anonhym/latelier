@@ -255,9 +255,29 @@ contents of the old folder into the L'Atelier folder:
 | Windows | `%APPDATA%\MongoLab` | `%APPDATA%\L'Atelier` |
 | Linux | `~/.config/MongoLab` | `~/.config/L'Atelier` |
 
+The old folder holds a database named `mongolab.db`. If the L'Atelier
+folder already contains `latelier.db`, L'Atelier keeps using it and
+ignores a `mongolab.db` moved in next to it. To bring the old data in
+instead, first move `latelier.db`, `latelier.db-wal` and `latelier.db-shm`
+out of the L'Atelier folder (keep them as a backup). A `mongolab.db` left
+next to `latelier.db` is never read or cleaned up by the app, so delete it
+(with its `-wal` and `-shm`) once you no longer need it; it can still hold
+old connection details.
+
 If none of the above match, open
 [a GitHub issue](https://github.com/anonhym/latelier/issues) with the
 exact error message, your connection form (with credentials redacted),
-and the contents of the most recent log file in
-`~/Library/Logs/mongolab/` (macOS) or
-`%APPDATA%/mongolab/logs/` (Windows).
+and the contents of the most recent `latelier.<date>.log` in the `logs`
+folder inside the L'Atelier folder listed in the table above (logs from
+before the rename are named `mongolab.<date>.log`).
+
+### Going back to an older version
+
+Versions up to 0.17.1 keep their data in `mongolab.db`. Later versions
+rename it to `latelier.db` the first time they start. An older version
+started afterwards finds no `mongolab.db` and starts empty; nothing is
+lost. To go back with your data, quit the app, delete the `mongolab.db`
+(and `mongolab.db-wal` / `mongolab.db-shm`) the older version created,
+then rename `latelier.db` to `mongolab.db`, and `latelier.db-wal` /
+`latelier.db-shm` to `mongolab.db-wal` / `mongolab.db-shm` if they are there
+(after an unclean quit, rows still sit in the `-wal`).
