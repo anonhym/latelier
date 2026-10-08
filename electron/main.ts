@@ -549,12 +549,15 @@ app.whenReady().then(() => {
     log.error('boot', 'db open failed', { message });
     dialog.showErrorBox(
       "L'Atelier failed to start",
-      // Deleting the DB does not fix a permissions problem on a healthy one.
-      // The side files are named too: a `-wal` left behind on its own is
-      // replayed onto the fresh, empty database created in its place.
+      // Moving the DB aside does not fix a permissions problem on a healthy one.
+      // Move, not delete: this path also catches errors on a healthy database
+      // (a migration that rolled back, a lock held past busy_timeout), which a
+      // later start or release can open again. The side files are named too: a
+      // `-wal` left behind on its own is replayed onto the fresh, empty database
+      // created in its place.
       err instanceof PrivateModeError
         ? `Could not open the database.\n\n${message}`
-        : `Could not open the database.\n\n${message}\n\nYou may need to delete these files, together:\n${['', '-wal', '-shm'].map((s) => `${userDataDir}/${dbFilename}${s}`).join('\n')}`,
+        : `Could not open the database.\n\n${message}\n\nIf this keeps happening, quit L'Atelier and move these files together to a safe place, then start it again with a new, empty database. Keep the moved files: they hold your connections.\n${['', '-wal', '-shm'].map((s) => `${userDataDir}/${dbFilename}${s}`).join('\n')}`,
     );
     app.exit(1);
     return;
