@@ -122,7 +122,7 @@ this directory; rely on OS disk encryption (FileVault, BitLocker, LUKS).
 
 | What | Where | Retention |
 | --- | --- | --- |
-| Connection settings (host, port, auth mechanism and username, TLS options and file paths, read-only flag). Secrets are in their own table, see above. | `connections` in `mongolab.db` ([001-init.sql](electron/db/migrations/001-init.sql)) | Until the connection is deleted; its secrets, saved and recent queries, audit rows and tabs go with it (`ON DELETE CASCADE`) |
+| Connection settings (host, port, auth mechanism and username, TLS options and file paths, read-only flag). Secrets are in their own table, see above. | `connections` in `latelier.db` ([001-init.sql](electron/db/migrations/001-init.sql)) | Until the connection is deleted; its secrets, saved and recent queries, audit rows and tabs go with it (`ON DELETE CASCADE`) |
 | Saved queries and scripts | `saved_queries` | Until the user deletes them; no expiry |
 | Recent queries (filter or pipeline text, duration, result count; no result documents) | `recent_queries` ([RecentQueryRepo.ts](electron/db/repositories/RecentQueryRepo.ts)) | Newest 200 per connection ([RecentQueryService.ts](electron/services/RecentQueryService.ts)) and 30 days ([MaintenanceService.ts](electron/services/MaintenanceService.ts)) |
 | Recent filter values (values typed into the query builder for suggestions; never recorded for secret-named fields) | `recent_field_values` ([013-recent-field-values.sql](electron/db/migrations/013-recent-field-values.sql), [RecentFieldValueService.ts](electron/services/RecentFieldValueService.ts)) | Newest 50 per field and 30 days; "clear all" is available |
@@ -148,7 +148,7 @@ this directory; rely on OS disk encryption (FileVault, BitLocker, LUKS).
   `VACUUM` follows any startup that applied a migration
   ([electron/db/sqlite.ts](electron/db/sqlite.ts)). A blocked checkpoint is
   logged as a warning rather than failing startup.
-- **Logs** are JSON lines in `userData/logs/mongolab.<date>.log`, pruned after 7
+- **Logs** are JSON lines in `userData/logs/latelier.<date>.log`, pruned after 7
   days ([electron/log.ts](electron/log.ts)). A packaged build logs at `info`:
   per request it records the channel, duration, connection, database and
   collection, and the filter, sort, projection and pipeline stages
@@ -196,7 +196,7 @@ this directory; rely on OS disk encryption (FileVault, BitLocker, LUKS).
   user. The script pane runs code in a Node `vm` context without `require`, but
   `vm` is not a security boundary, so treat a script as able to read and write
   that user's files, start processes and use the network. That includes the
-  app's own data directory: it can read `mongolab.db` (connection hosts, saved
+  app's own data directory: it can read `latelier.db` (connection hosts, saved
   queries, recent values, audit filters, and any password stored under the
   plaintext fallback), and encrypted secrets are only as safe as the OS keychain
   is against other processes of the same user. The shell pane is a Node REPL and

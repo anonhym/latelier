@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createLogger } from '../../electron/log';
+import { createLogger, isLogFile } from '../../electron/log';
 import { useUmask022 } from '../helpers/umask';
 
 describe('createLogger', () => {
@@ -47,10 +47,11 @@ describe('createLogger', () => {
     expect(levels).toEqual(['warn', 'error']);
   });
 
-  it('prunes log files older than retentionDays on startup', () => {
+  // `mongolab.` is the prefix before the rename; those logs must still age out.
+  it.each(['latelier', 'mongolab'])('prunes %s.* log files older than retentionDays on startup', (prefix) => {
     const logsDir = path.join(dir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
-    const old = path.join(logsDir, 'mongolab.2000-01-01.log');
+    const old = path.join(logsDir, `${prefix}.2000-01-01.log`);
     fs.writeFileSync(old, 'stale\n');
     const tenDaysAgo = Date.now() - 10 * 24 * 60 * 60 * 1000;
     fs.utimesSync(old, tenDaysAgo / 1000, tenDaysAgo / 1000);
@@ -135,7 +136,7 @@ describe('createLogger', () => {
     const log = createLogger(dir, { toStderr: false, level: 'debug' });
     log.info('t', 'msg');
     const logsDir = path.join(dir, 'logs');
-    expect(fs.readdirSync(logsDir)).toEqual(['mongolab.2026-03-05.log']);
+    expect(fs.readdirSync(logsDir)).toEqual(['latelier.2026-03-05.log']);
   });
 
   it('omits the data field entirely when no data is passed', () => {
@@ -245,23 +246,43 @@ describe('createLogger', () => {
       expect(fs.existsSync(onCutoff)).toBe(true);
     });
 
-    it('skips files that do not match the mongolab.*.log name pattern, however old', () => {
+    it('skips files that do not match a <prefix>.*.log name pattern, however old', () => {
       const logsDir = path.join(dir, 'logs');
       fs.mkdirSync(logsDir, { recursive: true });
       const wrongPrefix = path.join(logsDir, 'other.log');
       const wrongExt = path.join(logsDir, 'mongolab.2000-01-01.txt');
+      const wrongExtCurrent = path.join(logsDir, 'latelier.2000-01-01.txt');
       fs.writeFileSync(wrongPrefix, 'x\n');
       fs.writeFileSync(wrongExt, 'x\n');
+      fs.writeFileSync(wrongExtCurrent, 'x\n');
       const ancient = Date.now() - 365 * 24 * 60 * 60 * 1000;
       fs.utimesSync(wrongPrefix, ancient / 1000, ancient / 1000);
       fs.utimesSync(wrongExt, ancient / 1000, ancient / 1000);
+      fs.utimesSync(wrongExtCurrent, ancient / 1000, ancient / 1000);
 
       createLogger(dir, { toStderr: false, retentionDays: 7 });
 
       expect(fs.existsSync(wrongPrefix)).toBe(true);
       expect(fs.existsSync(wrongExt)).toBe(true);
+      expect(fs.existsSync(wrongExtCurrent)).toBe(true);
     });
   });
+
+  describe('isLogFile', () => {
+    it.each([
+      ['latelier.2026-01-01.log', true],
+      ['mongolab.2026-01-01.log', true],
+      ['other.log', false],
+      ['latelier.2026-01-01.txt', false],
+      ['mongolab.2026-01-01.txt', false],
+      ['xlatelier.2026-01-01.log', false],
+      ['xmongolab.2026-01-01.log', false],
+      ['mongolab-2026-01-01.log', false],
+    ])('%s -> %s', (name, expected) => {
+      expect(isLogFile(name)).toBe(expected);
+    });
+  });
+
   describe.skipIf(process.platform === 'win32')('file modes', () => {
     let restoreUmask: () => void;
     const mode = (p: string): number => fs.statSync(p).mode & 0o777;
@@ -284,18 +305,21 @@ describe('createLogger', () => {
       expect(mode(path.join(logsDir, files[0]!))).toBe(0o600);
     });
 
-    it('tightens a pre-existing 0755 logs dir and 0644 log file at startup, before any write', () => {
+    it('tightens a pre-existing 0755 logs dir and 0644 log files of either prefix at startup, before any write', () => {
       const logsDir = path.join(dir, 'logs');
       fs.mkdirSync(logsDir, { mode: 0o755 });
-      const old = path.join(logsDir, 'mongolab.2999-01-01.log');
+      const legacy = path.join(logsDir, 'mongolab.2999-01-01.log');
+      const current = path.join(logsDir, 'latelier.2999-01-01.log');
       const other = path.join(logsDir, 'notes.txt');
-      fs.writeFileSync(old, 'x\n', { mode: 0o644 });
+      fs.writeFileSync(legacy, 'x\n', { mode: 0o644 });
+      fs.writeFileSync(current, 'x\n', { mode: 0o644 });
       fs.writeFileSync(other, 'x\n', { mode: 0o644 });
 
       createLogger(dir, { toStderr: false });
 
       expect(mode(logsDir)).toBe(0o700);
-      expect(mode(old)).toBe(0o600);
+      expect(mode(legacy)).toBe(0o600);
+      expect(mode(current)).toBe(0o600);
       expect(mode(other)).toBe(0o644);
     });
 

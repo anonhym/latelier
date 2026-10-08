@@ -316,8 +316,8 @@ The builder's `cond.value` is a plain string. The split between
   pre-seeded `recentDocs`, focus value input → popover opens; type
   partial value → filtering works; Enter splices `s.display`;
   `$exists` suppresses the popover.
-- **Mongolab mock**: add `meta.recentValuesForField` and
-  `recent.recordFieldValues` default stubs in `tests/helpers/mongolabMock.ts`
+- **Atelier mock**: add `meta.recentValuesForField` and
+  `recent.recordFieldValues` default stubs in `tests/helpers/atelierMock.ts`
   (per gotcha §4 above — forgetting this crashes other component tests).
 
 ### Estimated size
@@ -428,8 +428,8 @@ both have a canonical workaround already used in `useSuggestions.ts`.
    `useState` (as above). Don't rely on callers to memoize — they will
    forget.
 
-4. **The mongolab mock gate** — every new IPC channel needs a default
-   no-op stub in `tests/helpers/mongolabMock.ts`. Forgetting this
+4. **The atelier mock gate** — every new IPC channel needs a default
+   no-op stub in `tests/helpers/atelierMock.ts`. Forgetting this
    crashes component tests with "api.X.Y was not mocked" the first time
    the new channel is indirectly invoked.
 
