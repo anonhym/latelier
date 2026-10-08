@@ -389,7 +389,7 @@ project.
   `errorCode` is missing (older code path), the recipe registry returns
   the `unknown` recipe rather than swallowing the click.
 - **Recipe copy never includes log lines or stack traces.** The drawer
-  is for users; logs go to `userData/logs/mongolab.<date>.log` (F06).
+  is for users; logs go to `userData/logs/latelier.<date>.log` (F06).
 
 ## 7. Persistence
 

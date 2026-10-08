@@ -276,8 +276,13 @@ before the rename are named `mongolab.<date>.log`).
 Versions up to 0.17.1 keep their data in `mongolab.db`. Later versions
 rename it to `latelier.db` the first time they start. An older version
 started afterwards finds no `mongolab.db` and starts empty; nothing is
-lost. To go back with your data, quit the app, delete the `mongolab.db`
-(and `mongolab.db-wal` / `mongolab.db-shm`) the older version created,
-then rename `latelier.db` to `mongolab.db`, and `latelier.db-wal` /
+lost. To go back with your data, quit the app, move the `mongolab.db`
+(and `mongolab.db-wal` / `mongolab.db-shm`) the older version created out
+of the folder (keep them if you entered anything while on the older
+version), then rename `latelier.db` to `mongolab.db`, and `latelier.db-wal` /
 `latelier.db-shm` to `mongolab.db-wal` / `mongolab.db-shm` if they are there
 (after an unclean quit, rows still sit in the `-wal`).
+
+If you start a newer version again without these steps, it keeps using
+`latelier.db`. Anything entered on the older version stays in
+`mongolab.db`, which the newer version does not read.
