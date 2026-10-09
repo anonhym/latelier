@@ -1,34 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { IpcMainInvokeEvent } from 'electron';
 import { createRouter } from '../../electron/ipc/router';
 import { registerUserChannels } from '../../electron/ipc/handlers/users';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { NotFoundError, SystemError } from '../../electron/errors';
 import type { UserService } from '../../electron/mongo/UserService';
-import type { Envelope } from '../../shared/ipc';
 import type { UserInfo, RoleInfo } from '@shared/types';
-import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
-
-type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
-
-// The router never reads the event (`_evt` in router.ts), so the shim stands
-// one in rather than constructing a real Electron event.
-
-function createShim() {
-  const handlers = new Map<string, Handler>();
-  return {
-    ipcMain: {
-      handle(channel: string, fn: Handler) {
-        handlers.set(channel, fn);
-      },
-    } as const,
-    async invoke<T>(channel: string, payload: unknown): Promise<Envelope<T>> {
-      const h = handlers.get(channel);
-      if (!h) throw new Error(`no handler for ${channel}`);
-      return (await h(invokeEvent, payload)) as Envelope<T>;
-    },
-  };
-}
+import { createIpcShim } from '../helpers/ipcShim';
+import { testSenderCheck } from '../helpers/ipcSender';
 
 function stubSvc(overrides: Partial<UserService> = {}): UserService {
   const base: Partial<UserService> = {
@@ -48,7 +26,7 @@ function stubSvc(overrides: Partial<UserService> = {}): UserService {
  * Zod + envelope so the contract glue is regression-pinned.
  */
 describe('user:* handlers via router', () => {
-  let shim: ReturnType<typeof createShim>;
+  let shim: ReturnType<typeof createIpcShim>;
 
   function setupWith(overrides: Partial<UserService> = {}) {
     const svc = stubSvc(overrides);
@@ -57,7 +35,7 @@ describe('user:* handlers via router', () => {
   }
 
   beforeEach(() => {
-    shim = createShim();
+    shim = createIpcShim();
   });
 
   it('user:list rejects an empty connectionId via Zod', async () => {
@@ -195,16 +173,19 @@ describe('user:* handlers via router', () => {
       },
     );
 
-    it('rejects an empty username with VALIDATION', async () => {
-      const spy = vi.fn<UserService['get']>(async () => ({}) as UserInfo);
-      setupWith({ get: spy });
+    it.each(['connectionId', 'dbName', 'username'] as const)(
+      'rejects an empty %s with VALIDATION and never calls the service',
+      async (field) => {
+        const spy = vi.fn<UserService['get']>(async () => ({}) as UserInfo);
+        setupWith({ get: spy });
 
-      const env = await shim.invoke(IPC_CHANNELS.userGet, { ...payload, username: '' });
+        const env = await shim.invoke(IPC_CHANNELS.userGet, { ...payload, [field]: '' });
 
-      expect(env.ok).toBe(false);
-      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
-      expect(spy).not.toHaveBeenCalled();
-    });
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
 
     it('maps the service NotFoundError to NOT_FOUND', async () => {
       setupWith({
@@ -245,6 +226,20 @@ describe('user:* handlers via router', () => {
         const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== field));
 
         const env = await shim.invoke(IPC_CHANNELS.roleList, rest);
+
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['connectionId', 'dbName'] as const)(
+      'rejects an empty %s with VALIDATION and never calls the service',
+      async (field) => {
+        const spy = vi.fn<UserService['listRoles']>(async () => [] as RoleInfo[]);
+        setupWith({ listRoles: spy });
+
+        const env = await shim.invoke(IPC_CHANNELS.roleList, { ...payload, [field]: '' });
 
         expect(env.ok).toBe(false);
         if (!env.ok) expect(env.error.code).toBe('VALIDATION');

@@ -4,36 +4,16 @@
 // that actually changed — was never parsed by anything. A dropped field there
 // silently widens a scoped clear into a connection-wide one, which on this
 // channel means deleting history nobody asked to lose.
+// recent:list and recent:get are covered the same way: their zod schemas run for real, the service is a spy.
 import { describe, it, expect, vi } from 'vitest';
-import type { IpcMainInvokeEvent } from 'electron';
 import { createRouter } from '../../electron/ipc/router';
 import { registerRecentChannels } from '../../electron/ipc/handlers/recent';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import type { Envelope } from '../../shared/ipc';
 import type { RecentQueryService } from '../../electron/services/RecentQueryService';
 import type { RecentFieldValueService } from '../../electron/services/RecentFieldValueService';
 import { NotFoundError } from '../../electron/errors';
-import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
-
-type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
-
-// The router never reads the event (`_evt` in router.ts).
-
-function createShim() {
-  const handlers = new Map<string, Handler>();
-  return {
-    ipcMain: {
-      handle(channel: string, fn: Handler) {
-        handlers.set(channel, fn);
-      },
-    } as const,
-    async invoke<T>(channel: string, payload?: unknown): Promise<Envelope<T>> {
-      const h = handlers.get(channel);
-      if (!h) throw new Error(`no handler for ${channel}`);
-      return (await h(invokeEvent, payload)) as Envelope<T>;
-    },
-  };
-}
+import { createIpcShim } from '../helpers/ipcShim';
+import { testSenderCheck } from '../helpers/ipcSender';
 
 function setup() {
   const list = vi.fn<(filter: unknown) => unknown[]>(() => [{ id: 'r1' }]);
@@ -42,7 +22,7 @@ function setup() {
   const listForField = vi.fn(() => []);
   const recordMany = vi.fn(() => ({ recorded: 1 }));
   const clearAll = vi.fn(() => ({ deleted: 1 }));
-  const shim = createShim();
+  const shim = createIpcShim();
   registerRecentChannels(
     createRouter(shim.ipcMain, testSenderCheck),
     { list, get, clear } as unknown as RecentQueryService,
@@ -51,7 +31,7 @@ function setup() {
   return { shim, list, get, clear, listForField, recordMany, clearAll };
 }
 
-describe('recent:list input validation', () => {
+describe('recent:list', () => {
   it('asks the service for an unfiltered list when called with no payload', async () => {
     const { shim, list } = setup();
 
@@ -99,7 +79,7 @@ describe('recent:list input validation', () => {
   });
 });
 
-describe('recent:get input validation', () => {
+describe('recent:get', () => {
   it('passes the id to the service and returns its row', async () => {
     const { shim, get } = setup();
 

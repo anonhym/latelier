@@ -1,6 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { SavedFindPayload, SavedQuery, SavedQuerySummary } from '@shared/types';
+import type {
+  SavedAggregationPayload,
+  SavedFindPayload,
+  SavedQuery,
+  SavedQuerySummary,
+} from '@shared/types';
 import { createRouter } from '../../electron/ipc/router';
 import { registerSavedChannels } from '../../electron/ipc/handlers/saved';
 import { SavedQueryRepo } from '../../electron/db/repositories/SavedQueryRepo';
@@ -14,8 +19,9 @@ import { testSenderCheck } from '../helpers/ipcSender';
  * temp SQLite file. The service spec skips the router and the registration
  * spec stubs the service, so neither proves that `saved.ts` maps every field
  * of the payload onto the service call or that a failure crosses as a typed
- * code. The unknown-connection NOT_FOUND of `saved:create` is pinned in
- * fk-not-found-handlers.spec.ts, not here.
+ * code. The NOT_FOUND that `saved:create` answers when the connection does
+ * not exist (the SQLite foreign-key failure turned into a typed error) comes
+ * with the connection-not-found fix (#431), so it is not pinned here.
  */
 const CONN_A = 'saved-conn-a';
 const CONN_B = 'saved-conn-b';
@@ -25,6 +31,16 @@ function findPayload(overrides: Partial<SavedFindPayload> = {}): SavedFindPayloa
     kind: 'find',
     builder: { projection: [], sort: '', limit: '' },
     queryRaw: '{}',
+    ...overrides,
+  };
+}
+
+function aggregationPayload(
+  overrides: Partial<SavedAggregationPayload> = {},
+): SavedAggregationPayload {
+  return {
+    kind: 'aggregation',
+    stages: [{ id: 1, op: '$match', body: '{"status":"open"}', enabled: true }],
     ...overrides,
   };
 }
@@ -62,6 +78,7 @@ describe('saved:* channels via router', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     tmp.cleanup();
   });
 
@@ -87,7 +104,8 @@ describe('saved:* channels via router', () => {
     it('filters by database and collection', async () => {
       await create({ name: 'orders-q' });
       await create({ name: 'users-q', collection: 'users' });
-      await create({ name: 'other-db-q', dbName: 'crm' });
+      // Same collection name in another database, so only dbName tells it from users-q.
+      await create({ name: 'other-db-q', dbName: 'crm', collection: 'users' });
       const env = await shim.invoke<SavedQuerySummary[]>(IPC_CHANNELS.savedList, {
         dbName: 'shop',
         collection: 'users',
@@ -132,34 +150,35 @@ describe('saved:* channels via router', () => {
   });
 
   describe('saved:create', () => {
-    it('stores every field of the payload, which saved:get reads back', async () => {
-      const payload = findPayload({ queryRaw: '{"status":"open"}', description: 'd' });
-      const created = await create({
-        kind: 'script',
-        dbName: 'shop',
-        collection: 'orders',
-        name: 'round trip',
-        payload,
-      });
-      const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
-      expect(env.ok).toBe(true);
-      if (!env.ok) return;
-      expect(env.data).toMatchObject({
-        id: created.id,
-        connectionId: CONN_A,
-        dbName: 'shop',
-        collection: 'orders',
-        kind: 'script',
-        name: 'round trip',
-        payload,
-      });
-    });
+    it.each([
+      ['find', findPayload({ queryRaw: '{"status":"open"}', description: 'd' })],
+      ['aggregation', aggregationPayload({ description: 'd' })],
+    ] as const)(
+      'stores every field of the %s payload, which saved:get reads back',
+      async (kind, payload) => {
+        const created = await create({ kind, name: 'round trip', payload });
+        const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
+        expect(env.ok).toBe(true);
+        if (!env.ok) return;
+        expect(env.data).toMatchObject({
+          id: created.id,
+          connectionId: CONN_A,
+          dbName: 'shop',
+          collection: 'orders',
+          kind,
+          name: 'round trip',
+        });
+        expect(env.data.payload).toEqual(payload);
+      },
+    );
 
     it.each([
       ['an empty name', { name: '' }],
       ['a kind outside the enum', { kind: 'view' }],
       ['a payload that is not an object', { payload: 'x' }],
+      ['an empty connectionId', { connectionId: '' }],
       ['an empty dbName', { dbName: '' }],
+      ['an empty collection', { collection: '' }],
       ['a missing collection', { collection: undefined }],
     ])('rejects %s with VALIDATION', async (_what, overrides) => {
       const env = await shim.invoke(IPC_CHANNELS.savedCreate, createInput(overrides));
@@ -177,9 +196,16 @@ describe('saved:* channels via router', () => {
     });
 
     it('accepts the same name in another collection', async () => {
-      await create();
-      const env = await shim.invoke(IPC_CHANNELS.savedCreate, createInput({ collection: 'users' }));
+      const first = await create();
+      const env = await shim.invoke<SavedQuery>(
+        IPC_CHANNELS.savedCreate,
+        createInput({ collection: 'users' }),
+      );
       expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.collection).toBe('users');
+      expect(env.data.name).toBe(first.name);
+      expect(env.data.id).not.toBe(first.id);
     });
   });
 
@@ -202,7 +228,70 @@ describe('saved:* channels via router', () => {
         kind: 'find',
       });
       const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
-      expect(read.ok && read.data.name).toBe('renamed');
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.data.name).toBe('renamed');
+      expect(read.data.payload).toEqual(payload);
+    });
+
+    it('replaces only the payload when the patch carries only a payload', async () => {
+      // AggregationTab's Save sends exactly this shape: it must not rename the pipeline.
+      const created = await create({
+        kind: 'aggregation',
+        name: 'pipeline',
+        payload: aggregationPayload(),
+      });
+      const payload = aggregationPayload({
+        stages: [{ id: 1, op: '$limit', body: '5', enabled: true }],
+      });
+      const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedUpdate, {
+        id: created.id,
+        patch: { payload },
+      });
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.name).toBe('pipeline');
+      expect(env.data.payload).toEqual(payload);
+      const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.data.name).toBe('pipeline');
+      expect(read.data.payload).toEqual(payload);
+    });
+
+    it('renames without touching the payload when the patch carries only a name', async () => {
+      const payload = findPayload({ queryRaw: '{"a":1}', description: 'keep me' });
+      const created = await create({ payload });
+      const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedUpdate, {
+        id: created.id,
+        patch: { name: 'renamed' },
+      });
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.name).toBe('renamed');
+      expect(env.data.payload).toEqual(payload);
+      const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
+      expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.data.name).toBe('renamed');
+      expect(read.data.payload).toEqual(payload);
+    });
+
+    it('accepts an empty patch, which today changes updated_at and nothing else', async () => {
+      // No renderer call sends this; it is pinned so tightening it becomes a deliberate change.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const created = await create();
+      vi.setSystemTime(new Date('2026-01-01T00:00:05.000Z'));
+      const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedUpdate, {
+        id: created.id,
+        patch: {},
+      });
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data).toEqual({ ...created, updatedAt: '2026-01-01T00:00:05.000Z' });
+      const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
+      expect(read).toEqual({ ok: true, data: env.data });
     });
 
     it('answers NOT_FOUND for an unknown id', async () => {
@@ -220,6 +309,21 @@ describe('saved:* channels via router', () => {
       const env = await shim.invoke(IPC_CHANNELS.savedUpdate, {
         id: created.id,
         patch: { name: '' },
+      });
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it.each([
+      ['an empty id', { id: '' }],
+      ['a payload that is not an object', { patch: { payload: 'x' } }],
+    ])('rejects %s with VALIDATION', async (_what, overrides) => {
+      const created = await create();
+      const env = await shim.invoke(IPC_CHANNELS.savedUpdate, {
+        id: created.id,
+        patch: { name: 'x' },
+        ...overrides,
       });
       expect(env.ok).toBe(false);
       if (env.ok) return;
@@ -256,6 +360,13 @@ describe('saved:* channels via router', () => {
       if (env.ok) return;
       expect(env.error.code).toBe('NOT_FOUND');
     });
+
+    it('rejects an empty id with VALIDATION', async () => {
+      const env = await shim.invoke(IPC_CHANNELS.savedDelete, { id: '' });
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('VALIDATION');
+    });
   });
 
   describe('saved:duplicate', () => {
@@ -278,6 +389,9 @@ describe('saved:* channels via router', () => {
       });
       const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: env.data.id });
       expect(read.ok).toBe(true);
+      if (!read.ok) return;
+      expect(read.data.name).toBe('open orders copy');
+      expect(read.data.payload).toEqual(created.payload);
     });
 
     it('answers NOT_FOUND for an unknown id', async () => {
