@@ -67,7 +67,7 @@ describe('topologyFromHello', () => {
     ],
     ['mongos', { isWritablePrimary: true, msg: 'isdbgrid', maxWireVersion: 21, ok: 1 }, 'Sharded'],
     [
-      'load-balanced connection (mongos behind the balancer, carries a serviceId)',
+      'load-balanced connection (assumed to reach a mongos; hand-built reply with a serviceId)',
       { isWritablePrimary: true, msg: 'isdbgrid', serviceId: '66f000000000000000000001', ok: 1 } as HelloResponse,
       'Sharded',
     ],
