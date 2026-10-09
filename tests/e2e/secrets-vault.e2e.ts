@@ -161,8 +161,9 @@ test('secret round-trips through safeStorage across a quit + relaunch', async ()
 
     // --- at rest: the stored row is ciphertext, not the password. ---------
     // The app is closed, so the file is quiescent. `latelier.db` is
-    // `DB_FILENAME` in `electron/db/sqlite.ts`; Playwright's loader must not
-    // import electron code, so the name is repeated here.
+    // `DB_FILENAME` in `electron/db/sqlite.ts`; e2e specs spell it out (see
+    // create-conn.e2e.ts), so a rename fails here with "unable to open
+    // database file".
     const db = new Database(path.join(userDataDir, 'latelier.db'), { readonly: true });
     try {
       const row = db

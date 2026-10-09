@@ -22,6 +22,15 @@ const MAIN_JS = path.resolve(here, '../..', 'dist-electron/main.js');
 const MEMORY_SERVERS: MongoMemoryServer[] = [];
 
 /**
+ * Playwright's own reading of `CI`: unset, empty, `0` and `false` all mean
+ * "not CI", so a developer exporting `CI=0` is not treated as a runner.
+ */
+function isCi(): boolean {
+  const ci = process.env.CI?.toLowerCase();
+  return ci !== undefined && ci !== '' && ci !== '0' && ci !== 'false';
+}
+
+/**
  * A vault spec that finds no usable keychain skips on a developer machine,
  * where Linux without a keyring is an ordinary setup. On CI a skip is a hole:
  * the runner is built to provide a session keyring, so "unavailable" means
@@ -29,7 +38,7 @@ const MEMORY_SERVERS: MongoMemoryServer[] = [];
  * Call this just before `test.skip` so CI turns the skip into a failure.
  */
 export function failOnCiWhenKeychainMissing(backend: string | null): void {
-  if (process.env.CI) {
+  if (isCi()) {
     throw new Error(
       `SECRETS_UNAVAILABLE on CI (storage backend: ${backend}): the runner needs a session keyring (see the "Run E2E" step in .github/workflows/ci.yml)`,
     );
@@ -59,15 +68,25 @@ export function selectedStorageBackend(app: ElectronApplication): Promise<string
  * the loader also installs the throttling and ready-gating the rest of the
  * suite is tuned against.
  *
- * macOS keeps the mock keychain the loader would have set, so a run never
- * touches the developer's login Keychain.
+ * A test run must touch nothing outside its throwaway directory
+ * (`electron/main.ts` redirects `userData` for that), and a real session
+ * keyring is outside it: it can stop to ask for an unlock, which stalls the
+ * spec until it times out, and the app's name matches the installed app's, so
+ * it could share that app's safeStorage key. So the real keyring is used only
+ * where it is the point and the machine is disposable: on CI, or on Linux when
+ * `ATELIER_E2E_REAL_KEYRING=1` opts in. Any other Linux run gets
+ * `--password-store=basic`, which now takes effect and sends the specs back to
+ * their local skip. macOS always gets the mock keychain the loader would have
+ * set, so a run never touches the login Keychain.
  */
 export function nativeCredentialStoreLaunch(): { executablePath: string; args: string[] } {
   const electronBinary = createRequire(import.meta.url)('electron') as string;
-  return {
-    executablePath: electronBinary,
-    args: [MAIN_JS, ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : [])],
-  };
+  const storeArgs: string[] = [];
+  if (process.platform === 'darwin') storeArgs.push('--use-mock-keychain');
+  if (process.platform === 'linux' && !isCi() && process.env.ATELIER_E2E_REAL_KEYRING !== '1') {
+    storeArgs.push('--password-store=basic');
+  }
+  return { executablePath: electronBinary, args: [MAIN_JS, ...storeArgs] };
 }
 
 export function freshUserData(): string {
