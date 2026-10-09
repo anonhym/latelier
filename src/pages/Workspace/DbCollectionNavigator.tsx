@@ -1291,6 +1291,7 @@ export function DbCollectionNavigator({
           returnFocusTo={menuTrigger}
           onClose={closeImport}
           onImported={handleImported}
+          onPartialImport={handleImported}
         />
       )}
 

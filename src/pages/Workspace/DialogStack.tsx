@@ -21,7 +21,7 @@ import { UpdateConfirm } from './UpdateConfirm';
 import { resolveDeleteDialog } from './deleteMode';
 import { currentFilterJson } from './builder';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
-import type { useDocumentDialogs } from './useDocumentDialogs';
+import { targetOf, type useDocumentDialogs } from './useDocumentDialogs';
 import type { useConnectionDialogs } from './useConnectionDialogs';
 
 interface NewTabPickerProps {
@@ -383,6 +383,10 @@ export function DialogStack({
         // live from the Focused Tab, which can change out from under an open
         // dialog (builder edit, tab restore) — never fall through to `{}`.
         if (filterJson === null) return null;
+        // The write's own collection: the dialog's props and this target come
+        // from the same tab, and the callback keeps it if focus moves before
+        // the request lands.
+        const target = targetOf(activeCollection);
         return (
           <UpdateConfirm
             connectionId={activeCollection.connectionId}
@@ -391,7 +395,7 @@ export function DialogStack({
             readOnly={focusedConnectionReadOnly}
             filter={filterJson}
             onClose={closeUpdateAllModal}
-            onUpdated={handleUpdatedAll}
+            onUpdated={(auditId, message) => handleUpdatedAll(auditId, message, target)}
           />
         );
       })()}
@@ -404,6 +408,8 @@ export function DialogStack({
           deleteAllFilterJson: deleteAllOpen ? currentFilterJson(activeCollection.state) : null,
         });
         if (!dialog.open) return null;
+        // The write's own collection — see UpdateConfirm above.
+        const target = targetOf(activeCollection);
         return (
           <DeleteConfirm
             connectionId={activeCollection.connectionId}
@@ -413,7 +419,7 @@ export function DialogStack({
             docs={dialog.docs}
             filter={dialog.filter}
             onClose={closeDeleteDialogs}
-            onDeleted={handleDeleted}
+            onDeleted={(auditId, message) => handleDeleted(auditId, message, target)}
           />
         );
       })()}
