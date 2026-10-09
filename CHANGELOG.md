@@ -22,6 +22,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The local database file is now `latelier.db`,** renamed from `mongolab.db`
+  the first time you start this version. Your connections and settings carry
+  over. Log files and the diagnostic file use the L'Atelier name too
+  (`latelier.<date>.log`, `latelier-diagnostic-<time>.json`); older logs keep
+  their name and age out as usual. Going back to 0.17.1 or older needs one
+  manual step, described in the troubleshooting guide.
+
+## [0.17.1] — 2026-10-06
+
+A maintenance release with no user-facing changes. It is the first version
+0.17.0 can update to on its own, so it exercises the automatic update path
+on macOS and Windows end to end.
+
+## [0.17.0] — 2026-10-05
+
+This is the first release signed and notarized by Apple, with the new app
+identity `io.github.anonhym.latelier`. Saved passwords carry over: the first
+time you connect, macOS asks whether L'Atelier may use its saved passwords.
+**Click "Always Allow".** If you clicked Deny, quit and reopen the app, and
+macOS asks again.
+
+On macOS, users of 0.16.0 install this release by hand once, because macOS
+does not let an unsigned app update itself into a signed one. Later releases
+then install automatically.
+
+### Added
+
+- **Automatic updates on macOS and Windows.** The app checks GitHub Releases
+  once at launch and downloads a new version in the background. When the
+  download finishes, a notification offers **Restart to update**. If you
+  dismiss it, the update installs the next time you quit. Update failures are
+  logged and never interrupt you. Linux is unchanged.
+
+### Changed
+
+- **The macOS app is signed with a Developer ID and notarized,** so Gatekeeper
+  opens it without a warning and the quarantine workaround is no longer needed.
+  Windows builds stay unsigned.
+- **The app identity is now `io.github.anonhym.latelier`.** The startup notice
+  that asked you to export connections before this release is gone.
+- **Download file names changed** from `L.Atelier-*` to `L-Atelier-*`, with
+  the architecture in the macOS names (`L-Atelier-0.17.0-arm64.dmg`).
+- The macOS release adds a zip per architecture, which the updater installs
+  from. The dmg stays the file to download by hand.
+
+### Fixed
+
+- When macOS refuses access to the saved passwords, the app now says so and
+  tells you how to recover: quit, reopen, and click "Always Allow". It no
+  longer offers a Retry that cannot succeed. The troubleshooting guide covers
+  this case and a saved password that can no longer be read.
+- In the Document Editor, pressing Escape while the suggestion list is open
+  closes only the list. It no longer closes the editor and discards the draft.
+
+### Documentation
+
+- The troubleshooting guide explains how to move data from an old MongoLab
+  install by hand.
+
 ## [0.16.0] — 2026-10-05
 
 This is the last unsigned release. The next one is signed by Apple and has a
