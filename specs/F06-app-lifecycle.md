@@ -46,7 +46,7 @@ app.whenReady().then(async () => {
   const docSvc    = new DocumentService(pool);
   const savedSvc  = new SavedQueryService(savedRepo, connRepo);
   const recentSvc = new RecentQueryService(recentRepo);
-  const tabsSvc   = new WorkspaceStateService(tabsRepo);
+  const tabsSvc   = new WorkspaceStateService(tabsRepo, savedSvc);   // reads a saved pipeline's stages on open
   const prefsSvc  = new PreviewFieldsService(prefsRepo);
   const appSvc    = new AppStateService(stateRepo);
 

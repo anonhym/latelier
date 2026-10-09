@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { WorkspaceTabRepo } from '../../electron/db/repositories/WorkspaceTabRepo';
+import { SavedQueryRepo } from '../../electron/db/repositories/SavedQueryRepo';
+import { SavedQueryService } from '../../electron/services/SavedQueryService';
 import { WorkspaceStateService } from '../../electron/services/WorkspaceStateService';
-import { NotFoundError } from '../../electron/errors';
+import { NotFoundError, ValidationError } from '../../electron/errors';
 import { createTempDb, type TempDb } from '../helpers/db';
-import type { CollectionTab, WorkspaceTab } from '../../shared/types';
+import type { CollectionTab, Stage, WorkspaceTab } from '../../shared/types';
 
 // The service returns the `WorkspaceTab` union; the fields these tests read
 // (view, pageSize, activeView, aggregation) only exist on the collection variant.
@@ -26,11 +28,13 @@ describe('WorkspaceStateService', () => {
   let tmp: TempDb;
   let svc: WorkspaceStateService;
   let repo: WorkspaceTabRepo;
+  let saved: SavedQueryService;
 
   beforeEach(() => {
     tmp = createTempDb();
     repo = new WorkspaceTabRepo(tmp.db);
-    svc = new WorkspaceStateService(repo);
+    saved = new SavedQueryService(new SavedQueryRepo(tmp.db));
+    svc = new WorkspaceStateService(repo, saved);
     seedConnection(tmp, 'conn');
   });
 
@@ -97,6 +101,212 @@ describe('WorkspaceStateService', () => {
     const b = asCollectionTab(svc.openAggregation({ connectionId: 'conn', dbName: 'd', collection: 'c' }));
     expect(b.id).toBe(a.id);
     expect(b.state.aggregation?.stages.length).toBe(1);
+  });
+
+  describe('openAggregation on a saved pipeline', () => {
+    const STORED: Stage[] = [
+      { id: 4, op: '$match', body: '{ status: "open" }', enabled: true },
+      { id: 9, op: '$limit', body: '5', enabled: false, note: 'trial' },
+    ];
+
+    type SavedInput = Parameters<SavedQueryService['create']>[0];
+
+    // `create` does not validate the payload (the router does), so a row the way an
+    // older build or a corrupted write left it can be stored as is.
+    function saveRow(overrides: Partial<SavedInput> = {}) {
+      return saved.create({
+        connectionId: 'conn',
+        dbName: 'd',
+        collection: 'c',
+        kind: 'aggregation',
+        name: 'open orders',
+        payload: { kind: 'aggregation', stages: STORED, description: 'keep me' },
+        ...overrides,
+      });
+    }
+
+    const savePipeline = () => saveRow();
+    const withPayload = (payload: unknown, overrides: Partial<SavedInput> = {}) =>
+      saveRow({ payload: payload as SavedInput['payload'], ...overrides });
+
+    const open = (savedId: string, ns: { connectionId?: string; dbName?: string; collection?: string } = {}) =>
+      asCollectionTab(
+        svc.openAggregation({
+          connectionId: 'conn',
+          dbName: 'd',
+          collection: 'c',
+          savedId,
+          name: 'open orders',
+          ...ns,
+        }),
+      );
+
+    it('seeds the stored stages into a collection tab that is already open', () => {
+      // The Saved list lives in the Builder pane of an open collection tab, so this is
+      // the path a user takes; an empty seed here is what made the next Save wipe the pipeline.
+      const existing = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'c' });
+      const row = savePipeline();
+
+      const tab = open(row.id);
+
+      expect(tab.id).toBe(existing.id);
+      expect(tab.state.aggregation).toMatchObject({ stages: STORED, savedId: row.id, name: 'open orders' });
+      const listed = asCollectionTab(svc.list().find((t) => t.id === tab.id)!);
+      expect(listed.state.aggregation?.stages).toEqual(STORED);
+    });
+
+    it('seeds the stored stages into a fresh tab', () => {
+      const row = savePipeline();
+
+      const tab = open(row.id);
+
+      expect(svc.list()).toHaveLength(1);
+      expect(tab.state.activeView).toBe('aggregation');
+      expect(tab.state.aggregation).toMatchObject({ stages: STORED, savedId: row.id });
+    });
+
+    it('lets a Save straight after opening leave the stored pipeline unchanged', () => {
+      const row = savePipeline();
+
+      const tab = open(row.id);
+      // What AggregationTab's Save sends: the tab's stages, nothing else.
+      saved.update(row.id, { payload: { kind: 'aggregation', stages: tab.state.aggregation!.stages } });
+
+      const after = saved.get(row.id);
+      expect(after.payload).toEqual({ kind: 'aggregation', stages: STORED, description: 'keep me' });
+    });
+
+    it('opens a row whose payload lacks its own kind, as Save accepts it', () => {
+      const row = withPayload({ stages: STORED });
+
+      expect(open(row.id).state.aggregation?.stages).toEqual(STORED);
+    });
+
+    describe('a refused open', () => {
+      // An existing tab on the same collection, so that "refused" also means it was left alone:
+      // main reseeds that tab in place, and a half-applied open would show here.
+      let before: WorkspaceTab[];
+
+      beforeEach(() => {
+        svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'c' });
+        seedConnection(tmp, 'conn2');
+        before = svc.list();
+      });
+
+      function expectRefused(run: () => unknown, error: new (...args: never[]) => Error) {
+        expect(run).toThrow(error);
+        expect(svc.list()).toEqual(before);
+      }
+
+      it('answers NOT_FOUND for an unknown saved id', () => {
+        expectRefused(() => open('gone'), NotFoundError);
+      });
+
+      it('refuses a find row', () => {
+        const find = saveRow({
+          kind: 'find',
+          name: 'a find',
+          payload: { kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}' },
+        });
+
+        expectRefused(() => open(find.id), ValidationError);
+      });
+
+      it('refuses a find row holding an aggregation-shaped payload', () => {
+        // Save checks the payload against the row's kind, so it would fail on this tab.
+        const row = withPayload({ kind: 'aggregation', stages: STORED }, { kind: 'find', name: 'odd find' });
+
+        expectRefused(() => open(row.id), ValidationError);
+      });
+
+      it.each([
+        ['missing', { kind: 'aggregation' }],
+        ['null', { kind: 'aggregation', stages: null }],
+        ['a string', { kind: 'aggregation', stages: 'abc' }],
+        ['an object', { kind: 'aggregation', stages: { a: 1 } }],
+        ['made of malformed stages', { kind: 'aggregation', stages: [{ id: 'x' }] }],
+      ])('refuses a pipeline whose stages are %s, naming the pipeline', (_label, payload) => {
+        const row = withPayload(payload, { name: 'broken pipeline' });
+
+        expect(() => open(row.id)).toThrow(/"broken pipeline" is unreadable/);
+        expect(svc.list()).toEqual(before);
+      });
+
+      it('refuses a row whose payload cannot be read', () => {
+        const row = savePipeline();
+        tmp.db.prepare('UPDATE saved_queries SET payload_json = ? WHERE id = ?').run('not json', row.id);
+
+        expectRefused(() => open(row.id), ValidationError);
+      });
+
+      it.each([
+        ['another collection', { collection: 'other' }],
+        ['another database', { dbName: 'other' }],
+        ['another connection', { connectionId: 'conn2' }],
+      ])('refuses a pipeline saved on %s, since the tab would carry its id into Save', (_label, ns) => {
+        const row = savePipeline();
+
+        expectRefused(() => open(row.id, ns), ValidationError);
+      });
+    });
+
+    describe('a tab saved before the stages were loaded on open', () => {
+      // The old open seeded `stages: []` over the `savedId`, and its next Save wiped the
+      // stored pipeline. `tabs:list` is what the renderer reads at launch.
+      const stored = () => [{ id: 1, op: '$limit', body: '3', enabled: true }];
+
+      function emptiedTab(aggregation: Record<string, unknown>) {
+        const tab = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'c' });
+        svc.update(tab.id, { state: { activeView: 'aggregation', aggregation } as never });
+        return tab;
+      }
+      const stagesOf = (id: string) =>
+        asCollectionTab(svc.list().find((t) => t.id === id)!).state.aggregation?.stages;
+
+      it('gets the stored stages back, and keeps them', () => {
+        const row = savePipeline();
+        const tab = emptiedTab({ stages: [], activeStageId: null, savedId: row.id, name: row.name });
+
+        expect(stagesOf(tab.id)).toEqual(STORED);
+        const persisted = rawState(tab.id).aggregation as { stages: Stage[]; savedId: string; name: string };
+        expect(persisted).toMatchObject({ stages: STORED, savedId: row.id, name: row.name });
+      });
+
+      it('leaves a tab alone whose stages the user cleared by hand', () => {
+        const row = savePipeline();
+        const tab = emptiedTab({ stages: [], activeStageId: null, savedId: row.id, dirty: true });
+
+        expect(stagesOf(tab.id)).toEqual([]);
+      });
+
+      it('leaves a tab alone that already has stages', () => {
+        const row = savePipeline();
+        const mine = stored();
+        const tab = emptiedTab({ stages: mine, activeStageId: null, savedId: row.id });
+
+        expect(stagesOf(tab.id)).toEqual(mine);
+      });
+
+      it('leaves a tab alone whose pipeline was saved empty', () => {
+        const row = withPayload({ kind: 'aggregation', stages: [] });
+        const tab = emptiedTab({ stages: [], activeStageId: null, savedId: row.id });
+
+        expect(stagesOf(tab.id)).toEqual([]);
+      });
+
+      it('still lists every tab when the saved row is gone or unreadable', () => {
+        const unreadable = withPayload({ kind: 'aggregation' }, { name: 'unreadable' });
+        const a = emptiedTab({ stages: [], activeStageId: null, savedId: 'gone' });
+        const b = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'c', reuseExisting: false });
+        svc.update(b.id, {
+          state: { aggregation: { stages: [], activeStageId: null, savedId: unreadable.id } } as never,
+        });
+
+        expect(svc.list()).toHaveLength(2);
+        expect(stagesOf(a.id)).toEqual([]);
+        expect(stagesOf(b.id)).toEqual([]);
+      });
+    });
   });
 
   it('update merges patch into state', () => {

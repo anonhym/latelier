@@ -466,6 +466,23 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
     expect(payload.stages.map((s) => s.body)).toEqual(CANONICAL);
   });
 
+  // `WorkspaceStateService.list` restores the stored stages of a saved-pipeline tab that is
+  // clean and has none, on the footing that every edit leaves the tab dirty. Emptying the
+  // pipeline by hand is the edit that would otherwise look the same as a never-loaded tab.
+  it('removing the last stage leaves a saved pipeline dirty, not clean and empty', () => {
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+      savedId: 's1',
+      name: 'p',
+    });
+    expect(screen.queryByLabelText('Unsaved changes')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete stage' }));
+
+    expect(screen.getByLabelText('Unsaved changes')).toBeTruthy();
+  });
+
   // docs/adr/0013 — stage delete is local editor state: no confirm, an Undo
   // toast instead. `renderStatefulTab`, not `renderTab`: the restore has to
   // round-trip through `onPatch` and come back as props for the accordion to

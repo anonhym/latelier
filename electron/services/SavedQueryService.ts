@@ -45,12 +45,16 @@ export class SavedQueryService {
   update(id: string, patch: UpdatePatch): SavedQuery {
     const existing = this.repo.findById(id);
     if (!existing) throw new NotFoundError(`saved query ${id} not found`);
-    if (patch.payload !== undefined) assertPayloadMatchesKind(existing.kind, patch.payload);
+    let payload = patch.payload;
+    if (payload !== undefined) {
+      assertPayloadMatchesKind(existing.kind, payload);
+      payload = keepStoredDescription(existing.payload_json, payload);
+    }
 
     const now = new Date().toISOString();
     this.repo.update(id, {
       name: patch.name,
-      payload_json: patch.payload !== undefined ? JSON.stringify(patch.payload) : undefined,
+      payload_json: payload !== undefined ? JSON.stringify(payload) : undefined,
       updated_at: now,
     });
 
@@ -95,6 +99,15 @@ function assertPayloadMatchesKind(kind: SavedKind, payload: unknown): void {
   const issues = result.error.issues.map((i) => ({ path: ['patch', 'payload', ...i.path], message: i.message }));
   const first = issues[0];
   throw new ValidationError(`${first.path.join('.')}: ${first.message}`, { issues });
+}
+
+// The description is written once, in the Save dialog, and lives in the payload. Save on an
+// opened pipeline sends only its stages, so a payload that names no description keeps the
+// stored one instead of silently dropping it. An explicit empty string clears it.
+function keepStoredDescription(storedJson: string, payload: SavedPayload): SavedPayload {
+  if (payload.description !== undefined) return payload;
+  const description = parsePayload(storedJson)?.description;
+  return description === undefined ? payload : { ...payload, description };
 }
 
 // A corrupted `payload_json` on one row must never take down `list()` for every other
