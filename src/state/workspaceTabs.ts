@@ -49,13 +49,17 @@ export interface WorkspaceTabsState {
     collection: string;
     reuseExisting?: boolean;
   }) => Promise<CollectionTab>;
+  /**
+   * Opens the collection's Aggregation view. With a `savedId` or a `name`, main
+   * replaces the pipeline on the collection's open tab, so a tab with unsaved
+   * pipeline edits asks first; `null` when the user keeps them instead.
+   */
   openAggregation: (input: {
     connectionId: string;
     dbName: string;
     collection: string;
     savedId?: string;
     name?: string;
-    /** `null` when the user kept the tab's unsaved pipeline instead of replacing it. */
   }) => Promise<CollectionTab | null>;
   openScript: (input: {
     connectionId: string;
