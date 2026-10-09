@@ -565,6 +565,12 @@ describe('ejsonStringifyRelaxed keeps a Long past 2^53 exact', () => {
     expect(ejsonStringifyRelaxed(new TaggedMap([['k', long('9007199254740993')]]))).toBe(`{"k":${wrapped('9007199254740993')}}`);
   });
 
+  it('reads an array that reports the Map tag as a Map, as bson checks Map before Array', () => {
+    const entries = [['k', long('9007199254740993')]];
+    Object.defineProperty(entries, Symbol.toStringTag, { value: 'Map' });
+    expect(ejsonStringifyRelaxed(entries)).toBe(`{"k":${wrapped('9007199254740993')}}`);
+  });
+
   it('keeps a wide bigint wrapped, read as the 64-bit value bson writes for it', () => {
     expect(ejsonStringifyRelaxed({ b: 9007199254740993n, s: 5n })).toBe(`{"b":${wrapped('9007199254740993')},"s":5}`);
     // bson wraps a bigint to 64 bits first: 2^64 + 7 is written as 7.
