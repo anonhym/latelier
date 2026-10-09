@@ -586,6 +586,8 @@ function CreateIndexDrawer({
   const [collation, setCollation] = React.useState(DEFAULT_COLLATION);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // The server rejects an empty field name but accepts whitespace, so block blank ones here rather than after a round trip.
+  const canSubmit = fields.every((f) => f.field.trim() !== '');
 
   const isDirty =
     JSON.stringify(fields) !== JSON.stringify(baselineFields) ||
@@ -618,7 +620,7 @@ function CreateIndexDrawer({
   };
 
   const submit = async () => {
-    if (submitting) return;
+    if (submitting || !canSubmit) return;
     setError(null);
     if (ttlEnabled) {
       if (fields.length !== 1) {
@@ -850,7 +852,13 @@ function CreateIndexDrawer({
         >
           Cancel
         </Button>
-        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
+        <SubmitButton
+          variant="filled"
+          size="compact-xs"
+          onClick={() => void submit()}
+          disabled={!canSubmit}
+          submitting={submitting}
+        >
           {submitting ? 'Creating…' : 'Create index'}
         </SubmitButton>
       </div>
