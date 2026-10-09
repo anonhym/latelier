@@ -45,21 +45,13 @@ export function selectedStorageBackend(app: ElectronApplication): Promise<string
   );
 }
 
-/**
- * Asks Chromium for the libsecret store outright on Linux instead of leaving
- * it to guess from the desktop environment, so a runner's keyring is used
- * whenever one is reachable. Empty elsewhere: the flag is Linux-only.
- */
-export const linuxKeyringArgs: string[] =
-  process.platform === 'linux' ? ['--password-store=gnome-libsecret'] : [];
-
 export function freshUserData(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-e2e-'));
 }
 
 export async function launchApp(userDataDir: string): Promise<ElectronApplication> {
   const app = await electron.launch({
-    args: [path.resolve(here, '../..', 'dist-electron/main.js'), ...linuxKeyringArgs],
+    args: [path.resolve(here, '../..', 'dist-electron/main.js')],
     env: {
       ...process.env,
       ATELIER_USER_DATA_DIR: userDataDir,
