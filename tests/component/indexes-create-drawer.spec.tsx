@@ -267,9 +267,11 @@ describe('CreateIndexDrawer — unsaved-changes guard (X15 T7)', () => {
 });
 
 /**
- * A field row with a blank name cannot be created: the server rejects it, so
- * the drawer keeps the submit button disabled instead of sending a request that
- * is certain to fail. Whitespace-only counts as blank.
+ * A field row with a blank name cannot be created: the server rejects an empty
+ * name, so the drawer keeps the submit button disabled instead of sending a
+ * request that is certain to fail. The server would accept a whitespace-only
+ * name, but the drawer treats it as blank too, since it is almost certainly a
+ * mistake.
  */
 describe('CreateIndexDrawer — blank field names', () => {
   const submitButton = () =>

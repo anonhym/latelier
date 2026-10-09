@@ -586,7 +586,7 @@ function CreateIndexDrawer({
   const [collation, setCollation] = React.useState(DEFAULT_COLLATION);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  // The server rejects a blank field name, so block it here instead of after a round trip.
+  // The server rejects an empty field name but accepts whitespace, so block blank ones here rather than after a round trip.
   const canSubmit = fields.every((f) => f.field.trim() !== '');
 
   const isDirty =

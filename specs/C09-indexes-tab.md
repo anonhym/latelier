@@ -292,7 +292,7 @@ Reuses the existing right-side drawer pattern (W08 Insert drawer). 360 px wide.
 ```
 
 Validation rules (renderer-side, mirrored server-side):
-- Every field row needs a non-empty name (whitespace-only counts as blank). The Create index button stays disabled until it does.
+- Every field row needs a non-empty name; whitespace-only counts as blank (renderer-only: the server rejects an empty name but accepts whitespace). The Create index button stays disabled until it does.
 - Direction must be one of the eight literals listed in `IndexFieldDirection`.
 - TTL requires exactly one field with direction `1` or `-1` (Mongo limitation). If the user toggles TTL on a multi-field or text/geo key, the form rejects with inline copy.
 - `partialFilterExpression` / `collation` parse as EJSON locally — surfaces a parse error inline before submit.
