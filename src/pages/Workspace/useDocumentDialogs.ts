@@ -172,11 +172,13 @@ export function useDocumentDialogs(deps: {
     setDeleteSelected(null);
   }, []);
   // Not routed through refreshSource: DeleteConfirm reads its target live
-  // from the Focused Tab, so a delete can only complete against it.
+  // from the Focused Tab. Moving focus closes the dialog, but a request
+  // already in flight still completes and lands here, so the re-run and the
+  // Undo target below follow whichever tab is focused at that moment (#448).
+  // The field-suggestion sample is not one of those: DeleteConfirm drops it
+  // itself, from its own props.
   const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
     closeDeleteDialogs();
-    const a = activeCollectionRef.current;
-    if (a) invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
     void run();
     setWriteVersion((v) => v + 1);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
@@ -186,6 +188,7 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
+    const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
       offerUndo(message, auditId, () => refreshSource(target));
@@ -194,12 +197,12 @@ export function useDocumentDialogs(deps: {
 
   // Same shape as delete-all: UpdateConfirm also reads its target live from
   // the Focused Tab (see the tab-switch effect below), so it's closed the
-  // same way rather than routed through refreshSource's captured target.
+  // same way rather than routed through refreshSource's captured target, with
+  // the same caveat about a request still in flight when focus moves (#448).
+  // It too drops the field-suggestion sample itself.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
   const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
     closeUpdateAllModal();
-    const a = activeCollectionRef.current;
-    if (a) invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
     void run();
     setWriteVersion((v) => v + 1);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
@@ -208,6 +211,7 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
+    const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
       offerUndo(message, auditId, () => refreshSource(target));

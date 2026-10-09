@@ -3,11 +3,20 @@ import { notifications } from '@mantine/notifications';
 import { render, screen, fireEvent, waitFor } from '../helpers/render';
 import { UpdateConfirm } from '../../src/pages/Workspace/UpdateConfirm';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module UpdateConfirm imports; the rest stays real
+// because its editor reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
   notifications.clean();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 const reviewBtn = () => screen.getByRole('button', { name: /Review|Counting…/ }) as HTMLButtonElement;
@@ -296,5 +305,72 @@ describe('UpdateConfirm', () => {
 
     await waitFor(() => expect(screen.getByText('updateJson must be an update-operator document')).toBeTruthy());
     expect(updateBtn()).toBeNull();
+  });
+});
+
+// The sample behind field suggestions and the Update drawer's type warning is
+// cached per collection. The dialog names the collection it updated with its
+// own props: when it completes, the Focused Tab may be a different collection
+// or none, so the caller can't.
+describe('UpdateConfirm — field-suggestion sample', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+  function mount(updateMany: ReturnType<typeof vi.fn>) {
+    installAtelierMock({
+      doc: { confirmUpdateMany: vi.fn(async () => ({ count: 2, confirmToken: 'tok' })), updateMany },
+    });
+    const onUpdated = vi.fn();
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"status":"pending"}'
+        onClose={() => undefined}
+        onUpdated={onUpdated}
+      />,
+    );
+    return { onUpdated };
+  }
+  const review = async () => {
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    fireEvent.click(reviewBtn());
+    await waitFor(() => expect(updateBtn()).not.toBeNull());
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+  };
+
+  it('is dropped for this collection once the update lands', async () => {
+    const { onUpdated } = mount(vi.fn(async () => ({ matchedCount: 2, modifiedCount: 2, auditId: 'a1' })));
+    await review();
+
+    fireEvent.click(updateBtn()!);
+
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'app', 'orders');
+  });
+
+  // updateMany is not atomic across documents: a failure can leave the
+  // earlier ones modified, so a rejected update drops the sample too.
+  it('is dropped when the update fails, since earlier documents may already be modified', async () => {
+    const { onUpdated } = mount(
+      vi.fn(async () => {
+        throw { code: 'MONGO_OP', message: 'Cannot apply $inc to a value of non-numeric type' };
+      }),
+    );
+    await review();
+
+    fireEvent.click(updateBtn()!);
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/non-numeric/);
+    expect(onUpdated).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'app', 'orders');
+  });
+
+  it('is kept while the update is only being reviewed', async () => {
+    mount(vi.fn());
+
+    await review();
+
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
