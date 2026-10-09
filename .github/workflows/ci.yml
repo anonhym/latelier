@@ -209,8 +209,9 @@ jobs:
       # on that, which left credential storage with no CI coverage at all.
       - name: Install a session keyring
         # `apt-get update` is explicit rather than inherited from the step
-        # above. `dbus-daemon` is the package that ships `dbus-run-session`.
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-daemon
+        # above. `dbus-daemon` ships `dbus-run-session` and `dbus-bin` ships
+        # `dbus-send`, which the next step uses to check the keyring.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-daemon dbus-bin
 
       - name: Run E2E
         env:
@@ -219,9 +220,15 @@ jobs:
           XDG_CURRENT_DESKTOP: GNOME
         # `dbus-run-session` gives the job its own session bus, and a keyring
         # daemon is started and unlocked on it with a throwaway password that
-        # exists for this job alone. An Electron started in this session
-        # selects `gnome_libsecret` from `XDG_CURRENT_DESKTOP`. Playwright's
-        # own Electron launcher would defeat that: its loader
+        # exists for this job alone. The daemon's own exit status and output
+        # are not a reliable sign it worked (it exits 0 on a bad flag), so the
+        # step waits for the secret service to own its bus name and fails
+        # unless the default keyring reads as unlocked. It waits with
+        # `NameHasOwner`, not by asking the service itself: a request to the
+        # service name starts a second, locked daemon that can win the name
+        # from the unlocked one. An Electron started in this session selects
+        # `gnome_libsecret` from `XDG_CURRENT_DESKTOP`. Playwright's own
+        # Electron launcher would defeat that: its loader
         # (`playwright-core/lib/server/electron/loader.js`) appends
         # `--password-store=basic` to the app it starts, which wins over a flag
         # passed in `args`. So the two secrets-vault specs launch the app
@@ -239,10 +246,14 @@ jobs:
         run: |
           dbus-run-session -- bash -c '
             set -euo pipefail
-            keyring_env=$(openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets)
-            test -n "$keyring_env" || { echo "::error::gnome-keyring-daemon printed no environment, so no keyring is running"; exit 1; }
-            echo "$keyring_env"
-            eval "$keyring_env"
+            openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets
+            for _ in $(seq 1 20); do
+              owned=$(dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.freedesktop.secrets 2>&1 || true)
+              case "$owned" in *"boolean true"*) break;; esac
+              sleep 0.5
+            done
+            state=$(dbus-send --session --print-reply --dest=org.freedesktop.secrets /org/freedesktop/secrets/collection/login org.freedesktop.DBus.Properties.Get string:org.freedesktop.Secret.Collection string:Locked 2>&1 || true)
+            case "$state" in *"boolean false"*) ;; *) echo "::error::the login keyring is missing or still locked: $state"; exit 1;; esac
             exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure
