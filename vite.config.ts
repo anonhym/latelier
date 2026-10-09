@@ -68,6 +68,11 @@ export default defineConfig({
               },
             },
             build: {
+              // A child-process script, so size does not matter: minifying it
+              // renamed the shell's own helpers (a bare `db` printed
+              // `[Function (anonymous)]`) and garbled the stack trace of any
+              // error a user's script raised.
+              minify: false,
               rolldownOptions: {
                 external: ['mongodb', 'bson'],
                 output: {
