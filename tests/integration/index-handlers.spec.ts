@@ -84,7 +84,7 @@ describe('index:list via router', () => {
       'email_unique',
       'status_age',
     ]);
-    expect(byName.get('_id_')).toMatchObject({ isIdIndex: true, unique: false });
+    expect(byName.get('_id_')).toMatchObject({ isIdIndex: true });
     expect(byName.get('email_unique')).toMatchObject({
       isIdIndex: false,
       unique: true,

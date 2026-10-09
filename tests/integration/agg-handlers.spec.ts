@@ -55,6 +55,11 @@ const fruitNames = [
 ];
 const names = (data: AggResultWire) =>
   (JSON.parse(data.rowsJson) as Array<{ name: string }>).map((r) => r.name);
+/** Whether `key` appears anywhere in a nested explain plan; its layout shifts with the pipeline. */
+const hasKey = (value: unknown, key: string): boolean =>
+  value !== null &&
+  typeof value === 'object' &&
+  (key in value || Object.values(value).some((v) => hasKey(v, key)));
 
 describe('agg:* channels via router', () => {
   let tmp: TempDb;
@@ -184,8 +189,27 @@ describe('agg:* channels via router', () => {
       ['a limit over the 10000 cap', { limit: 10_001 }, 'limit'],
       ['a fractional limit', { limit: 1.5 }, 'limit'],
       ['a fractional stage id', { stages: [stage(1.5, '$match', '{}')] }, 'stages.0.id'],
-    ])('rejects %s at the schema', async (_what, overrides, path) => {
+      [
+        'a non-string stage note',
+        { stages: [{ id: 1, op: '$match', body: '{}', enabled: true, note: 5 }] },
+        'stages.0.note',
+      ],
+    ])('rejects %s at the schema without calling the service', async (_what, overrides, path) => {
+      const called = vi.spyOn(svc, 'run');
       expectSchemaReject(await shim.invoke(IPC_CHANNELS.aggRun, input(overrides)), path);
+      expect(called).not.toHaveBeenCalled();
+    });
+
+    it('forwards a stage note to the service', async () => {
+      const run = vi.spyOn(svc, 'run');
+      const env = await shim.invoke(
+        IPC_CHANNELS.aggRun,
+        input({ stages: [{ ...stage(1, '$match', '{}'), note: 'why' }] }),
+      );
+      expect(env.ok).toBe(true);
+      expect(run).toHaveBeenCalledWith(
+        expect.objectContaining({ stages: [expect.objectContaining({ id: 1, note: 'why' })] }),
+      );
     });
 
     it('answers VALIDATION from the service when every stage is disabled', async () => {
@@ -196,6 +220,7 @@ describe('agg:* channels via router', () => {
       expect(env.ok).toBe(false);
       if (env.ok) return;
       expect(env.error.code).toBe('VALIDATION');
+      expect(env.error.message).toBe('stages: no enabled stages');
     });
 
     it('answers VALIDATION naming the stage when a body is not EJSON', async () => {
@@ -315,8 +340,10 @@ describe('agg:* channels via router', () => {
       ['a limit of 0', { limit: 0 }, 'limit'],
       ['an empty stage list', { stages: [] }, 'stages'],
       ['a fractional stage id', { stages: [stage(0.5, '$match', '{}')] }, 'stages.0.id'],
-    ])('rejects %s at the schema', async (_what, overrides, path) => {
+    ])('rejects %s at the schema without calling the service', async (_what, overrides, path) => {
+      const called = vi.spyOn(svc, 'previewUpToStage');
       expectSchemaReject(await shim.invoke(IPC_CHANNELS.aggPreviewUpToStage, input(overrides)), path);
+      expect(called).not.toHaveBeenCalled();
     });
 
     it('answers NOT_FOUND for an unknown connection', async () => {
@@ -381,7 +408,7 @@ describe('agg:* channels via router', () => {
             dbName: DB,
             collection: 'merged_discard',
             mode: '$merge',
-            merge: { whenMatched: 'merge', whenNotMatched: 'discard' },
+            merge: { whenNotMatched: 'discard' },
           },
         }),
       );
@@ -396,6 +423,44 @@ describe('agg:* channels via router', () => {
       expect(insert.ok).toBe(true);
       if (!insert.ok) return;
       expect(insert.data.writtenCount).toBe(3);
+    });
+
+    it('forwards whenMatched: a populated target merges by default but fails with whenMatched fail', async () => {
+      const into = 'merge_into_populated';
+      const seeded = await shim.invoke(
+        IPC_CHANNELS.aggRunAndSave,
+        save({ target: { dbName: DB, collection: into, mode: '$out' } }),
+      );
+      expect(seeded.ok).toBe(true);
+
+      // The same three documents again: every one matches an existing _id.
+      const merged = await shim.invoke(
+        IPC_CHANNELS.aggRunAndSave,
+        save({ target: { dbName: DB, collection: into, mode: '$merge' } }),
+      );
+      expect(merged.ok).toBe(true);
+
+      const failed = await shim.invoke(
+        IPC_CHANNELS.aggRunAndSave,
+        save({ target: { dbName: DB, collection: into, mode: '$merge', merge: { whenMatched: 'fail' } } }),
+      );
+      expect(failed.ok).toBe(false);
+      if (failed.ok) return;
+      expect(failed.error.code).toBe('CONFLICT');
+      expect(await countOf(into)).toBe(3);
+    });
+
+    it('writes into another database when the target names one', async () => {
+      const copyDb = `${DB}_copy`;
+      const env = await shim.invoke<{ writtenCount?: number }>(
+        IPC_CHANNELS.aggRunAndSave,
+        save({ target: { dbName: copyDb, collection: 'copied_fruit', mode: '$out' } }),
+      );
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.writtenCount).toBe(3);
+      expect(await (await pool.readDb(RW, copyDb)).collection('copied_fruit').countDocuments({})).toBe(3);
+      expect(await exists('copied_fruit')).toBe(false);
     });
 
     it.each([
@@ -424,6 +489,8 @@ describe('agg:* channels via router', () => {
       expect(env.ok).toBe(false);
       if (env.ok) return;
       expect(env.error.code).toBe('VALIDATION');
+      expect(env.error.message).toBe('invalid collection name');
+      expect(env.error.details).toEqual({ collection: '$bad' });
     });
 
     it('answers CONFLICT when $out would overwrite the source and leaves the source intact', async () => {
@@ -453,9 +520,13 @@ describe('agg:* channels via router', () => {
   });
 
   describe('agg:explain', () => {
-    it.each(['queryPlanner', 'executionStats', 'allPlansExecution'] as const)(
-      'returns a plan for verbosity %s',
-      async (verbosity) => {
+    it.each([
+      ['queryPlanner', false],
+      ['executionStats', true],
+      ['allPlansExecution', true],
+    ] as const)(
+      'returns a plan for verbosity %s (executionStats present: %s)',
+      async (verbosity, withStats) => {
         const env = await shim.invoke<{ plan: unknown; verbosity: string; writeStageOmitted: boolean }>(
           IPC_CHANNELS.aggExplain,
           input({ stages: fruitNames, verbosity }),
@@ -464,7 +535,8 @@ describe('agg:* channels via router', () => {
         if (!env.ok) return;
         expect(env.data.verbosity).toBe(verbosity);
         expect(env.data.writeStageOmitted).toBe(false);
-        expect(env.data.plan).toBeTruthy();
+        expect(hasKey(env.data.plan, 'queryPlanner')).toBe(true);
+        expect(hasKey(env.data.plan, 'executionStats')).toBe(withStats);
       },
     );
 
@@ -485,11 +557,10 @@ describe('agg:* channels via router', () => {
     it.each([
       ['a verbosity outside the enum', { verbosity: 'bogus' }],
       ['a missing verbosity', {}],
-    ])('rejects %s at the schema', async (_what, overrides) => {
-      expectSchemaReject(
-        await shim.invoke(IPC_CHANNELS.aggExplain, input(overrides)),
-        'verbosity',
-      );
+    ])('rejects %s at the schema without calling the service', async (_what, overrides) => {
+      const called = vi.spyOn(svc, 'explain');
+      expectSchemaReject(await shim.invoke(IPC_CHANNELS.aggExplain, input(overrides)), 'verbosity');
+      expect(called).not.toHaveBeenCalled();
     });
 
     it('answers NOT_FOUND for an unknown connection', async () => {
