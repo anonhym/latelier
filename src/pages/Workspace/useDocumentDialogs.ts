@@ -7,7 +7,7 @@ import { stripIdForDuplicate } from './views/docId';
 import type { CollectionTab } from '@shared/types';
 import type { RunnerTarget, UseQueryRunnerResult } from './useQueryRunner';
 
-/** Identity of the collection a drawer is writing to, captured at open time. */
+/** Identity of the collection a drawer or confirm dialog is writing to, captured when it opened. */
 export interface DocTarget {
   tabId: string;
   connectionId: string;
@@ -15,7 +15,7 @@ export interface DocTarget {
   collection: string;
 }
 
-function targetOf(tab: CollectionTab): DocTarget {
+export function targetOf(tab: CollectionTab): DocTarget {
   return {
     tabId: tab.id,
     connectionId: tab.connectionId,
@@ -52,9 +52,11 @@ export function useDocumentDialogs(deps: {
   closeEditor: () => void;
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
-  handleDeleted: (auditId: string | undefined, message: string) => void;
+  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion. */
+  handleDeleted: (auditId: string | undefined, message: string, target: DocTarget) => void;
   closeUpdateAllModal: () => void;
-  handleUpdatedAll: (auditId: string | undefined, message: string) => void;
+  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion. */
+  handleUpdatedAll: (auditId: string | undefined, message: string, target: DocTarget) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
    * doesn't have to re-run on every read-only query re-run (sort, filter,
@@ -131,20 +133,26 @@ export function useDocumentDialogs(deps: {
     [activeCollectionRef],
   );
 
-  // A bare run() would refresh the Focused Tab, not the pinned drawer's tab —
-  // resolve the pinned tab from the live tab list instead. `null` (tab gone,
-  // e.g. ⌘W with the drawer open) no-ops rather than falling back — but the
-  // write already landed, so the field-suggestion sample is dropped first,
-  // from the captured target, ahead of that early return.
-  const refreshSource = React.useCallback(
+  // A bare run() would refresh the Focused Tab, not the tab that was written
+  // to — resolve that tab from the live tab list instead. `null` (tab gone,
+  // e.g. ⌘W with the drawer open) no-ops rather than falling back.
+  const rerunTarget = React.useCallback(
     (target: DocTarget) => {
-      invalidateSampleSchemaCache(target.connectionId, target.dbName, target.collection);
       const runnerTarget = resolveRunnerTarget(target.tabId);
       if (!runnerTarget) return;
       void run(undefined, runnerTarget);
       setWriteVersion((v) => v + 1);
     },
     [resolveRunnerTarget, run],
+  );
+  // The write already landed, so the field-suggestion sample is dropped first,
+  // from the captured target, ahead of any early return in the re-run.
+  const refreshSource = React.useCallback(
+    (target: DocTarget) => {
+      invalidateSampleSchemaCache(target.connectionId, target.dbName, target.collection);
+      rerunTarget(target);
+    },
+    [rerunTarget],
   );
 
   const closeInsertDrawer = React.useCallback(() => setInserting(null), []);
@@ -171,16 +179,14 @@ export function useDocumentDialogs(deps: {
     setDeleteAllOpen(false);
     setDeleteSelected(null);
   }, []);
-  // Not routed through refreshSource: DeleteConfirm reads its target live
-  // from the Focused Tab. Moving focus closes the dialog, but a request
-  // already in flight still completes and lands here, so the re-run and the
-  // Undo target below follow whichever tab is focused at that moment (#448).
-  // The field-suggestion sample is not one of those: DeleteConfirm drops it
-  // itself, from its own props.
-  const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
+  // Not routed through refreshSource: DeleteConfirm and UpdateConfirm drop the
+  // field-suggestion sample themselves, from their own props, before calling
+  // back. `target` is the collection the dialog wrote to — focus can move
+  // while the request is in flight, so the re-run and the Undo follow it
+  // rather than whichever tab is focused when the write lands.
+  const handleDeleted = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
     closeDeleteDialogs();
-    void run();
-    setWriteVersion((v) => v + 1);
+    rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
     // delete-all over the bulk capture ceiling still needs to say what
     // happened.
@@ -188,35 +194,23 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
-    const a = activeCollectionRef.current;
-    if (a) {
-      const target = targetOf(a);
-      offerUndo(message, auditId, () => refreshSource(target));
-    }
-  }, [activeCollectionRef, closeDeleteDialogs, refreshSource, run]);
+    offerUndo(message, auditId, () => refreshSource(target));
+  }, [closeDeleteDialogs, refreshSource, rerunTarget]);
 
-  // Same shape as delete-all: UpdateConfirm also reads its target live from
-  // the Focused Tab (see the tab-switch effect below), so it's closed the
-  // same way rather than routed through refreshSource's captured target, with
-  // the same caveat about a request still in flight when focus moves (#448).
-  // It too drops the field-suggestion sample itself.
+  // Same shape as delete-all: UpdateConfirm also reports the collection it
+  // wrote to and drops the field-suggestion sample itself.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
-  const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
+  const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
     closeUpdateAllModal();
-    void run();
-    setWriteVersion((v) => v + 1);
+    rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
     // update over the bulk capture ceiling still needs to say what happened.
     if (auditId === undefined) {
       notify.success(message);
       return;
     }
-    const a = activeCollectionRef.current;
-    if (a) {
-      const target = targetOf(a);
-      offerUndo(message, auditId, () => refreshSource(target));
-    }
-  }, [activeCollectionRef, closeUpdateAllModal, refreshSource, run]);
+    offerUndo(message, auditId, () => refreshSource(target));
+  }, [closeUpdateAllModal, refreshSource, rerunTarget]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the
   // Focused Tab, so any route that moves focus off the tab either was opened
