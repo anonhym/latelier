@@ -189,6 +189,18 @@ describe('ejson', () => {
     expect(seen).toEqual([1]);
   });
 
+  it('ejsonEncodeArrayJson: a document that lands exactly on the cap is kept, so the next one is still prepared', () => {
+    const seen: number[] = [];
+    const prepare = (d: unknown): unknown => {
+      seen.push(d as number);
+      return d;
+    };
+    // "[1" is 2 bytes: at the cap, not past it. Only the next element's
+    // separator and digit take it over.
+    expect(() => ejsonEncodeArrayJson([1, 2, 3], { relaxed: true, prepare, maxBytes: 2 })).toThrow(/byte cap/);
+    expect(seen).toEqual([1, 2]);
+  });
+
   it('ejsonEncodeArrayJson defaults to canonical when relaxed is omitted', () => {
     expect(ejsonEncodeArrayJson([5])).toBe('[{"$numberInt":"5"}]');
   });
