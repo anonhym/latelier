@@ -922,4 +922,34 @@ describe('DbCollectionNavigator empty-result retry', () => {
     });
     expect(listDatabases).toHaveBeenCalledTimes(2);
   });
+
+  it('does not issue the retry listDatabases once the navigator unmounted during the retry delay', async () => {
+    const listDatabases = vi.fn(async () => []);
+    installAtelierMock({
+      mongo: { status: async (id: string) => ({ id, status: 'connected' as const }) },
+      meta: { listDatabases, listCollections: async () => [] },
+    });
+
+    const { unmount } = render(
+      <DbCollectionNavigator
+        connectionsWithTabs={new Set()}
+        connections={[connectionFixture({ id: 'c1', name: 'Test' })]}
+        focusedConnectionId="c1"
+        activeDbName={null}
+        activeCollection={null}
+        onOpenCollection={vi.fn()}
+        onOpenAggregation={vi.fn()}
+      />,
+    );
+
+    // The first (empty) result is in, so the retry delay is now running.
+    await waitFor(() => expect(listDatabases).toHaveBeenCalledTimes(1));
+    unmount();
+
+    // Outlast the retry delay: a gone navigator must not hit the main process again.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450));
+    });
+    expect(listDatabases).toHaveBeenCalledTimes(1);
+  });
 });
