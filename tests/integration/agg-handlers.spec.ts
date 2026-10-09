@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type Db } from 'mongodb';
 import { IPC_CHANNELS } from '@shared/ipc';
-import type { AggResultWire, AggStagePreview } from '@shared/types';
+import type { AggResultWire, AggSaveCounts, AggStagePreview } from '@shared/types';
 import { createRouter } from '../../electron/ipc/router';
 import { registerAggChannels } from '../../electron/ipc/handlers/agg';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { AggregationService } from '../../electron/mongo/AggregationService';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
+import type { Logger } from '../../electron/log';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, insertConnectionRow, type TempDb } from '../helpers/db';
@@ -38,6 +39,7 @@ const DB = 'agg_router_shop';
 const SRC = 'products';
 const RW = 'agg-rw';
 const RO = 'agg-ro';
+const DEAD = 'agg-dead';
 const SEEDED = ['apple', 'banana', 'cherry', 'carrot', 'leek'];
 
 const stage = (id: number, op: string, body: string, enabled = true) => ({ id, op, body, enabled });
@@ -97,6 +99,19 @@ describe('agg:* channels via router', () => {
       repo: makeReader([
         makeConnection(RW, hp, { defaultDb: DB }),
         makeConnection(RO, hp, { defaultDb: DB, readOnly: true }),
+        // Nothing listens on port 1: every connect attempt is refused and the
+        // driver then waits out `serverSelectionTimeoutMs` before giving up.
+        makeConnection(DEAD, { host: '127.0.0.1', port: 1 }, {
+          defaultDb: DB,
+          advanced: {
+            connectTimeoutMs: 500,
+            socketTimeoutMs: 500,
+            serverSelectionTimeoutMs: 500,
+            readPreference: 'primary',
+            maxPoolSize: 5,
+            directConnection: true,
+          },
+        }),
       ]),
       vault: new SecretsVault(tmp.db, createSafeStorageMock()),
     });
@@ -388,20 +403,21 @@ describe('agg:* channels via router', () => {
       });
 
     it('writes the result with $out and reports how many documents landed', async () => {
-      const env = await shim.invoke<AggResultWire & { writtenCount?: number }>(
+      const env = await shim.invoke<AggResultWire & AggSaveCounts>(
         IPC_CHANNELS.aggRunAndSave,
         save(),
       );
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.data.writtenCount).toBe(3);
+      expect(env.data.mergeCounts).toBeUndefined();
       expect(await exists('saved_fruit')).toBe(true);
       expect(await countOf('saved_fruit')).toBe(3);
       expect(await countOf(SRC)).toBe(SEEDED.length);
     });
 
-    it('forwards the $merge options: whenNotMatched discard writes nothing, the default inserts', async () => {
-      const discard = await shim.invoke<{ writtenCount?: number }>(
+    it('forwards the $merge options: whenNotMatched discard adds nothing, the default inserts', async () => {
+      const discard = await shim.invoke<AggSaveCounts>(
         IPC_CHANNELS.aggRunAndSave,
         save({
           target: {
@@ -414,15 +430,137 @@ describe('agg:* channels via router', () => {
       );
       expect(discard.ok).toBe(true);
       if (!discard.ok) return;
-      expect(discard.data.writtenCount).toBe(0);
+      expect(discard.data.mergeCounts).toEqual({ before: 0, after: 0 });
 
-      const insert = await shim.invoke<{ writtenCount?: number }>(
+      const insert = await shim.invoke<AggSaveCounts>(
         IPC_CHANNELS.aggRunAndSave,
         save({ target: { dbName: DB, collection: 'merged_insert', mode: '$merge' } }),
       );
       expect(insert.ok).toBe(true);
       if (!insert.ok) return;
-      expect(insert.data.writtenCount).toBe(3);
+      expect(insert.data.mergeCounts).toEqual({ before: 0, after: 3 });
+    });
+
+    it('reports a $merge into a populated target as before and after totals, not as documents written', async () => {
+      const into = 'merge_into_existing';
+      const client = await pool.write(RW).client();
+      await client.db(DB).collection(into).insertMany([{ _id: 'keep-1' as never }, { _id: 'keep-2' as never }]);
+      const merge = () =>
+        shim.invoke<AggSaveCounts>(
+          IPC_CHANNELS.aggRunAndSave,
+          save({ target: { dbName: DB, collection: into, mode: '$merge' } }),
+        );
+
+      // Three new documents land in a target that already holds two.
+      const first = await merge();
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.mergeCounts).toEqual({ before: 2, after: 5 });
+      // The target's total is not a count of what the merge wrote.
+      expect(first.data.writtenCount).toBeUndefined();
+
+      // The same three again only update in place: the total does not move.
+      const again = await merge();
+      expect(again.ok).toBe(true);
+      if (!again.ok) return;
+      expect(again.data.mergeCounts).toEqual({ before: 5, after: 5 });
+    });
+
+    it('still succeeds without counts, and logs, when the target cannot be counted', async () => {
+      const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const logged = new AggregationService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db)), log);
+      // The write path takes its handle from the write grant, so only the
+      // count probes go through `readDb`. The connection is fine; the count
+      // itself is refused, as for a user without the `find` privilege.
+      vi.spyOn(pool, 'readDb').mockResolvedValue({
+        collection: () => ({
+          countDocuments: async () => {
+            throw new Error('probe refused');
+          },
+        }),
+      } as unknown as Db);
+
+      const result = await logged.runAndSave(
+        save({ target: { dbName: DB, collection: 'merge_uncounted', mode: '$merge' } }) as never,
+      );
+
+      expect(result.mergeCounts).toBeUndefined();
+      expect(result.writtenCount).toBeUndefined();
+      expect(log.warn).toHaveBeenCalledWith(
+        'agg',
+        'counting the save target failed',
+        expect.objectContaining({ collection: 'merge_uncounted', message: 'probe refused' }),
+      );
+      vi.restoreAllMocks();
+      expect(await countOf('merge_uncounted')).toBe(3);
+    });
+
+    it('does not fail a $merge that already wrote because the connection dropped before the closing count', async () => {
+      const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const logged = new AggregationService(pool, new RecentQueryService(new RecentQueryRepo(tmp.db)), log);
+      const readDb = pool.readDb.bind(pool);
+      // First call is the count before the write; the second is the one after.
+      vi.spyOn(pool, 'readDb')
+        .mockImplementationOnce(readDb)
+        .mockRejectedValueOnce(new Error('connection dropped'));
+
+      const result = await logged.runAndSave(
+        save({ target: { dbName: DB, collection: 'merge_dropped', mode: '$merge' } }) as never,
+      );
+
+      expect(result.mergeCounts).toBeUndefined();
+      expect(log.warn).toHaveBeenCalledWith(
+        'agg',
+        'counting the save target failed',
+        expect.objectContaining({ message: 'connection dropped' }),
+      );
+      vi.restoreAllMocks();
+      expect(await countOf('merge_dropped')).toBe(3);
+    });
+
+    it('reports an unreachable connection once for a $merge, not once for the count and again for the write', async () => {
+      // Each connect attempt costs a full server-selection wait, so a second
+      // one is the user's second wait for the same error.
+      const connect = vi.spyOn(pool, 'connect');
+
+      await expect(
+        svc.runAndSave(
+          save({
+            connectionId: DEAD,
+            target: { dbName: DB, collection: 'merge_dead', mode: '$merge' },
+          }) as never,
+        ),
+      ).rejects.toMatchObject({ code: 'DB_ERROR' });
+
+      expect(connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('honours a cancel that arrives while the $merge target is still being counted', async () => {
+      const into = 'merge_cancelled';
+      const token = 'cancel-during-count';
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const readDb = pool.readDb.bind(pool);
+      // Hold the first call, the count before the write, open.
+      const held = vi.spyOn(pool, 'readDb').mockImplementationOnce(async (id, dbName) => {
+        await gate;
+        return readDb(id, dbName);
+      });
+
+      const settled = svc
+        .runAndSave(
+          save({ target: { dbName: DB, collection: into, mode: '$merge' }, cancelToken: token }) as never,
+        )
+        .catch((e: unknown) => e);
+      await vi.waitFor(() => expect(held).toHaveBeenCalledTimes(1));
+      svc.cancel(token);
+      release();
+
+      expect(await settled).toMatchObject({ code: 'INTERNAL', message: 'cancelled' });
+      vi.restoreAllMocks();
+      expect(await exists(into)).toBe(false);
     });
 
     it('forwards whenMatched: a populated target merges by default but fails with whenMatched fail', async () => {
@@ -452,7 +590,7 @@ describe('agg:* channels via router', () => {
 
     it('writes into another database when the target names one', async () => {
       const copyDb = `${DB}_copy`;
-      const env = await shim.invoke<{ writtenCount?: number }>(
+      const env = await shim.invoke<AggSaveCounts>(
         IPC_CHANNELS.aggRunAndSave,
         save({ target: { dbName: copyDb, collection: 'copied_fruit', mode: '$out' } }),
       );

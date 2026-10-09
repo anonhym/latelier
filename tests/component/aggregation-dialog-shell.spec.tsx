@@ -680,6 +680,41 @@ describe('SaveAsCollectionModal — dialog shell + guard (X15 T6)', () => {
     });
 
     /**
+     * MUTATION TARGET — drop `mode` or `mergeCounts` from the `onWritten` call
+     * and this goes red: the toast can no longer tell a `$merge` from an
+     * `$out`, and falls back to reporting nothing about the target's size.
+     */
+    it('hands the write mode and the merge counts to onWritten', async () => {
+      installAtelierMock({
+        agg: { runAndSave: (async () => ({ mergeCounts: { before: 2, after: 5 } })) as never },
+      });
+      const onWritten = vi.fn();
+      render(
+        <SaveAsCollectionModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onWritten={onWritten}
+        />,
+      );
+      fireEvent.change(within(modal()).getByLabelText('Mode'), { target: { value: '$merge' } });
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccount' } });
+
+      fireEvent.click(within(modal()).getByRole('button', { name: 'Confirm $merge' }));
+
+      await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+      expect(onWritten).toHaveBeenCalledWith({
+        dbName: 'shop',
+        collection: 'monthlyByAccount',
+        mode: '$merge',
+        mergeCounts: { before: 2, after: 5 },
+      });
+    });
+
+    /**
      * MUTATION TARGET — neuter the `<form onSubmit>` in
      * `SaveAsCollectionModal` (drop the `void submit()`) and this goes red:
      * the fields become bare siblings again and Enter does nothing.

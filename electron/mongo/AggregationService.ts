@@ -4,6 +4,7 @@ import type {
   AggInput,
   AggResultWire,
   AggRunAndSaveInput,
+  AggSaveCounts,
   AggStagePreview,
   PreviewInput,
   Stage,
@@ -235,9 +236,7 @@ export class AggregationService {
     }
   }
 
-  async runAndSave(
-    input: AggRunAndSaveInput,
-  ): Promise<AggResultWire & { writtenCount?: number }> {
+  async runAndSave(input: AggRunAndSaveInput): Promise<AggResultWire & AggSaveCounts> {
     validateCollectionName(input.target.collection);
     if (
       input.target.mode === '$out' &&
@@ -277,23 +276,39 @@ export class AggregationService {
             enabled: true,
           };
 
+    // `$merge` leaves the target's existing documents in place, so only its
+    // size before the run tells how much of the size after is new.
+    const isMerge = input.target.mode === '$merge';
+    let countBefore: number | undefined;
+    if (isMerge) {
+      // run() registers the cancel token only once it is called, so a cancel
+      // arriving while the target is being counted would find nothing to abort
+      // and the merge would still write. Hold the token here for the count,
+      // then hand it back with no await before run() registers it again.
+      const controller = this.registerCancel(input.cancelToken);
+      try {
+        countBefore = await this.countTarget(input, true);
+      } finally {
+        this.clearCancel(input.cancelToken);
+      }
+      if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
+    }
+
     const result = await this.run({
       ...input,
       stages: [...input.stages, writeStage],
       allowWrite: true,
     });
 
-    let writtenCount: number | undefined;
-    try {
-      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
-      writtenCount = await db
-        .collection(input.target.collection)
-        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
-    } catch {
-      writtenCount = undefined;
-    }
-
-    return { ...result, writtenCount };
+    const countAfter = await this.countTarget(input);
+    if (!isMerge) return { ...result, writtenCount: countAfter };
+    return {
+      ...result,
+      mergeCounts:
+        countBefore !== undefined && countAfter !== undefined
+          ? { before: countBefore, after: countAfter }
+          : undefined,
+    };
   }
 
   async explain(
@@ -333,6 +348,40 @@ export class AggregationService {
   }
 
   // ─── internals ─────────────────────────────────────────────────────────
+
+  /**
+   * Size of a save target, or undefined when it cannot be read. The count only
+   * decorates the success message, so a failed probe must not fail a write that
+   * already happened; it is logged instead.
+   *
+   * `surfaceUnreachable` is for the count taken before the write: a connection
+   * that cannot be reached would make the write fail the same way, after a
+   * second full server-selection wait, so the first failure is thrown instead
+   * and the user sees the error once. Failing to count a reachable target (no
+   * `find` privilege, a timeout) still just drops the count.
+   */
+  private async countTarget(
+    input: AggRunAndSaveInput,
+    surfaceUnreachable = false,
+  ): Promise<number | undefined> {
+    let connected = false;
+    try {
+      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
+      connected = true;
+      return await db
+        .collection(input.target.collection)
+        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      if (surfaceUnreachable && !connected) throw err;
+      this.log?.warn('agg', 'counting the save target failed', {
+        connectionId: input.connectionId,
+        dbName: input.target.dbName,
+        collection: input.target.collection,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
 
   private requireEnabledStages(stages: Stage[]): Stage[] {
     const enabled = stages.filter((s) => s.enabled);

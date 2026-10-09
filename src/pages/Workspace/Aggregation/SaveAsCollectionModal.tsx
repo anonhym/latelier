@@ -7,6 +7,7 @@ import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import { submittingProps } from '../../../components/SubmitButton';
 import type { AggMergeOptions, AggSaveMode, Stage } from '@shared/types';
+import type { SaveResultInfo } from './saveResultMessage';
 
 interface Props {
   connectionId: string;
@@ -14,7 +15,7 @@ interface Props {
   collection: string;
   stages: Stage[];
   onClose: () => void;
-  onWritten: (info: { dbName: string; collection: string; count?: number }) => void;
+  onWritten: (info: SaveResultInfo) => void;
 }
 
 export function SaveAsCollectionModal({
@@ -99,7 +100,9 @@ export function SaveAsCollectionModal({
       onWritten({
         dbName: targetDb.trim(),
         collection: targetColl.trim(),
-        count: result.writtenCount,
+        mode,
+        writtenCount: result.writtenCount,
+        mergeCounts: result.mergeCounts,
       });
       onClose();
     } catch (e) {

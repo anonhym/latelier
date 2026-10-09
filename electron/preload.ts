@@ -3,6 +3,7 @@ import { IPC_CHANNELS, type Envelope, type IpcApi, type MenuCommand } from '@sha
 import type {
   AggResult,
   AggResultWire,
+  AggSaveCounts,
   DataImportProgressEvent,
   FindResult,
   FindResultWire,
@@ -207,7 +208,7 @@ const api: IpcApi = {
     previewUpToStage: (input) => call(IPC_CHANNELS.aggPreviewUpToStage, input),
     cancel: (input) => call(IPC_CHANNELS.aggCancel, input),
     runAndSave: async (input) => parseAggResult(
-      await call<AggResultWire & { writtenCount?: number }>(IPC_CHANNELS.aggRunAndSave, input),
+      await call<AggResultWire & AggSaveCounts>(IPC_CHANNELS.aggRunAndSave, input),
     ),
     explain: (input) => call(IPC_CHANNELS.aggExplain, input),
   },

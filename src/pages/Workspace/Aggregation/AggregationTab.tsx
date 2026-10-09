@@ -37,6 +37,7 @@ import type { SuggestionContext } from '../../../features/fieldSuggestions/types
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { ExplainDrawer } from './ExplainDrawer';
 import { SaveAsCollectionModal } from './SaveAsCollectionModal';
+import { saveResultMessage } from './saveResultMessage';
 import { SavePipelineModal } from './SavePipelineModal';
 
 interface Props {
@@ -694,11 +695,7 @@ export function AggregationTab({
           collection={collection}
           stages={stages}
           onClose={() => setSaveAsCollectionOpen(false)}
-          onWritten={(info) => {
-            notify.success(
-              `Wrote ${info.count ?? '?'} documents to ${info.dbName}.${info.collection}`,
-            );
-          }}
+          onWritten={(info) => notify.success(saveResultMessage(info))}
         />
       )}
     </div>
