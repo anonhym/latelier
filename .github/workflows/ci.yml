@@ -216,9 +216,13 @@ jobs:
           # environment; without one it never tries libsecret.
           XDG_CURRENT_DESKTOP: GNOME
         # `dbus-run-session` gives the job its own session bus, and the
-        # keyring daemon is started and unlocked on it with an empty password
-        # before Electron launches, so `safeStorage` selects `gnome_libsecret`.
-        # The vault specs fail, not skip, when that is missing on CI.
+        # keyring daemon is started and unlocked on it before Electron
+        # launches, so `safeStorage` selects `gnome_libsecret`. The daemon only
+        # creates its default ("login") keyring from a non-empty password, so
+        # it gets a throwaway one that exists for this job alone. The
+        # `ReadAlias` line logs which collection libsecret will use: `/` there
+        # means no default keyring exists. The vault specs fail, not skip,
+        # when none is reachable on CI.
         #
         # Electron needs an X server on Linux even when launched
         # programmatically; xvfb-run stands one up for the test process.
@@ -230,7 +234,8 @@ jobs:
         run: |
           dbus-run-session -- bash -c '
             set -euo pipefail
-            eval "$(echo -n "" | gnome-keyring-daemon --unlock --components=secrets)"
+            eval "$(openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets)"
+            dbus-send --session --print-reply --dest=org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service.ReadAlias string:default || echo "ReadAlias failed: no secret service on the session bus"
             exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure

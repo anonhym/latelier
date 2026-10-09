@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import Database from 'better-sqlite3';
-import { failOnCiWhenKeychainMissing } from '../helpers/e2eApp';
+import { failOnCiWhenKeychainMissing, selectedStorageBackend } from '../helpers/e2eApp';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,7 +135,7 @@ test('secret round-trips through safeStorage across a quit + relaunch', async ()
       if (!result.ok && result.code === 'SECRETS_UNAVAILABLE') {
         // Skip: this host has no OS keychain access. The contract under test
         // (encrypt+persist+decrypt) can't run here at all.
-        return { skipped: true as const };
+        return { skipped: true as const, backend: await selectedStorageBackend(app) };
       }
 
       expect(result.ok, `conn.create / mongo.connect failed: ${JSON.stringify(result)}`).toBe(true);
@@ -145,19 +145,15 @@ test('secret round-trips through safeStorage across a quit + relaunch', async ()
       }
 
       // A weak backend would also round-trip, so assert it is a real keyring.
-      // `getSelectedStorageBackend` exists on Linux only.
-      const backend = await app.evaluate(({ safeStorage }) =>
-        process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : null,
-      );
-      expect(['basic_text', 'unknown']).not.toContain(backend);
+      expect(['basic_text', 'unknown']).not.toContain(await selectedStorageBackend(app));
       return { skipped: false as const };
     });
 
     if (firstLaunchOk.skipped) {
-      failOnCiWhenKeychainMissing();
+      failOnCiWhenKeychainMissing(firstLaunchOk.backend);
       test.skip(
         true,
-        'safeStorage.isEncryptionAvailable() is false on this host (CI without libsecret?)',
+        'no usable OS keychain on this host (safeStorage is unavailable)',
       );
       return;
     }

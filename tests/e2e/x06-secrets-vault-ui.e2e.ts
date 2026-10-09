@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   baseConnInput,
   failOnCiWhenKeychainMissing,
+  selectedStorageBackend,
   startMemoryServer,
   stopAllMemoryServers,
   withApp,
@@ -68,10 +69,10 @@ test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async
     }, baseConnInput(host, port));
 
     if (!probe.ok && probe.code === 'SECRETS_UNAVAILABLE') {
-      failOnCiWhenKeychainMissing();
+      failOnCiWhenKeychainMissing(await selectedStorageBackend(app));
       test.skip(
         true,
-        'safeStorage.isEncryptionAvailable() is false on this host (CI without libsecret?)',
+        'no usable OS keychain on this host (safeStorage is unavailable)',
       );
       return;
     }

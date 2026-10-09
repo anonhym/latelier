@@ -26,12 +26,23 @@ const MEMORY_SERVERS: MongoMemoryServer[] = [];
  * that setup broke and the credential-storage coverage silently vanished.
  * Call this just before `test.skip` so CI turns the skip into a failure.
  */
-export function failOnCiWhenKeychainMissing(): void {
+export function failOnCiWhenKeychainMissing(backend: string | null): void {
   if (process.env.CI) {
     throw new Error(
-      'SECRETS_UNAVAILABLE on CI: the runner needs a session keyring (see the "Run E2E" step in .github/workflows/ci.yml)',
+      `SECRETS_UNAVAILABLE on CI (storage backend: ${backend}): the runner needs a session keyring (see the "Run E2E" step in .github/workflows/ci.yml)`,
     );
   }
+}
+
+/**
+ * The credential store Chromium picked, or `null` off Linux, where the concept
+ * does not exist (`getSelectedStorageBackend` is Linux-only). `basic_text` and
+ * `unknown` mean no real keyring was reachable.
+ */
+export function selectedStorageBackend(app: ElectronApplication): Promise<string | null> {
+  return app.evaluate(({ safeStorage }) =>
+    process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : null,
+  );
 }
 
 export function freshUserData(): string {
