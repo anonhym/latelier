@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { IpcApi } from '@shared/ipc';
 import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
-import { IndexesTab } from '../../src/pages/IndexesTab';
+import { IndexesTab, type IndexCreateRequest } from '../../src/pages/IndexesTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { IndexInfo } from '@shared/types';
 
@@ -139,8 +139,8 @@ const settle = async () => {
 };
 
 /** Renders the tab and opens the drawer off the real trigger. */
-async function openDrawer() {
-  setupMocks(async () => ({ name: 'never' }));
+async function openDrawer(create: IpcApi['index']['create'] = async () => ({ name: 'never' })) {
+  setupMocks(create);
   renderTab();
   await waitFor(() => expect(screen.getByText('_id_')).toBeTruthy());
   const trigger = screen.getByText('+ New index').closest('button')!;
@@ -263,5 +263,84 @@ describe('CreateIndexDrawer — unsaved-changes guard (X15 T7)', () => {
 
     await waitFor(() => expect(discardPrompt()).toBeNull());
     expect(drawer()).toBeTruthy();
+  });
+});
+
+/**
+ * A field row with a blank name cannot be created: the server rejects it, so
+ * the drawer keeps the submit button disabled instead of sending a request that
+ * is certain to fail. Whitespace-only counts as blank.
+ */
+describe('CreateIndexDrawer — blank field names', () => {
+  const submitButton = () =>
+    within(drawer()).getByRole('button', { name: 'Create index' }) as HTMLButtonElement;
+
+  it('disables Create index while the first field name is blank, and a click sends no request', async () => {
+    const calls: unknown[] = [];
+    await openDrawer(async (input) => {
+      calls.push(input);
+      return { name: 'never' };
+    });
+
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(submitButton());
+    await settle();
+
+    expect(calls).toEqual([]);
+  });
+
+  it('enables Create index once the first field name has a value', async () => {
+    await openDrawer();
+    fireEvent.change(screen.getByLabelText('Field 1'), { target: { value: 'email' } });
+
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  it('a new blank row from "+ Add field" disables Create index until it is filled', async () => {
+    await openDrawer();
+    fireEvent.change(screen.getByLabelText('Field 1'), { target: { value: 'email' } });
+    fireEvent.click(screen.getByText('+ Add field'));
+
+    expect(submitButton().disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Field 2'), { target: { value: 'createdAt' } });
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  it('removing the blank row re-enables Create index', async () => {
+    await openDrawer();
+    fireEvent.change(screen.getByLabelText('Field 1'), { target: { value: 'email' } });
+    fireEvent.click(screen.getByText('+ Add field'));
+    expect(submitButton().disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove field 2' }));
+
+    expect(screen.queryByLabelText('Field 2')).toBeNull();
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  it('a whitespace-only field name counts as blank', async () => {
+    await openDrawer();
+    fireEvent.change(screen.getByLabelText('Field 1'), { target: { value: '   ' } });
+
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  it('a drawer prefilled with named fields opens with Create index enabled', async () => {
+    setupMocks(async () => ({ name: 'never' }));
+    const request: IndexCreateRequest = {
+      requestId: 'r1',
+      suggestion: {
+        keys: [{ field: 'status', direction: 1 }],
+        reason: "Equality on `status` — MongoDB's ESR order.",
+      },
+    };
+
+    render(
+      <IndexesTab connectionId="c1" dbName="alpha" collection="people" initialCreate={request} />,
+    );
+    await waitFor(() => expect(screen.getByLabelText('Field 1')).toBeTruthy());
+
+    expect(submitButton().disabled).toBe(false);
   });
 });
