@@ -6,6 +6,8 @@ import {
   Separator as PanelResizeHandle,
   type PanelImperativeHandle,
 } from 'react-resizable-panels';
+import { getErrorMessage, isIpcError } from '../../api/atelier';
+import { notify } from '../../theme/notifications';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { isKnownNotConnected } from '../../state/connections';
@@ -116,6 +118,18 @@ function SubTabStrip({
       })}
     </div>
   );
+}
+
+/**
+ * The database the Shell opens on: the focused tab's own. Taken from the tab
+ * and not from `collection`, which is null while the workspace meta loads even
+ * though a collection tab is active. A script tab with a blank field has none,
+ * so the connection's default database applies.
+ */
+function shellDbName(active: WorkspaceTab | null): string | undefined {
+  if (active?.kind === 'collection') return active.dbName;
+  if (active?.kind === 'script') return active.state.dbName?.trim() || undefined;
+  return undefined;
 }
 
 function CenteredPane({ children }: { children: React.ReactNode }) {
@@ -322,6 +336,7 @@ export function PanelBody({
         ) : activeScript ? (
           <ScriptTab
             tab={activeScript}
+            defaultDb={focusedConnection?.defaultDb}
             onPatch={patchActiveScript}
           />
         ) : collection ? (
@@ -482,13 +497,26 @@ export function PanelBody({
                           savedRefreshKey={collection.savedRefreshKey}
                           onOpenInTab={(saved) => {
                             if (saved.kind === 'aggregation') {
-                              void tabs.openAggregation({
-                                connectionId: saved.connectionId,
-                                dbName: saved.dbName,
-                                collection: saved.collection,
-                                savedId: saved.id,
-                                name: saved.name,
-                              });
+                              // Main loads the stored stages and refuses a pipeline
+                              // that was deleted since the list loaded; say so rather
+                              // than leave the click doing nothing.
+                              tabs
+                                .openAggregation({
+                                  connectionId: saved.connectionId,
+                                  dbName: saved.dbName,
+                                  collection: saved.collection,
+                                  savedId: saved.id,
+                                  name: saved.name,
+                                })
+                                .catch((e: unknown) =>
+                                  notify.error(
+                                    // Main's NOT_FOUND text names the row by its id.
+                                    isIpcError(e) && e.code === 'NOT_FOUND'
+                                      ? 'It no longer exists.'
+                                      : getErrorMessage(e, String(e)),
+                                    { title: `Could not open “${saved.name}”` },
+                                  ),
+                                );
                             } else if (saved.kind === 'script') {
                               void tabs.openScript({ connectionId: saved.connectionId });
                             }
@@ -575,6 +603,7 @@ export function PanelBody({
               <MongoShellPane
                 connectionId={focusedConnection.id}
                 connectionName={focusedConnection.name}
+                dbName={shellDbName(active)}
                 onClose={() => setShellOpen(false)}
               />
             </Panel>

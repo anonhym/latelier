@@ -125,7 +125,11 @@ export function SuggestionPopover({
   }, [shown, anchorRef, keyboardRef]);
 
   // Keyboard navigation bound to the anchor element so focus can stay on the input.
-  React.useEffect(() => {
+  // A layout effect for the same reason as the attribute above: a passive
+  // one can trail the commit, and a key pressed in that gap reads the list
+  // the screen no longer shows. An Escape right after the list hides is then
+  // claimed for an invisible list, and the enclosing control stays open.
+  React.useLayoutEffect(() => {
     if (!open) return;
     const el = (keyboardRef ?? anchorRef).current;
     if (!el) return;

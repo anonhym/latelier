@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import * as vm from 'node:vm';
 import {
   ObjectId,
@@ -14,6 +15,7 @@ import {
   UUID,
 } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
+import { ejsonStringifyRelaxed } from '../mongo/ejson.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { encodeResultJson } from './encodeResult.ts';
 import { openChannel } from './channel.ts';
@@ -61,6 +63,8 @@ async function execute(
   const t0 = Date.now();
   const dbCtx = { currentDb: req.dbName };
 
+  const show = (value: unknown): string => stringifyForPrint(value, rpc);
+
   const sandbox: Record<string, unknown> = {
     db: rpc.makeDb(dbCtx),
     use: (name: string): string => {
@@ -71,10 +75,10 @@ async function execute(
       return `switched to db ${name}`;
     },
     print: (...args: unknown[]): void => {
-      appendPrint(args.map(stringifyForPrint).join(' ') + '\n');
+      appendPrint(args.map(show).join(' ') + '\n');
     },
     printjson: (value: unknown): void => {
-      appendPrint(stringifyForPrint(value) + '\n');
+      appendPrint(show(value) + '\n');
     },
     signal: ctrl.signal,
     EJSON,
@@ -96,11 +100,11 @@ async function execute(
     NumberInt: (v: string | number): Int32 => new Int32(Number(v)),
     // Console-ish surface so users can debug. Maps to print buffer too.
     console: {
-      log: (...args: unknown[]) => appendPrint(args.map(stringifyForPrint).join(' ') + '\n'),
+      log: (...args: unknown[]) => appendPrint(args.map(show).join(' ') + '\n'),
       error: (...args: unknown[]) =>
-        appendPrint('ERROR: ' + args.map(stringifyForPrint).join(' ') + '\n'),
+        appendPrint('ERROR: ' + args.map(show).join(' ') + '\n'),
       warn: (...args: unknown[]) =>
-        appendPrint('WARN: ' + args.map(stringifyForPrint).join(' ') + '\n'),
+        appendPrint('WARN: ' + args.map(show).join(' ') + '\n'),
     },
   };
 
@@ -126,7 +130,8 @@ async function execute(
       `[cursor truncated to first ${CURSOR_AUTO_ITERATE_LIMIT} documents — call .toArray() for the full result]\n`,
     );
   }
-  const finalValue = materialized.value;
+  // A collection would encode as `{}`, an empty document: its one-line hint is the result.
+  const finalValue = rpc.isCollection(materialized.value) ? inspect(materialized.value) : materialized.value;
   const valueJson =
     finalValue === undefined ? null : encodeResultJson(finalValue, req.ejsonRelaxed);
   return { type: 'result', valueJson, printBuffer: '', durationMs: Date.now() - t0 };
@@ -200,10 +205,14 @@ async function materializeIfCursor(
   }
 }
 
-function stringifyForPrint(value: unknown): string {
+function stringifyForPrint(value: unknown, rpc: RpcClient): string {
   if (typeof value === 'string') return value;
+  // EJSON prints a collection or a cursor (both hold their state out of sight)
+  // as `{}`, which reads as an empty document: print the one-line hint instead.
+  if (rpc.isCollection(value) || rpc.isCursor(value)) return inspect(value);
   try {
-    return EJSON.stringify(value as object, undefined, 2, { relaxed: true });
+    // EJSON has no form for a function, so it falls back to inspect as the shell does.
+    return ejsonStringifyRelaxed(value, 2) ?? inspect(value);
   } catch {
     return String(value);
   }
@@ -217,6 +226,7 @@ function isRunRequest(m: unknown): m is RunRequest {
 
 function main(): void {
   const channel = openChannel();
+  const rpc = createRpcClient((frame) => channel.post(frame));
   let printBuffer = '';
   const appendPrint = (chunk: string): void => {
     if (printBuffer.length >= PRINT_BUFFER_CAP) return;
@@ -229,11 +239,10 @@ function main(): void {
     // An Error from the script's realm is not `instanceof Error` here and
     // stringifies to `{}`, so read its message directly.
     const message = (reason as { message?: unknown } | null)?.message;
-    const text = typeof message === 'string' ? message : stringifyForPrint(reason);
+    const text = typeof message === 'string' ? message : stringifyForPrint(reason, rpc);
     appendPrint(`ERROR: unhandled rejection: ${text}\n`);
   });
 
-  const rpc = createRpcClient((frame) => channel.post(frame));
   let started = false;
   channel.onMessage((message) => {
     if (rpc.handleReply(message)) return;

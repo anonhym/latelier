@@ -475,10 +475,10 @@ persisting those, a second regression alongside the filter one. Required:
    **required**, shrunk to `{ sort; limit; projection }` — the same shape
    `BuilderState` shrinks to above — only `conditions` and `logic` are retired
    from it, because they're the only parts the tree model replaces. New saves
-   write `queryRaw` + the shrunk `builder`. The IPC zod schema
-   (`electron/ipc/handlers/saved.ts`) validates payloads as
-   `z.record(z.string(), z.unknown())`, so legacy rows carrying the old
-   `conditions`/`logic` keys pass validation untouched — the type discipline
+   write `queryRaw` + the shrunk `builder`. The IPC zod schemas
+   (`electron/ipc/schemas/saved.ts`) check a payload per kind on write with
+   loose objects and never check one on read, so legacy rows carrying the old
+   `conditions`/`logic` keys pass untouched — the type discipline
    above (`SavedFindPayload` vs `LegacySavedFindPayload`) is renderer-side
    only, a distinction the wire never sees. `RecentQueryService` already
    writes `queryRaw` on every record, so recents need nothing beyond the same

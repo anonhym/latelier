@@ -4,6 +4,7 @@ import type {
   AggInput,
   AggResultWire,
   AggRunAndSaveInput,
+  AggSaveCounts,
   AggStagePreview,
   PreviewInput,
   Stage,
@@ -17,7 +18,8 @@ import {
 } from '../errors.ts';
 import { classifyMongoOpError } from './errors.ts';
 import type { MongoPool, WriteGrant } from './MongoPool.ts';
-import type { RecentQueryService } from '../services/RecentQueryService.ts';
+import { logRecentWriteFailure, type RecentQueryService } from '../services/RecentQueryService.ts';
+import type { Logger } from '../log.ts';
 import { isWriteStage } from './writeStages.ts';
 import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
@@ -37,13 +39,22 @@ export class AggregationService {
   private pool: MongoPool;
   private recent: RecentQueryService;
   private active = new Map<string, CancelEntry>();
+  private log: Logger | undefined;
 
-  constructor(pool: MongoPool, recent: RecentQueryService) {
+  constructor(pool: MongoPool, recent: RecentQueryService, log?: Logger) {
     this.pool = pool;
     this.recent = recent;
+    this.log = log;
   }
 
-  async run(input: AggInput): Promise<AggResultWire> {
+  /**
+   * `beforeExecute` runs once the pipeline is validated, the write grant is
+   * taken and the cancel token is registered, just before the pipeline
+   * executes. `runAndSave` counts a `$merge` target there, so a read-only
+   * connection or a malformed stage is refused before the server is asked
+   * anything (ADR 0005), and a cancel during the count stops the write.
+   */
+  async run(input: AggInput, beforeExecute?: () => Promise<void>): Promise<AggResultWire> {
     const enabled = this.requireEnabledStages(input.stages);
     const writeStage = enabled.find((s) => isWriteStage(s.op));
     if (writeStage && !input.allowWrite) {
@@ -87,9 +98,14 @@ export class AggregationService {
       grant,
     );
     const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-    const t0 = Date.now();
+    let t0 = Date.now();
 
     try {
+      if (beforeExecute) {
+        await beforeExecute();
+        if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
+        t0 = Date.now();
+      }
       let rowsJson: string;
       let rowCount: number;
       let hasMore: boolean;
@@ -147,7 +163,7 @@ export class AggregationService {
           durationMs,
           rowCount,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
 
       return {
         rowsJson,
@@ -175,7 +191,7 @@ export class AggregationService {
           0,
           classified.code,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       throw classified;
     } finally {
       this.clearCancel(input.cancelToken);
@@ -232,9 +248,7 @@ export class AggregationService {
     }
   }
 
-  async runAndSave(
-    input: AggRunAndSaveInput,
-  ): Promise<AggResultWire & { writtenCount?: number }> {
+  async runAndSave(input: AggRunAndSaveInput): Promise<AggResultWire & AggSaveCounts> {
     validateCollectionName(input.target.collection);
     if (
       input.target.mode === '$out' &&
@@ -274,23 +288,32 @@ export class AggregationService {
             enabled: true,
           };
 
-    const result = await this.run({
-      ...input,
-      stages: [...input.stages, writeStage],
-      allowWrite: true,
-    });
+    // `$merge` leaves the target's existing documents in place, so only its
+    // size before the run tells how much of the size after is new.
+    const isMerge = input.target.mode === '$merge';
+    let countBefore: number | undefined;
+    const result = await this.run(
+      {
+        ...input,
+        stages: [...input.stages, writeStage],
+        allowWrite: true,
+      },
+      isMerge
+        ? async () => {
+            countBefore = await this.countTarget(input);
+          }
+        : undefined,
+    );
 
-    let writtenCount: number | undefined;
-    try {
-      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
-      writtenCount = await db
-        .collection(input.target.collection)
-        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
-    } catch {
-      writtenCount = undefined;
-    }
-
-    return { ...result, writtenCount };
+    const countAfter = await this.countTarget(input);
+    if (!isMerge) return { ...result, writtenCount: countAfter };
+    return {
+      ...result,
+      mergeCounts:
+        countBefore !== undefined && countAfter !== undefined
+          ? { before: countBefore, after: countAfter }
+          : undefined,
+    };
   }
 
   async explain(
@@ -330,6 +353,30 @@ export class AggregationService {
   }
 
   // ─── internals ─────────────────────────────────────────────────────────
+
+  /**
+   * Size of a save target, or undefined when it cannot be read. The count only
+   * decorates the success message, so a failed probe must not fail a write that
+   * already happened; it is logged instead. The count before a `$merge` runs
+   * only once `run()` has connected, so an unreachable server has already
+   * failed the save, once, before this is reached.
+   */
+  private async countTarget(input: AggRunAndSaveInput): Promise<number | undefined> {
+    try {
+      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
+      return await db
+        .collection(input.target.collection)
+        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      this.log?.warn('agg', 'counting the save target failed', {
+        connectionId: input.connectionId,
+        dbName: input.target.dbName,
+        collection: input.target.collection,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
 
   private requireEnabledStages(stages: Stage[]): Stage[] {
     const enabled = stages.filter((s) => s.enabled);

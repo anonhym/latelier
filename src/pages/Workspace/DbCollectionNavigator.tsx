@@ -206,7 +206,7 @@ export function DbCollectionNavigator({
   onOpenReferences,
 }: DbCollectionNavigatorProps) {
   const T = themeVars;
-  const { state: tree, dispatch } = useNavigatorTree();
+  const { state: tree, dispatch, isMounted } = useNavigatorTree();
   const { caches, connectErrors, expandedConnId, expanded } = tree;
   const [filter, setFilter] = React.useState('');
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
@@ -241,6 +241,9 @@ export function DbCollectionNavigator({
         // A brand-new database can be briefly invisible to listDatabases right
         // after connect (driver/server catalog-visibility race) — one bounded retry.
         await new Promise((resolve) => setTimeout(resolve, EMPTY_DB_RETRY_DELAY_MS));
+        // The navigator can unmount during the delay; a gone view must not
+        // spend another main-process round trip on a result nobody will read.
+        if (!isMounted()) return null;
         rows = await api.meta.listDatabases({ connectionId: id });
       }
       dispatch({ type: 'dbsLoadSuccess', id, dbs: rows });
@@ -252,7 +255,7 @@ export function DbCollectionNavigator({
       dispatch({ type: 'dbsLoadError', id, err });
       return null;
     }
-  }, [dispatch]);
+  }, [dispatch, isMounted]);
 
   const loadColls = React.useCallback(async (id: string, dbName: string) => {
     dispatch({ type: 'collsLoadStart', id, dbName });
@@ -1288,6 +1291,7 @@ export function DbCollectionNavigator({
           returnFocusTo={menuTrigger}
           onClose={closeImport}
           onImported={handleImported}
+          onPartialImport={handleImported}
         />
       )}
 

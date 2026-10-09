@@ -10,13 +10,24 @@ import {
   expectSeparatorResizesPanel,
 } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
+import { startCompletion } from '@codemirror/autocomplete';
+import { EditorView } from '@codemirror/view';
 import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module ScriptTab imports; the rest stays real because
+// the editor reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 function tab(over: Partial<ScriptTabModel> = {}): ScriptTabModel {
@@ -285,6 +296,51 @@ function ControlledScriptTab({ initial }: { initial: ScriptTabModel }) {
   return <ScriptTab tab={t} onPatch={onPatch} />;
 }
 
+// A script can write to any collection of its Connection, and the renderer
+// can't tell which, so a finished run drops the whole Connection's
+// field-suggestion samples. A run that throws may have written first.
+describe('ScriptTab — field-suggestion sample', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+  it('drops the Connection\'s samples once a run finishes, not before', async () => {
+    let finish!: () => void;
+    const run = vi.fn<IpcApi['script']['run']>(
+      () => new Promise((resolve) => { finish = () => resolve({ valueJson: '1', printBuffer: '', durationMs: 1 }); }),
+    );
+    installAtelierMock({ script: { run, cancel: async () => undefined } });
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+
+    fireEvent.click(screen.getByText('▶ Run'));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(invalidate).not.toHaveBeenCalled();
+
+    finish();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('drops them when the run fails too, since it may have written before throwing', async () => {
+    const run = vi.fn<IpcApi['script']['run']>(async () => {
+      throw { code: 'SCRIPT_ERROR', message: 'boom' };
+    });
+    installAtelierMock({ script: { run, cancel: async () => undefined } });
+    const onPatch = vi.fn();
+    render(<ScriptTab tab={tab()} onPatch={onPatch} />);
+
+    fireEvent.click(screen.getByText('▶ Run'));
+
+    await waitFor(() => expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({ lastError: expect.anything() })));
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1');
+  });
+
+  it('leaves them alone while no run has happened', () => {
+    installAtelierMock();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
 describe('ScriptTab result-panel resize keyboard support (#56)', () => {
   function renderWithResult() {
     installAtelierMock();
@@ -349,5 +405,86 @@ describe('ScriptTab result-panel resize keyboard support (#56)', () => {
       shrinkKey: '{ArrowDown}',
       growKey: '{ArrowUp}',
     });
+  });
+});
+
+describe('ScriptTab — completion database', () => {
+  function installListSpy() {
+    const listSpy = vi.fn<IpcApi['meta']['listCollections']>(async () => []);
+    installAtelierMock({ meta: { listCollections: listSpy } });
+    return listSpy;
+  }
+
+  it("lists the connection's default database's collections when the DB field is blank", async () => {
+    const listSpy = installListSpy();
+    render(<ScriptTab tab={tab()} defaultDb="smoke" onPatch={() => {}} />);
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }),
+    );
+    expect(listSpy).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'test' }));
+  });
+
+  it('a typed database name wins over the connection default', async () => {
+    const listSpy = installListSpy();
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 't', source: '', dbName: 'typed' } })}
+        defaultDb="smoke"
+        onPatch={() => {}}
+      />,
+    );
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'typed' }),
+    );
+    expect(listSpy).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'smoke' }));
+  });
+
+  it('falls back to test when the field is blank and the connection has no default', async () => {
+    const listSpy = installListSpy();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'test' }),
+    );
+  });
+
+  // The collection list above is fed `effectiveDb` directly by ScriptTab, so it
+  // cannot tell whether the same value also reached the editor. The editor
+  // falls back to `test` on its own when it is handed a blank name, so the
+  // sampling request is what proves the prop was wired.
+  it("samples field names from the connection's default database when the DB field is blank", async () => {
+    // Never settles: the request is recorded, and no completion popup (which
+    // needs layout jsdom lacks) is ever rendered.
+    const sampleSchema = vi.fn<IpcApi['meta']['sampleSchema']>(() => new Promise(() => {}));
+    installAtelierMock({ meta: { sampleSchema } });
+    const source = 'db.wiring.find({  })';
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 't', source } })}
+        defaultDb="smoke"
+        onPatch={() => {}}
+      />,
+    );
+
+    const editor = screen.getByTestId('script-editor').querySelector<HTMLElement>('.cm-editor');
+    const view = EditorView.findFromDOM(editor!)!;
+    view.dispatch({ selection: { anchor: source.indexOf('  })') + 1 } });
+    startCompletion(view);
+
+    await waitFor(() =>
+      expect(sampleSchema).toHaveBeenCalledWith({
+        connectionId: 'c1',
+        dbName: 'smoke',
+        collection: 'wiring',
+      }),
+    );
+    expect(sampleSchema).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'test' }));
+  });
+
+  it('re-lists when the default database changes under a blank field', async () => {
+    const listSpy = installListSpy();
+    const { rerender } = render(<ScriptTab tab={tab()} defaultDb="smoke" onPatch={() => {}} />);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }));
+    rerender(<ScriptTab tab={tab()} defaultDb="other" onPatch={() => {}} />);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'other' }));
   });
 });

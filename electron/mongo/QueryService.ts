@@ -1,14 +1,19 @@
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import type { Sort } from 'mongodb';
-import { EJSON } from 'bson';
 import type { FindInput, FindResultWire, ExplainInput, QueryExportInput, QueryExportResult } from '@shared/types';
-import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, ejsonEncodeArrayJson, parseEjsonDocument } from './ejson.ts';
+import {
+  DEFAULT_MAX_EJSON_BYTES,
+  ejsonEncode,
+  ejsonEncodeArrayJson,
+  ejsonStringifyRelaxed,
+  parseEjsonDocument,
+} from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { SystemError, ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
 import type { Logger } from '../log.ts';
-import type { RecentQueryService } from '../services/RecentQueryService.ts';
+import { logRecentWriteFailure, type RecentQueryService } from '../services/RecentQueryService.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 // The main process has no `src/` precedent, but `exportFormat.ts` is a pure
 // module (no React/Mantine — verified: it imports only `bson`, `utils/ejson`
@@ -31,12 +36,14 @@ export const DEFAULT_EXPORT_CAP = 100_000;
 /**
  * One JSON-array element's text, indented to match a whole-array
  * `JSON.stringify(docs, null, 2)`: every element's own lines gain one
- * `'  '` (2-space) prefix. Verified byte-identical to
- * `exportFormat.ts`'s `serializeJsonArray` for the same documents — see
- * `tests/integration/query-export.spec.ts`.
+ * `'  '` (2-space) prefix. `text` is the element already pretty-printed with
+ * 2 spaces. Verified byte-identical to `exportFormat.ts`'s
+ * `serializeJsonArray` for the same documents — see
+ * `tests/integration/query-export.spec.ts` — save one case: a Long past 2^53
+ * inside a Code's scope, which this side keeps wrapped and the page rounds.
  */
-function jsonArrayElementText(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+function jsonArrayElementText(text: string): string {
+  return text
     .split('\n')
     .map((line) => `  ${line}`)
     .join('\n');
@@ -98,16 +105,18 @@ export class QueryService {
         maxBytes: DEFAULT_MAX_EJSON_BYTES,
       });
       // Fire-and-forget: writing recent-query history must not block the
-      // result returning to the renderer. Errors are non-actionable here;
-      // the next refresh of the recent list reconciles.
-      void this.recent.recordFind(input, durationMs, docs.length).catch(() => {});
+      // result returning to the renderer, nor may its failure fail the query.
+      // The failure is logged, not dropped.
+      void this.recent
+        .recordFind(input, durationMs, docs.length)
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       return { documentsJson, durationMs, hasMore: docs.length === limit };
     } catch (err) {
       const durationMs = Date.now() - t0;
       const classified = classifyMongoOpError(err);
       void this.recent
         .recordFind(input, durationMs, 0, classified.code)
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       throw classified;
     } finally {
       if (input.cancelToken) this.active.delete(input.cancelToken);
@@ -187,7 +196,8 @@ export class QueryService {
    * Every document is first canonicalized with `ejsonEncode(doc, false)` —
    * the same wire shape `find`'s `documentsJson` sends the renderer — before
    * handing it to `exportFormat.ts`'s own CSV/Relaxed helpers, so this
-   * output matches the page export byte-for-byte for the same documents.
+   * output matches the page export byte-for-byte for the same documents,
+   * except that a Long past 2^53 inside a Code's scope stays exact here.
    *
    * `input.limit` (the builder's own limit, already compiled by the
    * renderer) is honoured when set, capped at `exportCap`; a limited export
@@ -273,15 +283,13 @@ export class QueryService {
         if (input.format === 'csv') {
           await write(csvRowLine(wire, columns!) + '\n');
         } else if (input.format === 'jsonl') {
-          const line = input.relaxed
-            ? (EJSON.stringify(revive(wire) as object, undefined, undefined, { relaxed: true }) as string)
-            : JSON.stringify(wire);
+          // A document always serializes, so `ejsonStringifyRelaxed` is never `undefined` here.
+          const line = input.relaxed ? (ejsonStringifyRelaxed(revive(wire)) as string) : JSON.stringify(wire);
           await write(line + '\n');
         } else {
-          const plain = input.relaxed
-            ? EJSON.serialize(revive(wire) as object, { relaxed: true })
-            : wire;
-          const element = jsonArrayElementText(plain);
+          const element = jsonArrayElementText(
+            input.relaxed ? (ejsonStringifyRelaxed(revive(wire), 2) as string) : JSON.stringify(wire, null, 2),
+          );
           await write((jsonArrayStarted ? ',\n' : '[\n') + element);
           jsonArrayStarted = true;
         }

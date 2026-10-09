@@ -11,6 +11,7 @@ import type {
 import { api, getErrorMessage } from '../../api/atelier';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { offerUndo } from './offerUndo';
 
 interface ImportDialogProps {
@@ -22,6 +23,11 @@ interface ImportDialogProps {
   onClose: () => void;
   /** Called once the import has run, while the dialog stays open on its report. */
   onImported: (report: ImportReport) => void;
+  /** Called when a failure stopped the import after some documents had
+   *  landed: there is no report to show, but the collection has changed, so
+   *  the host refreshes whatever lists it (same role as DocumentEditor's
+   *  `onPartialInsert`). */
+  onPartialImport: () => void;
   /** Supplied when the opener is gone by first render (context menu). */
   returnFocusTo?: HTMLElement | null;
 }
@@ -63,6 +69,7 @@ export function ImportDialog({
   readOnly = false,
   onClose,
   onImported,
+  onPartialImport,
   returnFocusTo,
 }: ImportDialogProps) {
   const close = useDialogFocusReturn(onClose, returnFocusTo);
@@ -100,17 +107,40 @@ export function ImportDialog({
   };
 
   const importPath = async (path: string, cancelToken: string, mapping?: DataImportInput['csv']) => {
-    const result = await api.data.import({
-      connectionId, dbName, collection, path, cancelToken, ...(mapping ? { csv: mapping } : {}),
-    });
+    // The field-suggestion sample describes the pre-import documents. This
+    // dialog never goes through `useDocumentDialogs`, so it drops it itself.
+    const dropStaleSample = () => invalidateSampleSchemaCache(connectionId, dbName, collection);
+    let result: ImportReport;
+    try {
+      result = await api.data.import({
+        connectionId, dbName, collection, path, cancelToken, ...(mapping ? { csv: mapping } : {}),
+      });
+    } catch (err) {
+      // A failure that stops the import part-way says how many documents had
+      // landed by then (same shape as DocumentEditor's partial insert); a
+      // refusal before any batch carries none and leaves the sample alone.
+      const details = (err as { details?: unknown }).details;
+      const insertedCount =
+        details !== null && typeof details === 'object'
+          ? (details as { insertedCount?: unknown }).insertedCount
+          : undefined;
+      if (typeof insertedCount === 'number' && insertedCount > 0) {
+        dropStaleSample();
+        onPartialImport();
+      }
+      throw err;
+    }
+    dropStaleSample();
     setCsv(null);
     setReport(result);
     onImported(result);
     // No toast when nothing landed — `result.auditId` is only set when
-    // something did (offerUndo no-ops on undefined either way).
-    offerUndo(`${plural(result.inserted, 'document')} imported from ${result.fileName}`, result.auditId, () =>
-      onImported(result),
-    );
+    // something did (offerUndo no-ops on undefined either way). Undo removes
+    // the imported documents, so it drops the sample again.
+    offerUndo(`${plural(result.inserted, 'document')} imported from ${result.fileName}`, result.auditId, () => {
+      dropStaleSample();
+      onImported(result);
+    });
   };
 
   const chooseAndImport = async () => {

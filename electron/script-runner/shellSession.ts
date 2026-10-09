@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream';
 import * as repl from 'node:repl';
-import { inspect } from 'node:util';
+import { inspect, types } from 'node:util';
+import type { Context } from 'node:vm';
 import { ejsonStringifyRelaxed } from '../mongo/ejson.ts';
 import type { Channel } from './channel.ts';
 import type { RpcClient } from './rpcClient.ts';
@@ -37,32 +38,72 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
     terminal: false,
     useColors: false,
     ignoreUndefined: true,
-    // A cursor prints its one-line hint; everything else goes through the EJSON writer.
-    writer: (value: unknown) => (rpc.isCursor(value) ? inspect(value) : shellWriter(value)),
+    // A cursor and a collection print their one-line hint; EJSON would print a
+    // collection (an empty proxy) as `{}`, which reads as an empty result.
+    writer: (value: unknown) =>
+      rpc.isCursor(value) || rpc.isCollection(value) ? inspect(value) : shellWriter(value),
   });
-  server.context.db = db;
-  server.context.use = (name: string) => {
-    ctx.currentDb = name;
-    server.setPrompt(`${name}> `);
-    return `switched to db ${name}`;
+  // Node's REPL prints a top-level Promise as it is and only awaits an
+  // explicit `await`. A query call is always async here, so settle a thenable
+  // result before it reaches the writer. Input is not paused meanwhile: a
+  // result that never arrives leaves later commands working, and one that
+  // arrives late prints after them.
+  // The default evaluator is not exported, so wrap the one the REPL holds.
+  // `eval` is typed read-only, but the REPL calls `this.eval` for every line.
+  const baseEval = server.eval;
+  (server as { eval: repl.REPLEval }).eval = (cmd, context, file, done) => {
+    baseEval.call(server, cmd, context, file, (err, result) => {
+      if (err !== null) return done(err, result);
+      let thenable: boolean;
+      try {
+        thenable = typeof (result as { then?: unknown } | null | undefined)?.then === 'function';
+      } catch (probeError) {
+        // A throwing `then` getter fails this command only, never the session.
+        return done(probeError as Error, undefined);
+      }
+      if (!thenable) return done(null, result);
+      // The REPL prefixes each line with the earlier lines of a multi-line
+      // command and clears them only when it finishes, which is now later:
+      // clear them here, or every command typed meanwhile is glued onto this one.
+      server.clearBufferedCommand();
+      // `Promise.resolve` adopts the thenable once, so one that settles twice
+      // cannot print twice. A falsy reason would read as success to the REPL.
+      Promise.resolve(result).then(
+        (value) => done(null, value),
+        (reason) => done(reason || new Error(`Promise rejected with ${inspect(reason)}`), undefined),
+      );
+    });
   };
-  server.context.help = helpText;
-  // Mongosh-style `show ...` sugar (rewritten in main). Returned values flow
-  // through the standard REPL writer, so they are formatted like any query.
-  server.context.__shellShow = async (kind: 'dbs' | 'collections'): Promise<string> => {
-    if (kind === 'dbs') {
-      // `authorizedDatabases: true` lets users with scoped roles (Atlas
-      // read-only, per-db users) see the dbs they have access to even when
-      // they lack the cluster-wide listDatabases privilege.
-      const admin = rpc.makeDb({ currentDb: 'admin' }) as {
-        runCommand(cmd: object): Promise<{ databases: Array<{ name: string; sizeOnDisk?: number }> }>;
-      };
-      const r = await admin.runCommand({ listDatabases: 1, authorizedDatabases: true });
-      return r.databases.map((d) => `${d.name}\t${d.sizeOnDisk ?? 0}`).join('\n');
-    }
-    const cursor = (db as { listCollections(): { toArray(): Promise<Array<{ name: string }>> } }).listCollections();
-    return (await cursor.toArray()).map((c) => c.name).join('\n');
+  // The REPL's `.clear` builds a fresh context and drops everything on the old
+  // one, so the helpers go in through a function that runs again on 'reset'.
+  // `db` and `ctx` live outside the context, so the current database survives.
+  const installHelpers = (context: Context): void => {
+    context.db = db;
+    context.use = (name: string) => {
+      ctx.currentDb = name;
+      server.setPrompt(`${name}> `);
+      return `switched to db ${name}`;
+    };
+    context.help = help;
+    // Mongosh-style `show ...` sugar (rewritten in main). Returned values flow
+    // through the standard REPL writer, so they are formatted like any query.
+    context.__shellShow = async (kind: 'dbs' | 'collections'): Promise<string> => {
+      if (kind === 'dbs') {
+        // `authorizedDatabases: true` lets users with scoped roles (Atlas
+        // read-only, per-db users) see the dbs they have access to even when
+        // they lack the cluster-wide listDatabases privilege.
+        const admin = rpc.makeDb({ currentDb: 'admin' }) as {
+          runCommand(cmd: object): Promise<{ databases: Array<{ name: string; sizeOnDisk?: number }> }>;
+        };
+        const r = await admin.runCommand({ listDatabases: 1, authorizedDatabases: true });
+        return r.databases.map((d) => `${d.name}\t${d.sizeOnDisk ?? 0}`).join('\n');
+      }
+      const cursor = (db as { listCollections(): { toArray(): Promise<Array<{ name: string }>> } }).listCollections();
+      return (await cursor.toArray()).map((c) => c.name).join('\n');
+    };
   };
+  installHelpers(server.context);
+  server.on('reset', installHelpers);
 
   // A user's own un-awaited rejection must not take the session down.
   process.on('unhandledRejection', (reason) => {
@@ -83,7 +124,11 @@ function shellWriter(value: unknown): string {
   // functions, including the `db` proxy). Fall through to util.inspect so
   // typing `db` still produces something readable.
   try {
-    const ejson = ejsonStringifyRelaxed(value, 2);
+    // An Error has no enumerable fields, so EJSON would print `{}`: the REPL
+    // routes every thrown error through this writer. `isNativeError` also
+    // holds for an error made in the REPL's own vm context.
+    if (types.isNativeError(value)) return errorText(value);
+    const ejson = ejsonStringifyRelaxed(flattenErrors(value, new WeakSet()), 2);
     if (typeof ejson === 'string') return ejson;
   } catch {
     // fall through
@@ -91,7 +136,59 @@ function shellWriter(value: unknown): string {
   return inspect(value, { depth: 4, colors: false });
 }
 
-function helpText(): string {
+/**
+ * An error's one-line `name: message`, then what else tells the user why: an
+ * AggregateError's members, and the `details` an error rebuilt from the wire
+ * carries (a document-validation failure keeps which rule failed there). No
+ * stack: its frames are the runner's, not the user's.
+ */
+function errorText(err: Error): string {
+  const lines = [Error.prototype.toString.call(err)];
+  const { errors, details } = err as { errors?: unknown; details?: unknown };
+  if (Array.isArray(errors)) {
+    for (const member of errors) {
+      lines.push(`  ${types.isNativeError(member) ? Error.prototype.toString.call(member) : inspect(member, { depth: 0 })}`);
+    }
+  }
+  if (details !== undefined) {
+    try {
+      const text = ejsonStringifyRelaxed(details, 2);
+      if (text !== undefined) lines.push(text);
+    } catch {
+      // Details that cannot be printed (a cycle) are left out; the one-line form still tells the user what failed.
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * `value` with each Error inside plain objects and arrays replaced by its
+ * one-line text, since EJSON would print every one as `{}`. A value without
+ * an Error comes back as is. `path` guards against a cycle on the way down
+ * only, so an error that appears twice is replaced both times.
+ */
+function flattenErrors(value: unknown, path: WeakSet<object>): unknown {
+  if (types.isNativeError(value)) return Error.prototype.toString.call(value);
+  if (typeof value !== 'object' || value === null || path.has(value)) return value;
+  // A plain object's prototype is some realm's Object.prototype, so the one
+  // above it is null; this holds for objects made in the REPL's vm context too.
+  const proto = Object.getPrototypeOf(value) as object | null;
+  const isArray = Array.isArray(value);
+  if (!isArray && proto !== null && Object.getPrototypeOf(proto) !== null) return value;
+  path.add(value);
+  try {
+    const keys = isArray ? [] : Object.keys(value);
+    const children = isArray ? [...(value as unknown[])] : keys.map((key) => (value as Record<string, unknown>)[key]);
+    const flat = children.map((child) => flattenErrors(child, path));
+    if (flat.every((child, i) => child === children[i])) return value;
+    // `fromEntries` defines own properties, so a `__proto__` key cannot reach the prototype.
+    return isArray ? flat : Object.fromEntries(keys.map((key, i) => [key, flat[i]]));
+  } finally {
+    path.delete(value);
+  }
+}
+
+function help(): string {
   return [
     "L'Atelier shell: a Node REPL with a Mongo driver context, run in its own process.",
     '',

@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
 import { NotFoundError } from '../../electron/errors';
+import type { Logger } from '../../electron/log';
 import { createTempDb, type TempDb } from '../helpers/db';
 import type { FindInput } from '@shared/types';
 
@@ -23,6 +24,7 @@ function makeFindInput(overrides: Partial<FindInput> = {}): FindInput {
 
 describe('RecentQueryService', () => {
   let tmp: TempDb;
+  let repo: RecentQueryRepo;
   let svc: RecentQueryService;
 
   beforeEach(() => {
@@ -44,12 +46,32 @@ describe('RecentQueryService', () => {
       )
     `).run(CONNECTION_ID, new Date().toISOString(), new Date().toISOString());
 
-    const repo = new RecentQueryRepo(tmp.db);
+    repo = new RecentQueryRepo(tmp.db);
     svc = new RecentQueryService(repo);
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     tmp.cleanup();
+  });
+
+  it('logs a failed eviction and still records the run', async () => {
+    const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const logged = new RecentQueryService(repo, log);
+    // Over the cap, so eviction reaches the delete, which then fails.
+    vi.spyOn(repo, 'countByConnection').mockReturnValue(201);
+    vi.spyOn(repo, 'deleteOldestByConnection').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    await expect(logged.recordFind(makeFindInput(), 42, 10)).resolves.toBeUndefined();
+    await logged.drainEvictions();
+
+    expect(log.warn).toHaveBeenCalledWith('recent', 'evicting old recent queries failed', {
+      connectionId: CONNECTION_ID,
+      message: 'disk full',
+    });
+    expect(logged.list({ connectionId: CONNECTION_ID })).toHaveLength(1);
   });
 
   it('recordFind inserts a row retrievable via get', async () => {
@@ -107,6 +129,16 @@ describe('RecentQueryService', () => {
     const list = svc.list({ connectionId: CONNECTION_ID });
     expect(list).toHaveLength(1);
     expect(list[0]!.errorCode).toBe('TIMEOUT');
+  });
+
+  it('a run recorded against an unknown connection is a NotFoundError, not a raw SQLite error', async () => {
+    await expect(svc.recordFind(makeFindInput({ connectionId: 'no-such-conn' }), 1, 0)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    await expect(
+      svc.recordAggregation({ connectionId: 'no-such-conn', dbName: DB_NAME, collection: COLLECTION, stages: [] }, 1, 0),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'connection no-such-conn not found' });
+    expect(svc.list()).toHaveLength(0);
   });
 
   it('get throws NotFoundError for unknown id', () => {

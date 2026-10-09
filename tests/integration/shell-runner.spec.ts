@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { MongoClient } from 'mongodb';
+import { Long } from 'bson';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import type { ShellOutputEvent } from '@shared/types';
 import { ShellService } from '../../electron/services/ShellService';
@@ -54,11 +55,18 @@ afterEach(async () => {
   expect(leaked, 'shell children still alive after the test').toBe(0);
 });
 
-function setup(readOnlyIds: string[] = []): ShellService {
+function setup(
+  readOnlyIds: string[] = [],
+  overrides: Record<string, Partial<Parameters<typeof makeConnection>[2]>> = {},
+): ShellService {
   tmp = createTempDb();
   const vault = new SecretsVault(tmp.db, createSafeStorageMock());
   const conns = ['c1', 'c2'].map((id) =>
-    makeConnection(id, hp, { defaultDb: 'test', readOnly: readOnlyIds.includes(id) }),
+    makeConnection(id, hp, {
+      defaultDb: 'test',
+      readOnly: readOnlyIds.includes(id),
+      ...overrides[id],
+    }),
   );
   pool = new MongoPool({ repo: makeReader(conns), vault });
   spawner = createTestSpawner();
@@ -137,6 +145,52 @@ describe('ShellService — the REPL runs in a child', () => {
   });
 });
 
+describe('ShellService — the database a session starts on', () => {
+  it("starts on the connection's default database and writes land there", async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1' });
+    expect(info.dbName).toBe('smoke');
+    await until(() => outputOf().endsWith('smoke> '), 'prompt for the default db');
+    await say(info.sessionId, 'await db.items.insertOne({ k: 1 })', 'acknowledged');
+    expect(await countDocs('smoke', 'items')).toBe(1);
+    expect(await countDocs('test', 'items')).toBe(0);
+  });
+
+  it('an explicit dbName wins over the connection default', async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1', dbName: 'other' });
+    expect(info.dbName).toBe('other');
+    await until(() => outputOf().endsWith('other> '), 'prompt for the explicit db');
+  });
+
+  it('a blank dbName counts as unset, so the connection default applies', async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1', dbName: '  ' });
+    expect(info.dbName).toBe('smoke');
+    await until(() => outputOf().endsWith('smoke> '), 'prompt for the default db');
+  });
+
+  it('falls back to test when the connection has no default database', async () => {
+    const s = setup([], { c1: { defaultDb: undefined } });
+    const info = await s.start({ connectionId: 'c1' });
+    expect(info.dbName).toBe('test');
+    await until(() => outputOf().endsWith('test> '), 'prompt for the fallback db');
+  });
+
+  it('a Restart (stop not awaited, then start) reopens on the new database', async () => {
+    // The pane's cleanup fires `stop` without awaiting it and starts again at
+    // once. start() reuses a live session for the connection and ignores
+    // dbName then, so stop must end the session before its first await.
+    const s = setup();
+    const first = await s.start({ connectionId: 'c1', dbName: 'first_db' });
+    void s.stop(first.sessionId);
+    const second = await s.start({ connectionId: 'c1', dbName: 'second_db' });
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.dbName).toBe('second_db');
+    await until(() => outputOf().endsWith('second_db> '), 'prompt for the restarted db');
+  });
+});
+
 describe('ShellService — cursors', () => {
   it('a bare cursor prints a one-line hint, not its internals', async () => {
     const s = setup();
@@ -160,6 +214,319 @@ describe('ShellService — cursors', () => {
     await until(() => outputOf(from).includes('looped'), 'the loop to finish', 20_000);
     expect(outputOf(from)).not.toMatch(/cursors|Error/);
     expect(await say(info.sessionId, 'JSON.stringify(await db.slots.find().toArray())', '"n":1')).toContain('"n":1');
+  });
+});
+
+describe('ShellService — a bare collection', () => {
+  it('prints a one-line hint naming the collection, not an empty object', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    // The banner ends in a newline too: wait for the first prompt so only a result can match below.
+    await until(() => outputOf().endsWith('test> '), 'the first prompt');
+    // A printed result ends in a newline, a prompt does not.
+    const out = await say(info.sessionId, 'db.hint_coll', '\n');
+    expect(out).toContain('[Collection test.hint_coll]');
+    expect(out).not.toMatch(/(?:^|> )\{\}$/m);
+    // The hint follows `use`, and a cursor off the same collection still prints its own.
+    await say(info.sessionId, 'use hint_other', 'switched to db hint_other');
+    expect(await say(info.sessionId, 'db.hint_coll', '\n')).toContain('[Collection hint_other.hint_coll]');
+    expect(await say(info.sessionId, 'db.hint_coll.find()', '\n')).toContain('Cursor on hint_other.hint_coll');
+  });
+
+  it('leaves documents printing as EJSON', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'await db.hint_docs.deleteMany({}); await db.hint_docs.insertOne({ _id: 1, at: new Date(0) })', 'acknowledged');
+    const out = await say(info.sessionId, 'await db.hint_docs.findOne()', '1970');
+    expect(out).toContain('"_id": 1');
+    expect(out).toContain('"$date": "1970-01-01T00:00:00Z"');
+    expect(out).not.toContain('[Collection');
+  });
+});
+
+describe('ShellService — a Long past 2^53', () => {
+  it('prints a stored Long with its exact digits, and a safe one as a bare number', async () => {
+    // The shell has no Long constructor, so the document goes in from outside.
+    const client = new MongoClient(server.getUri());
+    try {
+      const coll = client.db('test').collection('shell_wide');
+      await coll.deleteMany({});
+      await coll.insertOne({ big: Long.fromString('9007199254740993'), safe: Long.fromString('5') });
+    } finally {
+      await client.close();
+    }
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    const out = await say(info.sessionId, 'await db.shell_wide.findOne()', '"safe"');
+    expect(out).toContain('"big": {\n    "$numberLong": "9007199254740993"\n  }');
+    expect(out).toContain('"safe": 5');
+    expect(out).not.toContain('9007199254740992');
+  });
+});
+
+describe('ShellService — `.clear`', () => {
+  it('drops what the user defined but keeps db, use, help and show working', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'use clear_db', 'switched to db clear_db');
+    // `var` evaluates to undefined, which the shell prints as nothing, so there is no output to wait for.
+    svc!.write(info.sessionId, 'var defined_by_user = 41\n');
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('number');
+
+    await say(info.sessionId, '.clear', 'Clearing context');
+    // The context really was reset, so the checks below are not vacuous.
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('undefined');
+
+    // The database chosen before `.clear` is still the one in use.
+    expect(await say(info.sessionId, 'db.getName() + "!"', '\n')).toContain('clear_db!');
+    expect(await say(info.sessionId, 'help()', '\n')).toContain("L'Atelier shell");
+    expect(await say(info.sessionId, 'show dbs', 'admin')).toContain('admin');
+    await say(info.sessionId, 'use clear_again', 'switched to db clear_again');
+    expect(await say(info.sessionId, 'db.getName() + "?"', '\n')).toContain('clear_again?');
+  });
+});
+
+describe('ShellService — un-awaited results', () => {
+  // A result starts right after its prompt (`test> 3`) unless that prompt was
+  // already printed before the line was sent, so a line start is `> ` or `^`.
+  const emptyObject = /(?:^|> )\{\}$/m;
+
+  /** A session on `test` with exactly three documents in `async_items`; the mongod outlives each test. */
+  async function seeded(): Promise<string> {
+    const info = await setup().start({ connectionId: 'c1' });
+    await say(
+      info.sessionId,
+      'await db.async_items.deleteMany({}); await db.async_items.insertMany([{n:1},{n:2},{n:3}])',
+      'acknowledged',
+    );
+    return info.sessionId;
+  }
+
+  it('prints the documents of a find().toArray() left without await', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.async_items.find({n:{$gt:1}}).toArray()', '"n": 3');
+    expect(out).toContain('"n": 2');
+    expect(out).not.toContain('"n": 1');
+    expect(out).not.toMatch(emptyObject);
+  });
+
+  it('prints the number of a countDocuments() left without await', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'a result line that is exactly 3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('prints the same documents with and without await', async () => {
+    const sessionId = await seeded();
+    const documents = (out: string): string | undefined => /\[[\s\S]*\]/.exec(out)?.[0];
+    const awaited = await say(sessionId, 'await db.async_items.find({n:2}).toArray()', '"n": 2');
+    const bare = await say(sessionId, 'db.async_items.find({n:2}).toArray()', '"n": 2');
+    expect(documents(awaited)).toContain('"n": 2');
+    expect(documents(bare)).toBe(documents(awaited));
+  });
+
+  it('prints the message of a rejection left without await, and the session stays alive', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.runCommand({ definitelyNotACommand: 1 })', 'definitelyNotACommand');
+    expect(out).not.toMatch(emptyObject);
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints the message of a rejection that is awaited, and of a synchronous throw', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'await Promise.reject(new Error("await-boom"))', 'await-boom')).toContain(
+      'await-boom',
+    );
+    expect(await say(sessionId, 'throw new Error("boom-sync")', 'boom-sync')).toContain('boom-sync');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints a non-Error rejection or throw readably', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'Promise.reject("plain-reason")', 'plain-reason')).toContain('plain-reason');
+    expect(await say(sessionId, 'Promise.reject({ code: 7 })', '"code": 7')).toContain('"code": 7');
+    expect(await say(sessionId, 'throw "thrown-string"', 'thrown-string')).toContain('thrown-string');
+    expect(await say(sessionId, 'throw { code: 8 }', '"code": 8')).toContain('"code": 8');
+    // A falsy reason would read as success to the REPL and print nothing.
+    expect(await say(sessionId, 'Promise.reject(null)', 'rejected with null')).toContain('rejected with null');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an Error with a cause and extra fields prints its message and does not take the session down', async () => {
+    const sessionId = await seeded();
+    const out = await say(
+      sessionId,
+      '(() => { const e = new Error("outer-msg", { cause: new Error("inner-msg") }); e.code = 42; e.self = e; throw e; })()',
+      'outer-msg',
+    );
+    // One line, not the stack the writer's fallback would print.
+    expect(out).toMatch(/Error: outer-msg\n/);
+    expect(out).not.toMatch(/^\s+at /m);
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('a result that never settles leaves later commands working', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'new Promise(() => {})\n');
+    svc!.write(sessionId, '({ then() {} })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'await db.async_items.countDocuments()', '3')).toContain('3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('a result that settles late prints after the commands that ran meanwhile', async () => {
+    const sessionId = await seeded();
+    svc!.write(sessionId, 'new Promise((resolve) => { globalThis.release = resolve; })\n');
+    const from = events.length;
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'release("late-value")', 'late-value')).toContain('late-value');
+    expect(outputOf(from).indexOf('42')).toBeLessThan(outputOf(from).indexOf('late-value'));
+  });
+
+  it('a thenable that settles twice prints once', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, '({ then(resolve) { resolve("first-value"); resolve("second-value"); } })', 'first-value');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(outputOf()).not.toContain('second-value');
+  });
+
+  it('a `then` that throws fails that command and not the session', async () => {
+    const sessionId = await seeded();
+    const getter = await say(sessionId, '({ get then() { throw new Error("getter-boom"); } })', 'getter-boom');
+    expect(getter).toContain('getter-boom');
+    const method = await say(sessionId, '({ then() { throw new Error("method-boom"); } })', 'method-boom');
+    expect(method).toContain('method-boom');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(svc!.list()).toHaveLength(1);
+  });
+
+  it('a command typed while a multi-line one is pending is not glued onto it', async () => {
+    const sessionId = await seeded();
+    // The REPL prefixes each line with the lines buffered so far and only
+    // clears that buffer when the pending command finishes.
+    svc!.write(sessionId, 'new Promise((r) => {\n');
+    svc!.write(sessionId, 'globalThis.rel2 = r })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'rel2("late-x")', 'late-x')).toContain('late-x');
+    expect(await say(sessionId, '40+3', '43')).toContain('43');
+  });
+
+  it('a multi-line call whose result is pending leaves the next command working', async () => {
+    const sessionId = await seeded();
+    // One write, so the third line arrives before the call can answer.
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments(\n)\n"after-count"\n');
+    await until(() => outputOf(from).includes('after-count'), '"after-count" typed while the count is pending');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count of the multi-line call');
+    expect(outputOf(from)).toContain('after-count');
+    expect(outputOf(from)).toMatch(/(?:^|> )3$/m);
+  });
+
+  it('a multi-line function definition still continues across lines', async () => {
+    const sessionId = await seeded();
+    // Three lines: the second is still incomplete, so it must keep what the first buffered.
+    svc!.write(sessionId, 'function f() {\n');
+    svc!.write(sessionId, 'const x = 40;\n');
+    svc!.write(sessionId, 'return x + 1 }\n');
+    expect(await say(sessionId, 'f()', '41')).toContain('41');
+  });
+
+  it('`_` holds the settled value of an un-awaited result', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count');
+    expect(await say(sessionId, '_ * 100', '300')).toContain('300');
+  });
+
+  it('`_error` holds an un-awaited rejection', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, 'Promise.reject(new Error("kept-error"))', 'kept-error');
+    expect(await say(sessionId, '_error.message + "!"', 'kept-error!')).toContain('kept-error!');
+  });
+
+  it('a bare cursor and a bare collection are not awaited', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'db.async_items.find()', 'Cursor on test.async_items')).toContain(
+      'Cursor on test.async_items — iterate it or call .toArray()',
+    );
+    // A printed result ends in a newline, a prompt does not, so a newline
+    // means the proxy was printed rather than mistaken for a thenable and awaited.
+    expect(await say(sessionId, 'db.async_items', '\n')).not.toContain('Promise');
+    expect(await say(sessionId, 'db', '\n')).toContain('[Function: db]');
+  });
+});
+
+describe('ShellService — error output', () => {
+  it('a validator rejection says which rule failed, not only that validation failed', async () => {
+    const coll = `validated_${Date.now()}`;
+    const client = new MongoClient(server.getUri());
+    try {
+      await client.db('test').createCollection(coll, {
+        validator: { $jsonSchema: { bsonType: 'object', required: ['name'], properties: { name: { bsonType: 'string' } } } },
+      });
+    } finally {
+      await client.close();
+    }
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(info.sessionId, `db.${coll}.insertOne({ name: 5 })`, 'propertiesNotSatisfied');
+    expect(out).toMatch(/Document failed validation/);
+    expect(out).toContain('errInfo');
+    // Still readable: the message line comes first.
+    expect(out.indexOf('Document failed validation')).toBeLessThan(out.indexOf('errInfo'));
+  });
+
+  it('an error nested in a result prints its message, not {}', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const settled = await say(
+      info.sessionId,
+      'Promise.allSettled([Promise.reject(new Error("inner-x")), 1])',
+      'inner-x',
+    );
+    expect(settled).toContain('Error: inner-x');
+    expect(settled).not.toMatch(/"reason": \{\}/);
+    const literal = await say(info.sessionId, '({ a: [new TypeError("lit-e")], b: 1 })', 'lit-e');
+    expect(literal).toContain('TypeError: lit-e');
+    expect(literal).toContain('"b": 1');
+  });
+
+  it('an object holding an error, shared twice in a result, prints twice, and a cycle does not crash the writer', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const twice = await say(
+      info.sessionId,
+      '(() => { const shared = { err: new Error("dag-e") }; return { first: shared, second: shared }; })()',
+      'second',
+    );
+    expect(twice.match(/Error: dag-e/g)).toHaveLength(2);
+    const cyclic = await say(
+      info.sessionId,
+      '(() => { const o = { err: new Error("cyc-e") }; o.self = o; return o; })()',
+      'cyc-e',
+    );
+    expect(cyclic).toContain('cyc-e');
+    expect(await say(info.sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an AggregateError lists the errors it holds', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(
+      info.sessionId,
+      'Promise.any([Promise.reject(new Error("first-e")), Promise.reject(new TypeError("second-e"))])',
+      'second-e',
+    );
+    expect(out).toContain('AggregateError');
+    expect(out).toContain('Error: first-e');
+    expect(out).toContain('TypeError: second-e');
+  });
+
+  it('an error with an empty message or name prints without stray punctuation', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    expect(await say(info.sessionId, 'throw new Error()', 'Uncaught Error\n')).toMatch(/Uncaught Error\n/);
+    const named = await say(info.sessionId, 'throw Object.assign(new Error("nm-only"), { name: "" })', 'nm-only\n');
+    expect(named).toMatch(/Uncaught nm-only\n/);
   });
 });
 

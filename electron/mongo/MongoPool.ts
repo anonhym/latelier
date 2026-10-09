@@ -20,6 +20,7 @@ import type { Logger } from '../log.ts';
 import type { SecretsVault } from '../secrets/SecretsVault.ts';
 import { classifyMongoError, classifyMongoOpError, isMaxTimeMSExpired } from './errors.ts';
 import { QUERY_TIMEOUT_MS } from './timeouts.ts';
+import { topologyFromHello, type HelloResponse } from './topology.ts';
 import { buildOptions, buildUri, redactUriUserInfo } from './uri.ts';
 
 export interface ConnectionReader {
@@ -105,25 +106,6 @@ export interface MongoPoolOpts {
  * enough that a real drop surfaces while the user is still looking at it.
  */
 const CONNECTION_LOSS_GRACE_MS = 5_000;
-
-/**
- * Hello-command response shape. We only consume the fields useful for a
- * post-mortem snapshot — the driver returns dozens more. `isMaster` (the
- * pre-4.4 alias) returns the same fields plus a legacy `ismaster` boolean
- * in place of `isWritablePrimary`.
- */
-interface HelloResponse {
-  setName?: string;
-  hosts?: string[];
-  primary?: string;
-  me?: string;
-  msg?: string;            // 'isdbgrid' on a mongos
-  isWritablePrimary?: boolean;
-  ismaster?: boolean;      // legacy field on isMaster responses (Mongo < 4.4)
-  secondary?: boolean;
-  arbiterOnly?: boolean;
-  maxWireVersion?: number;
-}
 
 /**
  * Proof that a connection was checked and is writable. Obtained from
@@ -248,28 +230,31 @@ export class MongoPool extends EventEmitter {
     if (!entry || entry.client !== client || entry.status !== 'connected') return;
     entry.status = 'disconnected';
     entry.connectedAt = undefined;
+    clearServerFacts(entry);
     this.log?.warn('mongo', 'connection lost — deployment unreachable', { connectionId: id });
     this.emit('status', this.status(id));
   }
 
   /**
-   * Run `hello` (or `isMaster` on MongoDB < 4.4) and log a redacted snapshot
-   * of the topology. Best-effort: any error is swallowed so we never fail a
-   * successful connect/probe just to log.
+   * Run `hello` (or `isMaster` on MongoDB < 4.4), log a redacted snapshot of
+   * the topology when a logger is present, and return the reply so the caller
+   * can classify the deployment from it. Runs with or without a logger: the
+   * topology on `ConnectionRuntime` / `ServerInfo` depends on it. Best-effort:
+   * a failed hello yields `null` (topology `Unknown`) and never fails a
+   * successful connect/probe.
    */
-  private async logHelloSnapshot(client: MongoClient, connectionId: string, source: 'connect' | 'probe'): Promise<HelloResponse | null> {
-    if (!this.log) return null;
+  private async readHello(client: MongoClient, connectionId: string, source: 'connect' | 'probe'): Promise<HelloResponse | null> {
     const admin = client.db('admin');
     let hello: HelloResponse;
     try {
       hello = (await admin.command({ hello: 1 })) as HelloResponse;
     } catch {
       // Mongo < 4.4 doesn't know `hello`. Fall back to the legacy alias so we
-      // still get a snapshot on those clusters.
+      // still get a reply on those clusters.
       try {
         hello = (await admin.command({ isMaster: 1 })) as HelloResponse;
       } catch (err) {
-        this.log.debug('mongo', 'hello snapshot failed', {
+        this.log?.debug('mongo', 'hello snapshot failed', {
           connectionId,
           source,
           message: err instanceof Error ? err.message : String(err),
@@ -287,7 +272,7 @@ export class MongoPool extends EventEmitter {
           : hello.msg === 'isdbgrid'
             ? 'mongos'
             : 'unknown';
-    this.log.info('mongo', 'hello snapshot', {
+    this.log?.info('mongo', 'hello snapshot', {
       connectionId,
       source,
       setName: hello.setName,
@@ -373,6 +358,16 @@ export class MongoPool extends EventEmitter {
       throw new SystemError('VALIDATION', 'no database specified and connection has no default_db');
     }
     return client.db(name);
+  }
+
+  /**
+   * The database a shell or script starts on: the caller's choice, else the
+   * connection's default, else `test` (mongosh's own default). Unlike
+   * `getDbInternal` it never throws, so call it after a successful connect —
+   * the default is only cached then.
+   */
+  resolveDbName(id: string, dbName?: string): string {
+    return dbName?.trim() || this.entries.get(id)?.defaultDb || 'test';
   }
 
   /**
@@ -498,20 +493,28 @@ export class MongoPool extends EventEmitter {
           });
         });
       }
-      await client.connect();
-      if (!isCurrent() || entry!.status !== 'connecting') {
-        // Cancelled between client.connect() resolving and our state update —
-        // or superseded by a retry, in which case `entry.client` is that
-        // retry's healthy client and clearing it would be the very corruption
-        // this guard is meant to prevent. Close only the client we opened.
+      // Cancelled between an await and our next state update — or superseded by
+      // a retry, in which case `entry.client` is that retry's healthy client and
+      // clearing it would be the very corruption this guard is meant to
+      // prevent. Close only the client we opened.
+      const isCanceled = () => !isCurrent() || entry!.status !== 'connecting';
+      const abandon = async (): Promise<never> => {
         try { await client.close(); } catch { /* best-effort */ }
         if (isCurrent()) entry!.client = undefined;
         throw new SystemError('DB_ERROR', 'connection canceled');
-      }
+      };
+      await client.connect();
+      if (isCanceled()) await abandon();
       const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: string };
-      await this.logHelloSnapshot(client, id, 'connect');
+      const hello = await this.readHello(client, id, 'connect');
+      // A Cancel can land while either read is in flight. A closed client makes
+      // the driver reject them, and readHello swallows that by design, so
+      // without a second check the entry would be written back as connected
+      // around a client nobody can use. The check and the writes below must
+      // stay in one synchronous run, with no await between them.
+      if (isCanceled()) await abandon();
       entry!.serverVersion = info.version;
-      entry!.topology = mapTopology();
+      entry!.topology = topologyFromHello(hello);
       entry!.status = 'connected';
       entry!.connectedAt = new Date().toISOString();
       entry!.errorCode = undefined;
@@ -534,6 +537,9 @@ export class MongoPool extends EventEmitter {
         // flip would land on that healthy attempt.
         if (isCurrent()) {
           entry!.client = undefined;
+          // A failed attempt says nothing about the server it was aimed at, so
+          // the previous attempt's version and topology must not outlive it.
+          clearServerFacts(entry!);
           // Only flip to 'error' if we weren't cancelled. disconnect() may have
           // set 'disconnected' to cancel us; respect that and don't overwrite.
           if (entry!.status === 'connecting') {
@@ -570,6 +576,7 @@ export class MongoPool extends EventEmitter {
     entry.client = undefined;
     entry.status = 'disconnected';
     entry.connectedAt = undefined;
+    clearServerFacts(entry);
     entry.defaultDb = undefined;
     entry.errorCode = undefined;
     entry.errorMessage = undefined;
@@ -716,7 +723,7 @@ export class MongoPool extends EventEmitter {
       dataSizeBytes: dataSize,
       storageSizeBytes: storageBytes,
       indexCount,
-      topology: entry.topology ?? mapTopology(),
+      topology: entry.topology ?? 'Unknown',
       serverStatsAvailable: serverStatus !== null,
     };
   }
@@ -786,11 +793,11 @@ export class MongoPool extends EventEmitter {
       await client.connect();
       await client.db('admin').command({ ping: 1 });
       const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: string };
-      await this.logHelloSnapshot(client, pseudo.id, 'probe');
+      const hello = await this.readHello(client, pseudo.id, 'probe');
       return {
         ok: true,
         serverVersion: info.version,
-        topology: mapTopology(),
+        topology: topologyFromHello(hello),
         roundTripMs: Date.now() - t0,
       };
     } catch (err) {
@@ -812,11 +819,14 @@ export class MongoPool extends EventEmitter {
   }
 }
 
-function mapTopology(): MongoTopology {
-  // Driver v7 hides the topology type behind internals; derive lazily from a
-  // `hello` response when a caller needs it. For now return Unknown — the
-  // Overview tab (C06) will populate this via a `hello` call.
-  return 'Unknown';
+/**
+ * Version and topology describe the server a live connection reached. Once
+ * that connection is gone or a later attempt failed they describe nothing, and
+ * `status()` must not report them next to 'disconnected' or 'error'.
+ */
+function clearServerFacts(entry: Entry): void {
+  entry.serverVersion = undefined;
+  entry.topology = undefined;
 }
 
 interface ServerStatusDoc extends Document {

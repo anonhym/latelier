@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '../helpers/render';
 import { MongoShellPane } from '../../src/pages/Workspace/MongoShellPane';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import type { IpcApi } from '@shared/ipc';
 import type { ShellOutputEvent, ShellSessionInfo } from '@shared/types';
 
 afterEach(() => {
@@ -9,15 +10,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount() {
-  return render(
+function paneElement(dbName?: string) {
+  return (
     <MongoShellPane
       connectionId="c1"
       connectionName="Local"
       height={260}
+      dbName={dbName}
       onClose={() => {}}
-    />,
+    />
   );
+}
+
+function mount(dbName?: string) {
+  return render(paneElement(dbName));
 }
 
 describe('MongoShellPane', () => {
@@ -49,6 +55,59 @@ describe('MongoShellPane', () => {
         sessionId: 's1',
         data: 'db.runCommand({ ping: 1 })\n',
       });
+    });
+  });
+
+  describe('the database the shell opens on', () => {
+    function installStartSpy() {
+      const startSpy = vi.fn<IpcApi['mshell']['start']>(
+        async (): Promise<ShellSessionInfo> => ({
+          sessionId: 's1',
+          connectionId: 'c1',
+          startedAt: new Date().toISOString(),
+        }),
+      );
+      installAtelierMock({
+        mshell: {
+          start: startSpy,
+          write: async () => undefined,
+          stop: async () => undefined,
+          list: async () => [],
+          onOutput: () => () => {},
+        },
+      });
+      return startSpy;
+    }
+
+    it('passes the focused tab database to mshell.start', async () => {
+      const startSpy = installStartSpy();
+      mount('shop');
+      await waitFor(() => expect(startSpy).toHaveBeenCalledTimes(1));
+      expect(startSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop' });
+    });
+
+    it('leaves dbName out when there is no focused tab database', async () => {
+      const startSpy = installStartSpy();
+      mount();
+      await waitFor(() => expect(startSpy).toHaveBeenCalledTimes(1));
+      expect(startSpy.mock.calls[0]![0]).toEqual({ connectionId: 'c1' });
+    });
+
+    it('does not restart when the focused tab changes, but Restart uses the new database', async () => {
+      const startSpy = installStartSpy();
+      const { rerender } = mount('shop');
+      const input = await screen.findByLabelText('Mongo shell input');
+      await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false));
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      rerender(paneElement('billing'));
+      // A tab switch must not tear the session (and its scrollback) down.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
+      await waitFor(() => expect(startSpy).toHaveBeenCalledTimes(2));
+      expect(startSpy).toHaveBeenLastCalledWith({ connectionId: 'c1', dbName: 'billing' });
     });
   });
 

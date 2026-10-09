@@ -232,6 +232,8 @@ export interface ConnectionSummary {
   port: number;
   connectionType: ConnType;
   lastUsedAt?: string;
+  /** The database the connection opens on. Shell and script tabs fall back to it when nothing else names a database. */
+  defaultDb?: string;
   status: 'unknown' | 'connected' | 'disconnected' | 'connecting' | 'error';
   serverVersion?: string;
   readOnly: boolean;
@@ -574,6 +576,19 @@ export interface AggMergeOptions {
   whenNotMatched?: 'insert' | 'discard' | 'fail';
 }
 
+/**
+ * What `agg:runAndSave` reports about the target on top of the usual result.
+ * `$out` replaces the target, so its total after the run is exactly what was
+ * written (`writtenCount`). `$merge` adds to and updates in place whatever the
+ * target already holds, so a count of documents written cannot be derived from
+ * totals; only the target's size around the run is known (`mergeCounts`).
+ * Each is absent when its count could not be read.
+ */
+export interface AggSaveCounts {
+  writtenCount?: number;
+  mergeCounts?: { before: number; after: number };
+}
+
 export interface AggRunAndSaveInput extends AggInput {
   target: {
     dbName: string;
@@ -791,8 +806,9 @@ export interface ScriptTabState {
   title: string;
   /** Editor buffer. UTF-8. */
   source: string;
-  /** Default db for the `db` proxy at run time. Optional — scripts can
-   *  also call `use("...")` themselves. */
+  /** Default db for the `db` proxy at run time. Blank means the
+   *  connection's default database, else `test`. Scripts can also call
+   *  `use("...")` themselves. */
   dbName?: string;
   /** Hard ceiling, ms. Toolbar knob: 15_000 / 60_000 / 300_000 /
    *  86_400_000 ("no limit"). Defaults to 60_000. */
@@ -843,6 +859,7 @@ export type WorkspaceTab = CollectionTab | ScriptTab;
 
 export interface ScriptRunInput {
   connectionId: string;
+  /** Blank or absent means the connection's default database, else `test`. */
   dbName?: string;
   source: string;
   /** Renderer-supplied UUID; used by `script:cancel`. */

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { buildIdFilter } from './views/docId';
@@ -52,6 +53,18 @@ export function DeleteConfirm({
   const [err, setErr] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [countState, setCountState] = React.useState<CountState>({ status: 'pending' });
+  // Whether this very dialog is still on screen. The Focused Tab moving
+  // closes it while its request is in flight, and by the time the write lands
+  // the caller's `onClose` may belong to a dialog opened since on another tab.
+  // Set in the effect body, not just reset in cleanup, so StrictMode's
+  // simulated remount leaves it true.
+  const mountedRef = React.useRef(false);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const isMulti = docs.length > 1 || !!filter;
   const matchesCollectionName = confirm === collection;
@@ -136,9 +149,18 @@ export function DeleteConfirm({
         auditId = res.auditId;
         message = `${res.deletedCount.toLocaleString()} document${res.deletedCount === 1 ? '' : 's'} deleted`;
       }
+      // This dialog's own collection, not the Focused Tab's: focus can move
+      // while the request is in flight, and the caller only sees the tab it
+      // finds at completion.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       onDeleted(auditId, message);
-      onClose();
+      // The write is reported either way; only a dialog still on screen is
+      // ours to close.
+      if (mountedRef.current) onClose();
     } catch (e) {
+      // A deleteMany that fails can stop part-way, so the sample is dropped
+      // here too; harmless if the request was refused before touching data.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       setErr(getErrorMessage(e, 'Delete failed'));
     } finally {
       setLoading(false);

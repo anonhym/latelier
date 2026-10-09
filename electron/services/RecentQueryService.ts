@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FindInput, RecentKind, RecentQuery, SavedFindPayload, SavedAggregationPayload } from '@shared/types';
 import type { RecentQueryRepo, RecentQueryFilter, RecentDeleteFilter } from '../db/repositories/RecentQueryRepo.ts';
 import { NotFoundError } from '../errors.ts';
+import type { Logger } from '../log.ts';
 
 const MAX_PER_CONNECTION = 200;
 
@@ -10,6 +11,17 @@ export interface RecordAggregationInput {
   dbName: string;
   collection: string;
   stages: Array<{ id: number; op: string; body: string; enabled: boolean }>;
+}
+
+/**
+ * Callers record a run without awaiting it, so a failed write never fails the
+ * query. It is logged here instead of dropped, which would hide a broken
+ * history (or a run recorded against a connection that no longer exists).
+ */
+export function logRecentWriteFailure(log: Logger | undefined, err: unknown): void {
+  log?.warn('recent', 'recording a recent query failed', {
+    message: err instanceof Error ? err.message : String(err),
+  });
 }
 
 export class RecentQueryService {
@@ -21,8 +33,10 @@ export class RecentQueryService {
    * assertions.
    */
   private pendingEvictions = new Map<string, Promise<void>>();
-  constructor(repo: RecentQueryRepo) {
+  private log: Logger | undefined;
+  constructor(repo: RecentQueryRepo, log?: Logger) {
     this.repo = repo;
+    this.log = log;
   }
 
   /**
@@ -141,10 +155,15 @@ export class RecentQueryService {
           if (count > MAX_PER_CONNECTION) {
             this.repo.deleteOldestByConnection(connectionId, MAX_PER_CONNECTION);
           }
-        } catch {
-          // Best-effort housekeeping. The next insert's deferred eviction
-          // will retry; surfacing the error to the caller would be wrong
-          // since the original recordFind/recordAggregation succeeded.
+        } catch (err) {
+          // Best-effort housekeeping: the original recordFind/recordAggregation
+          // succeeded, so the error is not surfaced to the caller. It is logged
+          // because a failing eviction lets the per-connection cap lapse
+          // unnoticed; the next insert's deferred eviction retries.
+          this.log?.warn('recent', 'evicting old recent queries failed', {
+            connectionId,
+            message: err instanceof Error ? err.message : String(err),
+          });
         } finally {
           this.pendingEvictions.delete(connectionId);
           resolve();

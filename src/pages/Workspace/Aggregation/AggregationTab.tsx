@@ -34,8 +34,10 @@ import { useRegisterCommands } from '../../../commands/useRegisterCommands';
 import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
+import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { ExplainDrawer } from './ExplainDrawer';
 import { SaveAsCollectionModal } from './SaveAsCollectionModal';
+import { saveResultMessage } from './saveResultMessage';
 import { SavePipelineModal } from './SavePipelineModal';
 
 interface Props {
@@ -290,6 +292,11 @@ export function AggregationTab({
           });
         }
       } finally {
+        // A confirmed run is one with a `$out`/`$merge` stage, whose target
+        // main parses out of the stage body, so the renderer can't name the
+        // collection it wrote: drop the connection's samples, even when the
+        // run threw part-way through a `$merge`.
+        if (allowWrite) invalidateSampleSchemaCache(connectionId);
         if (runTokenRef.current === token) {
           runTokenRef.current = null;
           setRunning(false);
@@ -688,11 +695,7 @@ export function AggregationTab({
           collection={collection}
           stages={stages}
           onClose={() => setSaveAsCollectionOpen(false)}
-          onWritten={(info) => {
-            notify.success(
-              `Wrote ${info.count ?? '?'} documents to ${info.dbName}.${info.collection}`,
-            );
-          }}
+          onWritten={(info) => notify.success(saveResultMessage(info))}
         />
       )}
     </div>

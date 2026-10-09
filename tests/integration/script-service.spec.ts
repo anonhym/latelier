@@ -130,6 +130,40 @@ describe('ScriptService — results', () => {
     expect(JSON.parse(r.valueJson!).db).toBe('another_db');
   });
 
+  it("runs on the connection's default database when no dbName is given", async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('an explicit dbName wins over the connection default', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: 'another_db',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('another_db');
+  });
+
+  it('a blank dbName counts as unset, so the connection default applies', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: '  ',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('falls back to test when the connection has no default database', async () => {
+    const r = await setup({ c1: { defaultDb: undefined } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('test');
+  });
+
   it('use() switches the database for later calls', async () => {
     const r = await setup().run({
       connectionId: 'c1',
@@ -143,6 +177,45 @@ describe('ScriptService — results', () => {
     expect(r.printBuffer).toContain('hello world');
     // Plain primitives (numbers/booleans/strings) bypass EJSON wrapping.
     expect(r.valueJson).toBe('42');
+  });
+
+  it('prints a Long past 2^53 with its exact digits, built in the script or read back from the database', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: [
+        'print({ built: NumberLong("9007199254740993") });',
+        'await db.print_wide.deleteMany({});',
+        'await db.print_wide.insertOne({ big: NumberLong("9007199254740993"), safe: NumberLong("5") });',
+        'printjson(await db.print_wide.findOne({}, { projection: { _id: 0 } }));',
+        '1',
+      ].join('\n'),
+    });
+    expect(r.printBuffer).toContain('"built": {\n    "$numberLong": "9007199254740993"\n  }');
+    expect(r.printBuffer).toContain('"big": {\n    "$numberLong": "9007199254740993"\n  }');
+    // A Long inside the safe range keeps printing as a bare number.
+    expect(r.printBuffer).toContain('"safe": 5');
+    expect(r.printBuffer).not.toContain('9007199254740992');
+  });
+
+  it('prints a function as inspect does, not as an empty line', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'function named() {}\nprint(named); 1' });
+    expect(r.printBuffer).toContain('[Function: named]');
+  });
+
+  it('prints a collection and a cursor as a one-line hint, not an empty object', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: 'print(db.print_hint); console.log(db.print_hint.find()); use("print_other"); printjson(db.print_hint); 1',
+    });
+    expect(r.printBuffer).toContain('[Collection test.print_hint]');
+    expect(r.printBuffer).toContain('Cursor on test.print_hint');
+    expect(r.printBuffer).toContain('[Collection print_other.print_hint]');
+    expect(r.printBuffer).not.toMatch(/^\{\}$/m);
+  });
+
+  it('returns a bare collection as its one-line hint, not an empty object', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'db.print_hint' });
+    expect(JSON.parse(r.valueJson!)).toBe('[Collection test.print_hint]');
   });
 
   it('caps the print buffer at ~64 KB', async () => {
