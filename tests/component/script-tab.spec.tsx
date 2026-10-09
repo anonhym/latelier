@@ -10,6 +10,8 @@ import {
   expectSeparatorResizesPanel,
 } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
+import { startCompletion } from '@codemirror/autocomplete';
+import { EditorView } from '@codemirror/view';
 import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -443,6 +445,39 @@ describe('ScriptTab — completion database', () => {
     await waitFor(() =>
       expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'test' }),
     );
+  });
+
+  // The collection list above is fed `effectiveDb` directly by ScriptTab, so it
+  // cannot tell whether the same value also reached the editor. The editor
+  // falls back to `test` on its own when it is handed a blank name, so the
+  // sampling request is what proves the prop was wired.
+  it("samples field names from the connection's default database when the DB field is blank", async () => {
+    // Never settles: the request is recorded, and no completion popup (which
+    // needs layout jsdom lacks) is ever rendered.
+    const sampleSchema = vi.fn<IpcApi['meta']['sampleSchema']>(() => new Promise(() => {}));
+    installAtelierMock({ meta: { sampleSchema } });
+    const source = 'db.wiring.find({  })';
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 't', source } })}
+        defaultDb="smoke"
+        onPatch={() => {}}
+      />,
+    );
+
+    const editor = screen.getByTestId('script-editor').querySelector<HTMLElement>('.cm-editor');
+    const view = EditorView.findFromDOM(editor!)!;
+    view.dispatch({ selection: { anchor: source.indexOf('  })') + 1 } });
+    startCompletion(view);
+
+    await waitFor(() =>
+      expect(sampleSchema).toHaveBeenCalledWith({
+        connectionId: 'c1',
+        dbName: 'smoke',
+        collection: 'wiring',
+      }),
+    );
+    expect(sampleSchema).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'test' }));
   });
 
   it('re-lists when the default database changes under a blank field', async () => {
