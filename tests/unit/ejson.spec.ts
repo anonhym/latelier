@@ -548,6 +548,10 @@ describe('ejsonStringifyRelaxed keeps a Long past 2^53 exact', () => {
     const out = wrapWideLongs({ big: long('9007199254740993'), sibling }) as Record<string, unknown>;
     expect(out.sibling).toBe(sibling);
     expect(out.big).toEqual({ $numberLong: '9007199254740993' });
+    // The caller's own array is never written to.
+    const list = [long('9007199254740993')];
+    expect(wrapWideLongs(list)).toEqual([{ $numberLong: '9007199254740993' }]);
+    expect(list[0]).toBeInstanceOf(Long);
   });
 
   it('answers undefined for a value EJSON cannot serialise, as before', () => {
