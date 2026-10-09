@@ -151,3 +151,90 @@ describe('getStructureEntries', () => {
     expect(sampleSchemaSpy).toHaveBeenCalledTimes(3);
   });
 });
+
+/**
+ * A sample requested before a write can resolve after the write's
+ * invalidation. Without a guard it re-caches the pre-write fields for the
+ * whole TTL, so these tests interleave the fetch and the invalidation by hand
+ * through deferred `sampleSchema` calls.
+ */
+describe('invalidateSampleSchemaCache racing an in-flight sample', () => {
+  interface Deferred {
+    resolve: (docs: unknown[]) => void;
+  }
+  let calls: Deferred[];
+  let sampleSchemaSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    calls = [];
+    sampleSchemaSpy = vi.fn(
+      () =>
+        new Promise<{ docs: unknown[] }>((resolve) => {
+          calls.push({ resolve: (docs) => resolve({ docs }) });
+        }),
+    );
+    installAtelierMock({
+      meta: { sampleSchema: sampleSchemaSpy as never } as never,
+    });
+  });
+
+  afterEach(() => {
+    uninstallAtelierMock();
+  });
+
+  const pathsOf = async (p: Promise<{ path: string }[]>): Promise<string[]> =>
+    (await p).map((e) => e.path);
+
+  it('does not cache a sample that resolves after the invalidation', async () => {
+    const { sampleSchemaSource, invalidateSampleSchemaCache } = await loadModule();
+    const stale = sampleSchemaSource(ctx());
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(1);
+
+    invalidateSampleSchemaCache('c1', 'db', 'coll');
+    calls[0]!.resolve([{ old: 1 }]);
+    await stale; // its own caller still gets an answer
+
+    const fresh = sampleSchemaSource(ctx());
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(2);
+    calls[1]!.resolve([{ fresh: 1 }]);
+    expect((await fresh).map((s) => s.path)).toEqual(['fresh']);
+  });
+
+  it('keeps the newer fetch in flight and cached when the stale one settles first', async () => {
+    const { getStructureEntries, invalidateSampleSchemaCache } = await loadModule();
+    const a = getStructureEntries('c1', 'db', 'coll');
+    invalidateSampleSchemaCache('c1', 'db', 'coll');
+    const b = getStructureEntries('c1', 'db', 'coll');
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(2);
+
+    calls[0]!.resolve([{ old: 1 }]);
+    expect(await pathsOf(a)).toEqual(['old']);
+
+    // The stale fetch's settle must not have removed B's in-flight entry.
+    const c = getStructureEntries('c1', 'db', 'coll');
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(2);
+
+    calls[1]!.resolve([{ fresh: 1 }]);
+    expect(await pathsOf(b)).toEqual(['fresh']);
+    expect(await pathsOf(c)).toEqual(['fresh']);
+
+    // And the cache now holds B's sample, not A's.
+    expect(await pathsOf(getStructureEntries('c1', 'db', 'coll'))).toEqual(['fresh']);
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidating one collection leaves a similarly named one cached', async () => {
+    const { sampleSchemaSource, invalidateSampleSchemaCache } = await loadModule();
+    const done = sampleSchemaSource(ctx({ collection: 'orders_archive' }));
+    calls[0]!.resolve([{ a: 1 }]);
+    await done;
+
+    invalidateSampleSchemaCache('c1', 'db', 'orders');
+
+    // Not awaited: a wrongly dropped entry would refetch against a deferred
+    // that never settles, and the call count is what shows it.
+    void sampleSchemaSource(ctx({ collection: 'orders_archive' }));
+    expect(sampleSchemaSpy).toHaveBeenCalledTimes(1);
+  });
+});

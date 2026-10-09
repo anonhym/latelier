@@ -26,6 +26,12 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<CacheEntry>>();
+// Bumped by every invalidation. A fetch that started under an older
+// generation still answers its own caller but never writes the cache, so a
+// sample read just before a write can't land after the invalidation and keep
+// the pre-write fields for a whole TTL. Global, not per key: it errs toward
+// skipping a cache write, never toward keeping a stale one.
+let generation = 0;
 
 function keyFor(connectionId: string, dbName: string, collection: string): string {
   return `${connectionId}:${dbName}:${collection}`;
@@ -54,7 +60,10 @@ async function loadEntry(
   const pending = inflight.get(key);
   if (pending) return pending;
 
-  const fetchPromise = (async () => {
+  const startedIn = generation;
+  // Held in an object so the fetch's own `finally` can compare against it.
+  const self: { promise?: Promise<CacheEntry> } = {};
+  self.promise = (async () => {
     let entry: CacheEntry;
     try {
       const res = await api.meta.sampleSchema({ connectionId, dbName, collection });
@@ -74,14 +83,16 @@ async function loadEntry(
     } catch {
       entry = { fetchedAt: Date.now(), suggestions: [], structureEntries: [] };
     } finally {
-      inflight.delete(key);
+      // An invalidation may already have dropped this entry and a newer fetch
+      // taken its key; only remove our own.
+      if (inflight.get(key) === self.promise) inflight.delete(key);
     }
-    cache.set(key, entry);
+    if (startedIn === generation) cache.set(key, entry);
     return entry;
   })();
 
-  inflight.set(key, fetchPromise);
-  return fetchPromise;
+  inflight.set(key, self.promise);
+  return self.promise;
 }
 
 export const sampleSchemaSource: FieldSource = async (ctx) =>
@@ -100,21 +111,27 @@ export async function getStructureEntries(
   return (await loadEntry(connectionId, dbName, collection)).structureEntries;
 }
 
-/** Exposed for tests and for explicit refreshes after writes. */
+/**
+ * Drop cached samples after something changed the data they were drawn from:
+ * every renderer write path (see X02 §9) and the connection dialogs call it.
+ * Also forgets in-flight fetches and keeps them from re-caching their result.
+ */
 export function invalidateSampleSchemaCache(
   connectionId?: string,
   dbName?: string,
   collection?: string,
 ): void {
-  if (!connectionId) {
-    cache.clear();
-    return;
-  }
-  if (dbName && collection) {
-    cache.delete(keyFor(connectionId, dbName, collection));
-    return;
-  }
-  for (const k of [...cache.keys()]) {
-    if (k.startsWith(`${connectionId}:`)) cache.delete(k);
+  generation++;
+  // One collection is an exact key (a prefix would also hit `orders_archive`
+  // when asked for `orders`); a bare connection id is a prefix.
+  const matches = (k: string): boolean => {
+    if (!connectionId) return true;
+    if (dbName && collection) return k === keyFor(connectionId, dbName, collection);
+    return k.startsWith(`${connectionId}:`);
+  };
+  for (const map of [cache, inflight]) {
+    for (const k of [...map.keys()]) {
+      if (matches(k)) map.delete(k);
+    }
   }
 }
