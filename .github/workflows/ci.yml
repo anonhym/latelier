@@ -202,7 +202,24 @@ jobs:
       - name: Install Playwright system deps
         run: ./node_modules/.bin/playwright install-deps
 
+      # The secrets-vault specs need a real OS keyring. A bare runner has no
+      # session D-Bus and no secret service, so Chromium falls back to its
+      # `basic_text` backend, which `isWeakBackend` rejects by design and the
+      # vault answers with SECRETS_UNAVAILABLE. Both vault specs used to skip
+      # on that, which left credential storage with no CI coverage at all.
+      - name: Install a session keyring
+        run: sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-x11
+
       - name: Run E2E
+        env:
+          # Chromium picks its Linux password store from the desktop
+          # environment; without one it never tries libsecret.
+          XDG_CURRENT_DESKTOP: GNOME
+        # `dbus-run-session` gives the job its own session bus, and the
+        # keyring daemon is started and unlocked on it with an empty password
+        # before Electron launches, so `safeStorage` selects `gnome_libsecret`.
+        # The vault specs fail, not skip, when that is missing on CI.
+        #
         # Electron needs an X server on Linux even when launched
         # programmatically; xvfb-run stands one up for the test process.
         #
@@ -210,7 +227,11 @@ jobs:
         # builds its own bundle. That is deliberate: the build is seconds, and
         # sharing one through an artifact would trade it for an upload, a
         # download, and a way for a shard to test a bundle it did not make.
-        run: xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4
+        run: |
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            eval "$(echo -n "" | gnome-keyring-daemon --unlock --components=secrets)"
+            exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure
         if: failure()
