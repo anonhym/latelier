@@ -166,6 +166,17 @@ Behaviour:
     collections through the bridge.
 - The REPL's default evaluator allows top-level `await`
   (`await db.users.findOne()` etc.).
+- `await` is optional. A result that is a Promise (or any thenable) is
+  settled before it is printed, so `db.users.find().toArray()` prints the
+  documents. Input is not paused while it is pending: a result that never
+  settles leaves later commands working, and one that settles late prints
+  after the commands typed meanwhile. The pending call itself cannot be
+  cancelled; there is no interrupt until the shell has one. A cursor is not
+  a thenable and still prints its one-line hint.
+- An error, thrown or rejected, prints as `Uncaught <name>: <message>`
+  (no stack, cause or extra fields). A thrown or rejected value that is not
+  an `Error` prints as itself; a falsy rejection reason prints as
+  `Error: Promise rejected with <value>`, since the REPL would read it as success.
 - Sessions are scoped per connection — calling `start` for a connection
   that already has a live session reuses it. Idempotent toggle.
 - **Lifecycle lives in main.** Ending a session kills the child and
@@ -239,6 +250,10 @@ Behaviour:
       it opens on the connection's default database, else `test`.
 - [x] On open, the pane prints a banner naming the connection.
 - [x] Typing `await db.runCommand({ ping: 1 })` prints `{ "ok": 1 }`.
+- [x] `db.<coll>.find().toArray()` and `db.<coll>.countDocuments()` without
+      `await` print their result, and a bare cursor still prints its hint.
+- [x] An error, thrown or rejected (awaited or not), prints its message
+      and the session stays alive.
 - [x] `show dbs` and `show collections` work.
 - [x] `use <name>` switches the current database and updates the prompt.
 - [x] Closing the pane / quitting the app stops the session cleanly and
@@ -259,7 +274,10 @@ Behaviour:
 - **shell-runner.spec.ts**: the same service over a real pool and
   `mongodb-memory-server`. Covers reads and writes through main, `use`
   and the prompt, the database a session opens on (an explicit name
-  over the connection's default over `test`), stop and `disposeAll`
+  over the connection's default over `test`), results left without
+  `await` (a find, a count, rejections, thrown and rejected non-Error
+  values, a thenable that never settles, settles late or twice, or
+  throws), stop and `disposeAll`
   killing the child, a pool disconnect and a read-only flip ending the
   session, a crashed child, `process.exit()` and `.exit` inside the
   REPL, and that nothing posted to the child (and nothing an escape can
