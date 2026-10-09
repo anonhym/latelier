@@ -3,6 +3,7 @@ import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, Time
 import {
   ejsonParse,
   ejsonStringify,
+  ejsonStringifyDriverValue,
   ejsonEncode,
   ejsonEncodeArray,
   ejsonEncodeArrayJson,
@@ -916,6 +917,25 @@ describe('ejsonEncode — a promoted Double past 2^53 is written as a Double', (
 // ─── The walk behind it ──────────────────────────────────────────────────────
 // It runs over every document of every find, so it copies only the path to a
 // changed number and hands back everything else as the same reference.
+describe('ejsonStringifyDriverValue — shows a driver value the way a find result is shown', () => {
+  it('writes a number past 2^53 (a promoted Double) as $numberDouble, nested in documents and arrays', () => {
+    expect(ejsonStringifyDriverValue({ a: [1760000000000000768, { b: -1760000000000000768 }] })).toBe(
+      '{"a":[{"$numberDouble":"1760000000000000768.0"},{"b":{"$numberDouble":"-1760000000000000768.0"}}]}',
+    );
+  });
+
+  it('matches what ejsonEncode writes for the same value', () => {
+    const value = { n: 1760000000000000768, s: 'x', l: Long.fromString('9007199254740993'), i: 5 };
+    expect(ejsonStringifyDriverValue(value)).toBe(JSON.stringify(ejsonEncode(value)));
+  });
+
+  it('leaves a real Long past 2^53 a $numberLong, and a plain ejsonStringify unchanged', () => {
+    const long = Long.fromString('9007199254740993');
+    expect(ejsonStringifyDriverValue({ l: long })).toBe('{"l":{"$numberLong":"9007199254740993"}}');
+    expect(ejsonStringify({ n: 1760000000000000768 })).toBe('{"n":{"$numberLong":"1760000000000000800"}}');
+  });
+});
+
 describe('markPromotedDoubles — copies only the path to a changed number', () => {
   const WIDE = 1760000000000000768;
   const isMarked = (v: unknown): boolean => v instanceof Double && v.valueOf() === WIDE;
