@@ -95,7 +95,9 @@ function todayStamp(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-const isLogFile = (name: string): boolean => name.startsWith('mongolab.') && name.endsWith('.log');
+// The pre-rename prefix stays so older logs still age out.
+export const isLogFile = (name: string): boolean =>
+  (name.startsWith('latelier.') || name.startsWith('mongolab.')) && name.endsWith('.log');
 
 /**
  * Deletes log files past retention. A failure stops the sweep (nothing more is
@@ -164,7 +166,7 @@ export function createLogger(userDataDir: string, opts: {
   startupWarnings.push(...pruneOldLogs(logsDir, retention), ...tightenLogFiles(logsDir));
 
   let diskFailureReported = false;
-  const filePath = () => path.join(logsDir, `mongolab.${todayStamp()}.log`);
+  const filePath = () => path.join(logsDir, `latelier.${todayStamp()}.log`);
 
   function write(lvl: LogLevel, tag: string, msg: string, data?: unknown): void {
     if (LEVEL_ORDER[lvl] < LEVEL_ORDER[level]) return;

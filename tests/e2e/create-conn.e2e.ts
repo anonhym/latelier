@@ -84,7 +84,7 @@ test('create → test → save → appears in list', async () => {
     expect(created.list.map((x) => x.name)).toContain('E2E Target');
 
     // DB row persisted on disk.
-    expect(fs.existsSync(path.join(userDataDir, 'mongolab.db'))).toBe(true);
+    expect(fs.existsSync(path.join(userDataDir, 'latelier.db'))).toBe(true);
   } finally {
     await app.close();
     await mongoServer.stop();

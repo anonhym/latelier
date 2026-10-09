@@ -50,8 +50,8 @@ describe('DiagnosticService', () => {
   });
 
   it('build() includes redacted connections, runtime metadata, and recent logs', async () => {
-    await fs.writeFile(path.join(logsDir, 'mongolab.2026-05-01.log'), 'old line\n');
-    await fs.writeFile(path.join(logsDir, 'mongolab.2026-05-07.log'), 'recent line\n');
+    await fs.writeFile(path.join(logsDir, 'latelier.2026-05-01.log'), 'old line\n');
+    await fs.writeFile(path.join(logsDir, 'latelier.2026-05-07.log'), 'recent line\n');
     // Non-log file in the directory should be ignored.
     await fs.writeFile(path.join(logsDir, 'README.txt'), 'ignore me');
 
@@ -69,9 +69,9 @@ describe('DiagnosticService', () => {
       expect.objectContaining({ id: 'c1', name: 'local', host: 'localhost', port: 27017 }),
     ]);
     expect(Object.keys(bundle.logs)).toEqual(
-      expect.arrayContaining(['mongolab.2026-05-01.log', 'mongolab.2026-05-07.log']),
+      expect.arrayContaining(['latelier.2026-05-01.log', 'latelier.2026-05-07.log']),
     );
-    expect(bundle.logs['mongolab.2026-05-07.log']).toContain('recent line');
+    expect(bundle.logs['latelier.2026-05-07.log']).toContain('recent line');
     expect(Object.keys(bundle.logs)).not.toContain('README.txt');
   });
 
@@ -116,7 +116,7 @@ describe('DiagnosticService', () => {
     expect(json).not.toContain('"password"');
   });
 
-  it('keeps only the most recent N log files when more exist than the cap', async () => {
+  it('keeps only the most recent N log files when more exist than the cap (pre-rename names)', async () => {
     for (const day of ['01', '02', '03', '04', '05', '06', '07', '08']) {
       await fs.writeFile(path.join(logsDir, `mongolab.2026-05-${day}.log`), `day-${day}\n`);
     }
@@ -126,15 +126,48 @@ describe('DiagnosticService', () => {
       maxLogFiles: 3,
     });
     const bundle = await svc.build();
-    expect(Object.keys(bundle.logs).sort()).toEqual([
+    expect(Object.keys(bundle.logs).sort((a, b) => a.localeCompare(b))).toEqual([
       'mongolab.2026-05-06.log',
       'mongolab.2026-05-07.log',
       'mongolab.2026-05-08.log',
     ]);
   });
 
+  it('keeps the newest logs across the rename, not the legacy ones that sort after them by name', async () => {
+    for (const day of ['01', '02', '03', '04', '05']) {
+      await fs.writeFile(path.join(logsDir, `mongolab.2026-05-${day}.log`), `legacy-${day}\n`);
+    }
+    for (const day of ['06', '07', '08']) {
+      await fs.writeFile(path.join(logsDir, `latelier.2026-05-${day}.log`), `current-${day}\n`);
+    }
+    const svc = new DiagnosticService({
+      userDataDir,
+      connRepo: { list: () => [] },
+      maxLogFiles: 4,
+    });
+    const bundle = await svc.build();
+    expect(Object.keys(bundle.logs).sort((a, b) => a.localeCompare(b))).toEqual([
+      'latelier.2026-05-06.log',
+      'latelier.2026-05-07.log',
+      'latelier.2026-05-08.log',
+      'mongolab.2026-05-05.log',
+    ]);
+  });
+
+  it('treats the pre-rename log as older than the current one written on the same day', async () => {
+    await fs.writeFile(path.join(logsDir, 'mongolab.2026-05-07.log'), 'before upgrade\n');
+    await fs.writeFile(path.join(logsDir, 'latelier.2026-05-07.log'), 'after upgrade\n');
+    const svc = new DiagnosticService({
+      userDataDir,
+      connRepo: { list: () => [] },
+      maxLogFiles: 1,
+    });
+    const bundle = await svc.build();
+    expect(Object.keys(bundle.logs)).toEqual(['latelier.2026-05-07.log']);
+  });
+
   it('truncates oversized log files to the configured byte cap and starts on a clean line', async () => {
-    const big = path.join(logsDir, 'mongolab.2026-05-07.log');
+    const big = path.join(logsDir, 'latelier.2026-05-07.log');
     // 10 lines, each 100 chars-ish.
     const lines = Array.from({ length: 10 }, (_, i) => `line-${i}-${'x'.repeat(100)}`);
     await fs.writeFile(big, lines.join('\n') + '\n');
@@ -144,7 +177,7 @@ describe('DiagnosticService', () => {
       maxLogFileBytes: 200, // forces truncation
     });
     const bundle = await svc.build();
-    const tail = bundle.logs['mongolab.2026-05-07.log']!;
+    const tail = bundle.logs['latelier.2026-05-07.log']!;
     expect(tail.length).toBeLessThanOrEqual(200);
     // The truncation logic discards the partial first line — so the first
     // character of the slice must be the start of a complete record.
@@ -166,6 +199,6 @@ describe('DiagnosticService', () => {
       userDataDir,
       connRepo: { list: () => [] },
     });
-    expect(svc.defaultFilename()).toMatch(/^mongolab-diagnostic-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/);
+    expect(svc.defaultFilename()).toMatch(/^latelier-diagnostic-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.json$/);
   });
 });

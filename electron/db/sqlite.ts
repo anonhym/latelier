@@ -6,12 +6,16 @@ import type { Database } from 'better-sqlite3';
 import { loadMigrations, runMigrations, type Migration } from './migrationRunner.ts';
 import type { Logger } from '../log.ts';
 
+export const DB_FILENAME = 'latelier.db';
+/** The name builds before the rename used; older userData folders still hold it. */
+export const LEGACY_DB_FILENAME = 'mongolab.db';
+
 export interface OpenDatabaseOptions {
   /** Absolute path to the userData directory. */
   userDataDir: string;
   /** Override migrations (tests inject their own). */
   migrations?: Migration[];
-  /** Override the filename (default 'mongolab.db'). */
+  /** Override the filename (default DB_FILENAME). */
   filename?: string;
   /** Receives a warning when the post-migration WAL checkpoint could not finish. */
   log?: Pick<Logger, 'warn'>;
@@ -27,8 +31,60 @@ export function truncateWal(db: Database): boolean {
   return row?.busy === 0;
 }
 
+/**
+ * Moves a database left under the pre-rename name to DB_FILENAME and returns
+ * the filename to open. Must run before openDatabase: ensurePrivateFile creates
+ * an empty DB_FILENAME, after which the legacy file would never be adopted.
+ *
+ * The rename moves the main file alone, so the WAL is folded in first — a bare
+ * open and close does not read the WAL and a rename then drops every row still
+ * in it. Leftover side files after close mean another connection holds the
+ * database; renaming under it would split its writes from the main file, so the
+ * old name is kept for this run and the rename is retried on the next start.
+ * An existing DB_FILENAME always wins and the legacy file is left untouched.
+ * A WAL is not tied to its database file, so a stray `-wal`/`-shm` under the
+ * new name would be replayed onto the legacy data; the rename waits for those
+ * to be gone.
+ */
+export function adoptLegacyDatabase(userDataDir: string, log: Pick<Logger, 'info' | 'warn'>): string {
+  const current = path.join(userDataDir, DB_FILENAME);
+  const legacy = path.join(userDataDir, LEGACY_DB_FILENAME);
+  if (fs.existsSync(current)) {
+    if (fs.existsSync(legacy)) log.warn('db', 'legacy database left in place, the current one already exists', { legacy: LEGACY_DB_FILENAME });
+    return DB_FILENAME;
+  }
+  if (!fs.existsSync(legacy)) return DB_FILENAME;
+  const strays = ['-wal', '-shm'].filter((s) => fs.existsSync(current + s));
+  if (strays.length > 0) {
+    log.warn('db', 'side files of a missing current database are present, keeping the legacy name for this run', { strays });
+    return LEGACY_DB_FILENAME;
+  }
+  try {
+    // timeout 0: a database held by another process fails fast instead of
+    // stalling boot on the busy handler; the rename is retried next start.
+    const old = new BetterSqlite3(legacy, { fileMustExist: true, timeout: 0 });
+    let folded: boolean;
+    try {
+      folded = truncateWal(old);
+    } finally {
+      old.close();
+    }
+    const leftovers = ['-wal', '-shm'].filter((s) => fs.existsSync(legacy + s));
+    if (!folded || leftovers.length > 0) {
+      log.warn('db', 'legacy database is in use, keeping its name for this run', { busy: !folded, leftovers });
+      return LEGACY_DB_FILENAME;
+    }
+    fs.renameSync(legacy, current);
+  } catch (err) {
+    log.warn('db', 'could not rename the legacy database, keeping its name for this run', { message: String(err) });
+    return LEGACY_DB_FILENAME;
+  }
+  log.info('db', 'renamed the legacy database', { from: LEGACY_DB_FILENAME, to: DB_FILENAME });
+  return DB_FILENAME;
+}
+
 export function openDatabase(opts: OpenDatabaseOptions): Database {
-  const filename = opts.filename ?? 'mongolab.db';
+  const filename = opts.filename ?? DB_FILENAME;
   ensurePrivateDir(opts.userDataDir);
   const dbPath = path.join(opts.userDataDir, filename);
   // Before SQLite opens the file, so it creates `-wal`/`-shm` at the same

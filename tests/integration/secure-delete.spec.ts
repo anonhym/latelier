@@ -37,7 +37,7 @@ describe('secure_delete and WAL truncation', () => {
       .run(JSON.stringify({ filter: MARKER }), new Date(Date.now() - 60 * 86_400_000).toISOString());
     // Put the marker in the main file, so the purge has to erase it there.
     expect(truncateWal(tmp.db)).toBe(true);
-    const dbPath = path.join(tmp.dir, 'mongolab.db');
+    const dbPath = path.join(tmp.dir, 'latelier.db');
     expect(fs.readFileSync(dbPath).includes(MARKER)).toBe(true);
 
     const store = new Map<string, unknown>();
@@ -59,7 +59,7 @@ describe('secure_delete and WAL truncation', () => {
   it('truncateWal reports false while another connection holds a read transaction', () => {
     tmp.db.exec('CREATE TABLE probe (x)');
     tmp.db.prepare('INSERT INTO probe VALUES (1)').run();
-    const reader = new BetterSqlite3(path.join(tmp.dir, 'mongolab.db'));
+    const reader = new BetterSqlite3(path.join(tmp.dir, 'latelier.db'));
     try {
       reader.exec('BEGIN');
       reader.prepare('SELECT * FROM probe').all();
@@ -73,7 +73,7 @@ describe('secure_delete and WAL truncation', () => {
 
   it('an upgrade that runs migrations also clears bytes freed before secure_delete existed', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-vacuum-'));
-    const dbPath = path.join(dir, 'mongolab.db');
+    const dbPath = path.join(dir, 'latelier.db');
     const all = loadMigrationsFromDisk();
     try {
       // An older install: no secure_delete, a row deleted long ago.
