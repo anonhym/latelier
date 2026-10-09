@@ -112,9 +112,10 @@ export async function getStructureEntries(
 }
 
 /**
- * Drop cached samples after something changed the data they were drawn from:
- * every renderer write path (see X02 §9) and the connection dialogs call it.
- * Also forgets in-flight fetches and keeps them from re-caching their result.
+ * Drop cached samples after something changed the data they were drawn from.
+ * The renderer's write paths and the connection dialogs call it; X02 §9 lists
+ * each one and the few left to the TTL. Also forgets in-flight fetches and
+ * keeps them from re-caching their result.
  */
 export function invalidateSampleSchemaCache(
   connectionId?: string,

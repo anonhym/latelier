@@ -323,27 +323,41 @@ when that happens.
   answer); that errs toward a refetch, never toward a stale entry.
 - Every write the renderer completes, except those listed after this,
   calls it, so fresh fields and the Update drawer's type warning
-  reflect the write immediately:
-  - `useDocumentDialogs` — insert, partial insert, document save,
-    delete (one, selected, many), update-many, and the Undo of each.
+  reflect the write immediately. Each site names the collection from the
+  data it owns, never from the Focused Tab at completion, which can have
+  moved on while a request was in flight:
+  - `useDocumentDialogs` — insert, partial insert, document save, and the
+    Undo of those that offer one (including delete and update-many).
     `refreshSource` invalidates from the drawer's captured target
     before its tab-gone early return, because the write landed even
     when the tab did not survive the drawer.
+  - `DeleteConfirm` (one, selected, many) and `UpdateConfirm`
+    (update-many) invalidate from their own props as soon as the request
+    resolves, not through `useDocumentDialogs`; the hook's completion
+    callbacks leave the cache alone.
   - `Workspace.tsx` `updateField` (Quick Edit), which writes straight
     through `api.doc.updateOne`, and its Undo.
   - `ImportDialog`, once the import resolves and again on Undo.
   - `SaveAsCollectionModal`, for the target `(connId, db, coll)`; and
     `AggregationTab`'s confirmed `$out` / `$merge` run, for the whole
     connection (main parses the target out of the stage body, so the
-    renderer cannot name it). Both also invalidate when the write
-    fails, since a `$merge` can write part-way.
+    renderer cannot name it).
+  - `AuditLogModal` Revert, for the entry's own connection (the entry can
+    be a rename, drop or import with no single collection).
+  - `ScriptTab`, for the tab's connection after every run: a script can
+    write to any collection and the renderer cannot tell which.
   - The connection dialogs (`ConnectionManager`, `useConnectionDialogs`)
     for connection changes.
-- Not wired, on purpose: the Script tab and the Mongo shell (a script
-  can write to any collection and there is no completion point to hook),
-  and collection create / drop / rename and database drop. The 5-minute
-  TTL bounds all of these; a collection dropped and re-created inside it
-  can show the old fields until the TTL lapses.
+- Writes that can fail part-way invalidate on failure too, since an
+  earlier part may already have landed and an extra resample costs
+  nothing: a rejected delete-many, update-many, `$merge` or Revert, a
+  script that threw, and an import whose error carries
+  `details.insertedCount > 0` (a refusal before any batch carries none and
+  leaves the sample alone).
+- Not wired, on purpose: the Mongo shell (a fire-and-forget stream with
+  no completion point to hook), and collection create / drop / rename and
+  database drop. The 5-minute TTL bounds these; a collection dropped and
+  re-created inside it can show the old fields until the TTL lapses.
 
 ### Race safety
 
