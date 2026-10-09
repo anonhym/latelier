@@ -276,7 +276,6 @@ export function createRpcClient(send: (frame: RpcFrame) => void): RpcClient {
           if (prop === 'getName' || prop === Symbol.toPrimitive || prop === 'toString') {
             return () => ctx.currentDb;
           }
-          if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => `Db(${ctx.currentDb})`;
           if (typeof prop === 'symbol' || prop === 'then') return undefined;
           // Read once, at access: `const c = db.items; use('x'); c.find()` stays on the old db.
           const dbName = ctx.currentDb;
