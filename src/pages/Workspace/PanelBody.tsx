@@ -6,6 +6,8 @@ import {
   Separator as PanelResizeHandle,
   type PanelImperativeHandle,
 } from 'react-resizable-panels';
+import { getErrorMessage } from '../../api/atelier';
+import { notify } from '../../theme/notifications';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { isKnownNotConnected } from '../../state/connections';
@@ -495,13 +497,22 @@ export function PanelBody({
                           savedRefreshKey={collection.savedRefreshKey}
                           onOpenInTab={(saved) => {
                             if (saved.kind === 'aggregation') {
-                              void tabs.openAggregation({
-                                connectionId: saved.connectionId,
-                                dbName: saved.dbName,
-                                collection: saved.collection,
-                                savedId: saved.id,
-                                name: saved.name,
-                              });
+                              // Main loads the stored stages and refuses a pipeline
+                              // that was deleted since the list loaded; say so rather
+                              // than leave the click doing nothing.
+                              tabs
+                                .openAggregation({
+                                  connectionId: saved.connectionId,
+                                  dbName: saved.dbName,
+                                  collection: saved.collection,
+                                  savedId: saved.id,
+                                  name: saved.name,
+                                })
+                                .catch((e: unknown) =>
+                                  notify.error(getErrorMessage(e, String(e)), {
+                                    title: 'Could not open pipeline',
+                                  }),
+                                );
                             } else if (saved.kind === 'script') {
                               void tabs.openScript({ connectionId: saved.connectionId });
                             }
