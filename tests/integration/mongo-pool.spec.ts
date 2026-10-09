@@ -939,6 +939,75 @@ describe('MongoPool', () => {
     await pool.disconnectAll();
   });
 
+  // Cancel can land after client.connect() resolved, while the post-connect
+  // buildInfo or hello read is still in flight. A real driver rejects every
+  // command once its client is closed, and readHello swallows that rejection
+  // by design, so without a second guard the entry would be written back as
+  // 'connected' around a closed client.
+  describe('Cancel landing during the post-connect reads', () => {
+    it.each([
+      { pending: 'hello', settle: 'reject' },
+      { pending: 'buildInfo', settle: 'resolve' },
+      { pending: 'buildInfo', settle: 'reject' },
+    ] as const)('$pending pending, then $settle: stays disconnected, client closed, no server facts', async ({ pending, settle }) => {
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const closedError = () => new Error('Client must be connected before running operations');
+
+      let settlePending: (() => void) | undefined;
+      const fake = {
+        closed: false,
+        connect: async () => {},
+        close: async () => {
+          fake.closed = true;
+        },
+        on: () => {},
+        db: () => ({
+          command: async (cmd: Record<string, unknown>) => {
+            const name = Object.keys(cmd)[0]!;
+            if (name === pending) {
+              return new Promise((resolve, reject) => {
+                settlePending = () => (settle === 'resolve' ? resolve({ version: '8.0.0' }) : reject(closedError()));
+              });
+            }
+            // A closed client refuses everything, including the isMaster
+            // fallback readHello tries after a failed hello.
+            if (fake.closed) throw closedError();
+            if (name === 'buildInfo') return { version: '8.0.0' };
+            if (name === 'hello') return { ok: 1, isWritablePrimary: true };
+            throw new Error(`unexpected command ${name}`);
+          },
+        }),
+      };
+      const pool = new MongoPool({
+        repo: makeReader([makeConnection('c1', hp)]),
+        vault,
+        clientFactory: () => fake as unknown as import('mongodb').MongoClient,
+      });
+      const events: string[] = [];
+      pool.on('status', (r) => events.push(r.status));
+
+      const connecting = pool.connect('c1');
+      // connect() is parked on the pending read, past the first guard.
+      await vi.waitFor(() => expect(settlePending).toBeDefined());
+      await pool.disconnect('c1');
+      expect(fake.closed).toBe(true);
+
+      settlePending!();
+      const result = await connecting;
+
+      expect(result.status).toBe('disconnected');
+      expect(result.errorCode).toBeUndefined();
+      expect(result.connectedAt).toBeUndefined();
+      expect(result.serverVersion).toBeUndefined();
+      expect(result.topology).toBeUndefined();
+      expect(pool.status('c1')).toEqual(result);
+      // No 'connected' event for a connection nobody can use.
+      expect(events).toEqual(['connecting', 'disconnected']);
+      expect(fake.closed).toBe(true);
+    });
+  });
+
   // X16 §4.1 / test cases 1 and 3. These replace the old
   // "connecting one connection disconnects any other that was previously
   // connected", which pinned the deleted preemption loop.
