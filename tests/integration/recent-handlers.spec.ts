@@ -12,6 +12,7 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import type { Envelope } from '../../shared/ipc';
 import type { RecentQueryService } from '../../electron/services/RecentQueryService';
 import type { RecentFieldValueService } from '../../electron/services/RecentFieldValueService';
+import { NotFoundError } from '../../electron/errors';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
 
 type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
@@ -26,7 +27,7 @@ function createShim() {
         handlers.set(channel, fn);
       },
     } as const,
-    async invoke<T>(channel: string, payload: unknown): Promise<Envelope<T>> {
+    async invoke<T>(channel: string, payload?: unknown): Promise<Envelope<T>> {
       const h = handlers.get(channel);
       if (!h) throw new Error(`no handler for ${channel}`);
       return (await h(invokeEvent, payload)) as Envelope<T>;
@@ -35,6 +36,8 @@ function createShim() {
 }
 
 function setup() {
+  const list = vi.fn<(filter: unknown) => unknown[]>(() => [{ id: 'r1' }]);
+  const get = vi.fn((id: string) => ({ id }));
   const clear = vi.fn(() => ({ deleted: 1 }));
   const listForField = vi.fn(() => []);
   const recordMany = vi.fn(() => ({ recorded: 1 }));
@@ -42,11 +45,98 @@ function setup() {
   const shim = createShim();
   registerRecentChannels(
     createRouter(shim.ipcMain, testSenderCheck),
-    { clear } as unknown as RecentQueryService,
+    { list, get, clear } as unknown as RecentQueryService,
     { listForField, recordMany, clearAll } as unknown as RecentFieldValueService,
   );
-  return { shim, clear, listForField, recordMany, clearAll };
+  return { shim, list, get, clear, listForField, recordMany, clearAll };
 }
+
+describe('recent:list input validation', () => {
+  it('asks the service for an unfiltered list when called with no payload', async () => {
+    const { shim, list } = setup();
+
+    const res = await shim.invoke(IPC_CHANNELS.recentList);
+
+    expect(res).toEqual({ ok: true, data: [{ id: 'r1' }] });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith({});
+  });
+
+  it('forwards the whole filter to the service', async () => {
+    const { shim, list } = setup();
+    const filter = { connectionId: 'c1', kind: 'find', limit: 10 };
+
+    const res = await shim.invoke(IPC_CHANNELS.recentList, filter);
+
+    expect(res.ok).toBe(true);
+    expect(list).toHaveBeenCalledWith(filter);
+  });
+
+  it('forwards a scope narrowed to database and collection', async () => {
+    const { shim, list } = setup();
+    const filter = { connectionId: 'c1', dbName: 'shop', collection: 'orders', kind: 'aggregation' };
+
+    const res = await shim.invoke(IPC_CHANNELS.recentList, filter);
+
+    expect(res.ok).toBe(true);
+    expect(list).toHaveBeenCalledWith(filter);
+  });
+
+  it.each([
+    ['a kind outside find and aggregation', { kind: 'script' }],
+    ['a zero limit', { limit: 0 }],
+    ['a fractional limit', { limit: 1.5 }],
+    ['an empty connectionId', { connectionId: '' }],
+  ])('rejects %s with VALIDATION and never calls the service', async (_what, payload) => {
+    const { shim, list } = setup();
+
+    const res = await shim.invoke(IPC_CHANNELS.recentList, payload);
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('VALIDATION');
+    expect(list).not.toHaveBeenCalled();
+  });
+});
+
+describe('recent:get input validation', () => {
+  it('passes the id to the service and returns its row', async () => {
+    const { shim, get } = setup();
+
+    const res = await shim.invoke(IPC_CHANNELS.recentGet, { id: 'r1' });
+
+    expect(res).toEqual({ ok: true, data: { id: 'r1' } });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('r1');
+  });
+
+  it.each([
+    ['an empty id', { id: '' }],
+    ['a missing id', {}],
+  ])('rejects %s with VALIDATION and never calls the service', async (_what, payload) => {
+    const { shim, get } = setup();
+
+    const res = await shim.invoke(IPC_CHANNELS.recentGet, payload);
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('VALIDATION');
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('carries the service NotFoundError across as NOT_FOUND', async () => {
+    const { shim, get } = setup();
+    get.mockImplementation((id: string) => {
+      throw new NotFoundError(`recent query ${id} not found`);
+    });
+
+    const res = await shim.invoke(IPC_CHANNELS.recentGet, { id: 'gone' });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('NOT_FOUND');
+  });
+});
 
 describe('recent:clear input validation', () => {
   it('passes the full four-part scope through to the service', async () => {
