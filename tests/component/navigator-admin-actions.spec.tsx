@@ -157,6 +157,34 @@ describe('DbCollectionNavigator — T1.1 admin actions', () => {
     await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
   });
 
+  // The failure carries no report, so the DB is re-listed from the
+  // partial-import callback instead of `onImported`.
+  it('collection context menu "Import documents…" refreshes the DB when the import fails after some documents landed', async () => {
+    const listCollections = vi.fn(async () => [
+      { name: 'orders', type: 'collection' as const, documentCount: 0, sizeBytes: 0, indexCount: 0, capped: false },
+    ]);
+    const importFn = vi.fn(async () => {
+      throw { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } };
+    });
+    baseMocks({
+      meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }], listCollections },
+      app: { pickFile: async () => ({ path: '/tmp/o.jsonl' }) } as never,
+      data: { import: importFn },
+    });
+
+    mountNavigator();
+    await screen.findByText('orders');
+    const initialCalls = listCollections.mock.calls.length;
+
+    fireEvent.contextMenu(screen.getByTestId('nav-coll-shop-orders'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import documents…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose file…' }));
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(importFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(listCollections.mock.calls.length).toBeGreaterThan(initialCalls));
+  });
+
   it('collection context menu "Drop collection" opens type-to-confirm; success refreshes the DB', async () => {
     const listCollections = vi.fn(async () => [
       {

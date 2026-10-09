@@ -215,11 +215,14 @@ export class WorkspaceStateService {
   // stages is one that was never edited: the stored pipeline is its truth. A
   // pipeline saved empty reads back empty, so there is nothing to change. A row
   // that is gone or unreadable leaves the tab as it is; one bad tab must not
-  // fail the whole list.
+  // fail the whole list. `tabs:update` stores the aggregation state unchecked,
+  // so a `savedId` that is not a string is skipped here: SQLite cannot bind it,
+  // and the error would fail every list from then on.
   private restoreEmptiedPipeline(row: WorkspaceTabRow): WorkspaceTabRow {
     if (row.kind !== 'collection') return row;
     const aggregation = parseState<CollectionTabState>(row.state_json).aggregation;
-    if (!aggregation?.savedId || aggregation.dirty || (aggregation.stages?.length ?? 0) > 0) return row;
+    if (typeof aggregation?.savedId !== 'string' || !aggregation.savedId) return row;
+    if (aggregation.dirty || (aggregation.stages?.length ?? 0) > 0) return row;
     let stages: Stage[];
     try {
       stages = this.storedPipelineStages(aggregation.savedId, {
