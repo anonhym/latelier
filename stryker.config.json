@@ -74,6 +74,7 @@
     "src/components/scriptEditor/mongoCompletions.ts",
     "src/components/scriptEditor/stageBodyCompletions.ts",
     "src/pages/Workspace/Aggregation/pipeline.ts",
+    "src/pages/Workspace/Aggregation/saveResultMessage.ts",
     "src/features/fieldSuggestions/aggGrammar.ts",
     "src/features/fieldSuggestions/placement.ts",
     "src/pages/Workspace/schemaSummary.ts",

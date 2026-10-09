@@ -5,6 +5,7 @@ import type {
   AggInput,
   AggResult,
   AggRunAndSaveInput,
+  AggSaveCounts,
   AggStagePreview,
   AuditEntry,
   AuditListInput,
@@ -373,7 +374,7 @@ export interface IpcApi {
     run: (input: AggInput) => Promise<AggResult>;
     previewUpToStage: (input: PreviewInput) => Promise<AggStagePreview>;
     cancel: (input: { token: string }) => Promise<void>;
-    runAndSave: (input: AggRunAndSaveInput) => Promise<AggResult & { writtenCount?: number }>;
+    runAndSave: (input: AggRunAndSaveInput) => Promise<AggResult & AggSaveCounts>;
     explain: (input: AggExplainInput) => Promise<{ plan: unknown; verbosity: string; writeStageOmitted: boolean }>;
   };
 

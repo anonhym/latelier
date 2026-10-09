@@ -576,6 +576,19 @@ export interface AggMergeOptions {
   whenNotMatched?: 'insert' | 'discard' | 'fail';
 }
 
+/**
+ * What `agg:runAndSave` reports about the target on top of the usual result.
+ * `$out` replaces the target, so its total after the run is exactly what was
+ * written (`writtenCount`). `$merge` adds to and updates in place whatever the
+ * target already holds, so a count of documents written cannot be derived from
+ * totals; only the target's size around the run is known (`mergeCounts`).
+ * Each is absent when its count could not be read.
+ */
+export interface AggSaveCounts {
+  writtenCount?: number;
+  mergeCounts?: { before: number; after: number };
+}
+
 export interface AggRunAndSaveInput extends AggInput {
   target: {
     dbName: string;

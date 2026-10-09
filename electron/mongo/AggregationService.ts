@@ -4,6 +4,7 @@ import type {
   AggInput,
   AggResultWire,
   AggRunAndSaveInput,
+  AggSaveCounts,
   AggStagePreview,
   PreviewInput,
   Stage,
@@ -235,9 +236,7 @@ export class AggregationService {
     }
   }
 
-  async runAndSave(
-    input: AggRunAndSaveInput,
-  ): Promise<AggResultWire & { writtenCount?: number }> {
+  async runAndSave(input: AggRunAndSaveInput): Promise<AggResultWire & AggSaveCounts> {
     validateCollectionName(input.target.collection);
     if (
       input.target.mode === '$out' &&
@@ -277,23 +276,26 @@ export class AggregationService {
             enabled: true,
           };
 
+    // `$merge` leaves the target's existing documents in place, so only its
+    // size before the run tells how much of the size after is new.
+    const isMerge = input.target.mode === '$merge';
+    const countBefore = isMerge ? await this.countTarget(input) : undefined;
+
     const result = await this.run({
       ...input,
       stages: [...input.stages, writeStage],
       allowWrite: true,
     });
 
-    let writtenCount: number | undefined;
-    try {
-      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
-      writtenCount = await db
-        .collection(input.target.collection)
-        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
-    } catch {
-      writtenCount = undefined;
-    }
-
-    return { ...result, writtenCount };
+    const countAfter = await this.countTarget(input);
+    if (!isMerge) return { ...result, writtenCount: countAfter };
+    return {
+      ...result,
+      mergeCounts:
+        countBefore !== undefined && countAfter !== undefined
+          ? { before: countBefore, after: countAfter }
+          : undefined,
+    };
   }
 
   async explain(
@@ -333,6 +335,28 @@ export class AggregationService {
   }
 
   // ─── internals ─────────────────────────────────────────────────────────
+
+  /**
+   * Size of a save target, or undefined when it cannot be read. The count only
+   * decorates the success message, so a failed probe must not fail a write that
+   * already happened; it is logged instead.
+   */
+  private async countTarget(input: AggRunAndSaveInput): Promise<number | undefined> {
+    try {
+      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
+      return await db
+        .collection(input.target.collection)
+        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      this.log?.warn('agg', 'counting the save target failed', {
+        connectionId: input.connectionId,
+        dbName: input.target.dbName,
+        collection: input.target.collection,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
 
   private requireEnabledStages(stages: Stage[]): Stage[] {
     const enabled = stages.filter((s) => s.enabled);

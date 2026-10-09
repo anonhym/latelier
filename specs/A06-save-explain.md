@@ -47,13 +47,13 @@ Fields:
 ```ts
 // IPC channel
 'agg:runAndSave'  (AggInput + { target: { dbName, collection, mode: '$out'|'$merge'; merge?: MergeOptions } })
-  → AggResult
+  → AggResult & { writtenCount?: number; mergeCounts?: { before: number; after: number } }
 ```
 
 Implementation:
 - Append `{ $out: "coll" }` or `{ $merge: { into: "coll", whenMatched, whenNotMatched } }` to the user's pipeline.
 - Call `agg:run` with `allowWrite: true`.
-- The resulting `AggResult.rows` is empty for `$out`/`$merge` (they don't return documents); the UI shows a success banner "Wrote N documents to {db}.{coll}" (N via `countDocuments` post-run).
+- The resulting `AggResult.rows` is empty for `$out`/`$merge` (they don't return documents); the UI shows a success banner. `$out` replaces the target, so it reads "Wrote N documents to {db}.{coll}" (N via `countDocuments` post-run, returned as `writtenCount`). `$merge` keeps and updates what the target already holds, so the total is not a count of what was written: the service counts the target before and after the run (`mergeCounts: { before, after }`) and the banner reads "Merged into {db}.{coll} — now N documents (+M new)", or just "Merged into {db}.{coll}" when a count could not be read.
 - The pipeline stored in the tab does NOT get the write stage appended; this is a one-shot run. If the user wants to persist the write, they can add the stage themselves via A03.
 
 ### Error handling
