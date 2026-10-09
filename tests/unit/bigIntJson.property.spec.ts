@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
+import { BSON } from 'bson';
 import { parseJsonKeepingBigInts, prettyPrintJsonKeepingBigInts } from '../../src/utils/bigIntJson';
+import { ejsonParse } from '../../src/utils/ejson';
 
 // `JSON.parse` rounds any integer token past 2^53. The invariant, for every
 // token a user can type: |n| < 2^53 stays a JS number, 2^53 <= |n| <= int64
@@ -94,6 +96,28 @@ describe('bigIntJson property: bare integer tokens', () => {
         const got = p.read(parseJsonKeepingBigInts(p.text(token)));
         expect(typeof got).toBe('number');
         expect(got).toBe(JSON.parse(token));
+      }),
+    );
+  });
+
+  it('formatting then parsing stores the same BSON for any double, however it is spelled', () => {
+    // fc.double rarely lands in [2^53, 2^70], where a fraction or exponent
+    // spelling used to come back as a bare integer, so that range is drawn too.
+    const double = fc
+      .oneof(
+        fc.double({ noNaN: true, noDefaultInfinity: true }),
+        fc.bigInt({ min: TWO_53, max: 2n ** 70n }).map((n) => Number(n) * (n % 2n === 0n ? 1 : -1)),
+      )
+      .filter((d) => !Object.is(d, -0));
+    // -0 has no sign-keeping spelling in this list; the example tests cover it.
+    const spelled = double.chain((d) =>
+      fc.constantFrom(String(d), d.toExponential(), Number.isInteger(d) ? `${BigInt(d)}.0` : String(d)),
+    );
+    const bson = (text: string): Uint8Array => BSON.serialize({ v: ejsonParse(text) });
+    fc.assert(
+      fc.property(spelled, placement, (token, p) => {
+        const text = p.text(token);
+        expect(bson(prettyPrintJsonKeepingBigInts(text, 2))).toEqual(bson(text));
       }),
     );
   });

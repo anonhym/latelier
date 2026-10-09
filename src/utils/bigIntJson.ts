@@ -23,11 +23,16 @@ const INT_TOKEN = /^-?\d+$/;
 function unsafeIntegerSource(value: unknown, context?: { source?: string }): string | undefined {
   // `isInteger` is false for every non-number, so strings, objects and fractions pass through here.
   if (!Number.isInteger(value) || Number.isSafeInteger(value)) return undefined;
+  const source = sourceText(context);
+  return INT_TOKEN.test(source) ? source : undefined;
+}
+
+function sourceText(context?: { source?: string }): string {
   const source = context?.source;
   if (source === undefined) {
-    throw new Error('JSON.parse gave no source text, so an integer beyond 2^53 cannot be kept exact');
+    throw new Error('JSON.parse gave no source text, so a number beyond 2^53 cannot be kept exact');
   }
-  return INT_TOKEN.test(source) ? source : undefined;
+  return source;
 }
 
 /**
@@ -55,13 +60,18 @@ function rawJSON(text: string): unknown {
 }
 
 /**
- * `JSON.parse` reviver for `prettyPrintJsonKeepingBigInts`: an integer a double
- * cannot hold goes back out as its own digits. Unlike `keepBigInt` it has no
- * int64 ceiling, since it changes no type, only declines to round.
+ * `JSON.parse` reviver for `prettyPrintJsonKeepingBigInts`: a number that
+ * `JSON.stringify` would write back as a different BSON value goes back out as
+ * the user spelled it. That is any number of magnitude 2^53 or more, however it
+ * is spelled (an integer token keeps its digits; `1e18` or
+ * `1760000000000000768.0` would otherwise come out as a bare integer, which
+ * `parseJsonKeepingBigInts` reads as a Long, and `1e400` as `null`), and `-0`,
+ * which would come out as `0`, an Int32 instead of a Double. Unlike `keepBigInt`
+ * it has no int64 ceiling, since it changes no type, only declines to rewrite.
  */
-function keepBigIntText(_key: string, value: unknown, context?: { source?: string }): unknown {
-  const source = unsafeIntegerSource(value, context);
-  return source === undefined ? value : rawJSON(source);
+function keepNumberText(_key: string, value: unknown, context?: { source?: string }): unknown {
+  if (typeof value !== 'number' || (Math.abs(value) < 2 ** 53 && !Object.is(value, -0))) return value;
+  return rawJSON(sourceText(context));
 }
 
 /**
@@ -81,17 +91,19 @@ export function parseJsonKeepingBigInts(s: string): unknown {
 }
 
 /**
- * Pretty-prints JSON text without rounding a bare integer beyond 2^53:
+ * Pretty-prints JSON text without changing the BSON any number parses to:
  * `JSON.stringify(JSON.parse(s), null, indent)` would write
- * `9007199254740993` as `9007199254740992`. Everything else comes out the way
- * that round trip writes it. Throws the `SyntaxError` `JSON.parse` throws for
- * text that is not JSON.
+ * `9007199254740993` as `9007199254740992`, and the Double `1e18` as a bare
+ * integer that parses back as a Long. Those numbers keep their spelling (see
+ * `keepNumberText`); everything else comes out the way that round trip writes
+ * it. Throws the `SyntaxError` `JSON.parse` throws for text that is not JSON.
  *
  * Not built on `parseJsonKeepingBigInts`: its `$numberLong` sentinel cannot be
  * told from one the user typed, so writing it back out as a bare integer would
- * change the user's text. It shares only the detection of the integer token.
- * No hint gate either: this runs once on a click, on one stage body.
+ * change the user's text. It shares only the read of the token's source text.
+ * No hint gate either: the gate looks for 16-digit integers, and `1e18` or
+ * `-0` has none. This runs once on a click, on one stage body.
  */
 export function prettyPrintJsonKeepingBigInts(s: string, indent: number): string {
-  return JSON.stringify(JSON.parse(s, keepBigIntText), null, indent);
+  return JSON.stringify(JSON.parse(s, keepNumberText), null, indent);
 }

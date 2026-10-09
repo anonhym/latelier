@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { BSON } from 'bson';
 import { parseJsonKeepingBigInts, prettyPrintJsonKeepingBigInts } from '../../src/utils/bigIntJson';
+import { ejsonParse } from '../../src/utils/ejson';
 
 // ─── Bare integers beyond 2^53 ──────────────────────────────────────────────
 // `JSON.parse` rounds `9007199254740993` to `9007199254740992` before any
@@ -243,13 +245,29 @@ describe('prettyPrintJsonKeepingBigInts', () => {
     expect(pretty('{"__proto__":9007199254740993}')).toBe('{\n  "__proto__": 9007199254740993\n}');
   });
 
+  // The plain round trip writes each of these back as a different BSON value:
+  // a bare integer (a Long on the next parse), `null`, or an Int32 `0`.
+  it.each([
+    ['a Double beyond 2^53 spelled with a fraction', '1760000000000000768.0'],
+    ['2^53 exactly, spelled with a fraction', '9007199254740992.0'],
+    ['-(2^53) exactly, spelled with a fraction', '-9007199254740992.0'],
+    ['a big integer spelled with a fraction', '12345678901234567890.0'],
+    ['an exponent beyond 2^53', '1e18'],
+    ['a negative exponent beyond 2^53', '-1e18'],
+    ['an exponent past the bare-integer range', '1e21'],
+    ['an integer spelled with a zero exponent', '9007199254740993e0'],
+    ['a number too large for a double', '1e400'],
+    ['negative zero', '-0'],
+    ['negative zero with a fraction', '-0.0'],
+  ])('keeps the spelling of %s', (_name, token) => {
+    expect(pretty(`{"a":${token}}`)).toBe(`{\n  "a": ${token}\n}`);
+  });
+
   it.each([
     ['a safe 16-digit integer', '{"a":1234567890123456}'],
     ['the largest safe integer', '{"a":9007199254740991}'],
     ['a fraction', '{"a":1.5}'],
-    ['an exponent beyond 2^53', '{"a":1e21}'],
-    ['a big integer spelled with a fraction', '{"a":12345678901234567890.0}'],
-    ['an integer spelled with a zero exponent', '{"a":9007199254740993e0}'],
+    ['a safe integer spelled with a fraction', '{"a":1.0}'],
     ['a string that looks like a big integer', '{"a":"9007199254740993"}'],
     ['strings, booleans, null and an empty array', '{"s":"x","t":true,"n":null,"e":[]}'],
   ])('writes %s the way the plain round trip does', (_name, raw) => {
@@ -267,5 +285,32 @@ describe('prettyPrintJsonKeepingBigInts', () => {
 
   it('throws the SyntaxError JSON.parse throws for text that is not JSON', () => {
     expect(() => pretty('{"a":9007199254740993')).toThrow(SyntaxError);
+  });
+});
+
+// The Format button on a stage body runs `prettyPrintJsonKeepingBigInts`, and
+// running the pipeline parses the result. Formatting must not change what the
+// server receives.
+describe('prettyPrintJsonKeepingBigInts — format then parse stores the same BSON', () => {
+  const bson = (text: string): Uint8Array => BSON.serialize({ v: ejsonParse(text) });
+
+  it.each([
+    '{"n":1760000000000000768.0}',
+    '{"n":9007199254740992.0}',
+    '{"n":1e18}',
+    '{"n":-1e18}',
+    '{"n":12345678901234567890.0}',
+    '{"n":9007199254740993e0}',
+    '{"n":1e21}',
+    '{"n":1e400}',
+    '{"n":-0}',
+    '{"n":9007199254740993}',
+    '{"n":9223372036854775808}',
+    '{"n":1.0}',
+    '{"n":1.5}',
+    '{"n":3000000000.0}',
+    '[1760000000000000768.0,{"m":-0}]',
+  ])('%s', (text) => {
+    expect(bson(prettyPrintJsonKeepingBigInts(text, 2))).toEqual(bson(text));
   });
 });
