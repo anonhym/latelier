@@ -113,11 +113,10 @@ function mountDialogs(
 }
 
 describe('useDocumentDialogs', () => {
-  // The dialog that finished closes itself (`DeleteConfirm` calls its own
-  // `onClose`), so the completion callback must leave dialog state alone: by
-  // the time a slow write lands, a delete dialog opened on another tab may be
-  // the one on screen.
-  it('handleDeleted re-runs the query and leaves the delete dialogs as they are', async () => {
+  // Focus still on the written tab: the open state is that write's own, so it
+  // all clears, including the flag a dialog left behind after DialogStack hid
+  // it (its filter went invalid mid-flight).
+  it('handleDeleted clears all three delete atoms and re-runs the query when focus is on the written tab', async () => {
     const run = vi.fn(() => Promise.resolve());
     const { result } = mountDialogs(run, 't1', tab());
 
@@ -127,6 +126,27 @@ describe('useDocumentDialogs', () => {
     });
     expect(result.current.deleteDoc).toEqual(DOC);
     expect(result.current.deleteSelected).toEqual([DOC]);
+
+    act(() => result.current.handleDeleted(undefined, 'Document deleted', T1_TARGET));
+
+    expect(result.current.deleteDoc).toBeNull();
+    expect(result.current.deleteAllOpen).toBe(false);
+    expect(result.current.deleteSelected).toBeNull();
+    expect(run).toHaveBeenCalledExactlyOnceWith(undefined, expect.objectContaining({ id: 't1' }));
+  });
+
+  // Focus moved: the tab switch already closed the write's own dialog, so what
+  // is open now was opened on the other tab since and is not this write's.
+  it('handleDeleted re-runs the written tab but leaves the delete dialogs alone when focus has moved', async () => {
+    const run = vi.fn(() => Promise.resolve());
+    const t1 = tab();
+    const t2 = tab({ id: 't2', collection: 'users' });
+    const { result } = mountDialogs(run, 't2', t2, [t1, t2]);
+
+    act(() => {
+      result.current.setDeleteDoc(DOC);
+      result.current.setDeleteSelected([DOC]);
+    });
 
     act(() => result.current.handleDeleted(undefined, 'Document deleted', T1_TARGET));
 
@@ -181,12 +201,26 @@ describe('useDocumentDialogs', () => {
   // target the same way DeleteConfirm does — live off the Focused Tab), so it
   // gets the same three behaviors: opened/closed via its own toggle,
   // re-running on completion, and closing (not surviving) a tab switch.
-  it('handleUpdatedAll re-runs the query and leaves update-all as it is', () => {
+  it('handleUpdatedAll closes update-all and re-runs the query when focus is on the written tab', () => {
     const run = vi.fn(() => Promise.resolve());
     const { result } = mountDialogs(run, 't1', tab());
 
     act(() => result.current.openUpdateAllModal());
     expect(result.current.updateAllOpen).toBe(true);
+
+    act(() => result.current.handleUpdatedAll(undefined, '2 matched, 2 modified', T1_TARGET));
+
+    expect(result.current.updateAllOpen).toBe(false);
+    expect(run).toHaveBeenCalledExactlyOnceWith(undefined, expect.objectContaining({ id: 't1' }));
+  });
+
+  it('handleUpdatedAll re-runs the written tab but leaves update-all alone when focus has moved', () => {
+    const run = vi.fn(() => Promise.resolve());
+    const t1 = tab();
+    const t2 = tab({ id: 't2', collection: 'users' });
+    const { result } = mountDialogs(run, 't2', t2, [t1, t2]);
+
+    act(() => result.current.openUpdateAllModal());
 
     act(() => result.current.handleUpdatedAll(undefined, '2 matched, 2 modified', T1_TARGET));
 

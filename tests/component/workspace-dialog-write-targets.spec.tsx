@@ -12,6 +12,7 @@
 // mirrors `DialogStack`; this mounts the real page so the binding between the
 // dialog and the hook is covered too.
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { createElement } from 'react';
 import { act } from '@testing-library/react';
 import { notifications } from '@mantine/notifications';
 import userEvent from '@testing-library/user-event';
@@ -19,6 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { render, screen, fireEvent, waitFor, within } from '../helpers/render';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, multiConnectionMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 
 const NOW = '2026-08-01T12:00:00.000Z';
 const DOC = { _id: '1', sku: 'widget' };
@@ -27,10 +29,26 @@ const DOC = { _id: '1', sku: 'widget' };
 // auto-run-on-open effect does not fire an unmocked `query.find`.
 const lastRun = { documents: [DOC], durationMs: 1, ranAt: NOW };
 
+const capturedActions: CollectionWorkspaceActions[] = [];
+
+// Records the `actions` object the page hands its one provider, so a test can
+// patch the Focused Tab's query the way the query bar does.
+vi.mock('../../src/pages/Workspace/context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/pages/Workspace/context')>();
+  return {
+    ...actual,
+    CollectionWorkspaceProvider: (props: Parameters<typeof actual.CollectionWorkspaceProvider>[0]) => {
+      capturedActions.push(props.actions);
+      return createElement(actual.CollectionWorkspaceProvider, props);
+    },
+  };
+});
+
 afterEach(() => {
   notifications.clean();
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  capturedActions.length = 0;
 });
 
 type Kind = 'delete' | 'delete-all' | 'update-all';
@@ -70,12 +88,10 @@ async function confirmDialog(kind: Kind, dialog: HTMLElement, collection: string
   }
 }
 
-/**
- * Starts `kind` on `orders`, moves focus to `users` while the request is in
- * flight, optionally opens the same kind of dialog there, then lets the
- * `orders` write land.
- */
-async function startWriteThenFocusUsers(kind: Kind, { reopenOnUsers = false } = {}) {
+const FILTER = '{"status":"pending"}';
+
+/** Mounts the page with `orders` (focused) and `users` open and every write held in flight until `land` is called. */
+async function mountOrdersAndUsers() {
   let finish!: (v: unknown) => void;
   const inFlight = () => new Promise((r) => { finish = r; });
   const find = vi.fn(async () => ({ documents: [DOC], durationMs: 1, hasMore: false }));
@@ -83,7 +99,7 @@ async function startWriteThenFocusUsers(kind: Kind, { reopenOnUsers = false } = 
   const state = {
     view: 'Tree' as const,
     builder: { projection: [], sort: '', limit: '' },
-    queryRaw: '{"status":"pending"}',
+    queryRaw: FILTER,
     page: 0,
     pageSize: 50,
     activeBuilderTab: 'Builder' as const,
@@ -113,6 +129,20 @@ async function startWriteThenFocusUsers(kind: Kind, { reopenOnUsers = false } = 
     </MemoryRouter>,
   );
   await screen.findByText(/widget/);
+  const land = (kind: Kind) =>
+    act(async () => {
+      finish(kind === 'update-all' ? { matchedCount: 2, modifiedCount: 2, auditId: 'a1' } : { deletedCount: 2, auditId: 'a1' });
+    });
+  return { find, undo, land };
+}
+
+/**
+ * Starts `kind` on `orders`, moves focus to `users` while the request is in
+ * flight, optionally opens the same kind of dialog there, then lets the
+ * `orders` write land.
+ */
+async function startWriteThenFocusUsers(kind: Kind, { reopenOnUsers = false } = {}) {
+  const { find, undo, land } = await mountOrdersAndUsers();
 
   await confirmDialog(kind, await openDialog(kind), 'orders');
 
@@ -123,9 +153,7 @@ async function startWriteThenFocusUsers(kind: Kind, { reopenOnUsers = false } = 
   if (reopenOnUsers) await openDialog(kind);
   find.mockClear();
 
-  await act(async () => {
-    finish(kind === 'update-all' ? { matchedCount: 2, modifiedCount: 2, auditId: 'a1' } : { deletedCount: 2, auditId: 'a1' });
-  });
+  await land(kind);
   return { find, undo };
 }
 
@@ -170,5 +198,33 @@ describe('a write that lands while a dialog is open on the tab focused since', (
     expect(await screen.findByRole('button', { name: 'Undo' })).toBeTruthy();
 
     expect(screen.getByRole('dialog', { name: DIALOG_NAME[kind] })).toBeTruthy();
+  });
+});
+
+// A delete-all or update-all dialog reads its filter live from the Focused
+// Tab, and `DialogStack` hides it while that filter is not runnable, leaving
+// the open flag set. If the write lands in that state the flag must still be
+// cleared, or the dialog would pop back, unconfirmed and blank, the moment the
+// filter is valid again.
+describe('a write that lands while its dialog is hidden by an invalid filter', () => {
+  it.each([
+    ['delete-all', 'delete-all'],
+    ['update-all', 'update-all'],
+  ] as const)('%s does not bring its dialog back once the filter is valid again', async (_name, kind) => {
+    const { land } = await mountOrdersAndUsers();
+    await confirmDialog(kind, await openDialog(kind), 'orders');
+
+    // The filter goes blank mid-flight: no runnable filter, so the dialog unmounts.
+    act(() => capturedActions.at(-1)!.patch({ queryRaw: '' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await land(kind);
+    // The write was handled: its Undo toast is up.
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeTruthy();
+
+    act(() => capturedActions.at(-1)!.patch({ queryRaw: FILTER }));
+
+    await screen.findByText(/widget/);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

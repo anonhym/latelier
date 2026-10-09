@@ -53,11 +53,11 @@ export function useDocumentDialogs(deps: {
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
   /** `target` is the collection the dialog wrote to, not the Focused Tab at completion.
-   * Re-runs and toasts only; the dialog closes itself. */
+   * Closes the delete dialogs only when focus is still on that tab. */
   handleDeleted: (auditId: string | undefined, message: string, target: DocTarget) => void;
   closeUpdateAllModal: () => void;
   /** `target` is the collection the dialog wrote to, not the Focused Tab at completion.
-   * Re-runs and toasts only; the dialog closes itself. */
+   * Closes update-all only when focus is still on that tab. */
   handleUpdatedAll: (auditId: string | undefined, message: string, target: DocTarget) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
@@ -187,10 +187,14 @@ export function useDocumentDialogs(deps: {
   // while the request is in flight, so the re-run and the Undo follow it
   // rather than whichever tab is focused when the write lands.
   //
-  // Deliberately does not close anything: the dialog closes itself through its
-  // own `onClose` when it is still on screen. Closing here too would dismiss a
-  // dialog the user opened on another tab while this write was in flight.
+  // Closes the delete dialogs only while focus is still on the written tab. Then
+  // the open state is this write's own, including the flag an unmounted dialog
+  // leaves set (DialogStack hides it while its filter is invalid). Once focus
+  // has moved, the tab switch already closed that dialog, so whatever is open
+  // now was opened on another tab since and must stay. A dialog still on screen
+  // also closes itself, and skips that when it has been unmounted.
   const handleDeleted = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
+    if (activeCollectionRef.current?.id === target.tabId) closeDeleteDialogs();
     rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
     // delete-all over the bulk capture ceiling still needs to say what
@@ -200,12 +204,14 @@ export function useDocumentDialogs(deps: {
       return;
     }
     offerUndo(message, auditId, () => refreshSource(target));
-  }, [refreshSource, rerunTarget]);
+  }, [activeCollectionRef, closeDeleteDialogs, refreshSource, rerunTarget]);
 
   // Same shape as delete-all: UpdateConfirm also reports the collection it
-  // wrote to, drops the field-suggestion sample itself and closes itself.
+  // wrote to, drops the field-suggestion sample itself and closes itself, and
+  // the flag is cleared here under the same focus rule.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
   const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
+    if (activeCollectionRef.current?.id === target.tabId) closeUpdateAllModal();
     rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
     // update over the bulk capture ceiling still needs to say what happened.
@@ -214,7 +220,7 @@ export function useDocumentDialogs(deps: {
       return;
     }
     offerUndo(message, auditId, () => refreshSource(target));
-  }, [refreshSource, rerunTarget]);
+  }, [activeCollectionRef, closeUpdateAllModal, refreshSource, rerunTarget]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the
   // Focused Tab, so any route that moves focus off the tab either was opened
