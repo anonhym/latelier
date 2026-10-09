@@ -388,6 +388,76 @@ describe('ShellService — un-awaited results', () => {
   });
 });
 
+describe('ShellService — error output', () => {
+  it('a validator rejection says which rule failed, not only that validation failed', async () => {
+    const coll = `validated_${Date.now()}`;
+    const client = new MongoClient(server.getUri());
+    try {
+      await client.db('test').createCollection(coll, {
+        validator: { $jsonSchema: { bsonType: 'object', required: ['name'], properties: { name: { bsonType: 'string' } } } },
+      });
+    } finally {
+      await client.close();
+    }
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(info.sessionId, `db.${coll}.insertOne({ name: 5 })`, 'propertiesNotSatisfied');
+    expect(out).toMatch(/Document failed validation/);
+    expect(out).toContain('errInfo');
+    // Still readable: the message line comes first.
+    expect(out.indexOf('Document failed validation')).toBeLessThan(out.indexOf('errInfo'));
+  });
+
+  it('an error nested in a result prints its message, not {}', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const settled = await say(
+      info.sessionId,
+      'Promise.allSettled([Promise.reject(new Error("inner-x")), 1])',
+      'inner-x',
+    );
+    expect(settled).toContain('Error: inner-x');
+    expect(settled).not.toMatch(/"reason": \{\}/);
+    const literal = await say(info.sessionId, '({ a: [new TypeError("lit-e")], b: 1 })', 'lit-e');
+    expect(literal).toContain('TypeError: lit-e');
+    expect(literal).toContain('"b": 1');
+  });
+
+  it('an object holding an error, shared twice in a result, prints twice, and a cycle does not crash the writer', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const twice = await say(
+      info.sessionId,
+      '(() => { const shared = { err: new Error("dag-e") }; return { first: shared, second: shared }; })()',
+      'second',
+    );
+    expect(twice.match(/Error: dag-e/g)).toHaveLength(2);
+    const cyclic = await say(
+      info.sessionId,
+      '(() => { const o = { err: new Error("cyc-e") }; o.self = o; return o; })()',
+      'cyc-e',
+    );
+    expect(cyclic).toContain('cyc-e');
+    expect(await say(info.sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an AggregateError lists the errors it holds', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(
+      info.sessionId,
+      'Promise.any([Promise.reject(new Error("first-e")), Promise.reject(new TypeError("second-e"))])',
+      'second-e',
+    );
+    expect(out).toContain('AggregateError');
+    expect(out).toContain('Error: first-e');
+    expect(out).toContain('TypeError: second-e');
+  });
+
+  it('an error with an empty message or name prints without stray punctuation', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    expect(await say(info.sessionId, 'throw new Error()', 'Uncaught Error\n')).toMatch(/Uncaught Error\n/);
+    const named = await say(info.sessionId, 'throw Object.assign(new Error("nm-only"), { name: "" })', 'nm-only\n');
+    expect(named).toMatch(/Uncaught nm-only\n/);
+  });
+});
+
 describe('ShellService — lifecycle', () => {
   it('stop() kills the child', async () => {
     const s = setup();

@@ -117,13 +117,65 @@ function shellWriter(value: unknown): string {
     // An Error has no enumerable fields, so EJSON would print `{}`: the REPL
     // routes every thrown error through this writer. `isNativeError` also
     // holds for an error made in the REPL's own vm context.
-    if (types.isNativeError(value)) return `${value.name}: ${value.message}`;
-    const ejson = ejsonStringifyRelaxed(value, 2);
+    if (types.isNativeError(value)) return errorText(value);
+    const ejson = ejsonStringifyRelaxed(flattenErrors(value, new WeakSet()), 2);
     if (typeof ejson === 'string') return ejson;
   } catch {
     // fall through
   }
   return inspect(value, { depth: 4, colors: false });
+}
+
+/**
+ * An error's one-line `name: message`, then what else tells the user why: an
+ * AggregateError's members, and the `details` an error rebuilt from the wire
+ * carries (a document-validation failure keeps which rule failed there). No
+ * stack: its frames are the runner's, not the user's.
+ */
+function errorText(err: Error): string {
+  const lines = [Error.prototype.toString.call(err)];
+  const { errors, details } = err as { errors?: unknown; details?: unknown };
+  if (Array.isArray(errors)) {
+    for (const member of errors) {
+      lines.push(`  ${types.isNativeError(member) ? Error.prototype.toString.call(member) : inspect(member, { depth: 0 })}`);
+    }
+  }
+  if (details !== undefined) {
+    try {
+      const text = ejsonStringifyRelaxed(details, 2);
+      if (text !== undefined) lines.push(text);
+    } catch {
+      // Details that cannot be printed (a cycle) are left out; the one-line form still tells the user what failed.
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * `value` with each Error inside plain objects and arrays replaced by its
+ * one-line text, since EJSON would print every one as `{}`. A value without
+ * an Error comes back as is. `path` guards against a cycle on the way down
+ * only, so an error that appears twice is replaced both times.
+ */
+function flattenErrors(value: unknown, path: WeakSet<object>): unknown {
+  if (types.isNativeError(value)) return Error.prototype.toString.call(value);
+  if (typeof value !== 'object' || value === null || path.has(value)) return value;
+  // A plain object's prototype is some realm's Object.prototype, so the one
+  // above it is null; this holds for objects made in the REPL's vm context too.
+  const proto = Object.getPrototypeOf(value) as object | null;
+  const isArray = Array.isArray(value);
+  if (!isArray && proto !== null && Object.getPrototypeOf(proto) !== null) return value;
+  path.add(value);
+  try {
+    const keys = isArray ? [] : Object.keys(value);
+    const children = isArray ? [...(value as unknown[])] : keys.map((key) => (value as Record<string, unknown>)[key]);
+    const flat = children.map((child) => flattenErrors(child, path));
+    if (flat.every((child, i) => child === children[i])) return value;
+    // `fromEntries` defines own properties, so a `__proto__` key cannot reach the prototype.
+    return isArray ? flat : Object.fromEntries(keys.map((key, i) => [key, flat[i]]));
+  } finally {
+    path.delete(value);
+  }
 }
 
 function helpText(): string {
