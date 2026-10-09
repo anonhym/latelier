@@ -1,3 +1,4 @@
+import React from 'react';
 // Direct coverage for `useDocumentDialogs` (R4).
 //
 // `workspace-delete-modes.spec.tsx` carves out T1.4/T1.5 because result-row
@@ -11,17 +12,28 @@
 // the stable `run`, not the fresh `{ run, isLoading }` literal `useQueryRunner`
 // returns each render; re-introducing the object dependency has no behavioral
 // tell, so a two-render identity check is the only thing that catches it.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act } from '@testing-library/react';
 import { notifications } from '@mantine/notifications';
-import { fireEvent, renderHook, screen, waitFor } from '../helpers/render';
+import { fireEvent, render, renderHook, screen, waitFor } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { useDocumentDialogs } from '../../src/pages/Workspace/useDocumentDialogs';
+import { DeleteConfirm } from '../../src/pages/Workspace/DeleteConfirm';
+import { UpdateConfirm } from '../../src/pages/Workspace/UpdateConfirm';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTab } from '@shared/types';
 import type {
   RunnerTarget,
   UseQueryRunnerResult,
 } from '../../src/pages/Workspace/useQueryRunner';
+
+// Mocked at the exact module the hook imports; a barrel mock would not
+// intercept a direct import. The rest stays real because the dialogs mounted
+// below reach the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 const DOC = { _id: '1', sku: 'widget' };
 
@@ -483,6 +495,216 @@ describe('useDocumentDialogs', () => {
 
       await waitFor(() => expect(screen.getByText('5 matched, 5 modified')).toBeTruthy());
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+  });
+
+  // The field-suggestion sample is cached per collection for five minutes, so
+  // a write that lands must drop it or the Update drawer's type warning and
+  // the builder's field suggestions keep describing the pre-write documents.
+  describe('drops the field-suggestion sample after a write', () => {
+    const t1 = tab();
+    const t2 = tab({ id: 't2', collection: 'users' });
+    const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+    beforeEach(() => invalidate.mockClear());
+    afterEach(() => {
+      notifications.clean();
+      uninstallAtelierMock();
+    });
+
+    it('after an insert', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openInsertModal());
+
+      act(() => result.current.handleInserted());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it('after a partial insert, with the drawer still open', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openInsertModal());
+
+      act(() => result.current.handlePartialInsert());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it('after a document save', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openEdit(DOC));
+
+      act(() => result.current.handleDocSaved());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    // The drawer pins its collection; the sample to drop is that one's, not
+    // the Focused Tab's.
+    it('for the drawer\'s pinned collection when focus has moved to another tab', () => {
+      const { result, rerender, activeCollectionRef } = mountDialogs(undefined, 't1', t1, [t1, t2]);
+      act(() => result.current.openEdit(DOC));
+      activeCollectionRef.current = t2;
+      rerender({ activeTabId: 't2' });
+
+      act(() => result.current.handleDocSaved());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    // The write landed even though there is no tab left to re-run.
+    it('even when the pinned tab was closed while the drawer was open', () => {
+      const run = vi.fn(() => Promise.resolve());
+      const { result, tabs } = mountDialogs(run, 't1', t1, [t1]);
+      act(() => result.current.openEdit(DOC));
+      tabs.current = [];
+
+      act(() => result.current.handleDocSaved());
+
+      expect(run).not.toHaveBeenCalled();
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    // DeleteConfirm and UpdateConfirm invalidate with their own props, because
+    // by the time these run the Focused Tab can be a different collection (or
+    // not a collection at all); the callbacks must not guess from it.
+    it.each([
+      ['a Reversible delete', 'a1'],
+      ['a delete over the undo ceiling', undefined],
+    ])('not from handleDeleted after %s: the dialog already did', (_name, auditId) => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+
+      act(() => result.current.handleDeleted(auditId, 'Deleted'));
+
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a Reversible update-all', 'a3'],
+      ['an update-all over the undo ceiling', undefined],
+    ])('not from handleUpdatedAll after %s: the dialog already did', (_name, auditId) => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+
+      act(() => result.current.handleUpdatedAll(auditId, '2 matched, 2 modified'));
+
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    it('after Undo, which puts the documents back', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const { result } = mountDialogs(undefined, 't1', t1, [t1]);
+      act(() => result.current.handleDeleted('a1', 'Document deleted'));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders'));
+    });
+
+    it('not when a delete or update-all dialog is merely dismissed', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => {
+        result.current.setDeleteDoc(DOC);
+        result.current.openUpdateAllModal();
+      });
+
+      act(() => result.current.closeDeleteDialogs());
+      act(() => result.current.closeUpdateAllModal());
+
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    // Mirrors DialogStack: the dialogs take their target from the Focused Tab
+    // at render time and hand completion to the hook. The focus move closes
+    // them, but a request already in flight still completes and calls back.
+    function DialogsHarness({
+      activeRef,
+      activeTabId,
+      expose,
+    }: {
+      activeRef: React.RefObject<CollectionTab | null>;
+      activeTabId: string;
+      expose: (d: ReturnType<typeof useDocumentDialogs>) => void;
+    }) {
+      const d = useDocumentDialogs({
+        activeCollectionRef: activeRef,
+        queryRunner: { run: () => Promise.resolve(), cancel: () => {}, isLoading: false },
+        activeTabId,
+        resolveRunnerTarget: () => null,
+        readOnly: false,
+      });
+      expose(d);
+      const a = activeRef.current;
+      if (!a) return null;
+      return (
+        <>
+          {d.deleteDoc !== null && (
+            <DeleteConfirm
+              connectionId={a.connectionId}
+              dbName={a.dbName}
+              collection={a.collection}
+              docs={[d.deleteDoc]}
+              onClose={d.closeDeleteDialogs}
+              onDeleted={d.handleDeleted}
+            />
+          )}
+          {d.updateAllOpen && (
+            <UpdateConfirm
+              connectionId={a.connectionId}
+              dbName={a.dbName}
+              collection={a.collection}
+              filter="{}"
+              onClose={d.closeUpdateAllModal}
+              onUpdated={d.handleUpdatedAll}
+            />
+          )}
+        </>
+      );
+    }
+
+    /** Opens `kind` on `orders` (t1), starts its write, moves focus to `next`, then lets the write land. */
+    async function writeWhileFocusMoves(kind: 'delete' | 'update', next: CollectionTab | null) {
+      let finish!: (v: unknown) => void;
+      const inFlight = () => new Promise((r) => { finish = r; });
+      installAtelierMock({
+        doc: {
+          deleteOne: inFlight as never,
+          confirmUpdateMany: (async () => ({ count: 2, confirmToken: 'tok' })) as never,
+          updateMany: inFlight as never,
+        },
+      });
+      const ref = { current: t1 as CollectionTab | null };
+      let hook!: ReturnType<typeof useDocumentDialogs>;
+      const expose = (d: ReturnType<typeof useDocumentDialogs>) => { hook = d; };
+      const view = render(<DialogsHarness activeRef={ref} activeTabId="t1" expose={expose} />);
+
+      if (kind === 'delete') {
+        act(() => hook.setDeleteDoc(DOC));
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+      } else {
+        act(() => hook.openUpdateAllModal());
+        fireEvent.change(await screen.findByLabelText('Update document'), { target: { value: '{"$set":{"a":1}}' } });
+        fireEvent.click(screen.getByRole('button', { name: /Review/ }));
+        fireEvent.change(await screen.findByPlaceholderText('orders'), { target: { value: 'orders' } });
+        fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
+      }
+      ref.current = next;
+      view.rerender(<DialogsHarness activeRef={ref} activeTabId={next?.id ?? 'script1'} expose={expose} />);
+      expect(invalidate).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finish(kind === 'delete' ? { deletedCount: 1, auditId: 'a1' } : { matchedCount: 2, modifiedCount: 2, auditId: 'a2' });
+      });
+    }
+
+    it.each([
+      ['delete', 'another collection tab', t2],
+      ['delete', 'a tab with no collection', null],
+      ['update', 'another collection tab', t2],
+      ['update', 'a tab with no collection', null],
+    ] as const)('a %s that completes after focus moved to %s drops the original collection\'s sample', async (kind, _where, next) => {
+      await writeWhileFocusMoves(kind, next);
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
     });
   });
 });
