@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { Collection, Decimal128, MongoClient, MongoNetworkError, ObjectId } from 'mongodb';
+import { Collection, Decimal128, Long, MongoClient, MongoNetworkError, ObjectId } from 'mongodb';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { createReadStream } from 'node:fs';
@@ -73,6 +73,23 @@ describe('ImportService.importFile', () => {
     const byId = new Map(docs.map((d) => [String(d._id), d]));
     expect(byId.get(oid.toHexString())!.n).toEqual(Decimal128.fromString('1.5'));
     expect(byId.get('b')!.at).toEqual(new Date('2024-01-02T03:04:05Z'));
+  });
+
+  // JSON.parse rounds a bare integer past 2^53, so what the file says as
+  // 9007199254740993 used to land as 9007199254740992. Both formats, and the
+  // server-side $type, not only what the driver hands back.
+  it.each([
+    ['a JSON array', 'big.json', '[{"_id":1,"n":9007199254740993,"m":-9223372036854775808,"d":1.5e18}]'],
+    ['JSONL', 'big.jsonl', '{"_id":1,"n":9007199254740993,"m":-9223372036854775808,"d":1.5e18}\n'],
+  ])('imports a bare integer past 2^53 from %s as an exact int64, and a double spelling as a double (#279)', async (_name, fileName, content) => {
+    const report = await run(await file(fileName, content));
+    expect(report.inserted).toBe(1);
+    const c = client.db(dbName).collection(coll);
+    expect(await c.countDocuments({ n: { $type: 'long' }, m: { $type: 'long' }, d: { $type: 'double' } })).toBe(1);
+    const doc = (await c.findOne({ _id: 1 as never }, { promoteLongs: false }))!;
+    expect((doc.n as Long).toString()).toBe('9007199254740993');
+    expect((doc.m as Long).toString()).toBe('-9223372036854775808');
+    expect(doc.d).toBe(1.5e18);
   });
 
   it('imports JSONL, skipping blank lines and a leading BOM', async () => {

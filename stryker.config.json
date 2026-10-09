@@ -20,6 +20,7 @@
     "electron/services/connectionExportFormat.ts",
     "electron/services/connectionBulkAdd.ts",
     "src/utils/ejson.ts",
+    "src/utils/bigIntJson.ts",
     "electron/mongo/uri-parse.ts",
     "src/utils/hostLocality.ts",
     "src/hooks/useRovingHighlight.ts",

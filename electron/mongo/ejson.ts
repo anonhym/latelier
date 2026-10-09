@@ -1,5 +1,14 @@
-import { EJSON, BSONRegExp } from 'bson';
+import { EJSON, BSONRegExp, Double } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
+// Main imports this renderer module because it is pure (it imports nothing),
+// and a second copy of the source-preserving parse beside the renderer's
+// `ejsonParse` would let the two drift on which integer tokens stay exact.
+// The same reasoning as `QueryService`'s import of `exportFormat`.
+// `parseJsonKeepingBigInts` is re-exported so the
+// importers that parse a file themselves keep a single place to look.
+import { parseJsonKeepingBigInts } from '../../src/utils/bigIntJson.ts';
+
+export { parseJsonKeepingBigInts };
 
 // Soft cap on a single EJSON payload (encode of a read result, or a raw
 // write string before it's parsed). Spec PLAN-workspace.md:424 — refuse
@@ -92,6 +101,17 @@ function validateBinarySentinel(value: unknown): void {
   }
 }
 
+/**
+ * A `$date` value for an error message. A bare integer beyond 2^53 reaches the
+ * walk as `{"$numberLong":"<digits>"}` (see `parseJsonKeepingBigInts`), so that
+ * one is shown as the digits the user typed. Only a string or such a sentinel
+ * gets this far: `EJSON.parse` rejects every other `$date` shape first (checked
+ * for null, numbers, arrays and other sentinels), so `value` is never null.
+ */
+function describeDateValue(value: unknown): string {
+  return (value as { $numberLong?: string }).$numberLong ?? JSON.stringify(value);
+}
+
 function walkRevive(node: unknown): unknown {
   if (node === null || typeof node !== 'object') return node;
   if (Array.isArray(node)) return (node as unknown[]).map(walkRevive);
@@ -107,7 +127,7 @@ function walkRevive(node: unknown): unknown {
     // validating the revived BSON value is equivalent and simpler than
     // re-deriving the check from the raw sentinel.
     if (revived instanceof Date && Number.isNaN(revived.getTime())) {
-      throw new Error(`invalid $date value: ${JSON.stringify(obj.$date)}`);
+      throw new Error(`invalid $date value: ${describeDateValue(obj.$date)}`);
     }
     if (revived instanceof BSONRegExp) {
       validateRegexPattern(revived.pattern);
@@ -132,9 +152,12 @@ function walkRevive(node: unknown): unknown {
  * a known sentinel signature.  Objects with extra sibling keys (e.g.
  * {$date:"…",kept:"x"} or {$regex:"…",$gte:100}) are left as plain objects —
  * operators and user data are never silently dropped.
+ *
+ * A bare integer token beyond 2^53 (`{ n: 9007199254740993 }`) is kept exact as
+ * a Long instead of rounding to a double; see `parseJsonKeepingBigInts`.
  */
 export function safeEjsonParse<T = unknown>(s: string): T {
-  return walkRevive(JSON.parse(s) as unknown) as T;
+  return walkRevive(parseJsonKeepingBigInts(s)) as T;
 }
 
 /**
@@ -171,7 +194,60 @@ export function ejsonStringifyRelaxed(v: unknown, indent?: number): string | und
  * IPC.
  */
 export function ejsonEncode(v: unknown, relaxed = false): unknown {
-  return EJSON.serialize(v as object, { relaxed });
+  // Relaxed prints the number bare, so there is nothing to mark.
+  return EJSON.serialize((relaxed ? v : markPromotedDoubles(v)) as object, { relaxed });
+}
+
+const TWO_POW_53 = 2 ** 53;
+const TWO_POW_63 = 2 ** 63;
+
+/**
+ * Says "Double" about a Double the driver has already turned into a number.
+ *
+ * A reply is read with the driver's defaults: a Long within ±2^53 becomes a JS
+ * number, a Long beyond stays a `Long`, an Int32 is small, and every Double is
+ * a JS number. So a number with |v| > 2^53 can only be a stored Double. bson's
+ * canonical writer cannot tell, and labels an integer up to 2^63 `$numberLong`
+ * with JavaScript's shortest digits (a Double of 1760000000000000768 would go
+ * out as a Long of 1760000000000000800), which then imports, and is edited
+ * and saved back, as the wrong type with the wrong value.
+ *
+ * Exactly ±2^53 is left alone: a Long of that value is promoted to the same
+ * number, and the label that has always been there is right for it. Past 2^63
+ * bson already writes `$numberDouble`. Every double above 2^53 is a whole
+ * number, so the range is the whole test.
+ *
+ * Copies only the path to a changed value and returns everything else as the
+ * same reference, so a document with no such number costs a read-only walk.
+ * Plain objects and arrays are walked; a BSON value, a `Date` or a `Buffer` is
+ * not. Exported so its tests can see which references it keeps.
+ */
+export function markPromotedDoubles(node: unknown): unknown {
+  if (typeof node === 'number') {
+    const magnitude = Math.abs(node);
+    return magnitude > TWO_POW_53 && magnitude <= TWO_POW_63 ? new Double(node) : node;
+  }
+  if (node === null || typeof node !== 'object') return node;
+  // ponytail: recursion has no cycle guard, so a cyclic input overflows the stack here instead of raising bson's circular-reference error; encodeResultJson reports both as null, and a driver reply is never cyclic. Track visited nodes if a caller ever needs the bson message.
+  if (Array.isArray(node)) {
+    let out: unknown[] | undefined;
+    // Stryker disable next-line EqualityOperator: `i <= node.length` adds one visit at an index where the element is `undefined`; the walk returns `undefined` unchanged, so `marked !== node[i]` stays false and nothing differs. Verified with a node probe on a plain array and on a hole. The `>=` variant (the loop never runs) is killed by the array tests.
+    for (let i = 0; i < node.length; i++) {
+      const marked = markPromotedDoubles(node[i]);
+      if (marked !== node[i]) (out ??= node.slice())[i] = marked;
+    }
+    return out ?? node;
+  }
+  const proto = Object.getPrototypeOf(node) as unknown;
+  if (proto !== Object.prototype && proto !== null) return node;
+  const doc = node as Record<string, unknown>;
+  let out: Record<string, unknown> | undefined;
+  for (const key in doc) {
+    const marked = markPromotedDoubles(doc[key]);
+    // Object.create(null), not {}: see `walkRevive`.
+    if (marked !== doc[key]) (out ??= Object.assign(Object.create(null) as Record<string, unknown>, doc))[key] = marked;
+  }
+  return out ?? node;
 }
 
 export function ejsonEncodeArray(docs: unknown[], relaxed = false): unknown[] {
@@ -237,13 +313,29 @@ export function isValidEjson(s: string): boolean {
 }
 
 export function parseEjsonField<T = unknown>(json: string, field: string): T {
+  return asFieldError(field, () => ejsonParse<T>(json));
+}
+
+// Whatever `run` throws becomes a ValidationError naming the field, so a bad
+// value reaches the caller as an input problem rather than a bare Error.
+function asFieldError<T>(field: string, run: () => T): T {
   try {
-    return ejsonParse<T>(json);
+    return run();
   } catch (err) {
     // Stryker disable next-line StringLiteral: every throw reachable through `ejsonParse` (grepped across this file) constructs `new Error`/`new SystemError`/`new ValidationError`, and `JSON.parse`/bson's `EJSON.parse` both throw real `Error` instances too, so the `: 'invalid EJSON'` fallback is unreachable for any input today; kept in case a future dependency throws a bare string or object.
     const reason = err instanceof Error ? err.message : 'invalid EJSON';
     throw new ValidationError(`invalid ${field}: ${reason}`, { field });
   }
+}
+
+function requireDocument<T>(parsed: unknown, field: string): T {
+  if (!isPlainDocument(parsed)) {
+    throw new ValidationError(
+      `invalid ${field}: expected a document like { field: 1 }`,
+      { field },
+    );
+  }
+  return parsed as T;
 }
 
 /**
@@ -269,14 +361,18 @@ export function parseEjsonField<T = unknown>(json: string, field: string): T {
  * sides; `isPlainDocument` below is the rule and says why.
  */
 export function parseEjsonDocument<T = unknown>(json: string, field: string): T {
-  const parsed = parseEjsonField<unknown>(json, field);
-  if (!isPlainDocument(parsed)) {
-    throw new ValidationError(
-      `invalid ${field}: expected a document like { field: 1 }`,
-      { field },
-    );
-  }
-  return parsed as T;
+  return requireDocument<T>(parseEjsonField<unknown>(json, field), field);
+}
+
+/**
+ * `parseEjsonDocument` for a value `parseJsonKeepingBigInts` has already
+ * parsed: revives its sentinels and requires a document, with the same errors.
+ */
+export function reviveEjsonDocument<T = unknown>(parsed: unknown, field: string): T {
+  return requireDocument<T>(
+    asFieldError(field, () => walkRevive(parsed)),
+    field,
+  );
 }
 
 /**
