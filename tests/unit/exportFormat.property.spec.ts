@@ -137,6 +137,8 @@ describe('relaxed export then import (property)', () => {
             const got = importOne({ v: { $numberDouble: d === 0 && Object.is(d, -0) ? '-0.0' : String(d) } }).v;
             const value = got instanceof Double ? got.valueOf() : (got as number);
             expect(typeof value).toBe('number');
+            // -0 may come back 0 on purpose: bson's Relaxed writer prints -0 as `0`,
+            // so the file never held the sign. Every other value must be identical.
             expect(Object.is(value, d) || (value === 0 && d === 0)).toBe(true);
           },
         ),
