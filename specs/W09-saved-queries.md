@@ -122,6 +122,7 @@ From the workspace:
   - If active tab kind mismatches payload kind, falls back to "Open in new tab".
   - If active tab is clean → overwrite; if active tab has unsaved changes → confirm dialog.
 - **Open in new tab**: call `tabs:openCollection` or `tabs:openAggregation`. For a pipeline the call carries `savedId`, not stages: main reads the saved row and seeds the tab's `stages` from it (W01 §5), so the tab never opens empty over a stored pipeline, which its next Save would overwrite.
+  - The collection's tab is reused when one is open, and its pipeline is replaced. If that pipeline has unsaved changes → the same confirm as closing the tab ("Discard unsaved pipeline changes?"); Cancel leaves the tab as it was.
 - **Rename**: inline edit (see §8).
 - **Delete**: confirm dialog → `saved:delete` → remove from list.
 
