@@ -31,7 +31,7 @@ describe.skipIf(process.platform === 'win32')('user-data file modes', () => {
       // A write keeps the WAL populated so -wal and -shm exist while open.
       db.exec('CREATE TABLE IF NOT EXISTS modes_probe (x)');
       db.exec('INSERT INTO modes_probe VALUES (1)');
-      const dbPath = path.join(dir, 'mongolab.db');
+      const dbPath = path.join(dir, 'latelier.db');
       expect(mode(dir)).toBe(0o700);
       expect(mode(dbPath)).toBe(0o600);
       expect(fs.existsSync(`${dbPath}-wal`)).toBe(true);
@@ -46,7 +46,7 @@ describe.skipIf(process.platform === 'win32')('user-data file modes', () => {
   it('tightens a pre-existing 0755 dir and 0644 db, wal and shm', () => {
     const dir = path.join(root, 'legacy');
     fs.mkdirSync(dir, { mode: 0o755 });
-    const dbPath = path.join(dir, 'mongolab.db');
+    const dbPath = path.join(dir, 'latelier.db');
     // A crash leaves a non-empty -wal that SQLite keeps (and its mode with it);
     // capture one from a live connection, then restore it at the default mode.
     const seed = new BetterSqlite3(dbPath);
@@ -84,6 +84,6 @@ describe.skipIf(process.platform === 'win32')('user-data file modes', () => {
     expect(caught).toBeInstanceOf(PrivateModeError);
     expect((caught as Error).message).toContain(dir);
     expect((caught as Error).message).toContain('must be owned by the current user');
-    expect(fs.existsSync(path.join(dir, 'mongolab.db'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'latelier.db'))).toBe(false);
   });
 });

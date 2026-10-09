@@ -113,7 +113,7 @@ On Linux, Electron falls back to a `basic_text` backend when no keyring (libsecr
 
 ## 5. Acceptance criteria
 
-- [ ] A plaintext secret stored via `set` cannot be recovered by opening `mongolab.db` in a third-party SQLite tool.
+- [ ] A plaintext secret stored via `set` cannot be recovered by opening `latelier.db` in a third-party SQLite tool.
 - [ ] `get` returns the same plaintext that was passed to `set`.
 - [ ] `delete` removes the row; subsequent `get` returns `null`.
 - [ ] Deleting the parent connection cascades (F02) and removes all secrets for that id.

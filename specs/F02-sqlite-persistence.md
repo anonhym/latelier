@@ -16,8 +16,8 @@ Provide a single, well-typed, versioned SQLite store for every piece of persiste
 
 ## 1. Location & bootstrap
 
-- DB path: `path.join(app.getPath('userData'), 'mongolab.db')`.
-- On POSIX the user-data dir is `0700` and `mongolab.db`, `-wal` and `-shm` are `0600` (existing ones are tightened at open; the db file is created before SQLite opens it so the side files inherit the mode); a chmod failure aborts startup. No-op on Windows.
+- DB path: `path.join(app.getPath('userData'), 'latelier.db')`. A `mongolab.db` left by an older build is renamed once at startup ([X09](./X09-namespace-rename.md) Phase 3).
+- On POSIX the user-data dir is `0700` and `latelier.db`, `-wal` and `-shm` are `0600` (existing ones are tightened at open; the db file is created before SQLite opens it so the side files inherit the mode); a chmod failure aborts startup. No-op on Windows.
 - Opened synchronously on app startup (F06) before any window is created.
 - Pragmas (applied once, in order, on every open):
   ```sql
@@ -33,7 +33,7 @@ Provide a single, well-typed, versioned SQLite store for every piece of persiste
 ```ts
 // electron/db/sqlite.ts
 export function openDatabase(userDataDir: string): Database {
-  const db = new Database(path.join(userDataDir, 'mongolab.db'));
+  const db = new Database(path.join(userDataDir, 'latelier.db'));
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');

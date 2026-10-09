@@ -117,7 +117,7 @@ test('first launch on fresh userData boots, applies migrations, exposes empty co
     expect(result.tabs).toHaveLength(0);
 
     // Migration runner created the SQLite file with at least the schema rows.
-    const dbPath = path.join(userDataDir, 'mongolab.db');
+    const dbPath = path.join(userDataDir, 'latelier.db');
     expect(fs.existsSync(dbPath)).toBe(true);
     expect(fs.statSync(dbPath).size).toBeGreaterThan(0);
   });

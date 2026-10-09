@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { redactSecrets } from '../log.ts';
+import { isLogFile, redactSecrets } from '../log.ts';
 
 export interface DiagnosticBundle {
   generatedAt: string;
@@ -102,7 +102,7 @@ export class DiagnosticService {
     // (S8786) — irrelevant on a 24-character ISO string, but the slice is both
     // shorter and linear.
     const now = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    return `mongolab-diagnostic-${now}.json`;
+    return `latelier-diagnostic-${now}.json`;
   }
 
   private appMetadata(): DiagnosticBundle['app'] {
@@ -141,11 +141,18 @@ export class DiagnosticService {
       return {};
     }
     const files = entries
-      .filter((n) => n.startsWith('mongolab.') && n.endsWith('.log'))
-      // ISO date in the filename, so code-unit order IS chronological order.
-      // Deliberately not `localeCompare`: its collation is locale-dependent,
-      // and which files survive the `slice` below must not be.
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .filter(isLogFile)
+      // Order by the date after the prefix: the prefix changed with the rename
+      // and `l` < `m`, so whole-name order puts every legacy `mongolab.*` log
+      // after the newer `latelier.*` ones and the `slice` below would keep the
+      // old logs and drop the newest. On the upgrade day both prefixes share a
+      // date; the `mongolab.` file was written first, so it sorts first.
+      // ISO date, so code-unit order IS chronological order. Deliberately not
+      // `localeCompare`: its collation is locale-dependent, and which files
+      // survive the `slice` below must not be.
+      .map((name) => ({ name, key: name.slice(name.indexOf('.') + 1) + (name.startsWith('mongolab.') ? '0' : '1') }))
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+      .map((f) => f.name)
       .slice(-this.maxLogFiles);
 
     const out: Record<string, string> = {};
