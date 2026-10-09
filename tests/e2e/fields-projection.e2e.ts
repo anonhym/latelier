@@ -54,7 +54,9 @@ test('a projection set in the Fields control is what the next Run fetches', asyn
       await expect(win.getByText('gold')).toBeVisible();
 
       await ws.queryBarRunButton.click();
-      await expect(win.getByText('ada')).toBeVisible({ timeout: 8000 });
+      // Exact and quoted: a bare `ada` can also match the last 8 hex chars of a generated
+      // ObjectId, which the projection keeps, and trip strict mode.
+      await expect(win.getByText('"ada"', { exact: true })).toBeVisible({ timeout: 8000 });
       await expect(win.getByText('gold')).toHaveCount(0);
     });
   });
