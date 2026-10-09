@@ -15,6 +15,7 @@ import {
   UUID,
 } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
+import { ejsonStringifyRelaxed } from '../mongo/ejson.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { encodeResultJson } from './encodeResult.ts';
 import { openChannel } from './channel.ts';
@@ -210,7 +211,7 @@ function stringifyForPrint(value: unknown, rpc: RpcClient): string {
   // as `{}`, which reads as an empty document: print the one-line hint instead.
   if (rpc.isCollection(value) || rpc.isCursor(value)) return inspect(value);
   try {
-    return EJSON.stringify(value as object, undefined, 2, { relaxed: true });
+    return ejsonStringifyRelaxed(value, 2) as string;
   } catch {
     return String(value);
   }

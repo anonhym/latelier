@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
-import { Double, Int32, Long, Timestamp } from 'bson';
+import { Code, Double, Int32, Long, Timestamp } from 'bson';
 import type { IpcMainInvokeEvent } from 'electron';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
@@ -241,6 +241,35 @@ describe('QueryService.exportToFile', () => {
         expect(doc.i).toBe(7);
       },
     );
+  });
+
+  // The page serializer's `revive` swaps a wide Long for its wrapper, but it
+  // does not walk into a Code's scope, so there bson's relaxed writer is the
+  // only thing between the Long and a rounded number.
+  describe('a Long past 2^53 in a relaxed export', () => {
+    const WIDE = '9007199254740993';
+
+    it.each(['json', 'jsonl'] as const)('keeps its exact digits in a %s file, at the top and inside a Code scope', async (format) => {
+      const client = await pool.write(connId).client();
+      await client
+        .db(dbName)
+        .collection(collName)
+        .insertOne({ top: Long.fromString(WIDE), fn: new Code('function () {}', { big: Long.fromString(WIDE) }) });
+
+      const file = outPath(`wide.${format}`);
+      await svc.exportToFile(
+        { connectionId: connId, dbName, collection: collName, filter: '{}', format, relaxed: true },
+        file,
+      );
+      const text = await fs.readFile(file, 'utf8');
+      const written = (format === 'json' ? JSON.parse(text)[0] : JSON.parse(text.trim())) as {
+        top: unknown;
+        fn: { $scope: { big: unknown } };
+      };
+      expect(written.top).toEqual({ $numberLong: WIDE });
+      expect(written.fn.$scope.big).toEqual({ $numberLong: WIDE });
+      expect(text).not.toContain('9007199254740992');
+    });
   });
 
   it('honours filter, sort and projection', async () => {

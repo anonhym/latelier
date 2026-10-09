@@ -179,6 +179,24 @@ describe('ScriptService — results', () => {
     expect(r.valueJson).toBe('42');
   });
 
+  it('prints a Long past 2^53 with its exact digits, built in the script or read back from the database', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: [
+        'print({ built: NumberLong("9007199254740993") });',
+        'await db.print_wide.deleteMany({});',
+        'await db.print_wide.insertOne({ big: NumberLong("9007199254740993"), safe: NumberLong("5") });',
+        'printjson(await db.print_wide.findOne({}, { projection: { _id: 0 } }));',
+        '1',
+      ].join('\n'),
+    });
+    expect(r.printBuffer).toContain('"built": {\n    "$numberLong": "9007199254740993"\n  }');
+    expect(r.printBuffer).toContain('"big": {\n    "$numberLong": "9007199254740993"\n  }');
+    // A Long inside the safe range keeps printing as a bare number.
+    expect(r.printBuffer).toContain('"safe": 5');
+    expect(r.printBuffer).not.toContain('9007199254740992');
+  });
+
   it('prints a collection and a cursor as a one-line hint, not an empty object', async () => {
     const r = await setup().run({
       connectionId: 'c1',

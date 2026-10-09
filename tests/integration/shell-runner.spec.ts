@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { MongoClient } from 'mongodb';
+import { Long } from 'bson';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import type { ShellOutputEvent } from '@shared/types';
 import { ShellService } from '../../electron/services/ShellService';
@@ -240,6 +241,26 @@ describe('ShellService — a bare collection', () => {
     expect(out).toContain('"_id": 1');
     expect(out).toContain('"$date": "1970-01-01T00:00:00Z"');
     expect(out).not.toContain('[Collection');
+  });
+});
+
+describe('ShellService — a Long past 2^53', () => {
+  it('prints a stored Long with its exact digits, and a safe one as a bare number', async () => {
+    // The shell has no Long constructor, so the document goes in from outside.
+    const client = new MongoClient(server.getUri());
+    try {
+      const coll = client.db('test').collection('shell_wide');
+      await coll.deleteMany({});
+      await coll.insertOne({ big: Long.fromString('9007199254740993'), safe: Long.fromString('5') });
+    } finally {
+      await client.close();
+    }
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    const out = await say(info.sessionId, 'await db.shell_wide.findOne()', '"safe"');
+    expect(out).toContain('"big": {\n    "$numberLong": "9007199254740993"\n  }');
+    expect(out).toContain('"safe": 5');
+    expect(out).not.toContain('9007199254740992');
   });
 });
 
