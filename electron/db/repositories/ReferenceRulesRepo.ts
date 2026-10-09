@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { ReferenceRule } from '@shared/types';
 import { ConflictError, NotFoundError } from '../../errors.ts';
-import { isForeignKeyConstraintError, isUniqueConstraintError } from '../sqliteErrors.ts';
+import { isUniqueConstraintError, rethrowMissingConnection } from '../sqliteErrors.ts';
 
 interface ReferenceRuleRow {
   id: string;
@@ -89,12 +89,7 @@ export class ReferenceRulesRepo {
           { field: 'sourceField' },
         );
       }
-      // `connection_id` is the table's only foreign key, so a violation can
-      // only mean the connection does not exist.
-      if (isForeignKeyConstraintError(err)) {
-        throw new NotFoundError(`connection ${row.connection_id} not found`);
-      }
-      throw err;
+      rethrowMissingConnection(err, row.connection_id);
     }
     return this.findByIdOrThrow(row.id);
   }

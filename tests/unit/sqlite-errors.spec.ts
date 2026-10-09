@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isForeignKeyConstraintError, isUniqueConstraintError } from '../../electron/db/sqliteErrors';
+import {
+  isForeignKeyConstraintError,
+  isUniqueConstraintError,
+  rethrowMissingConnection,
+} from '../../electron/db/sqliteErrors';
+import { NotFoundError } from '../../electron/errors';
 
 describe('isUniqueConstraintError', () => {
   it('matches SQLITE_CONSTRAINT_UNIQUE', () => {
@@ -57,5 +62,28 @@ describe('isForeignKeyConstraintError', () => {
     expect(isForeignKeyConstraintError('SQLITE_CONSTRAINT_FOREIGNKEY')).toBe(false);
     expect(isForeignKeyConstraintError({})).toBe(false);
     expect(isForeignKeyConstraintError(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('rethrowMissingConnection', () => {
+  it('turns a foreign-key violation into a NotFoundError naming the connection', () => {
+    const fk = Object.assign(new Error('FOREIGN KEY constraint failed'), {
+      code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+    });
+    expect(() => rethrowMissingConnection(fk, 'c-1')).toThrow(NotFoundError);
+    expect(() => rethrowMissingConnection(fk, 'c-1')).toThrow('connection c-1 not found');
+  });
+
+  it('rethrows any other error as the very same object', () => {
+    const notNull = Object.assign(new Error('NOT NULL constraint failed'), {
+      code: 'SQLITE_CONSTRAINT_NOTNULL',
+    });
+    let caught: unknown;
+    try {
+      rethrowMissingConnection(notNull, 'c-1');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBe(notNull);
   });
 });
