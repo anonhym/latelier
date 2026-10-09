@@ -130,6 +130,40 @@ describe('ScriptService — results', () => {
     expect(JSON.parse(r.valueJson!).db).toBe('another_db');
   });
 
+  it("runs on the connection's default database when no dbName is given", async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('an explicit dbName wins over the connection default', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: 'another_db',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('another_db');
+  });
+
+  it('a blank dbName counts as unset, so the connection default applies', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: '  ',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('falls back to test when the connection has no default database', async () => {
+    const r = await setup({ c1: { defaultDb: undefined } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('test');
+  });
+
   it('use() switches the database for later calls', async () => {
     const r = await setup().run({
       connectionId: 'c1',

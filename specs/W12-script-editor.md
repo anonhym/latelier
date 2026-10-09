@@ -63,8 +63,9 @@ export type WorkspaceTabKind = 'collection' | 'script';
 export interface ScriptTabState {
   /** Editor buffer. UTF-8. */
   source: string;
-  /** Selected database for the `db` proxy at run time. Optional —
-   *  scripts can also explicitly call `use("...")`. */
+  /** Selected database for the `db` proxy at run time. Blank means the
+   *  connection's default database, else `test`. Scripts can also
+   *  explicitly call `use("...")`. */
   dbName?: string;
   /** Last successful run's result. Renderer memory only: main strips it
    *  before every `state_json` write, so it does not survive relaunch. */
@@ -76,6 +77,8 @@ export interface ScriptTabState {
 
 export interface ScriptRunInput {
   connectionId: string;
+  /** Blank or absent means the connection's default database, else `test`
+   *  (`MongoPool.resolveDbName`). */
   dbName?: string;
   source: string;
   /** Renderer-supplied UUID; used by `script:cancel`. */
@@ -380,6 +383,10 @@ split survives relaunch).
   present it expands to the persisted height.
   The print buffer renders below the value as a collapsed `<pre>`
   (auto-expanded when non-empty).
+- **Completions**: collection names and field suggestions come from
+  the database a run would use: the toolbar's database field, else the
+  connection's default database (`ConnectionSummary.defaultDb`), else
+  `test`.
 - **Status row**: connection name, db name (with a dropdown to
   override), duration, error code (when applicable).
 
@@ -419,6 +426,9 @@ tracked as a follow-up in GitHub Issues.
       using the existing `ResultTable` (Tree / JSON / Table toggle,
       same components as the W06 collection result area).
 - [x] `print("hi")` appears in the print buffer below the value.
+- [x] A script run with a blank database field runs on the connection's
+      default database (else `test`), and the editor's completions list
+      that database's collections.
 - [x] An infinite loop (`while (true) {}`) is killed by the
       `maxTimeMs` ceiling; the renderer shows a `SystemError` with a
       clear "script exceeded N ms" message.
@@ -462,7 +472,9 @@ tracked as a follow-up in GitHub Issues.
   / awaited-server-call timeouts, runner crash, `cancelAll`, cancel
   token bookkeeping, the 50 MB cap, a connection flipped read-only
   mid-run, syntax errors throw `ValidationError`, runtime errors throw
-  `MongoOpError` (or `SystemError` for non-Mongo).
+  `MongoOpError` (or `SystemError` for non-Mongo), and the database a
+  run starts on: an explicit `dbName` over the connection's default
+  database (used when `dbName` is blank), else `test`.
 - **script-rpc.spec.ts** (integration, same harness): read-only refused
   by main on every route, a flip mid-run with no kill, crafted frames
   from an escaped script, no credential in any message,
@@ -487,7 +499,9 @@ tracked as a follow-up in GitHub Issues.
   `api.script`. Verifies `Cmd+Enter` invokes `script.run` with the
   buffer, the result table renders an array result, the print
   buffer renders below the value, Cancel calls `script.cancel`,
-  buffer changes flow through `api.tabs.update`.
+  buffer changes flow through `api.tabs.update`, and the collection
+  completions follow the typed database, else the connection's default,
+  else `test`.
 
 ### E2E
 - **script-editor.e2e.ts**: launches the real Electron app, seeds a

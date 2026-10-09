@@ -1,5 +1,6 @@
 import type { Database, Statement } from 'better-sqlite3';
 import type { ValType } from '@shared/types';
+import { rethrowMissingConnection } from '../sqliteErrors.ts';
 
 export interface RecentFieldValueRow {
   id: string;
@@ -101,16 +102,20 @@ export class RecentFieldValueRepo {
   }
 
   upsert(row: RecentFieldValueUpsert): void {
-    this.upsertStmt.run({
-      id: row.id,
-      connection_id: row.connectionId,
-      db_name: row.dbName,
-      collection: row.collection,
-      field: row.field,
-      value: row.value,
-      val_type: row.valType,
-      last_used_at: row.lastUsedAt,
-    });
+    try {
+      this.upsertStmt.run({
+        id: row.id,
+        connection_id: row.connectionId,
+        db_name: row.dbName,
+        collection: row.collection,
+        field: row.field,
+        value: row.value,
+        val_type: row.valType,
+        last_used_at: row.lastUsedAt,
+      });
+    } catch (err) {
+      rethrowMissingConnection(err, row.connectionId);
+    }
   }
 
   list(q: RecentFieldValueQuery): RecentFieldValueRow[] {

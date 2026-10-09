@@ -180,6 +180,15 @@ describe('ConnectionService', () => {
     expect(order[2]).toBe('C');
   });
 
+  it("list carries each connection's default database, undefined when unset", async () => {
+    await svc.create(validInput({ name: 'With', defaultDb: 'smoke' }));
+    await svc.create(validInput({ name: 'Without' }));
+
+    const byName = new Map(svc.list().map((s) => [s.name, s]));
+    expect(byName.get('With')!.defaultDb).toBe('smoke');
+    expect(byName.get('Without')!.defaultDb).toBeUndefined();
+  });
+
   it('touchUsed updates last_used_at', async () => {
     const c = await svc.create(validInput());
     expect(repo.findById(c.id)!.last_used_at).toBeNull();

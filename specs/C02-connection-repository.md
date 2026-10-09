@@ -75,6 +75,7 @@ export class ConnectionService {
 ### list
 1. `repo.list()`.
 2. For each row, build a `ConnectionSummary` with:
+   - `defaultDb` from the row's `default_db` (undefined when unset).
    - `status` from `pool.status(id).status`.
    - `serverVersion` from `pool.status(id).serverVersion` (undefined if never connected).
 3. Return array.

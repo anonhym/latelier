@@ -292,7 +292,7 @@ Reuses the existing right-side drawer pattern (W08 Insert drawer). 360 px wide.
 ```
 
 Validation rules (renderer-side, mirrored server-side):
-- At least one field row with a non-empty name.
+- Every field row needs a non-empty name; whitespace-only counts as blank (renderer-only: the server rejects an empty name but accepts whitespace). The Create index button stays disabled until it does.
 - Direction must be one of the eight literals listed in `IndexFieldDirection`.
 - TTL requires exactly one field with direction `1` or `-1` (Mongo limitation). If the user toggles TTL on a multi-field or text/geo key, the form rejects with inline copy.
 - `partialFilterExpression` / `collation` parse as EJSON locally — surfaces a parse error inline before submit.
@@ -343,6 +343,7 @@ Type the index name to confirm:
 - [ ] On a connection that authorizes `$indexStats` and `$collStats`, the **Use** and **Size** columns populate.
 - [ ] On a connection that does not authorize them (Atlas free tier), **Use** and **Size** read `—` and the rest of the table still renders.
 - [ ] Creating an index round-trips: form → `api.index.create` → server-assigned name visible in the list after refetch.
+- [ ] The Create index button is disabled while any field name is blank (whitespace-only counts as blank); no request is sent.
 - [ ] Creating a duplicate index keeps the drawer open with an inline `CONFLICT` error.
 - [ ] Dropping a non-`_id_` index removes it from the list after the two-step confirm.
 - [ ] Dropping `_id_` is impossible from the UI (no Drop button on its row) and refused server-side with `VALIDATION` if invoked via raw IPC.
