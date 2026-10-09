@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@shared/ipc';
+import type { SavedPayload } from '@shared/types';
 import type { Router } from '../router.ts';
 import { CollectionTargetSchema, NonEmpty, zodValidator } from '../validators.ts';
+import { SavedAggregationPayloadSchema, SavedFindPayloadSchema } from '../schemas/saved.ts';
 import type { SavedQueryService } from '../../services/SavedQueryService.ts';
 
 const SavedKindSchema = z.enum(['find', 'aggregation', 'script']);
@@ -15,12 +17,28 @@ const ListInputSchema = z.object({
 
 const GetInputSchema = z.object({ id: NonEmpty });
 
-const CreateInputSchema = CollectionTargetSchema.extend({
-  kind: SavedKindSchema,
-  name: NonEmpty,
-  payload: z.record(z.string(), z.unknown()),
-});
+// The payload is held to the schema of its `kind`. `script` has no payload variant
+// and nothing produces one, so its payload stays an unchecked record.
+const CreateInputSchema = z.discriminatedUnion('kind', [
+  CollectionTargetSchema.extend({
+    kind: z.literal('find'),
+    name: NonEmpty,
+    payload: SavedFindPayloadSchema,
+  }),
+  CollectionTargetSchema.extend({
+    kind: z.literal('aggregation'),
+    name: NonEmpty,
+    payload: SavedAggregationPayloadSchema,
+  }),
+  CollectionTargetSchema.extend({
+    kind: z.literal('script'),
+    name: NonEmpty,
+    payload: z.record(z.string(), z.unknown()),
+  }),
+]);
 
+// An update names no kind, so the payload is checked against the stored row's kind in
+// `SavedQueryService.update`; here it need only be an object.
 const UpdateInputSchema = z.object({
   id: NonEmpty,
   patch: z.object({
@@ -59,7 +77,7 @@ export function registerSavedChannels(router: Router, svc: SavedQueryService): v
         collection: input.collection,
         kind: input.kind,
         name: input.name,
-        payload: input.payload as unknown as import('@shared/types').SavedPayload,
+        payload: input.payload as unknown as SavedPayload,
       }),
   );
 
@@ -69,7 +87,7 @@ export function registerSavedChannels(router: Router, svc: SavedQueryService): v
     ({ id, patch }) =>
       svc.update(id, {
         name: patch.name,
-        payload: patch.payload as unknown as import('@shared/types').SavedPayload | undefined,
+        payload: patch.payload as unknown as SavedPayload | undefined,
       }),
   );
 
