@@ -65,7 +65,9 @@ test('advanced row follows the Focused Tab: open where a sort is set, collapsed 
       await expect(ws.tabByName('customers')).toHaveAttribute('aria-selected', 'true', {
         timeout: 5000,
       });
-      await expect(win.getByText('ada')).toBeVisible({ timeout: 8000 });
+      // Exact and quoted: a bare `ada` can also match the last 8 hex chars of a generated
+      // ObjectId and trip strict mode.
+      await expect(win.getByText('"ada"', { exact: true })).toBeVisible({ timeout: 8000 });
       // Both tabs must coexist — if opening B replaced A, the switch below
       // would land on a *fresh* orders tab whose row is collapsed for the
       // wrong reason, and this spec would pass against the bug.
