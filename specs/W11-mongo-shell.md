@@ -175,8 +175,10 @@ Behaviour:
   a thenable and still prints its one-line hint.
 - An error, thrown or rejected, prints as `Uncaught <name>: <message>`
   (no stack, cause or extra fields). A thrown or rejected value that is not
-  an `Error` prints as itself; a falsy rejection reason prints as
-  `Error: Promise rejected with <value>`, since the REPL would read it as success.
+  an `Error` prints as itself. A falsy reason (`null`, `undefined`, `0`, `""`)
+  of an un-awaited rejection prints as `Error: Promise rejected with <value>`,
+  since the REPL would read it as success; the same reason of an awaited
+  rejection prints nothing, as the REPL itself behaves.
 - Sessions are scoped per connection — calling `start` for a connection
   that already has a live session reuses it. Idempotent toggle.
 - **Lifecycle lives in main.** Ending a session kills the child and
