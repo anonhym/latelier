@@ -33,8 +33,10 @@ export class RecentQueryService {
    * assertions.
    */
   private pendingEvictions = new Map<string, Promise<void>>();
-  constructor(repo: RecentQueryRepo) {
+  private log: Logger | undefined;
+  constructor(repo: RecentQueryRepo, log?: Logger) {
     this.repo = repo;
+    this.log = log;
   }
 
   /**
@@ -153,10 +155,15 @@ export class RecentQueryService {
           if (count > MAX_PER_CONNECTION) {
             this.repo.deleteOldestByConnection(connectionId, MAX_PER_CONNECTION);
           }
-        } catch {
-          // Best-effort housekeeping. The next insert's deferred eviction
-          // will retry; surfacing the error to the caller would be wrong
-          // since the original recordFind/recordAggregation succeeded.
+        } catch (err) {
+          // Best-effort housekeeping: the original recordFind/recordAggregation
+          // succeeded, so the error is not surfaced to the caller. It is logged
+          // because a failing eviction lets the per-connection cap lapse
+          // unnoticed; the next insert's deferred eviction retries.
+          this.log?.warn('recent', 'evicting old recent queries failed', {
+            connectionId,
+            message: err instanceof Error ? err.message : String(err),
+          });
         } finally {
           this.pendingEvictions.delete(connectionId);
           resolve();
