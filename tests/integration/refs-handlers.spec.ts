@@ -36,9 +36,9 @@ import {
  */
 const DB = 'refs_router_db';
 const CONN = 'refs-conn';
-// Has a row in SQLite (the foreign key needs one) but is absent from the
-// pool's reader, which is what a rule left behind by a deleted connection
-// looks like to `resolve`.
+// Exists in SQLite (the foreign key needs a row) but the pool's reader cannot
+// find it, so the pool raises NotFoundError and `resolve` must surface it as
+// a NOT_FOUND envelope.
 const GHOST_CONN = 'refs-ghost-conn';
 
 const ACME = new ObjectId();
@@ -190,6 +190,23 @@ describe('refs:* channels via router', () => {
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.data.map((r) => r.sourceCollection)).toEqual(['invoices']);
+    });
+
+    // The handler narrows only when both dbName and collection are present; a
+    // lone dbName is accepted by the schema and ignored.
+    it('ignores a partial filter and returns every rule of the connection', async () => {
+      await createRule();
+      await createRule({ sourceCollection: 'invoices' });
+      const env = await shim.invoke<ReferenceRule[]>(IPC_CHANNELS.refsList, {
+        connectionId: CONN,
+        dbName: DB,
+      });
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.map((r) => r.sourceCollection).sort((a, b) => a.localeCompare(b))).toEqual([
+        'invoices',
+        'orders',
+      ]);
     });
 
     it('rejects a missing connectionId with VALIDATION', async () => {
@@ -409,9 +426,9 @@ describe('refs:* channels via router', () => {
       expect(env.data[0]).toMatchObject({ sourceField: 'customer_id', alreadyConfigured: true });
     });
 
-    // Current behaviour, not a promise: the service turns every pool failure,
-    // an unknown connection included, into "no candidates" so the editor shows
-    // an empty list instead of an error.
+    // specs/X05-document-references.md section 9: autodetect fails open, so a
+    // pool failure (an unknown connection included) is an empty list and the
+    // user keeps the manual "New rule" path.
     it('returns an empty list, not an error, for an unknown connection', async () => {
       const env = await shim.invoke(IPC_CHANNELS.refsAutodetect, {
         ...auto,

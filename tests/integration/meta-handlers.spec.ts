@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
@@ -201,12 +202,71 @@ describe('meta:* channels via router', () => {
       expect(env.error.code).toBe('NOT_FOUND');
     });
 
-    it('fails open to an empty sample for a collection that does not exist', async () => {
+    it('returns an empty sample for a collection that does not exist', async () => {
       const env = await shim.invoke<{ docs: unknown[] }>(IPC_CHANNELS.metaSampleSchema, {
         ...target,
         collection: 'never_created',
       });
       expect(env).toEqual({ ok: true, data: { docs: [] } });
     });
+  });
+});
+
+// A dedicated server, not the shared one: `failCommand` needs
+// `enableTestCommands`, which nothing else wants turned on. `sampleSchema`
+// swallows a failed aggregate and answers an empty sample so one hostile
+// source does not sink the suggestions of the others; an absent namespace
+// never reaches that catch, only a command that actually errors does.
+describe('meta:sampleSchema fails open when the aggregate errors', () => {
+  let server: MongoMemoryServer;
+  let tmp: TempDb;
+  let pool: MongoPool;
+  const shim = createIpcShim();
+  const target = { connectionId: CONN, dbName: DB, collection: 'products' };
+
+  beforeAll(async () => {
+    server = await MongoMemoryServer.create({
+      instance: { args: ['--setParameter', 'enableTestCommands=1'] },
+    });
+    const seed = new MongoClient(server.getUri());
+    try {
+      await seed.connect();
+      await seed.db(DB).collection('products').insertMany([{ name: 'a' }, { name: 'b' }]);
+    } finally {
+      await seed.close();
+    }
+
+    tmp = createTempDb();
+    const vault = new SecretsVault(tmp.db, createSafeStorageMock());
+    const conn = makeConnection(CONN, uriToHostPort(server.getUri()), { defaultDb: DB });
+    pool = new MongoPool({ repo: makeReader([conn]), vault });
+    registerMetaChannels(createRouter(shim.ipcMain, testSenderCheck), new MetaService(pool));
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.disconnectAll();
+    tmp.cleanup();
+    await server.stop();
+  });
+
+  it('answers an empty sample, not an error, when the server rejects the aggregate', async () => {
+    const client = await pool.readClient(CONN);
+    await client.db('admin').command({
+      configureFailPoint: 'failCommand',
+      mode: { times: 1 },
+      // 50 is MaxTimeMSExpired, the failure a slow deployment produces.
+      data: { failCommands: ['aggregate'], errorCode: 50 },
+    });
+
+    const failed = await shim.invoke<{ docs: unknown[] }>(IPC_CHANNELS.metaSampleSchema, target);
+    expect(failed).toEqual({ ok: true, data: { docs: [] } });
+
+    // The failpoint fired once and is spent: the same call now samples the
+    // seeded documents, so the empty answer above was the catch and not an
+    // empty collection.
+    const healthy = await shim.invoke<{ docs: unknown[] }>(IPC_CHANNELS.metaSampleSchema, target);
+    expect(healthy.ok).toBe(true);
+    if (!healthy.ok) return;
+    expect(healthy.data.docs.length).toBeGreaterThan(0);
   });
 });
