@@ -123,6 +123,19 @@ set, the collapsed row MUST carry a persistent, non-hover visual indicator that
 values are hidden. A count ("3 set") is preferable to a bare dot: it survives
 monochrome rendering and states the actual fact.
 
+**Error variant.** The sort and limit notices render inside the expanded row, so
+a collapsed row used to hide why Run was disabled (an unparseable sort) or that
+the limit was being coerced. While collapsed, the indicator also counts the
+values that cannot run as written: a sort the bar refuses (unparseable, or
+parseable but not a document) and a limit that `limitWarning` flags. With one or
+more of those it reads `2 set · 1 error` / `2 set · 2 errors` in the warning
+colour instead of the accent; without any it reads exactly `n set`, unchanged.
+The count is the same two conditions the notices use, so the badge and the
+expanded row cannot disagree. The row is not forced open and collapsing is not
+blocked — the badge only has to say a problem exists. The longer text no longer
+fits beside QUERY in the label track, so the trigger wraps the badge onto its
+own line while an error is shown.
+
 Additionally: verify a visible `:focus-visible` style on the trigger. The app
 defines none for this custom `role="button"`, so it currently relies on the
 browser default — acceptable if it renders, but it must be confirmed rather than
@@ -251,6 +264,9 @@ so the 5-file contract and `scripts/ipc-secret-allowlist.txt` are untouched.
       the filter, typing in the query bar, or any other same-tab re-render.
 - [ ] When collapsed with at least one advanced value set, the trigger shows a
       persistent indicator without hover, stating how many are set.
+- [ ] When collapsed and a set sort or limit cannot run as written, the indicator
+      also states how many errors there are (`n set · m error(s)`) in the warning
+      colour, and returns to plain `n set` once they are fixed.
 - [ ] The trigger keeps `aria-expanded` / `aria-controls` correct, remains
       operable by Enter and Space, and shows a visible focus ring.
 - [ ] Typing an unparseable projection and blurring **retains the typed text**.
@@ -274,6 +290,11 @@ so the 5-file contract and `scripts/ipc-secret-allowlist.txt` are untouched.
    opens.
 4. Collapsed + advanced values set → indicator present, with its count. Collapsed
    + none set → absent.
+4a. Collapsed with an unparseable sort, a sort that is not a document, a limit
+   that coerces, or both a sort and a limit problem → the indicator reads
+   `n set · m error(s)` with the right counts and the warning tint. Valid values
+   still read exactly `n set`, expanded shows no badge, and fixing the value
+   returns the plain count.
 5. Enter a malformed projection, blur, assert the input still holds the typed
    text and an `alert` is rendered.
 6. Enter `{a: 0}`, blur, assert the draft is retained and the message names raw
