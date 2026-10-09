@@ -170,7 +170,8 @@ Behaviour:
   settled before it is printed, so `db.users.find().toArray()` prints the
   documents. Input is not paused while it is pending: a result that never
   settles leaves later commands working, and one that settles late prints
-  after the commands typed meanwhile. The pending call itself cannot be
+  after the commands typed meanwhile, and discards a multi-line command
+  half typed at that moment. The pending call itself cannot be
   cancelled; there is no interrupt until the shell has one. A cursor is not
   a thenable and still prints its one-line hint.
 - An error, thrown or rejected, prints as `Uncaught <name>: <message>`
