@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ImportFormat, ImportReport } from '@shared/types';
 import { ValidationError } from '../errors.ts';
-import { parseEjsonDocument } from './ejson.ts';
+import { parseEjsonDocument, parseJsonKeepingBigInts, reviveEjsonDocument } from './ejson.ts';
 
 /** How many failures a report lists; past this they are only counted. */
 export const MAX_REPORTED_ERRORS = 50;
@@ -42,9 +42,9 @@ export type ImportRecord =
   | { at: number; doc: Record<string, unknown> }
   | { at: number; error: string };
 
-function toRecord(at: number, json: string): ImportRecord {
+function toRecord(at: number, parse: () => Record<string, unknown>): ImportRecord {
   try {
-    return { at, doc: parseEjsonDocument<Record<string, unknown>>(json, 'document') };
+    return { at, doc: parse() };
   } catch (err) {
     if (!(err instanceof ValidationError)) throw err;
     return { at, error: err.message };
@@ -55,7 +55,7 @@ function toRecord(at: number, json: string): ImportRecord {
 export function parseJsonlLine(line: string, lineNo: number): ImportRecord | null {
   const text = lineNo === 1 ? stripBom(line) : line;
   if (text.trim() === '') return null;
-  return toRecord(lineNo, text);
+  return toRecord(lineNo, () => parseEjsonDocument<Record<string, unknown>>(text, 'document'));
 }
 
 /**
@@ -67,12 +67,14 @@ export function parseJsonlLine(line: string, lineNo: number): ImportRecord | nul
 export function parseJsonArray(text: string): ImportRecord[] {
   let raw: unknown;
   try {
-    raw = JSON.parse(stripBom(text));
+    // Not a plain JSON.parse: it would round a bare integer past 2^53 before
+    // the document is revived (a JSONL line keeps it exact).
+    raw = parseJsonKeepingBigInts(stripBom(text));
   } catch (err) {
     throw new ValidationError(`invalid JSON array: ${(err as Error).message}`);
   }
   if (!Array.isArray(raw)) throw new ValidationError('expected a JSON array of documents');
-  return raw.map((el, i) => toRecord(i, JSON.stringify(el)));
+  return raw.map((el, i) => toRecord(i, () => reviveEjsonDocument<Record<string, unknown>>(el, 'document')));
 }
 
 export function emptyReport(fileName: string, format: ImportFormat): ImportReport {

@@ -176,8 +176,19 @@ function keepBigInt(_key: string, value: unknown, context?: { source?: string })
  * a Long instead of rounding to a double; see `keepBigInt`.
  */
 export function safeEjsonParse<T = unknown>(s: string): T {
+  return walkRevive(parseJsonKeepingBigInts(s)) as T;
+}
+
+/**
+ * `JSON.parse` that does not round a bare integer beyond 2^53: it comes back as
+ * a `{"$numberLong":"…"}` sentinel, ready for `walkRevive` (or a
+ * `JSON.stringify` and a later EJSON parse). For a caller that has to parse the
+ * text itself before reviving, such as splitting a JSON array into documents;
+ * everyone else wants `safeEjsonParse`.
+ */
+export function parseJsonKeepingBigInts(s: string): unknown {
   const reviver = BARE_BIG_INT_HINT.test(s) ? keepBigInt : undefined;
-  return walkRevive(JSON.parse(s, reviver) as unknown) as T;
+  return JSON.parse(s, reviver) as unknown;
 }
 
 /**
@@ -280,13 +291,29 @@ export function isValidEjson(s: string): boolean {
 }
 
 export function parseEjsonField<T = unknown>(json: string, field: string): T {
+  return asFieldError(field, () => ejsonParse<T>(json));
+}
+
+// Whatever `run` throws becomes a ValidationError naming the field, so a bad
+// value reaches the caller as an input problem rather than a bare Error.
+function asFieldError<T>(field: string, run: () => T): T {
   try {
-    return ejsonParse<T>(json);
+    return run();
   } catch (err) {
     // Stryker disable next-line StringLiteral: every throw reachable through `ejsonParse` (grepped across this file) constructs `new Error`/`new SystemError`/`new ValidationError`, and `JSON.parse`/bson's `EJSON.parse` both throw real `Error` instances too, so the `: 'invalid EJSON'` fallback is unreachable for any input today; kept in case a future dependency throws a bare string or object.
     const reason = err instanceof Error ? err.message : 'invalid EJSON';
     throw new ValidationError(`invalid ${field}: ${reason}`, { field });
   }
+}
+
+function requireDocument<T>(parsed: unknown, field: string): T {
+  if (!isPlainDocument(parsed)) {
+    throw new ValidationError(
+      `invalid ${field}: expected a document like { field: 1 }`,
+      { field },
+    );
+  }
+  return parsed as T;
 }
 
 /**
@@ -312,14 +339,18 @@ export function parseEjsonField<T = unknown>(json: string, field: string): T {
  * sides; `isPlainDocument` below is the rule and says why.
  */
 export function parseEjsonDocument<T = unknown>(json: string, field: string): T {
-  const parsed = parseEjsonField<unknown>(json, field);
-  if (!isPlainDocument(parsed)) {
-    throw new ValidationError(
-      `invalid ${field}: expected a document like { field: 1 }`,
-      { field },
-    );
-  }
-  return parsed as T;
+  return requireDocument<T>(parseEjsonField<unknown>(json, field), field);
+}
+
+/**
+ * `parseEjsonDocument` for a value `parseJsonKeepingBigInts` has already
+ * parsed: revives its sentinels and requires a document, with the same errors.
+ */
+export function reviveEjsonDocument<T = unknown>(parsed: unknown, field: string): T {
+  return requireDocument<T>(
+    asFieldError(field, () => walkRevive(parsed)),
+    field,
+  );
 }
 
 /**
