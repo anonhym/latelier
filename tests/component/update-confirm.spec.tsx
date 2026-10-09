@@ -317,7 +317,7 @@ describe('UpdateConfirm — field-suggestion sample', () => {
 
   function mount(updateMany: ReturnType<typeof vi.fn>) {
     installAtelierMock({
-      doc: { confirmUpdateMany: vi.fn(async () => ({ count: 2, confirmToken: 'tok' })), updateMany },
+      doc: { confirmUpdateMany: vi.fn(async () => ({ count: 2, confirmToken: 'tok' })), updateMany: updateMany as never },
     });
     const onUpdated = vi.fn();
     render(
