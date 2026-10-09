@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream';
 import * as repl from 'node:repl';
-import { inspect } from 'node:util';
+import { inspect, types } from 'node:util';
 import { ejsonStringifyRelaxed } from '../mongo/ejson.ts';
 import type { Channel } from './channel.ts';
 import type { RpcClient } from './rpcClient.ts';
@@ -40,6 +40,33 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
     // A cursor prints its one-line hint; everything else goes through the EJSON writer.
     writer: (value: unknown) => (rpc.isCursor(value) ? inspect(value) : shellWriter(value)),
   });
+  // Node's REPL prints a top-level Promise as it is and only awaits an
+  // explicit `await`. A query call is always async here, so settle a thenable
+  // result before it reaches the writer. Input is not paused meanwhile: a
+  // result that never arrives leaves later commands working, and one that
+  // arrives late prints after them.
+  // The default evaluator is not exported, so wrap the one the REPL holds.
+  // `eval` is typed read-only, but the REPL calls `this.eval` for every line.
+  const baseEval = server.eval;
+  (server as { eval: repl.REPLEval }).eval = (cmd, context, file, done) => {
+    baseEval.call(server, cmd, context, file, (err, result) => {
+      if (err !== null) return done(err, result);
+      let thenable: boolean;
+      try {
+        thenable = typeof (result as { then?: unknown } | null | undefined)?.then === 'function';
+      } catch (probeError) {
+        // A throwing `then` getter fails this command only, never the session.
+        return done(probeError as Error, undefined);
+      }
+      if (!thenable) return done(null, result);
+      // `Promise.resolve` adopts the thenable once, so one that settles twice
+      // cannot print twice. A falsy reason would read as success to the REPL.
+      Promise.resolve(result).then(
+        (value) => done(null, value),
+        (reason) => done(reason || new Error(`Promise rejected with ${inspect(reason)}`), undefined),
+      );
+    });
+  };
   server.context.db = db;
   server.context.use = (name: string) => {
     ctx.currentDb = name;
@@ -83,6 +110,10 @@ function shellWriter(value: unknown): string {
   // functions, including the `db` proxy). Fall through to util.inspect so
   // typing `db` still produces something readable.
   try {
+    // An Error has no enumerable fields, so EJSON would print `{}`: the REPL
+    // routes every thrown error through this writer. `isNativeError` also
+    // holds for an error made in the REPL's own vm context.
+    if (types.isNativeError(value)) return `${value.name}: ${value.message}`;
     const ejson = ejsonStringifyRelaxed(value, 2);
     if (typeof ejson === 'string') return ejson;
   } catch {

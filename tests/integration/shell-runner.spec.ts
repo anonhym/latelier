@@ -216,6 +216,133 @@ describe('ShellService — cursors', () => {
   });
 });
 
+describe('ShellService — un-awaited results', () => {
+  // A result starts right after its prompt (`test> 3`) unless that prompt was
+  // already printed before the line was sent, so a line start is `> ` or `^`.
+  const emptyObject = /(?:^|> )\{\}$/m;
+
+  /** A session on `test` with exactly three documents in `async_items`; the mongod outlives each test. */
+  async function seeded(): Promise<string> {
+    const info = await setup().start({ connectionId: 'c1' });
+    await say(
+      info.sessionId,
+      'await db.async_items.deleteMany({}); await db.async_items.insertMany([{n:1},{n:2},{n:3}])',
+      'acknowledged',
+    );
+    return info.sessionId;
+  }
+
+  it('prints the documents of a find().toArray() left without await', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.async_items.find({n:{$gt:1}}).toArray()', '"n": 3');
+    expect(out).toContain('"n": 2');
+    expect(out).not.toContain('"n": 1');
+    expect(out).not.toMatch(emptyObject);
+  });
+
+  it('prints the number of a countDocuments() left without await', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'a result line that is exactly 3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('prints the same documents with and without await', async () => {
+    const sessionId = await seeded();
+    const documents = (out: string): string | undefined => /\[[\s\S]*\]/.exec(out)?.[0];
+    const awaited = await say(sessionId, 'await db.async_items.find({n:2}).toArray()', '"n": 2');
+    const bare = await say(sessionId, 'db.async_items.find({n:2}).toArray()', '"n": 2');
+    expect(documents(awaited)).toContain('"n": 2');
+    expect(documents(bare)).toBe(documents(awaited));
+  });
+
+  it('prints the message of a rejection left without await, and the session stays alive', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.runCommand({ definitelyNotACommand: 1 })', 'definitelyNotACommand');
+    expect(out).not.toMatch(emptyObject);
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints the message of a rejection that is awaited, and of a synchronous throw', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'await Promise.reject(new Error("await-boom"))', 'await-boom')).toContain(
+      'await-boom',
+    );
+    expect(await say(sessionId, 'throw new Error("boom-sync")', 'boom-sync')).toContain('boom-sync');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints a non-Error rejection or throw readably', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'Promise.reject("plain-reason")', 'plain-reason')).toContain('plain-reason');
+    expect(await say(sessionId, 'Promise.reject({ code: 7 })', '"code": 7')).toContain('"code": 7');
+    expect(await say(sessionId, 'throw "thrown-string"', 'thrown-string')).toContain('thrown-string');
+    expect(await say(sessionId, 'throw { code: 8 }', '"code": 8')).toContain('"code": 8');
+    // A falsy reason would read as success to the REPL and print nothing.
+    expect(await say(sessionId, 'Promise.reject(null)', 'rejected with null')).toContain('rejected with null');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an Error with a cause and extra fields prints its message and does not take the session down', async () => {
+    const sessionId = await seeded();
+    const out = await say(
+      sessionId,
+      '(() => { const e = new Error("outer-msg", { cause: new Error("inner-msg") }); e.code = 42; e.self = e; throw e; })()',
+      'outer-msg',
+    );
+    expect(out).toContain('outer-msg');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('a result that never settles leaves later commands working', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'new Promise(() => {})\n');
+    svc!.write(sessionId, '({ then() {} })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'await db.async_items.countDocuments()', '3')).toContain('3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('a result that settles late prints after the commands that ran meanwhile', async () => {
+    const sessionId = await seeded();
+    svc!.write(sessionId, 'new Promise((resolve) => { globalThis.release = resolve; })\n');
+    const from = events.length;
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'release("late-value")', 'late-value')).toContain('late-value');
+    expect(outputOf(from).indexOf('42')).toBeLessThan(outputOf(from).indexOf('late-value'));
+  });
+
+  it('a thenable that settles twice prints once', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, '({ then(resolve) { resolve("first-value"); resolve("second-value"); } })', 'first-value');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(outputOf()).not.toContain('second-value');
+  });
+
+  it('a `then` that throws fails that command and not the session', async () => {
+    const sessionId = await seeded();
+    const getter = await say(sessionId, '({ get then() { throw new Error("getter-boom"); } })', 'getter-boom');
+    expect(getter).toContain('getter-boom');
+    const method = await say(sessionId, '({ then() { throw new Error("method-boom"); } })', 'method-boom');
+    expect(method).toContain('method-boom');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(svc!.list()).toHaveLength(1);
+  });
+
+  it('a bare cursor and a bare collection are not awaited', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'db.async_items.find()', 'Cursor on test.async_items')).toContain(
+      'Cursor on test.async_items — iterate it or call .toArray()',
+    );
+    // A printed result ends in a newline, a prompt does not, so a newline
+    // means the proxy was printed rather than mistaken for a thenable and awaited.
+    expect(await say(sessionId, 'db.async_items', '\n')).toContain('\n');
+    expect(await say(sessionId, 'db', '\n')).toContain('\n');
+  });
+});
+
 describe('ShellService — lifecycle', () => {
   it('stop() kills the child', async () => {
     const s = setup();
