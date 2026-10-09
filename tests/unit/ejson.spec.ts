@@ -1,3 +1,4 @@
+import vm from 'node:vm';
 import { describe, it, expect, vi } from 'vitest';
 import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, DBRef, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double, UUID } from 'bson';
 import {
@@ -9,6 +10,7 @@ import {
   ejsonEncodeArrayJson,
   markPromotedDoubles,
   ejsonStringifyRelaxed,
+  wrapWideLongs,
   isValidEjson,
   isPlainDocument,
   parseEjsonField,
@@ -496,6 +498,60 @@ describe('ejsonStringifyRelaxed keeps a Long past 2^53 exact', () => {
     const doc = JSON.parse('{"__proto__":{},"k":1}') as Record<string, Record<string, unknown>>;
     doc['__proto__']!.big = long('9007199254740993');
     expect(ejsonStringifyRelaxed(doc)).toBe(`{"__proto__":{"big":${wrapped('9007199254740993')}},"k":1}`);
+  });
+
+  // The shell and a script's vm each have their own Object.prototype and Map,
+  // so what they build is another realm's object.
+  it('prints a number past 2^53 bare and a wide Long wrapped in an object made in another realm', () => {
+    const ctx = vm.createContext({ big: long('9007199254740993') });
+    const made = vm.runInContext('({ n: 2 ** 60, nested: { m: [2 ** 55] }, big, inMap: new Map([["k", big]]) })', ctx);
+    expect(ejsonStringifyRelaxed(made)).toBe(
+      `{"n":1152921504606847000,"nested":{"m":[36028797018963970]},"big":${wrapped('9007199254740993')},"inMap":{"k":${wrapped('9007199254740993')}}}`,
+    );
+  });
+
+  it('reaches a wide Long in a class instance and in a Map, as bson walks both', () => {
+    class Holder {
+      big = long('9007199254740993');
+      d = 2 ** 60;
+    }
+    expect(ejsonStringifyRelaxed(new Holder())).toBe(`{"big":${wrapped('9007199254740993')},"d":1152921504606847000}`);
+    const map = new Map<string, unknown>([['big', long('9007199254740993')], ['n', 1]]);
+    expect(ejsonStringifyRelaxed({ map })).toBe(`{"map":{"big":${wrapped('9007199254740993')},"n":1}}`);
+  });
+
+  it('keeps a wide bigint wrapped, read as the 64-bit value bson writes for it', () => {
+    expect(ejsonStringifyRelaxed({ b: 9007199254740993n, s: 5n })).toBe(`{"b":${wrapped('9007199254740993')},"s":5}`);
+    // bson wraps a bigint to 64 bits first: 2^64 + 7 is written as 7.
+    expect(ejsonStringifyRelaxed({ b: 2n ** 64n + 7n })).toBe('{"b":7}');
+    expect(ejsonStringifyRelaxed({ b: 2n ** 64n + 9007199254740993n })).toBe(`{"b":${wrapped('9007199254740993')}}`);
+  });
+
+  it('leaves a BSON value it does not open as bson prints it', () => {
+    const oid = new ObjectId('507f1f77bcf86cd799439011');
+    Object.assign(oid, { extra: long('9007199254740993') });
+    expect(ejsonStringifyRelaxed({ oid })).toBe('{"oid":{"$oid":"507f1f77bcf86cd799439011"}}');
+  });
+
+  it('returns a value with no wide Long as the same reference, and copies only the changed path', () => {
+    const oid = new ObjectId('507f1f77bcf86cd799439011');
+    const doc = {
+      a: [1, { b: 2 ** 60 }],
+      code: new Code('x', { s: 1 }),
+      ref: new DBRef('c', oid, undefined, { f: 1 }),
+      map: new Map([['k', 1]]),
+      safe: long('7'),
+      n: 5n,
+    };
+    expect(wrapWideLongs(doc)).toBe(doc);
+    const sibling = { x: 1 };
+    const out = wrapWideLongs({ big: long('9007199254740993'), sibling }) as Record<string, unknown>;
+    expect(out.sibling).toBe(sibling);
+    expect(out.big).toEqual({ $numberLong: '9007199254740993' });
+    // The caller's own array is never written to.
+    const list = [long('9007199254740993')];
+    expect(wrapWideLongs(list)).toEqual([{ $numberLong: '9007199254740993' }]);
+    expect(list[0]).toBeInstanceOf(Long);
   });
 
   it('answers undefined for a value EJSON cannot serialise, as before', () => {

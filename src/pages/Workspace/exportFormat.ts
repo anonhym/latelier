@@ -31,7 +31,8 @@ export function exportColumnsFrom(resolved: ResolvedColumn[]): ExportColumn[] {
  * Exported (not just an internal helper): `query:export`'s streaming writer
  * canonicalizes each document the same way (`ejsonEncode(doc, false)`) before
  * handing it to a per-document version of this same Relaxed conversion, so
- * its output matches this module's byte-for-byte.
+ * its output matches this module's byte-for-byte, except that it keeps a Long
+ * past 2^53 inside a Code's scope exact where this module rounds it.
  */
 export function revive(doc: unknown): unknown {
   return keepWideNumbersExact(ejsonParse(JSON.stringify(doc)));

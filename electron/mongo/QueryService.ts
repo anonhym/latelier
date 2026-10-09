@@ -39,7 +39,8 @@ export const DEFAULT_EXPORT_CAP = 100_000;
  * `'  '` (2-space) prefix. `text` is the element already pretty-printed with
  * 2 spaces. Verified byte-identical to `exportFormat.ts`'s
  * `serializeJsonArray` for the same documents — see
- * `tests/integration/query-export.spec.ts`.
+ * `tests/integration/query-export.spec.ts` — save one case: a Long past 2^53
+ * inside a Code's scope, which this side keeps wrapped and the page rounds.
  */
 function jsonArrayElementText(text: string): string {
   return text
@@ -195,7 +196,8 @@ export class QueryService {
    * Every document is first canonicalized with `ejsonEncode(doc, false)` —
    * the same wire shape `find`'s `documentsJson` sends the renderer — before
    * handing it to `exportFormat.ts`'s own CSV/Relaxed helpers, so this
-   * output matches the page export byte-for-byte for the same documents.
+   * output matches the page export byte-for-byte for the same documents,
+   * except that a Long past 2^53 inside a Code's scope stays exact here.
    *
    * `input.limit` (the builder's own limit, already compiled by the
    * renderer) is honoured when set, capped at `exportCap`; a limited export
