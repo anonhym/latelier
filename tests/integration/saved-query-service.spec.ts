@@ -119,6 +119,36 @@ describe('SavedQueryService', () => {
     expect(updated.updatedAt >= created.updatedAt).toBe(true);
   });
 
+  it('update keeps the stored description when the new payload names none', () => {
+    const created = svc.create({
+      connectionId: CONNECTION_ID,
+      dbName: DB_NAME,
+      collection: COLLECTION,
+      kind: 'find',
+      name: 'Described',
+      payload: { ...makeFindPayload(), description: 'keep me' },
+    });
+
+    const updated = svc.update(created.id, { payload: { ...makeFindPayload(), queryRaw: '{"a":1}' } });
+
+    expect((updated.payload as SavedFindPayload).queryRaw).toBe('{"a":1}');
+    expect((updated.payload as SavedFindPayload).description).toBe('keep me');
+    expect(svc.get(created.id).description).toBe('keep me');
+  });
+
+  it('update with a name only leaves the stored description alone', () => {
+    const created = svc.create({
+      connectionId: CONNECTION_ID,
+      dbName: DB_NAME,
+      collection: COLLECTION,
+      kind: 'find',
+      name: 'Described',
+      payload: { ...makeFindPayload(), description: 'keep me' },
+    });
+
+    expect(svc.update(created.id, { name: 'Renamed' }).description).toBe('keep me');
+  });
+
   it('delete removes the query', () => {
     const created = svc.create({
       connectionId: CONNECTION_ID,
