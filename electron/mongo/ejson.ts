@@ -187,17 +187,74 @@ export function ejsonStringifyDriverValue(v: unknown): string {
   return ejsonStringify(markPromotedDoubles(v));
 }
 
+// Every integer up to 2^53 is exact as a JS number, and the driver promotes a
+// Long to a number up to the same bound (see `markPromotedDoubles`).
+const MAX_EXACT_LONG = 2n ** 53n;
+
 /**
- * Relaxed-mode EJSON for human consumption (the W11 shell pane). Numbers,
- * booleans, dates and strings print naturally; ObjectId / Decimal128 still
- * surface as `$oid` / `$numberDecimal` so the user can see the underlying
- * BSON type.
+ * Is `canonical` the canonical spelling of a Long that bson's relaxed writer
+ * rounds? Relaxed mode writes a Long with `Long.toNumber()`, so past 2^53 the
+ * printed digits are another number (`9007199254740993` comes out as
+ * `9007199254740992`).
+ *
+ * Read only where the relaxed tree holds a number, so a plain document that
+ * merely has a `$numberLong` key never reaches it: relaxed mode printed that
+ * as an object, and it stays one.
+ */
+function isWideLong(canonical: unknown): boolean {
+  const digits = (canonical as { $numberLong?: unknown }).$numberLong;
+  if (typeof digits !== 'string') return false;
+  const n = BigInt(digits);
+  return n > MAX_EXACT_LONG || n < -MAX_EXACT_LONG;
+}
+
+/**
+ * `relaxed` with each wide Long put back as its `{"$numberLong": "<digits>"}`
+ * wrapper, taken from the same position in `canonical`. Every other value is
+ * what bson's relaxed writer printed, so dates, doubles and the rest print as
+ * they always have.
+ *
+ * Mirrors the renderer's `relaxLosslessly` (`src/utils/ejson.ts`): unwrap a
+ * canonical sentinel only where the bare number says the same thing. That one
+ * is a display subset; this one is bson's relaxed output with that single
+ * exception, so an export or a printed result changes for a wide Long and
+ * for nothing else.
+ */
+function keepWideLongs(relaxed: unknown, canonical: unknown): unknown {
+  if (typeof relaxed === 'number') return isWideLong(canonical) ? canonical : relaxed;
+  if (relaxed === null || typeof relaxed !== 'object') return relaxed;
+  // `canonical` was written from the same value, so it has this node's shape;
+  // a divergence throws here instead of printing a rounded number.
+  if (Array.isArray(relaxed)) return relaxed.map((item, i) => keepWideLongs(item, (canonical as unknown[])[i]));
+  const twin = canonical as Record<string, unknown>;
+  // Object.create(null), not {}: see `walkRevive`. bson keeps a field named
+  // `__proto__` as an own property, and `result['__proto__'] = v` on a `{}`
+  // literal would set the prototype and drop the field instead.
+  const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(relaxed)) out[k] = keepWideLongs(v, twin[k]);
+  return out;
+}
+
+/**
+ * Relaxed-mode EJSON for human consumption (the W11 shell pane, script
+ * `print()`, and relaxed exports). Numbers, booleans, dates and strings print
+ * naturally; ObjectId / Decimal128 still surface as `$oid` / `$numberDecimal`
+ * so the user can see the underlying BSON type.
+ *
+ * A Long past 2^53 keeps its `{"$numberLong": "<digits>"}` wrapper, because
+ * bson's relaxed mode would print it as a rounded number (see `keepWideLongs`).
  *
  * Returns `undefined` for values EJSON can't serialise (functions, including
  * Proxies wrapping functions). Callers should fall back to `util.inspect`.
  */
 export function ejsonStringifyRelaxed(v: unknown, indent?: number): string | undefined {
-  return EJSON.stringify(v, undefined, indent, { relaxed: true }) as string | undefined;
+  // As in `ejsonEncode`: the canonical tree has to say Double for a promoted
+  // number past 2^53, or it would read as a wide Long and wrap a plain number.
+  const marked = markPromotedDoubles(v) as object;
+  const relaxed = EJSON.stringify(marked, undefined, undefined, { relaxed: true }) as string | undefined;
+  if (relaxed === undefined) return undefined;
+  const canonical = EJSON.stringify(marked, undefined, undefined, { relaxed: false });
+  return JSON.stringify(keepWideLongs(JSON.parse(relaxed), JSON.parse(canonical)), null, indent);
 }
 
 /**

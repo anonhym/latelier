@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import {
+  EJSON,
   ObjectId,
   Long,
   Decimal128,
@@ -13,7 +14,7 @@ import {
   MaxKey,
   Timestamp,
 } from 'bson';
-import { ejsonParse, ejsonStringify, isPlainDocument } from '../../electron/mongo/ejson';
+import { ejsonParse, ejsonStringify, ejsonStringifyRelaxed, isPlainDocument } from '../../electron/mongo/ejson';
 
 // BSON leaf values built from real driver constructors, not hand-shaped
 // EJSON sentinels — see feedback_probe_bson_with_real_values.md: a
@@ -199,6 +200,61 @@ describe('ejson property: deep nesting', () => {
           }
         };
         walk(doc, back);
+      }),
+    );
+  });
+});
+
+describe('ejson property: relaxed output keeps a Long exact', () => {
+  // Documents of arrays and documents several levels deep around `leaf`.
+  const deepDocOf = (leaf: fc.Arbitrary<unknown>): fc.Arbitrary<Record<string, unknown>> => {
+    const { node } = fc.letrec((tie) => ({
+      node: fc.oneof(
+        { depthSize: 'small' as const },
+        leaf,
+        fc.array(tie('node') as fc.Arbitrary<unknown>, { maxLength: 4 }),
+        fc.dictionary(fc.string({ minLength: 1, maxLength: 8 }), tie('node') as fc.Arbitrary<unknown>, {
+          maxKeys: 4,
+        }),
+      ),
+    }));
+    return fc.dictionary(fc.string({ minLength: 1, maxLength: 8 }), node, { maxKeys: 4 });
+  };
+
+  const MAX_EXACT = 2n ** 53n;
+  // A Timestamp extends Long but prints as `$timestamp`, so it never rounds.
+  const isWideLong = (v: unknown): boolean =>
+    v instanceof Long && !(v instanceof Timestamp) && (BigInt(v.toString()) > MAX_EXACT || BigInt(v.toString()) < -MAX_EXACT);
+
+  it('the printed text revives every Long with the digits it was built from', () => {
+    fc.assert(
+      fc.property(deepDocOf(bsonLeaf), (doc) => {
+        const text = ejsonStringifyRelaxed(doc)!;
+        const back = ejsonParse<Record<string, unknown>>(text);
+        // A safe Long prints as a bare number and a wide one stays wrapped, so
+        // `String` gives the same digits for what comes back either way.
+        const walk = (original: unknown, revived: unknown): void => {
+          if (original instanceof Long && !(original instanceof Timestamp)) {
+            expect(String(revived)).toBe(original.toString());
+          } else if (Array.isArray(original)) {
+            original.forEach((v, i) => walk(v, (revived as unknown[])[i]));
+          } else if (original !== null && typeof original === 'object' && isPlainDocument(original)) {
+            for (const k of Object.keys(original)) {
+              walk((original as Record<string, unknown>)[k], (revived as Record<string, unknown>)[k]);
+            }
+          }
+        };
+        walk(doc, back);
+      }),
+    );
+  });
+
+  it('prints exactly what bson prints when no Long is past 2^53', () => {
+    fc.assert(
+      fc.property(deepDocOf(bsonLeaf.filter((v) => !isWideLong(v))), (doc) => {
+        expect(ejsonStringifyRelaxed(doc)).toBe(
+          EJSON.stringify(doc, undefined, undefined, { relaxed: true }),
+        );
       }),
     );
   });
