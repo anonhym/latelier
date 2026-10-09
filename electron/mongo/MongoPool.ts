@@ -376,6 +376,16 @@ export class MongoPool extends EventEmitter {
   }
 
   /**
+   * The database a shell or script starts on: the caller's choice, else the
+   * connection's default, else `test` (mongosh's own default). Unlike
+   * `getDbInternal` it never throws, so call it after a successful connect —
+   * the default is only cached then.
+   */
+  resolveDbName(id: string, dbName?: string): string {
+    return dbName?.trim() || this.entries.get(id)?.defaultDb || 'test';
+  }
+
+  /**
    * Guarded handles (X18 §4) — the service-facing surface. A neutral
    * `getDb`/`getClient` used to hand out a handle with no read/write
    * distinction, leaving `assertWritable(id)` as an instruction every

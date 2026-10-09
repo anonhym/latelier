@@ -100,11 +100,12 @@ export class ShellService {
     const raced = this.sessions.get(this.byConnection.get(input.connectionId) ?? '');
     if (raced && !raced.isExited) return raced.info;
 
+    const dbName = this.pool.resolveDbName(input.connectionId, input.dbName);
     const sessionId = randomUUID();
     const info: ShellSessionInfo = {
       sessionId,
       connectionId: input.connectionId,
-      dbName: input.dbName,
+      dbName,
       startedAt: new Date().toISOString(),
     };
 
@@ -183,7 +184,7 @@ export class ShellService {
 
     const request: ShellStartRequest = {
       type: 'shell-start',
-      dbName: input.dbName ?? 'test',
+      dbName,
       banner:
         `L'Atelier shell (isolated process). Connected to ${input.connectionId}. ` +
         'Type help() for hints.',

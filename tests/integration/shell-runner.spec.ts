@@ -54,11 +54,18 @@ afterEach(async () => {
   expect(leaked, 'shell children still alive after the test').toBe(0);
 });
 
-function setup(readOnlyIds: string[] = []): ShellService {
+function setup(
+  readOnlyIds: string[] = [],
+  overrides: Record<string, Partial<Parameters<typeof makeConnection>[2]>> = {},
+): ShellService {
   tmp = createTempDb();
   const vault = new SecretsVault(tmp.db, createSafeStorageMock());
   const conns = ['c1', 'c2'].map((id) =>
-    makeConnection(id, hp, { defaultDb: 'test', readOnly: readOnlyIds.includes(id) }),
+    makeConnection(id, hp, {
+      defaultDb: 'test',
+      readOnly: readOnlyIds.includes(id),
+      ...overrides[id],
+    }),
   );
   pool = new MongoPool({ repo: makeReader(conns), vault });
   spawner = createTestSpawner();
@@ -134,6 +141,39 @@ describe('ShellService — the REPL runs in a child', () => {
     await say(info.sessionId, 'await db.listed_coll.insertOne({})', 'acknowledged');
     expect(await say(info.sessionId, 'show dbs', 'admin')).toContain('admin');
     expect(await say(info.sessionId, 'show collections', 'listed_coll')).toContain('listed_coll');
+  });
+});
+
+describe('ShellService — the database a session starts on', () => {
+  it("starts on the connection's default database and writes land there", async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1' });
+    expect(info.dbName).toBe('smoke');
+    await until(() => outputOf().endsWith('smoke> '), 'prompt for the default db');
+    await say(info.sessionId, 'await db.items.insertOne({ k: 1 })', 'acknowledged');
+    expect(await countDocs('smoke', 'items')).toBe(1);
+    expect(await countDocs('test', 'items')).toBe(0);
+  });
+
+  it('an explicit dbName wins over the connection default', async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1', dbName: 'other' });
+    expect(info.dbName).toBe('other');
+    await until(() => outputOf().endsWith('other> '), 'prompt for the explicit db');
+  });
+
+  it('a blank dbName counts as unset, so the connection default applies', async () => {
+    const s = setup([], { c1: { defaultDb: 'smoke' } });
+    const info = await s.start({ connectionId: 'c1', dbName: '  ' });
+    expect(info.dbName).toBe('smoke');
+    await until(() => outputOf().endsWith('smoke> '), 'prompt for the default db');
+  });
+
+  it('falls back to test when the connection has no default database', async () => {
+    const s = setup([], { c1: { defaultDb: undefined } });
+    const info = await s.start({ connectionId: 'c1' });
+    expect(info.dbName).toBe('test');
+    await until(() => outputOf().endsWith('test> '), 'prompt for the fallback db');
   });
 });
 
