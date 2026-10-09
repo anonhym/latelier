@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { SavedQuery, SavedQuerySummary, SavedKind, SavedPayload } from '@shared/types';
 import type { SavedQueryRepo, SavedQueryRow, SavedQueryFilter } from '../db/repositories/SavedQueryRepo.ts';
-import { NotFoundError } from '../errors.ts';
+import { NotFoundError, ValidationError } from '../errors.ts';
+import { SAVED_PAYLOAD_SCHEMAS } from '../ipc/schemas/saved.ts';
 
 // Note: `description` on CreateInput (inherited from SavedQuerySummary) is not read
 // directly — it's payload-canonical. `create`/`update` derive it from `input.payload.description`.
@@ -44,6 +45,7 @@ export class SavedQueryService {
   update(id: string, patch: UpdatePatch): SavedQuery {
     const existing = this.repo.findById(id);
     if (!existing) throw new NotFoundError(`saved query ${id} not found`);
+    if (patch.payload !== undefined) assertPayloadMatchesKind(existing.kind, patch.payload);
 
     const now = new Date().toISOString();
     this.repo.update(id, {
@@ -80,6 +82,19 @@ export class SavedQueryService {
     this.repo.insert(row);
     return rowToSavedQuery(row);
   }
+}
+
+// A patch carries no kind, so the router cannot tell which variant its payload must be:
+// only the stored row knows. Reads are never checked, so a row written before payloads
+// were held to their kind stays readable, and a name-only patch never reaches this.
+function assertPayloadMatchesKind(kind: SavedKind, payload: unknown): void {
+  const schema = SAVED_PAYLOAD_SCHEMAS[kind];
+  if (!schema) return;
+  const result = schema.safeParse(payload);
+  if (result.success) return;
+  const issues = result.error.issues.map((i) => ({ path: ['patch', 'payload', ...i.path], message: i.message }));
+  const first = issues[0];
+  throw new ValidationError(`${first.path.join('.')}: ${first.message}`, { issues });
 }
 
 // A corrupted `payload_json` on one row must never take down `list()` for every other
