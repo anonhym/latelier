@@ -61,6 +61,19 @@ export function UpdateConfirm({
   const [running, setRunning] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
+  // Whether this very dialog is still on screen. The Focused Tab moving
+  // closes it while its request is in flight, and by the time the write lands
+  // the caller's `onClose` may belong to a dialog opened since on another tab.
+  // Set in the effect body, not just reset in cleanup, so StrictMode's
+  // simulated remount leaves it true.
+  const mountedRef = React.useRef(false);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Live snapshots of what a Review response must still match once it lands.
   // `confirmUpdateMany` is in flight for a round trip; the textarea is
   // read-only for that window (below), but nothing stops the *filter/target*
@@ -160,7 +173,9 @@ export function UpdateConfirm({
       // otherwise) — the caller decides which, so a reversible and an
       // irreversible bulk update never show two.
       onUpdated(auditId, `${matchedCount.toLocaleString()} matched, ${modifiedCount.toLocaleString()} modified`);
-      onClose();
+      // The write is reported either way; only a dialog still on screen is
+      // ours to close.
+      if (mountedRef.current) onClose();
     } catch (e) {
       // updateMany is not atomic across documents: a failure can leave the
       // earlier ones modified, so the sample is dropped here too; harmless if
