@@ -4,6 +4,7 @@ import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
 import { ReferenceRulesService } from '../../electron/services/ReferenceRulesService';
+import { NotFoundError } from '../../electron/errors';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { getSharedServer, makeConnection, makeReader } from '../helpers/mongo';
 
@@ -97,6 +98,21 @@ describe('ReferenceRulesService', () => {
     };
     svc.create(base);
     expect(() => svc.create(base)).toThrow(/already exists/);
+  });
+
+  it('create for an unknown connection throws NotFoundError, not the raw foreign-key error', () => {
+    const create = () =>
+      svc.create({
+        connectionId: 'no-such-conn',
+        sourceDb: DB_NAME,
+        sourceCollection: 'orders',
+        sourceField: 'contact_id',
+        targetDb: DB_NAME,
+        targetCollection: 'contacts',
+      });
+    expect(create).toThrow(NotFoundError);
+    expect(create).toThrow('connection no-such-conn not found');
+    expect(repo.listByConnection('no-such-conn')).toEqual([]);
   });
 
   it('update mutates allowed fields and bumps updated_at', async () => {
