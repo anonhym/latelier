@@ -49,6 +49,7 @@ import {
   isDefaultQueryState,
 } from './Workspace/builder';
 import type { SuggestionContext } from '../features/fieldSuggestions/types';
+import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
 
 function WorkspaceInner() {
   const T = themeVars;
@@ -436,18 +437,27 @@ function WorkspaceInner() {
             });
             return;
           }
+          // Quick Edit can change a field's type, and never passes through
+          // `useDocumentDialogs`, so it drops the field-suggestion sample itself.
+          invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
+          // Re-runs the tab edited, not whichever has focus when the write
+          // lands: a bare `run()` would refresh the wrong tab if focus moved
+          // while the request was in flight. Resolved live, so a tab closed
+          // meanwhile resolves without running anything else.
+          const rerunEdited = (): Promise<void> => {
+            const target = resolveRunnerTarget(a.id);
+            return target ? run(undefined, target) : Promise.resolve();
+          };
           // Returned (not fired-and-forgotten): the boolean Quick Edit
           // toggle stays disabled off this same promise (`TableCell`'s
           // `pendingBoolean`) until the row it reads its checked state from
           // actually reflects the write — resolving before the re-run lands
           // would re-enable it against the stale value, and a second click
           // there would guard its compare-and-set on that stale value too.
-          const refreshed = run();
-          // The tab edited, not whichever has focus when Undo is clicked.
-          const tabId = a.id;
+          const refreshed = rerunEdited();
           offerUndo('Field updated', auditId, () => {
-            const target = resolveRunnerTarget(tabId);
-            if (target) void run(undefined, target);
+            invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
+            void rerunEdited();
           });
           return refreshed;
         })

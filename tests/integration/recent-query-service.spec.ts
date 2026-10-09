@@ -109,6 +109,16 @@ describe('RecentQueryService', () => {
     expect(list[0]!.errorCode).toBe('TIMEOUT');
   });
 
+  it('a run recorded against an unknown connection is a NotFoundError, not a raw SQLite error', async () => {
+    await expect(svc.recordFind(makeFindInput({ connectionId: 'no-such-conn' }), 1, 0)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    await expect(
+      svc.recordAggregation({ connectionId: 'no-such-conn', dbName: DB_NAME, collection: COLLECTION, stages: [] }, 1, 0),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'connection no-such-conn not found' });
+    expect(svc.list()).toHaveLength(0);
+  });
+
   it('get throws NotFoundError for unknown id', () => {
     expect(() => svc.get('does-not-exist')).toThrow(NotFoundError);
   });

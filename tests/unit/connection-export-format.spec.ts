@@ -370,7 +370,10 @@ describe('parseConnectionExport', () => {
     await expectCode(() => parseConnectionExport(text), 'VALIDATION');
   });
 
-  it('accepts parameters at the bounds, and each one really derives a key', async () => {
+  // Real scrypt at the largest accepted cost (N 2^20, r 2: about 256 MB), twice per
+  // row, so its run time follows how busy the machine is; the default 5s is not enough
+  // on a loaded runner.
+  it('accepts parameters at the bounds, and each one really derives a key', { timeout: 60_000 }, async () => {
     // A bound the parser accepts but OpenSSL refuses would be a file nobody can open.
     for (const params of [{ N: 2 ** 15, r: 1, p: 1 }, { N: 2 ** 16, r: 2, p: 4 }, { N: 2 ** 20, r: 2, p: 1 }, { N: 1024, r: 1, p: 1 }]) {
       const text = await build([{ entry: entry(), secrets: { password: 'pw' } }], PASS, params);

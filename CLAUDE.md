@@ -39,6 +39,8 @@ gitnexus context <symbol>         # callers, callees, processes
 xvfb-run -a --server-args="-screen 0 1280x1024x24" npm run test:e2e
 ```
 
+**The secrets-vault e2e specs need a session keyring on Linux.** `secrets-vault.e2e.ts` and `x06-secrets-vault-ui.e2e.ts` skip where no real keyring is reachable and fail instead when `CI` is set; the workflow's "Run E2E" step starts one. A Linux run without `CI` skips them unless `ATELIER_E2E_REAL_KEYRING=1` points them at your real session keyring, which can stop to ask you to unlock it. macOS always passes, on a mock keychain.
+
 **`gh` is usually unauthenticated in cloud**, so anything shelling out to it — the issue-tracker skill, `/triage`, `/commit-commands` — fails there. Use the GitHub MCP tools when the session has them.
 
 ## Commands

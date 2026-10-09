@@ -775,6 +775,14 @@ describe('filterProblem', () => {
       'A filter must be a document, like { "status": "active" }.',
     );
   });
+
+  for (const blank of ['', '   ', '\n\t']) {
+    it(`names blank filter text ${JSON.stringify(blank)} as missing, not as unparseable`, () => {
+      expect(filterProblem(blank)).toBe(
+        'Enter a filter, like { "status": "active" }, or {} to match every document.',
+      );
+    });
+  }
 });
 
 describe('findProblem', () => {
@@ -866,6 +874,14 @@ describe('findProblem', () => {
     // the button has always used. Pinned because "refusing to copy a blank
     // filter" would be a regression if it were ever otherwise.
     expect(findProblem(state({ queryRaw: '' }))).toMatch(/filter/i);
+  });
+
+  it('a blank filter stays a problem, with the missing-filter message, so Run stays closed', () => {
+    // Blank must stay non-null: `findProblem` is the Run gate, and a null here
+    // would enable Run, Explain and delete-all on an empty box.
+    expect(findProblem(state({ queryRaw: '   ' }))).toBe(
+      'Enter a filter, like { "status": "active" }, or {} to match every document.',
+    );
   });
 });
 

@@ -4,9 +4,12 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
+import { Double, Int32, Long, Timestamp } from 'bson';
 import type { IpcMainInvokeEvent } from 'electron';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
+import { ImportService } from '../../electron/mongo/ImportService';
+import { ejsonEncode } from '../../electron/mongo/ejson';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { registerQueryChannels } from '../../electron/ipc/handlers/query';
@@ -72,7 +75,16 @@ describe('QueryService.exportToFile', () => {
   async function seed(n: number) {
     const client = await pool.write(connId).client();
     const coll = client.db(dbName).collection(collName);
-    await coll.insertMany(Array.from({ length: n }, (_, i) => ({ n: i, tag: `t${i}` })));
+    // `wide` and `big` are what a promoted read mislabels or rounds: a Double
+    // past 2^53 and a Long past it. Every parity test below carries them.
+    await coll.insertMany(
+      Array.from({ length: n }, (_, i) => ({
+        n: i,
+        tag: `t${i}`,
+        wide: new Double(1760000000000000768),
+        big: Long.fromString('9007199254740993'),
+      })),
+    );
   }
 
   it('exports every matching document as a JSON array, byte-identical to the page serializer', async () => {
@@ -88,8 +100,7 @@ describe('QueryService.exportToFile', () => {
     // Same shape `find` itself returns: canonical-EJSON-encoded documents.
     const client = await pool.write(connId).client();
     const docs = await client.db(dbName).collection(collName).find({}).sort({ n: 1 }).toArray();
-    const { EJSON } = await import('bson');
-    const wireDocs = docs.map((d) => EJSON.serialize(d, { relaxed: false }));
+    const wireDocs = docs.map((d) => ejsonEncode(d, false));
     expect(written).toBe(serializeJsonArray(wireDocs, false));
   });
 
@@ -105,8 +116,7 @@ describe('QueryService.exportToFile', () => {
     const written = await fs.readFile(file, 'utf8');
     const client = await pool.write(connId).client();
     const docs = await client.db(dbName).collection(collName).find({}).sort({ n: 1 }).toArray();
-    const { EJSON } = await import('bson');
-    const wireDocs = docs.map((d) => EJSON.serialize(d, { relaxed: false }));
+    const wireDocs = docs.map((d) => ejsonEncode(d, false));
     expect(written).toBe(serializeJsonl(wireDocs, false));
   });
 
@@ -121,8 +131,7 @@ describe('QueryService.exportToFile', () => {
     const written = await fs.readFile(file, 'utf8');
     const client = await pool.write(connId).client();
     const docs = await client.db(dbName).collection(collName).find({}).sort({ n: 1 }).toArray();
-    const { EJSON } = await import('bson');
-    const wireDocs = docs.map((d) => EJSON.serialize(d, { relaxed: false }));
+    const wireDocs = docs.map((d) => ejsonEncode(d, false));
     expect(written).toBe(serializeCsv(wireDocs, columns));
   });
 
@@ -137,9 +146,101 @@ describe('QueryService.exportToFile', () => {
     const written = await fs.readFile(file, 'utf8');
     const client = await pool.write(connId).client();
     const docs = await client.db(dbName).collection(collName).find({}).sort({ n: 1 }).toArray();
-    const { EJSON } = await import('bson');
-    const wireDocs = docs.map((d) => EJSON.serialize(d, { relaxed: false }));
+    const wireDocs = docs.map((d) => ejsonEncode(d, false));
     expect(written).toBe(serializeJsonArray(wireDocs, true));
+  });
+
+  // The whole read path against a real server: what is stored comes out of
+  // `find` with the driver's promoted numbers, so a Double past 2^53 is a JS
+  // number there and bson would label it $numberLong with the wrong digits. The
+  // wire must say Double, and a relaxed export imported into a fresh
+  // collection must bring both a Double and a Long back with their type and
+  // value (server-side $type, not what the driver hands back).
+  describe('numbers past 2^53 through find, export and import (#279)', () => {
+    const DOUBLE = 1760000000000000768;
+    // `ts` is a Timestamp, which extends Long: a real epoch is no safe integer, so a
+    // relaxed export must not mistake it for a wide Long.
+    const stored = {
+      d: new Double(DOUBLE),
+      l: Long.fromString('9007199254740993'),
+      f: 2.5,
+      i: new Int32(7),
+      ts: new Timestamp({ t: 1700000000, i: 1 }),
+    };
+
+    it('find writes a stored Double as $numberDouble, a Long as $numberLong, and leaves a fraction and an int32 as they were', async () => {
+      const client = await pool.write(connId).client();
+      await client.db(dbName).collection(collName).insertOne({ ...stored });
+
+      const res = await svc.find({ connectionId: connId, dbName, collection: collName, filter: '{}', limit: 10, skip: 0 });
+      const [doc] = JSON.parse(res.documentsJson) as Array<Record<string, unknown>>;
+      expect(doc!.d).toEqual({ $numberDouble: '1760000000000000768.0' });
+      expect(doc!.l).toEqual({ $numberLong: '9007199254740993' });
+      expect(doc!.f).toEqual({ $numberDouble: '2.5' });
+      expect(doc!.i).toEqual({ $numberInt: '7' });
+      expect(doc!.ts).toEqual({ $timestamp: { t: 1700000000, i: 1 } });
+    });
+
+    it.each(['json', 'jsonl'] as const)('a canonical %s export says $numberDouble for the Double', async (format) => {
+      const client = await pool.write(connId).client();
+      await client.db(dbName).collection(collName).insertOne({ ...stored });
+
+      const file = outPath(`canonical.${format}`);
+      await svc.exportToFile({ connectionId: connId, dbName, collection: collName, filter: '{}', format }, file);
+      const text = await fs.readFile(file, 'utf8');
+      const written = (format === 'json' ? JSON.parse(text)[0] : JSON.parse(text.trim())) as Record<string, unknown>;
+      expect(written.d).toEqual({ $numberDouble: '1760000000000000768.0' });
+      expect(written.l).toEqual({ $numberLong: '9007199254740993' });
+    });
+
+    it.each(['json', 'jsonl'] as const)(
+      'a relaxed %s export re-imports a Double and a Long with the same type and value',
+      async (format) => {
+        const client = await pool.write(connId).client();
+        const db = client.db(dbName);
+        await db.collection(collName).insertOne({ ...stored });
+
+        const file = outPath(`out.${format}`);
+        await svc.exportToFile(
+          { connectionId: connId, dbName, collection: collName, filter: '{}', format, relaxed: true },
+          file,
+        );
+        const text = await fs.readFile(file, 'utf8');
+        const written = (format === 'json' ? JSON.parse(text)[0] : JSON.parse(text.trim())) as Record<string, unknown>;
+        expect(written.d).toEqual({ $numberDouble: '1760000000000000768' });
+        expect(written.l).toEqual({ $numberLong: '9007199254740993' });
+        expect(written.f).toBe(2.5);
+        expect(written.i).toBe(7);
+        expect(written.ts).toEqual({ $timestamp: { t: 1700000000, i: 1 } });
+
+        const target = `reimported_${format}`;
+        await db.collection(target).drop().catch(() => {});
+        await db.createCollection(target);
+        const report = await new ImportService(pool).importFile({
+          connectionId: connId,
+          dbName,
+          collection: target,
+          path: file,
+        });
+        expect(report.inserted).toBe(1);
+
+        const back = db.collection(target);
+        expect(
+          await back.countDocuments({
+            d: { $type: 'double' },
+            l: { $type: 'long' },
+            f: { $type: 'double' },
+            i: { $type: 'int' },
+            ts: { $type: 'timestamp' },
+          }),
+        ).toBe(1);
+        const doc = (await back.findOne({}, { promoteLongs: false }))!;
+        expect(BigInt(doc.d as number)).toBe(BigInt(DOUBLE));
+        expect((doc.l as Long).toString()).toBe('9007199254740993');
+        expect(doc.f).toBe(2.5);
+        expect(doc.i).toBe(7);
+      },
+    );
   });
 
   it('honours filter, sort and projection', async () => {

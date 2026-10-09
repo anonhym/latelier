@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FindInput, RecentKind, RecentQuery, SavedFindPayload, SavedAggregationPayload } from '@shared/types';
 import type { RecentQueryRepo, RecentQueryFilter, RecentDeleteFilter } from '../db/repositories/RecentQueryRepo.ts';
 import { NotFoundError } from '../errors.ts';
+import type { Logger } from '../log.ts';
 
 const MAX_PER_CONNECTION = 200;
 
@@ -10,6 +11,17 @@ export interface RecordAggregationInput {
   dbName: string;
   collection: string;
   stages: Array<{ id: number; op: string; body: string; enabled: boolean }>;
+}
+
+/**
+ * Callers record a run without awaiting it, so a failed write never fails the
+ * query. It is logged here instead of dropped, which would hide a broken
+ * history (or a run recorded against a connection that no longer exists).
+ */
+export function logRecentWriteFailure(log: Logger | undefined, err: unknown): void {
+  log?.warn('recent', 'recording a recent query failed', {
+    message: err instanceof Error ? err.message : String(err),
+  });
 }
 
 export class RecentQueryService {

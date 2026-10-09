@@ -702,6 +702,37 @@ describe('formatBody', () => {
   it('returns unparseable text unchanged', () => {
     expect(formatBody('{ not json')).toBe('{ not json');
   });
+
+  // `JSON.stringify(JSON.parse(body))` writes 9007199254740993 as 9007199254740992.
+  it('keeps an integer beyond 2^53 exact', () => {
+    expect(formatBody('{"n": 9007199254740993}')).toBe('{\n  "n": 9007199254740993\n}');
+  });
+
+  it('keeps a negative integer beyond 2^53 exact', () => {
+    expect(formatBody('{"n":-9007199254740993}')).toBe('{\n  "n": -9007199254740993\n}');
+  });
+
+  it('keeps an integer beyond 2^53 exact inside an array and a nested object', () => {
+    expect(formatBody('{"$match":{"a":[1,9007199254740993],"b":{"c":9007199254740993}}}')).toBe(
+      [
+        '{',
+        '  "$match": {',
+        '    "a": [',
+        '      1,',
+        '      9007199254740993',
+        '    ],',
+        '    "b": {',
+        '      "c": 9007199254740993',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  it('returns unparseable text that holds a big integer unchanged', () => {
+    expect(formatBody('{ n: 9007199254740993 }')).toBe('{ n: 9007199254740993 }');
+  });
 });
 
 describe('stage catalog completeness (colors, hints)', () => {
