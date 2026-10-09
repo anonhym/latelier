@@ -216,6 +216,55 @@ describe('ShellService — cursors', () => {
   });
 });
 
+describe('ShellService — a bare collection', () => {
+  it('prints a one-line hint naming the collection, not an empty object', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    // The banner ends in a newline too: wait for the first prompt so only a result can match below.
+    await until(() => outputOf().endsWith('test> '), 'the first prompt');
+    // A printed result ends in a newline, a prompt does not.
+    const out = await say(info.sessionId, 'db.hint_coll', '\n');
+    expect(out).toContain('[Collection test.hint_coll]');
+    expect(out).not.toMatch(/(?:^|> )\{\}$/m);
+    // The hint follows `use`, and a cursor off the same collection still prints its own.
+    await say(info.sessionId, 'use hint_other', 'switched to db hint_other');
+    expect(await say(info.sessionId, 'db.hint_coll', '\n')).toContain('[Collection hint_other.hint_coll]');
+    expect(await say(info.sessionId, 'db.hint_coll.find()', '\n')).toContain('Cursor on hint_other.hint_coll');
+  });
+
+  it('leaves documents printing as EJSON', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'await db.hint_docs.deleteMany({}); await db.hint_docs.insertOne({ _id: 1, at: new Date(0) })', 'acknowledged');
+    const out = await say(info.sessionId, 'await db.hint_docs.findOne()', '1970');
+    expect(out).toContain('"_id": 1');
+    expect(out).toContain('"$date": "1970-01-01T00:00:00Z"');
+    expect(out).not.toContain('[Collection');
+  });
+});
+
+describe('ShellService — `.clear`', () => {
+  it('drops what the user defined but keeps db, use, help and show working', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'use clear_db', 'switched to db clear_db');
+    // `var` evaluates to undefined, which the shell prints as nothing, so there is no output to wait for.
+    svc!.write(info.sessionId, 'var defined_by_user = 41\n');
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('number');
+
+    await say(info.sessionId, '.clear', 'Clearing context');
+    // The context really was reset, so the checks below are not vacuous.
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('undefined');
+
+    // The database chosen before `.clear` is still the one in use.
+    expect(await say(info.sessionId, 'db.getName() + "!"', '\n')).toContain('clear_db!');
+    expect(await say(info.sessionId, 'help()', '\n')).toContain("L'Atelier shell");
+    expect(await say(info.sessionId, 'show dbs', 'admin')).toContain('admin');
+    await say(info.sessionId, 'use clear_again', 'switched to db clear_again');
+    expect(await say(info.sessionId, 'db.getName() + "?"', '\n')).toContain('clear_again?');
+  });
+});
+
 describe('ShellService — un-awaited results', () => {
   // A result starts right after its prompt (`test> 3`) unless that prompt was
   // already printed before the line was sent, so a line start is `> ` or `^`.

@@ -179,6 +179,22 @@ describe('ScriptService — results', () => {
     expect(r.valueJson).toBe('42');
   });
 
+  it('prints a collection and a cursor as a one-line hint, not an empty object', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: 'print(db.print_hint); console.log(db.print_hint.find()); use("print_other"); printjson(db.print_hint); 1',
+    });
+    expect(r.printBuffer).toContain('[Collection test.print_hint]');
+    expect(r.printBuffer).toContain('Cursor on test.print_hint');
+    expect(r.printBuffer).toContain('[Collection print_other.print_hint]');
+    expect(r.printBuffer).not.toMatch(/^\{\}$/m);
+  });
+
+  it('returns a bare collection as its one-line hint, not an empty object', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'db.print_hint' });
+    expect(JSON.parse(r.valueJson!)).toBe('[Collection test.print_hint]');
+  });
+
   it('caps the print buffer at ~64 KB', async () => {
     const r = await setup().run({
       connectionId: 'c1',
