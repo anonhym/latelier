@@ -309,8 +309,9 @@ const TWO_POW_63 = 2 ** 63;
  *
  * Copies only the path to a changed value and returns everything else as the
  * same reference, so a document with no such number costs a read-only walk.
- * Plain objects and arrays are walked; a BSON value, a `Date` or a `Buffer` is
- * not. Exported so its tests can see which references it keeps.
+ * Plain objects (from any realm, a script's included) and arrays are walked; a
+ * class instance, a BSON value, a `Date` or a `Buffer` is not. Exported so its
+ * tests can see which references it keeps.
  */
 export function markPromotedDoubles(node: unknown): unknown {
   if (typeof node === 'number') {
@@ -328,8 +329,10 @@ export function markPromotedDoubles(node: unknown): unknown {
     }
     return out ?? node;
   }
-  const proto = Object.getPrototypeOf(node) as unknown;
-  if (proto !== Object.prototype && proto !== null) return node;
+  // Any realm's Object.prototype, not only this one's: a script's vm builds its
+  // objects with its own, and that one's prototype is null too.
+  const proto = Object.getPrototypeOf(node) as object | null;
+  if (proto !== null && Object.getPrototypeOf(proto) !== null) return node;
   const doc = node as Record<string, unknown>;
   let out: Record<string, unknown> | undefined;
   for (const key in doc) {

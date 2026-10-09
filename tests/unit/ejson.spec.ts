@@ -1199,6 +1199,18 @@ describe('markPromotedDoubles — copies only the path to a changed number', () 
     expect(isMarked(out.w)).toBe(true);
   });
 
+  it('walks a plain document made in another realm, as a script result is', () => {
+    // A script's vm has its own Object.prototype; the encoded result must say
+    // Double for its numbers exactly as it does for this realm's documents.
+    const made = vm.runInContext('({ n: 1760000000000000768, list: [{ m: 1760000000000000768 }], bare: Object.create(null) })', vm.createContext({}));
+    const out = markPromotedDoubles(made) as { n: unknown; list: { m: unknown }[] };
+    expect(isMarked(out.n)).toBe(true);
+    expect(isMarked(out.list[0]!.m)).toBe(true);
+    expect(ejsonEncode(made)).toEqual(ejsonEncode({ n: WIDE, list: [{ m: WIDE }], bare: {} }));
+    const holder = vm.runInContext('new (class Holder { n = 1760000000000000768 })()', vm.createContext({}));
+    expect(markPromotedDoubles(holder)).toBe(holder);
+  });
+
   it('does not look inside anything but a plain document or an array', () => {
     class Holder {
       n = WIDE;
