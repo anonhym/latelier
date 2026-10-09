@@ -4,12 +4,7 @@ import { invokeEvent } from './ipcSender';
 
 type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => unknown;
 
-/**
- * An `ipcMain` stand-in for `createRouter`, plus an `invoke` that calls the
- * registered handler as a trusted renderer and returns its raw `Envelope`.
- * Throws when nothing is registered on the channel, so a missing
- * `registerXxxChannels` fails loudly instead of reading as a pass.
- */
+/** An `ipcMain` stand-in for `createRouter` plus `invoke(channel, payload?)`, which returns the raw `Envelope` and throws on an unregistered channel. */
 export function createIpcShim() {
   const handlers = new Map<string, Handler>();
   return {

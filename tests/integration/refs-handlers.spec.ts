@@ -245,7 +245,7 @@ describe('refs:* channels via router', () => {
     it('removes the rule and returns no data', async () => {
       const rule = await createRule();
       const del = await shim.invoke(IPC_CHANNELS.refsDelete, { id: rule.id });
-      expect(del).toEqual({ ok: true, data: undefined });
+      expect(del).toStrictEqual({ ok: true, data: undefined });
       const after = await shim.invoke(IPC_CHANNELS.refsGet, { id: rule.id });
       expect(after.ok).toBe(false);
       if (after.ok) return;

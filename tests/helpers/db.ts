@@ -46,11 +46,7 @@ export function createTempDb(): TempDb {
   };
 }
 
-/**
- * Insert a minimal `connections` row so a table with a foreign key to it
- * (`reference_rules`, `saved_queries`, ...) accepts rows for `id`. The name
- * is derived from `id` because connection names are unique.
- */
+/** Insert a minimal `connections` row (name derived from `id`, names are unique) so FK-bound tables accept rows for `id`. */
 export function insertConnectionRow(db: Database, id: string): void {
   const now = new Date().toISOString();
   db.prepare(
