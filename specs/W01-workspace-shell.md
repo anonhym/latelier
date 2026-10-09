@@ -98,7 +98,7 @@ Tab state lives in the renderer for responsiveness but is mirrored to main on ev
 
 ### `tabs:openAggregation`
 - Always creates a new tab unless `savedId` matches an existing agg tab (still only when `reuseExisting`).
-- Initial `state.stages` is empty, or hydrated from a saved pipeline if `savedId` present (W09).
+- Initial `state.stages` is empty, or hydrated from a saved pipeline if `savedId` present (W09). Main does the hydration, since the call carries no stages: an unknown `savedId` answers `NOT_FOUND`, and a saved query that is not a pipeline (or whose payload cannot be read) answers `VALIDATION`, in neither case opening a tab. Stages passed in `initialState` take precedence over the stored ones.
 
 ### `tabs:openDefault`
 - Pick first non-system DB; pick its first collection; call `tabs:openCollection` semantics.

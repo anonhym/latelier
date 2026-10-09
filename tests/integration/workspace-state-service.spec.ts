@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { WorkspaceTabRepo } from '../../electron/db/repositories/WorkspaceTabRepo';
+import { SavedQueryRepo } from '../../electron/db/repositories/SavedQueryRepo';
+import { SavedQueryService } from '../../electron/services/SavedQueryService';
 import { WorkspaceStateService } from '../../electron/services/WorkspaceStateService';
-import { NotFoundError } from '../../electron/errors';
+import { NotFoundError, ValidationError } from '../../electron/errors';
 import { createTempDb, type TempDb } from '../helpers/db';
-import type { CollectionTab, WorkspaceTab } from '../../shared/types';
+import type { CollectionTab, Stage, WorkspaceTab } from '../../shared/types';
 
 // The service returns the `WorkspaceTab` union; the fields these tests read
 // (view, pageSize, activeView, aggregation) only exist on the collection variant.
@@ -26,11 +28,13 @@ describe('WorkspaceStateService', () => {
   let tmp: TempDb;
   let svc: WorkspaceStateService;
   let repo: WorkspaceTabRepo;
+  let saved: SavedQueryService;
 
   beforeEach(() => {
     tmp = createTempDb();
     repo = new WorkspaceTabRepo(tmp.db);
-    svc = new WorkspaceStateService(repo);
+    saved = new SavedQueryService(new SavedQueryRepo(tmp.db));
+    svc = new WorkspaceStateService(repo, saved);
     seedConnection(tmp, 'conn');
   });
 
@@ -97,6 +101,115 @@ describe('WorkspaceStateService', () => {
     const b = asCollectionTab(svc.openAggregation({ connectionId: 'conn', dbName: 'd', collection: 'c' }));
     expect(b.id).toBe(a.id);
     expect(b.state.aggregation?.stages.length).toBe(1);
+  });
+
+  describe('openAggregation on a saved pipeline', () => {
+    const STORED: Stage[] = [
+      { id: 4, op: '$match', body: '{ status: "open" }', enabled: true },
+      { id: 9, op: '$limit', body: '5', enabled: false, note: 'trial' },
+    ];
+
+    function savePipeline(stages: Stage[] = STORED) {
+      return saved.create({
+        connectionId: 'conn',
+        dbName: 'd',
+        collection: 'c',
+        kind: 'aggregation',
+        name: 'open orders',
+        payload: { kind: 'aggregation', stages, description: 'keep me' },
+      });
+    }
+
+    const open = (savedId: string) =>
+      asCollectionTab(
+        svc.openAggregation({
+          connectionId: 'conn',
+          dbName: 'd',
+          collection: 'c',
+          savedId,
+          name: 'open orders',
+        }),
+      );
+
+    it('seeds the stored stages into a collection tab that is already open', () => {
+      // The Saved list lives in the Builder pane of an open collection tab, so this is
+      // the path a user takes; an empty seed here is what made the next Save wipe the pipeline.
+      const existing = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'c' });
+      const row = savePipeline();
+
+      const tab = open(row.id);
+
+      expect(tab.id).toBe(existing.id);
+      expect(tab.state.aggregation).toMatchObject({ stages: STORED, savedId: row.id, name: 'open orders' });
+      const listed = asCollectionTab(svc.list().find((t) => t.id === tab.id)!);
+      expect(listed.state.aggregation?.stages).toEqual(STORED);
+    });
+
+    it('seeds the stored stages into a fresh tab', () => {
+      const row = savePipeline();
+
+      const tab = open(row.id);
+
+      expect(svc.list()).toHaveLength(1);
+      expect(tab.state.activeView).toBe('aggregation');
+      expect(tab.state.aggregation).toMatchObject({ stages: STORED, savedId: row.id });
+    });
+
+    it('lets a Save straight after opening leave the stored pipeline unchanged', () => {
+      const row = savePipeline();
+
+      const tab = open(row.id);
+      // What AggregationTab's Save sends: the tab's stages, nothing else.
+      saved.update(row.id, { payload: { kind: 'aggregation', stages: tab.state.aggregation!.stages } });
+
+      const after = saved.get(row.id);
+      expect(after.payload).toEqual({ kind: 'aggregation', stages: STORED, description: 'keep me' });
+    });
+
+    it('prefers stages given in initialState and does not need the saved row for them', () => {
+      const given: Stage[] = [{ id: 1, op: '$sort', body: '{ a: 1 }', enabled: true }];
+
+      const tab = asCollectionTab(
+        svc.openAggregation({
+          connectionId: 'conn',
+          dbName: 'd',
+          collection: 'c',
+          savedId: 'no-such-row',
+          initialState: { stages: given },
+        }),
+      );
+
+      expect(tab.state.aggregation?.stages).toEqual(given);
+    });
+
+    it('refuses an unknown saved id and opens no tab', () => {
+      expect(() =>
+        svc.openAggregation({ connectionId: 'conn', dbName: 'd', collection: 'c', savedId: 'gone' }),
+      ).toThrow(NotFoundError);
+      expect(svc.list()).toHaveLength(0);
+    });
+
+    it('refuses a saved query that is not a pipeline instead of opening it empty', () => {
+      const find = saved.create({
+        connectionId: 'conn',
+        dbName: 'd',
+        collection: 'c',
+        kind: 'find',
+        name: 'a find',
+        payload: { kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}' },
+      });
+
+      expect(() => open(find.id)).toThrow(ValidationError);
+      expect(svc.list()).toHaveLength(0);
+    });
+
+    it('refuses a row whose payload cannot be read instead of opening it empty', () => {
+      const row = savePipeline();
+      tmp.db.prepare('UPDATE saved_queries SET payload_json = ? WHERE id = ?').run('not json', row.id);
+
+      expect(() => open(row.id)).toThrow(ValidationError);
+      expect(svc.list()).toHaveLength(0);
+    });
   });
 
   it('update merges patch into state', () => {

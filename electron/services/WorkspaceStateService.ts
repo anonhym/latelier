@@ -5,7 +5,9 @@ import type {
   CollectionTabState,
   CollectionView,
   ScriptTab,
+  SavedPayload,
   ScriptTabState,
+  Stage,
   WorkspaceTab,
 } from '@shared/types';
 import {
@@ -15,6 +17,7 @@ import {
 } from '@shared/defaults';
 import type { WorkspaceTabRepo, WorkspaceTabRow } from '../db/repositories/WorkspaceTabRepo.ts';
 import { NotFoundError, ValidationError } from '../errors.ts';
+import type { SavedQueryService } from './SavedQueryService.ts';
 import { serializeTabState } from './tabStateResults.ts';
 
 export interface OpenCollectionInput {
@@ -51,8 +54,10 @@ export interface TabStatePatch {
 
 export class WorkspaceStateService {
   private repo: WorkspaceTabRepo;
-  constructor(repo: WorkspaceTabRepo) {
+  private saved: SavedQueryService;
+  constructor(repo: WorkspaceTabRepo, saved: SavedQueryService) {
     this.repo = repo;
+    this.saved = saved;
   }
 
   list(): WorkspaceTab[] {
@@ -116,13 +121,22 @@ export class WorkspaceStateService {
    * Open the Aggregation sub-view on a collection. Reuses an existing
    * collection tab when one is already open; otherwise creates a fresh
    * collection tab parked on the Aggregation sub-view. Pre-existing
-   * aggregation state on the tab is preserved unless `initialState` is
-   * supplied, in which case the supplied keys overwrite (e.g. when opening
-   * a saved pipeline).
+   * aggregation state on the tab is preserved unless `savedId`, `name` or
+   * `initialState` is supplied, in which case the tab is reseeded.
+   *
+   * A `savedId` loads the stored pipeline's stages here, in main, because the
+   * renderer's open call carries no stages: seeding the default empty list
+   * would show an empty pipeline whose next Save overwrites the stored one.
+   * `initialState.stages`, when given, wins over the stored ones.
    */
   openAggregation(input: OpenAggregationInput): WorkspaceTab {
+    const storedStages =
+      input.savedId && !input.initialState?.stages
+        ? this.storedPipelineStages(input.savedId)
+        : undefined;
     const aggregationSeed: AggregationTabState = {
       ...DEFAULT_AGGREGATION_TAB_STATE,
+      ...(storedStages ? { stages: storedStages } : {}),
       ...(input.initialState ?? {}),
       name: input.name,
       savedId: input.savedId,
@@ -160,6 +174,17 @@ export class WorkspaceStateService {
         aggregation: aggregationSeed,
       },
     });
+  }
+
+  // Fails rather than falling back to an empty list: a tab opened empty over a
+  // stored pipeline is the state whose Save wipes it. A corrupted payload reads
+  // back as null (see `SavedQueryService.get`), so it lands here too.
+  private storedPipelineStages(savedId: string): Stage[] {
+    const payload = this.saved.get(savedId).payload as SavedPayload | null;
+    if (payload?.kind !== 'aggregation') {
+      throw new ValidationError(`saved query ${savedId} is not an aggregation pipeline`);
+    }
+    return payload.stages;
   }
 
   /**
