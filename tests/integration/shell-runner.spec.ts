@@ -291,7 +291,9 @@ describe('ShellService — un-awaited results', () => {
       '(() => { const e = new Error("outer-msg", { cause: new Error("inner-msg") }); e.code = 42; e.self = e; throw e; })()',
       'outer-msg',
     );
-    expect(out).toContain('outer-msg');
+    // One line, not the stack the writer's fallback would print.
+    expect(out).toMatch(/Error: outer-msg\n/);
+    expect(out).not.toMatch(/^\s+at /m);
     expect(await say(sessionId, '40+2', '42')).toContain('42');
   });
 
