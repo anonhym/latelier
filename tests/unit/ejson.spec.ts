@@ -22,6 +22,7 @@ import {
   isEjsonDocument as isEjsonDocumentRenderer,
   ejsonStringifyReadable,
 } from '../../src/utils/ejson';
+import { diff, isEmptyDiff } from '../../src/pages/Workspace/documentDiff';
 
 describe('ejson', () => {
   it('round-trips ObjectId', () => {
@@ -1102,5 +1103,29 @@ describe('markPromotedDoubles — copies only the path to a changed number', () 
     expect(out.k).toBe(1);
     const still = Object.assign(Object.create(null) as Record<string, unknown>, { k: 1 });
     expect(markPromotedDoubles(still)).toBe(still);
+  });
+});
+
+// The Document editor's JSON view: a stored Double past 2^53 has to come back
+// from "show as text, save untouched" as the same Double, or the diff would
+// report a change the user never made and $set the field as a Long.
+describe('a Double past 2^53 through the Document editor JSON view', () => {
+  it('re-parses to the same Double and the same Long, and the diff stays empty', () => {
+    const wire = JSON.stringify(ejsonEncode({ _id: 1, d: 1760000000000000768, l: Long.fromString('9007199254740993'), f: 2.5 }));
+    type Row = { d: Double; l: Long; f: Double };
+    const original = ejsonParseRenderer<Row>(wire);
+    expect(original.d).toBeInstanceOf(Double);
+    expect(original.l).toBeInstanceOf(Long);
+
+    const draft = ejsonParseRenderer<Row>(ejsonStringifyReadable(original, 2));
+    expect(draft.d).toBeInstanceOf(Double);
+    expect(BigInt(draft.d.valueOf())).toBe(1760000000000000768n);
+    expect(draft.l).toBeInstanceOf(Long);
+    expect(draft.l.toString()).toBe('9007199254740993');
+    expect(isEmptyDiff(diff(original, draft))).toBe(true);
+    expect(JSON.parse(ejsonStringify(draft)) as unknown).toMatchObject({
+      d: { $numberDouble: '1760000000000000768.0' },
+      l: { $numberLong: '9007199254740993' },
+    });
   });
 });
