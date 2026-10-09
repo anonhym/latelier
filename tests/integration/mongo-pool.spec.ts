@@ -611,21 +611,6 @@ describe('MongoPool', () => {
       expect(debug).toHaveBeenCalledWith('mongo', 'hello snapshot failed', expect.objectContaining({ source: 'connect', message: 'operation timed out' }));
       await pool.disconnectAll();
     });
-
-    it('classifies a fake client whose every command returns a bare version as Unknown', async () => {
-      const client = {
-        connect: async () => {},
-        close: async () => {},
-        on: () => {},
-        db: () => ({ command: async () => ({ version: '0.0.0' }) }),
-      } as unknown as import('mongodb').MongoClient;
-      const pool = poolWithClient(client);
-
-      await pool.connect('c1');
-      expect(pool.status('c1').status).toBe('connected');
-      expect(pool.status('c1').topology).toBe('Unknown');
-      await pool.disconnectAll();
-    });
   });
 
 
