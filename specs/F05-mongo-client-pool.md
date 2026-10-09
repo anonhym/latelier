@@ -149,13 +149,13 @@ function buildUri(c: Connection, password?: string): string {
 2. If `status === 'connected'`, return existing client.
 3. If `status === 'connecting'`, await the shared promise.
 4. Else set `status = 'connecting'`, build URI, decrypt password, `new MongoClient(...)`, `.connect()`.
-5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve.
+5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve. `topology` is classified from one `hello` reply (`isMaster` on MongoDB < 4.4), fetched with or without a logger; the same reply feeds the debug snapshot log. A failed hello leaves `topology = 'Unknown'` and never fails the connect.
 6. On failure → set `status = 'error'`, store `errorMessage`, reject all waiters, do not retain the client.
 7. Subsequent `getClient` calls after an error re-attempt from step 4.
 
 ### probe
 - Builds URI with a **separate** MongoClient with `serverSelectionTimeoutMS: 5000`, `connectTimeoutMS: 5000`.
-- Connects, pings, reads `buildInfo`, closes.
+- Connects, pings, reads `buildInfo` and `hello` (for `topology`), closes.
 - Classifies errors into `AUTH | NETWORK | TIMEOUT | TLS | UNKNOWN` (see §6).
 - Used by both:
   - C04 **Test connection** — called with form data *before* save.

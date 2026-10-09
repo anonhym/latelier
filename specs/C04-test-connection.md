@@ -53,7 +53,7 @@ test(input: ConnectionInput): Promise<ProbeResult> {
 3. `client = new MongoClient(uri, options)`; `await client.connect()`.
 4. `t0 = Date.now(); await client.db('admin').command({ ping: 1 }); roundTripMs = Date.now() - t0;`
 5. `const info = await client.db('admin').command({ buildInfo: 1 });`
-6. Determine topology by inspecting `client.topology?.description.type` if available; fallback to `Unknown`.
+6. Run `hello` on `admin` (`isMaster` on MongoDB < 4.4) and classify the reply with `topologyFromHello` (`electron/mongo/topology.ts`): `mongos` is `Sharded`, any replica-set member is `ReplicaSet`, a standalone is `Single`. The driver's own topology type is not used: it is not public and `directConnection` freezes it to Single. A hello that fails or times out gives `Unknown` and never fails the probe.
 7. `await client.close();`
 8. Return `{ ok: true, serverVersion: info.version, topology, roundTripMs }`.
 
