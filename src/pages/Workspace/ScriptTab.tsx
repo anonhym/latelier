@@ -7,6 +7,7 @@ import type {
   CollectionTabState,
 } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { themeVars } from '../../theme/themeVars';
 import { Button, Group, Select, TextInput, Tooltip } from '@mantine/core';
 import { ScriptEditor } from '../../components/ScriptEditor';
@@ -103,6 +104,11 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
         : { code: 'INTERNAL', message: String(err) };
       onPatch({ lastError: e, lastResult: undefined });
     } finally {
+      // A script can write to any collection of its Connection and the
+      // renderer can't tell which, so drop the whole Connection's
+      // field-suggestion samples — also when the run threw, since it may have
+      // written before that.
+      invalidateSampleSchemaCache(tab.connectionId);
       cancelTokenRef.current = null;
       runningRef.current = false;
       setRunning(false);

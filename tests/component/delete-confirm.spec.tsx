@@ -3,10 +3,19 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../helpers/render';
 import { DeleteConfirm } from '../../src/pages/Workspace/DeleteConfirm';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module DeleteConfirm imports; the rest stays real in
+// case the dialog's tree reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 describe('DeleteConfirm — single document (regression)', () => {
@@ -428,4 +437,90 @@ describe('DeleteConfirm — Undo hand-off', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(undefined, '1 document deleted'));
   });
 });
+});
+
+// The sample behind field suggestions is cached per collection. The dialog
+// names the collection it deleted from with its own props: when it completes,
+// the Focused Tab may be a different collection or none, so the caller can't.
+describe('DeleteConfirm — field-suggestion sample', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+  const renderSingle = (onDeleted = vi.fn(), docs: unknown[] = [{ _id: '1', sku: 'a' }]) =>
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={docs}
+        onClose={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+  const renderMany = (onDeleted = vi.fn()) =>
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"status":"pending"}'
+        onClose={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+  const confirmMany = async (confirmDeleteMany: ReturnType<typeof vi.fn>) => {
+    await waitFor(() => expect(confirmDeleteMany).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByPlaceholderText('orders'), { target: { value: 'orders' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  };
+
+  it('is dropped for this collection once a single-document delete lands', async () => {
+    installAtelierMock({ doc: { deleteOne: vi.fn(async () => ({ deletedCount: 1 })) } });
+    const onDeleted = vi.fn();
+    renderSingle(onDeleted);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'app', 'orders');
+  });
+
+  it('is dropped for this collection once a delete-all-matching lands', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 5, confirmToken: 'tok' }));
+    installAtelierMock({
+      doc: { confirmDeleteMany, deleteMany: vi.fn(async () => ({ deletedCount: 5, auditId: 'a2' })) },
+    });
+    const onDeleted = vi.fn();
+    renderMany(onDeleted);
+
+    await confirmMany(confirmDeleteMany);
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'app', 'orders');
+  });
+
+  it('is dropped when a delete-all-matching fails, since deleteMany can stop part-way', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 5, confirmToken: 'tok' }));
+    const deleteMany = vi.fn(async () => {
+      throw { code: 'MONGO_OP', message: 'connection lost' };
+    });
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
+    const onDeleted = vi.fn();
+    renderMany(onDeleted);
+
+    await confirmMany(confirmDeleteMany);
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/connection lost/);
+    expect(onDeleted).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'app', 'orders');
+  });
+
+  it('is kept when no delete was sent: a document with no _id', async () => {
+    installAtelierMock({ doc: { deleteOne: vi.fn() } });
+    renderSingle(vi.fn(), [{ sku: 'a' }]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await screen.findByRole('alert');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
 });
