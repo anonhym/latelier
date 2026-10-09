@@ -247,18 +247,23 @@ describe('saved:* channels via router', () => {
           kind: 'aggregation',
           stages: [
             { id: 1, op: '$match', body: '{ status: "open" }', enabled: true },
-            { id: 2, op: '$limit', body: '5', enabled: false, note: 'cap it' },
+            // A key the stage type does not name must survive: the schema checks, it does not rewrite.
+            { id: 2, op: '$limit', body: '5', enabled: false, note: 'cap it', legacy: 1 },
           ],
           description: 'open orders, capped',
         };
         const created = await create({ kind: 'aggregation', payload });
         expect(created.payload).toEqual(payload);
+        const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id: created.id });
+        expect(env.ok).toBe(true);
+        if (!env.ok) return;
+        expect(env.data.payload).toEqual(payload);
       });
 
-      it('keeps the legacy keys of a builder migrated from a pre-queryRaw tab, which has no queryRaw', async () => {
-        // A collection tab persisted before queryRaw existed keeps `conditions`/`logic` in
-        // its builder and has no queryRaw: saving from it must still work, and must not
-        // lose the keys the legacy filter shim compiles the filter from on load.
+      it('accepts a payload with no queryRaw and keeps the legacy keys of its builder', async () => {
+        // W09 §1 types queryRaw as optional and rows saved before it existed lack it, so a
+        // payload without one must be accepted, and its `conditions`/`logic` kept: the legacy
+        // filter shim compiles the filter from them on load.
         const payload = {
           kind: 'find',
           builder: {
@@ -393,11 +398,11 @@ describe('saved:* channels via router', () => {
     describe('payload against the stored kind', () => {
       // The patch carries no kind, so the stored row's kind is the only thing to hold it to.
       it.each([
-        ['an aggregation payload on a find query', 'find', aggregationPayload(), ['payload.kind', 'payload.builder']],
-        ['a find payload on an aggregation query', 'aggregation', findPayload(), ['payload.kind', 'payload.stages']],
-        ['an empty payload on a find query', 'find', {}, ['payload.kind', 'payload.builder']],
-        ['unrelated fields on a find query', 'find', { foo: 1 }, ['payload.kind', 'payload.builder']],
-        ['an empty payload on an aggregation query', 'aggregation', {}, ['payload.kind', 'payload.stages']],
+        ['an aggregation payload on a find query', 'find', aggregationPayload(), ['patch.payload.kind', 'patch.payload.builder']],
+        ['a find payload on an aggregation query', 'aggregation', findPayload(), ['patch.payload.kind', 'patch.payload.stages']],
+        ['an empty payload on a find query', 'find', {}, ['patch.payload.kind', 'patch.payload.builder']],
+        ['unrelated fields on a find query', 'find', { foo: 1 }, ['patch.payload.kind', 'patch.payload.builder']],
+        ['an empty payload on an aggregation query', 'aggregation', {}, ['patch.payload.kind', 'patch.payload.stages']],
       ])('rejects %s with VALIDATION and keeps the stored payload', async (_what, kind, patchPayload, paths) => {
         const stored = kind === 'find' ? findPayload() : aggregationPayload();
         const created = await create({ kind, payload: stored });
@@ -430,6 +435,17 @@ describe('saved:* channels via router', () => {
         expect(env.ok).toBe(true);
         if (!env.ok) return;
         expect(env.data.payload).toEqual(payload);
+      });
+
+      it('leaves the payload of a script query unchecked on update too', async () => {
+        const created = await create({ kind: 'script', name: 'a script', payload: { source: 'a' } });
+        const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedUpdate, {
+          id: created.id,
+          patch: { payload: { source: 'b' } },
+        });
+        expect(env.ok).toBe(true);
+        if (!env.ok) return;
+        expect(env.data.payload).toEqual({ source: 'b' });
       });
 
       it('accepts the payload AggregationTab sends on an aggregation query', async () => {

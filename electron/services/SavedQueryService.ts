@@ -92,7 +92,7 @@ function assertPayloadMatchesKind(kind: SavedKind, payload: unknown): void {
   if (!schema) return;
   const result = schema.safeParse(payload);
   if (result.success) return;
-  const issues = result.error.issues.map((i) => ({ path: ['payload', ...i.path], message: i.message }));
+  const issues = result.error.issues.map((i) => ({ path: ['patch', 'payload', ...i.path], message: i.message }));
   const first = issues[0];
   throw new ValidationError(`${first.path.join('.')}: ${first.message}`, { issues });
 }

@@ -17,8 +17,10 @@ const ListInputSchema = z.object({
 
 const GetInputSchema = z.object({ id: NonEmpty });
 
-// The payload is held to the schema of its `kind`. `script` has no payload variant
-// and nothing produces one, so its payload stays an unchecked record.
+// The payload is held to the schema of its `kind`. A new kind needs an entry in
+// `SAVED_PAYLOAD_SCHEMAS` (schemas/saved.ts) too: `saved:update` checks against that.
+// `script` has no payload variant and nothing produces one, so its payload stays an
+// unchecked record.
 const CreateInputSchema = z.discriminatedUnion('kind', [
   CollectionTargetSchema.extend({
     kind: z.literal('find'),

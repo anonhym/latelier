@@ -106,7 +106,7 @@ From the workspace:
 
 - "Save" / "Save as" buttons in the Aggregation title bar (A01/A06).
 - `Save`:
-  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { stages }`.
+  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { kind: 'aggregation', stages }`.
   - Else: open the same modal as find, pre-selected kind `aggregation`.
 - `Save as`: always open modal pre-filled with current name + " (copy)".
 

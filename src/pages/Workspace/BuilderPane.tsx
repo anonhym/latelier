@@ -1503,8 +1503,8 @@ function BuilderPaneInner({
    * made required, an annotation borrowed from that type would let
    * TypeScript "prove" the `??` fallback below unreachable and invite
    * deleting it — reintroducing the exact data loss this shim exists to
-   * prevent for every find saved before `queryRaw` existed. The wire's IPC
-   * schema validates saved/recent payloads loosely (`z.record`), so a
+   * prevent for every find saved before `queryRaw` existed. On the wire,
+   * writes are checked per kind and reads are not, so a
    * pre-`queryRaw` row really can arrive shaped like `LegacySavedFindPayload`
    * despite the live `SavedQuery`/`RecentQuery` types claiming otherwise —
    * that mismatch is exactly what this cast bridges.
@@ -1513,7 +1513,7 @@ function BuilderPaneInner({
     payload: LegacySavedFindPayload,
   ): { builder: BuilderState; queryRaw: string } => {
     // `payload.builder` is typed required, but this reads data straight off
-    // the wire (validated only as `z.record(z.string(), z.unknown())`, §8.3)
+    // the wire (writes are checked per kind, reads are not, §8.3)
     // — a row missing it entirely isn't ruled out. Fall back to an empty
     // legacy builder (no conditions → `legacyCompileFilter` produces '{}')
     // rather than throwing inside a click handler with no feedback.
