@@ -52,10 +52,12 @@ export function useDocumentDialogs(deps: {
   closeEditor: () => void;
   handleDocSaved: (auditId?: string) => void;
   closeDeleteDialogs: () => void;
-  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion. */
+  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion.
+   * Re-runs and toasts only; the dialog closes itself. */
   handleDeleted: (auditId: string | undefined, message: string, target: DocTarget) => void;
   closeUpdateAllModal: () => void;
-  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion. */
+  /** `target` is the collection the dialog wrote to, not the Focused Tab at completion.
+   * Re-runs and toasts only; the dialog closes itself. */
   handleUpdatedAll: (auditId: string | undefined, message: string, target: DocTarget) => void;
   /** Bumps once per completed insert/edit/delete/delete-many, so a consumer
    * that only cares "did a write just land" (e.g. the header's stats fetch)
@@ -184,8 +186,11 @@ export function useDocumentDialogs(deps: {
   // back. `target` is the collection the dialog wrote to — focus can move
   // while the request is in flight, so the re-run and the Undo follow it
   // rather than whichever tab is focused when the write lands.
+  //
+  // Deliberately does not close anything: the dialog closes itself through its
+  // own `onClose` when it is still on screen. Closing here too would dismiss a
+  // dialog the user opened on another tab while this write was in flight.
   const handleDeleted = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
-    closeDeleteDialogs();
     rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
     // delete-all over the bulk capture ceiling still needs to say what
@@ -195,13 +200,12 @@ export function useDocumentDialogs(deps: {
       return;
     }
     offerUndo(message, auditId, () => refreshSource(target));
-  }, [closeDeleteDialogs, refreshSource, rerunTarget]);
+  }, [refreshSource, rerunTarget]);
 
   // Same shape as delete-all: UpdateConfirm also reports the collection it
-  // wrote to and drops the field-suggestion sample itself.
+  // wrote to, drops the field-suggestion sample itself and closes itself.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
   const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string, target: DocTarget) => {
-    closeUpdateAllModal();
     rerunTarget(target);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
     // update over the bulk capture ceiling still needs to say what happened.
@@ -210,7 +214,7 @@ export function useDocumentDialogs(deps: {
       return;
     }
     offerUndo(message, auditId, () => refreshSource(target));
-  }, [closeUpdateAllModal, refreshSource, rerunTarget]);
+  }, [refreshSource, rerunTarget]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the
   // Focused Tab, so any route that moves focus off the tab either was opened

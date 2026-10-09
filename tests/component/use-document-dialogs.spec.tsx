@@ -113,7 +113,11 @@ function mountDialogs(
 }
 
 describe('useDocumentDialogs', () => {
-  it('handleDeleted clears all three delete atoms and re-runs the query', async () => {
+  // The dialog that finished closes itself (`DeleteConfirm` calls its own
+  // `onClose`), so the completion callback must leave dialog state alone: by
+  // the time a slow write lands, a delete dialog opened on another tab may be
+  // the one on screen.
+  it('handleDeleted re-runs the query and leaves the delete dialogs as they are', async () => {
     const run = vi.fn(() => Promise.resolve());
     const { result } = mountDialogs(run, 't1', tab());
 
@@ -126,9 +130,8 @@ describe('useDocumentDialogs', () => {
 
     act(() => result.current.handleDeleted(undefined, 'Document deleted', T1_TARGET));
 
-    expect(result.current.deleteDoc).toBeNull();
-    expect(result.current.deleteAllOpen).toBe(false);
-    expect(result.current.deleteSelected).toBeNull();
+    expect(result.current.deleteDoc).toEqual(DOC);
+    expect(result.current.deleteSelected).toEqual([DOC]);
     expect(run).toHaveBeenCalledExactlyOnceWith(undefined, expect.objectContaining({ id: 't1' }));
   });
 
@@ -178,7 +181,7 @@ describe('useDocumentDialogs', () => {
   // target the same way DeleteConfirm does — live off the Focused Tab), so it
   // gets the same three behaviors: opened/closed via its own toggle,
   // re-running on completion, and closing (not surviving) a tab switch.
-  it('handleUpdatedAll closes update-all and re-runs the query', () => {
+  it('handleUpdatedAll re-runs the query and leaves update-all as it is', () => {
     const run = vi.fn(() => Promise.resolve());
     const { result } = mountDialogs(run, 't1', tab());
 
@@ -187,7 +190,7 @@ describe('useDocumentDialogs', () => {
 
     act(() => result.current.handleUpdatedAll(undefined, '2 matched, 2 modified', T1_TARGET));
 
-    expect(result.current.updateAllOpen).toBe(false);
+    expect(result.current.updateAllOpen).toBe(true);
     expect(run).toHaveBeenCalledExactlyOnceWith(undefined, expect.objectContaining({ id: 't1' }));
   });
 
