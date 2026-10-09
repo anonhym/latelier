@@ -228,6 +228,7 @@ export function markPromotedDoubles(node: unknown): unknown {
     return magnitude > TWO_POW_53 && magnitude <= TWO_POW_63 ? new Double(node) : node;
   }
   if (node === null || typeof node !== 'object') return node;
+  // ponytail: recursion has no cycle guard, so a cyclic input overflows the stack here instead of raising bson's circular-reference error; encodeResultJson reports both as null, and a driver reply is never cyclic. Track visited nodes if a caller ever needs the bson message.
   if (Array.isArray(node)) {
     let out: unknown[] | undefined;
     // Stryker disable next-line EqualityOperator: `i <= node.length` adds one visit at an index where the element is `undefined`; the walk returns `undefined` unchanged, so `marked !== node[i]` stays false and nothing differs. Verified with a node probe on a plain array and on a hole. The `>=` variant (the loop never runs) is killed by the array tests.
