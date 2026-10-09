@@ -1,5 +1,6 @@
 import type { Database, Statement } from 'better-sqlite3';
 import type { RecentKind } from '@shared/types';
+import { rethrowMissingConnection } from '../sqliteErrors.ts';
 
 export interface RecentQueryRow {
   id: string;
@@ -90,7 +91,11 @@ export class RecentQueryRepo {
   }
 
   insert(row: RecentQueryRow): void {
-    this.insertStmt.run(row);
+    try {
+      this.insertStmt.run(row);
+    } catch (err) {
+      rethrowMissingConnection(err, row.connection_id);
+    }
   }
 
   findById(id: string): RecentQueryRow | null {

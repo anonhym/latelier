@@ -5,8 +5,16 @@ import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { DarkCtx } from '../../src/ThemeContext';
 import { AggregationTab } from '../../src/pages/Workspace/Aggregation/AggregationTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationTabState, AggStagePreview } from '@shared/types';
+
+// Mocked at the exact module AggregationTab imports; the rest stays real
+// because the tab reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 /**
  * Unlike `renderTab` below (a static `state` prop + a noop `onPatch` spy —
@@ -526,5 +534,89 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       expect(opAt(0)).toMatch(/\$sort/);
       expect(screen.queryByRole('button', { name: /currently \$match\)/ })).toBeNull();
     });
+  });
+});
+
+/**
+ * A confirmed `$out`/`$merge` run writes to a collection the renderer can't
+ * name (main parses the target out of the stage body), so the tab drops the
+ * connection's field-suggestion samples. A run with no write stage, and a
+ * write run still waiting on its confirmation, change nothing.
+ */
+describe('AggregationTab — field-suggestion sample after a write run', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+  const WRITE_STAGES: AggregationTabState['stages'] = [
+    { id: 1, op: '$match', body: '{}', enabled: true },
+    { id: 2, op: '$out', body: '"monthly"', enabled: true },
+  ];
+  const writeBlocked = {
+    code: 'VALIDATION',
+    message: 'run blocked: write stage present',
+    details: { kind: 'writeStage', writeStageOp: '$out', targetCollection: 'monthly' },
+  };
+  const ranOk = { rows: [], durationMs: 1, stageCounts: {}, stageSamples: {}, hasMore: false };
+
+  beforeEach(() => invalidate.mockClear());
+
+  it('is dropped for the connection once the confirmed write run settles', async () => {
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      if (!input.allowWrite) throw writeBlocked;
+      return ranOk;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    expect(run.mock.calls[1]![0]).toMatchObject({ allowWrite: true });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('is dropped even when the confirmed write run fails part-way', async () => {
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      throw input.allowWrite ? { code: 'INTERNAL', message: 'merge failed' } : writeBlocked;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('is kept while the write is still unconfirmed, and after a cancelled confirmation', async () => {
+    const run = vi.fn(async () => {
+      throw writeBlocked;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    // Wait for the dialog itself: while the blocked run is in flight the tab's
+    // own run button also reads "Cancel".
+    await screen.findByRole('button', { name: 'Proceed' });
+    expect(invalidate).not.toHaveBeenCalled(); // blocked, nothing written yet
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('is kept by a run with no write stage', async () => {
+    const run = vi.fn(async () => ranOk);
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

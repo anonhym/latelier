@@ -214,6 +214,9 @@ describe('DocumentService.confirmDeleteMany token sweep', () => {
 // collapses any object that starts with a recognised $-sentinel key, silently
 // dropping sibling keys.  The sub-document {"$date":"…","kept":"x"} must be
 // stored as a plain object with both fields intact.
+// A collection keyed by small integers, so `_id: 1` type-checks.
+type NumericIdDoc = { _id: number } & Record<string, unknown>;
+
 describe('DocumentService insert EJSON round-trip (REPRO 2.3)', () => {
   let hp: { host: string; port: number };
   let pool: MongoPool;
@@ -261,6 +264,67 @@ describe('DocumentService insert EJSON round-trip (REPRO 2.3)', () => {
     // Fix: payload stays as plain object with both keys
     expect(payload).not.toBeInstanceOf(Date);
     expect((payload as Record<string, unknown>).kept).toBe('x');
+  });
+
+  // JSON.parse rounds a bare integer past 2^53 to a double before the walker
+  // sees it, so what a user types as 9007199254740993 used to be stored as
+  // 9007199254740992. Assert the server-side BSON type with $type, not just
+  // what the driver hands back: the driver would show a Long either way.
+  it('insert: bare integers past 2^53 are stored as exact int64s, wider or safe ones as doubles (#279)', async () => {
+    const coll = 'bare_big_int';
+    const db = await pool.write(connId).db(dbName);
+    await db.collection(coll).drop().catch(() => {});
+
+    const docJson =
+      '{"_id":1,"big":9007199254740993,"neg":-9007199254740993,"max":9223372036854775807,' +
+      '"min":-9223372036854775808,"safe":9007199254740991,"wide":123456789012345678901,"nested":{"xs":[ 9007199254740993 ]}}';
+    await svc.insert({ connectionId: connId, dbName, collection: coll, docJson });
+
+    const c = db.collection<NumericIdDoc>(coll);
+    expect(
+      await c.countDocuments({
+        big: { $type: 'long' },
+        neg: { $type: 'long' },
+        max: { $type: 'long' },
+        min: { $type: 'long' },
+        'nested.xs.0': { $type: 'long' },
+        // A safe integer and a beyond-int64 one are not int64s: they stay doubles.
+        safe: { $type: 'double' },
+        wide: { $type: 'double' },
+      }),
+    ).toBe(1);
+
+    const stored = (await c.findOne({ _id: 1 }, { promoteLongs: false })) as Record<string, unknown>;
+    expect((stored.big as Long).toString()).toBe('9007199254740993');
+    expect((stored.neg as Long).toString()).toBe('-9007199254740993');
+    expect((stored.max as Long).toString()).toBe('9223372036854775807');
+    expect((stored.min as Long).toString()).toBe('-9223372036854775808');
+    expect(((stored.nested as { xs: Long[] }).xs[0] as Long).toString()).toBe('9007199254740993');
+  });
+
+  it('updateOne: a bare big integer in the filter matches that int64, not its rounded neighbour (#279)', async () => {
+    const coll = 'bare_big_int_filter';
+    const db = await pool.write(connId).db(dbName);
+    await db.collection(coll).drop().catch(() => {});
+    const c = db.collection<NumericIdDoc>(coll);
+    await c.insertMany([
+      { _id: 1, n: Long.fromString('9007199254740992') },
+      { _id: 2, n: Long.fromString('9007199254740993') },
+    ]);
+
+    const res = await svc.updateOne({
+      connectionId: connId,
+      dbName,
+      collection: coll,
+      filterJson: '{"n":9007199254740993}',
+      updateJson: '{"$set":{"hit":9007199254740993}}',
+    });
+
+    expect(res.matchedCount).toBe(1);
+    const rows = (await c.find({}, { promoteLongs: false }).sort({ _id: 1 }).toArray()) as Record<string, unknown>[];
+    expect(rows[0]!.hit).toBeUndefined();
+    expect((rows[1]!.hit as Long).toString()).toBe('9007199254740993');
+    expect(await c.countDocuments({ hit: { $type: 'long' } })).toBe(1);
   });
 
 });

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { EditorState } from '@codemirror/state';
 import { CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
-import { javascript } from '@codemirror/lang-javascript';
-import { ensureSyntaxTree } from '@codemirror/language';
+import { parsedJsState } from '../helpers/parsedState';
 
 // mongoCompletionSource's field-position branch pipes sampleSchemaSource's
 // result through `.filter(s => s.kind === 'field')` before turning it into
@@ -17,9 +15,7 @@ function realCtx(doc: string, cursor: string = '█'): CompletionContext {
   const pos = doc.indexOf(cursor);
   if (pos < 0) throw new Error(`cursor token ${cursor} not found in doc`);
   const stripped = doc.slice(0, pos) + doc.slice(pos + cursor.length);
-  const state = EditorState.create({ doc: stripped, extensions: [javascript()] });
-  ensureSyntaxTree(state, stripped.length, 5_000);
-  return new CompletionContext(state, pos, false);
+  return new CompletionContext(parsedJsState(stripped), pos, false);
 }
 
 function labels(result: CompletionResult | null): string[] {
