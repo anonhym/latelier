@@ -19,6 +19,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 const MEMORY_SERVERS: MongoMemoryServer[] = [];
 
+/**
+ * A vault spec that finds no usable keychain skips on a developer machine,
+ * where Linux without a keyring is an ordinary setup. On CI a skip is a hole:
+ * the runner is built to provide a session keyring, so "unavailable" means
+ * that setup broke and the credential-storage coverage silently vanished.
+ * Call this just before `test.skip` so CI turns the skip into a failure.
+ */
+export function failOnCiWhenKeychainMissing(): void {
+  if (process.env.CI) {
+    throw new Error(
+      'SECRETS_UNAVAILABLE on CI: the runner needs a session keyring (see the "Run E2E" step in .github/workflows/ci.yml)',
+    );
+  }
+}
+
 export function freshUserData(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-e2e-'));
 }

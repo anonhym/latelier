@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   baseConnInput,
+  failOnCiWhenKeychainMissing,
   startMemoryServer,
   stopAllMemoryServers,
   withApp,
@@ -19,13 +20,14 @@ test.afterAll(stopAllMemoryServers);
  * `NewConnection.tsx:464`). It also asserts the "Remove stored password"
  * affordance is present.
  *
- * Skips on hosts where `safeStorage.isEncryptionAvailable()` is false (Linux
- * CI without libsecret + a session keyring). Mirrors the skip strategy in
- * `secrets-vault.e2e.ts`: probe via IPC `conn.create` with a password and
- * inspect the error code. If `SECRETS_UNAVAILABLE`, the *encrypted* contract
- * under test cannot be exercised on this host. End users on such hosts can
- * still save passwords by opting into the plaintext fallback (issue #4),
- * but that is a separate code path with its own component-level coverage.
+ * Skips on a developer machine with no usable keychain (Linux without a
+ * reachable keyring), and fails on CI, where the runner is set up to provide
+ * one. Mirrors the strategy in `secrets-vault.e2e.ts`: probe via IPC
+ * `conn.create` with a password and inspect the error code. If
+ * `SECRETS_UNAVAILABLE`, the *encrypted* contract under test cannot be
+ * exercised on this host. End users on such hosts can still save passwords by
+ * opting into the plaintext fallback (issue #4), but that is a separate code
+ * path with its own component-level coverage.
  */
 test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async () => {
   const { host, port } = await startMemoryServer();
@@ -66,6 +68,7 @@ test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async
     }, baseConnInput(host, port));
 
     if (!probe.ok && probe.code === 'SECRETS_UNAVAILABLE') {
+      failOnCiWhenKeychainMissing();
       test.skip(
         true,
         'safeStorage.isEncryptionAvailable() is false on this host (CI without libsecret?)',

@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import Database from 'better-sqlite3';
+import { failOnCiWhenKeychainMissing } from '../helpers/e2eApp';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,14 +19,19 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  * which only happens if the encrypted password was decrypted from cold
  * SQLite storage and used to authenticate.
  *
- * On systems where `safeStorage.isEncryptionAvailable()` is `false` (Linux
- * without libsecret — common in CI), the very first `conn.create` with a
- * password throws `SECRETS_UNAVAILABLE`. The test detects that and skips,
- * since the *encrypted* round-trip under test can't be exercised at all in
- * that env — even though end users on such hosts can opt into the plaintext
- * fallback (see issue #4 + the `secrets.allowPlaintextFallback` pref). CI
- * hosts that want this coverage need `libsecret-1-dev` + a session keyring
- * (or equivalent on Win/Mac).
+ * On systems with no usable keychain (Linux without a reachable keyring), the
+ * very first `conn.create` with a password throws `SECRETS_UNAVAILABLE`. On a
+ * developer machine the test detects that and skips, since the *encrypted*
+ * round-trip under test can't be exercised there at all — even though end
+ * users on such hosts can opt into the plaintext fallback (see issue #4 + the
+ * `secrets.allowPlaintextFallback` pref). On CI the same condition fails the
+ * test instead: the "Run E2E" step in `.github/workflows/ci.yml` starts a
+ * session keyring on purpose, so its absence means the coverage was lost.
+ *
+ * Beyond the round-trip, the spec pins two facts a passing round-trip alone
+ * would not: on Linux the selected backend is a real keyring (Chromium's
+ * `basic_text` fallback "encrypts" with a hardcoded key yet reports success),
+ * and the stored row is really ciphertext rather than the password bytes.
  */
 
 async function launchApp(userDataDir: string): Promise<ElectronApplication> {
@@ -136,15 +143,42 @@ test('secret round-trips through safeStorage across a quit + relaunch', async ()
         expect(result.status).toBe('connected');
         connectionId = result.id;
       }
+
+      // A weak backend would also round-trip, so assert it is a real keyring.
+      // `getSelectedStorageBackend` exists on Linux only.
+      const backend = await app.evaluate(({ safeStorage }) =>
+        process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : null,
+      );
+      expect(['basic_text', 'unknown']).not.toContain(backend);
       return { skipped: false as const };
     });
 
     if (firstLaunchOk.skipped) {
+      failOnCiWhenKeychainMissing();
       test.skip(
         true,
         'safeStorage.isEncryptionAvailable() is false on this host (CI without libsecret?)',
       );
       return;
+    }
+
+    // --- at rest: the stored row is ciphertext, not the password. ---------
+    // The app is closed, so the file is quiescent. `latelier.db` is
+    // `DB_FILENAME` in `electron/db/sqlite.ts`; Playwright's loader must not
+    // import electron code, so the name is repeated here.
+    const db = new Database(path.join(userDataDir, 'latelier.db'), { readonly: true });
+    try {
+      const row = db
+        .prepare(
+          "SELECT ciphertext, is_plaintext FROM connection_secrets WHERE connection_id = ? AND field = 'password'",
+        )
+        .get(connectionId!) as { ciphertext: Buffer; is_plaintext: number } | undefined;
+      expect(row, 'no stored password row for the created connection').toBeDefined();
+      expect(row!.is_plaintext).toBe(0);
+      expect(row!.ciphertext.length).toBeGreaterThan(0);
+      expect(row!.ciphertext.includes(Buffer.from('rootpw'))).toBe(false);
+    } finally {
+      db.close();
     }
 
     // --- second launch: connect again with no fresh password input. --------
