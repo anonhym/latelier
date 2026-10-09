@@ -1,10 +1,10 @@
 import { EJSON, BSONRegExp, Double } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
-// The main process has no `src/` precedent, but `bigIntJson.ts` is a pure
-// module (it imports nothing), and keeping a second copy of the source-
-// preserving parse beside the renderer's `ejsonParse` would let the two drift
-// on which integer tokens stay exact. The same reasoning as `QueryService`'s
-// import of `exportFormat`. `parseJsonKeepingBigInts` is re-exported so the
+// Main imports this renderer module because it is pure (it imports nothing),
+// and a second copy of the source-preserving parse beside the renderer's
+// `ejsonParse` would let the two drift on which integer tokens stay exact.
+// The same reasoning as `QueryService`'s import of `exportFormat`.
+// `parseJsonKeepingBigInts` is re-exported so the
 // importers that parse a file themselves keep a single place to look.
 import { parseJsonKeepingBigInts } from '../../src/utils/bigIntJson.ts';
 
