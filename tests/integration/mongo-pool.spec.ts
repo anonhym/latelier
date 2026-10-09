@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet, MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { KEYCHAIN_BLOCKED_MESSAGE, SECRET_UNREADABLE_MESSAGE } from '../../electron/mongo/errors';
 import { ConnectionRepo } from '../../electron/db/repositories/ConnectionRepo';
@@ -480,7 +480,204 @@ describe('MongoPool', () => {
     expect(info.version).toMatch(/^\d/);
     expect(info.databaseCount).toBeGreaterThanOrEqual(0);
     expect(info.connectionsCurrent).toBeGreaterThanOrEqual(0);
+    // mongodb-memory-server is a standalone.
+    expect(info.topology).toBe('Single');
     await pool.disconnectAll();
+  });
+
+  describe('topology from the hello reply (#281)', () => {
+    // A MongoClient stand-in that records the name of every admin command and
+    // answers `hello` / `isMaster` from the test. `buildInfo` and `ping` succeed;
+    // everything else rejects, as a role without the privilege would.
+    const makeHelloClient = (answers: { hello?: () => unknown; isMaster?: () => unknown }) => {
+      const commands: string[] = [];
+      const client = {
+        connect: async () => {},
+        close: async () => {},
+        on: () => {},
+        db: () => ({
+          command: async (cmd: Record<string, unknown>) => {
+            const name = Object.keys(cmd)[0]!;
+            commands.push(name);
+            if (name === 'buildInfo') return { version: '8.0.0' };
+            if (name === 'ping') return { ok: 1 };
+            const answer = (answers as Record<string, (() => unknown) | undefined>)[name];
+            if (answer) return answer();
+            throw new Error(`unexpected command ${name}`);
+          },
+        }),
+      } as unknown as import('mongodb').MongoClient;
+      return { client, commands };
+    };
+
+    const poolWithClient = (client: import('mongodb').MongoClient, log?: ConstructorParameters<typeof MongoPool>[0]['log']) => {
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      return new MongoPool({ repo: makeReader([makeConnection('c1', hp)]), vault, log, clientFactory: () => client });
+    };
+
+    it('reports Single for a real standalone on connect, serverInfo and probe', async () => {
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const pool = new MongoPool({ repo: makeReader([makeConnection('c1', hp)]), vault });
+
+      await pool.readClient('c1');
+      expect(pool.status('c1').topology).toBe('Single');
+      expect((await pool.serverInfo('c1')).topology).toBe('Single');
+      expect((await pool.probe(makeConnection('probe', hp))).topology).toBe('Single');
+      await pool.disconnectAll();
+    });
+
+    // The one real replica set in the suite: a hand-built hello can only show
+    // that the pool trusts the reply, this shows the reply a mongod actually
+    // sends classifies. Started on first use and stopped in afterAll, like the
+    // shared standalone.
+    describe('real replica set', () => {
+      let replSet: MongoMemoryReplSet | undefined;
+      afterAll(async () => {
+        await replSet?.stop();
+      }, 60_000);
+
+      it('reports ReplicaSet on connect, serverInfo and probe', async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        const rsHp = uriToHostPort(replSet.getUri());
+        tmp = createTempDb();
+        vault = new SecretsVault(tmp.db, createSafeStorageMock());
+        const pool = new MongoPool({ repo: makeReader([makeConnection('rs', rsHp)]), vault });
+
+        await pool.readClient('rs');
+        expect(pool.status('rs').topology).toBe('ReplicaSet');
+        expect((await pool.serverInfo('rs')).topology).toBe('ReplicaSet');
+        expect((await pool.probe(makeConnection('probe', rsHp))).topology).toBe('ReplicaSet');
+        await pool.disconnectAll();
+      }, 90_000);
+    });
+
+    it('reports Single for a real standalone when a logger is attached too', async () => {
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const noop = () => {};
+      const log = { debug: noop, info: noop, warn: noop, error: noop };
+      const pool = new MongoPool({ repo: makeReader([makeConnection('c1', hp)]), vault, log });
+
+      await pool.readClient('c1');
+      expect(pool.status('c1').topology).toBe('Single');
+      expect((await pool.probe(makeConnection('probe', hp))).topology).toBe('Single');
+      await pool.disconnectAll();
+    });
+
+    it.each([
+      ['a replica set member', { setName: 'rs0', isWritablePrimary: true, ok: 1 }, 'ReplicaSet'],
+      ['a mongos', { msg: 'isdbgrid', isWritablePrimary: true, ok: 1 }, 'Sharded'],
+    ] as const)('takes the topology from the hello reply of %s', async (_name, reply, expected) => {
+      const { client } = makeHelloClient({ hello: () => reply });
+      const pool = poolWithClient(client);
+
+      await pool.connect('c1');
+      expect(pool.status('c1').topology).toBe(expected);
+      expect((await pool.serverInfo('c1')).topology).toBe(expected);
+      expect((await pool.probe(makeConnection('probe', hp))).topology).toBe(expected);
+      await pool.disconnectAll();
+    });
+
+    it('falls back to isMaster on a server that predates hello', async () => {
+      const { client, commands } = makeHelloClient({
+        hello: () => {
+          throw new Error('no such command: hello');
+        },
+        isMaster: () => ({ ismaster: true, ok: 1 }),
+      });
+      const pool = poolWithClient(client);
+
+      await pool.connect('c1');
+      expect(pool.status('c1').topology).toBe('Single');
+      expect(commands.filter((c) => c === 'hello' || c === 'isMaster')).toEqual(['hello', 'isMaster']);
+      await pool.disconnectAll();
+    });
+
+    it('drops the topology and version with the connection on disconnect', async () => {
+      const { client } = makeHelloClient({ hello: () => ({ setName: 'rs0', isWritablePrimary: true, ok: 1 }) });
+      const pool = poolWithClient(client);
+
+      await pool.connect('c1');
+      expect(pool.status('c1')).toMatchObject({ status: 'connected', topology: 'ReplicaSet', serverVersion: '8.0.0' });
+
+      await pool.disconnect('c1');
+      const after = pool.status('c1');
+      expect(after.status).toBe('disconnected');
+      expect(after.topology).toBeUndefined();
+      expect(after.serverVersion).toBeUndefined();
+    });
+
+    it('does not show the previous server\'s topology when a reconnect fails', async () => {
+      const replicaSet = makeHelloClient({ hello: () => ({ setName: 'rs0', isWritablePrimary: true, ok: 1 }) }).client;
+      const unreachable = {
+        connect: async () => {
+          throw Object.assign(new Error('Authentication failed'), { codeName: 'AuthenticationFailed' });
+        },
+        close: async () => {},
+        on: () => {},
+        db: () => ({ command: async () => ({}) }),
+      } as unknown as import('mongodb').MongoClient;
+      const clients = [replicaSet, unreachable];
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const pool = new MongoPool({
+        repo: makeReader([makeConnection('c1', hp)]),
+        vault,
+        clientFactory: () => clients.shift()!,
+      });
+
+      await pool.connect('c1');
+      expect(pool.status('c1').topology).toBe('ReplicaSet');
+
+      const failed = await pool.connect('c1');
+      expect(failed.status).toBe('error');
+      expect(failed.topology).toBeUndefined();
+      expect(failed.serverVersion).toBeUndefined();
+    });
+
+    it.each([
+      ['no logger', undefined],
+      ['a logger', { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }],
+    ])('costs one hello round trip on connect with %s', async (_name, log) => {
+      const { client, commands } = makeHelloClient({ hello: () => ({ isWritablePrimary: true, ok: 1 }) });
+      const pool = poolWithClient(client, log);
+
+      await pool.connect('c1');
+      expect(commands).toEqual(['buildInfo', 'hello']);
+      await pool.disconnectAll();
+    });
+
+    it('still connects and reports Unknown when hello fails outright', async () => {
+      const fail = () => {
+        throw new Error('operation timed out');
+      };
+      const { client } = makeHelloClient({ hello: fail, isMaster: fail });
+      const pool = poolWithClient(client);
+
+      await pool.connect('c1');
+      expect(pool.status('c1').status).toBe('connected');
+      expect(pool.status('c1').topology).toBe('Unknown');
+      expect((await pool.serverInfo('c1')).topology).toBe('Unknown');
+      const probed = await pool.probe(makeConnection('probe', hp));
+      expect(probed.ok).toBe(true);
+      expect(probed.topology).toBe('Unknown');
+      await pool.disconnectAll();
+    });
+
+    it('logs the failure at debug when hello fails and a logger is attached', async () => {
+      const fail = () => {
+        throw new Error('operation timed out');
+      };
+      const { client } = makeHelloClient({ hello: fail, isMaster: fail });
+      const debug = vi.fn();
+      const pool = poolWithClient(client, { debug, info: () => {}, warn: () => {}, error: () => {} });
+
+      await pool.connect('c1');
+      expect(debug).toHaveBeenCalledWith('mongo', 'hello snapshot failed', expect.objectContaining({ source: 'connect', message: 'operation timed out' }));
+      await pool.disconnectAll();
+    });
   });
 
 
@@ -1098,6 +1295,8 @@ describe('MongoPool', () => {
         });
         await pool.readClient('lost');
         expect(pool.status('lost').status).toBe('connected');
+        expect(pool.status('lost').topology).toBe('Single');
+        expect(pool.status('lost').serverVersion).toMatch(/^\d/);
 
         const seen: string[] = [];
         pool.on('status', (r: { status: string }) => seen.push(r.status));
@@ -1114,6 +1313,9 @@ describe('MongoPool', () => {
 
         expect(pool.status('lost').status).toBe('disconnected');
         expect(pool.status('lost').connectedAt).toBeUndefined();
+        // What the dead connection learned about its server is gone with it.
+        expect(pool.status('lost').topology).toBeUndefined();
+        expect(pool.status('lost').serverVersion).toBeUndefined();
         // No errorCode: an involuntary drop renders Dormant, not failed.
         expect(pool.status('lost').errorCode).toBeUndefined();
         // The renderer's existing mongo.onStatus subscription rides this emit,
