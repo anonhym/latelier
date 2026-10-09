@@ -161,7 +161,7 @@ describe('writes naming an unknown connection answer NOT_FOUND, not INTERNAL', (
 // the sole foreign key. A later migration that adds a second one must fail
 // here, not ship as a mislabelled NOT_FOUND.
 describe('tables written with a caller-supplied connectionId have connection_id as their only foreign key', () => {
-  it.each(['saved_queries', 'workspace_tabs', 'reference_rules', 'recent_field_values'])(
+  it.each(['saved_queries', 'workspace_tabs', 'reference_rules', 'recent_field_values', 'recent_queries'])(
     '%s',
     (table) => {
       const tmp = createTempDb();

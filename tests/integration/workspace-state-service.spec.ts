@@ -306,6 +306,15 @@ describe('WorkspaceStateService', () => {
         expect(stagesOf(a.id)).toEqual([]);
         expect(stagesOf(b.id)).toEqual([]);
       });
+
+      // `tabs:update` stores the aggregation state unchecked; SQLite throws
+      // binding `true` or an object, and that must not fail every later list.
+      it.each([true, { id: 'x' }])('skips a savedId of %j instead of failing the list', (savedId) => {
+        const tab = emptiedTab({ stages: [], activeStageId: null, savedId });
+
+        expect(svc.list()).toHaveLength(1);
+        expect(stagesOf(tab.id)).toEqual([]);
+      });
     });
   });
 

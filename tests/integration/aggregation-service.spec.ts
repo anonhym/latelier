@@ -454,6 +454,46 @@ describe('AggregationService', () => {
       });
       expect(res.writtenCount).toBeGreaterThan(0);
     });
+
+    // ADR 0005: refuse before anything asks the server. A `$merge` counts its
+    // target before writing, and that count has to wait for the refusal and
+    // for local validation, or a read-only connection is queried first and a
+    // malformed stage waits out a scan of the target before it is reported.
+    it('runAndSave() with $merge refuses a read-only connection before counting the target', async () => {
+      const readDb = vi.spyOn(guardPool, 'readDb');
+      try {
+        await expect(
+          guardSvc.runAndSave({
+            connectionId: roConnId,
+            dbName,
+            collection: collName,
+            stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+            target: { dbName, collection: 'ro_guard_merge', mode: '$merge' },
+          }),
+        ).rejects.toMatchObject({ code: 'READ_ONLY' });
+        expect(readDb).not.toHaveBeenCalled();
+      } finally {
+        readDb.mockRestore();
+      }
+    });
+
+    it('runAndSave() with $merge reports a malformed stage before counting the target', async () => {
+      const readDb = vi.spyOn(guardPool, 'readDb');
+      try {
+        await expect(
+          guardSvc.runAndSave({
+            connectionId: rwConnId,
+            dbName,
+            collection: collName,
+            stages: [{ id: 1, op: '$match', body: '{ nope', enabled: true }],
+            target: { dbName, collection: 'rw_guard_merge', mode: '$merge' },
+          }),
+        ).rejects.toMatchObject({ code: 'VALIDATION' });
+        expect(readDb).not.toHaveBeenCalled();
+      } finally {
+        readDb.mockRestore();
+      }
+    });
   });
 });
 
