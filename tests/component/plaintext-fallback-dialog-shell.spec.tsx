@@ -133,7 +133,7 @@ describe('SECRETS_UNAVAILABLE dialog copy by platform (#396)', () => {
     const modal = screen.getByTestId('keychain-blocked-modal');
 
     expect(within(modal).getByText(/Quit and reopen L'Atelier/)).toBeTruthy();
-    expect(modal.textContent).not.toMatch(/libsecret|plaintext|mongolab\.db/i);
+    expect(modal.textContent).not.toMatch(/libsecret|plaintext|(?:mongolab|latelier)\.db/i);
     expect(screen.queryByTestId('plaintext-fallback-modal')).toBeNull();
     expect(within(modal).queryByText(/Store as plaintext/i)).toBeNull();
 
@@ -150,13 +150,13 @@ describe('SECRETS_UNAVAILABLE dialog copy by platform (#396)', () => {
     await waitFor(() => expect(document.activeElement).toBe(save));
   });
 
-  it('Linux keeps the plaintext flow and names "the local database", not mongolab.db', async () => {
+  it('Linux keeps the plaintext flow and names "the local database", not the database filename', async () => {
     setPlatform('linux');
     await openFallback();
     const modal = fallback();
     expect(within(modal).getByText(/Store as plaintext/i)).toBeTruthy();
     expect(modal.textContent).toContain('libsecret');
     expect(modal.textContent).toContain('the local database');
-    expect(modal.textContent).not.toContain('mongolab.db');
+    expect(modal.textContent).not.toMatch(/(?:mongolab|latelier)\.db/);
   });
 });
