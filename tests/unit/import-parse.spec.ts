@@ -112,6 +112,19 @@ describe('parseJsonArray', () => {
     }
   });
 
+  // Both formats hand the parsed value straight to the reviver, with no
+  // JSON.stringify in between (which would write -0 as 0 and Infinity as null),
+  // so a JSON array and a JSONL line agree on the numbers JSON.parse produces.
+  it.each([
+    ['a JSON array', (text: string) => (parseJsonArray(`[${text}]`)[0] as { doc: Record<string, unknown> }).doc],
+    ['a JSONL line', (text: string) => (parseJsonlLine(text, 1) as { doc: Record<string, unknown> }).doc],
+  ])('keeps -0 as -0 and an overflowing exponent as Infinity in %s', (_name, parse) => {
+    const doc = parse('{"zero":-0,"up":1e400,"down":-1e400}');
+    expect(Object.is(doc.zero, -0)).toBe(true);
+    expect(doc.up).toBe(Infinity);
+    expect(doc.down).toBe(-Infinity);
+  });
+
   it('still reports a bad element by index when its neighbours hold big integers', () => {
     expect(parseJsonArray('[{"a":9007199254740993}, 5, {"b":9007199254740993}]')).toEqual([
       { at: 0, doc: { a: expect.any(Long) } },
