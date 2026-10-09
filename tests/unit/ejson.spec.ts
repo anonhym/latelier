@@ -598,6 +598,23 @@ describe('safeEjsonParse — malformed $date / $binary content is rejected', () 
     expect(() => ejsonParse(raw)).toThrow(/invalid \$date value.*garbage/);
   });
 
+  it('names a bare integer $date beyond 2^53 by the digits that were typed, not by the sentinel the parse made of it', () => {
+    // 1700000000000000000 ms is far past the Date range. The parse keeps the
+    // digits exact as {"$numberLong":"…"}; the message shows the digits.
+    expect(() => ejsonParse('{"a":{"$date":1700000000000000000}}')).toThrow(
+      /^invalid \$date value: 1700000000000000000$/,
+    );
+    expect(() => ejsonParse('{"a":{"$date":-1700000000000000000}}')).toThrow(
+      /^invalid \$date value: -1700000000000000000$/,
+    );
+  });
+
+  it('still quotes a non-numeric $date value as JSON, and shows a sentinel with more than $numberLong as is', () => {
+    expect(() => ejsonParse('{"a":{"$date":{"$numberLong":"1700000000000000000","x":1}}}')).toThrow(
+      /invalid \$date value: \{"\$numberLong":"1700000000000000000","x":1\}/,
+    );
+  });
+
   it('a valid $date still round-trips to the correct instant (no regression)', () => {
     const result = ejsonParse('{"a":{"$date":"2026-01-01T00:00:00Z"}}') as { a: Date };
     expect(result.a).toBeInstanceOf(Date);

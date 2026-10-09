@@ -101,6 +101,16 @@ function validateBinarySentinel(value: unknown): void {
   }
 }
 
+/**
+ * A `$date` value for an error message. A bare integer beyond 2^53 reaches the
+ * walk as `{"$numberLong":"<digits>"}` (see `parseJsonKeepingBigInts`), so a
+ * lone one is shown as the digits the user typed.
+ */
+function describeDateValue(value: unknown): string {
+  const long = (value as { $numberLong?: unknown } | null)?.$numberLong;
+  return typeof long === 'string' && Object.keys(value as object).length === 1 ? long : JSON.stringify(value);
+}
+
 function walkRevive(node: unknown): unknown {
   if (node === null || typeof node !== 'object') return node;
   if (Array.isArray(node)) return (node as unknown[]).map(walkRevive);
@@ -116,7 +126,7 @@ function walkRevive(node: unknown): unknown {
     // validating the revived BSON value is equivalent and simpler than
     // re-deriving the check from the raw sentinel.
     if (revived instanceof Date && Number.isNaN(revived.getTime())) {
-      throw new Error(`invalid $date value: ${JSON.stringify(obj.$date)}`);
+      throw new Error(`invalid $date value: ${describeDateValue(obj.$date)}`);
     }
     if (revived instanceof BSONRegExp) {
       validateRegexPattern(revived.pattern);
