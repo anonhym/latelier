@@ -123,7 +123,7 @@ Three cards (Server, Storage, Performance) in a flex-wrap row — same as mock. 
 ## 8. Test cases
 
 ### Integration (against `mongodb-memory-server`)
-- **serverinfo-basics.spec.ts**: returns populated fields; `databaseCount >= 1`; topology is `Single` for in-memory, with and without a logger attached; a client whose `hello` fails still connects and reports `Unknown`.
+- **`tests/integration/mongo-pool.spec.ts`**: returns populated fields; `databaseCount >= 1`; topology is `Single` for in-memory, with and without a logger attached; a client whose `hello` fails still connects and reports `Unknown`.
 - **opcounters-delta.spec.ts**: two successive calls on a quiet server report a small (≥ 0, < large) per-sec rate.
 - **index-count-skip.spec.ts**: stub `listDatabases` to return 60 entries → `indexCount === null`.
 

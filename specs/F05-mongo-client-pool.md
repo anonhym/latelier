@@ -95,7 +95,7 @@ export interface ServerInfo {
 export interface ProbeResult {
   ok: boolean;
   serverVersion?: string;
-  topology?: string;
+  topology?: 'Single' | 'ReplicaSet' | 'Sharded' | 'Unknown';
   roundTripMs?: number;
   errorCode?: 'AUTH' | 'NETWORK' | 'TIMEOUT' | 'TLS' | 'UNKNOWN';
   errorMessage?: string;
@@ -149,7 +149,7 @@ function buildUri(c: Connection, password?: string): string {
 2. If `status === 'connected'`, return existing client.
 3. If `status === 'connecting'`, await the shared promise.
 4. Else set `status = 'connecting'`, build URI, decrypt password, `new MongoClient(...)`, `.connect()`.
-5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve. `topology` is classified from one `hello` reply (`isMaster` on MongoDB < 4.4), fetched with or without a logger; the same reply feeds the debug snapshot log. A failed hello leaves `topology = 'Unknown'` and never fails the connect.
+5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve. `topology` is classified from one `hello` reply (`isMaster` on MongoDB < 4.4), fetched with or without a logger; the same reply feeds the `hello snapshot` log entry (info level). A failed hello leaves `topology = 'Unknown'` and never fails the connect.
 6. On failure → set `status = 'error'`, store `errorMessage`, reject all waiters, do not retain the client.
 7. Subsequent `getClient` calls after an error re-attempt from step 4.
 
@@ -162,7 +162,7 @@ function buildUri(c: Connection, password?: string): string {
   - C02 `connect` IPC — called to warm the pool post-save (optional).
 
 ### disconnect / disconnectAll
-- `await client.close()`. Remove from map. Set status `disconnected`.
+- `await client.close()`. Remove from map. Set status `disconnected`. `serverVersion` and `topology` are cleared with it, and also when the connection drops on its own or a later connect attempt fails: they describe the server a live connection reached, so `status()` never reports them next to `disconnected` or `error`.
 - `disconnectAll` runs in parallel (`Promise.allSettled`) and logs any failures.
 
 ## 5. Events
