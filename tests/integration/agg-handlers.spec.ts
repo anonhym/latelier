@@ -109,6 +109,37 @@ describe('agg:* channels via router', () => {
     await stopSharedServer();
   });
 
+  // Every channel but agg:cancel validates the same collection target and stage
+  // shape; a required string is covered both empty and absent, and the service
+  // must not be reached for either.
+  describe.each([
+    ['agg:run', IPC_CHANNELS.aggRun, 'run', {}],
+    ['agg:previewUpToStage', IPC_CHANNELS.aggPreviewUpToStage, 'previewUpToStage', {}],
+    [
+      'agg:runAndSave',
+      IPC_CHANNELS.aggRunAndSave,
+      'runAndSave',
+      { target: { dbName: DB, collection: 'never_written', mode: '$out' } },
+    ],
+    ['agg:explain', IPC_CHANNELS.aggExplain, 'explain', { verbosity: 'queryPlanner' }],
+  ] as const)('%s required fields', (_name, channel, method, extra) => {
+    it.each([
+      ...(['connectionId', 'dbName', 'collection'] as const).flatMap((key) => [
+        [`an empty ${key}`, { [key]: '' }, key] as const,
+        [`a missing ${key}`, { [key]: undefined }, key] as const,
+      ]),
+      ['an empty stage op', { stages: [stage(1, '', '{}')] }, 'stages.0.op'] as const,
+      ['a missing stage op', { stages: [{ id: 1, body: '{}', enabled: true }] }, 'stages.0.op'] as const,
+      ['a non-string stage body', { stages: [{ id: 1, op: '$match', body: 5, enabled: true }] }, 'stages.0.body'] as const,
+      ['a missing enabled flag', { stages: [{ id: 1, op: '$match', body: '{}' }] }, 'stages.0.enabled'] as const,
+      ['a non-boolean enabled flag', { stages: [{ id: 1, op: '$match', body: '{}', enabled: 'yes' }] }, 'stages.0.enabled'] as const,
+    ])('rejects %s at the schema without calling the service', async (_what, overrides, path) => {
+      const called = vi.spyOn(svc, method as 'run');
+      expectSchemaReject(await shim.invoke(channel, input({ ...extra, ...overrides })), path);
+      expect(called).not.toHaveBeenCalled();
+    });
+  });
+
   describe('agg:run', () => {
     it('returns the rows with per-stage counts', async () => {
       const env = await shim.invoke<AggResultWire>(
@@ -153,9 +184,6 @@ describe('agg:* channels via router', () => {
       ['a limit over the 10000 cap', { limit: 10_001 }, 'limit'],
       ['a fractional limit', { limit: 1.5 }, 'limit'],
       ['a fractional stage id', { stages: [stage(1.5, '$match', '{}')] }, 'stages.0.id'],
-      ['an empty stage op', { stages: [stage(1, '', '{}')] }, 'stages.0.op'],
-      ['an empty connectionId', { connectionId: '' }, 'connectionId'],
-      ['a missing collection', { collection: undefined }, 'collection'],
     ])('rejects %s at the schema', async (_what, overrides, path) => {
       expectSchemaReject(await shim.invoke(IPC_CHANNELS.aggRun, input(overrides)), path);
     });
@@ -357,26 +385,35 @@ describe('agg:* channels via router', () => {
           },
         }),
       );
-      expect(discard.ok && discard.data.writtenCount).toBe(0);
+      expect(discard.ok).toBe(true);
+      if (!discard.ok) return;
+      expect(discard.data.writtenCount).toBe(0);
 
       const insert = await shim.invoke<{ writtenCount?: number }>(
         IPC_CHANNELS.aggRunAndSave,
         save({ target: { dbName: DB, collection: 'merged_insert', mode: '$merge' } }),
       );
-      expect(insert.ok && insert.data.writtenCount).toBe(3);
+      expect(insert.ok).toBe(true);
+      if (!insert.ok) return;
+      expect(insert.data.writtenCount).toBe(3);
     });
 
     it.each([
       ['a mode outside the enum', { target: { dbName: DB, collection: 'x', mode: '$append' } }, 'target.mode'],
       ['a missing target', { target: undefined }, 'target'],
       ['an empty target collection', { target: { dbName: DB, collection: '', mode: '$out' } }, 'target.collection'],
+      ['a missing target collection', { target: { dbName: DB, mode: '$out' } }, 'target.collection'],
+      ['an empty target dbName', { target: { dbName: '', collection: 'x', mode: '$out' } }, 'target.dbName'],
+      ['a missing target dbName', { target: { collection: 'x', mode: '$out' } }, 'target.dbName'],
       [
         'a whenMatched outside the enum',
         { target: { dbName: DB, collection: 'x', mode: '$merge', merge: { whenMatched: 'bogus' } } },
         'target.merge.whenMatched',
       ],
-    ])('rejects %s at the schema', async (_what, overrides, path) => {
+    ])('rejects %s at the schema without calling the service', async (_what, overrides, path) => {
+      const called = vi.spyOn(svc, 'runAndSave');
       expectSchemaReject(await shim.invoke(IPC_CHANNELS.aggRunAndSave, save(overrides)), path);
+      expect(called).not.toHaveBeenCalled();
     });
 
     it('answers VALIDATION from the service for a malformed target collection name', async () => {
@@ -439,7 +476,9 @@ describe('agg:* channels via router', () => {
           verbosity: 'queryPlanner',
         }),
       );
-      expect(env.ok && env.data.writeStageOmitted).toBe(true);
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      expect(env.data.writeStageOmitted).toBe(true);
       expect(await exists('explain_never_written')).toBe(false);
     });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { MongoClient } from 'mongodb';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type { IndexInfo } from '@shared/types';
@@ -32,6 +32,7 @@ const CONN = 'index-conn';
 describe('index:list via router', () => {
   let tmp: TempDb;
   let pool: MongoPool;
+  let svc: IndexService;
   const shim = createIpcShim();
   const target = (overrides: Record<string, unknown> = {}) => ({
     connectionId: CONN,
@@ -59,8 +60,13 @@ describe('index:list via router', () => {
       repo: makeReader([makeConnection(CONN, uriToHostPort(server.getUri()), { defaultDb: DB })]),
       vault: new SecretsVault(tmp.db, createSafeStorageMock()),
     });
-    registerIndexChannels(createRouter(shim.ipcMain, testSenderCheck), new IndexService(pool));
+    svc = new IndexService(pool);
+    registerIndexChannels(createRouter(shim.ipcMain, testSenderCheck), svc);
   }, 60_000);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   afterAll(async () => {
     await pool.disconnectAll();
@@ -93,17 +99,23 @@ describe('index:list via router', () => {
   it.each([
     ['a missing collection', { collection: undefined }, 'collection'],
     ['an empty collection', { collection: '' }, 'collection'],
+    ['a missing dbName', { dbName: undefined }, 'dbName'],
     ['an empty dbName', { dbName: '' }, 'dbName'],
+    ['a missing connectionId', { connectionId: undefined }, 'connectionId'],
     ['an empty connectionId', { connectionId: '' }, 'connectionId'],
-  ])('rejects %s at the schema', async (_what, overrides, path) => {
+  ])('rejects %s at the schema without calling the service', async (_what, overrides, path) => {
+    const list = vi.spyOn(svc, 'list');
     expectSchemaReject(await shim.invoke(IPC_CHANNELS.indexList, target(overrides)), path);
+    expect(list).not.toHaveBeenCalled();
   });
 
-  it('rejects no payload at all with VALIDATION', async () => {
+  it('rejects no payload at all with VALIDATION without calling the service', async () => {
+    const list = vi.spyOn(svc, 'list');
     const env = await shim.invoke(IPC_CHANNELS.indexList);
     expect(env.ok).toBe(false);
     if (env.ok) return;
     expect(env.error.code).toBe('VALIDATION');
+    expect(list).not.toHaveBeenCalled();
   });
 
   it('answers NOT_FOUND for an unknown connection', async () => {

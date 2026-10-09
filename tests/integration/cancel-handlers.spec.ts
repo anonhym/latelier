@@ -55,7 +55,8 @@ describe.each([
   it('rejects no payload at all with VALIDATION without cancelling anything', async () => {
     const env = await shim.invoke(channel);
     expect(env.ok).toBe(false);
-    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    if (env.ok) return;
+    expect(env.error.code).toBe('VALIDATION');
     expect(cancel).not.toHaveBeenCalled();
   });
 });
