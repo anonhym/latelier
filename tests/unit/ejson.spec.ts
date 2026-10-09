@@ -609,9 +609,13 @@ describe('safeEjsonParse — malformed $date / $binary content is rejected', () 
     );
   });
 
-  it('still quotes a non-numeric $date value as JSON, and shows a sentinel with more than $numberLong as is', () => {
-    expect(() => ejsonParse('{"a":{"$date":{"$numberLong":"1700000000000000000","x":1}}}')).toThrow(
-      /invalid \$date value: \{"\$numberLong":"1700000000000000000","x":1\}/,
+  it('still quotes a string $date value as JSON', () => {
+    expect(() => ejsonParse('{"a":{"$date":"garbage"}}')).toThrow(/^invalid \$date value: "garbage"$/);
+  });
+
+  it('names the digits of an explicit canonical $date too', () => {
+    expect(() => ejsonParse('{"a":{"$date":{"$numberLong":"1700000000000000000"}}}')).toThrow(
+      /^invalid \$date value: 1700000000000000000$/,
     );
   });
 

@@ -103,12 +103,13 @@ function validateBinarySentinel(value: unknown): void {
 
 /**
  * A `$date` value for an error message. A bare integer beyond 2^53 reaches the
- * walk as `{"$numberLong":"<digits>"}` (see `parseJsonKeepingBigInts`), so a
- * lone one is shown as the digits the user typed.
+ * walk as `{"$numberLong":"<digits>"}` (see `parseJsonKeepingBigInts`), so that
+ * one is shown as the digits the user typed. Only a string or such a sentinel
+ * gets this far: `EJSON.parse` rejects every other `$date` shape first (checked
+ * for null, numbers, arrays and other sentinels), so `value` is never null.
  */
 function describeDateValue(value: unknown): string {
-  const long = (value as { $numberLong?: unknown } | null)?.$numberLong;
-  return typeof long === 'string' && Object.keys(value as object).length === 1 ? long : JSON.stringify(value);
+  return (value as { $numberLong?: string }).$numberLong ?? JSON.stringify(value);
 }
 
 function walkRevive(node: unknown): unknown {
