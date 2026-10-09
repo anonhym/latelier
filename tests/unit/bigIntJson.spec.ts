@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseJsonKeepingBigInts } from '../../src/utils/bigIntJson';
+import { parseJsonKeepingBigInts, prettyPrintJsonKeepingBigInts } from '../../src/utils/bigIntJson';
 
 // ─── Bare integers beyond 2^53 ──────────────────────────────────────────────
 // `JSON.parse` rounds `9007199254740993` to `9007199254740992` before any
@@ -171,6 +171,11 @@ describe('parseJsonKeepingBigInts — no JSON.parse source text available', () =
     expect(() => parseJsonKeepingBigInts('{"a":-9223372036854775808}')).toThrow(/no source text/);
   });
 
+  it('pretty-printing refuses it too, instead of writing the rounded digits back', () => {
+    withoutSourceText();
+    expect(() => prettyPrintJsonKeepingBigInts('{"a":9007199254740993}', 2)).toThrow(/no source text/);
+  });
+
   it('still parses everything that needs no source text', () => {
     withoutSourceText();
     expect(parseJsonKeepingBigInts('{"a":1.5,"b":1234567890123456,"c":"x","d":null,"e":[true]}')).toEqual({
@@ -180,5 +185,87 @@ describe('parseJsonKeepingBigInts — no JSON.parse source text available', () =
       d: null,
       e: [true],
     });
+  });
+});
+
+// `JSON.stringify(JSON.parse(s), null, 2)` writes `9007199254740993` back as
+// `9007199254740992`. Pretty-printing keeps the user's digits and otherwise
+// matches that round trip, so every expectation below that is not about a big
+// integer is computed from it rather than restated by hand.
+describe('prettyPrintJsonKeepingBigInts', () => {
+  const pretty = (raw: string): string => prettyPrintJsonKeepingBigInts(raw, 2);
+  const plainRoundTrip = (raw: string): string => JSON.stringify(JSON.parse(raw), null, 2);
+
+  it.each([
+    ['2^53 + 1', '9007199254740993'],
+    ['2^53 exactly (the first integer isSafeInteger rejects)', '9007199254740992'],
+    ['negative -(2^53 + 1)', '-9007199254740993'],
+    ['int64 max', '9223372036854775807'],
+    ['int64 min', '-9223372036854775808'],
+    ['one past int64 max (no int64 ceiling: nothing changes type here)', '9223372036854775808'],
+    ['a 21-digit integer', '123456789012345678901'],
+  ])('%s keeps its exact digits', (_name, token) => {
+    expect(pretty(`{"a":${token}}`)).toBe(`{\n  "a": ${token}\n}`);
+  });
+
+  it('keeps the digits exact inside arrays and nested objects, at any depth', () => {
+    expect(pretty('{"a":[1,{"b":9007199254740993}],"c":{"d":[[-9007199254740993]]}}')).toBe(
+      [
+        '{',
+        '  "a": [',
+        '    1,',
+        '    {',
+        '      "b": 9007199254740993',
+        '    }',
+        '  ],',
+        '  "c": {',
+        '    "d": [',
+        '      [',
+        '        -9007199254740993',
+        '      ]',
+        '    ]',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps a lone top-level scalar exact', () => {
+    expect(pretty('  -9007199254740993\n')).toBe('-9007199254740993');
+  });
+
+  it('writes at the indent asked for', () => {
+    expect(prettyPrintJsonKeepingBigInts('{"a":[9007199254740993]}', 0)).toBe('{"a":[9007199254740993]}');
+    expect(prettyPrintJsonKeepingBigInts('{"a":9007199254740993}', 4)).toBe('{\n    "a": 9007199254740993\n}');
+  });
+
+  it('keeps a field named __proto__ as a field', () => {
+    expect(pretty('{"__proto__":9007199254740993}')).toBe('{\n  "__proto__": 9007199254740993\n}');
+  });
+
+  it.each([
+    ['a safe 16-digit integer', '{"a":1234567890123456}'],
+    ['the largest safe integer', '{"a":9007199254740991}'],
+    ['a fraction', '{"a":1.5}'],
+    ['an exponent beyond 2^53', '{"a":1e21}'],
+    ['a big integer spelled with a fraction', '{"a":12345678901234567890.0}'],
+    ['an integer spelled with a zero exponent', '{"a":9007199254740993e0}'],
+    ['a string that looks like a big integer', '{"a":"9007199254740993"}'],
+    ['strings, booleans, null and an empty array', '{"s":"x","t":true,"n":null,"e":[]}'],
+  ])('writes %s the way the plain round trip does', (_name, raw) => {
+    // The first field is the case under test; a real big integer after it
+    // forces the reviver to see it.
+    const withBig = raw.replace(/}$/, ',"big":9007199254740993}');
+    expect(pretty(withBig)).toBe(plainRoundTrip(raw).replace(/\n}$/, ',\n  "big": 9007199254740993\n}'));
+  });
+
+  it('leaves a typed $numberLong sentinel as the sentinel, not a bare integer', () => {
+    expect(pretty('{"a":{"$numberLong":"9007199254740993"},"b":9007199254740993}')).toBe(
+      ['{', '  "a": {', '    "$numberLong": "9007199254740993"', '  },', '  "b": 9007199254740993', '}'].join('\n'),
+    );
+  });
+
+  it('throws the SyntaxError JSON.parse throws for text that is not JSON', () => {
+    expect(() => pretty('{"a":9007199254740993')).toThrow(SyntaxError);
   });
 });

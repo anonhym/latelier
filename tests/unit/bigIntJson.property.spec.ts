@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { parseJsonKeepingBigInts } from '../../src/utils/bigIntJson';
+import { parseJsonKeepingBigInts, prettyPrintJsonKeepingBigInts } from '../../src/utils/bigIntJson';
 
 // `JSON.parse` rounds any integer token past 2^53. The invariant, for every
 // token a user can type: |n| < 2^53 stays a JS number, 2^53 <= |n| <= int64
@@ -94,6 +94,18 @@ describe('bigIntJson property: bare integer tokens', () => {
         const got = p.read(parseJsonKeepingBigInts(p.text(token)));
         expect(typeof got).toBe('number');
         expect(got).toBe(JSON.parse(token));
+      }),
+    );
+  });
+
+  it('pretty-printing keeps the digits of any integer, wherever it sits, and is a fixpoint', () => {
+    const anyInteger = fc.oneof(fc.bigInt({ min: -(10n ** 40n), max: 10n ** 40n }), unsafeInt64);
+    fc.assert(
+      fc.property(anyInteger, placement, (n, p) => {
+        const token = n.toString();
+        const out = prettyPrintJsonKeepingBigInts(p.text(token), 2);
+        expect(out).toContain(token);
+        expect(prettyPrintJsonKeepingBigInts(out, 2)).toBe(out);
       }),
     );
   });
