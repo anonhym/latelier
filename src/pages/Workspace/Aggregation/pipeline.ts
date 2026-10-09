@@ -1,4 +1,5 @@
 import type { PipelineState, Stage, StageOp } from '@shared/types';
+import { prettyPrintJsonKeepingBigInts } from '../../../utils/bigIntJson';
 import { isValidEjson } from '../../../utils/ejson';
 import { refusalMessage, repairToCanonicalEjson } from '../../../utils/shellSyntax';
 import { stageOperatorSummary } from '../../../features/fieldSuggestions/operators';
@@ -348,8 +349,8 @@ export function stageSummary(stage: Stage): string {
 
 export function formatBody(body: string): string {
   try {
-    const parsed = JSON.parse(body);
-    return JSON.stringify(parsed, null, 2);
+    // Not `JSON.stringify(JSON.parse(body))`: that rounds an integer beyond 2^53.
+    return prettyPrintJsonKeepingBigInts(body, 2);
   } catch {
     return body;
   }

@@ -381,6 +381,12 @@ function QueryBarInner({
     (state.builder.sort.trim() !== '' ? 1 : 0) +
     (state.builder.limit.trim() !== '' ? 1 : 0);
   const hasAdvanced = advancedCount > 0;
+  // The sort and limit notices render inside the advanced region, so a
+  // collapsed row would hide the reason Run is disabled (a sort that cannot
+  // parse) or that the limit is coerced. The same two conditions the notices
+  // use are counted here so the collapsed badge can say so (W14 §2).
+  const advancedProblems =
+    ((sortField.refusal ?? sortError) !== null ? 1 : 0) + (limitError !== null ? 1 : 0);
 
   // W14 §1 — `useState(hasAdvanced)` alone froze the row at whatever
   // the first tab looked like: QueryBar has no `key` at its mount site and
@@ -620,6 +626,12 @@ function QueryBarInner({
               // trim the right padding only while the badge is showing, so
               // it never sits beside the expanded label cells below.
               paddingRight: !advancedOpen && hasAdvanced ? 6 : undefined,
+              // "2 set · 2 errors" is wider than the room left beside QUERY
+              // in the 120px track, so the badge drops to its own line
+              // rather than spilling under the filter cell.
+              ...(!advancedOpen && hasAdvanced && advancedProblems > 0
+                ? { flexWrap: 'wrap', rowGap: 2, paddingTop: 3, paddingBottom: 3 }
+                : null),
             }}
           >
             <span
@@ -644,10 +656,12 @@ function QueryBarInner({
               <Badge
                 size="xs"
                 variant="light"
-                color={T.accent}
+                color={advancedProblems > 0 ? T.warn : T.accent}
                 style={{ marginLeft: 'auto', flexShrink: 0 }}
               >
                 {advancedCount} set
+                {advancedProblems > 0 &&
+                  ` · ${advancedProblems} ${advancedProblems === 1 ? 'error' : 'errors'}`}
               </Badge>
             )}
           </div>

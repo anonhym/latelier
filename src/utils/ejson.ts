@@ -1,4 +1,5 @@
 import { EJSON } from 'bson';
+import { parseJsonKeepingBigInts } from './bigIntJson';
 
 // Mirror of electron/mongo/ejson.ts:safeEjsonParse — kept in sync manually
 // because shared/ is types-only and cannot import from electron/.
@@ -54,8 +55,14 @@ function walkRevive(node: unknown): unknown {
   return result;
 }
 
+/**
+ * Parse EJSON text. A bare integer token beyond 2^53 (`{ n: 9007199254740993 }`)
+ * is kept exact as a Long instead of rounding to a double: the Document
+ * editor and the diff re-parse what the user typed here, so a rounded token
+ * would be saved wrong before main ever saw it.
+ */
 export function ejsonParse<T = unknown>(s: string): T {
-  return walkRevive(JSON.parse(s) as unknown) as T;
+  return walkRevive(parseJsonKeepingBigInts(s)) as T;
 }
 
 export function ejsonStringify(v: unknown, indent?: number): string {

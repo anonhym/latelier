@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { buildIdFilter } from './views/docId';
@@ -136,9 +137,16 @@ export function DeleteConfirm({
         auditId = res.auditId;
         message = `${res.deletedCount.toLocaleString()} document${res.deletedCount === 1 ? '' : 's'} deleted`;
       }
+      // This dialog's own collection, not the Focused Tab's: focus can move
+      // while the request is in flight, and the caller only sees the tab it
+      // finds at completion.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       onDeleted(auditId, message);
       onClose();
     } catch (e) {
+      // A deleteMany that fails can stop part-way, so the sample is dropped
+      // here too; harmless if the request was refused before touching data.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       setErr(getErrorMessage(e, 'Delete failed'));
     } finally {
       setLoading(false);
