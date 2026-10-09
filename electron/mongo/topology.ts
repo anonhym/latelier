@@ -29,8 +29,10 @@ export interface HelloResponse {
  *
  * Replica-set members all carry `setName` whatever their role — primary,
  * secondary, arbiter, hidden, passive, config server — so one check covers them.
- * A mongos is told apart by `msg: 'isdbgrid'`, which is also what a
- * load-balanced connection reaches. `null` is a hello that failed.
+ * A mongos is told apart by `msg: 'isdbgrid'`. A load-balanced deployment
+ * fronts mongos routers, so it should classify as Sharded too (not checked
+ * against a real balancer; the app cannot build a `loadBalanced` URI today).
+ * `null` is a hello that failed.
  */
 export function topologyFromHello(hello: HelloResponse | null): MongoTopology {
   if (!hello || hello.ok !== 1) return 'Unknown';
