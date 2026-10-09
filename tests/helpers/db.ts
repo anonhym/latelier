@@ -46,18 +46,12 @@ export function createTempDb(): TempDb {
   };
 }
 
-/** Insert a minimal `connections` row (name derived from `id`, names are unique) so FK-bound tables accept rows for `id`. */
+/** Insert a `connections` row with only the columns that have no schema default (name derived from `id`, names are unique) so FK-bound tables accept rows for `id`. */
 export function insertConnectionRow(db: Database, id: string): void {
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO connections (
-       id, name, color, connection_type, host, port,
-       auth_mech, tls_enabled, tls_verify, ssh_enabled,
-       connect_timeout_ms, socket_timeout_ms, server_selection_timeout_ms,
-       read_preference, max_pool_size, direct_connection,
-       created_at, updated_at
-     ) VALUES (?, ?, '#1A6835', 'standard', 'localhost', 27017,
-               'none', 1, 1, 0, 10000, 30000, 30000,
-               'primary', 100, 0, ?, ?)`,
+       id, name, connection_type, host, port, auth_mech, created_at, updated_at
+     ) VALUES (?, ?, 'standard', 'localhost', 27017, 'none', ?, ?)`,
   ).run(id, `Test ${id}`, now, now);
 }
