@@ -102,16 +102,34 @@ describe('opening a saved pipeline from the Saved list', () => {
     );
   });
 
-  it('tells the user when main refuses to open it', async () => {
+  it('names the pipeline when it no longer exists', async () => {
     const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
     mount(async () => {
-      throw Object.assign(new Error('saved query s1 not found'), { code: 'NOT_FOUND' });
+      throw Object.assign(new Error('saved query 7d1c4e0a-uuid not found'), { code: 'NOT_FOUND' });
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' }));
 
     await waitFor(() =>
-      expect(error).toHaveBeenCalledWith('saved query s1 not found', { title: 'Could not open pipeline' }),
+      expect(error).toHaveBeenCalledWith('It no longer exists.', { title: 'Could not open “Top spenders”' }),
+    );
+  });
+
+  it("shows main's reason when it refuses for another cause", async () => {
+    const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
+    mount(async () => {
+      throw Object.assign(new Error('saved pipeline "Top spenders" is unreadable: its stages are missing or malformed'), {
+        code: 'VALIDATION',
+      });
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' }));
+
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        'saved pipeline "Top spenders" is unreadable: its stages are missing or malformed',
+        { title: 'Could not open “Top spenders”' },
+      ),
     );
   });
 });

@@ -68,7 +68,7 @@ export interface SavedQuery extends SavedQuerySummary {
 
 For `kind` `find` and `aggregation`, `saved:create` and `saved:update` require `payload.kind` to equal the query's `kind` and the payload to match that variant's shape (`saved:update` checks against the stored row's kind, since a patch names none), rejecting a mismatch with `VALIDATION`; `script` has no payload variant, so its payload is not checked, and reads never validate, so rows saved before this rule stay readable.
 
-`description` is stored in the payload (`saved:create` sets it) and `saved:update` replaces the payload as a whole, with one exception: an update payload that names no `description` keeps the stored one, so the stages-only payload of the aggregation Save (§5) does not drop what the Save dialog recorded. A `description` the payload does name replaces it, and an empty string clears it. A name-only patch never touches the payload.
+`description` is stored in the payload (`saved:create` sets it) and `saved:update` replaces the payload as a whole, with one exception: an update payload that names no `description` keeps the stored one, so the stages-only payload of the aggregation Save (§5) does not drop what the Save dialog recorded. A `description` the payload does name replaces it, an empty string included: that stores an empty description. A name-only patch never touches the payload.
 
 ## 3. Repo
 

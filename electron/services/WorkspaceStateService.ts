@@ -5,7 +5,6 @@ import type {
   CollectionTabState,
   CollectionView,
   ScriptTab,
-  SavedPayload,
   ScriptTabState,
   Stage,
   WorkspaceTab,
@@ -17,6 +16,7 @@ import {
 } from '@shared/defaults';
 import type { WorkspaceTabRepo, WorkspaceTabRow } from '../db/repositories/WorkspaceTabRepo.ts';
 import { NotFoundError, ValidationError } from '../errors.ts';
+import { SavedAggregationPayloadSchema } from '../ipc/schemas/saved.ts';
 import type { SavedQueryService } from './SavedQueryService.ts';
 import { serializeTabState } from './tabStateResults.ts';
 
@@ -61,7 +61,7 @@ export class WorkspaceStateService {
   }
 
   list(): WorkspaceTab[] {
-    return this.repo.list().map((r) => rowToTab(r));
+    return this.repo.list().map((r) => rowToTab(this.restoreEmptiedPipeline(r)));
   }
 
   get(id: string): WorkspaceTab {
@@ -127,13 +127,11 @@ export class WorkspaceStateService {
    * A `savedId` loads the stored pipeline's stages here, in main, because the
    * renderer's open call carries no stages: seeding the default empty list
    * would show an empty pipeline whose next Save overwrites the stored one.
-   * `initialState.stages`, when given, wins over the stored ones.
    */
   openAggregation(input: OpenAggregationInput): WorkspaceTab {
-    const storedStages =
-      input.savedId && !input.initialState?.stages
-        ? this.storedPipelineStages(input.savedId)
-        : undefined;
+    const storedStages = input.savedId
+      ? this.storedPipelineStages(input.savedId, input)
+      : undefined;
     const aggregationSeed: AggregationTabState = {
       ...DEFAULT_AGGREGATION_TAB_STATE,
       ...(storedStages ? { stages: storedStages } : {}),
@@ -177,14 +175,66 @@ export class WorkspaceStateService {
   }
 
   // Fails rather than falling back to an empty list: a tab opened empty over a
-  // stored pipeline is the state whose Save wipes it. A corrupted payload reads
-  // back as null (see `SavedQueryService.get`), so it lands here too.
-  private storedPipelineStages(savedId: string): Stage[] {
-    const payload = this.saved.get(savedId).payload as SavedPayload | null;
-    if (payload?.kind !== 'aggregation') {
-      throw new ValidationError(`saved query ${savedId} is not an aggregation pipeline`);
+  // stored pipeline is the state whose Save wipes it. Gates on the row's own
+  // `kind` and on stages that pass the schema `saved:update` holds a Save to, not
+  // on the payload's inner `kind`: a row can lack that key and still be saved to,
+  // and a row of another kind can carry an aggregation-shaped payload. A tab
+  // carries its `savedId` into every later Save, so the row must also belong to
+  // the namespace the tab is on, or that Save would overwrite another
+  // collection's pipeline.
+  private storedPipelineStages(
+    savedId: string,
+    ns: { connectionId: string; dbName: string; collection: string },
+  ): Stage[] {
+    const saved = this.saved.get(savedId);
+    if (saved.kind !== 'aggregation') {
+      throw new ValidationError(`saved query "${saved.name}" is not an aggregation pipeline`);
     }
-    return payload.stages;
+    if (
+      saved.connectionId !== ns.connectionId ||
+      saved.dbName !== ns.dbName ||
+      saved.collection !== ns.collection
+    ) {
+      throw new ValidationError(
+        `saved pipeline "${saved.name}" belongs to ${saved.dbName}.${saved.collection}, not ${ns.dbName}.${ns.collection}`,
+      );
+    }
+    // A corrupted payload reads back as null (see `SavedQueryService.get`).
+    const stages = SavedAggregationPayloadSchema.shape.stages.safeParse(
+      (saved.payload as { stages?: unknown } | null)?.stages,
+    );
+    if (!stages.success) {
+      throw new ValidationError(`saved pipeline "${saved.name}" is unreadable: its stages are missing or malformed`);
+    }
+    return stages.data as Stage[];
+  }
+
+  // A tab persisted before `openAggregation` loaded stored stages holds
+  // `stages: []` over a `savedId`, and its next Save would wipe the stored
+  // pipeline. Every stage edit marks the tab `dirty`, so a clean tab with no
+  // stages is one that was never edited: the stored pipeline is its truth. A
+  // pipeline saved empty reads back empty, so there is nothing to change. A row
+  // that is gone or unreadable leaves the tab as it is; one bad tab must not
+  // fail the whole list.
+  private restoreEmptiedPipeline(row: WorkspaceTabRow): WorkspaceTabRow {
+    if (row.kind !== 'collection') return row;
+    const aggregation = parseState<CollectionTabState>(row.state_json).aggregation;
+    if (!aggregation?.savedId || aggregation.dirty || (aggregation.stages?.length ?? 0) > 0) return row;
+    let stages: Stage[];
+    try {
+      stages = this.storedPipelineStages(aggregation.savedId, {
+        connectionId: row.connection_id,
+        dbName: row.db_name,
+        collection: row.collection,
+      });
+    } catch (e) {
+      if (e instanceof NotFoundError || e instanceof ValidationError) return row;
+      throw e;
+    }
+    if (stages.length === 0) return row;
+    const state_json = mergeState(row.state_json, { aggregation: { ...aggregation, stages } });
+    this.repo.updateState(row.id, state_json);
+    return { ...row, state_json };
   }
 
   /**

@@ -97,8 +97,11 @@ Tab state lives in the renderer for responsiveness but is mirrored to main on ev
 - Initial `state` is the default `CollectionTabState` (view=Tree, empty builder, pageSize=50, page=1).
 
 ### `tabs:openAggregation`
-- Always creates a new tab unless `savedId` matches an existing agg tab (still only when `reuseExisting`).
-- Initial `state.stages` is empty, or hydrated from a saved pipeline if `savedId` present (W09). Main does the hydration, since the call carries no stages: an unknown `savedId` answers `NOT_FOUND`, and a saved query that is not a pipeline (or whose payload cannot be read) answers `VALIDATION`, in neither case opening a tab. Stages passed in `initialState` take precedence over the stored ones.
+- Reuses the collection tab already open on `(connectionId, dbName, collection)`, switching it to the Aggregation sub-view; otherwise creates a new collection tab parked there. A `savedId` or `name` reseeds that tab's aggregation state; without either, its aggregation state is kept.
+- Initial `state.stages` is empty, or hydrated from a saved pipeline if `savedId` present (W09). Main does the hydration, since the call carries no stages. The saved query must be a pipeline whose stored stages are readable and which belongs to the same connection, database and collection as the tab, because the tab's Save writes back to it. An unknown `savedId` answers `NOT_FOUND`; any other mismatch answers `VALIDATION`. Neither opens or changes a tab.
+
+### `tabs:list`
+- A saved-pipeline tab that is clean (not `dirty`) yet has no stages gets the stored stages back. Only a tab persisted before the hydration above existed can be in that state, since every stage edit marks the tab `dirty`. A saved query that is gone or unreadable leaves the tab as it is.
 
 ### `tabs:openDefault`
 - Pick first non-system DB; pick its first collection; call `tabs:openCollection` semantics.
