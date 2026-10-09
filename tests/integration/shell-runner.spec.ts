@@ -333,6 +333,49 @@ describe('ShellService — un-awaited results', () => {
     expect(svc!.list()).toHaveLength(1);
   });
 
+  it('a command typed while a multi-line one is pending is not glued onto it', async () => {
+    const sessionId = await seeded();
+    // The REPL prefixes each line with the lines buffered so far and only
+    // clears that buffer when the pending command finishes.
+    svc!.write(sessionId, 'new Promise((r) => {\n');
+    svc!.write(sessionId, 'globalThis.rel2 = r })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'rel2("late-x")', 'late-x')).toContain('late-x');
+    expect(await say(sessionId, '40+3', '43')).toContain('43');
+  });
+
+  it('a multi-line call whose result is pending leaves the next command working', async () => {
+    const sessionId = await seeded();
+    // One write, so the third line arrives before the call can answer.
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments(\n)\n"after-count"\n');
+    await until(() => outputOf(from).includes('after-count'), '"after-count" typed while the count is pending');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count of the multi-line call');
+  });
+
+  it('a multi-line function definition still continues across lines', async () => {
+    const sessionId = await seeded();
+    // Three lines: the second is still incomplete, so it must keep what the first buffered.
+    svc!.write(sessionId, 'function f() {\n');
+    svc!.write(sessionId, 'const x = 40;\n');
+    svc!.write(sessionId, 'return x + 1 }\n');
+    expect(await say(sessionId, 'f()', '41')).toContain('41');
+  });
+
+  it('`_` holds the settled value of an un-awaited result', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count');
+    expect(await say(sessionId, '_ * 100', '300')).toContain('300');
+  });
+
+  it('`_error` holds an un-awaited rejection', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, 'Promise.reject(new Error("kept-error"))', 'kept-error');
+    expect(await say(sessionId, '_error.message + "!"', 'kept-error!')).toContain('kept-error!');
+  });
+
   it('a bare cursor and a bare collection are not awaited', async () => {
     const sessionId = await seeded();
     expect(await say(sessionId, 'db.async_items.find()', 'Cursor on test.async_items')).toContain(
@@ -340,8 +383,8 @@ describe('ShellService — un-awaited results', () => {
     );
     // A printed result ends in a newline, a prompt does not, so a newline
     // means the proxy was printed rather than mistaken for a thenable and awaited.
-    expect(await say(sessionId, 'db.async_items', '\n')).toContain('\n');
-    expect(await say(sessionId, 'db', '\n')).toContain('\n');
+    expect(await say(sessionId, 'db.async_items', '\n')).not.toContain('Promise');
+    expect(await say(sessionId, 'db', '\n')).toContain('[Function: db]');
   });
 });
 

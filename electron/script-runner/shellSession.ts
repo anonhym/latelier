@@ -59,6 +59,10 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
         return done(probeError as Error, undefined);
       }
       if (!thenable) return done(null, result);
+      // The REPL prefixes each line with the earlier lines of a multi-line
+      // command and clears them only when it finishes, which is now later:
+      // clear them here, or every command typed meanwhile is glued onto this one.
+      server.clearBufferedCommand();
       // `Promise.resolve` adopts the thenable once, so one that settles twice
       // cannot print twice. A falsy reason would read as success to the REPL.
       Promise.resolve(result).then(
