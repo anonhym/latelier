@@ -211,7 +211,8 @@ function stringifyForPrint(value: unknown, rpc: RpcClient): string {
   // as `{}`, which reads as an empty document: print the one-line hint instead.
   if (rpc.isCollection(value) || rpc.isCursor(value)) return inspect(value);
   try {
-    return ejsonStringifyRelaxed(value, 2) as string;
+    // EJSON has no form for a function, so it falls back to inspect as the shell does.
+    return ejsonStringifyRelaxed(value, 2) ?? inspect(value);
   } catch {
     return String(value);
   }

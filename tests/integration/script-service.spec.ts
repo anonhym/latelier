@@ -197,6 +197,11 @@ describe('ScriptService — results', () => {
     expect(r.printBuffer).not.toContain('9007199254740992');
   });
 
+  it('prints a function as inspect does, not as an empty line', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'function named() {}\nprint(named); 1' });
+    expect(r.printBuffer).toContain('[Function: named]');
+  });
+
   it('prints a collection and a cursor as a one-line hint, not an empty object', async () => {
     const r = await setup().run({
       connectionId: 'c1',
