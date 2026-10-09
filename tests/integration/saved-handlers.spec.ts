@@ -20,8 +20,8 @@ import { testSenderCheck } from '../helpers/ipcSender';
  * spec stubs the service, so neither proves that `saved.ts` maps every field
  * of the payload onto the service call or that a failure crosses as a typed
  * code. The NOT_FOUND that `saved:create` answers when the connection does
- * not exist (the SQLite foreign-key failure turned into a typed error) comes
- * with the connection-not-found fix (#431), so it is not pinned here.
+ * not exist (the repo maps the SQLite foreign-key failure to a typed error) is
+ * pinned by the connection-not-found fix (#431), so it is not repeated here.
  */
 const CONN_A = 'saved-conn-a';
 const CONN_B = 'saved-conn-b';
