@@ -349,6 +349,7 @@ export function ResultBar() {
           onImported={(report) => {
             if (report.inserted > 0) actions.run();
           }}
+          onPartialImport={() => actions.run()}
         />
       )}
 

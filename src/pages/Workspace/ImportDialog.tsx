@@ -23,6 +23,11 @@ interface ImportDialogProps {
   onClose: () => void;
   /** Called once the import has run, while the dialog stays open on its report. */
   onImported: (report: ImportReport) => void;
+  /** Called when a failure stopped the import after some documents had
+   *  landed: there is no report to show, but the collection has changed, so
+   *  the host refreshes whatever lists it (same role as DocumentEditor's
+   *  `onPartialInsert`). */
+  onPartialImport: () => void;
   /** Supplied when the opener is gone by first render (context menu). */
   returnFocusTo?: HTMLElement | null;
 }
@@ -64,6 +69,7 @@ export function ImportDialog({
   readOnly = false,
   onClose,
   onImported,
+  onPartialImport,
   returnFocusTo,
 }: ImportDialogProps) {
   const close = useDialogFocusReturn(onClose, returnFocusTo);
@@ -118,7 +124,10 @@ export function ImportDialog({
         details !== null && typeof details === 'object'
           ? (details as { insertedCount?: unknown }).insertedCount
           : undefined;
-      if (typeof insertedCount === 'number' && insertedCount > 0) dropStaleSample();
+      if (typeof insertedCount === 'number' && insertedCount > 0) {
+        dropStaleSample();
+        onPartialImport();
+      }
       throw err;
     }
     dropStaleSample();

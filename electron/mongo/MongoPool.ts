@@ -493,18 +493,26 @@ export class MongoPool extends EventEmitter {
           });
         });
       }
-      await client.connect();
-      if (!isCurrent() || entry!.status !== 'connecting') {
-        // Cancelled between client.connect() resolving and our state update —
-        // or superseded by a retry, in which case `entry.client` is that
-        // retry's healthy client and clearing it would be the very corruption
-        // this guard is meant to prevent. Close only the client we opened.
+      // Cancelled between an await and our next state update — or superseded by
+      // a retry, in which case `entry.client` is that retry's healthy client and
+      // clearing it would be the very corruption this guard is meant to
+      // prevent. Close only the client we opened.
+      const isCanceled = () => !isCurrent() || entry!.status !== 'connecting';
+      const abandon = async (): Promise<never> => {
         try { await client.close(); } catch { /* best-effort */ }
         if (isCurrent()) entry!.client = undefined;
         throw new SystemError('DB_ERROR', 'connection canceled');
-      }
+      };
+      await client.connect();
+      if (isCanceled()) await abandon();
       const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: string };
       const hello = await this.readHello(client, id, 'connect');
+      // A Cancel can land while either read is in flight. A closed client makes
+      // the driver reject them, and readHello swallows that by design, so
+      // without a second check the entry would be written back as connected
+      // around a client nobody can use. The check and the writes below must
+      // stay in one synchronous run, with no await between them.
+      if (isCanceled()) await abandon();
       entry!.serverVersion = info.version;
       entry!.topology = topologyFromHello(hello);
       entry!.status = 'connected';

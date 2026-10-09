@@ -176,6 +176,18 @@ export function ejsonStringify(v: unknown, indent?: number): string {
 }
 
 /**
+ * `ejsonStringify` for a value the driver has just read from the server and the
+ * app shows (a user's customData, an index's options). The driver hands a stored
+ * Double back as a JS number, and `ejsonStringify` alone would label one past
+ * 2^53 `$numberLong` with rounded digits; this says Double, the way a find
+ * result does (see `markPromotedDoubles`). Not for a value the app built or
+ * parsed itself: a number there is whatever its source says it is.
+ */
+export function ejsonStringifyDriverValue(v: unknown): string {
+  return ejsonStringify(markPromotedDoubles(v));
+}
+
+/**
  * Relaxed-mode EJSON for human consumption (the W11 shell pane). Numbers,
  * booleans, dates and strings print naturally; ObjectId / Decimal128 still
  * surface as `$oid` / `$numberDecimal` so the user can see the underlying

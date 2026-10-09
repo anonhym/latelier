@@ -86,10 +86,19 @@ function mockApi(opts: {
 function renderDialog(props: Partial<React.ComponentProps<typeof ImportDialog>> = {}) {
   const onClose = vi.fn();
   const onImported = vi.fn();
+  const onPartialImport = vi.fn();
   render(
-    <ImportDialog connectionId="c1" dbName="shop" collection="people" onClose={onClose} onImported={onImported} {...props} />,
+    <ImportDialog
+      connectionId="c1"
+      dbName="shop"
+      collection="people"
+      onClose={onClose}
+      onImported={onImported}
+      onPartialImport={onPartialImport}
+      {...props}
+    />,
   );
-  return { onClose, onImported };
+  return { onClose, onImported, onPartialImport };
 }
 
 const choose = () => fireEvent.click(screen.getByRole('button', { name: 'Choose file…' }));
@@ -308,6 +317,47 @@ describe('ImportDialog — field-suggestion sample', () => {
   });
 });
 
+// A failure that stops the import after some batches landed has no report to
+// show, but the collection did change: the host must re-list it, and the error
+// stays on screen so the user still learns the import did not finish.
+describe('ImportDialog — failure after some documents landed', () => {
+  afterEach(() => notifications.clean());
+
+  it('tells the host to refresh and keeps the error visible', async () => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    const { onPartialImport, onImported } = renderDialog();
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(onPartialImport).toHaveBeenCalledTimes(1);
+    expect(onImported).not.toHaveBeenCalled();
+  });
+
+  it('does the same for a CSV import, and keeps the mapping step up', async () => {
+    mockApi({ path: '/p.csv', fail: { code: 'MONGO_OP', message: 'batch 2 failed', details: { insertedCount: 1000 } } });
+    const { onPartialImport } = renderDialog();
+    choose();
+    await screen.findByRole('table');
+    expect(onPartialImport).not.toHaveBeenCalled(); // the mapping step wrote nothing
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 2 failed/);
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(onPartialImport).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['carries insertedCount: 0', { insertedCount: 0 }],
+    ['carries no details', undefined],
+    ['carries a non-numeric insertedCount', { insertedCount: '2400' }],
+  ])('leaves the host alone when a failed import %s', async (_name, details) => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 1 failed', details } });
+    const { onPartialImport, onImported } = renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(onPartialImport).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
+  });
+});
+
 describe('ImportDialog — CSV', () => {
   const typeOf = (header: string) => screen.getByRole('combobox', { name: `Type of ${header}` }) as HTMLSelectElement;
   const emptyAsNull = (header: string) => screen.getByRole('checkbox', { name: `Empty ${header} as null` }) as HTMLInputElement;
@@ -455,6 +505,29 @@ describe('ResultBar — Import documents', () => {
     expect(actions.run).not.toHaveBeenCalled();
     choose();
     await screen.findByRole('status');
+    expect(actions.run).toHaveBeenCalledTimes(1);
+  });
+
+  // The failure carries no report, so the result list is re-run from the
+  // partial-import callback instead of `onImported`.
+  it('re-runs the query when the import fails after some documents landed', async () => {
+    uninstallAtelierMock();
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    const actions = emptyWorkspaceActions();
+    render(
+      <CollectionWorkspaceProvider
+        state={{ view: 'Tree', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}', page: 0, pageSize: 50, activeBuilderTab: 'Builder' }}
+        actions={actions}
+        meta={emptyWorkspaceMeta({ collection: 'people' })}
+      >
+        <ResultBar />
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Import documents…/ }));
+    await screen.findByRole('dialog', { name: /Import into "people"/ });
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
     expect(actions.run).toHaveBeenCalledTimes(1);
   });
 });
