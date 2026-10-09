@@ -37,8 +37,10 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
     terminal: false,
     useColors: false,
     ignoreUndefined: true,
-    // A cursor prints its one-line hint; everything else goes through the EJSON writer.
-    writer: (value: unknown) => (rpc.isCursor(value) ? inspect(value) : shellWriter(value)),
+    // A cursor and a collection print their one-line hint; EJSON would print a
+    // collection (an empty proxy) as `{}`, which reads as an empty result.
+    writer: (value: unknown) =>
+      rpc.isCursor(value) || rpc.isCollection(value) ? inspect(value) : shellWriter(value),
   });
   // Node's REPL prints a top-level Promise as it is and only awaits an
   // explicit `await`. A query call is always async here, so settle a thenable

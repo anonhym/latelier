@@ -216,6 +216,33 @@ describe('ShellService — cursors', () => {
   });
 });
 
+describe('ShellService — a bare collection', () => {
+  it('prints a one-line hint naming the collection, not an empty object', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    // The banner ends in a newline too: wait for the first prompt so only a result can match below.
+    await until(() => outputOf().endsWith('test> '), 'the first prompt');
+    // A printed result ends in a newline, a prompt does not.
+    const out = await say(info.sessionId, 'db.hint_coll', '\n');
+    expect(out).toContain('[Collection test.hint_coll]');
+    expect(out).not.toMatch(/(?:^|> )\{\}$/m);
+    // The hint follows `use`, and a cursor off the same collection still prints its own.
+    await say(info.sessionId, 'use hint_other', 'switched to db hint_other');
+    expect(await say(info.sessionId, 'db.hint_coll', '\n')).toContain('[Collection hint_other.hint_coll]');
+    expect(await say(info.sessionId, 'db.hint_coll.find()', '\n')).toContain('Cursor on hint_other.hint_coll');
+  });
+
+  it('leaves documents printing as EJSON', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'await db.hint_docs.deleteMany({}); await db.hint_docs.insertOne({ _id: 1, at: new Date(0) })', 'acknowledged');
+    const out = await say(info.sessionId, 'await db.hint_docs.findOne()', '1970');
+    expect(out).toContain('"_id": 1');
+    expect(out).toContain('"$date": "1970-01-01T00:00:00Z"');
+    expect(out).not.toContain('[Collection');
+  });
+});
+
 describe('ShellService — un-awaited results', () => {
   // A result starts right after its prompt (`test> 3`) unless that prompt was
   // already printed before the line was sent, so a line start is `> ` or `^`.
