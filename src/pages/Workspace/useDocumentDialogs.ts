@@ -1,5 +1,6 @@
 import React from 'react';
 import { notify } from '../../theme/notifications';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { offerUndo } from './offerUndo';
 import { currentFilterJson } from './builder';
 import { stripIdForDuplicate } from './views/docId';
@@ -132,9 +133,12 @@ export function useDocumentDialogs(deps: {
 
   // A bare run() would refresh the Focused Tab, not the pinned drawer's tab —
   // resolve the pinned tab from the live tab list instead. `null` (tab gone,
-  // e.g. ⌘W with the drawer open) no-ops rather than falling back.
+  // e.g. ⌘W with the drawer open) no-ops rather than falling back — but the
+  // write already landed, so the field-suggestion sample is dropped first,
+  // from the captured target, ahead of that early return.
   const refreshSource = React.useCallback(
     (target: DocTarget) => {
+      invalidateSampleSchemaCache(target.connectionId, target.dbName, target.collection);
       const runnerTarget = resolveRunnerTarget(target.tabId);
       if (!runnerTarget) return;
       void run(undefined, runnerTarget);
@@ -171,6 +175,8 @@ export function useDocumentDialogs(deps: {
   // from the Focused Tab, so a delete can only complete against it.
   const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
     closeDeleteDialogs();
+    const a = activeCollectionRef.current;
+    if (a) invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
     void run();
     setWriteVersion((v) => v + 1);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — a
@@ -180,7 +186,6 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
-    const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
       offerUndo(message, auditId, () => refreshSource(target));
@@ -193,6 +198,8 @@ export function useDocumentDialogs(deps: {
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
   const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
     closeUpdateAllModal();
+    const a = activeCollectionRef.current;
+    if (a) invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
     void run();
     setWriteVersion((v) => v + 1);
     // Exactly one toast: Undo-bearing when reversible, plain otherwise — an
@@ -201,7 +208,6 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
-    const a = activeCollectionRef.current;
     if (a) {
       const target = targetOf(a);
       offerUndo(message, auditId, () => refreshSource(target));

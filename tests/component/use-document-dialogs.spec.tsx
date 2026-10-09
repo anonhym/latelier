@@ -11,17 +11,24 @@
 // the stable `run`, not the fresh `{ run, isLoading }` literal `useQueryRunner`
 // returns each render; re-introducing the object dependency has no behavioral
 // tell, so a two-render identity check is the only thing that catches it.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act } from '@testing-library/react';
 import { notifications } from '@mantine/notifications';
 import { fireEvent, renderHook, screen, waitFor } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { useDocumentDialogs } from '../../src/pages/Workspace/useDocumentDialogs';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTab } from '@shared/types';
 import type {
   RunnerTarget,
   UseQueryRunnerResult,
 } from '../../src/pages/Workspace/useQueryRunner';
+
+// Mocked at the exact module the hook imports; a barrel mock would not
+// intercept a direct import.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', () => ({
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 const DOC = { _id: '1', sku: 'widget' };
 
@@ -483,6 +490,129 @@ describe('useDocumentDialogs', () => {
 
       await waitFor(() => expect(screen.getByText('5 matched, 5 modified')).toBeTruthy());
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+  });
+
+  // The field-suggestion sample is cached per collection for five minutes, so
+  // a write that lands must drop it or the Update drawer's type warning and
+  // the builder's field suggestions keep describing the pre-write documents.
+  describe('drops the field-suggestion sample after a write', () => {
+    const t1 = tab();
+    const t2 = tab({ id: 't2', collection: 'users' });
+    const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+    beforeEach(() => invalidate.mockClear());
+    afterEach(() => {
+      notifications.clean();
+      uninstallAtelierMock();
+    });
+
+    it('after an insert', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openInsertModal());
+
+      act(() => result.current.handleInserted());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it('after a partial insert, with the drawer still open', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openInsertModal());
+
+      act(() => result.current.handlePartialInsert());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it('after a document save', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => result.current.openEdit(DOC));
+
+      act(() => result.current.handleDocSaved());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    // The drawer pins its collection; the sample to drop is that one's, not
+    // the Focused Tab's.
+    it('for the drawer\'s pinned collection when focus has moved to another tab', () => {
+      const { result, rerender, activeCollectionRef } = mountDialogs(undefined, 't1', t1, [t1, t2]);
+      act(() => result.current.openEdit(DOC));
+      activeCollectionRef.current = t2;
+      rerender({ activeTabId: 't2' });
+
+      act(() => result.current.handleDocSaved());
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    // The write landed even though there is no tab left to re-run.
+    it('even when the pinned tab was closed while the drawer was open', () => {
+      const run = vi.fn(() => Promise.resolve());
+      const { result, tabs } = mountDialogs(run, 't1', t1, [t1]);
+      act(() => result.current.openEdit(DOC));
+      tabs.current = [];
+
+      act(() => result.current.handleDocSaved());
+
+      expect(run).not.toHaveBeenCalled();
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it.each([
+      ['a Reversible delete', 'a1'],
+      ['a delete over the undo ceiling', undefined],
+    ])('after %s', (_name, auditId) => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+
+      act(() => result.current.handleDeleted(auditId, 'Deleted'));
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it.each([
+      ['a Reversible update-all', 'a3'],
+      ['an update-all over the undo ceiling', undefined],
+    ])('after %s', (_name, auditId) => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+
+      act(() => result.current.handleUpdatedAll(auditId, '2 matched, 2 modified'));
+
+      expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'orders');
+    });
+
+    it('again after Undo, which puts the documents back', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const { result } = mountDialogs(undefined, 't1', t1, [t1]);
+      act(() => result.current.handleDeleted('a1', 'Document deleted'));
+      expect(invalidate).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+      expect(invalidate).toHaveBeenLastCalledWith('c1', 'shop', 'orders');
+    });
+
+    it('not when a delete or update-all dialog is merely dismissed', () => {
+      const { result } = mountDialogs(undefined, 't1', t1);
+      act(() => {
+        result.current.setDeleteDoc(DOC);
+        result.current.openUpdateAllModal();
+      });
+
+      act(() => result.current.closeDeleteDialogs());
+      act(() => result.current.closeUpdateAllModal());
+
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    it('not when a delete completes with no active collection to name', () => {
+      const { result } = mountDialogs(undefined, 't1', null);
+
+      act(() => result.current.handleDeleted(undefined, 'Deleted'));
+
+      expect(invalidate).not.toHaveBeenCalled();
     });
   });
 });
