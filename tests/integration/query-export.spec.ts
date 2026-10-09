@@ -4,9 +4,11 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
+import { Long } from 'bson';
 import type { IpcMainInvokeEvent } from 'electron';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
+import { ImportService } from '../../electron/mongo/ImportService';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { registerQueryChannels } from '../../electron/ipc/handlers/query';
@@ -141,6 +143,52 @@ describe('QueryService.exportToFile', () => {
     const wireDocs = docs.map((d) => EJSON.serialize(d, { relaxed: false }));
     expect(written).toBe(serializeJsonArray(wireDocs, true));
   });
+
+  // bson's Relaxed writer prints a Long as a JS number, so one past 2^53 used to
+  // come out rounded. Exported to a file and imported into a fresh collection it
+  // must come back the same int64 (server-side $type, not what the driver hands
+  // back). A fraction rides along to show an ordinary double is left alone.
+  it.each(['json', 'jsonl'] as const)(
+    'a relaxed %s export of a Long past 2^53 re-imports as the same int64 (#279)',
+    async (format) => {
+      const client = await pool.write(connId).client();
+      const db = client.db(dbName);
+      await db.collection(collName).insertOne({
+        l: Long.fromString('9007199254740993'),
+        m: Long.fromString('-9223372036854775808'),
+        f: 2.5,
+      });
+
+      const file = outPath(`out.${format}`);
+      await svc.exportToFile(
+        { connectionId: connId, dbName, collection: collName, filter: '{}', format, relaxed: true },
+        file,
+      );
+      const text = await fs.readFile(file, 'utf8');
+      const written = (format === 'json' ? JSON.parse(text)[0] : JSON.parse(text.trim())) as Record<string, unknown>;
+      expect(written.l).toEqual({ $numberLong: '9007199254740993' });
+      expect(written.m).toEqual({ $numberLong: '-9223372036854775808' });
+      expect(written.f).toBe(2.5);
+
+      const target = `reimported_${format}`;
+      await db.collection(target).drop().catch(() => {});
+      await db.createCollection(target);
+      const report = await new ImportService(pool).importFile({
+        connectionId: connId,
+        dbName,
+        collection: target,
+        path: file,
+      });
+      expect(report.inserted).toBe(1);
+
+      const back = db.collection(target);
+      expect(await back.countDocuments({ l: { $type: 'long' }, m: { $type: 'long' }, f: { $type: 'double' } })).toBe(1);
+      const doc = (await back.findOne({}, { promoteLongs: false }))!;
+      expect((doc.l as Long).toString()).toBe('9007199254740993');
+      expect((doc.m as Long).toString()).toBe('-9223372036854775808');
+      expect(doc.f).toBe(2.5);
+    },
+  );
 
   it('honours filter, sort and projection', async () => {
     await seed(5);

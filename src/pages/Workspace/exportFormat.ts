@@ -1,5 +1,5 @@
-import { EJSON } from 'bson';
-import { ejsonParse, isExactSentinel } from '../../utils/ejson';
+import { Double, EJSON, Long } from 'bson';
+import { ejsonParse, isExactSentinel, isPlainDocument } from '../../utils/ejson';
 import type { ResolvedColumn } from './views/tableColumns';
 import { getValueAtPath } from './views/tableColumns';
 
@@ -34,14 +34,58 @@ export function exportColumnsFrom(resolved: ResolvedColumn[]): ExportColumn[] {
  * its output matches this module's byte-for-byte.
  */
 export function revive(doc: unknown): unknown {
-  return ejsonParse(JSON.stringify(doc));
+  return keepWideNumbersExact(ejsonParse(JSON.stringify(doc)));
+}
+
+// Past this magnitude a number's printed digits no longer fit int64, so an
+// importer reads the token back as a double, and a double of this size is
+// exactly the one it started as.
+const INT64_LIMIT = 2 ** 63;
+
+/**
+ * bson's Relaxed writer prints a number as a bare JSON token, and an importer
+ * reads a bare integer token past 2^53 as a Long. Two kinds of value do not
+ * survive that, so they are swapped for their canonical one-key spelling,
+ * which every EJSON reader takes back as the same type and value:
+ *
+ * - a `Long` past the safe-integer range, which bson prints as a JS number
+ *   (`9007199254740993` comes out as `9007199254740992`);
+ * - an integral `Double` from 2^53 up to int64, which would come back as a
+ *   `Long`, and with the digits JavaScript prints for it
+ *   (`1760000000000000768` prints as `1760000000000000800`), not its own.
+ *
+ * `$numberDouble` carries the exact integer value. A double past int64 needs
+ * nothing: its digits (or its exponent form, from 1e21) read back as the same
+ * double. Everything else stays as bson wrote it.
+ *
+ * Only a `$numberDouble` on the wire reaches the Double branch. Documents that
+ * `find` returns carry the driver's promoted numbers, where an integral double
+ * is already encoded as a `$numberLong` of its shortest digits, so a stored
+ * Double past 2^53 is not distinguishable from a Long there.
+ */
+function keepWideNumbersExact(node: unknown): unknown {
+  if (node instanceof Long) {
+    return Number.isSafeInteger(node.toNumber()) ? node : { $numberLong: node.toString() };
+  }
+  if (node instanceof Double) {
+    const v = node.valueOf();
+    const wide = Number.isInteger(v) && !Number.isSafeInteger(v) && Math.abs(v) < INT64_LIMIT;
+    return wide ? { $numberDouble: BigInt(v).toString() } : node;
+  }
+  if (Array.isArray(node)) return node.map(keepWideNumbersExact);
+  if (!isPlainDocument(node)) return node; // a BSON value of some other type
+  // Object.create(null), not {}: see `walkRevive` in utils/ejson.ts.
+  const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) out[k] = keepWideNumbersExact(v);
+  return out;
 }
 
 /** JSON array export — one file, pretty-printed. Canonical is a direct
  * stringify (the documents are already in that shape); Relaxed re-derives
  * through bson's own Relaxed EJSON writer so ints/doubles/dates come out
  * unwrapped rather than copying `ejsonStringifyReadable`'s lossless-only
- * subset (a deliberate export mode, not a display convenience). */
+ * subset (a deliberate export mode, not a display convenience). It still
+ * keeps a Long or a Double past 2^53 exact: see `keepWideNumbersExact`. */
 export function serializeJsonArray(documents: unknown[], relaxed: boolean): string {
   if (!relaxed) return JSON.stringify(documents, null, 2);
   const revived = documents.map(revive);

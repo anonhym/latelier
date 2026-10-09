@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Double, Int32, Long } from 'bson';
 import {
   csvCellValue,
   csvEscape,
@@ -10,6 +11,7 @@ import {
   serializeJsonl,
 } from '../../src/pages/Workspace/exportFormat';
 import type { ResolvedColumn } from '../../src/pages/Workspace/views/tableColumns';
+import { parseJsonArray, parseJsonlLine } from '../../electron/mongo/importParse';
 
 // Canonical-EJSON-shaped documents, exactly the plain-object shape
 // `electron/preload.ts` hands the renderer (`JSON.parse(wire.documentsJson)`)
@@ -34,10 +36,9 @@ describe('serializeJsonArray', () => {
       {
         _id: { $oid: '507f1f77bcf86cd799439011' },
         n: 5,
-        // Relaxed is documented as lossy for int64 beyond the safe-integer
-        // range — this is the checkbox's "not lossless for every type"
-        // warning, verified against bson's own writer rather than assumed.
-        big: 9007199254740992,
+        // bson's own Relaxed writer rounds this to 9007199254740992; the
+        // export keeps a Long past the safe-integer range as its sentinel.
+        big: { $numberLong: '9007199254740993' },
         when: { $date: '2023-11-14T22:13:20Z' },
       },
     ]);
@@ -64,7 +65,7 @@ describe('serializeJsonl', () => {
     expect(JSON.parse(out.trim())).toEqual({
       _id: { $oid: '507f1f77bcf86cd799439011' },
       n: 5,
-      big: 9007199254740992,
+      big: { $numberLong: '9007199254740993' },
       when: { $date: '2023-11-14T22:13:20Z' },
     });
   });
@@ -264,5 +265,92 @@ describe('exportFileExtension', () => {
     expect(exportFileExtension('json')).toBe('json');
     expect(exportFileExtension('jsonl')).toBe('jsonl');
     expect(exportFileExtension('csv')).toBe('csv');
+  });
+});
+
+// bson's Relaxed writer prints a number as a bare token, and an importer reads a
+// bare integer past 2^53 back as a Long. A Long past the safe range comes out
+// rounded, and an integral double there comes back as a Long with JavaScript's
+// shortest digits instead of its own value, so both keep a sentinel.
+describe('relaxed export keeps numbers past 2^53 exact', () => {
+  // [what, canonical wire value, exactly what the relaxed file holds for it]
+  const written: Array<[string, unknown, unknown]> = [
+    ['a Long past 2^53', { $numberLong: '9007199254740993' }, { $numberLong: '9007199254740993' }],
+    ['a negative Long past -2^53', { $numberLong: '-9007199254740993' }, { $numberLong: '-9007199254740993' }],
+    ['the largest Long', { $numberLong: '9223372036854775807' }, { $numberLong: '9223372036854775807' }],
+    ['the smallest Long', { $numberLong: '-9223372036854775808' }, { $numberLong: '-9223372036854775808' }],
+    ['a Long at 2^53 exactly', { $numberLong: '9007199254740992' }, { $numberLong: '9007199254740992' }],
+    ['a Long at the safe limit', { $numberLong: '9007199254740991' }, 9007199254740991],
+    ['a small Long', { $numberLong: '5' }, 5],
+    ['a Double past 2^53', { $numberDouble: '1760000000000000768' }, { $numberDouble: '1760000000000000768' }],
+    ['a negative Double past -2^53', { $numberDouble: '-1760000000000000768' }, { $numberDouble: '-1760000000000000768' }],
+    ['a Double at 2^53 exactly', { $numberDouble: '9007199254740992' }, { $numberDouble: '9007199254740992' }],
+    ['a Double at the safe limit', { $numberDouble: '9007199254740991' }, 9007199254740991],
+    ['a fractional Double', { $numberDouble: '2.5' }, 2.5],
+    ['a Double with a long fraction', { $numberDouble: '0.1' }, 0.1],
+    ['a Double of exactly 2^63', { $numberDouble: '9223372036854775808' }, 9223372036854776000],
+    ['a Double past int64', { $numberDouble: '1e30' }, 1e30],
+    ['an Int32', { $numberInt: '7' }, 7],
+  ];
+
+  it.each(written)('%s', (_what, wire, file) => {
+    const doc = { v: wire };
+    expect(JSON.parse(serializeJsonl([doc], true))).toEqual({ v: file });
+    expect(JSON.parse(serializeJsonArray([doc], true))).toEqual([{ v: file }]);
+  });
+
+  it('reaches values inside arrays and sub-documents, and leaves other BSON types alone', () => {
+    const doc = {
+      a: [{ $numberLong: '9007199254740993' }, { $numberDouble: '1760000000000000768' }, { $numberInt: '1' }],
+      b: { c: { d: { $numberLong: '9007199254740993' } }, when: { $date: { $numberLong: '1700000000000' } } },
+      id: { $oid: '507f1f77bcf86cd799439011' },
+    };
+    expect(JSON.parse(serializeJsonl([doc], true))).toEqual({
+      a: [{ $numberLong: '9007199254740993' }, { $numberDouble: '1760000000000000768' }, 1],
+      b: { c: { d: { $numberLong: '9007199254740993' } }, when: { $date: '2023-11-14T22:13:20Z' } },
+      id: { $oid: '507f1f77bcf86cd799439011' },
+    });
+  });
+
+  it('keeps a field named __proto__', () => {
+    // A JSON string, not an object literal: a literal `__proto__` key sets the
+    // prototype instead of creating a field.
+    const doc: unknown = JSON.parse('{"__proto__":{"$numberLong":"9007199254740993"}}');
+    expect(JSON.parse(serializeJsonl([doc], true))).toEqual(
+      JSON.parse('{"__proto__":{"$numberLong":"9007199254740993"}}'),
+    );
+  });
+
+  // The point of all of the above: what is written reads back as the value and
+  // type that went out, through both import paths.
+  it.each([
+    ['JSONL', (docs: unknown[]) => serializeJsonl(docs, true).trimEnd().split('\n').map((l, i) => parseJsonlLine(l, i + 1)!)],
+    ['a JSON array', (docs: unknown[]) => parseJsonArray(serializeJsonArray(docs, true))],
+  ])('a Long and a Double past 2^53 survive a relaxed export and re-import through %s', (_name, roundTrip) => {
+    const docs = [
+      { l: { $numberLong: '9007199254740993' }, d: { $numberDouble: '1760000000000000768' }, f: { $numberDouble: '2.5' } },
+      { l: { $numberLong: '-9223372036854775808' }, d: { $numberDouble: '-9007199254740992' }, f: { $numberDouble: '0.1' } },
+    ];
+    const back = roundTrip(docs).map((r) => (r as { doc: Record<string, unknown> }).doc);
+
+    expect(back[0]!.l).toBeInstanceOf(Long);
+    expect((back[0]!.l as Long).toString()).toBe('9007199254740993');
+    expect(back[0]!.d).toBeInstanceOf(Double);
+    expect(BigInt((back[0]!.d as Double).valueOf())).toBe(1760000000000000768n);
+    expect(back[0]!.f).toBe(2.5);
+
+    expect((back[1]!.l as Long).toString()).toBe('-9223372036854775808');
+    expect(BigInt((back[1]!.d as Double).valueOf())).toBe(-9007199254740992n);
+    expect(back[1]!.f).toBe(0.1);
+  });
+
+  it('a small Int32 and a small Long come back as plain numbers (Relaxed is not lossless for every type)', () => {
+    const [rec] = serializeJsonl([{ i: { $numberInt: '7' }, l: { $numberLong: '5' } }], true)
+      .trimEnd()
+      .split('\n')
+      .map((l, i) => parseJsonlLine(l, i + 1)!);
+    const doc = (rec as { doc: Record<string, unknown> }).doc;
+    expect(doc).toEqual({ i: 7, l: 5 });
+    expect(doc.i).not.toBeInstanceOf(Int32);
   });
 });
