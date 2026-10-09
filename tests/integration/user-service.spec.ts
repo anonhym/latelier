@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { Db, MongoClient } from 'mongodb';
+import { Double } from 'bson';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { UserService } from '../../electron/mongo/UserService';
+import { ejsonParse } from '../../electron/mongo/ejson';
 import { STATS_TIMEOUT_MS } from '../../electron/mongo/timeouts';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
@@ -166,6 +168,31 @@ describe('UserService', () => {
     await svc.drop({ connectionId: connId, dbName: lifecycleDb, username: 'lc_user' });
     users = await svc.list({ connectionId: connId, dbName: lifecycleDb });
     expect(users.find((u) => u.username === 'lc_user')).toBeUndefined();
+  });
+
+  it('shows a Double past 2^53 in customData as a Double, not a rounded Long', async () => {
+    setup();
+    const customDb = 'user_custom_double';
+    await svc.create({
+      connectionId: connId,
+      dbName: customDb,
+      username: 'cd_user',
+      password: 'pw',
+      roles: [{ role: 'read', db: customDb }],
+      customData: '{"big":{"$numberDouble":"1760000000000000768"},"small":{"$numberInt":"5"}}',
+    });
+    try {
+      const user = await svc.get({ connectionId: connId, dbName: customDb, username: 'cd_user' });
+      expect(JSON.parse(user.customData!)).toEqual({
+        big: { $numberDouble: '1760000000000000768.0' },
+        small: { $numberInt: '5' },
+      });
+      const shown = ejsonParse<{ big: Double }>(user.customData!);
+      expect(shown.big).toBeInstanceOf(Double);
+      expect(shown.big.valueOf()).toBe(1760000000000000768);
+    } finally {
+      await svc.drop({ connectionId: connId, dbName: customDb, username: 'cd_user' });
+    }
   });
 
   it('create() returns CONFLICT on duplicate username', async () => {

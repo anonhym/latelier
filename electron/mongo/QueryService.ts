@@ -8,7 +8,7 @@ import { classifyMongoOpError } from './errors.ts';
 import { SystemError, ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
 import type { Logger } from '../log.ts';
-import type { RecentQueryService } from '../services/RecentQueryService.ts';
+import { logRecentWriteFailure, type RecentQueryService } from '../services/RecentQueryService.ts';
 import { ADMIN_LONG_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 // The main process has no `src/` precedent, but `exportFormat.ts` is a pure
 // module (no React/Mantine — verified: it imports only `bson`, `utils/ejson`
@@ -98,16 +98,18 @@ export class QueryService {
         maxBytes: DEFAULT_MAX_EJSON_BYTES,
       });
       // Fire-and-forget: writing recent-query history must not block the
-      // result returning to the renderer. Errors are non-actionable here;
-      // the next refresh of the recent list reconciles.
-      void this.recent.recordFind(input, durationMs, docs.length).catch(() => {});
+      // result returning to the renderer, nor may its failure fail the query.
+      // The failure is logged, not dropped.
+      void this.recent
+        .recordFind(input, durationMs, docs.length)
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       return { documentsJson, durationMs, hasMore: docs.length === limit };
     } catch (err) {
       const durationMs = Date.now() - t0;
       const classified = classifyMongoOpError(err);
       void this.recent
         .recordFind(input, durationMs, 0, classified.code)
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       throw classified;
     } finally {
       if (input.cancelToken) this.active.delete(input.cancelToken);

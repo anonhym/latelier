@@ -166,6 +166,26 @@ Behaviour:
     collections through the bridge.
 - The REPL's default evaluator allows top-level `await`
   (`await db.users.findOne()` etc.).
+- `await` is optional. A result that is a Promise (or any thenable) is
+  settled before it is printed, so `db.users.find().toArray()` prints the
+  documents. Input is not paused while it is pending: a result that never
+  settles leaves later commands working, and one that settles late prints
+  after the commands typed meanwhile, and discards a multi-line command
+  half typed at that moment. The pending call itself cannot be
+  cancelled; there is no interrupt until the shell has one. A cursor is not
+  a thenable and still prints its one-line hint.
+- An error, thrown or rejected, prints as its one-line text, `Uncaught <name>: <message>`
+  (Node puts `Uncaught:` and a line break first when the text is long or
+  has several lines), with no stack and no cause. What else tells the user
+  why follows on later lines: the `details` of an error from the database,
+  as Extended JSON (a document-validation rejection keeps which rule failed
+  there), and the members of an `AggregateError`, one per line. An `Error`
+  nested in a printed object or array prints as its one-line text, never
+  `{}`. A thrown or rejected value that is not an `Error` prints as itself;
+  a falsy reason of an un-awaited rejection prints as
+  `Error: Promise rejected with <value>`, since the REPL would read it as
+  success; the same reason of an awaited rejection prints nothing, as the
+  REPL itself behaves.
 - Sessions are scoped per connection — calling `start` for a connection
   that already has a live session reuses it. Idempotent toggle.
 - **Lifecycle lives in main.** Ending a session kills the child and
@@ -239,6 +259,12 @@ Behaviour:
       it opens on the connection's default database, else `test`.
 - [x] On open, the pane prints a banner naming the connection.
 - [x] Typing `await db.runCommand({ ping: 1 })` prints `{ "ok": 1 }`.
+- [x] `db.<coll>.find().toArray()` and `db.<coll>.countDocuments()` without
+      `await` print their result, and a bare cursor still prints its hint.
+- [x] An error, thrown or rejected (awaited or not), prints its message
+      and the session stays alive.
+- [x] A document-validation rejection prints which rule failed, and an
+      error nested in a printed result prints its message, not `{}`.
 - [x] `show dbs` and `show collections` work.
 - [x] `use <name>` switches the current database and updates the prompt.
 - [x] Closing the pane / quitting the app stops the session cleanly and
@@ -259,7 +285,13 @@ Behaviour:
 - **shell-runner.spec.ts**: the same service over a real pool and
   `mongodb-memory-server`. Covers reads and writes through main, `use`
   and the prompt, the database a session opens on (an explicit name
-  over the connection's default over `test`), stop and `disposeAll`
+  over the connection's default over `test`), results left without
+  `await` (a find, a count, rejections, thrown and rejected non-Error
+  values, a thenable that never settles, settles late or twice, or
+  throws, and a multi-line command pending while the next is typed), how
+  errors print (the message, a validator rejection's failing rule, errors
+  nested in a result, an `AggregateError`, an empty name or message), stop
+  and `disposeAll`
   killing the child, a pool disconnect and a read-only flip ending the
   session, a crashed child, `process.exit()` and `.exit` inside the
   REPL, and that nothing posted to the child (and nothing an escape can
