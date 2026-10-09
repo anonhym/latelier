@@ -208,7 +208,9 @@ jobs:
       # vault answers with SECRETS_UNAVAILABLE. Both vault specs used to skip
       # on that, which left credential storage with no CI coverage at all.
       - name: Install a session keyring
-        run: sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-x11
+        # `apt-get update` is explicit rather than inherited from the step
+        # above. `dbus-daemon` is the package that ships `dbus-run-session`.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-daemon
 
       - name: Run E2E
         env:
@@ -237,7 +239,10 @@ jobs:
         run: |
           dbus-run-session -- bash -c '
             set -euo pipefail
-            eval "$(openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets)"
+            keyring_env=$(openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets)
+            test -n "$keyring_env" || { echo "::error::gnome-keyring-daemon printed no environment, so no keyring is running"; exit 1; }
+            echo "$keyring_env"
+            eval "$keyring_env"
             exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure
