@@ -13,10 +13,19 @@ import userEvent from '@testing-library/user-event';
 import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module ScriptTab imports; the rest stays real because
+// the editor reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 function tab(over: Partial<ScriptTabModel> = {}): ScriptTabModel {
@@ -284,6 +293,51 @@ function ControlledScriptTab({ initial }: { initial: ScriptTabModel }) {
     setT((prev) => ({ ...prev, state: { ...prev.state, ...patch } }));
   return <ScriptTab tab={t} onPatch={onPatch} />;
 }
+
+// A script can write to any collection of its Connection, and the renderer
+// can't tell which, so a finished run drops the whole Connection's
+// field-suggestion samples. A run that throws may have written first.
+describe('ScriptTab — field-suggestion sample', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+  it('drops the Connection\'s samples once a run finishes, not before', async () => {
+    let finish!: () => void;
+    const run = vi.fn<IpcApi['script']['run']>(
+      () => new Promise((resolve) => { finish = () => resolve({ valueJson: '1', printBuffer: '', durationMs: 1 }); }),
+    );
+    installAtelierMock({ script: { run, cancel: async () => undefined } });
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+
+    fireEvent.click(screen.getByText('▶ Run'));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(invalidate).not.toHaveBeenCalled();
+
+    finish();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('drops them when the run fails too, since it may have written before throwing', async () => {
+    const run = vi.fn<IpcApi['script']['run']>(async () => {
+      throw { code: 'SCRIPT_ERROR', message: 'boom' };
+    });
+    installAtelierMock({ script: { run, cancel: async () => undefined } });
+    const onPatch = vi.fn();
+    render(<ScriptTab tab={tab()} onPatch={onPatch} />);
+
+    fireEvent.click(screen.getByText('▶ Run'));
+
+    await waitFor(() => expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({ lastError: expect.anything() })));
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1');
+  });
+
+  it('leaves them alone while no run has happened', () => {
+    installAtelierMock();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});
 
 describe('ScriptTab result-panel resize keyboard support (#56)', () => {
   function renderWithResult() {

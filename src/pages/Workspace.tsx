@@ -49,6 +49,7 @@ import {
   isDefaultQueryState,
 } from './Workspace/builder';
 import type { SuggestionContext } from '../features/fieldSuggestions/types';
+import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
 
 function WorkspaceInner() {
   const T = themeVars;
@@ -436,6 +437,9 @@ function WorkspaceInner() {
             });
             return;
           }
+          // Quick Edit can change a field's type, and never passes through
+          // `useDocumentDialogs`, so it drops the field-suggestion sample itself.
+          invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
           // Returned (not fired-and-forgotten): the boolean Quick Edit
           // toggle stays disabled off this same promise (`TableCell`'s
           // `pendingBoolean`) until the row it reads its checked state from
@@ -446,6 +450,7 @@ function WorkspaceInner() {
           // The tab edited, not whichever has focus when Undo is clicked.
           const tabId = a.id;
           offerUndo('Field updated', auditId, () => {
+            invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
             const target = resolveRunnerTarget(tabId);
             if (target) void run(undefined, target);
           });

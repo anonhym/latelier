@@ -208,6 +208,23 @@ describe('QueryBar — Shell Syntax input (X14 T2)', () => {
     },
   );
 
+  // An empty box is missing a filter, not holding one that will not parse, so
+  // the notice names the absence. Run stays closed either way.
+  it('names a blank filter as missing, not as unparseable, and keeps Run disabled', async () => {
+    setup('{}');
+
+    const ta = await typeAndBlur('');
+
+    expect(ta.value).toBe('');
+    await waitFor(() =>
+      expect(document.getElementById('query-bar-filter-error')?.textContent).toBe(
+        'Enter a filter, like { "status": "active" }, or {} to match every document.',
+      ),
+    );
+    expect(document.getElementById('query-bar-filter-error')?.textContent).not.toMatch(/parse/i);
+    expect(await screen.findByTestId('query-run-btn')).toHaveProperty('disabled', true);
+  });
+
   // Cmd+Enter never blurs the textarea, so without a repair ahead of the Run
   // gate the shortcut would silently do nothing on the very syntax T2 exists
   // to accept.
