@@ -1,4 +1,4 @@
-import { EJSON, BSONRegExp, Double } from 'bson';
+import { EJSON, BSONRegExp, Code, DBRef, Double, type Document, type Long } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
 // Main imports this renderer module because it is pure (it imports nothing),
 // and a second copy of the source-preserving parse beside the renderer's
@@ -191,48 +191,75 @@ export function ejsonStringifyDriverValue(v: unknown): string {
 // Long to a number up to the same bound (see `markPromotedDoubles`).
 const MAX_EXACT_LONG = 2n ** 53n;
 
-/**
- * Is `canonical` the canonical spelling of a Long that bson's relaxed writer
- * rounds? Relaxed mode writes a Long with `Long.toNumber()`, so past 2^53 the
- * printed digits are another number (`9007199254740993` comes out as
- * `9007199254740992`).
- *
- * Read only where the relaxed tree holds a number, so a plain document that
- * merely has a `$numberLong` key never reaches it: relaxed mode printed that
- * as an object, and it stays one.
- */
-function isWideLong(canonical: unknown): boolean {
-  const digits = (canonical as { $numberLong?: unknown }).$numberLong;
-  if (typeof digits !== 'string') return false;
-  const n = BigInt(digits);
+function isWide(n: bigint): boolean {
   return n > MAX_EXACT_LONG || n < -MAX_EXACT_LONG;
 }
 
 /**
- * `relaxed` with each wide Long put back as its `{"$numberLong": "<digits>"}`
- * wrapper, taken from the same position in `canonical`. Every other value is
- * what bson's relaxed writer printed, so dates, doubles and the rest print as
- * they always have.
+ * `node` with each Long past 2^53 (and each such bigint) swapped for a plain
+ * `{ $numberLong: "<digits>" }` document, which bson's relaxed writer prints
+ * as exactly that wrapper. That writer prints a Long with `Long.toNumber()`,
+ * so past 2^53 its digits are another number (`9007199254740993` comes out as
+ * `9007199254740992`).
  *
- * Mirrors the renderer's `relaxLosslessly` (`src/utils/ejson.ts`): unwrap a
- * canonical sentinel only where the bare number says the same thing. That one
- * is a display subset; this one is bson's relaxed output with that single
- * exception, so an export or a printed result changes for a wide Long and
- * for nothing else.
+ * Walks what that writer walks: arrays, Maps, the scope of a Code, the fields
+ * of a DBRef, and every object without a `_bsontype` whatever its prototype,
+ * since an object made in the shell or in a script's vm has that realm's own
+ * `Object.prototype`. A number is never touched, so a Double past 2^53 still
+ * prints bare. A node the walk misses prints as bson prints it: rounded.
+ *
+ * Copies only the path to a changed value; everything else is the same
+ * reference. Exported so its tests can see which references it keeps.
  */
-function keepWideLongs(relaxed: unknown, canonical: unknown): unknown {
-  if (typeof relaxed === 'number') return isWideLong(canonical) ? canonical : relaxed;
-  if (relaxed === null || typeof relaxed !== 'object') return relaxed;
-  // `canonical` was written from the same value, so it has this node's shape;
-  // a divergence throws here instead of printing a rounded number.
-  if (Array.isArray(relaxed)) return relaxed.map((item, i) => keepWideLongs(item, (canonical as unknown[])[i]));
-  const twin = canonical as Record<string, unknown>;
-  // Object.create(null), not {}: see `walkRevive`. bson keeps a field named
-  // `__proto__` as an own property, and `result['__proto__'] = v` on a `{}`
-  // literal would set the prototype and drop the field instead.
-  const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-  for (const [k, v] of Object.entries(relaxed)) out[k] = keepWideLongs(v, twin[k]);
-  return out;
+export function wrapWideLongs(node: unknown): unknown {
+  if (typeof node === 'bigint') {
+    // bson writes a bigint as the signed 64-bit value it wraps to.
+    const n = BigInt.asIntN(64, node);
+    return isWide(n) ? { $numberLong: n.toString() } : node;
+  }
+  if (node === null || typeof node !== 'object') return node;
+  // ponytail: no cycle guard, so a cyclic input overflows the stack instead of raising bson's circular-reference error; every caller already handles a throw. Track ancestors if a caller needs bson's message.
+  if (Array.isArray(node)) {
+    let out: unknown[] | undefined;
+    for (const [i, item] of node.entries()) {
+      const v = wrapWideLongs(item);
+      if (v !== item) (out ??= node.slice())[i] = v;
+    }
+    return out ?? node;
+  }
+  // The tag, not `instanceof`: a Map made in a script's vm is another realm's Map.
+  if (Object.prototype.toString.call(node) === '[object Map]') {
+    let out: Map<unknown, unknown> | undefined;
+    for (const [k, v] of node as Map<unknown, unknown>) {
+      const w = wrapWideLongs(v);
+      if (w !== v) (out ??= new Map(node as Map<unknown, unknown>)).set(k, w);
+    }
+    return out ?? node;
+  }
+  const bsontype = (node as { _bsontype?: unknown })._bsontype;
+  if (bsontype === 'Long') {
+    const n = BigInt((node as Long).toString());
+    return isWide(n) ? { $numberLong: n.toString() } : node;
+  }
+  if (bsontype === 'Code') {
+    const code = node as Code;
+    const scope = wrapWideLongs(code.scope);
+    return scope === code.scope ? node : new Code(code.code, scope as Document);
+  }
+  if (bsontype === 'DBRef') {
+    const ref = node as DBRef;
+    const fields = wrapWideLongs(ref.fields);
+    return fields === ref.fields ? node : new DBRef(ref.collection, ref.oid, ref.db, fields as Document);
+  }
+  if (bsontype !== undefined) return node;
+  const doc = node as Record<string, unknown>;
+  let out: Record<string, unknown> | undefined;
+  // `Object.keys`, as bson reads a document. Object.create(null), not {}: see `walkRevive`.
+  for (const key of Object.keys(doc)) {
+    const v = wrapWideLongs(doc[key]);
+    if (v !== doc[key]) (out ??= Object.assign(Object.create(null) as Record<string, unknown>, doc))[key] = v;
+  }
+  return out ?? node;
 }
 
 /**
@@ -242,19 +269,13 @@ function keepWideLongs(relaxed: unknown, canonical: unknown): unknown {
  * so the user can see the underlying BSON type.
  *
  * A Long past 2^53 keeps its `{"$numberLong": "<digits>"}` wrapper, because
- * bson's relaxed mode would print it as a rounded number (see `keepWideLongs`).
+ * bson's relaxed mode would print it as a rounded number (see `wrapWideLongs`).
  *
  * Returns `undefined` for values EJSON can't serialise (functions, including
  * Proxies wrapping functions). Callers should fall back to `util.inspect`.
  */
 export function ejsonStringifyRelaxed(v: unknown, indent?: number): string | undefined {
-  // As in `ejsonEncode`: the canonical tree has to say Double for a promoted
-  // number past 2^53, or it would read as a wide Long and wrap a plain number.
-  const marked = markPromotedDoubles(v) as object;
-  const relaxed = EJSON.stringify(marked, undefined, undefined, { relaxed: true }) as string | undefined;
-  if (relaxed === undefined) return undefined;
-  const canonical = EJSON.stringify(marked, undefined, undefined, { relaxed: false });
-  return JSON.stringify(keepWideLongs(JSON.parse(relaxed), JSON.parse(canonical)), null, indent);
+  return EJSON.stringify(wrapWideLongs(v) as object, undefined, indent, { relaxed: true }) as string | undefined;
 }
 
 /**
