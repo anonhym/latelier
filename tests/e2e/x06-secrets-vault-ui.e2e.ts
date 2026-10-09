@@ -124,5 +124,5 @@ test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async
       // The "Remove stored password" affordance is present.
       await expect(win.getByText('Remove stored password')).toBeVisible();
     });
-  });
+  }, { nativeCredentialStore: true });
 });

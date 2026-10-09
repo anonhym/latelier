@@ -217,14 +217,15 @@ jobs:
           XDG_CURRENT_DESKTOP: GNOME
         # `dbus-run-session` gives the job its own session bus, and a keyring
         # daemon is started and unlocked on it with a throwaway password that
-        # exists for this job alone. A bare Electron started in this session
-        # selects `gnome_libsecret`. Playwright's own Electron launcher does
-        # not: its loader (`playwright-core/lib/server/electron/loader.js`)
-        # appends `--password-store=basic` to the app it starts, which wins
-        # over a flag passed in `args`, so the app under test still reports
-        # `basic_text` and the vault specs fail here, by design, rather than
-        # skip. Closing that gap means launching the vault specs without that
-        # loader (an explicit `executablePath`).
+        # exists for this job alone. An Electron started in this session
+        # selects `gnome_libsecret` from `XDG_CURRENT_DESKTOP`. Playwright's
+        # own Electron launcher would defeat that: its loader
+        # (`playwright-core/lib/server/electron/loader.js`) appends
+        # `--password-store=basic` to the app it starts, which wins over a flag
+        # passed in `args`. So the two secrets-vault specs launch the app
+        # through an explicit `executablePath`, which skips that loader
+        # (`nativeCredentialStoreLaunch` in `tests/helpers/e2eApp.ts`), and fail
+        # rather than skip if no real keyring is selected.
         #
         # Electron needs an X server on Linux even when launched
         # programmatically; xvfb-run stands one up for the test process.

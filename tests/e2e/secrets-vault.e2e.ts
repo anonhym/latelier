@@ -1,14 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import Database from 'better-sqlite3';
-import { failOnCiWhenKeychainMissing, selectedStorageBackend } from '../helpers/e2eApp';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
+import {
+  failOnCiWhenKeychainMissing,
+  nativeCredentialStoreLaunch,
+  selectedStorageBackend,
+} from '../helpers/e2eApp';
 
 /**
  * GAP 3 — Secrets vault round-trip across relaunch.
@@ -36,7 +37,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function launchApp(userDataDir: string): Promise<ElectronApplication> {
   return electron.launch({
-    args: [path.resolve(here, '../..', 'dist-electron/main.js')],
+    ...nativeCredentialStoreLaunch(),
     env: {
       ...process.env,
       ATELIER_USER_DATA_DIR: userDataDir,

@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const MAIN_JS = path.resolve(here, '../..', 'dist-electron/main.js');
 
 /**
  * Shared E2E helpers for the Playwright + Electron suite. Earlier files
@@ -45,13 +47,39 @@ export function selectedStorageBackend(app: ElectronApplication): Promise<string
   );
 }
 
+/**
+ * Launch options that start the app without Playwright's Electron loader.
+ *
+ * That loader, injected whenever no `executablePath` is given, appends
+ * `--password-store=basic` to the app's command line, which overrides any flag
+ * in `args` and the desktop-environment detection alike. Under it Linux
+ * Chromium always reports `basic_text`, whatever keyring is running, so the
+ * secrets-vault specs could never exercise real encryption. Given the Electron
+ * binary directly, Chromium picks its store itself. Only those specs opt in:
+ * the loader also installs the throttling and ready-gating the rest of the
+ * suite is tuned against.
+ *
+ * macOS keeps the mock keychain the loader would have set, so a run never
+ * touches the developer's login Keychain.
+ */
+export function nativeCredentialStoreLaunch(): { executablePath: string; args: string[] } {
+  const electronBinary = createRequire(import.meta.url)('electron') as string;
+  return {
+    executablePath: electronBinary,
+    args: [MAIN_JS, ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : [])],
+  };
+}
+
 export function freshUserData(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-e2e-'));
 }
 
-export async function launchApp(userDataDir: string): Promise<ElectronApplication> {
+export async function launchApp(
+  userDataDir: string,
+  opts: { nativeCredentialStore?: boolean } = {},
+): Promise<ElectronApplication> {
   const app = await electron.launch({
-    args: [path.resolve(here, '../..', 'dist-electron/main.js')],
+    ...(opts.nativeCredentialStore ? nativeCredentialStoreLaunch() : { args: [MAIN_JS] }),
     env: {
       ...process.env,
       ATELIER_USER_DATA_DIR: userDataDir,
@@ -83,11 +111,12 @@ export async function launchApp(userDataDir: string): Promise<ElectronApplicatio
  */
 export async function withApp<T>(
   fn: (app: ElectronApplication, userDataDir: string) => Promise<T>,
+  opts: { nativeCredentialStore?: boolean } = {},
 ): Promise<T> {
   const userDataDir = freshUserData();
   let app: ElectronApplication | null = null;
   try {
-    app = await launchApp(userDataDir);
+    app = await launchApp(userDataDir, opts);
     return await fn(app, userDataDir);
   } finally {
     if (app) await app.close();
