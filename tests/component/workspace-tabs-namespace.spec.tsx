@@ -255,3 +255,117 @@ describe('useWorkspaceTabs — namespace drop/rename cleanup (N0.5)', () => {
     expect(result.current.tabs[0]?.collection).toBe('orders2');
   });
 });
+
+/**
+ * Opening a saved pipeline reseeds the aggregation on the collection's tab
+ * when one is open (#470), so unsaved stage edits there need the same confirm
+ * that closing the tab asks for.
+ */
+describe('useWorkspaceTabs — opening a saved pipeline over unsaved edits', () => {
+  const dirtyOrders = (overrides: Partial<CollectionTab> = {}): CollectionTab =>
+    collectionTab({
+      id: 't1',
+      connectionId: 'c1',
+      dbName: 'db',
+      collection: 'orders',
+      state: {
+        ...collectionTab({ id: 't1' }).state,
+        aggregation: { ...DEFAULT_AGGREGATION_TAB_STATE, dirty: true },
+      },
+      ...overrides,
+    });
+  const saved = { connectionId: 'c1', dbName: 'db', collection: 'orders', savedId: 's1', name: 'by status' };
+
+  function setup(tab: CollectionTab) {
+    const openSpy = vi.fn(async () => tab);
+    installAtelierMock({
+      tabs: {
+        list: async () => [tab],
+        openAggregation: openSpy as unknown as IpcApi['tabs']['openAggregation'],
+      },
+    });
+    const hook = renderHook(() => useWorkspaceTabs());
+    return { openSpy, hook };
+  }
+
+  it('asks first, and Cancel keeps the unsaved pipeline', async () => {
+    const { openSpy, hook } = setup(dirtyOrders());
+    await waitFor(() => expect(hook.result.current.tabs).toHaveLength(1));
+
+    let outcome: unknown = 'unsettled';
+    const pending = hook.result.current.openAggregation(saved).then((tab) => { outcome = tab; });
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Discard unsaved pipeline changes?');
+    expect(dialog.textContent).toContain('"by status"');
+    expect(dialog.textContent).toContain('"db.orders"');
+    expect(openSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await pending;
+    });
+
+    expect(outcome).toBeNull();
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('opens the saved pipeline once the discard is confirmed', async () => {
+    const { openSpy, hook } = setup(dirtyOrders());
+    await waitFor(() => expect(hook.result.current.tabs).toHaveLength(1));
+
+    const pending = hook.result.current.openAggregation(saved);
+    await screen.findByRole('dialog');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Discard and open' }));
+      await pending;
+    });
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith(saved);
+  });
+
+  it.each([
+    ['the tab has no unsaved edits', dirtyOrders({ state: { ...collectionTab().state, aggregation: { ...DEFAULT_AGGREGATION_TAB_STATE, dirty: false } } }), saved],
+    ['the dirty tab is on another collection', dirtyOrders({ collection: 'users' }), saved],
+    ['the dirty tab is on another database', dirtyOrders({ dbName: 'other' }), saved],
+    ['the dirty tab is on another connection', dirtyOrders({ connectionId: 'c2' }), saved],
+    ['nothing replaces the pipeline (no saved pipeline, no name)', dirtyOrders(), { connectionId: 'c1', dbName: 'db', collection: 'orders' }],
+  ])('opens without asking when %s', async (_name, tab, input) => {
+    const { openSpy, hook } = setup(tab);
+    await waitFor(() => expect(hook.result.current.tabs).toHaveLength(1));
+
+    await act(async () => {
+      await hook.result.current.openAggregation(input);
+    });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(openSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for a name alone, which also replaces the pipeline', async () => {
+    const { openSpy, hook } = setup(dirtyOrders());
+    await waitFor(() => expect(hook.result.current.tabs).toHaveLength(1));
+
+    const pending = hook.result.current.openAggregation({ connectionId: 'c1', dbName: 'db', collection: 'orders', name: 'draft' });
+    await screen.findByRole('dialog');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await pending;
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('names "this pipeline" when no name comes with the saved pipeline', async () => {
+    const { hook } = setup(dirtyOrders());
+    await waitFor(() => expect(hook.result.current.tabs).toHaveLength(1));
+
+    const pending = hook.result.current.openAggregation({ connectionId: 'c1', dbName: 'db', collection: 'orders', savedId: 's1' });
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Opening this pipeline replaces');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await pending;
+    });
+  });
+});

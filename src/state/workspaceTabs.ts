@@ -55,7 +55,8 @@ export interface WorkspaceTabsState {
     collection: string;
     savedId?: string;
     name?: string;
-  }) => Promise<CollectionTab>;
+    /** `null` when the user kept the tab's unsaved pipeline instead of replacing it. */
+  }) => Promise<CollectionTab | null>;
   openScript: (input: {
     connectionId: string;
     initialState?: Partial<ScriptTabState>;
@@ -238,6 +239,26 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const openAggregation: WorkspaceTabsState['openAggregation'] = useCallback(
     async (input) => {
+      // With a saved pipeline or a name, main replaces the aggregation on the
+      // collection's tab if one is open, so ask before losing its unsaved edits,
+      // as closing that tab does.
+      if (input.savedId || input.name) {
+        const open = tabsRef.current.find(
+          (t) =>
+            t.kind === 'collection' &&
+            t.connectionId === input.connectionId &&
+            t.dbName === input.dbName &&
+            t.collection === input.collection,
+        );
+        if (open?.kind === 'collection' && open.state.aggregation?.dirty) {
+          const proceed = await confirmDestructive({
+            title: 'Discard unsaved pipeline changes?',
+            body: `Opening ${input.name ? `"${input.name}"` : 'this pipeline'} replaces the pipeline on "${input.dbName}.${input.collection}", which has edits that have not been saved.`,
+            confirmLabel: 'Discard and open',
+          });
+          if (!proceed) return null;
+        }
+      }
       const tab = await api.tabs.openAggregation(input);
       // Main just overwrote these on the tab, so a patch still in the debounce
       // would otherwise be layered back over it (and later flushed over it).
