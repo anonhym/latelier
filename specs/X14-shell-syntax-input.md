@@ -222,6 +222,12 @@ of both, not one.
 transform reports empty input as `failed`, so the callers keep their own blank
 check ahead of it.
 
+A blank *filter* is the exception to "no problem": it is still refused, because
+the filter rule is also the Run gate and a blank box must not enable Run,
+Explain or delete-all. It gets its own sentence ("Enter a filter, like …")
+rather than the parse message, since an empty box is missing a filter, not
+holding one that fails to parse.
+
 ## 4. Aggregation stage bodies (T4)
 
 **`validateStageBody` stops calling `isValidEjson` directly and routes through
@@ -328,6 +334,9 @@ main process, and it is pure JavaScript with no Node built-ins, so
 - [x] `queryRaw` in `workspace_tabs.state_json` never holds Shell Syntax after
       a blur or a Run.
 - [x] `currentFilterJson` still refuses `[1,2]`, `null` and blank text.
+- [x] A blank filter box is refused with its own message ("Enter a filter, like
+      …"), not the parse message, and Run stays disabled. Blank sort still
+      means "no sort".
 - [x] The delete-all confirmation shows the Canonical EJSON that will run.
 - [x] `gitnexus impact currentFilterJson` was run and recorded before the code
       was written.
