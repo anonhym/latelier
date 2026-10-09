@@ -292,6 +292,12 @@ export function findProblem(state: CollectionTabState): string | null {
 }
 
 export function filterProblem(queryRaw: string): string | null {
+  // A blank box is missing a filter, not holding one that fails to parse. It
+  // stays a problem: this is also the Run gate, and a null here would enable
+  // Run, Explain and delete-all on an empty filter.
+  if (queryRaw.trim() === '') {
+    return 'Enter a filter, like { "status": "active" }, or {} to match every document.';
+  }
   if (!isValidEjson(queryRaw)) {
     return 'Can\'t parse this filter. Expected EJSON like { "status": "active" }.';
   }
