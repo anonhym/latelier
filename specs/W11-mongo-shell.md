@@ -81,6 +81,7 @@ with a database user that only holds read privileges.
 export interface ShellSessionInfo {
   sessionId: string;
   connectionId: string;
+  /** The database the session opened on, chosen as section 3 describes. */
   dbName?: string;
   startedAt: string;
 }
@@ -135,6 +136,14 @@ Behaviour:
   `pool.readClient(connectionId)` so a connect failure surfaces as a
   clean error before anything is spawned or any session state is
   allocated.
+- The database the session opens on is the first that exists of: the
+  `dbName` the caller passes (blank counts as unset), the connection's
+  default database, and `test` (mongosh's own default).
+  `MongoPool.resolveDbName` decides, after the connect, because the
+  pool caches the default only once a connect succeeds. The pane passes
+  the focused tab's database (section 4), so a Shell opened from a
+  `shop.orders` tab starts on `shop`, and one opened with no tab database
+  starts on the connection's default.
 - It then spawns the runner child, creates the session's `rpcHost`
   over that client, and posts one `shell-start` request (database name
   and banner text only). The child writes the banner, then runs a
@@ -178,6 +187,12 @@ Behaviour:
   resizable via a `ResizeHandle` (height persisted in
   `prefs:set('ui.workspace.shellHeight', n)`).
 - Toggled by a chrome button in the title bar (`{I.terminal} Shell`).
+- Opens, and on Restart reopens, the session on the focused tab's
+  database: a collection tab's own, or a script tab's database field.
+  A script tab with a blank field passes none, so the connection's
+  default applies. Switching tabs later does not restart the session or
+  move it off its database (`use <db>` stays the way to switch), because
+  a restart would wipe the scrollback.
 - Hidden entirely when there is no active connection.
 - Output area: monospace `<pre>` showing the rolling output buffer
   (capped at 200 KB, drop-from-front); scrolls to bottom on append.
@@ -218,6 +233,8 @@ Behaviour:
 
 - [x] Clicking the chrome "Shell" button opens the pane scoped to the
       active connection; clicking again hides it.
+- [x] The pane opens the shell on the focused tab's database; with none
+      it opens on the connection's default database, else `test`.
 - [x] On open, the pane prints a banner naming the connection.
 - [x] Typing `await db.runCommand({ ping: 1 })` prints `{ "ok": 1 }`.
 - [x] `show dbs` and `show collections` work.
@@ -239,7 +256,8 @@ Behaviour:
   stop / write-after-stop / list semantics, and the read-only refusal.
 - **shell-runner.spec.ts**: the same service over a real pool and
   `mongodb-memory-server`. Covers reads and writes through main, `use`
-  and the prompt, stop and `disposeAll` killing the child, a pool
+  and the prompt, the database a session opens on (an explicit name over
+  the connection's default over `test`), stop and `disposeAll` killing the child, a pool
   disconnect and a read-only flip ending the session, a crashed child,
   `process.exit()` and `.exit` inside the REPL, and that nothing posted
   to the child (and nothing an escape can read from its environment)
@@ -248,8 +266,13 @@ Behaviour:
 
 ### Component
 - **mongo-shell-pane.spec.tsx**: mounts the pane against a mocked
-  `api.mshell`; verifies start-on-mount, input → `mshell.write`, and
-  the streamed-output rendering path.
+  `api.mshell`; verifies start-on-mount, the focused tab's database
+  reaching `mshell.start` (and a tab switch not restarting the session),
+  input → `mshell.write`, and the streamed-output rendering path.
+- **workspace-focused-connection.spec.tsx**: the Workspace passes a
+  collection tab's database, a script tab's database field (blank
+  means none) and the connection's default database to the pane and the
+  Script tab.
 
 ### E2E
 - **mongo-shell.e2e.ts**: launches the real Electron app (the runner
@@ -257,3 +280,5 @@ Behaviour:
   connection against an in-memory MongoDB, starts a session, runs `await
   db.runCommand({ ping: 1 })` through the IPC bridge, and asserts the
   `{ "ok": 1 }` payload appears in the output stream.
+- **x01-mongo-shell-ui.e2e.ts**: opens the shell from a `shop.orders`
+  tab and asserts the prompt is `shop> `.
