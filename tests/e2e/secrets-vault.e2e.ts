@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import Database from 'better-sqlite3';
-import { failOnCiWhenKeychainMissing, selectedStorageBackend } from '../helpers/e2eApp';
+import { failOnCiWhenKeychainMissing, linuxKeyringArgs, selectedStorageBackend } from '../helpers/e2eApp';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -36,7 +36,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 async function launchApp(userDataDir: string): Promise<ElectronApplication> {
   return electron.launch({
-    args: [path.resolve(here, '../..', 'dist-electron/main.js')],
+    args: [path.resolve(here, '../..', 'dist-electron/main.js'), ...linuxKeyringArgs],
     env: {
       ...process.env,
       ATELIER_USER_DATA_DIR: userDataDir,

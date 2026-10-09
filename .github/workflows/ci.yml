@@ -236,6 +236,7 @@ jobs:
             set -euo pipefail
             eval "$(openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets)"
             dbus-send --session --print-reply --dest=org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service.ReadAlias string:default || echo "ReadAlias failed: no secret service on the session bus"
+            bash scripts/ci-keyring-probe.sh
             exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure
