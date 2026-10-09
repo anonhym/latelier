@@ -62,8 +62,8 @@ test('mongo shell ui: open pane, run a ping command, output renders', async () =
       });
 
       // Submit a ping command — Enter is the submit key (MongoShellPane.tsx:283).
-      // The REPL doesn't auto-await Promises, so prefix `await` (the
-      // existing IPC mongo-shell.e2e.ts uses the same incantation).
+      // `await` is optional (the shell settles a Promise result before it
+      // prints); the existing IPC mongo-shell.e2e.ts uses the same incantation.
       await shellInput.fill('await db.runCommand({ ping: 1 })');
       await shellInput.press('Enter');
 
