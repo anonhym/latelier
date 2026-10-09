@@ -421,6 +421,8 @@ describe('ShellService — un-awaited results', () => {
     svc!.write(sessionId, 'db.async_items.countDocuments(\n)\n"after-count"\n');
     await until(() => outputOf(from).includes('after-count'), '"after-count" typed while the count is pending');
     await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count of the multi-line call');
+    expect(outputOf(from)).toContain('after-count');
+    expect(outputOf(from)).toMatch(/(?:^|> )3$/m);
   });
 
   it('a multi-line function definition still continues across lines', async () => {
