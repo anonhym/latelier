@@ -68,6 +68,8 @@ export interface SavedQuery extends SavedQuerySummary {
 
 For `kind` `find` and `aggregation`, `saved:create` and `saved:update` require `payload.kind` to equal the query's `kind` and the payload to match that variant's shape (`saved:update` checks against the stored row's kind, since a patch names none), rejecting a mismatch with `VALIDATION`; `script` has no payload variant, so its payload is not checked, and reads never validate, so rows saved before this rule stay readable.
 
+`description` is stored in the payload (`saved:create` sets it) and `saved:update` replaces the payload as a whole, with one exception: an update payload that names no `description` keeps the stored one, so the stages-only payload of the aggregation Save (§5) does not drop what the Save dialog recorded. A `description` the payload does name replaces it, and an empty string clears it. A name-only patch never touches the payload.
+
 ## 3. Repo
 
 ```ts
@@ -106,7 +108,7 @@ From the workspace:
 
 - "Save" / "Save as" buttons in the Aggregation title bar (A01/A06).
 - `Save`:
-  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { kind: 'aggregation', stages }`.
+  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { kind: 'aggregation', stages }`. The stored `description` is kept (§2).
   - Else: open the same modal as find, pre-selected kind `aggregation`.
 - `Save as`: always open modal pre-filled with current name + " (copy)".
 
@@ -147,7 +149,7 @@ From the workspace:
 - [ ] Saved tab shows only queries scoped to the tab's collection by default; a small "Show all" toggles the scope to connection-wide.
 - [ ] "Run here" hydrates state correctly for both kinds.
 - [ ] Saved aggregation reopened in a fresh window preserves `stages` exactly.
-- [ ] Opening a saved pipeline, then Save with no edits, leaves the stored `stages` unchanged.
+- [ ] Opening a saved pipeline, then Save with no edits, leaves the stored `stages` and `description` unchanged.
 - [ ] Deleting a saved query that's currently loaded in a tab doesn't break the tab; the tab drops its `savedId`.
 
 ## 11. Test cases
