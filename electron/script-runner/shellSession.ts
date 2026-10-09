@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream';
 import * as repl from 'node:repl';
 import { inspect, types } from 'node:util';
+import type { Context } from 'node:vm';
 import { ejsonStringifyRelaxed } from '../mongo/ejson.ts';
 import type { Channel } from './channel.ts';
 import type { RpcClient } from './rpcClient.ts';
@@ -73,29 +74,36 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
       );
     });
   };
-  server.context.db = db;
-  server.context.use = (name: string) => {
-    ctx.currentDb = name;
-    server.setPrompt(`${name}> `);
-    return `switched to db ${name}`;
+  // The REPL's `.clear` builds a fresh context and drops everything on the old
+  // one, so the helpers go in through a function that runs again on 'reset'.
+  // `db` and `ctx` live outside the context, so the current database survives.
+  const installHelpers = (context: Context): void => {
+    context.db = db;
+    context.use = (name: string) => {
+      ctx.currentDb = name;
+      server.setPrompt(`${name}> `);
+      return `switched to db ${name}`;
+    };
+    context.help = helpText;
+    // Mongosh-style `show ...` sugar (rewritten in main). Returned values flow
+    // through the standard REPL writer, so they are formatted like any query.
+    context.__shellShow = async (kind: 'dbs' | 'collections'): Promise<string> => {
+      if (kind === 'dbs') {
+        // `authorizedDatabases: true` lets users with scoped roles (Atlas
+        // read-only, per-db users) see the dbs they have access to even when
+        // they lack the cluster-wide listDatabases privilege.
+        const admin = rpc.makeDb({ currentDb: 'admin' }) as {
+          runCommand(cmd: object): Promise<{ databases: Array<{ name: string; sizeOnDisk?: number }> }>;
+        };
+        const r = await admin.runCommand({ listDatabases: 1, authorizedDatabases: true });
+        return r.databases.map((d) => `${d.name}\t${d.sizeOnDisk ?? 0}`).join('\n');
+      }
+      const cursor = (db as { listCollections(): { toArray(): Promise<Array<{ name: string }>> } }).listCollections();
+      return (await cursor.toArray()).map((c) => c.name).join('\n');
+    };
   };
-  server.context.help = helpText;
-  // Mongosh-style `show ...` sugar (rewritten in main). Returned values flow
-  // through the standard REPL writer, so they are formatted like any query.
-  server.context.__shellShow = async (kind: 'dbs' | 'collections'): Promise<string> => {
-    if (kind === 'dbs') {
-      // `authorizedDatabases: true` lets users with scoped roles (Atlas
-      // read-only, per-db users) see the dbs they have access to even when
-      // they lack the cluster-wide listDatabases privilege.
-      const admin = rpc.makeDb({ currentDb: 'admin' }) as {
-        runCommand(cmd: object): Promise<{ databases: Array<{ name: string; sizeOnDisk?: number }> }>;
-      };
-      const r = await admin.runCommand({ listDatabases: 1, authorizedDatabases: true });
-      return r.databases.map((d) => `${d.name}\t${d.sizeOnDisk ?? 0}`).join('\n');
-    }
-    const cursor = (db as { listCollections(): { toArray(): Promise<Array<{ name: string }>> } }).listCollections();
-    return (await cursor.toArray()).map((c) => c.name).join('\n');
-  };
+  installHelpers(server.context);
+  server.on('reset', installHelpers);
 
   // A user's own un-awaited rejection must not take the session down.
   process.on('unhandledRejection', (reason) => {

@@ -243,6 +243,28 @@ describe('ShellService — a bare collection', () => {
   });
 });
 
+describe('ShellService — `.clear`', () => {
+  it('drops what the user defined but keeps db, use, help and show working', async () => {
+    const s = setup();
+    const info = await s.start({ connectionId: 'c1' });
+    await say(info.sessionId, 'use clear_db', 'switched to db clear_db');
+    // `var` evaluates to undefined, which the shell prints as nothing, so there is no output to wait for.
+    svc!.write(info.sessionId, 'var defined_by_user = 41\n');
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('number');
+
+    await say(info.sessionId, '.clear', 'Clearing context');
+    // The context really was reset, so the checks below are not vacuous.
+    expect(await say(info.sessionId, 'typeof defined_by_user', '\n')).toContain('undefined');
+
+    // The database chosen before `.clear` is still the one in use.
+    expect(await say(info.sessionId, 'db.getName() + "!"', '\n')).toContain('clear_db!');
+    expect(await say(info.sessionId, 'help()', '\n')).toContain("L'Atelier shell");
+    expect(await say(info.sessionId, 'show dbs', 'admin')).toContain('admin');
+    await say(info.sessionId, 'use clear_again', 'switched to db clear_again');
+    expect(await say(info.sessionId, 'db.getName() + "?"', '\n')).toContain('clear_again?');
+  });
+});
+
 describe('ShellService — un-awaited results', () => {
   // A result starts right after its prompt (`test> 3`) unless that prompt was
   // already printed before the line was sent, so a line start is `> ` or `^`.
