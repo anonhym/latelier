@@ -17,7 +17,8 @@ import {
 } from '../errors.ts';
 import { classifyMongoOpError } from './errors.ts';
 import type { MongoPool, WriteGrant } from './MongoPool.ts';
-import type { RecentQueryService } from '../services/RecentQueryService.ts';
+import { logRecentWriteFailure, type RecentQueryService } from '../services/RecentQueryService.ts';
+import type { Logger } from '../log.ts';
 import { isWriteStage } from './writeStages.ts';
 import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
@@ -37,10 +38,12 @@ export class AggregationService {
   private pool: MongoPool;
   private recent: RecentQueryService;
   private active = new Map<string, CancelEntry>();
+  private log: Logger | undefined;
 
-  constructor(pool: MongoPool, recent: RecentQueryService) {
+  constructor(pool: MongoPool, recent: RecentQueryService, log?: Logger) {
     this.pool = pool;
     this.recent = recent;
+    this.log = log;
   }
 
   async run(input: AggInput): Promise<AggResultWire> {
@@ -147,7 +150,7 @@ export class AggregationService {
           durationMs,
           rowCount,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
 
       return {
         rowsJson,
@@ -175,7 +178,7 @@ export class AggregationService {
           0,
           classified.code,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       throw classified;
     } finally {
       this.clearCancel(input.cancelToken);
