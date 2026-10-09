@@ -129,6 +129,21 @@ describe('refs:* channels via router', () => {
       expect(env.error.code).toBe('CONFLICT');
     });
 
+    it('answers NOT_FOUND for a connection that does not exist', async () => {
+      const env = await shim.invoke(
+        IPC_CHANNELS.refsCreate,
+        ruleInput({ connectionId: 'no-such-conn' }),
+      );
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('NOT_FOUND');
+      expect(env.error.message).toBe('connection no-such-conn not found');
+      const stored = tmp.db.prepare('SELECT COUNT(*) AS n FROM reference_rules').get() as {
+        n: number;
+      };
+      expect(stored.n).toBe(0);
+    });
+
     it.each([
       ['a missing targetCollection', { targetCollection: undefined }],
       ['an empty sourceField', { sourceField: '' }],
