@@ -60,6 +60,7 @@
     "electron/security/externalUrl.ts",
     "electron/security/credentialPaths.ts",
     "electron/mongo/uri.ts",
+    "electron/mongo/topology.ts",
     "electron/mongo/errors.ts",
     "electron/mongo/normalize.ts",
     "src/utils/jsonHighlight.ts",
