@@ -84,7 +84,7 @@ export function startShellSession(channel: Channel, rpc: RpcClient, req: ShellSt
       server.setPrompt(`${name}> `);
       return `switched to db ${name}`;
     };
-    context.help = helpText;
+    context.help = help;
     // Mongosh-style `show ...` sugar (rewritten in main). Returned values flow
     // through the standard REPL writer, so they are formatted like any query.
     context.__shellShow = async (kind: 'dbs' | 'collections'): Promise<string> => {
@@ -188,7 +188,7 @@ function flattenErrors(value: unknown, path: WeakSet<object>): unknown {
   }
 }
 
-function helpText(): string {
+function help(): string {
   return [
     "L'Atelier shell: a Node REPL with a Mongo driver context, run in its own process.",
     '',
