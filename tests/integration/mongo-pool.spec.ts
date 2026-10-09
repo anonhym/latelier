@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet, MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { KEYCHAIN_BLOCKED_MESSAGE, SECRET_UNREADABLE_MESSAGE } from '../../electron/mongo/errors';
 import { ConnectionRepo } from '../../electron/db/repositories/ConnectionRepo';
@@ -526,6 +526,31 @@ describe('MongoPool', () => {
       expect((await pool.serverInfo('c1')).topology).toBe('Single');
       expect((await pool.probe(makeConnection('probe', hp))).topology).toBe('Single');
       await pool.disconnectAll();
+    });
+
+    // The one real replica set in the suite: a hand-built hello can only show
+    // that the pool trusts the reply, this shows the reply a mongod actually
+    // sends classifies. Started on first use and stopped in afterAll, like the
+    // shared standalone.
+    describe('real replica set', () => {
+      let replSet: MongoMemoryReplSet | undefined;
+      afterAll(async () => {
+        await replSet?.stop();
+      }, 60_000);
+
+      it('reports ReplicaSet on connect, serverInfo and probe', async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        const rsHp = uriToHostPort(replSet.getUri());
+        tmp = createTempDb();
+        vault = new SecretsVault(tmp.db, createSafeStorageMock());
+        const pool = new MongoPool({ repo: makeReader([makeConnection('rs', rsHp)]), vault });
+
+        await pool.readClient('rs');
+        expect(pool.status('rs').topology).toBe('ReplicaSet');
+        expect((await pool.serverInfo('rs')).topology).toBe('ReplicaSet');
+        expect((await pool.probe(makeConnection('probe', rsHp))).topology).toBe('ReplicaSet');
+        await pool.disconnectAll();
+      }, 90_000);
     });
 
     it('reports Single for a real standalone when a logger is attached too', async () => {
