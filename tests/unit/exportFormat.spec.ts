@@ -354,7 +354,7 @@ describe('relaxed export keeps numbers past 2^53 exact', () => {
     ['a JSON array', (docs: unknown[]) => parseJsonArray(serializeJsonArray(docs, true))],
   ])('a real-epoch Timestamp survives a relaxed export and re-import through %s as a Timestamp', (_name, roundTrip) => {
     const [rec] = roundTrip([{ ts: { $timestamp: { t: 1700000000, i: 1 } }, n: { $numberLong: '9007199254740993' } }]);
-    const doc = (rec as { doc: { ts: unknown; n: unknown } }).doc;
+    const doc = (rec as { doc: Record<string, unknown> }).doc;
     expect(doc.ts).toBeInstanceOf(Timestamp);
     expect((doc.ts as Timestamp).t).toBe(1700000000);
     expect((doc.ts as Timestamp).i).toBe(1);
