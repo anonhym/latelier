@@ -321,8 +321,9 @@ when that happens.
   cache. The generation is global, so an invalidation anywhere makes
   every fetch in flight skip its cache write (its caller still gets the
   answer); that errs toward a refetch, never toward a stale entry.
-- Every renderer write path calls it, so fresh fields and the Update
-  drawer's type warning reflect the write immediately:
+- Every write the renderer completes, except those listed after this,
+  calls it, so fresh fields and the Update drawer's type warning
+  reflect the write immediately:
   - `useDocumentDialogs` — insert, partial insert, document save,
     delete (one, selected, many), update-many, and the Undo of each.
     `refreshSource` invalidates from the drawer's captured target
