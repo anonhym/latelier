@@ -137,7 +137,7 @@ Conventions: build inputs with real constructors (`bson`'s `ObjectId`/`Long`/`De
 
 ## Specs and roadmap
 
-`specs/` is the design source of truth — F (foundation), C (connections), W (workspace), A (aggregation), X (cross-cutting); `specs/README.md` indexes them. Before implementing something non-trivial, read the relevant spec (e.g. `W13-filter-tree-editor.md`). Each opens with Purpose / Scope / Dependencies, then numbered design sections, and most end with Acceptance criteria and Test cases. `specs/PLAN-*.md` files sequence the work.
+`specs/` is the design source of truth — F (foundation), C (connections), W (workspace), A (aggregation), X (cross-cutting); `specs/README.md` indexes them. Before implementing something non-trivial, read the relevant spec (e.g. `W13-filter-tree-editor.md`). Each opens with a status line (`Draft`, `Accepted`, `Implemented` or `Superseded by <ID>`), then Purpose / Scope / Dependencies, then numbered design sections, and most end with Acceptance criteria and Test cases. The status line is the only place a spec records whether it shipped; acceptance criteria are plain bullets, never ticked. `specs/PLAN-*.md` files sequence the work.
 
 Known gaps and follow-ups are tracked in **GitHub Issues**, with `priority:P0/P1/P2` and `effort:S/M/L` labels — never in a checked-in list, which drifts from the tracker.
 
@@ -173,6 +173,7 @@ Not gates — obligations that travel with the change. Deliberately its own sect
 - Every PR references the issue it closes (`Closes #<n>`).
 - Resolve review threads once the fix is pushed; don't leave them open.
 - File scoped-out work and unfixed findings as issues before merge, each linked as a blocker of the change that found it. A PR body is not a tracker, and a filed issue is not a discharge.
+- A change that implements or replaces a spec runs the `spec-compliance-reviewer` agent against it and updates that spec's status line in the same PR. A criterion the agent reports missing is scoped-out work, filed as above.
 - Never amend a pushed commit — new commit, always.
 - Never edit a merged migration — new `NNN-*.sql` file, always.
 

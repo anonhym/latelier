@@ -1,5 +1,7 @@
 # C06 — Overview tab (real stats)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Replace the mocked server/storage/performance cards with real data drawn from the live Mongo server. Shows only metrics we can trust: MongoDB version, uptime, connection counts, DB count, data/storage size, index count, ops/sec, cache hit rate, topology.
@@ -113,12 +115,12 @@ Three cards (Server, Storage, Performance) in a flex-wrap row — same as mock. 
 
 ## 7. Acceptance criteria
 
-- [ ] Selecting a connection in C05 and clicking Overview triggers at most one `mongo:serverInfo` call.
-- [ ] Opening Overview on a cached connection renders within one frame (< 16ms).
-- [ ] Refresh interval stops when the window is hidden.
-- [ ] Values are formatted humanely (bytes as KB/MB/GB/TB, uptime as days/hours).
-- [ ] Disconnected state offers Connect; Connect transition works.
-- [ ] Large-deploy heuristic skips index count when `databaseCount > 50`.
+- Selecting a connection in C05 and clicking Overview triggers at most one `mongo:serverInfo` call.
+- Opening Overview on a cached connection renders within one frame (< 16ms).
+- Refresh interval stops when the window is hidden.
+- Values are formatted humanely (bytes as KB/MB/GB/TB, uptime as days/hours).
+- Disconnected state offers Connect; Connect transition works.
+- Large-deploy heuristic skips index count when `databaseCount > 50`.
 
 ## 8. Test cases
 

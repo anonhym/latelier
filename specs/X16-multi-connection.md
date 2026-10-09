@@ -1,5 +1,7 @@
 # X16 — Multi-connection Data View
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Let a person work against several MongoDB servers at once. Today the Data View browses exactly
@@ -326,32 +328,32 @@ rewritten, not extended. Prior art: `conn-connect-disconnect.e2e.ts`, `connect-r
 
 ## 9. Acceptance criteria
 
-- [ ] Connecting to a second Connection leaves the first connected.
-- [ ] The navigator shows one root per Connection, with at most one expanded.
-- [ ] Each root carries its Connection's colour as a spine down its whole section.
-- [ ] A Dormant root is visibly muted and lists no Databases and no Collections.
-- [ ] Expanding a Dormant root connects it, then expands.
-- [ ] A Connection in `connecting` offers Cancel; Cancel makes the in-flight connect reject.
-- [ ] A failed connect renders its message and a Retry on that Connection's root, and closes no
-      tabs.
-- [ ] The tab strip groups tabs by Connection behind a named chip carrying colour and, if set, the
-      read-only marker.
-- [ ] A tab can be reordered inside its group and cannot be dropped into another group.
-- [ ] A tab of a Dormant Connection renders muted; clicking it connects that Connection.
-- [ ] The pane of a tab whose Connection is not Open shows a not-connected state with Connect, not
-      a stale grid.
-- [ ] The read-only marker appears on the tab and on the root, and on neither is it the guard.
-- [ ] Disconnect confirms, naming the Connection and its tab count, then closes only that
-      Connection's tabs and removes its root.
-- [ ] A Connection that drops on its own becomes Dormant and keeps its tabs.
-- [ ] Deleting a Connection with open tabs shows exactly one confirmation, with the tab count.
-- [ ] A Switcher row click connects and opens no tab.
-- [ ] The Switcher marks connected Connections rather than an active one.
-- [ ] The command palette offers "Open connection → X".
-- [ ] At launch, the Focused Tab's Connection connects and every other Connection with tabs
-      restores Dormant.
-- [ ] `ui.workspace.activeConnectionId` is written by nothing and read by nothing.
-- [ ] No new migration file. No new IPC channel.
+- Connecting to a second Connection leaves the first connected.
+- The navigator shows one root per Connection, with at most one expanded.
+- Each root carries its Connection's colour as a spine down its whole section.
+- A Dormant root is visibly muted and lists no Databases and no Collections.
+- Expanding a Dormant root connects it, then expands.
+- A Connection in `connecting` offers Cancel; Cancel makes the in-flight connect reject.
+- A failed connect renders its message and a Retry on that Connection's root, and closes no
+  tabs.
+- The tab strip groups tabs by Connection behind a named chip carrying colour and, if set, the
+  read-only marker.
+- A tab can be reordered inside its group and cannot be dropped into another group.
+- A tab of a Dormant Connection renders muted; clicking it connects that Connection.
+- The pane of a tab whose Connection is not Open shows a not-connected state with Connect, not
+  a stale grid.
+- The read-only marker appears on the tab and on the root, and on neither is it the guard.
+- Disconnect confirms, naming the Connection and its tab count, then closes only that
+  Connection's tabs and removes its root.
+- A Connection that drops on its own becomes Dormant and keeps its tabs.
+- Deleting a Connection with open tabs shows exactly one confirmation, with the tab count.
+- A Switcher row click connects and opens no tab.
+- The Switcher marks connected Connections rather than an active one.
+- The command palette offers "Open connection → X".
+- At launch, the Focused Tab's Connection connects and every other Connection with tabs
+  restores Dormant.
+- `ui.workspace.activeConnectionId` is written by nothing and read by nothing.
+- No new migration file. No new IPC channel.
 
 ## 10. Test cases
 

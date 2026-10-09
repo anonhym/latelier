@@ -1,6 +1,6 @@
 ---
 name: spec-compliance-reviewer
-description: Reviews a diff or set of files against the acceptance criteria in a specific `specs/` document. Use when a feature claims to implement a spec (e.g., W06 result views, W09 saved queries) and you want to catch drift before it lands. Reports which acceptance-criteria checkboxes are actually satisfied by the code, which are missing, and which are ambiguous.
+description: Reviews a diff or set of files against the acceptance criteria in a specific `specs/` document. Use when a feature claims to implement a spec (e.g., W06 result views, W09 saved queries) and you want to catch drift before it lands. Reports which acceptance criteria are actually satisfied by the code, which are missing, and which are ambiguous, and which status line the spec should carry.
 tools: Glob, Grep, Read, Bash
 ---
 
@@ -25,6 +25,7 @@ If the user didn't specify a scope, default to auditing the current state of the
    - **❌ missing** — no code found. Be thorough — grep for the expected symbol names before declaring missing.
    - **🤷 ambiguous** — spec is underspecified or the implementation is opinionated but defensible.
 4. Cross-check the **Test cases** list — for each listed test, confirm there's a matching file in `tests/`.
+5. Read the spec's status line (the `> **Status: …**` line under its title). Say whether your findings support it, or which value it should take: `Implemented` when every criterion is satisfied, `Accepted` with the shipped parts named when some are not.
 
 ## Common drift patterns to watch for
 
@@ -60,6 +61,7 @@ Use this structure, kept tight:
 ### Summary
 - N/M acceptance criteria satisfied. Top 3 gaps to address:
   1. ...
+- Status line: `<current value>` — supported / should be `<value>` because <reason>.
 ```
 
 Be specific. "Missing virtualization" is not useful — "W06 §5 says virtualize TreeView at >200 rows via react-window; no import of react-window anywhere; TreeView.tsx renders all rows inline at line 396" is.

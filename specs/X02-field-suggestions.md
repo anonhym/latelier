@@ -1,5 +1,7 @@
 # X02 — Field & value suggestions
 
+> **Status: Implemented.** Further value sources are tracked as issues.
+
 ## Purpose
 
 Provide a single composable autocomplete system that surfaces field paths
@@ -389,30 +391,30 @@ on app restart).
 
 ## 13. Acceptance criteria
 
-- [x] Field-name popover opens in the builder condition row on focus
+- Field-name popover opens in the builder condition row on focus
   and narrows by prefix → substring as the user types.
-- [x] Field-name popover opens at the caret inside aggregation stage
+- Field-name popover opens at the caret inside aggregation stage
   body textareas (match, group, project, …). Dotted paths in the
   sample appear for nested-object consumers.
-- [x] Field-ref popover opens inside `"$…"` strings on the value side
+- Field-ref popover opens inside `"$…"` strings on the value side
   of a pair or inside an array.
-- [x] Same UX in the raw-MQL query bar — `{ sta|`, `{ user.na|`,
+- Same UX in the raw-MQL query bar — `{ sta|`, `{ user.na|`,
   `{ $or: [{ na| }] }`, etc.
-- [x] Keyboard navigation: ↑ ↓ wraps, Enter and Tab accept, Escape
+- Keyboard navigation: ↑ ↓ wraps, Enter and Tab accept, Escape
   closes. Mouse click also accepts (textarea keeps focus).
-- [x] Async `sampleSchemaSource` populates without blocking the sync
+- Async `sampleSchemaSource` populates without blocking the sync
   `lastRunSource` render.
-- [x] Stale async results from a previous collection are dropped
+- Stale async results from a previous collection are dropped
   (race-guarded).
-- [x] `valueFor` hits are detected but do not open the popover until
+- `valueFor` hits are detected but do not open the popover until
   value sources land.
-- [x] `$`-prefixed bare keys open the popover (previously suppressed);
+- `$`-prefixed bare keys open the popover (previously suppressed);
   the operator source (X03) consumes these hits. `fieldRef` and
   `valueFor` branches remain unchanged.
-- [x] Cache invalidation on writes (§9 "Caching" lists every wired path and the ones left to the TTL).
-- [ ] *(Follow-up)* First `ValueSource` + consumer wiring (builder
+- Cache invalidation on writes (§9 "Caching" lists every wired path and the ones left to the TTL).
+- *(Follow-up)* First `ValueSource` + consumer wiring (builder
   value input).
-- [ ] *(Follow-up)* Accessibility pass (`aria-activedescendant`,
+- *(Follow-up)* Accessibility pass (`aria-activedescendant`,
   `role="combobox"` wrapper, loading-state hints).
 
 ## 14. Test cases

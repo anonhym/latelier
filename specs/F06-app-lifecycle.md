@@ -1,5 +1,7 @@
 # F06 — App startup & shutdown
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Choreograph the bring-up and teardown sequence so every other spec's assumptions hold: the DB is open and migrated before any IPC is registered; the window only appears after services are ready; secrets, mongo clients, and logs flush cleanly on quit.
@@ -133,11 +135,11 @@ app.on('before-quit', async (e) => {
 
 ## 9. Acceptance criteria
 
-- [ ] With a clean userData dir, first launch: DB created, migrations run, window appears with no error dialogs.
-- [ ] Second instance quits silently and focuses the primary.
-- [ ] On quit with a live MongoClient, the app exits within 8 seconds.
-- [ ] A DB file that fails to open (corrupt) produces an error dialog naming the file path and tells the user how to reset.
-- [ ] `app:log` IPC entries appear in the log file with the correct process tag.
+- With a clean userData dir, first launch: DB created, migrations run, window appears with no error dialogs.
+- Second instance quits silently and focuses the primary.
+- On quit with a live MongoClient, the app exits within 8 seconds.
+- A DB file that fails to open (corrupt) produces an error dialog naming the file path and tells the user how to reset.
+- `app:log` IPC entries appear in the log file with the correct process tag.
 
 ## 10. Test cases
 

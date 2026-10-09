@@ -1,5 +1,7 @@
 # F03 — Secrets vault
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Keep connection passwords, SSH passwords, and SSH private-key passphrases at rest in an OS-keychain-backed encrypted form so no sensitive material is readable in the SQLite file by itself. Give services a narrow, testable API to encrypt, decrypt, and delete secret fields.
@@ -113,11 +115,11 @@ On Linux, Electron falls back to a `basic_text` backend when no keyring (libsecr
 
 ## 5. Acceptance criteria
 
-- [ ] A plaintext secret stored via `set` cannot be recovered by opening `latelier.db` in a third-party SQLite tool.
-- [ ] `get` returns the same plaintext that was passed to `set`.
-- [ ] `delete` removes the row; subsequent `get` returns `null`.
-- [ ] Deleting the parent connection cascades (F02) and removes all secrets for that id.
-- [ ] No IPC channel in F04 declares a response shape containing a plaintext secret.
+- A plaintext secret stored via `set` cannot be recovered by opening `latelier.db` in a third-party SQLite tool.
+- `get` returns the same plaintext that was passed to `set`.
+- `delete` removes the row; subsequent `get` returns `null`.
+- Deleting the parent connection cascades (F02) and removes all secrets for that id.
+- No IPC channel in F04 declares a response shape containing a plaintext secret.
 
 ## 6. Test cases
 

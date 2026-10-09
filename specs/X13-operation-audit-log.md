@@ -1,5 +1,7 @@
 # X13 — Operation audit log & undo
 
+> **Status: Implemented.**
+
 ## Purpose
 
 A user who deletes the wrong documents, replaces a document with a bad edit, or drops the wrong collection has no record that it happened and no way to put it back. The only trace is a line in a text log file the app never surfaces.
@@ -14,13 +16,13 @@ X13 gives every Connection a durable **Audit Log** of the Operations that change
 | --- | --- |
 | `docInsertMany` | `insertMany` |
 | `docUpdateOne` | `updateOne` |
-| `docUpdateMany` (not yet built) | `updateMany` |
+| `docUpdateMany` | `updateMany` |
 | `docDeleteOne` | `deleteOne` |
 | `docDeleteMany` | `deleteMany` |
 | `collectionDrop` | `collectionDrop` |
 | `collectionRename` | `collectionRename` |
 | `databaseDrop` | `databaseDrop` |
-| `dataImport` (not yet built) | `import` |
+| `dataImport` | `import` |
 
 There is no `docReplace` to audit: the Document Editor saves through `docUpdateOne`, and the `doc:replace` channel is gone.
 
@@ -207,24 +209,24 @@ Not a workspace tab: `workspace_tabs.kind` is a SQL `CHECK` constraint, so a new
 
 ## 9. Acceptance criteria
 
-- [ ] Each audited channel writes exactly one `audit_log` row per invocation; no other channel writes any.
-- [ ] A channel absent from the per-channel table produces no row.
-- [ ] A failed Operation is recorded with `outcome = 'error'` and its `IpcError` code, and is not reversible.
-- [ ] A partial `insertMany` is recorded with `outcome = 'partial'`, its `insertedCount`, and `reversible = 0`.
-- [ ] An `audit_log` insert that throws is logged and does not fail, alter, or delay the Operation's envelope.
-- [ ] `deleteMany` over 1000 matches, or over 1 MB of encoded documents, still deletes and records `reversible = 0` with `undo_json` null.
-- [ ] `deleteMany` under both ceilings records a Pre-image and undoes to the original document set.
-- [ ] Undo of `insertMany` removes exactly the inserted ids and no other document.
-- [ ] Undo of `updateOne` after the document changed again fails `AUDIT_TARGET_CHANGED` and leaves the document untouched.
-- [ ] Undo of an already-undone entry fails `AUDIT_ALREADY_UNDONE`.
-- [ ] Undo of `deleteMany` where some ids exist again restores the rest and reports `{ restored, skipped }`.
-- [ ] A successful Undo sets `undone_at` and writes no second entry.
-- [ ] `audit_log.undo_json` is NULL after every audited Operation, and `audit:list` never returns a Pre-image.
-- [ ] Deleting a Connection deletes its `audit_log` rows.
-- [ ] The maintenance sweep deletes rows past 90 days, leaving newer rows untouched; Pre-images are session-only and bounded, and a restart or an eviction lists their entries as not reversible.
-- [ ] No audited channel accepts a plaintext secret; `npm run audit:ipc` stays green with no allowlist change.
-- [ ] The delete confirm dialog states whether the pending delete is within the undo limit; the two drop dialogs state that they cannot be undone.
-- [ ] The success toast for an audited write offers Undo, and restores the documents when used.
+- Each audited channel writes exactly one `audit_log` row per invocation; no other channel writes any.
+- A channel absent from the per-channel table produces no row.
+- A failed Operation is recorded with `outcome = 'error'` and its `IpcError` code, and is not reversible.
+- A partial `insertMany` is recorded with `outcome = 'partial'`, its `insertedCount`, and `reversible = 0`.
+- An `audit_log` insert that throws is logged and does not fail, alter, or delay the Operation's envelope.
+- `deleteMany` over 1000 matches, or over 1 MB of encoded documents, still deletes and records `reversible = 0` with `undo_json` null.
+- `deleteMany` under both ceilings records a Pre-image and undoes to the original document set.
+- Undo of `insertMany` removes exactly the inserted ids and no other document.
+- Undo of `updateOne` after the document changed again fails `AUDIT_TARGET_CHANGED` and leaves the document untouched.
+- Undo of an already-undone entry fails `AUDIT_ALREADY_UNDONE`.
+- Undo of `deleteMany` where some ids exist again restores the rest and reports `{ restored, skipped }`.
+- A successful Undo sets `undone_at` and writes no second entry.
+- `audit_log.undo_json` is NULL after every audited Operation, and `audit:list` never returns a Pre-image.
+- Deleting a Connection deletes its `audit_log` rows.
+- The maintenance sweep deletes rows past 90 days, leaving newer rows untouched; Pre-images are session-only and bounded, and a restart or an eviction lists their entries as not reversible.
+- No audited channel accepts a plaintext secret; `npm run audit:ipc` stays green with no allowlist change.
+- The delete confirm dialog states whether the pending delete is within the undo limit; the two drop dialogs state that they cannot be undone.
+- The success toast for an audited write offers Undo, and restores the documents when used.
 
 ## 10. Testing decisions
 

@@ -1,6 +1,6 @@
 # X14 — Shell Syntax input on the read-query surfaces
 
-> **Status: T1–T5 built.** This spec now describes the application rather than
+> **Status: Implemented** (T1–T5). This spec now describes the application rather than
 > proposing a change to it. T1 `src/utils/shellSyntax.ts`,
 > T2 Filter Bar, T3 sort and raw projection,
 > T4 aggregation stage bodies, T5 error feedback, plus
@@ -302,73 +302,73 @@ main process, and it is pure JavaScript with no Node built-ins, so
 
 ### T1 — the transform
 
-- [x] Valid Canonical EJSON returns `unchanged`, including nested documents,
-      arrays, and every EJSON sentinel. No text is returned for this case.
-- [x] Each row of §1's table converts to the exact output text stated.
-- [x] `NumberLong("9007199254740993")`, `NumberLong(9007199254740993)`, and a
-      bare `9007199254740993` literal all keep every digit. **Asserted on the
-      output string.** A test that parses the result reintroduces the double
-      conversion the transform exists to avoid.
-- [x] A `NumberDecimal` with more significant digits than a double can hold
-      keeps all of them.
-- [x] A multi-line input is repaired with its line count and per-line
-      indentation intact.
-- [x] Every `repaired` output parses with `JSON.parse` and with `ejsonParse`.
-- [x] Unbalanced braces, bare identifiers, unknown calls, property access,
-      arithmetic, template literals, `ObjectId()` with no argument, trailing
-      text after a complete value, and empty input each return `failed` with a
-      reason. Regex literals moved off this list — they repair.
-- [x] The reason for a rejected regex flag names the flag.
-- [x] At least one failure carries an `index` pointing into the offending
-      region.
-- [x] An input containing a call or an assignment is refused and demonstrably
-      does not execute.
+- Valid Canonical EJSON returns `unchanged`, including nested documents,
+  arrays, and every EJSON sentinel. No text is returned for this case.
+- Each row of §1's table converts to the exact output text stated.
+- `NumberLong("9007199254740993")`, `NumberLong(9007199254740993)`, and a
+  bare `9007199254740993` literal all keep every digit. **Asserted on the
+  output string.** A test that parses the result reintroduces the double
+  conversion the transform exists to avoid.
+- A `NumberDecimal` with more significant digits than a double can hold
+  keeps all of them.
+- A multi-line input is repaired with its line count and per-line
+  indentation intact.
+- Every `repaired` output parses with `JSON.parse` and with `ejsonParse`.
+- Unbalanced braces, bare identifiers, unknown calls, property access,
+  arithmetic, template literals, `ObjectId()` with no argument, trailing
+  text after a complete value, and empty input each return `failed` with a
+  reason. Regex literals moved off this list — they repair.
+- The reason for a rejected regex flag names the flag.
+- At least one failure carries an `index` pointing into the offending
+  region.
+- An input containing a call or an assignment is refused and demonstrably
+  does not execute.
 
 ### T2 — Filter Bar
 
-- [x] Typing `{age: {$gt: 60}}` and blurring leaves `{"age": {"$gt": 60}}` in
-      the box, and Run is enabled.
-- [x] `{_id: ObjectId("…")}` runs and returns the document.
-- [x] Text that already parses strictly is byte-identical after a blur.
-- [x] A failed transform leaves the text as typed and Run disabled.
-- [x] `queryRaw` in `workspace_tabs.state_json` never holds Shell Syntax after
-      a blur or a Run.
-- [x] `currentFilterJson` still refuses `[1,2]`, `null` and blank text.
-- [x] A blank filter box is refused with its own message ("Enter a filter, like
-      …"), not the parse message, and Run stays disabled. Blank sort still
-      means "no sort".
-- [x] The delete-all confirmation shows the Canonical EJSON that will run.
-- [x] `gitnexus impact currentFilterJson` was run and recorded before the code
-      was written.
+- Typing `{age: {$gt: 60}}` and blurring leaves `{"age": {"$gt": 60}}` in
+  the box, and Run is enabled.
+- `{_id: ObjectId("…")}` runs and returns the document.
+- Text that already parses strictly is byte-identical after a blur.
+- A failed transform leaves the text as typed and Run disabled.
+- `queryRaw` in `workspace_tabs.state_json` never holds Shell Syntax after
+  a blur or a Run.
+- `currentFilterJson` still refuses `[1,2]`, `null` and blank text.
+- A blank filter box is refused with its own message ("Enter a filter, like
+  …"), not the parse message, and Run stays disabled. Blank sort still
+  means "no sort".
+- The delete-all confirmation shows the Canonical EJSON that will run.
+- `gitnexus impact currentFilterJson` was run and recorded before the code
+  was written.
 
 ### T3 — sort and projection
 
-- [x] `{name: 1}` in the sort field repairs and runs.
-- [x] `[1, 2]` in the sort field is still refused, with the shape message and
-      not the parse message.
-- [x] Blank sort still means "no sort".
-- [x] `{_id: 0}` in the raw projection repairs and runs.
-- [x] The button gate and `useQueryRunner`'s re-check agree on every case —
-      one rule, two layers.
+- `{name: 1}` in the sort field repairs and runs.
+- `[1, 2]` in the sort field is still refused, with the shape message and
+  not the parse message.
+- Blank sort still means "no sort".
+- `{_id: 0}` in the raw projection repairs and runs.
+- The button gate and `useQueryRunner`'s re-check agree on every case —
+  one rule, two layers.
 
 ### T4 — stage bodies
 
-- [x] The shipped `$group` template validates without editing it.
-- [x] Every stage-picker help example validates.
-- [x] A repaired multi-line stage body keeps its line breaks and indentation.
-- [x] `validateStageBody` no longer reaches `isValidEjson` without the
-      transform in front of it. `isValidEjson` is still the second gate, inside
-      `bodyProblem` — it is what refuses a sentinel that is well-formed JSON and
-      malformed BSON, which the transform returns `unchanged` and never sees.
+- The shipped `$group` template validates without editing it.
+- Every stage-picker help example validates.
+- A repaired multi-line stage body keeps its line breaks and indentation.
+- `validateStageBody` no longer reaches `isValidEjson` without the
+  transform in front of it. `isValidEjson` is still the second gate, inside
+  `bodyProblem` — it is what refuses a sentinel that is well-formed JSON and
+  malformed BSON, which the transform returns `unchanged` and never sees.
 
 ### T5 — error feedback
 
-- [x] A failed input shows its reason inline, under that input.
-- [x] The message locates the problem by line or column.
-- [x] The stale result count is not presented as current while the input is
-      unrunnable.
-- [x] `/^acme/gi` produces a message naming the `g` flag. (`/^acme/i` no longer
-      produces a message at all — that repair handles it.)
+- A failed input shows its reason inline, under that input.
+- The message locates the problem by line or column.
+- The stale result count is not presented as current while the input is
+  unrunnable.
+- `/^acme/gi` produces a message naming the `g` flag. (`/^acme/i` no longer
+  produces a message at all — that repair handles it.)
 
 ## 9. Test cases
 

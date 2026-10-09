@@ -1,5 +1,7 @@
 # W13 — Filter tree editor (redesign "B")
 
+> **Status: Implemented.** It supersedes parts of [W04](./W04-query-builder-pane.md) and [W05](./W05-query-bar.md).
+
 ## Purpose
 
 Replace the builder/query-bar **sync state machine** with a single canonical
@@ -514,53 +516,53 @@ Retired test ids and controls, so the churn isn't a surprise:
 ## 10. Acceptance criteria
 
 **Parser**
-- [x] `{ name: "x" }` (implicit `$eq`) yields one cond — today it disables the builder.
-- [x] `{ status: "active", qty: { $gt: 5 } }` yields two conds under root `$and` — today it disables the builder.
-- [x] `{ a: { $gte: 1, $lte: 5 } }` yields two conds.
-- [x] `{ a: { $regex: "x", $options: "i" } }` yields exactly one **raw** node.
-- [x] `{ loc: { $near: {...}, $maxDistance: 10 } }` yields exactly one raw node.
-- [x] `$elemMatch`, `$expr`, `$text`, `$where`, `$jsonSchema`, field-level `$not` each yield a raw node; none produces a parse failure.
-- [x] Nested `{ $and: [ { $or: [...] }, ... ] }` yields nested groups at arbitrary depth.
-- [x] `parseFilter` fails **only** on invalid JSON and on a non-object root.
-- [x] `$oid` / `$date` / `$numberLong` / `$numberDecimal` values round-trip through cond rows preserving their exact text.
-- [x] Each unrepresentable value shape of §2b (plain nested object, `$binary`, `$timestamp`, `$numberDouble`/`$numberInt`, `$regularExpression`, `$minKey`/`$maxKey`, `$code`, `$dbPointer`, an `$in`/`$nin`/`$all` array with an unrepresentable element) yields a raw node, never a mangled cond.
-- [x] `{ $or: [...], a: 1 }` parses to the root `$and` group containing the `$or` group and the cond as siblings.
+- `{ name: "x" }` (implicit `$eq`) yields one cond — today it disables the builder.
+- `{ status: "active", qty: { $gt: 5 } }` yields two conds under root `$and` — today it disables the builder.
+- `{ a: { $gte: 1, $lte: 5 } }` yields two conds.
+- `{ a: { $regex: "x", $options: "i" } }` yields exactly one **raw** node.
+- `{ loc: { $near: {...}, $maxDistance: 10 } }` yields exactly one raw node.
+- `$elemMatch`, `$expr`, `$text`, `$where`, `$jsonSchema`, field-level `$not` each yield a raw node; none produces a parse failure.
+- Nested `{ $and: [ { $or: [...] }, ... ] }` yields nested groups at arbitrary depth.
+- `parseFilter` fails **only** on invalid JSON and on a non-object root.
+- `$oid` / `$date` / `$numberLong` / `$numberDecimal` values round-trip through cond rows preserving their exact text.
+- Each unrepresentable value shape of §2b (plain nested object, `$binary`, `$timestamp`, `$numberDouble`/`$numberInt`, `$regularExpression`, `$minKey`/`$maxKey`, `$code`, `$dbPointer`, an `$in`/`$nin`/`$all` array with an unrepresentable element) yields a raw node, never a mangled cond.
+- `{ $or: [...], a: 1 }` parses to the root `$and` group containing the `$or` group and the cond as siblings.
 
 **Printer**
-- [x] The fixpoint of §3b holds across the whole fixture corpus.
-- [x] Every corpus entry's printed output equals its recorded expectation. The
+- The fixpoint of §3b holds across the whole fixture corpus.
+- Every corpus entry's printed output equals its recorded expectation. The
   expectations are `(input, expectedOutput)` pairs reviewed by a human at
   authoring time for "matches the same documents" — the *test* asserts only
   that the printer still agrees with the reviewed pair, which is what makes a
   later semantic regression fail loudly.
-- [x] A cond with an invalid `number` / `long` / `decimal` / `$mod` value makes `printFilter` return `ok: false` with that node's path.
-- [x] A raw node holding unparseable JSON makes `printFilter` return `ok: false`.
-- [x] A cond with an empty field is skipped, and does **not** appear in `problems`.
-- [x] A single-child `$nor` group keeps its envelope; single-child `$and` / `$or` do not.
-- [x] A raw node containing `9007199254740993` makes `printFilter` return `ok: false` with that node's path; a raw node containing `{"$numberLong":"9007199254740993"}` prints fine.
+- A cond with an invalid `number` / `long` / `decimal` / `$mod` value makes `printFilter` return `ok: false` with that node's path.
+- A raw node holding unparseable JSON makes `printFilter` return `ok: false`.
+- A cond with an empty field is skipped, and does **not** appear in `problems`.
+- A single-child `$nor` group keeps its envelope; single-child `$and` / `$or` do not.
+- A raw node containing `9007199254740993` makes `printFilter` return `ok: false` with that node's path; a raw node containing `{"$numberLong":"9007199254740993"}` prints fine.
 
 **Editing**
-- [x] "+ Condition" adds a row that persists on screen and does not change `queryRaw`.
-- [x] "+ Raw" adds a row that persists on screen and does not change `queryRaw`, same as "+ Condition".
-- [x] Filling that row's field writes the printed filter to `queryRaw`.
-- [x] Typing in the query bar re-seeds the tree and discards pending rows.
-- [x] Switching tabs discards pending rows and re-seeds from `queryRaw`, even when both tabs' text is identical.
-- [x] An edit whose print fails leaves `queryRaw` untouched and shows the message on that row.
-- [x] Typing `$elemMatch` into an op input offers "Convert to raw clause"; one click produces an editable raw node.
-- [x] "Try to parse" converts a modellable raw node back into conds.
-- [x] Invalid JSON in the bar leaves the drawer showing the last valid tree, read-only, with the banner.
+- "+ Condition" adds a row that persists on screen and does not change `queryRaw`.
+- "+ Raw" adds a row that persists on screen and does not change `queryRaw`, same as "+ Condition".
+- Filling that row's field writes the printed filter to `queryRaw`.
+- Typing in the query bar re-seeds the tree and discards pending rows.
+- Switching tabs discards pending rows and re-seeds from `queryRaw`, even when both tabs' text is identical.
+- An edit whose print fails leaves `queryRaw` untouched and shows the message on that row.
+- Typing `$elemMatch` into an op input offers "Convert to raw clause"; one click produces an editable raw node.
+- "Try to parse" converts a modellable raw node back into conds.
+- Invalid JSON in the bar leaves the drawer showing the last valid tree, read-only, with the banner.
 
 **Integration**
-- [x] No sync pill, "Re-sync builder", "Accept builder", or "Builder disabled" control exists anywhere.
-- [x] Exactly one Run button; `⌘↵` runs from inside any drawer input.
-- [x] Run is the last control in the toolbar, after History.
-- [x] `⌘↵` runs from anywhere in the Documents view — result rows, sort/projection/limit inputs, drawer inputs — and after a drag-and-drop into the drawer with no further click.
-- [x] `⌘↵` inside a dialog never runs the find query; in the Aggregation view it runs the pipeline exactly once.
-- [x] Run button and `⌘↵` share one gate (`findProblem`); a refused `⌘↵` announces its reason in a `role="alert"` line.
-- [x] Sort, limit, and projection are editable in exactly one place.
-- [x] `currentFilterJson` returns `null` for blank or invalid-EJSON text, returns `'{}'` for the empty filter, and delete-all refuses to arm on `null`.
-- [x] A saved find payload with `builder.conditions` and no `queryRaw` hydrates to its original filter, not `{}`, and its sort/limit/projection survive hydration.
-- [x] `filterTree.ts` imports no React, no `CollectionTabState`, and no `api` —
+- No sync pill, "Re-sync builder", "Accept builder", or "Builder disabled" control exists anywhere.
+- Exactly one Run button; `⌘↵` runs from inside any drawer input.
+- Run is the last control in the toolbar, after History.
+- `⌘↵` runs from anywhere in the Documents view — result rows, sort/projection/limit inputs, drawer inputs — and after a drag-and-drop into the drawer with no further click.
+- `⌘↵` inside a dialog never runs the find query; in the Aggregation view it runs the pipeline exactly once.
+- Run button and `⌘↵` share one gate (`findProblem`); a refused `⌘↵` announces its reason in a `role="alert"` line.
+- Sort, limit, and projection are editable in exactly one place.
+- `currentFilterJson` returns `null` for blank or invalid-EJSON text, returns `'{}'` for the empty filter, and delete-all refuses to arm on `null`.
+- A saved find payload with `builder.conditions` and no `queryRaw` hydrates to its original filter, not `{}`, and its sort/limit/projection survive hydration.
+- `filterTree.ts` imports no React, no `CollectionTabState`, and no `api` —
   enforced by an `eslint` `no-restricted-imports` override scoped to that file,
   not by inspection. Purity is the property that makes this module reusable as
   redesign C's `$match` editor; nothing else in the suite would catch it

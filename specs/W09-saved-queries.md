@@ -1,5 +1,7 @@
 # W09 — Saved queries (repo + UI)
 
+> **Status: Implemented.** The "Saved for this collection" strip in §7 was removed.
+
 ## Purpose
 
 Persist named queries (find-style) and aggregation pipelines so users can re-run them on the same or different connection/collection. Surface them in the workspace Saved tab and, optionally, in the Builder tab's "Saved for {collection}" section.
@@ -145,13 +147,13 @@ From the workspace:
 
 ## 10. Acceptance criteria
 
-- [ ] Create, list, update, delete, duplicate, and rename all round-trip through IPC.
-- [ ] Duplicate name in the same scope returns CONFLICT with a readable message.
-- [ ] Saved tab shows only queries scoped to the tab's collection by default; a small "Show all" toggles the scope to connection-wide.
-- [ ] "Run here" hydrates state correctly for both kinds.
-- [ ] Saved aggregation reopened in a fresh window preserves `stages` exactly.
-- [ ] Opening a saved pipeline, then Save with no edits, leaves the stored `stages` and `description` unchanged.
-- [ ] Deleting a saved query that's currently loaded in a tab doesn't break the tab; the tab drops its `savedId`.
+- Create, list, update, delete, duplicate, and rename all round-trip through IPC.
+- Duplicate name in the same scope returns CONFLICT with a readable message.
+- Saved tab shows only queries scoped to the tab's collection by default; a small "Show all" toggles the scope to connection-wide.
+- "Run here" hydrates state correctly for both kinds.
+- Saved aggregation reopened in a fresh window preserves `stages` exactly.
+- Opening a saved pipeline, then Save with no edits, leaves the stored `stages` and `description` unchanged.
+- Deleting a saved query that's currently loaded in a tab doesn't break the tab; the tab drops its `savedId`.
 
 ## 11. Test cases
 

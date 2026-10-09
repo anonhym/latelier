@@ -1,5 +1,7 @@
 # X07 — Command palette
 
+> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md).
+
 ## Purpose
 
 Give the user one keystroke (`⌘K` / `Ctrl+K`) to reach every action in the app. Replaces the hardcoded `CmdKStub` in `ConnectionManager.tsx` with a global, extensible palette backed by a renderer-side registry. Two wins:
@@ -282,19 +284,19 @@ If a future iteration wants persistent MRU, the obvious shape is a single `app_s
 
 ## 9. Acceptance criteria
 
-- [ ] `⌘K` (`Ctrl+K` on non-mac) opens the palette from any route. Pressing it again closes it.
-- [ ] Esc closes the palette and restores focus to the previously focused element.
-- [ ] Typing filters the catalog by case-insensitive substring across `title`, `subtitle`, and `keywords`.
-- [ ] Arrow keys move a visible cursor; Enter performs the command; performing closes the palette.
-- [ ] Performing a command bumps it to the top of the session MRU and the palette shows it under a "RECENT" header on next open.
-- [ ] **Superseded** — `/connections` no longer exists as a screen; `New connection` and every `Switch to: <name>` row are offered from `/workspace` (the Data View, now home) instead.
-- [ ] On `/connections/:id` (deep detail screen, reached only via the Switcher's "Manage connection…"), the palette includes `Edit selected connection` and `Delete selected connection`. Both are now also offered from `/workspace`, acting on the Active Connection.
-- [ ] On `/workspace` with a collection tab active, the palette includes `Run query`, `Save query`, `Configure references`, two `view.mode.*` toggles (only the non-current ones), `New aggregation tab on this coll.`, and `Pin current tab` / `Unpin current tab` matching the active tab's `pinned` flag.
-- [ ] On `/workspace` with an aggregation tab active, the palette includes `Run pipeline`, `Explain pipeline`, `Save pipeline`. Collection-only commands (`Run query`, `view.mode.*`) are hidden.
-- [ ] Closing a workspace tab removes the tab-scoped commands from the palette on the next open without a reload.
-- [ ] The previous `CmdKStub` is removed; `ConnectionManager.tsx` no longer owns the `⌘K` keyboard listener or the dialog markup.
-- [ ] The X06 `refs.configure` hint's CTA and the `references.configure` palette command call the same `setRefEditorOpen` setter from `Workspace.tsx` (verified by both being closures over the same component scope).
-- [ ] A `perform` that throws does not crash the renderer; the palette closes and the error reaches `console.error`.
+- `⌘K` (`Ctrl+K` on non-mac) opens the palette from any route. Pressing it again closes it.
+- Esc closes the palette and restores focus to the previously focused element.
+- Typing filters the catalog by case-insensitive substring across `title`, `subtitle`, and `keywords`.
+- Arrow keys move a visible cursor; Enter performs the command; performing closes the palette.
+- Performing a command bumps it to the top of the session MRU and the palette shows it under a "RECENT" header on next open.
+- **Superseded** — `/connections` no longer exists as a screen; `New connection` and every `Switch to: <name>` row are offered from `/workspace` (the Data View, now home) instead.
+- On `/connections/:id` (deep detail screen, reached only via the Switcher's "Manage connection…"), the palette includes `Edit selected connection` and `Delete selected connection`. Both are now also offered from `/workspace`, acting on the Active Connection.
+- On `/workspace` with a collection tab active, the palette includes `Run query`, `Save query`, `Configure references`, two `view.mode.*` toggles (only the non-current ones), `New aggregation tab on this coll.`, and `Pin current tab` / `Unpin current tab` matching the active tab's `pinned` flag.
+- On `/workspace` with an aggregation tab active, the palette includes `Run pipeline`, `Explain pipeline`, `Save pipeline`. Collection-only commands (`Run query`, `view.mode.*`) are hidden.
+- Closing a workspace tab removes the tab-scoped commands from the palette on the next open without a reload.
+- The previous `CmdKStub` is removed; `ConnectionManager.tsx` no longer owns the `⌘K` keyboard listener or the dialog markup.
+- The X06 `refs.configure` hint's CTA and the `references.configure` palette command call the same `setRefEditorOpen` setter from `Workspace.tsx` (verified by both being closures over the same component scope).
+- A `perform` that throws does not crash the renderer; the palette closes and the error reaches `console.error`.
 
 ## 10. Test cases
 

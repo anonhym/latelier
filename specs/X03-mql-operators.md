@@ -1,5 +1,7 @@
 # X03 — MQL operator autocomplete
 
+> **Status: Implemented.** Its follow-ups, signature hints and completion inside `$facet`, are not built.
+
 ## Purpose
 
 Extend the X02 suggestion system with a third kind — MQL operators —
@@ -327,32 +329,32 @@ lives in memory.
 
 ## 14. Acceptance criteria
 
-- [x] Typing `eq` in any bare-key position ranks `$eq` #1 (no leading
+- Typing `eq` in any bare-key position ranks `$eq` #1 (no leading
   `$` required). Typing `$e` preserves prior behavior and still ranks
   `$eq` #1.
-- [x] Operator suggestions appear alongside fields at key positions in
+- Operator suggestions appear alongside fields at key positions in
   stage bodies and the query bar textarea.
-- [x] AddStagePill search accepts bare stage names (`sort` → `$sort`).
-- [x] Builder condition row's op field is an autocomplete input
+- AddStagePill search accepts bare stage names (`sort` → `$sort`).
+- Builder condition row's op field is an autocomplete input
   offering the full catalog, with `matchKey`-context ranking.
-- [x] Typing an op outside `FIELD_OPS[valType]` flags the row and
+- Typing an op outside `FIELD_OPS[valType]` flags the row and
   disables Run; the warning message names the mismatch.
-- [x] Typing an object-shape op (e.g. `$elemMatch`) flags the row as
+- Typing an object-shape op (e.g. `$elemMatch`) flags the row as
   "needs raw JSON" and disables Run.
-- [x] `$mod` with an empty, single-element, or divisor-0 value is
+- `$mod` with an empty, single-element, or divisor-0 value is
   caught pre-run.
-- [x] Inside `$match` at any depth, query ops rank first and
+- Inside `$match` at any depth, query ops rank first and
   accumulators/stage ops sink.
-- [x] Inside `$group` at depth ≥ 2, accumulators rank first.
-- [x] Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
+- Inside `$group` at depth ≥ 2, accumulators rank first.
+- Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
   expression ops rank first.
-- [x] Inside `$facet`, the full catalog is shown (no context filter).
-- [x] Off-context operators still appear — downranked, not hidden.
-- [ ] *(Follow-up)* Operator signature hints / parameter typeaheads.
-- [ ] *(Follow-up — Phase C)* Update-expression surface uses
+- Inside `$facet`, the full catalog is shown (no context filter).
+- Off-context operators still appear — downranked, not hidden.
+- *(Follow-up)* Operator signature hints / parameter typeaheads.
+- *(Follow-up — Phase C)* Update-expression surface uses
   `operatorContext: 'update'`. The catalog already carries the entries
   so this is purely additive.
-- [ ] *(Follow-up)* $facet inner-stage context resolution.
+- *(Follow-up)* $facet inner-stage context resolution.
 
 ## 15. Test cases
 

@@ -1,5 +1,7 @@
 # W03 — Query runner service
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Run `find` queries and related read operations against Mongo on behalf of the renderer. Owns pagination, cancellation, EJSON serialization, and the capture of each run into the "recent queries" history (W10).
@@ -154,12 +156,12 @@ On the renderer side, we **lazy-parse**. JSON view and Tree view can render EJSO
 
 ## 9. Acceptance criteria
 
-- [ ] `query:find` against a seeded collection returns documents in EJSON canonical form.
-- [ ] `ObjectId` round-trip: input filter with `{ "_id": { "$oid": "…" } }` finds the doc; returned doc's `_id` is also an `$oid` shape.
-- [ ] `limit: 0` is rejected by validation (must be ≥ 1).
-- [ ] `limit: 10` plus a result of exactly 10 docs yields `hasMore: true`; a result of 9 docs yields `hasMore: false`.
-- [ ] `query:cancel` aborts an in-flight long query and the handler returns a VALIDATION-free TIMEOUT-like error.
-- [ ] `query:count` with a pathological filter times out within ~5 seconds.
+- `query:find` against a seeded collection returns documents in EJSON canonical form.
+- `ObjectId` round-trip: input filter with `{ "_id": { "$oid": "…" } }` finds the doc; returned doc's `_id` is also an `$oid` shape.
+- `limit: 0` is rejected by validation (must be ≥ 1).
+- `limit: 10` plus a result of exactly 10 docs yields `hasMore: true`; a result of 9 docs yields `hasMore: false`.
+- `query:cancel` aborts an in-flight long query and the handler returns a VALIDATION-free TIMEOUT-like error.
+- `query:count` with a pathological filter times out within ~5 seconds.
 
 ## 10. Test cases
 

@@ -1,5 +1,7 @@
 # X04 — Operator documentation tooltips
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Make the ~200-entry MQL operator catalog **discoverable without leaving the
@@ -795,42 +797,42 @@ Same as 11.3, anchored to the pill.
 
 ## 12. Acceptance criteria
 
-- [x] `OperatorDef` has `description`, `syntax`, `example`, `url`
-      fields, all optional.
-- [x] `findOperatorDocs(name, prefClass)` returns the class-matching
-      entry when available; returns a description-bearing entry
-      otherwise; returns the first match as last resort.
-- [x] `CLASS_COLOR` + `classColor(cls, dark)` export the per-class
-      palette; dark variant brightens the `bg` channel by the
-      `0.15` → `0.25` rule.
-- [x] Every `stage`, `query`, `logical`, `element`, `evaluation`,
-      `array`, `geo`, `accumulator`, and `update` operator has
-      `description`, `syntax`, `example`, `url`.
-- [x] Every `expression` operator has at least `summary`; the 25
-      listed in §2.1 have full rich content.
-- [x] `OperatorSuggestion` carries the new fields; `operatorSource`
-      passes them through.
-- [x] `OperatorDocPanel` renders correctly with full data, with
-      missing-url (no footer link), with no syntax, and with no
-      example. Renders a graceful placeholder when `op` is `null`.
-- [x] The autocomplete popover shows the doc panel to the right
-      whenever the highlighted suggestion is an operator with a
-      `description`. Panel updates on arrow-key navigation.
-- [x] The doc panel flips to the left when there's not enough
-      viewport room on the right. Falls back to below when neither
-      side fits.
-- [x] The AddStagePill dropdown shows the doc panel. Panel updates
-      on keyboard and mouse focus changes. Inline one-liner `desc`
-      is preserved.
-- [x] The CondRow op input has a `?` icon that only shows when the
-      current op has docs and no validation problem.
-- [x] The StageRow op pill opens a floating tooltip on hover or
-      keyboard focus.
-- [x] The "Learn more →" link opens in the user's default browser via
-      `shell.openExternal`, not inside the Electron window.
-- [x] The `shell:openExternal` IPC rejects any URL that does not start
-      with `https://www.mongodb.com/docs/`.
-- [x] All existing X02/X03 acceptance criteria still pass.
+- `OperatorDef` has `description`, `syntax`, `example`, `url`
+  fields, all optional.
+- `findOperatorDocs(name, prefClass)` returns the class-matching
+  entry when available; returns a description-bearing entry
+  otherwise; returns the first match as last resort.
+- `CLASS_COLOR` + `classColor(cls, dark)` export the per-class
+  palette; dark variant brightens the `bg` channel by the
+  `0.15` → `0.25` rule.
+- Every `stage`, `query`, `logical`, `element`, `evaluation`,
+  `array`, `geo`, `accumulator`, and `update` operator has
+  `description`, `syntax`, `example`, `url`.
+- Every `expression` operator has at least `summary`; the 25
+  listed in §2.1 have full rich content.
+- `OperatorSuggestion` carries the new fields; `operatorSource`
+  passes them through.
+- `OperatorDocPanel` renders correctly with full data, with
+  missing-url (no footer link), with no syntax, and with no
+  example. Renders a graceful placeholder when `op` is `null`.
+- The autocomplete popover shows the doc panel to the right
+  whenever the highlighted suggestion is an operator with a
+  `description`. Panel updates on arrow-key navigation.
+- The doc panel flips to the left when there's not enough
+  viewport room on the right. Falls back to below when neither
+  side fits.
+- The AddStagePill dropdown shows the doc panel. Panel updates
+  on keyboard and mouse focus changes. Inline one-liner `desc`
+  is preserved.
+- The CondRow op input has a `?` icon that only shows when the
+  current op has docs and no validation problem.
+- The StageRow op pill opens a floating tooltip on hover or
+  keyboard focus.
+- The "Learn more →" link opens in the user's default browser via
+  `shell.openExternal`, not inside the Electron window.
+- The `shell:openExternal` IPC rejects any URL that does not start
+  with `https://www.mongodb.com/docs/`.
+- All existing X02/X03 acceptance criteria still pass.
 
 ---
 

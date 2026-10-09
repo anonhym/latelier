@@ -1,5 +1,7 @@
 # A03 — Stage accordion + add-stage picker
 
+> **Status: Implemented.**
+
 ## Purpose
 
 The center of the aggregation tab: a vertical list of stages where each one expands into a split editor + stage-output preview. Between every stage and above/below the list, an "+Add stage" pill opens a searchable picker that inserts a new stage at the right position.
@@ -149,19 +151,19 @@ Any `$out` or `$merge` stage shows a warning strip across the stage header: "Thi
 
 ## 6. Acceptance criteria
 
-- [ ] Expanding a stage activates it in the outline; only one stage is expanded at a time.
-- [ ] Editing the body and unfocusing validates as EJSON; invalid shows inline error.
-- [ ] `Format` pretty-prints valid bodies; silently no-ops on invalid.
-- [ ] The add-stage pill picker supports keyboard navigation and search.
-- [ ] Inserted stages receive sensible default bodies; id is unique; ordering matches pill position.
-- [ ] `$out` / `$merge` stages show a write warning in the header.
-- [ ] `Shift+⌘↵` runs a preview up to that stage.
-- [ ] **(T2.1)** A stage's operator can be changed in place from the collapsed header, without deleting/re-adding the stage.
-- [ ] **(T2.1)** The op picker offers the expanded curated set (24 ops, including the 8 named common stages) plus an "Other / custom stage…" escape hatch for any `$operator` name.
-- [ ] **(T2.1)** A stage whose op isn't a recognized operator shows the "Unknown op" badge (row + outline); a curated op does not.
-- [ ] **(T2.1)** Changing op to/from `$out`/`$merge` toggles the write-warning strip.
-- [ ] **(T2.1)** Changing a stage's op with its body unchanged marks the stage stale (the run/stale signature is keyed on op **and** body — see `stageSig` in `pipeline.ts` — not body alone).
-- [ ] **(T2.1)** Body-on-op-change is deterministic: the user's body is preserved unless it was empty or equalled the prior op's default body.
+- Expanding a stage activates it in the outline; only one stage is expanded at a time.
+- Editing the body and unfocusing validates as EJSON; invalid shows inline error.
+- `Format` pretty-prints valid bodies; silently no-ops on invalid.
+- The add-stage pill picker supports keyboard navigation and search.
+- Inserted stages receive sensible default bodies; id is unique; ordering matches pill position.
+- `$out` / `$merge` stages show a write warning in the header.
+- `Shift+⌘↵` runs a preview up to that stage.
+- **(T2.1)** A stage's operator can be changed in place from the collapsed header, without deleting/re-adding the stage.
+- **(T2.1)** The op picker offers the expanded curated set (24 ops, including the 8 named common stages) plus an "Other / custom stage…" escape hatch for any `$operator` name.
+- **(T2.1)** A stage whose op isn't a recognized operator shows the "Unknown op" badge (row + outline); a curated op does not.
+- **(T2.1)** Changing op to/from `$out`/`$merge` toggles the write-warning strip.
+- **(T2.1)** Changing a stage's op with its body unchanged marks the stage stale (the run/stale signature is keyed on op **and** body — see `stageSig` in `pipeline.ts` — not body alone).
+- **(T2.1)** Body-on-op-change is deterministic: the user's body is preserved unless it was empty or equalled the prior op's default body.
 
 ## 7. Test cases
 

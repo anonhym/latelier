@@ -1,5 +1,7 @@
 # W07 — Pagination control
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Drive the `skip` / `limit` inputs of the runner, show where we are in the result set, and let the user move between pages without leaving the workspace. Small but testable.
@@ -53,13 +55,13 @@ In the result bar (already reserved by W05), right-aligned:
 
 ## 5. Acceptance criteria
 
-- [ ] Default page size is 50.
-- [ ] Changing page size resets page to 0 and re-runs.
-- [ ] With `totalCount` known, Next is disabled on the last page.
-- [ ] With `totalCount` unknown, Next disables only when `lastRunHasMore` is false.
-- [ ] Prev is disabled on page 0.
-- [ ] Pagination state persists across tab switches (including page number).
-- [ ] Switching tabs re-runs only if the tab was created with no prior run state; otherwise the last result is shown.
+- Default page size is 50.
+- Changing page size resets page to 0 and re-runs.
+- With `totalCount` known, Next is disabled on the last page.
+- With `totalCount` unknown, Next disables only when `lastRunHasMore` is false.
+- Prev is disabled on page 0.
+- Pagination state persists across tab switches (including page number).
+- Switching tabs re-runs only if the tab was created with no prior run state; otherwise the last result is shown.
 
 ## 6. Test cases
 

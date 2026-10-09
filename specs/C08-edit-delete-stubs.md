@@ -1,5 +1,7 @@
 # C08 — Edit / Delete / stub tabs / CmdK stub
 
+> **Status: Implemented.** Its stub tabs were replaced by [C09](./C09-indexes-tab.md) and [C10](./C10-users-tab.md), and its ⌘K stub by [X07](./X07-command-palette.md).
+
 ## Purpose
 
 Cover the remaining pieces of the Connection Manager detail area: the Edit button, the Delete flow (confirm + result), the Indexes and Users stub tabs, and a minimal CmdK stub so the keyboard shortcut is not broken. Each is small individually; grouping them keeps the spec count tight.
@@ -96,12 +98,12 @@ The stub exists so we don't regress the keyboard shortcut or the title-bar affor
 
 ## 5. Acceptance criteria
 
-- [ ] Edit button navigates to `/connections/:id/edit`.
-- [ ] Delete confirmation appears on the detail-header Delete button (the sidebar context-menu entry point it originally also covered is retired); after confirm, `api.conn.delete` fires and the user lands on the Data View (no sibling row to adjust selection to).
-- [ ] Open workspace opens the workspace with a tab; refreshing the app restores the tab.
-- [ ] Indexes and Users tabs render placeholder cards with working links.
-- [ ] `⌘K` opens the stub overlay from every route that includes it (ConnectionManager, Workspace); items route correctly; Esc closes.
-- [ ] Opening an arbitrary `https://anthropic.com` via the overlay action runs `shell.openExternal`; `file://` URL is rejected with VALIDATION.
+- Edit button navigates to `/connections/:id/edit`.
+- Delete confirmation appears on the detail-header Delete button (the sidebar context-menu entry point it originally also covered is retired); after confirm, `api.conn.delete` fires and the user lands on the Data View (no sibling row to adjust selection to).
+- Open workspace opens the workspace with a tab; refreshing the app restores the tab.
+- Indexes and Users tabs render placeholder cards with working links.
+- `⌘K` opens the stub overlay from every route that includes it (ConnectionManager, Workspace); items route correctly; Esc closes.
+- Opening an arbitrary `https://anthropic.com` via the overlay action runs `shell.openExternal`; `file://` URL is rejected with VALIDATION.
 
 ## 6. Test cases
 

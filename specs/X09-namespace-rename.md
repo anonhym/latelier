@@ -1,6 +1,6 @@
 # X09 — Namespace rename (MongoLab → L'Atelier)
 
-> **Status: Phase 1 + Phase 2 + Phase 3 applied.** The display name in the menu bar / Finder, the IPC bridge identifier (`window.atelier`), the env var (`ATELIER_USER_DATA_DIR`), renderer file paths and the `appId` (`io.github.anonhym.latelier`) now use the L'Atelier name. The database, log and diagnostic filenames now use the L'Atelier name too. Recovering data from the old `MongoLab` userData directory is not automated; [the troubleshooting guide](../docs/troubleshooting.md) lists the manual steps.
+> **Status: Implemented** (Phases 1–3). The display name in the menu bar / Finder, the IPC bridge identifier (`window.atelier`), the env var (`ATELIER_USER_DATA_DIR`), renderer file paths and the `appId` (`io.github.anonhym.latelier`) now use the L'Atelier name. The database, log and diagnostic filenames now use the L'Atelier name too. Recovering data from the old `MongoLab` userData directory is not automated; [the troubleshooting guide](../docs/troubleshooting.md) lists the manual steps.
 
 ## Purpose
 
@@ -54,20 +54,20 @@ The split lets the visible rename ship first. The `appId` switch followed with t
 
 ## Acceptance criteria — Phase 1 + Phase 2
 
-- [x] App menu bar / About dialog / window title display "L'Atelier" instead of "MongoLab".
-- [x] `npm run lint`, typecheck, and unit + component tests are green after the rename.
-- [x] No `import` statements reference `'./api/mongolab'` (all replaced with `'./api/atelier'`).
-- [x] No `window.mongolab` references in `src/` or `tests/`.
-- [x] No `MONGOLAB_USER_DATA_DIR` references in source; `ATELIER_USER_DATA_DIR` is honored in `electron/main.ts` and E2E helpers.
+- App menu bar / About dialog / window title display "L'Atelier" instead of "MongoLab".
+- `npm run lint`, typecheck, and unit + component tests are green after the rename.
+- No `import` statements reference `'./api/mongolab'` (all replaced with `'./api/atelier'`).
+- No `window.mongolab` references in `src/` or `tests/`.
+- No `MONGOLAB_USER_DATA_DIR` references in source; `ATELIER_USER_DATA_DIR` is honored in `electron/main.ts` and E2E helpers.
 
 ## Acceptance criteria — Phase 3
 
-- [x] `appId: io.github.anonhym.latelier` set in `electron-builder.yml`, before the first Developer-ID-signed release.
-- [x] The pre-signing notice and its dismissal preference are removed.
-- [x] The troubleshooting guide documents moving data from an old `MongoLab` install by hand.
-- [x] A userData folder holding only `mongolab.db` starts with `latelier.db` holding the same data, and no `mongolab.db`, `-wal` or `-shm` file is left behind.
-- [x] Log files are written as `latelier.<date>.log`, and files under the old prefix are still pruned and tightened.
-- [x] The diagnostic bundle is saved as `latelier-diagnostic-<ts>.json`, and its recent-logs section keeps the newest files across both prefixes.
+- `appId: io.github.anonhym.latelier` set in `electron-builder.yml`, before the first Developer-ID-signed release.
+- The pre-signing notice and its dismissal preference are removed.
+- The troubleshooting guide documents moving data from an old `MongoLab` install by hand.
+- A userData folder holding only `mongolab.db` starts with `latelier.db` holding the same data, and no `mongolab.db`, `-wal` or `-shm` file is left behind.
+- Log files are written as `latelier.<date>.log`, and files under the old prefix are still pruned and tightened.
+- The diagnostic bundle is saved as `latelier-diagnostic-<ts>.json`, and its recent-logs section keeps the newest files across both prefixes.
 
 ## See also
 

@@ -1,6 +1,6 @@
 # X12 — Mantine migration
 
-> **Status: Shipped.** The 13-phase migration landed — Mantine (`@mantine/core`/`@mantine/form`/`@mantine/modals`) is adopted across dozens of files, `App.tsx` mounts `MantineProvider`/`ModalsProvider` at the root, and source comments cite specific completed phases (e.g. "X12 Phase 0" in `App.tsx`, later phases in `ConnectionForm.tsx`, `Workspace.tsx`, `ConnectionManager.tsx`, `DbCollectionNavigator.tsx`). The acceptance-criteria checkboxes below were not individually re-audited against final code — treat this spec as historical design record for the target shape and phased approach, and prefer reading current source for the ground truth of what shipped. Builds directly on the composition seams introduced by [X11](./X11-workspace-composition.md).
+> **Status: Implemented.** The 13-phase migration landed — Mantine (`@mantine/core`/`@mantine/form`/`@mantine/modals`) is adopted across dozens of files, `App.tsx` mounts `MantineProvider`/`ModalsProvider` at the root, and source comments cite specific completed phases (e.g. "X12 Phase 0" in `App.tsx`, later phases in `ConnectionForm.tsx`, `Workspace.tsx`, `ConnectionManager.tsx`, `DbCollectionNavigator.tsx`). The acceptance criteria below were not individually re-audited against final code — treat this spec as historical design record for the target shape and phased approach, and prefer reading current source for the ground truth of what shipped. Builds directly on the composition seams introduced by [X11](./X11-workspace-composition.md).
 
 ## Purpose
 
@@ -246,16 +246,16 @@ The migration can pause at any phase boundary with the codebase strictly improve
 
 ## Acceptance criteria (overall)
 
-- [ ] No `import { useT } from '...ThemeContext'` in `src/`.
-- [ ] No `import { ... } from '../tokens'` (or any path to `tokens.ts`) in `src/`.
-- [ ] No `style={{` in `src/pages/`, `src/components/`, `src/commands/`, `src/troubleshooting/`, `src/hints/` except in deliberately bespoke leaves (data viz rows, CodeMirror wrapper, splash, JSON tree nodes — enumerated in code with a brief comment).
-- [ ] Inline-style occurrence count (`rg "style=\{\{" src/ | wc -l`) reduced by at least 85% from baseline (1,029).
-- [ ] `MantineProvider` is mounted once at the app root and drives both light/dark themes.
-- [ ] Theme mode persistence (`api.prefs.setTheme`) works end-to-end through `useMantineColorScheme()`.
-- [ ] All existing component tests pass.
-- [ ] All existing E2E tests pass.
-- [ ] No visual regression in `ResultViewer.Tree` / `Table` / `Json`, `DetailPanel`, `SchemaView`, CodeMirror script editor (verified by hand against the pre-migration build).
-- [ ] `npm run build` succeeds; bundle size delta documented.
+- No `import { useT } from '...ThemeContext'` in `src/`.
+- No `import { ... } from '../tokens'` (or any path to `tokens.ts`) in `src/`.
+- No `style={{` in `src/pages/`, `src/components/`, `src/commands/`, `src/troubleshooting/`, `src/hints/` except in deliberately bespoke leaves (data viz rows, CodeMirror wrapper, splash, JSON tree nodes — enumerated in code with a brief comment).
+- Inline-style occurrence count (`rg "style=\{\{" src/ | wc -l`) reduced by at least 85% from baseline (1,029).
+- `MantineProvider` is mounted once at the app root and drives both light/dark themes.
+- Theme mode persistence (`api.prefs.setTheme`) works end-to-end through `useMantineColorScheme()`.
+- All existing component tests pass.
+- All existing E2E tests pass.
+- No visual regression in `ResultViewer.Tree` / `Table` / `Json`, `DetailPanel`, `SchemaView`, CodeMirror script editor (verified by hand against the pre-migration build).
+- `npm run build` succeeds; bundle size delta documented.
 
 ## Test cases
 

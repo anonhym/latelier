@@ -1,6 +1,6 @@
 # X17 — Renderer hardening
 
-> **Status: Applied.** CSP, window-open denial, navigation guard, sender
+> **Status: Implemented.** CSP, window-open denial, navigation guard, sender
 > validation and `sandbox: true` all ship. Verified in a packaged build and in a
 > dev-server run; see §7.
 
@@ -116,15 +116,15 @@ passed to `callback()` would pass identically if the header never reached the
 document — and whether `onHeadersReceived` fires at all depends on the URL
 scheme, which was the open question for the `file:` case.
 
-- [x] A third-party `fetch` from the renderer is refused.
-- [x] `window.open` returns `null` and no second window exists.
-- [x] `location.assign` to a remote origin leaves the document where it was.
-- [x] A userinfo-smuggled host and an arbitrary local file are both refused.
-- [x] Zero CSP violations during boot, in a packaged build **and** against the
-      dev server with HMR connected.
-- [x] An `invoke` from a foreign frame returns `UNTRUSTED_SENDER` without
-      reaching the handler.
-- [x] `createRouter` cannot be constructed without a sender check.
+- A third-party `fetch` from the renderer is refused.
+- `window.open` returns `null` and no second window exists.
+- `location.assign` to a remote origin leaves the document where it was.
+- A userinfo-smuggled host and an arbitrary local file are both refused.
+- Zero CSP violations during boot, in a packaged build **and** against the
+  dev server with HMR connected.
+- An `invoke` from a foreign frame returns `UNTRUSTED_SENDER` without
+  reaching the handler.
+- `createRouter` cannot be constructed without a sender check.
 
 ## 8. Test cases
 

@@ -1,5 +1,7 @@
 # W15 — Query composition: the whole find, not just the filter
 
+> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open, and §14 is a proposal rather than a plan.
+
 ## Purpose
 
 W13 rebuilt the **filter**. W14 fixed three defects in the row that owns
@@ -475,62 +477,62 @@ Grouped by tier so a PR can claim one tier cleanly.
 
 ### Tier 1
 
-- [ ] "Set default" either reads back the preference it writes (restoring
-      filter / sort / limit / projection on the next open of that collection)
-      or is removed. A button with no observable effect does not ship.
-- [ ] If "Set default" stays, it reports success, shows that a default exists
-      for the current collection, and offers a way to clear it.
-- [ ] The projection `unmodelable` message names a surface that exists in the
-      app, or projection gains the raw passthrough that makes the current
-      wording true.
-- [ ] Typing invalid EJSON in the sort input surfaces client-side, before any
-      IPC call, with the same treatment the filter gets (Run gated + inline
-      warning). No sort-only round trip to produce a `VALIDATION` pill.
-- [ ] A limit of `0`, a negative limit, or trailing junk produces a visible
-      inline message stating what will actually run. No silent coercion to
-      "no limit".
-- [ ] **Copy code** reproduces the query as run — including `skip` — or emits
-      only the clauses the drawer itself owns. It must not emit values the
-      user has no editor for.
+- "Set default" either reads back the preference it writes (restoring
+  filter / sort / limit / projection on the next open of that collection)
+  or is removed. A button with no observable effect does not ship.
+- If "Set default" stays, it reports success, shows that a default exists
+  for the current collection, and offers a way to clear it.
+- The projection `unmodelable` message names a surface that exists in the
+  app, or projection gains the raw passthrough that makes the current
+  wording true.
+- Typing invalid EJSON in the sort input surfaces client-side, before any
+  IPC call, with the same treatment the filter gets (Run gated + inline
+  warning). No sort-only round trip to produce a `VALIDATION` pill.
+- A limit of `0`, a negative limit, or trailing junk produces a visible
+  inline message stating what will actually run. No silent coercion to
+  "no limit".
+- **Copy code** reproduces the query as run — including `skip` — or emits
+  only the clauses the drawer itself owns. It must not emit values the
+  user has no editor for.
 
 ### Tier 2
 
-- [ ] The projection input offers field-name completion from the same sources
-      the drawer's cond rows use, including dotted paths.
-- [ ] The sort input offers the same completion.
-- [ ] `{_id: 0}` is expressible through some route in the UI, and the round
-      trip preserves it across a tab save/restore.
-- [ ] Each of projection / sort / limit / skip has a programmatic accessible
-      name; a screen reader announces which field it is on.
-- [ ] The advanced-row disclosure trigger has an explicitly defined, visible
-      `:focus-visible` style — asserted by a test, not by inspection (closes
-      the item W14 §2 left open).
-- [ ] Multi-field sort has exactly one documented composition path, and the
-      comment at `builder.ts:168` names it. A stale tracker reference and a
-      deleted editor are not a path.
-- [ ] A sort string the table header cannot represent shows *something* in the
-      header — the header never silently claims "unsorted" while a sort runs.
+- The projection input offers field-name completion from the same sources
+  the drawer's cond rows use, including dotted paths.
+- The sort input offers the same completion.
+- `{_id: 0}` is expressible through some route in the UI, and the round
+  trip preserves it across a tab save/restore.
+- Each of projection / sort / limit / skip has a programmatic accessible
+  name; a screen reader announces which field it is on.
+- The advanced-row disclosure trigger has an explicitly defined, visible
+  `:focus-visible` style — asserted by a test, not by inspection (closes
+  the item W14 §2 left open).
+- Multi-field sort has exactly one documented composition path, and the
+  comment at `builder.ts:168` names it. A stale tracker reference and a
+  deleted editor are not a path.
+- A sort string the table header cannot represent shows *something* in the
+  header — the header never silently claims "unsorted" while a sort runs.
 
 ### Tier 3
 
-- [ ] The drawer states where sort / projection / limit are edited, or hosts
-      them.
-- [ ] `limit`'s across-pages semantics and the 1000-document server cap are
-      discoverable without reading the source.
-- [ ] Projection, preview fields, and column config each state their scope
-      where they are used, and the two that are display-only say so.
+- The drawer states where sort / projection / limit are edited, or hosts
+  them.
+- `limit`'s across-pages semantics and the 1000-document server cap are
+  discoverable without reading the source.
+- Projection, preview fields, and column config each state their scope
+  where they are used, and the two that are display-only say so.
 
 ### Invariants (all tiers)
 
-- [ ] No change to `FindInput`, to any IPC channel, or to the secret
-      allowlist.
-- [ ] A tab persisted before the change restores identically — including one
-      whose `builder.projection` is a plain `string[]`.
-- [ ] W13's fail-closed rule is preserved: no path widens a refused filter,
-      sort, or projection into a broader query than the user asked for. In
-      particular, a refused *projection* must never silently fall back to
-      "return every field" without saying so — the projection analogue of
-      that fail-closed hazard.
+- No change to `FindInput`, to any IPC channel, or to the secret
+  allowlist.
+- A tab persisted before the change restores identically — including one
+  whose `builder.projection` is a plain `string[]`.
+- W13's fail-closed rule is preserved: no path widens a refused filter,
+  sort, or projection into a broader query than the user asked for. In
+  particular, a refused *projection* must never silently fall back to
+  "return every field" without saying so — the projection analogue of
+  that fail-closed hazard.
 
 ## 12. Test cases
 
@@ -699,23 +701,23 @@ invoked programmatically by the History button; a user cannot invoke it.
 
 ### 13.7 Acceptance criteria for this section
 
-- [ ] The three add-buttons in a group header are mutually distinguishable
-      without reading a tooltip.
-- [ ] Each row offers exactly one Remove affordance.
-- [ ] Reset either confirms or is undoable.
-- [ ] The "N not applied" banner names or navigates to the offending rows.
-- [ ] An empty filter tree renders an empty state that says what to do next.
-- [ ] The drawer's tab strip implements the tablist pattern: `role`,
-      `aria-selected`, `aria-controls`, and arrow-key roving as one tab stop.
-- [ ] No control carries an `aria-label` describing behavior it does not have
-      — specifically `SavedStrip`'s per-row `↗`.
-- [ ] A Recent row shows what was queried, and its timestamp disambiguates days.
-- [ ] Copy actions report success, and never silently no-op.
-- [ ] "builder configuration" is gone from user-facing copy — W13 renamed the
-      tab to Filter and deleted the builder model (`SavedStrip.tsx:152`,
-      `BuilderPane.tsx:1106`).
-- [ ] Loading and error states preserve the tab strip rather than replacing
-      the pane.
+- The three add-buttons in a group header are mutually distinguishable
+  without reading a tooltip.
+- Each row offers exactly one Remove affordance.
+- Reset either confirms or is undoable.
+- The "N not applied" banner names or navigates to the offending rows.
+- An empty filter tree renders an empty state that says what to do next.
+- The drawer's tab strip implements the tablist pattern: `role`,
+  `aria-selected`, `aria-controls`, and arrow-key roving as one tab stop.
+- No control carries an `aria-label` describing behavior it does not have
+  — specifically `SavedStrip`'s per-row `↗`.
+- A Recent row shows what was queried, and its timestamp disambiguates days.
+- Copy actions report success, and never silently no-op.
+- "builder configuration" is gone from user-facing copy — W13 renamed the
+  tab to Filter and deleted the builder model (`SavedStrip.tsx:152`,
+  `BuilderPane.tsx:1106`).
+- Loading and error states preserve the tab strip rather than replacing
+  the pane.
 
 ## 14. What's missing — capabilities, not defects
 
