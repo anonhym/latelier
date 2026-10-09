@@ -313,10 +313,36 @@ when that happens.
 
 - `sampleSchemaSource` caches per `(connId, db, coll)` with a 5-min TTL,
   so multiple tabs for the same collection trigger one fetch total.
-- `invalidateSampleSchemaCache(connId, db, coll)` is exposed. Call it
-  after successful `docInsert` / `docReplace` / `deleteMany` writes so
-  fresh fields appear immediately. *(Wiring is a follow-up; see the
-  "Quality improvements" section of the roadmap.)*
+- `invalidateSampleSchemaCache(connId, db, coll)` drops that collection's
+  entry (`(connId)` drops the connection's, no argument drops all). It
+  also forgets an in-flight fetch and stops it from re-caching: a
+  generation counter, bumped by every invalidation, keeps a sample that
+  was requested before a write and resolves after it from landing in the
+  cache. The generation is global, so an invalidation anywhere makes
+  every fetch in flight skip its cache write (its caller still gets the
+  answer); that errs toward a refetch, never toward a stale entry.
+- Every renderer write path calls it, so fresh fields and the Update
+  drawer's type warning reflect the write immediately:
+  - `useDocumentDialogs` — insert, partial insert, document save,
+    delete (one, selected, many), update-many, and the Undo of each.
+    `refreshSource` invalidates from the drawer's captured target
+    before its tab-gone early return, because the write landed even
+    when the tab did not survive the drawer.
+  - `Workspace.tsx` `updateField` (Quick Edit), which writes straight
+    through `api.doc.updateOne`, and its Undo.
+  - `ImportDialog`, once the import resolves and again on Undo.
+  - `SaveAsCollectionModal`, for the target `(connId, db, coll)`; and
+    `AggregationTab`'s confirmed `$out` / `$merge` run, for the whole
+    connection (main parses the target out of the stage body, so the
+    renderer cannot name it). Both also invalidate when the write
+    fails, since a `$merge` can write part-way.
+  - The connection dialogs (`ConnectionManager`, `useConnectionDialogs`)
+    for connection changes.
+- Not wired, on purpose: the Script tab and the Mongo shell (a script
+  can write to any collection and there is no completion point to hook),
+  and collection create / drop / rename and database drop. The 5-minute
+  TTL bounds all of these; a collection dropped and re-created inside it
+  can show the old fields until the TTL lapses.
 
 ### Race safety
 
@@ -368,7 +394,7 @@ on app restart).
 - [x] `$`-prefixed bare keys open the popover (previously suppressed);
   the operator source (X03) consumes these hits. `fieldRef` and
   `valueFor` branches remain unchanged.
-- [ ] *(Follow-up)* Cache invalidation on writes.
+- [x] Cache invalidation on writes (§9 "Caching" lists every wired path and the ones left to the TTL).
 - [ ] *(Follow-up)* First `ValueSource` + consumer wiring (builder
   value input).
 - [ ] *(Follow-up)* Accessibility pass (`aria-activedescendant`,
