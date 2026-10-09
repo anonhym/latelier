@@ -1,9 +1,14 @@
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import type { Sort } from 'mongodb';
-import { EJSON } from 'bson';
 import type { FindInput, FindResultWire, ExplainInput, QueryExportInput, QueryExportResult } from '@shared/types';
-import { DEFAULT_MAX_EJSON_BYTES, ejsonEncode, ejsonEncodeArrayJson, parseEjsonDocument } from './ejson.ts';
+import {
+  DEFAULT_MAX_EJSON_BYTES,
+  ejsonEncode,
+  ejsonEncodeArrayJson,
+  ejsonStringifyRelaxed,
+  parseEjsonDocument,
+} from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { SystemError, ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
@@ -31,12 +36,13 @@ export const DEFAULT_EXPORT_CAP = 100_000;
 /**
  * One JSON-array element's text, indented to match a whole-array
  * `JSON.stringify(docs, null, 2)`: every element's own lines gain one
- * `'  '` (2-space) prefix. Verified byte-identical to
- * `exportFormat.ts`'s `serializeJsonArray` for the same documents — see
+ * `'  '` (2-space) prefix. `text` is the element already pretty-printed with
+ * 2 spaces. Verified byte-identical to `exportFormat.ts`'s
+ * `serializeJsonArray` for the same documents — see
  * `tests/integration/query-export.spec.ts`.
  */
-function jsonArrayElementText(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+function jsonArrayElementText(text: string): string {
+  return text
     .split('\n')
     .map((line) => `  ${line}`)
     .join('\n');
@@ -275,15 +281,13 @@ export class QueryService {
         if (input.format === 'csv') {
           await write(csvRowLine(wire, columns!) + '\n');
         } else if (input.format === 'jsonl') {
-          const line = input.relaxed
-            ? (EJSON.stringify(revive(wire) as object, undefined, undefined, { relaxed: true }) as string)
-            : JSON.stringify(wire);
+          // A document always serializes, so `ejsonStringifyRelaxed` is never `undefined` here.
+          const line = input.relaxed ? (ejsonStringifyRelaxed(revive(wire)) as string) : JSON.stringify(wire);
           await write(line + '\n');
         } else {
-          const plain = input.relaxed
-            ? EJSON.serialize(revive(wire) as object, { relaxed: true })
-            : wire;
-          const element = jsonArrayElementText(plain);
+          const element = jsonArrayElementText(
+            input.relaxed ? (ejsonStringifyRelaxed(revive(wire), 2) as string) : JSON.stringify(wire, null, 2),
+          );
           await write((jsonArrayStarted ? ',\n' : '[\n') + element);
           jsonArrayStarted = true;
         }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double } from 'bson';
+import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, DBRef, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double, UUID } from 'bson';
 import {
   ejsonParse,
   ejsonStringify,
@@ -189,6 +189,18 @@ describe('ejson', () => {
     expect(seen).toEqual([1]);
   });
 
+  it('ejsonEncodeArrayJson: a document that lands exactly on the cap is kept, so the next one is still prepared', () => {
+    const seen: number[] = [];
+    const prepare = (d: unknown): unknown => {
+      seen.push(d as number);
+      return d;
+    };
+    // "[1" is 2 bytes: at the cap, not past it. Only the next element's
+    // separator and digit take it over.
+    expect(() => ejsonEncodeArrayJson([1, 2, 3], { relaxed: true, prepare, maxBytes: 2 })).toThrow(/byte cap/);
+    expect(seen).toEqual([1, 2]);
+  });
+
   it('ejsonEncodeArrayJson defaults to canonical when relaxed is omitted', () => {
     expect(ejsonEncodeArrayJson([5])).toBe('[{"$numberInt":"5"}]');
   });
@@ -374,6 +386,126 @@ describe('ejson', () => {
 
   it('ejsonStringifyRelaxed renders a plain number without a $numberInt wrapper', () => {
     expect(ejsonStringifyRelaxed({ n: 5 })).toBe('{"n":5}');
+  });
+});
+
+// bson's relaxed mode writes a Long with `Long.toNumber()`, so one past 2^53
+// comes out as a different number. The shell, script `print()` and a relaxed
+// export all print through `ejsonStringifyRelaxed`.
+describe('ejsonStringifyRelaxed keeps a Long past 2^53 exact', () => {
+  const long = (digits: string): Long => Long.fromString(digits);
+  const wrapped = (digits: string): string => `{"$numberLong":"${digits}"}`;
+  // What bson itself prints: the reference for every value that is not a wide Long.
+  const plainRelaxed = (v: unknown): string => EJSON.stringify(v as object, undefined, undefined, { relaxed: true });
+
+  it.each([
+    ['2^53 - 1', '9007199254740991', false],
+    ['2^53', '9007199254740992', false],
+    ['2^53 + 1', '9007199254740993', true],
+    ['-(2^53 - 1)', '-9007199254740991', false],
+    ['-2^53', '-9007199254740992', false],
+    ['-(2^53 + 1)', '-9007199254740993', true],
+    ['an even one past 2^53, which rounds onto itself', '9007199254740994', true],
+    ['Long.MAX_VALUE', '9223372036854775807', true],
+    ['Long.MIN_VALUE', '-9223372036854775808', true],
+  ])('a Long of %s prints %s', (_name, digits, keepsWrapper) => {
+    expect(ejsonStringifyRelaxed({ n: long(digits) })).toBe(
+      keepsWrapper ? `{"n":${wrapped(digits)}}` : `{"n":${digits}}`,
+    );
+  });
+
+  it('keeps a wide Long wrapped at the root, in arrays and in nested documents', () => {
+    const big = long('9007199254740993');
+    expect(ejsonStringifyRelaxed(big)).toBe(wrapped('9007199254740993'));
+    expect(ejsonStringifyRelaxed([big, long('7'), 3])).toBe(`[${wrapped('9007199254740993')},7,3]`);
+    expect(ejsonStringifyRelaxed({ a: [{ b: { c: big } }], d: { e: [big] } })).toBe(
+      `{"a":[{"b":{"c":${wrapped('9007199254740993')}}}],"d":{"e":[${wrapped('9007199254740993')}]}}`,
+    );
+  });
+
+  it('reaches a wide Long inside the scope of a Code and the fields of a DBRef', () => {
+    const big = long('9007199254740993');
+    const oid = new ObjectId('507f1f77bcf86cd799439011');
+    expect(ejsonStringifyRelaxed(new Code('x', { big }))).toBe(
+      `{"$code":"x","$scope":{"big":${wrapped('9007199254740993')}}}`,
+    );
+    expect(ejsonStringifyRelaxed(new DBRef('c', oid, undefined, { big }))).toBe(
+      `{"$ref":"c","$id":{"$oid":"507f1f77bcf86cd799439011"},"big":${wrapped('9007199254740993')}}`,
+    );
+  });
+
+  it('indents the way EJSON.stringify does', () => {
+    const doc = { a: [1, { b: long('9007199254740993') }], c: 'x' };
+    expect(ejsonStringifyRelaxed(doc, 2)).toBe(
+      JSON.stringify({ a: [1, { b: { $numberLong: '9007199254740993' } }], c: 'x' }, null, 2),
+    );
+    expect(ejsonStringifyRelaxed({ n: 1 }, 2)).toBe('{\n  "n": 1\n}');
+  });
+
+  it('prints exactly what bson prints for every other value', () => {
+    const cases: Record<string, unknown> = {
+      int32: new Int32(5),
+      doubleWhole: new Double(2),
+      doubleFraction: new Double(1.5),
+      doubleInfinity: new Double(Infinity),
+      doubleNaN: new Double(Number.NaN),
+      doubleNegativeZero: new Double(-0),
+      number: 5,
+      numberAt2p53: 2 ** 53,
+      numberPast2p53: 2 ** 60,
+      numberNegativePast2p53: -(2 ** 60),
+      numberPast2p63: 1e30,
+      objectId: new ObjectId('507f1f77bcf86cd799439011'),
+      dateEpoch: new Date(0),
+      dateRecent: new Date(1700000000000),
+      dateBefore1970: new Date(-1),
+      dateAfter9999: new Date(253402300800000),
+      decimal: Decimal128.fromString('1.5'),
+      timestamp: new Timestamp({ t: 1700000000, i: 1 }),
+      binary: new Binary(Buffer.from('ab')),
+      uuid: new UUID('00000000-0000-4000-8000-000000000000'),
+      regex: new BSONRegExp('a', 'i'),
+      symbol: new BSONSymbol('s'),
+      minKey: new MinKey(),
+      maxKey: new MaxKey(),
+      code: new Code('x'),
+      undef: undefined,
+      nul: null,
+      string: 's',
+      bool: true,
+      array: [1, 'two', null, [new Int32(3)]],
+      safeLong: long('9007199254740991'),
+      // A plain document that only looks like a Long is a document: bson prints it as one.
+      lookalike: { $numberLong: '9007199254740993' },
+      lookalikeNotDigits: { $numberLong: 'abc' },
+    };
+    for (const [name, value] of Object.entries(cases)) {
+      expect(ejsonStringifyRelaxed({ v: value }), name).toBe(plainRelaxed({ v: value }));
+    }
+  });
+
+  it('prints a plain number past 2^53 as a number, not as a Long', () => {
+    // The driver hands a stored Double past 2^53 back as a JS number; it is not a Long.
+    expect(ejsonStringifyRelaxed({ d: 2 ** 60 })).toBe(plainRelaxed({ d: 2 ** 60 }));
+    expect(ejsonStringifyRelaxed({ d: 2 ** 60 })).not.toContain('$numberLong');
+  });
+
+  it('keeps a field named __proto__ that holds a wide Long', () => {
+    // JSON.parse makes `__proto__` an own property; a `{}` accumulator would
+    // set the prototype instead and the field would vanish from the output.
+    const doc = JSON.parse('{"__proto__":{},"k":1}') as Record<string, Record<string, unknown>>;
+    doc['__proto__']!.big = long('9007199254740993');
+    expect(ejsonStringifyRelaxed(doc)).toBe(`{"__proto__":{"big":${wrapped('9007199254740993')}},"k":1}`);
+  });
+
+  it('answers undefined for a value EJSON cannot serialise, as before', () => {
+    expect(ejsonStringifyRelaxed(() => 1)).toBeUndefined();
+  });
+
+  it('throws on a cycle, as EJSON does', () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => ejsonStringifyRelaxed(cyclic)).toThrow();
   });
 });
 
