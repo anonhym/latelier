@@ -20,6 +20,7 @@ import type { Logger } from '../log.ts';
 import type { SecretsVault } from '../secrets/SecretsVault.ts';
 import { classifyMongoError, classifyMongoOpError, isMaxTimeMSExpired } from './errors.ts';
 import { QUERY_TIMEOUT_MS } from './timeouts.ts';
+import { topologyFromHello, type HelloResponse } from './topology.ts';
 import { buildOptions, buildUri, redactUriUserInfo } from './uri.ts';
 
 export interface ConnectionReader {
@@ -105,25 +106,6 @@ export interface MongoPoolOpts {
  * enough that a real drop surfaces while the user is still looking at it.
  */
 const CONNECTION_LOSS_GRACE_MS = 5_000;
-
-/**
- * Hello-command response shape. We only consume the fields useful for a
- * post-mortem snapshot — the driver returns dozens more. `isMaster` (the
- * pre-4.4 alias) returns the same fields plus a legacy `ismaster` boolean
- * in place of `isWritablePrimary`.
- */
-interface HelloResponse {
-  setName?: string;
-  hosts?: string[];
-  primary?: string;
-  me?: string;
-  msg?: string;            // 'isdbgrid' on a mongos
-  isWritablePrimary?: boolean;
-  ismaster?: boolean;      // legacy field on isMaster responses (Mongo < 4.4)
-  secondary?: boolean;
-  arbiterOnly?: boolean;
-  maxWireVersion?: number;
-}
 
 /**
  * Proof that a connection was checked and is writable. Obtained from
@@ -253,23 +235,25 @@ export class MongoPool extends EventEmitter {
   }
 
   /**
-   * Run `hello` (or `isMaster` on MongoDB < 4.4) and log a redacted snapshot
-   * of the topology. Best-effort: any error is swallowed so we never fail a
-   * successful connect/probe just to log.
+   * Run `hello` (or `isMaster` on MongoDB < 4.4), log a redacted snapshot of
+   * the topology when a logger is present, and return the reply so the caller
+   * can classify the deployment from it. Runs with or without a logger: the
+   * topology on `ConnectionRuntime` / `ServerInfo` depends on it. Best-effort:
+   * a failed hello yields `null` (topology `Unknown`) and never fails a
+   * successful connect/probe.
    */
-  private async logHelloSnapshot(client: MongoClient, connectionId: string, source: 'connect' | 'probe'): Promise<HelloResponse | null> {
-    if (!this.log) return null;
+  private async readHello(client: MongoClient, connectionId: string, source: 'connect' | 'probe'): Promise<HelloResponse | null> {
     const admin = client.db('admin');
     let hello: HelloResponse;
     try {
       hello = (await admin.command({ hello: 1 })) as HelloResponse;
     } catch {
       // Mongo < 4.4 doesn't know `hello`. Fall back to the legacy alias so we
-      // still get a snapshot on those clusters.
+      // still get a reply on those clusters.
       try {
         hello = (await admin.command({ isMaster: 1 })) as HelloResponse;
       } catch (err) {
-        this.log.debug('mongo', 'hello snapshot failed', {
+        this.log?.debug('mongo', 'hello snapshot failed', {
           connectionId,
           source,
           message: err instanceof Error ? err.message : String(err),
@@ -287,7 +271,7 @@ export class MongoPool extends EventEmitter {
           : hello.msg === 'isdbgrid'
             ? 'mongos'
             : 'unknown';
-    this.log.info('mongo', 'hello snapshot', {
+    this.log?.info('mongo', 'hello snapshot', {
       connectionId,
       source,
       setName: hello.setName,
@@ -519,9 +503,9 @@ export class MongoPool extends EventEmitter {
         throw new SystemError('DB_ERROR', 'connection canceled');
       }
       const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: string };
-      await this.logHelloSnapshot(client, id, 'connect');
+      const hello = await this.readHello(client, id, 'connect');
       entry!.serverVersion = info.version;
-      entry!.topology = mapTopology();
+      entry!.topology = topologyFromHello(hello);
       entry!.status = 'connected';
       entry!.connectedAt = new Date().toISOString();
       entry!.errorCode = undefined;
@@ -726,7 +710,7 @@ export class MongoPool extends EventEmitter {
       dataSizeBytes: dataSize,
       storageSizeBytes: storageBytes,
       indexCount,
-      topology: entry.topology ?? mapTopology(),
+      topology: entry.topology ?? 'Unknown',
       serverStatsAvailable: serverStatus !== null,
     };
   }
@@ -796,11 +780,11 @@ export class MongoPool extends EventEmitter {
       await client.connect();
       await client.db('admin').command({ ping: 1 });
       const info = (await client.db('admin').command({ buildInfo: 1 })) as { version?: string };
-      await this.logHelloSnapshot(client, pseudo.id, 'probe');
+      const hello = await this.readHello(client, pseudo.id, 'probe');
       return {
         ok: true,
         serverVersion: info.version,
-        topology: mapTopology(),
+        topology: topologyFromHello(hello),
         roundTripMs: Date.now() - t0,
       };
     } catch (err) {
@@ -820,13 +804,6 @@ export class MongoPool extends EventEmitter {
       }
     }
   }
-}
-
-function mapTopology(): MongoTopology {
-  // Driver v7 hides the topology type behind internals; derive lazily from a
-  // `hello` response when a caller needs it. For now return Unknown — the
-  // Overview tab (C06) will populate this via a `hello` call.
-  return 'Unknown';
 }
 
 interface ServerStatusDoc extends Document {
