@@ -230,6 +230,7 @@ export class MongoPool extends EventEmitter {
     if (!entry || entry.client !== client || entry.status !== 'connected') return;
     entry.status = 'disconnected';
     entry.connectedAt = undefined;
+    clearServerFacts(entry);
     this.log?.warn('mongo', 'connection lost — deployment unreachable', { connectionId: id });
     this.emit('status', this.status(id));
   }
@@ -528,6 +529,9 @@ export class MongoPool extends EventEmitter {
         // flip would land on that healthy attempt.
         if (isCurrent()) {
           entry!.client = undefined;
+          // A failed attempt says nothing about the server it was aimed at, so
+          // the previous attempt's version and topology must not outlive it.
+          clearServerFacts(entry!);
           // Only flip to 'error' if we weren't cancelled. disconnect() may have
           // set 'disconnected' to cancel us; respect that and don't overwrite.
           if (entry!.status === 'connecting') {
@@ -564,6 +568,7 @@ export class MongoPool extends EventEmitter {
     entry.client = undefined;
     entry.status = 'disconnected';
     entry.connectedAt = undefined;
+    clearServerFacts(entry);
     entry.defaultDb = undefined;
     entry.errorCode = undefined;
     entry.errorMessage = undefined;
@@ -804,6 +809,16 @@ export class MongoPool extends EventEmitter {
       }
     }
   }
+}
+
+/**
+ * Version and topology describe the server a live connection reached. Once
+ * that connection is gone or a later attempt failed they describe nothing, and
+ * `status()` must not report them next to 'disconnected' or 'error'.
+ */
+function clearServerFacts(entry: Entry): void {
+  entry.serverVersion = undefined;
+  entry.topology = undefined;
 }
 
 interface ServerStatusDoc extends Document {

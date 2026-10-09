@@ -570,6 +570,48 @@ describe('MongoPool', () => {
       await pool.disconnectAll();
     });
 
+    it('drops the topology and version with the connection on disconnect', async () => {
+      const { client } = makeHelloClient({ hello: () => ({ setName: 'rs0', isWritablePrimary: true, ok: 1 }) });
+      const pool = poolWithClient(client);
+
+      await pool.connect('c1');
+      expect(pool.status('c1')).toMatchObject({ status: 'connected', topology: 'ReplicaSet', serverVersion: '8.0.0' });
+
+      await pool.disconnect('c1');
+      const after = pool.status('c1');
+      expect(after.status).toBe('disconnected');
+      expect(after.topology).toBeUndefined();
+      expect(after.serverVersion).toBeUndefined();
+    });
+
+    it('does not show the previous server\'s topology when a reconnect fails', async () => {
+      const replicaSet = makeHelloClient({ hello: () => ({ setName: 'rs0', isWritablePrimary: true, ok: 1 }) }).client;
+      const unreachable = {
+        connect: async () => {
+          throw Object.assign(new Error('Authentication failed'), { codeName: 'AuthenticationFailed' });
+        },
+        close: async () => {},
+        on: () => {},
+        db: () => ({ command: async () => ({}) }),
+      } as unknown as import('mongodb').MongoClient;
+      const clients = [replicaSet, unreachable];
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const pool = new MongoPool({
+        repo: makeReader([makeConnection('c1', hp)]),
+        vault,
+        clientFactory: () => clients.shift()!,
+      });
+
+      await pool.connect('c1');
+      expect(pool.status('c1').topology).toBe('ReplicaSet');
+
+      const failed = await pool.connect('c1');
+      expect(failed.status).toBe('error');
+      expect(failed.topology).toBeUndefined();
+      expect(failed.serverVersion).toBeUndefined();
+    });
+
     it.each([
       ['no logger', undefined],
       ['a logger', { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }],
@@ -1228,6 +1270,8 @@ describe('MongoPool', () => {
         });
         await pool.readClient('lost');
         expect(pool.status('lost').status).toBe('connected');
+        expect(pool.status('lost').topology).toBe('Single');
+        expect(pool.status('lost').serverVersion).toMatch(/^\d/);
 
         const seen: string[] = [];
         pool.on('status', (r: { status: string }) => seen.push(r.status));
@@ -1244,6 +1288,9 @@ describe('MongoPool', () => {
 
         expect(pool.status('lost').status).toBe('disconnected');
         expect(pool.status('lost').connectedAt).toBeUndefined();
+        // What the dead connection learned about its server is gone with it.
+        expect(pool.status('lost').topology).toBeUndefined();
+        expect(pool.status('lost').serverVersion).toBeUndefined();
         // No errorCode: an involuntary drop renders Dormant, not failed.
         expect(pool.status('lost').errorCode).toBeUndefined();
         // The renderer's existing mongo.onStatus subscription rides this emit,
