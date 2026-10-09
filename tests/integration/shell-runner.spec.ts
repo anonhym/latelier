@@ -175,6 +175,19 @@ describe('ShellService — the database a session starts on', () => {
     expect(info.dbName).toBe('test');
     await until(() => outputOf().endsWith('test> '), 'prompt for the fallback db');
   });
+
+  it('a Restart (stop not awaited, then start) reopens on the new database', async () => {
+    // The pane's cleanup fires `stop` without awaiting it and starts again at
+    // once. start() reuses a live session for the connection and ignores
+    // dbName then, so stop must end the session before its first await.
+    const s = setup();
+    const first = await s.start({ connectionId: 'c1', dbName: 'first_db' });
+    void s.stop(first.sessionId);
+    const second = await s.start({ connectionId: 'c1', dbName: 'second_db' });
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.dbName).toBe('second_db');
+    await until(() => outputOf().endsWith('second_db> '), 'prompt for the restarted db');
+  });
 });
 
 describe('ShellService — cursors', () => {
