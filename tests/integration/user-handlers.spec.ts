@@ -158,4 +158,98 @@ describe('user:* handlers via router', () => {
     expect(env.ok).toBe(false);
     if (!env.ok) expect(env.error.code).toBe('UNAUTHORIZED');
   });
+
+  describe('user:get', () => {
+    const payload = { connectionId: 'c1', dbName: 'myapp', username: 'reader' };
+
+    it('passes exactly the validated object to the service and returns its user', async () => {
+      const user: UserInfo = {
+        db: 'myapp',
+        username: 'reader',
+        mechanisms: ['SCRAM-SHA-256'],
+        roles: [{ role: 'read', db: 'myapp' }],
+        external: false,
+      };
+      const spy = vi.fn<UserService['get']>(async () => user);
+      setupWith({ get: spy });
+
+      const env = await shim.invoke<UserInfo>(IPC_CHANNELS.userGet, payload);
+
+      expect(env).toEqual({ ok: true, data: user });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(payload);
+    });
+
+    it.each(['connectionId', 'dbName', 'username'] as const)(
+      'rejects a payload without %s with VALIDATION and never calls the service',
+      async (field) => {
+        const spy = vi.fn<UserService['get']>(async () => ({}) as UserInfo);
+        setupWith({ get: spy });
+        const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== field));
+
+        const env = await shim.invoke(IPC_CHANNELS.userGet, rest);
+
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects an empty username with VALIDATION', async () => {
+      const spy = vi.fn<UserService['get']>(async () => ({}) as UserInfo);
+      setupWith({ get: spy });
+
+      const env = await shim.invoke(IPC_CHANNELS.userGet, { ...payload, username: '' });
+
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('maps the service NotFoundError to NOT_FOUND', async () => {
+      setupWith({
+        get: async () => {
+          throw new NotFoundError('user does not exist', { username: 'reader' });
+        },
+      });
+
+      const env = await shim.invoke(IPC_CHANNELS.userGet, payload);
+
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('role:list', () => {
+    const payload = { connectionId: 'c1', dbName: 'myapp' };
+
+    it('passes exactly the validated object to the service and returns its roles', async () => {
+      const roles: RoleInfo[] = [
+        { role: 'read', db: 'myapp', isBuiltin: true, inheritedRoles: [] },
+      ];
+      const spy = vi.fn<UserService['listRoles']>(async () => roles);
+      setupWith({ listRoles: spy });
+
+      const env = await shim.invoke<RoleInfo[]>(IPC_CHANNELS.roleList, payload);
+
+      expect(env).toEqual({ ok: true, data: roles });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(payload);
+    });
+
+    it.each(['connectionId', 'dbName'] as const)(
+      'rejects a payload without %s with VALIDATION and never calls the service',
+      async (field) => {
+        const spy = vi.fn<UserService['listRoles']>(async () => [] as RoleInfo[]);
+        setupWith({ listRoles: spy });
+        const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== field));
+
+        const env = await shim.invoke(IPC_CHANNELS.roleList, rest);
+
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
+  });
 });
