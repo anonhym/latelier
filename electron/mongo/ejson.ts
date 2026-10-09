@@ -1,4 +1,4 @@
-import { EJSON, BSONRegExp, Code, DBRef, Double, type Document, type Long } from 'bson';
+import { EJSON, BSONRegExp, Code, DBRef, Double, type Document, type Long, type ObjectId } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
 // Main imports this renderer module because it is pure (it imports nothing),
 // and a second copy of the source-preserving parse beside the renderer's
@@ -202,10 +202,10 @@ function isWide(n: bigint): boolean {
  * so past 2^53 its digits are another number (`9007199254740993` comes out as
  * `9007199254740992`).
  *
- * Walks what that writer walks: arrays, Maps, the scope of a Code, the fields
- * of a DBRef, and every object without a `_bsontype` whatever its prototype,
- * since an object made in the shell or in a script's vm has that realm's own
- * `Object.prototype`. A number is never touched, so a Double past 2^53 still
+ * Walks what that writer walks: arrays, Maps, the scope of a Code, the `$id`
+ * and fields of a DBRef, and every object without a `_bsontype` whatever its
+ * prototype, since an object made in the shell or in a script's vm has that
+ * realm's own `Object.prototype`. A Date or a RegExp is a leaf, as it is to bson. A number is never touched, so a Double past 2^53 still
  * prints bare. A node the walk misses prints as bson prints it: rounded.
  *
  * Copies only the path to a changed value; everything else is the same
@@ -219,6 +219,16 @@ export function wrapWideLongs(node: unknown): unknown {
   }
   if (node === null || typeof node !== 'object') return node;
   // ponytail: no cycle guard, so a cyclic input overflows the stack instead of raising bson's circular-reference error; every caller already handles a throw. Track ancestors if a caller needs bson's message.
+  const tag = Object.prototype.toString.call(node);
+  // bson reads a Map as the document of its entries, before anything else.
+  if (node instanceof Map || tag === '[object Map]') {
+    let out: Map<unknown, unknown> | undefined;
+    for (const [k, v] of node as Map<unknown, unknown>) {
+      const w = wrapWideLongs(v);
+      if (w !== v) (out ??= new Map(node as Map<unknown, unknown>)).set(k, w);
+    }
+    return out ?? node;
+  }
   if (Array.isArray(node)) {
     let out: unknown[] | undefined;
     for (const [i, item] of node.entries()) {
@@ -227,15 +237,9 @@ export function wrapWideLongs(node: unknown): unknown {
     }
     return out ?? node;
   }
-  // The tag, not `instanceof`: a Map made in a script's vm is another realm's Map.
-  if (Object.prototype.toString.call(node) === '[object Map]') {
-    let out: Map<unknown, unknown> | undefined;
-    for (const [k, v] of node as Map<unknown, unknown>) {
-      const w = wrapWideLongs(v);
-      if (w !== v) (out ??= new Map(node as Map<unknown, unknown>)).set(k, w);
-    }
-    return out ?? node;
-  }
+  // bson's own tests, both halves: `instanceof` for a subclass with its own
+  // tag, the tag for a value made in a script's vm (another realm).
+  if (node instanceof Date || tag === '[object Date]' || node instanceof RegExp || tag === '[object RegExp]') return node;
   const bsontype = (node as { _bsontype?: unknown })._bsontype;
   if (bsontype === 'Long') {
     const n = BigInt((node as Long).toString());
@@ -248,8 +252,10 @@ export function wrapWideLongs(node: unknown): unknown {
   }
   if (bsontype === 'DBRef') {
     const ref = node as DBRef;
+    const oid = wrapWideLongs(ref.oid);
     const fields = wrapWideLongs(ref.fields);
-    return fields === ref.fields ? node : new DBRef(ref.collection, ref.oid, ref.db, fields as Document);
+    if (oid === ref.oid && fields === ref.fields) return node;
+    return new DBRef(ref.collection, oid as ObjectId, ref.db, fields as Document);
   }
   if (bsontype !== undefined) return node;
   const doc = node as Record<string, unknown>;
