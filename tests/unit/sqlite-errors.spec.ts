@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isUniqueConstraintError } from '../../electron/db/sqliteErrors';
+import { isForeignKeyConstraintError, isUniqueConstraintError } from '../../electron/db/sqliteErrors';
 
 describe('isUniqueConstraintError', () => {
   it('matches SQLITE_CONSTRAINT_UNIQUE', () => {
@@ -32,5 +32,30 @@ describe('isUniqueConstraintError', () => {
     expect(isUniqueConstraintError('SQLITE_CONSTRAINT_UNIQUE')).toBe(false);
     expect(isUniqueConstraintError({})).toBe(false);
     expect(isUniqueConstraintError(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('isForeignKeyConstraintError', () => {
+  it('matches SQLITE_CONSTRAINT_FOREIGNKEY', () => {
+    expect(isForeignKeyConstraintError({ code: 'SQLITE_CONSTRAINT_FOREIGNKEY' })).toBe(true);
+  });
+
+  it.each([
+    'SQLITE_CONSTRAINT',
+    'SQLITE_CONSTRAINT_UNIQUE',
+    'SQLITE_CONSTRAINT_PRIMARYKEY',
+    'SQLITE_CONSTRAINT_NOTNULL',
+    'SQLITE_CONSTRAINT_CHECK',
+    'SQLITE_CONSTRAINT_TRIGGER',
+  ])('does not match %s', (code) => {
+    expect(isForeignKeyConstraintError({ code })).toBe(false);
+  });
+
+  it('returns false for non-objects and missing code', () => {
+    expect(isForeignKeyConstraintError(null)).toBe(false);
+    expect(isForeignKeyConstraintError(undefined)).toBe(false);
+    expect(isForeignKeyConstraintError('SQLITE_CONSTRAINT_FOREIGNKEY')).toBe(false);
+    expect(isForeignKeyConstraintError({})).toBe(false);
+    expect(isForeignKeyConstraintError(new Error('boom'))).toBe(false);
   });
 });
