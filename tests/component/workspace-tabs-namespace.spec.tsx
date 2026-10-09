@@ -258,7 +258,7 @@ describe('useWorkspaceTabs — namespace drop/rename cleanup (N0.5)', () => {
 
 /**
  * Opening a saved pipeline reseeds the aggregation on the collection's tab
- * when one is open (#470), so unsaved stage edits there need the same confirm
+ * when one is open, so unsaved stage edits there need the same confirm
  * that closing the tab asks for.
  */
 describe('useWorkspaceTabs — opening a saved pipeline over unsaved edits', () => {
