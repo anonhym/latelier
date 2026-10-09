@@ -74,6 +74,23 @@ describe('SecretsVault', () => {
     expect(vault.get(connId, 'password')).toBeNull();
   });
 
+  it.each([true, false])(
+    'a decrypt failure records whether encryption was available (%s)',
+    (available) => {
+      vault.set(connId, 'password', 'orig');
+      tmp.db
+        .prepare(`UPDATE connection_secrets SET ciphertext = ? WHERE connection_id = ? AND field = 'password'`)
+        .run(Buffer.from('not-a-sentinel'), connId);
+      ss.setAvailable(available);
+      try {
+        vault.get(connId, 'password');
+        throw new Error('expected throw');
+      } catch (err) {
+        expect((err as SystemError).details).toMatchObject({ encryptionAvailable: available });
+      }
+    },
+  );
+
   it('decrypt failure surfaces SECRET_DECRYPT_FAILED', () => {
     vault.set(connId, 'password', 'orig');
     // Corrupt ciphertext directly in SQLite.

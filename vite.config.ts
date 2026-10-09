@@ -27,7 +27,9 @@ export default defineConfig({
             // better-sqlite3 into the ESM main chunk and blows up at boot with
             // "__filename is not defined".
             rolldownOptions: {
-              external: ['better-sqlite3', 'mongodb', 'bson', 'zod'],
+              // electron-updater is CommonJS and lazy-requires its platform
+              // updaters; bundling it breaks that.
+              external: ['better-sqlite3', 'mongodb', 'bson', 'zod', 'electron-updater'],
             },
           },
         },

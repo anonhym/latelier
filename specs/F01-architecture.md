@@ -143,7 +143,7 @@ mongo-lab/
 - Renderer never sees a raw `Error`. It switches on `error.code` for UX branching.
 
 ### Logging
-- A single `log.ts` in main exposes `log.debug|info|warn|error(tag, msg, data?)`. Sinks: stderr + `userData/logs/mongolab.<date>.log` (rotated daily, 7-day retention).
+- A single `log.ts` in main exposes `log.debug|info|warn|error(tag, msg, data?)`. Sinks: stderr + `userData/logs/latelier.<date>.log` (rotated daily, 7-day retention).
 - No `console.log` in shipped code.
 
 ### Types
@@ -215,7 +215,7 @@ See F04 for the full contract. Highlights:
 - [ ] Renderer bundle does not contain any Node-only dependency (verify via `vite build --report`).
 - [ ] `tsc -b` passes for both projects with `strict: true`.
 - [ ] `npm run test:unit`, `test:integration`, `test:component`, `test:e2e` each execute at least one spec-defined test.
-- [ ] Running the app produces a `mongolab.<date>.log` file in the userData directory.
+- [ ] Running the app produces a `latelier.<date>.log` file in the userData directory.
 
 ## 9. Test cases
 

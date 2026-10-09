@@ -204,6 +204,11 @@ export type ProbeErrorCode =
   | 'UNAUTHORIZED'
   /** The saved password exists but can't be decrypted on this install. */
   | 'SECRET_UNREADABLE'
+  /**
+   * macOS refused this app access to its keychain item (the user clicked
+   * Deny); safeStorage stays unavailable until the app is restarted.
+   */
+  | 'KEYCHAIN_BLOCKED'
   | 'UNKNOWN';
 
 export interface ProbeResult {
@@ -1191,3 +1196,9 @@ export interface ShellOutputEvent {
   /** Present only when kind === 'exit' and the process was signalled. */
   signal?: string | null;
 }
+
+/**
+ * What the renderer may know about auto-update. Checking, downloading and "no
+ * update" are deliberately invisible: only a finished download is a state.
+ */
+export type UpdateState = { status: 'idle' } | { status: 'ready'; version: string };

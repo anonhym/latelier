@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import type { Database } from 'better-sqlite3';
-import { openDatabase, closeDatabase, truncateWal } from './db/sqlite.ts';
+import { openDatabase, closeDatabase, truncateWal, adoptLegacyDatabase, DB_FILENAME } from './db/sqlite.ts';
 import { AppStateRepo } from './db/repositories/AppStateRepo.ts';
 import { AppStateService } from './services/AppStateService.ts';
 import { SecretsVault } from './secrets/SecretsVault.ts';
@@ -36,6 +36,9 @@ import { registerIndexChannels } from './ipc/handlers/indexes.ts';
 import { registerCollectionAdminChannels } from './ipc/handlers/collectionAdmin.ts';
 import { registerUserChannels } from './ipc/handlers/users.ts';
 import { registerPrefsChannels } from './ipc/handlers/prefs.ts';
+import { registerUpdatesChannels } from './ipc/handlers/updates.ts';
+import { UpdateService, shouldCheckForUpdates } from './services/UpdateService.ts';
+import { loadUpdater } from './updater/loadUpdater.ts';
 import { registerSecretsChannels } from './ipc/handlers/secrets.ts';
 import { PLAINTEXT_FALLBACK_KEY } from './ipc/prefKeys.ts';
 import { registerTabsChannels } from './ipc/handlers/tabs.ts';
@@ -160,6 +163,7 @@ if (isTestInstance && process.platform === 'darwin' && app.dock) {
 
 let win: BrowserWindow | null = null;
 let db: Database | null = null;
+let dbFilename = DB_FILENAME;
 let appState: AppStateService | null = null;
 let vault: SecretsVault | null = null;
 let pool: MongoPool | null = null;
@@ -474,10 +478,10 @@ function registerDevResetShortcut(): void {
       // ignore
     }
     const userDataDir = resolveUserDataDir();
-    fs.rmSync(path.join(userDataDir, 'mongolab.db'), { force: true });
-    fs.rmSync(path.join(userDataDir, 'mongolab.db-wal'), { force: true });
-    fs.rmSync(path.join(userDataDir, 'mongolab.db-shm'), { force: true });
-    db = openDatabase({ userDataDir, log: log ?? undefined });
+    for (const suffix of ['', '-wal', '-shm']) {
+      fs.rmSync(path.join(userDataDir, dbFilename + suffix), { force: true });
+    }
+    db = openDatabase({ userDataDir, filename: dbFilename, log: log ?? undefined });
     appState = new AppStateService(new AppStateRepo(db));
     if (pool) {
       void pool.disconnectAll();
@@ -538,16 +542,22 @@ app.whenReady().then(() => {
 
   // 1. DB + migrations
   try {
-    db = openDatabase({ userDataDir, log });
+    dbFilename = adoptLegacyDatabase(userDataDir, log);
+    db = openDatabase({ userDataDir, filename: dbFilename, log });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('boot', 'db open failed', { message });
     dialog.showErrorBox(
       "L'Atelier failed to start",
-      // Deleting the DB does not fix a permissions problem on a healthy one.
+      // Moving the DB aside does not fix a permissions problem on a healthy one.
+      // Move, not delete: this path also catches errors on a healthy database
+      // (a migration that rolled back, a lock held past busy_timeout), which a
+      // later start or release can open again. The side files are named too: a
+      // `-wal` left behind on its own is replayed onto the fresh, empty database
+      // created in its place.
       err instanceof PrivateModeError
         ? `Could not open the database.\n\n${message}`
-        : `Could not open the database.\n\n${message}\n\nYou may need to delete:\n${userDataDir}/mongolab.db`,
+        : `Could not open the database.\n\n${message}\n\nIf this keeps happening, quit L'Atelier and move these files together to a safe place, then start it again with a new, empty database. Keep the moved files: they hold your connections.\n${['', '-wal', '-shm'].map((s) => `${userDataDir}/${dbFilename}${s}`).join('\n')}`,
     );
     app.exit(1);
     return;
@@ -740,8 +750,25 @@ app.whenReady().then(() => {
   const refsSvc = new ReferenceRulesService(refsRepo, pool);
   registerRefsChannels(router, refsSvc);
 
+  const updateLog = log;
+  const updateSvc = new UpdateService(
+    () => loadUpdater(updateLog),
+    updateLog,
+    (state) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.updatesStateEvent, state);
+    },
+    shouldCheckForUpdates({
+      isPackaged: app.isPackaged,
+      userDataOverride: process.env.ATELIER_USER_DATA_DIR,
+      platform: process.platform,
+    }),
+  );
+  registerUpdatesChannels(router, updateSvc);
+
   // 6. Window
   createWindow();
+  // Off the critical path: start() never rejects.
+  void updateSvc.start();
 
   // 7. Dev niceties
   registerDevResetShortcut();

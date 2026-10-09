@@ -199,6 +199,40 @@ export const RECIPES: Recipe[] = [
     docAnchor: 'unauthorized',
   },
   {
+    id: 'keychain-blocked',
+    match: ({ errorCode }) => errorCode === 'KEYCHAIN_BLOCKED',
+    title: 'macOS blocked keychain access',
+    diagnosis:
+      "macOS asked whether L'Atelier may read its saved passwords and the answer was Deny. " +
+      'The refusal lasts until the app is relaunched, so retrying cannot succeed.',
+    steps: [
+      {
+        title: 'Quit and reopen the app',
+        body:
+          "Quit L'Atelier completely, reopen it, and connect again. When macOS asks " +
+          'for keychain access, click **Always Allow**.',
+      },
+    ],
+    docAnchor: 'keychain-blocked',
+  },
+  {
+    id: 'secret-unreadable',
+    match: ({ errorCode }) => errorCode === 'SECRET_UNREADABLE',
+    title: "Saved password can't be read",
+    diagnosis:
+      'The password stored for this connection was encrypted by another install or a ' +
+      'keychain that has since been reset, so it cannot be decrypted here.',
+    steps: [
+      {
+        title: 'Re-enter the password',
+        body:
+          "Open the connection's edit form, type the password again and save. " +
+          'It is then stored for this install.',
+      },
+    ],
+    docAnchor: 'secret-unreadable',
+  },
+  {
     id: 'unknown',
     // Fallback — always matches if nothing above did.
     match: () => true,

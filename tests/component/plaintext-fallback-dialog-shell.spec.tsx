@@ -5,6 +5,7 @@ import { ConnectionForm } from '../../src/features/connections/ConnectionForm';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 
 afterEach(() => {
+  delete (window as unknown as { __atelierEnv__?: unknown }).__atelierEnv__;
   uninstallAtelierMock();
   vi.restoreAllMocks();
 });
@@ -32,7 +33,7 @@ const fallback = () => screen.getByTestId('plaintext-fallback-modal');
  * `SECRETS_UNAVAILABLE` so the plaintext modal opens. Returns the Save button —
  * the trigger focus must come back to.
  */
-async function openFallback() {
+async function openFallback(testId = 'plaintext-fallback-modal') {
   const createSpy = vi.fn(async () => {
     throw { code: 'SECRETS_UNAVAILABLE', message: 'OS keychain not accessible' };
   });
@@ -55,7 +56,7 @@ async function openFallback() {
   const save = screen.getByText(/^Save$/).closest('button')!;
   await userEvent.click(save);
 
-  await screen.findByTestId('plaintext-fallback-modal');
+  await screen.findByTestId(testId);
   return { save, createSpy };
 }
 
@@ -118,5 +119,44 @@ describe('PlaintextFallbackModal — dialog shell (X15 T8)', () => {
     fireEvent.click(within(fallback()).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('plaintext-fallback-modal')).toBeNull());
     expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SECRETS_UNAVAILABLE dialog copy by platform (#396)', () => {
+  const setPlatform = (platform: string) => {
+    (window as unknown as { __atelierEnv__: unknown }).__atelierEnv__ = { platform };
+  };
+
+  it('macOS: reopen-and-allow guidance only, no plaintext option, one close button', async () => {
+    setPlatform('darwin');
+    const { createSpy } = await openFallback('keychain-blocked-modal');
+    const modal = screen.getByTestId('keychain-blocked-modal');
+
+    expect(within(modal).getByText(/Quit and reopen L'Atelier/)).toBeTruthy();
+    expect(modal.textContent).not.toMatch(/libsecret|plaintext|(?:mongolab|latelier)\.db/i);
+    expect(screen.queryByTestId('plaintext-fallback-modal')).toBeNull();
+    expect(within(modal).queryByText(/Store as plaintext/i)).toBeNull();
+
+    fireEvent.click(within(modal).getByText(/^Close$/));
+    await waitFor(() => expect(screen.queryByTestId('keychain-blocked-modal')).toBeNull());
+    expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('macOS: Escape closes it and returns focus to Save', async () => {
+    setPlatform('darwin');
+    const { save } = await openFallback('keychain-blocked-modal');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('keychain-blocked-modal')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(save));
+  });
+
+  it('Linux keeps the plaintext flow and names "the local database", not the database filename', async () => {
+    setPlatform('linux');
+    await openFallback();
+    const modal = fallback();
+    expect(within(modal).getByText(/Store as plaintext/i)).toBeTruthy();
+    expect(modal.textContent).toContain('libsecret');
+    expect(modal.textContent).toContain('the local database');
+    expect(modal.textContent).not.toMatch(/(?:mongolab|latelier)\.db/);
   });
 });

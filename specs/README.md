@@ -4,12 +4,12 @@ The design source of truth for L'Atelier. Each spec describes one testable compo
 
 ## History
 
-The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01–W10, A01–A06 and X01–X06 — shipped and is implemented and tested. Everything marked *post-iteration-1* below came after it; some of it supersedes iteration-1 designs (W13 replaces the W04 condition model and the W05 sync machine, X16 retires the single-active-connection policy). The rename to L'Atelier is [X09](./X09-namespace-rename.md); a few internal names, such as the `mongolab.db` file, still carry the old one.
+The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01–W10, A01–A06 and X01–X06 — shipped and is implemented and tested. Everything marked *post-iteration-1* below came after it; some of it supersedes iteration-1 designs (W13 replaces the W04 condition model and the W05 sync machine, X16 retires the single-active-connection policy). The rename to L'Atelier is [X09](./X09-namespace-rename.md).
 
 ## Architectural ground rules
 
 1. **All logic lives in the main process.** The renderer is a dumb UI — it must never import `mongodb`, `better-sqlite3`, `ssh2`, `fs`, or any Node-only API. All I/O, all data persistence, all Mongo calls, all secret decryption happen in main and are exposed to the renderer through a typed IPC bridge.
-2. **Persistence**: SQLite via `better-sqlite3` at `app.getPath('userData')/mongolab.db`. Migrations on startup. Schema versioned.
+2. **Persistence**: SQLite via `better-sqlite3` at `app.getPath('userData')/latelier.db`. Migrations on startup. Schema versioned.
 3. **Secrets**: Electron `safeStorage` encrypts per-field strings; ciphertext stored as blobs in `connection_secrets`; plaintext never crosses IPC back to the renderer.
 4. **IPC**: one `window.atelier` namespace exposed via `contextBridge` (renamed from `window.mongolab`, see [X09](./X09-namespace-rename.md)). Every channel is `invoke`-style (promise). Every payload is runtime-validated in main. Errors return a structured envelope, not raw throws.
 5. **Process model**: single window with a tab system. Connection creation is a modal-like route; ConnectionManager and Workspace are top-level routes; Aggregation is a tab type *inside* Workspace.
@@ -104,6 +104,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X17](./X17-renderer-hardening.md) | Renderer hardening — *post-iteration-1* | main + renderer |
 | [X18](./X18-deepening-seams.md) | Deepening seams: Shell Syntax fields and the Read-Only handle — *post-iteration-1* | main + renderer |
 | [X19](./X19-keyboard-operability.md) | Keyboard operability of custom controls — *post-iteration-1* | renderer |
+| [X20](./X20-auto-update.md) | Auto-update from GitHub Releases (macOS + Windows) — *post-iteration-1* | main + renderer + build |
 
 ### Plans
 

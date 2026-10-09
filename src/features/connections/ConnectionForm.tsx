@@ -1,6 +1,7 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
 import { tlsWarning } from '../../utils/hostLocality';
+import { isMacRenderer } from '../../utils/platform';
 import { I } from '../../icons';
 import { Button, Modal, Tabs } from '@mantine/core';
 import { useForm } from '@mantine/form';
@@ -1413,6 +1414,33 @@ function PlaintextFallbackModal({
   // Dismiss path only — `onConfirm` hands off into the parent's retried save and
   // unmounts the trigger along with the form, so it stays raw.
   const close = useDialogFocusReturn(onCancel);
+  if (isMacRenderer()) {
+    // On macOS the keychain is always present: the user denied access, and only
+    // a relaunch makes macOS ask again. Plaintext storage would be the wrong fix.
+    return (
+      <Modal
+        opened
+        onClose={close}
+        title="Keychain access blocked"
+        size={460}
+        centered
+        styles={{ title: { fontSize: 15, fontWeight: 600, color: T.warn } }}
+        attributes={{ content: { 'data-testid': 'keychain-blocked-modal' } }}
+      >
+        <div style={{ color: T.text }}>
+          <p style={{ marginTop: 0, marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
+            macOS blocked access to the keychain. Quit and reopen L'Atelier, then click
+            {' '}"Always Allow" when macOS asks.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="filled" size="compact-xs" onClick={close}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
   return (
     // No dirty-guard and no closeOnClickOutside={false} here, deliberately:
     // this dialog holds no typed input, so a backdrop click discards nothing.
@@ -1444,7 +1472,7 @@ function PlaintextFallbackModal({
             padding: '8px 10px', fontSize: 12, lineHeight: 1.5, marginBottom: 16,
           }}
         >
-          <strong>Not recommended.</strong> Anyone with read access to your <code>mongolab.db</code>
+          <strong>Not recommended.</strong> Anyone with read access to the local database
           {' '}file will be able to recover the password. Use this only on machines you control.
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>

@@ -116,7 +116,7 @@ app.on('before-quit', async (e) => {
 
 - In dev (`VITE_DEV_SERVER_URL` set), HMR reloads the renderer but keeps the main process — services remain alive.
 - A "hard reload" (⌘⇧R) reloads the window without restarting main. Tab state is persisted on every change (W01), so the renderer can restore.
-- A `devReset` developer shortcut (⌘⇧⌥R) is registered that: closes the DB, deletes `mongolab.db`, reopens, re-runs migrations, then reloads the window. Disabled in packaged builds.
+- A `devReset` developer shortcut (⌘⇧⌥R) is registered that: closes the DB, deletes the open database file with its `-wal` and `-shm`, reopens, re-runs migrations, then reloads the window. Disabled in packaged builds.
 
 ## 7. Crash handling
 
@@ -125,7 +125,7 @@ app.on('before-quit', async (e) => {
 
 ## 8. Logs
 
-- Rotating file at `userData/logs/mongolab.<date>.log`. Daily rotation, 7-day retention.
+- Rotating file at `userData/logs/latelier.<date>.log`. Daily rotation, 7-day retention.
 - On POSIX the `logs/` dir is `0700` and log files are `0600`; existing files are tightened at startup, and a dir or file that cannot be is reported as a `warn` line. No-op on Windows.
 - Log levels: `debug` (dev only), `info`, `warn`, `error`.
 - `log.info(tag, msg, data?)` — `tag` is a short namespace (`'boot'`, `'mongo'`, `'db'`, `'ipc'`).
