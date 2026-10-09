@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { Double, Long } from 'bson';
+import { Double, Long, Timestamp } from 'bson';
 import {
   csvCellValue,
   csvEscape,
@@ -113,6 +113,17 @@ describe('relaxed export then import (property)', () => {
           const got = importOne({ v: { $numberDouble: BigInt(d).toString() } }).v;
           expect(got).toBeInstanceOf(Double);
           expect(Object.is((got as Double).valueOf(), d)).toBe(true);
+        }),
+      );
+    });
+
+    it('a Timestamp, whatever its seconds and ordinal, comes back a Timestamp with the same t and i', () => {
+      fc.assert(
+        fc.property(fc.integer({ min: 0, max: 0xffffffff }), fc.integer({ min: 0, max: 0xffffffff }), (t, i) => {
+          const got = importOne({ v: { $timestamp: { t, i } } }).v;
+          expect(got).toBeInstanceOf(Timestamp);
+          expect((got as Timestamp).t).toBe(t);
+          expect((got as Timestamp).i).toBe(i);
         }),
       );
     });

@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
-import { Double, Int32, Long } from 'bson';
+import { Double, Int32, Long, Timestamp } from 'bson';
 import type { IpcMainInvokeEvent } from 'electron';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
@@ -158,7 +158,15 @@ describe('QueryService.exportToFile', () => {
   // value (server-side $type, not what the driver hands back).
   describe('numbers past 2^53 through find, export and import (#279)', () => {
     const DOUBLE = 1760000000000000768;
-    const stored = { d: new Double(DOUBLE), l: Long.fromString('9007199254740993'), f: 2.5, i: new Int32(7) };
+    // `ts` is a Timestamp, which extends Long: a real epoch is no safe integer, so a
+    // relaxed export must not mistake it for a wide Long.
+    const stored = {
+      d: new Double(DOUBLE),
+      l: Long.fromString('9007199254740993'),
+      f: 2.5,
+      i: new Int32(7),
+      ts: new Timestamp({ t: 1700000000, i: 1 }),
+    };
 
     it('find writes a stored Double as $numberDouble, a Long as $numberLong, and leaves a fraction and an int32 as they were', async () => {
       const client = await pool.write(connId).client();
@@ -170,6 +178,7 @@ describe('QueryService.exportToFile', () => {
       expect(doc!.l).toEqual({ $numberLong: '9007199254740993' });
       expect(doc!.f).toEqual({ $numberDouble: '2.5' });
       expect(doc!.i).toEqual({ $numberInt: '7' });
+      expect(doc!.ts).toEqual({ $timestamp: { t: 1700000000, i: 1 } });
     });
 
     it.each(['json', 'jsonl'] as const)('a canonical %s export says $numberDouble for the Double', async (format) => {
@@ -202,6 +211,7 @@ describe('QueryService.exportToFile', () => {
         expect(written.l).toEqual({ $numberLong: '9007199254740993' });
         expect(written.f).toBe(2.5);
         expect(written.i).toBe(7);
+        expect(written.ts).toEqual({ $timestamp: { t: 1700000000, i: 1 } });
 
         const target = `reimported_${format}`;
         await db.collection(target).drop().catch(() => {});
@@ -221,6 +231,7 @@ describe('QueryService.exportToFile', () => {
             l: { $type: 'long' },
             f: { $type: 'double' },
             i: { $type: 'int' },
+            ts: { $type: 'timestamp' },
           }),
         ).toBe(1);
         const doc = (await back.findOne({}, { promoteLongs: false }))!;

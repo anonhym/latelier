@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Double, Int32, Long } from 'bson';
+import { Double, Int32, Long, Timestamp } from 'bson';
 import {
   csvCellValue,
   csvEscape,
@@ -291,6 +291,11 @@ describe('relaxed export keeps numbers past 2^53 exact', () => {
     ['a Double of exactly 2^63', { $numberDouble: '9223372036854775808' }, 9223372036854776000],
     ['a Double past int64', { $numberDouble: '1e30' }, 1e30],
     ['an Int32', { $numberInt: '7' }, 7],
+    // bson's Timestamp extends Long, and a real-epoch one (t >= 2^21) is not a
+    // safe integer as a Long, but it is not a Long on the wire.
+    ['a Timestamp with a real epoch', { $timestamp: { t: 1700000000, i: 1 } }, { $timestamp: { t: 1700000000, i: 1 } }],
+    ['the largest Timestamp', { $timestamp: { t: 4294967295, i: 4294967295 } }, { $timestamp: { t: 4294967295, i: 4294967295 } }],
+    ['a small Timestamp', { $timestamp: { t: 1, i: 2 } }, { $timestamp: { t: 1, i: 2 } }],
   ];
 
   it.each(written)('%s', (_what, wire, file) => {
@@ -342,6 +347,19 @@ describe('relaxed export keeps numbers past 2^53 exact', () => {
     expect((back[1]!.l as Long).toString()).toBe('-9223372036854775808');
     expect(BigInt((back[1]!.d as Double).valueOf())).toBe(-9007199254740992n);
     expect(back[1]!.f).toBe(0.1);
+  });
+
+  it.each([
+    ['JSONL', (docs: unknown[]) => serializeJsonl(docs, true).trimEnd().split('\n').map((l, i) => parseJsonlLine(l, i + 1)!)],
+    ['a JSON array', (docs: unknown[]) => parseJsonArray(serializeJsonArray(docs, true))],
+  ])('a real-epoch Timestamp survives a relaxed export and re-import through %s as a Timestamp', (_name, roundTrip) => {
+    const [rec] = roundTrip([{ ts: { $timestamp: { t: 1700000000, i: 1 } }, n: { $numberLong: '9007199254740993' } }]);
+    const doc = (rec as { doc: { ts: unknown; n: unknown } }).doc;
+    expect(doc.ts).toBeInstanceOf(Timestamp);
+    expect((doc.ts as Timestamp).t).toBe(1700000000);
+    expect((doc.ts as Timestamp).i).toBe(1);
+    // The Long beside it is still kept exact.
+    expect((doc.n as Long).toString()).toBe('9007199254740993');
   });
 
   it('a small Int32 and a small Long come back as plain numbers (Relaxed is not lossless for every type)', () => {

@@ -1,4 +1,4 @@
-import { Double, EJSON, Long } from 'bson';
+import { Double, EJSON, Long, Timestamp } from 'bson';
 import { ejsonParse, isExactSentinel, isPlainDocument } from '../../utils/ejson';
 import type { ResolvedColumn } from './views/tableColumns';
 import { getValueAtPath } from './views/tableColumns';
@@ -58,12 +58,19 @@ const INT64_LIMIT = 2 ** 63;
  * nothing: its digits (or its exponent form, from 1e21) read back as the same
  * double. Everything else stays as bson wrote it.
  *
- * Only a `$numberDouble` on the wire reaches the Double branch. Documents that
- * `find` returns carry the driver's promoted numbers, where an integral double
- * is already encoded as a `$numberLong` of its shortest digits, so a stored
- * Double past 2^53 is not distinguishable from a Long there.
+ * Both kinds reach this walk as the right sentinel: `ejsonEncode` writes the
+ * driver's promoted number for a stored Double past 2^53 as `$numberDouble`
+ * (`markPromotedDoubles`), and a Long past it as `$numberLong`.
+ *
+ * It walks plain documents and arrays. Any other BSON value is left as it is,
+ * so a number inside a `Code`'s `$scope` (CodeWithScope is deprecated) is not
+ * reached and still rounds.
  */
 function keepWideNumbersExact(node: unknown): unknown {
+  // bson's Timestamp extends Long, and a real epoch (t >= 2^21) is no safe
+  // integer, so without this it would be written as a Long and re-imported as
+  // one. Relaxed already prints it as `$timestamp`, which round-trips.
+  if (node instanceof Timestamp) return node;
   if (node instanceof Long) {
     return Number.isSafeInteger(node.toNumber()) ? node : { $numberLong: node.toString() };
   }
