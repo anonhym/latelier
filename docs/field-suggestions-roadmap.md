@@ -363,9 +363,6 @@ or `DEFAULT_VALUE_SOURCES`. No consumer changes required.
   caches, but a second collection flipped to in mid-type can fire two
   parallel IPCs. Add a 150ms debounce in the hook when `contextKey` changes
   rapidly. Only needed if anyone complains.
-- **Cache invalidation on writes.** When `docInsert`/`replace`/`deleteMany`
-  succeeds, call `invalidateSampleSchemaCache(connId, db, coll)` so fresh
-  fields appear immediately. Easy — one import + one call per write site.
 - **Type-aware value filtering.** When a field's `DisplayType` is known
   (from `lastRun`), filter value suggestions of incompatible types. Skip
   until we have a value source that produces typed values.

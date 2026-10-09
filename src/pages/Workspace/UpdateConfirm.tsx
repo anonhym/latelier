@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { api, getErrorMessage } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { isValidEjson } from '../../utils/ejson';
@@ -151,12 +152,20 @@ export function UpdateConfirm({
         updateJson: reviewed.updateJson,
         confirmToken: reviewed.confirmToken,
       });
+      // This dialog's own collection, not the Focused Tab's: focus can move
+      // while the request is in flight, and the caller only sees the tab it
+      // finds at completion.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       // One toast either way (Undo-bearing when `auditId` is set, plain
       // otherwise) — the caller decides which, so a reversible and an
       // irreversible bulk update never show two.
       onUpdated(auditId, `${matchedCount.toLocaleString()} matched, ${modifiedCount.toLocaleString()} modified`);
       onClose();
     } catch (e) {
+      // updateMany is not atomic across documents: a failure can leave the
+      // earlier ones modified, so the sample is dropped here too; harmless if
+      // the request was refused before touching data.
+      invalidateSampleSchemaCache(connectionId, dbName, collection);
       setErr(getErrorMessage(e, 'Update failed'));
     } finally {
       setRunning(false);

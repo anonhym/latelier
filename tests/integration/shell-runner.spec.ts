@@ -216,6 +216,248 @@ describe('ShellService — cursors', () => {
   });
 });
 
+describe('ShellService — un-awaited results', () => {
+  // A result starts right after its prompt (`test> 3`) unless that prompt was
+  // already printed before the line was sent, so a line start is `> ` or `^`.
+  const emptyObject = /(?:^|> )\{\}$/m;
+
+  /** A session on `test` with exactly three documents in `async_items`; the mongod outlives each test. */
+  async function seeded(): Promise<string> {
+    const info = await setup().start({ connectionId: 'c1' });
+    await say(
+      info.sessionId,
+      'await db.async_items.deleteMany({}); await db.async_items.insertMany([{n:1},{n:2},{n:3}])',
+      'acknowledged',
+    );
+    return info.sessionId;
+  }
+
+  it('prints the documents of a find().toArray() left without await', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.async_items.find({n:{$gt:1}}).toArray()', '"n": 3');
+    expect(out).toContain('"n": 2');
+    expect(out).not.toContain('"n": 1');
+    expect(out).not.toMatch(emptyObject);
+  });
+
+  it('prints the number of a countDocuments() left without await', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'a result line that is exactly 3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('prints the same documents with and without await', async () => {
+    const sessionId = await seeded();
+    const documents = (out: string): string | undefined => /\[[\s\S]*\]/.exec(out)?.[0];
+    const awaited = await say(sessionId, 'await db.async_items.find({n:2}).toArray()', '"n": 2');
+    const bare = await say(sessionId, 'db.async_items.find({n:2}).toArray()', '"n": 2');
+    expect(documents(awaited)).toContain('"n": 2');
+    expect(documents(bare)).toBe(documents(awaited));
+  });
+
+  it('prints the message of a rejection left without await, and the session stays alive', async () => {
+    const sessionId = await seeded();
+    const out = await say(sessionId, 'db.runCommand({ definitelyNotACommand: 1 })', 'definitelyNotACommand');
+    expect(out).not.toMatch(emptyObject);
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints the message of a rejection that is awaited, and of a synchronous throw', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'await Promise.reject(new Error("await-boom"))', 'await-boom')).toContain(
+      'await-boom',
+    );
+    expect(await say(sessionId, 'throw new Error("boom-sync")', 'boom-sync')).toContain('boom-sync');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('prints a non-Error rejection or throw readably', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'Promise.reject("plain-reason")', 'plain-reason')).toContain('plain-reason');
+    expect(await say(sessionId, 'Promise.reject({ code: 7 })', '"code": 7')).toContain('"code": 7');
+    expect(await say(sessionId, 'throw "thrown-string"', 'thrown-string')).toContain('thrown-string');
+    expect(await say(sessionId, 'throw { code: 8 }', '"code": 8')).toContain('"code": 8');
+    // A falsy reason would read as success to the REPL and print nothing.
+    expect(await say(sessionId, 'Promise.reject(null)', 'rejected with null')).toContain('rejected with null');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an Error with a cause and extra fields prints its message and does not take the session down', async () => {
+    const sessionId = await seeded();
+    const out = await say(
+      sessionId,
+      '(() => { const e = new Error("outer-msg", { cause: new Error("inner-msg") }); e.code = 42; e.self = e; throw e; })()',
+      'outer-msg',
+    );
+    // One line, not the stack the writer's fallback would print.
+    expect(out).toMatch(/Error: outer-msg\n/);
+    expect(out).not.toMatch(/^\s+at /m);
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('a result that never settles leaves later commands working', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'new Promise(() => {})\n');
+    svc!.write(sessionId, '({ then() {} })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'await db.async_items.countDocuments()', '3')).toContain('3');
+    expect(outputOf(from)).not.toMatch(emptyObject);
+  });
+
+  it('a result that settles late prints after the commands that ran meanwhile', async () => {
+    const sessionId = await seeded();
+    svc!.write(sessionId, 'new Promise((resolve) => { globalThis.release = resolve; })\n');
+    const from = events.length;
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'release("late-value")', 'late-value')).toContain('late-value');
+    expect(outputOf(from).indexOf('42')).toBeLessThan(outputOf(from).indexOf('late-value'));
+  });
+
+  it('a thenable that settles twice prints once', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, '({ then(resolve) { resolve("first-value"); resolve("second-value"); } })', 'first-value');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(outputOf()).not.toContain('second-value');
+  });
+
+  it('a `then` that throws fails that command and not the session', async () => {
+    const sessionId = await seeded();
+    const getter = await say(sessionId, '({ get then() { throw new Error("getter-boom"); } })', 'getter-boom');
+    expect(getter).toContain('getter-boom');
+    const method = await say(sessionId, '({ then() { throw new Error("method-boom"); } })', 'method-boom');
+    expect(method).toContain('method-boom');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(svc!.list()).toHaveLength(1);
+  });
+
+  it('a command typed while a multi-line one is pending is not glued onto it', async () => {
+    const sessionId = await seeded();
+    // The REPL prefixes each line with the lines buffered so far and only
+    // clears that buffer when the pending command finishes.
+    svc!.write(sessionId, 'new Promise((r) => {\n');
+    svc!.write(sessionId, 'globalThis.rel2 = r })\n');
+    expect(await say(sessionId, '40+2', '42')).toContain('42');
+    expect(await say(sessionId, 'rel2("late-x")', 'late-x')).toContain('late-x');
+    expect(await say(sessionId, '40+3', '43')).toContain('43');
+  });
+
+  it('a multi-line call whose result is pending leaves the next command working', async () => {
+    const sessionId = await seeded();
+    // One write, so the third line arrives before the call can answer.
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments(\n)\n"after-count"\n');
+    await until(() => outputOf(from).includes('after-count'), '"after-count" typed while the count is pending');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count of the multi-line call');
+  });
+
+  it('a multi-line function definition still continues across lines', async () => {
+    const sessionId = await seeded();
+    // Three lines: the second is still incomplete, so it must keep what the first buffered.
+    svc!.write(sessionId, 'function f() {\n');
+    svc!.write(sessionId, 'const x = 40;\n');
+    svc!.write(sessionId, 'return x + 1 }\n');
+    expect(await say(sessionId, 'f()', '41')).toContain('41');
+  });
+
+  it('`_` holds the settled value of an un-awaited result', async () => {
+    const sessionId = await seeded();
+    const from = events.length;
+    svc!.write(sessionId, 'db.async_items.countDocuments()\n');
+    await until(() => /(?:^|> )3$/m.test(outputOf(from)), 'the count');
+    expect(await say(sessionId, '_ * 100', '300')).toContain('300');
+  });
+
+  it('`_error` holds an un-awaited rejection', async () => {
+    const sessionId = await seeded();
+    await say(sessionId, 'Promise.reject(new Error("kept-error"))', 'kept-error');
+    expect(await say(sessionId, '_error.message + "!"', 'kept-error!')).toContain('kept-error!');
+  });
+
+  it('a bare cursor and a bare collection are not awaited', async () => {
+    const sessionId = await seeded();
+    expect(await say(sessionId, 'db.async_items.find()', 'Cursor on test.async_items')).toContain(
+      'Cursor on test.async_items — iterate it or call .toArray()',
+    );
+    // A printed result ends in a newline, a prompt does not, so a newline
+    // means the proxy was printed rather than mistaken for a thenable and awaited.
+    expect(await say(sessionId, 'db.async_items', '\n')).not.toContain('Promise');
+    expect(await say(sessionId, 'db', '\n')).toContain('[Function: db]');
+  });
+});
+
+describe('ShellService — error output', () => {
+  it('a validator rejection says which rule failed, not only that validation failed', async () => {
+    const coll = `validated_${Date.now()}`;
+    const client = new MongoClient(server.getUri());
+    try {
+      await client.db('test').createCollection(coll, {
+        validator: { $jsonSchema: { bsonType: 'object', required: ['name'], properties: { name: { bsonType: 'string' } } } },
+      });
+    } finally {
+      await client.close();
+    }
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(info.sessionId, `db.${coll}.insertOne({ name: 5 })`, 'propertiesNotSatisfied');
+    expect(out).toMatch(/Document failed validation/);
+    expect(out).toContain('errInfo');
+    // Still readable: the message line comes first.
+    expect(out.indexOf('Document failed validation')).toBeLessThan(out.indexOf('errInfo'));
+  });
+
+  it('an error nested in a result prints its message, not {}', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const settled = await say(
+      info.sessionId,
+      'Promise.allSettled([Promise.reject(new Error("inner-x")), 1])',
+      'inner-x',
+    );
+    expect(settled).toContain('Error: inner-x');
+    expect(settled).not.toMatch(/"reason": \{\}/);
+    const literal = await say(info.sessionId, '({ a: [new TypeError("lit-e")], b: 1 })', 'lit-e');
+    expect(literal).toContain('TypeError: lit-e');
+    expect(literal).toContain('"b": 1');
+  });
+
+  it('an object holding an error, shared twice in a result, prints twice, and a cycle does not crash the writer', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const twice = await say(
+      info.sessionId,
+      '(() => { const shared = { err: new Error("dag-e") }; return { first: shared, second: shared }; })()',
+      'second',
+    );
+    expect(twice.match(/Error: dag-e/g)).toHaveLength(2);
+    const cyclic = await say(
+      info.sessionId,
+      '(() => { const o = { err: new Error("cyc-e") }; o.self = o; return o; })()',
+      'cyc-e',
+    );
+    expect(cyclic).toContain('cyc-e');
+    expect(await say(info.sessionId, '40+2', '42')).toContain('42');
+  });
+
+  it('an AggregateError lists the errors it holds', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    const out = await say(
+      info.sessionId,
+      'Promise.any([Promise.reject(new Error("first-e")), Promise.reject(new TypeError("second-e"))])',
+      'second-e',
+    );
+    expect(out).toContain('AggregateError');
+    expect(out).toContain('Error: first-e');
+    expect(out).toContain('TypeError: second-e');
+  });
+
+  it('an error with an empty message or name prints without stray punctuation', async () => {
+    const info = await setup().start({ connectionId: 'c1' });
+    expect(await say(info.sessionId, 'throw new Error()', 'Uncaught Error\n')).toMatch(/Uncaught Error\n/);
+    const named = await say(info.sessionId, 'throw Object.assign(new Error("nm-only"), { name: "" })', 'nm-only\n');
+    expect(named).toMatch(/Uncaught nm-only\n/);
+  });
+});
+
 describe('ShellService — lifecycle', () => {
   it('stop() kills the child', async () => {
     const s = setup();

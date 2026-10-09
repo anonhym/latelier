@@ -4,7 +4,7 @@ import type {
   IndexFieldDirection,
   IndexInfo,
 } from '@shared/types';
-import { ejsonParse, ejsonStringify } from './ejson.ts';
+import { ejsonParse, ejsonStringifyDriverValue } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import { ownSet } from '../ownProperty.ts';
@@ -228,10 +228,10 @@ export function buildIndexInfo(
     info.expireAfterSeconds = spec.expireAfterSeconds;
   }
   if (spec.partialFilterExpression !== undefined) {
-    info.partialFilterExpression = ejsonStringify(spec.partialFilterExpression);
+    info.partialFilterExpression = ejsonStringifyDriverValue(spec.partialFilterExpression);
   }
   if (spec.collation !== undefined) {
-    info.collation = ejsonStringify(spec.collation);
+    info.collation = ejsonStringifyDriverValue(spec.collation);
   }
 
   if (indexSizes && typeof indexSizes[name] === 'number') {
