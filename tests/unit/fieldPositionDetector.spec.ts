@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { EditorState } from '@codemirror/state';
-import { javascript } from '@codemirror/lang-javascript';
-import { ensureSyntaxTree } from '@codemirror/language';
+import type { EditorState } from '@codemirror/state';
 import { detectFieldPosition } from '../../src/components/scriptEditor/fieldPositionDetector';
+import { parsedJsState } from '../helpers/parsedState';
 
 /**
  * Builds a real EditorState (JS language, syntax tree forced) from a
@@ -16,9 +15,7 @@ function at(doc: string, marker = '█'): { state: EditorState; pos: number } {
   const pos = doc.indexOf(marker);
   if (pos < 0) throw new Error(`cursor token ${marker} not found in doc`);
   const stripped = doc.slice(0, pos) + doc.slice(pos + marker.length);
-  const state = EditorState.create({ doc: stripped, extensions: [javascript()] });
-  ensureSyntaxTree(state, stripped.length, 5_000);
-  return { state, pos };
+  return { state: parsedJsState(stripped), pos };
 }
 
 describe('detectFieldPosition', () => {
@@ -342,8 +339,7 @@ describe('detectFieldPosition — property: never throws', () => {
   it('never throws for any source string and any cursor position in range', () => {
     fc.assert(
       fc.property(fc.string({ maxLength: 200 }), fc.nat(), (source, rawPos) => {
-        const state = EditorState.create({ doc: source, extensions: [javascript()] });
-        ensureSyntaxTree(state, source.length, 5_000);
+        const state = parsedJsState(source);
         const pos = source.length === 0 ? 0 : rawPos % (source.length + 1);
         expect(() => detectFieldPosition(state, pos)).not.toThrow();
       }),
@@ -354,8 +350,7 @@ describe('detectFieldPosition — property: never throws', () => {
   it('a returned match always has a range within the document and to >= from', () => {
     fc.assert(
       fc.property(fc.string({ maxLength: 200 }), fc.nat(), (source, rawPos) => {
-        const state = EditorState.create({ doc: source, extensions: [javascript()] });
-        ensureSyntaxTree(state, source.length, 5_000);
+        const state = parsedJsState(source);
         const pos = source.length === 0 ? 0 : rawPos % (source.length + 1);
         const result = detectFieldPosition(state, pos);
         if (result) {

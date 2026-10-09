@@ -6,10 +6,20 @@ import { WriteStageConfirm } from '../../src/pages/Workspace/Aggregation/Aggrega
 import { SavePipelineModal } from '../../src/pages/Workspace/Aggregation/SavePipelineModal';
 import { SaveAsCollectionModal } from '../../src/pages/Workspace/Aggregation/SaveAsCollectionModal';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module SaveAsCollectionModal imports; the rest stays
+// real because AggregationTab reaches the suggestion sources through their
+// barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 /**
@@ -718,6 +728,66 @@ describe('SaveAsCollectionModal — dialog shell + guard (X15 T6)', () => {
 
       await waitFor(() => expect(written.length).toBe(1));
       expect(written[0]).toMatchObject(expectedCall);
+    });
+
+    /**
+     * The write replaces or merges into the *target* collection, which can
+     * be in another database than the source; a sample of it taken earlier
+     * would otherwise keep describing the old documents for the TTL.
+     */
+    it('drops the target collection\'s field-suggestion sample, not the source\'s', async () => {
+      const { written } = renderModal();
+      fireEvent.change(targetDbInput(), { target: { value: 'reports' } });
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccount' } });
+
+      fireEvent.click(confirmButton());
+
+      await waitFor(() => expect(written.length).toBe(1));
+      await waitFor(() =>
+        expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c1', 'reports', 'monthlyByAccount'),
+      );
+    });
+
+    it('drops it as well when the write fails, since a $merge may have written part-way', async () => {
+      installAtelierMock({
+        agg: {
+          runAndSave: (async () => {
+            throw { code: 'INTERNAL', message: 'merge failed' };
+          }) as never,
+        },
+      });
+      render(
+        <SaveAsCollectionModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onWritten={() => undefined}
+        />,
+      );
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccount' } });
+
+      fireEvent.click(confirmButton());
+
+      await screen.findByText(/merge failed/);
+      expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'monthlyByAccount');
+    });
+
+    it('leaves the sample alone when the submit is blocked by a mismatched confirmation', async () => {
+      const user = userEvent.setup();
+      const { written } = renderModal();
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccounr' } });
+
+      expect(confirmButton().disabled).toBe(true);
+      await user.type(confirmInput(), '{Enter}');
+
+      await settle();
+      expect(written.length).toBe(0);
+      expect(invalidateSampleSchemaCache).not.toHaveBeenCalled();
     });
 
     /**

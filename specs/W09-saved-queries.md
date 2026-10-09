@@ -66,6 +66,8 @@ export interface SavedQuery extends SavedQuerySummary {
 
 `saved:list` returns summaries ordered by `updated_at DESC`. Filters are AND-combined.
 
+For `kind` `find` and `aggregation`, `saved:create` and `saved:update` require `payload.kind` to equal the query's `kind` and the payload to match that variant's shape (`saved:update` checks against the stored row's kind, since a patch names none), rejecting a mismatch with `VALIDATION`; `script` has no payload variant, so its payload is not checked, and reads never validate, so rows saved before this rule stay readable.
+
 ## 3. Repo
 
 ```ts
@@ -104,7 +106,7 @@ From the workspace:
 
 - "Save" / "Save as" buttons in the Aggregation title bar (A01/A06).
 - `Save`:
-  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { stages }`.
+  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { kind: 'aggregation', stages }`.
   - Else: open the same modal as find, pre-selected kind `aggregation`.
 - `Save as`: always open modal pre-filled with current name + " (copy)".
 
