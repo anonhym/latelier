@@ -101,12 +101,26 @@ export function ImportDialog({
   };
 
   const importPath = async (path: string, cancelToken: string, mapping?: DataImportInput['csv']) => {
-    const result = await api.data.import({
-      connectionId, dbName, collection, path, cancelToken, ...(mapping ? { csv: mapping } : {}),
-    });
     // The field-suggestion sample describes the pre-import documents. This
     // dialog never goes through `useDocumentDialogs`, so it drops it itself.
     const dropStaleSample = () => invalidateSampleSchemaCache(connectionId, dbName, collection);
+    let result: ImportReport;
+    try {
+      result = await api.data.import({
+        connectionId, dbName, collection, path, cancelToken, ...(mapping ? { csv: mapping } : {}),
+      });
+    } catch (err) {
+      // A failure that stops the import part-way says how many documents had
+      // landed by then (same shape as DocumentEditor's partial insert); a
+      // refusal before any batch carries none and leaves the sample alone.
+      const details = (err as { details?: unknown }).details;
+      const insertedCount =
+        details !== null && typeof details === 'object'
+          ? (details as { insertedCount?: unknown }).insertedCount
+          : undefined;
+      if (typeof insertedCount === 'number' && insertedCount > 0) dropStaleSample();
+      throw err;
+    }
     dropStaleSample();
     setCsv(null);
     setReport(result);

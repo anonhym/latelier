@@ -261,6 +261,28 @@ describe('ImportDialog — field-suggestion sample', () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
+  // ImportService stops part-way on a read or write failure that is not a
+  // per-document error, and says how many documents had landed by then.
+  it('is dropped when the import fails after some batches landed', async () => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    renderDialog();
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'people');
+  });
+
+  it.each([
+    ['carries insertedCount: 0', { insertedCount: 0 }],
+    ['carries no details', undefined],
+    ['carries a non-numeric insertedCount', { insertedCount: '2400' }],
+  ])('is kept when a failed import %s', async (_name, details) => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 1 failed', details } });
+    renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
   it('is kept when the picker is cancelled', async () => {
     const { pickFile } = mockApi({ path: null });
     renderDialog();
