@@ -1,5 +1,6 @@
 import type { Database, Statement } from 'better-sqlite3';
 import { withTransaction } from '../sqlite.ts';
+import { rethrowMissingConnection } from '../sqliteErrors.ts';
 
 // SQLite still allows the legacy 'aggregation' literal for rows that haven't
 // been migrated yet. Runtime inserts use 'collection' or 'script' (W12).
@@ -96,7 +97,11 @@ export class WorkspaceTabRepo {
   }
 
   insert(row: WorkspaceTabRow): void {
-    this.insertStmt.run(row);
+    try {
+      this.insertStmt.run(row);
+    } catch (err) {
+      rethrowMissingConnection(err, row.connection_id);
+    }
   }
 
   updateState(id: string, stateJson: string): void {
