@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ObjectId, Long, Decimal128, BSONRegExp, Code, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double } from 'bson';
+import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double } from 'bson';
 import {
   ejsonParse,
   ejsonStringify,
   ejsonEncode,
   ejsonEncodeArray,
   ejsonEncodeArrayJson,
+  markPromotedDoubles,
   ejsonStringifyRelaxed,
   isValidEjson,
   isPlainDocument,
@@ -869,5 +870,237 @@ describe.each([
     expect(out.a).toBe(1.5);
     expect(out.b).toBe(1234567890123456);
     expect(out.f).toBeInstanceOf(ObjectId);
+  });
+});
+
+// ─── A Double past 2^53 read back from the server ───────────────────────────
+// The driver reads with promoteValues and promoteLongs on: a Long within ±2^53
+// becomes a JS number, a Long beyond stays a Long, and every Double is a JS
+// number. So a JS integer with |v| > 2^53 can only be a stored Double, but
+// bson's canonical writer labels it $numberLong, with JavaScript's shortest
+// digits rather than its own. ejsonEncode, which every read path goes through,
+// says $numberDouble instead.
+describe('ejsonEncode — a promoted Double past 2^53 is written as a Double', () => {
+  // Exactly the options the driver deserializes a reply with.
+  const asDriverReads = (value: unknown): unknown =>
+    BSON.deserialize(BSON.serialize({ v: value as never }), {
+      promoteValues: true,
+      promoteLongs: true,
+      useBigInt64: false,
+    }).v;
+  const asBsonWrites = (v: unknown): unknown => (EJSON.serialize({ v } as never, { relaxed: false }) as { v: unknown }).v;
+  const encoded = (v: unknown): unknown => (ejsonEncode({ v }) as { v: unknown }).v;
+
+  it('pins the promotion rule it relies on', () => {
+    expect(asDriverReads(new Double(1760000000000000768))).toBe(1760000000000000768);
+    expect(asDriverReads(Long.fromString('9007199254740992'))).toBe(9007199254740992);
+    expect(asDriverReads(Long.fromString('-9007199254740992'))).toBe(-9007199254740992);
+    expect(asDriverReads(Long.fromString('9007199254740993'))).toBeInstanceOf(Long);
+    expect(asDriverReads(Long.fromString('-9007199254740993'))).toBeInstanceOf(Long);
+    expect(asDriverReads(Long.MAX_VALUE)).toBeInstanceOf(Long);
+  });
+
+  it.each([
+    ['a Double past 2^53', 1760000000000000768, '1760000000000000768.0'],
+    ['a negative Double past 2^53', -1760000000000000768, '-1760000000000000768.0'],
+    ['the first Double after 2^53', 9007199254740994, '9007199254740994.0'],
+    ['the first Double before -2^53', -9007199254740994, '-9007199254740994.0'],
+    ['2^63', 2 ** 63, '9223372036854775808.0'],
+    ['-2^63', -(2 ** 63), '-9223372036854775808.0'],
+  ])('%s becomes $numberDouble with its exact digits', (_name, n, digits) => {
+    expect(encoded(asDriverReads(new Double(n)))).toEqual({ $numberDouble: digits });
+  });
+
+  it.each([
+    ['2^53, which a Long of that value is promoted to too', 2 ** 53],
+    ['-2^53', -(2 ** 53)],
+    ['the largest safe integer', Number.MAX_SAFE_INTEGER],
+    ['an integer past int32', 3_000_000_000],
+    ['an int32', 5],
+    ['a fraction', 2.5],
+    ['a double past int64', 1e30],
+    ['a double between int64 and 1e21', 5e20],
+    ['negative zero', -0],
+  ])('%s is written exactly as bson writes it', (_name, n) => {
+    expect(encoded(n)).toEqual(asBsonWrites(n));
+  });
+
+  it('leaves a real Long past 2^53 as an exact $numberLong', () => {
+    for (const digits of ['9007199254740993', '-9007199254740993', '9223372036854775807', '-9223372036854775808']) {
+      expect(encoded(asDriverReads(Long.fromString(digits)))).toEqual({ $numberLong: digits });
+    }
+  });
+
+  it('round-trips: a stored Double comes back a Double with the same value, a stored Long a Long', () => {
+    const doc = {
+      d: asDriverReads(new Double(1760000000000000768)),
+      l: asDriverReads(Long.fromString('9007199254740993')),
+      f: asDriverReads(new Double(2.5)),
+      i: asDriverReads(new Int32(7)),
+    };
+    const back = ejsonParse<{ d: Double; l: Long; f: Double; i: Int32 }>(JSON.stringify(ejsonEncode(doc)));
+    expect(back.d).toBeInstanceOf(Double);
+    expect(BigInt(back.d.valueOf())).toBe(1760000000000000768n);
+    expect(back.l).toBeInstanceOf(Long);
+    expect(back.l.toString()).toBe('9007199254740993');
+    expect(back.f.valueOf()).toBe(2.5);
+    expect(back.i.valueOf()).toBe(7);
+  });
+
+  it('reaches numbers inside arrays and sub-documents, wherever they sit', () => {
+    const out = ejsonEncode({ a: [1, [1760000000000000768]], b: { c: { d: [{ e: -1760000000000000768 }] } } });
+    expect(out).toEqual({
+      a: [{ $numberInt: '1' }, [{ $numberDouble: '1760000000000000768.0' }]],
+      b: { c: { d: [{ e: { $numberDouble: '-1760000000000000768.0' } }] } },
+    });
+  });
+
+  it('does not change the document it is given', () => {
+    const doc = { a: 1760000000000000768, b: [1760000000000000768], c: { d: 1760000000000000768 } };
+    ejsonEncode(doc);
+    expect(doc).toEqual({ a: 1760000000000000768, b: [1760000000000000768], c: { d: 1760000000000000768 } });
+    expect(typeof doc.a).toBe('number');
+  });
+
+  it('leaves other BSON values alone', () => {
+    const id = new ObjectId();
+    const when = new Date('2026-01-02T03:04:05Z');
+    const doc = { id, when, dec: Decimal128.fromString('1.5'), bin: new Binary(Buffer.from('ab')), ts: new Timestamp({ t: 1, i: 2 }), n: 1760000000000000768 };
+    const { n, ...rest } = ejsonEncode(doc) as Record<string, unknown>;
+    expect(n).toEqual({ $numberDouble: '1760000000000000768.0' });
+    expect(rest).toEqual({
+      id: { $oid: id.toHexString() },
+      when: { $date: { $numberLong: String(when.getTime()) } },
+      dec: { $numberDecimal: '1.5' },
+      bin: { $binary: { base64: 'YWI=', subType: '00' } },
+      ts: { $timestamp: { t: 1, i: 2 } },
+    });
+  });
+
+  it('keeps a field named __proto__ as an own field', () => {
+    // A JSON string, not an object literal: a literal `__proto__` key sets the
+    // prototype instead of creating a field.
+    const doc = JSON.parse('{"__proto__":1760000000000000768,"k":0}') as Record<string, unknown>;
+    const out = ejsonEncode(doc) as Record<string, unknown>;
+    expect(Object.getOwnPropertyDescriptor(out, '__proto__')?.value).toEqual({ $numberDouble: '1760000000000000768.0' });
+    expect(out.k).toEqual({ $numberInt: '0' });
+  });
+
+  it('writes relaxed output as the bare number, as before', () => {
+    expect(ejsonEncode({ v: 1760000000000000768 }, true)).toEqual({ v: 1760000000000000768 });
+  });
+
+  it('is what ejsonEncodeArray and ejsonEncodeArrayJson write for every document', () => {
+    const docs = [{ v: 1760000000000000768 }, { v: 5 }];
+    const want = [{ v: { $numberDouble: '1760000000000000768.0' } }, { v: { $numberInt: '5' } }];
+    expect(ejsonEncodeArray(docs)).toEqual(want);
+    expect(JSON.parse(ejsonEncodeArrayJson(docs))).toEqual(want);
+  });
+
+  it('leaves a Double instance, which an exact read hands over, as it is', () => {
+    expect(encoded(new Double(1760000000000000768))).toEqual({ $numberDouble: '1760000000000000768.0' });
+  });
+});
+
+// ─── The walk behind it ──────────────────────────────────────────────────────
+// It runs over every document of every find, so it copies only the path to a
+// changed number and hands back everything else as the same reference.
+describe('markPromotedDoubles — copies only the path to a changed number', () => {
+  const WIDE = 1760000000000000768;
+  const isMarked = (v: unknown): boolean => v instanceof Double && v.valueOf() === WIDE;
+
+  it('returns the very same document, array and sub-documents when there is nothing to mark', () => {
+    const doc = { a: [1, 'x', null, { b: true, c: [2.5] }], d: { e: null, f: { g: 'h' } }, i: 2 ** 53 };
+    expect(markPromotedDoubles(doc)).toBe(doc);
+    expect(markPromotedDoubles(doc.a)).toBe(doc.a);
+  });
+
+  it('copies the changed branch and the root, and shares every other branch', () => {
+    const sibling = { s: 1 };
+    const list = [1, 2];
+    const other = [{ o: 'x' }];
+    const doc = { sibling, list, hit: { deep: [0, WIDE, 3] }, other };
+    const out = markPromotedDoubles(doc) as typeof doc;
+    expect(out).not.toBe(doc);
+    expect(out.sibling).toBe(sibling);
+    expect(out.list).toBe(list);
+    expect(out.other).toBe(other);
+    expect(out.hit).not.toBe(doc.hit);
+    expect(out.hit.deep).not.toBe(doc.hit.deep);
+    expect(isMarked(out.hit.deep[1])).toBe(true);
+    expect(out.hit.deep[0]).toBe(0);
+    expect(out.hit.deep[2]).toBe(3);
+    // The input is not touched.
+    expect(doc.hit.deep).toEqual([0, WIDE, 3]);
+    expect(typeof doc.hit.deep[1]).toBe('number');
+  });
+
+  it('keeps every element of an array around the number that changed', () => {
+    const arr = ['a', 1, WIDE, null, 3, 'z'];
+    const out = markPromotedDoubles(arr) as unknown[];
+    expect(out).toHaveLength(6);
+    expect(out.map((v, i) => (i === 2 ? isMarked(v) : v))).toEqual(['a', 1, true, null, 3, 'z']);
+    expect(arr[2]).toBe(WIDE);
+  });
+
+  it('marks a number in the first, the middle and the last place of an array', () => {
+    for (const arr of [[WIDE, 1, 2], [1, WIDE, 2], [1, 2, WIDE]]) {
+      const out = markPromotedDoubles(arr) as unknown[];
+      expect(out.map(isMarked)).toEqual(arr.map((v) => v === WIDE));
+      expect(out).toHaveLength(3);
+    }
+  });
+
+  it('keeps every field of a document around the number that changed, whichever place it sits in', () => {
+    for (const hit of ['a', 'b', 'c']) {
+      const doc: Record<string, unknown> = { a: 'x', b: 2, c: null };
+      doc[hit] = WIDE;
+      const out = markPromotedDoubles(doc) as Record<string, unknown>;
+      expect(Object.keys(out)).toEqual(['a', 'b', 'c']);
+      for (const k of ['a', 'b', 'c']) expect(k === hit ? isMarked(out[k]) : out[k]).toEqual(k === hit ? true : doc[k]);
+    }
+  });
+
+  it('marks only a whole number past 2^53 and up to 2^63, in either sign', () => {
+    const marks = (n: number): boolean => markPromotedDoubles(n) instanceof Double;
+    expect([2 ** 53, 2 ** 53 + 2, 2 ** 63, 2 ** 63 + 2048, 3_000_000_000, 0.5].map(marks)).toEqual([false, true, true, false, false, false]);
+    expect([-(2 ** 53), -(2 ** 53) - 2, -(2 ** 63), -(2 ** 63) - 2048].map(marks)).toEqual([false, true, true, false]);
+  });
+
+  it('passes a scalar through unchanged, whatever it is', () => {
+    for (const v of [null, undefined, 'text', true, false, 0, 7, 2.5, 5n]) expect(markPromotedDoubles(v)).toBe(v);
+    expect(isMarked(markPromotedDoubles(WIDE))).toBe(true);
+  });
+
+  it('copes with null and undefined fields next to a number that changes', () => {
+    const out = markPromotedDoubles({ u: undefined, n: null, s: 'x', w: WIDE }) as Record<string, unknown>;
+    expect(out.u).toBeUndefined();
+    expect(out.n).toBeNull();
+    expect(out.s).toBe('x');
+    expect(isMarked(out.w)).toBe(true);
+  });
+
+  it('does not look inside anything but a plain document or an array', () => {
+    class Holder {
+      n = WIDE;
+    }
+    const holder = new Holder();
+    const values = [holder, new Date(0), new ObjectId(), new Double(WIDE), Long.fromNumber(5), new Binary(Buffer.from('a')), new Map([['n', WIDE]])];
+    for (const v of values) {
+      expect(markPromotedDoubles(v)).toBe(v);
+      const out = markPromotedDoubles({ v, w: WIDE }) as { v: unknown; w: unknown };
+      expect(out.v).toBe(v);
+      expect(isMarked(out.w)).toBe(true);
+    }
+    expect(holder.n).toBe(WIDE);
+  });
+
+  it('walks a document with no prototype, as a plain one', () => {
+    const bare = Object.assign(Object.create(null) as Record<string, unknown>, { n: WIDE, k: 1 });
+    const out = markPromotedDoubles(bare) as Record<string, unknown>;
+    expect(isMarked(out.n)).toBe(true);
+    expect(out.k).toBe(1);
+    const still = Object.assign(Object.create(null) as Record<string, unknown>, { k: 1 });
+    expect(markPromotedDoubles(still)).toBe(still);
   });
 });

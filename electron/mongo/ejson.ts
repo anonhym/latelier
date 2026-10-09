@@ -1,4 +1,4 @@
-import { EJSON, BSONRegExp } from 'bson';
+import { EJSON, BSONRegExp, Double } from 'bson';
 import { SystemError, ValidationError } from '../errors.ts';
 
 // Soft cap on a single EJSON payload (encode of a read result, or a raw
@@ -225,7 +225,59 @@ export function ejsonStringifyRelaxed(v: unknown, indent?: number): string | und
  * IPC.
  */
 export function ejsonEncode(v: unknown, relaxed = false): unknown {
-  return EJSON.serialize(v as object, { relaxed });
+  // Relaxed prints the number bare, so there is nothing to mark.
+  return EJSON.serialize((relaxed ? v : markPromotedDoubles(v)) as object, { relaxed });
+}
+
+const TWO_POW_53 = 2 ** 53;
+const TWO_POW_63 = 2 ** 63;
+
+/**
+ * Says "Double" about a Double the driver has already turned into a number.
+ *
+ * A reply is read with the driver's defaults: a Long within ±2^53 becomes a JS
+ * number, a Long beyond stays a `Long`, an Int32 is small, and every Double is
+ * a JS number. So a number with |v| > 2^53 can only be a stored Double. bson's
+ * canonical writer cannot tell, and labels an integer up to 2^63 `$numberLong`
+ * with JavaScript's shortest digits (a Double of 1760000000000000768 would go
+ * out as a Long of 1760000000000000800), which then imports, and is edited
+ * and saved back, as the wrong type with the wrong value.
+ *
+ * Exactly ±2^53 is left alone: a Long of that value is promoted to the same
+ * number, and the label that has always been there is right for it. Past 2^63
+ * bson already writes `$numberDouble`. Every double above 2^53 is a whole
+ * number, so the range is the whole test.
+ *
+ * Copies only the path to a changed value and returns everything else as the
+ * same reference, so a document with no such number costs a read-only walk.
+ * Plain objects and arrays are walked; a BSON value, a `Date` or a `Buffer` is
+ * not. Exported so its tests can see which references it keeps.
+ */
+export function markPromotedDoubles(node: unknown): unknown {
+  if (typeof node === 'number') {
+    const magnitude = Math.abs(node);
+    return magnitude > TWO_POW_53 && magnitude <= TWO_POW_63 ? new Double(node) : node;
+  }
+  if (node === null || typeof node !== 'object') return node;
+  if (Array.isArray(node)) {
+    let out: unknown[] | undefined;
+    // Stryker disable next-line EqualityOperator: `i <= node.length` adds one visit at an index where the element is `undefined`; the walk returns `undefined` unchanged, so `marked !== node[i]` stays false and nothing differs. Verified with a node probe on a plain array and on a hole. The `>=` variant (the loop never runs) is killed by the array tests.
+    for (let i = 0; i < node.length; i++) {
+      const marked = markPromotedDoubles(node[i]);
+      if (marked !== node[i]) (out ??= node.slice())[i] = marked;
+    }
+    return out ?? node;
+  }
+  const proto = Object.getPrototypeOf(node) as unknown;
+  if (proto !== Object.prototype && proto !== null) return node;
+  const doc = node as Record<string, unknown>;
+  let out: Record<string, unknown> | undefined;
+  for (const key in doc) {
+    const marked = markPromotedDoubles(doc[key]);
+    // Object.create(null), not {}: see `walkRevive`.
+    if (marked !== doc[key]) (out ??= Object.assign(Object.create(null) as Record<string, unknown>, doc))[key] = marked;
+  }
+  return out ?? node;
 }
 
 export function ejsonEncodeArray(docs: unknown[], relaxed = false): unknown[] {
