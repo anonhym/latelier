@@ -1,5 +1,6 @@
 import React from 'react';
 import { notify } from '../../theme/notifications';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { offerUndo } from './offerUndo';
 import { currentFilterJson } from './builder';
 import { stripIdForDuplicate } from './views/docId';
@@ -132,9 +133,12 @@ export function useDocumentDialogs(deps: {
 
   // A bare run() would refresh the Focused Tab, not the pinned drawer's tab —
   // resolve the pinned tab from the live tab list instead. `null` (tab gone,
-  // e.g. ⌘W with the drawer open) no-ops rather than falling back.
+  // e.g. ⌘W with the drawer open) no-ops rather than falling back — but the
+  // write already landed, so the field-suggestion sample is dropped first,
+  // from the captured target, ahead of that early return.
   const refreshSource = React.useCallback(
     (target: DocTarget) => {
+      invalidateSampleSchemaCache(target.connectionId, target.dbName, target.collection);
       const runnerTarget = resolveRunnerTarget(target.tabId);
       if (!runnerTarget) return;
       void run(undefined, runnerTarget);
@@ -168,7 +172,11 @@ export function useDocumentDialogs(deps: {
     setDeleteSelected(null);
   }, []);
   // Not routed through refreshSource: DeleteConfirm reads its target live
-  // from the Focused Tab, so a delete can only complete against it.
+  // from the Focused Tab. Moving focus closes the dialog, but a request
+  // already in flight still completes and lands here, so the re-run and the
+  // Undo target below follow whichever tab is focused at that moment (#448).
+  // The field-suggestion sample is not one of those: DeleteConfirm drops it
+  // itself, from its own props.
   const handleDeleted = React.useCallback((auditId: string | undefined, message: string) => {
     closeDeleteDialogs();
     void run();
@@ -189,7 +197,9 @@ export function useDocumentDialogs(deps: {
 
   // Same shape as delete-all: UpdateConfirm also reads its target live from
   // the Focused Tab (see the tab-switch effect below), so it's closed the
-  // same way rather than routed through refreshSource's captured target.
+  // same way rather than routed through refreshSource's captured target, with
+  // the same caveat about a request still in flight when focus moves (#448).
+  // It too drops the field-suggestion sample itself.
   const closeUpdateAllModal = React.useCallback(() => setUpdateAllOpen(false), []);
   const handleUpdatedAll = React.useCallback((auditId: string | undefined, message: string) => {
     closeUpdateAllModal();

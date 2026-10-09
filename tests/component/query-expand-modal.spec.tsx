@@ -103,23 +103,17 @@ describe('QueryExpandModal — Shell Syntax', () => {
    * `repairToCanonicalEjson('')` fails with "The input is empty.", and
    * `refusalMessage` swallows that because a blank sort and a blank projection
    * are legitimate "no sort" / "no projection" states. A blank *filter* is not:
-   * `filterProblem` speaks instead.
-   *
-   * Do not "correct" this to the document-shape message, which reads better
-   * over an empty box. `filterProblem` tests `isValidEjson` first and returns
-   * on it, and `''` is not valid EJSON — so blank input never reaches the
-   * shape branch at all. That branch is for text that parses and is not a
-   * document, like `[1, 2]`. Better copy for an empty filter is a change to
-   * `filterProblem`, not to this assertion.
+   * `filterProblem` speaks instead, with its own missing-filter sentence. An
+   * empty box is not unparseable, so it must not get the parse message.
    */
-  it('refuses a blank filter with filterProblem’s message, not "The input is empty."', () => {
+  it('refuses a blank filter with filterProblem’s missing-filter message, not "The input is empty."', () => {
     const { applied } = renderModal('{}');
 
     fireEvent.change(draft(), { target: { value: '   ' } });
     fireEvent.click(applyButton());
 
     expect(screen.getByRole('alert').textContent).toBe(
-      'Can\'t parse this filter. Expected EJSON like { "status": "active" }.',
+      'Enter a filter, like { "status": "active" }, or {} to match every document.',
     );
     expect(applied).toEqual([]);
   });
