@@ -520,6 +520,51 @@ describe('ejsonStringifyRelaxed keeps a Long past 2^53 exact', () => {
     expect(ejsonStringifyRelaxed({ map })).toBe(`{"map":{"big":${wrapped('9007199254740993')},"n":1}}`);
   });
 
+  it('reaches a wide Long used as the $id of a DBRef', () => {
+    const big = long('9007199254740993');
+    expect(ejsonStringifyRelaxed(new DBRef('c', big as unknown as ObjectId))).toBe(`{"$ref":"c","$id":${wrapped('9007199254740993')}}`);
+    const parsed = EJSON.parse('{"r":{"$ref":"c","$id":{"$numberLong":"9007199254740993"}}}', { relaxed: false });
+    expect(ejsonStringifyRelaxed(parsed)).toBe(`{"r":{"$ref":"c","$id":${wrapped('9007199254740993')}}}`);
+    expect(ejsonStringifyRelaxed(new DBRef('c', { id: big } as unknown as ObjectId, 'd'))).toBe(
+      `{"$ref":"c","$id":{"id":${wrapped('9007199254740993')}},"$db":"d"}`,
+    );
+  });
+
+  it('treats a Date or a RegExp as a leaf, as bson does, even one carrying a wide Long', () => {
+    class TaggedDate extends Date {
+      get [Symbol.toStringTag](): string {
+        return 'Other';
+      }
+    }
+    class TaggedRegExp extends RegExp {
+      get [Symbol.toStringTag](): string {
+        return 'Other';
+      }
+    }
+    const ctx = vm.createContext({});
+    const leaves: Record<string, object> = {
+      date: new Date(0),
+      vmDate: vm.runInContext('new Date(0)', ctx) as object,
+      taggedDate: new TaggedDate(0),
+      regExp: /a/i,
+      vmRegExp: vm.runInContext('/a/i', ctx) as object,
+      taggedRegExp: new TaggedRegExp('a', 'i'),
+    };
+    for (const [name, leaf] of Object.entries(leaves)) {
+      Object.assign(leaf, { big: long('9007199254740993') });
+      expect(ejsonStringifyRelaxed({ v: leaf }), name).toBe(plainRelaxed({ v: leaf }));
+    }
+  });
+
+  it('reaches a wide Long in a Map subclass that reports another tag', () => {
+    class TaggedMap extends Map<string, unknown> {
+      get [Symbol.toStringTag](): string {
+        return 'Other';
+      }
+    }
+    expect(ejsonStringifyRelaxed(new TaggedMap([['k', long('9007199254740993')]]))).toBe(`{"k":${wrapped('9007199254740993')}}`);
+  });
+
   it('keeps a wide bigint wrapped, read as the 64-bit value bson writes for it', () => {
     expect(ejsonStringifyRelaxed({ b: 9007199254740993n, s: 5n })).toBe(`{"b":${wrapped('9007199254740993')},"s":5}`);
     // bson wraps a bigint to 64 bits first: 2^64 + 7 is written as 7.
