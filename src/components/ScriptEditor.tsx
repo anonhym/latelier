@@ -47,8 +47,9 @@ export interface ScriptEditorProps {
   /**
    * Connection/db context for field-name autocomplete inside
    * `db.<coll>.find({ … })` style calls. Field suggestions are skipped when
-   * either is missing. Defaults to `'test'` for dbName when undefined,
-   * mirroring the script-run fallback in ScriptTab.
+   * either is missing. Defaults to `'test'` for dbName when the caller
+   * passes none. ScriptTab passes the database a run would use: its DB
+   * field, else the connection's default database, else `'test'`.
    */
   connectionId?: string;
   dbName?: string;

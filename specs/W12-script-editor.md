@@ -472,7 +472,9 @@ tracked as a follow-up in GitHub Issues.
   / awaited-server-call timeouts, runner crash, `cancelAll`, cancel
   token bookkeeping, the 50 MB cap, a connection flipped read-only
   mid-run, syntax errors throw `ValidationError`, runtime errors throw
-  `MongoOpError` (or `SystemError` for non-Mongo).
+  `MongoOpError` (or `SystemError` for non-Mongo), and the database a
+  run starts on: an explicit `dbName` over the connection's default
+  database (used when `dbName` is blank), else `test`.
 - **script-rpc.spec.ts** (integration, same harness): read-only refused
   by main on every route, a flip mid-run with no kill, crafted frames
   from an escaped script, no credential in any message,
@@ -489,8 +491,7 @@ tracked as a follow-up in GitHub Issues.
 - **script-handler.spec.ts**: drives `script:run` against
   `mongodb-memory-server`. Covers a `find().toArray()` round-trip
   through EJSON, `cancel` aborts an in-flight `find`, `dbName`
-  override is respected over the connection's default database (which
-  applies when `dbName` is blank, else `test`), the `db` proxy and the W11 shell agree on
+  override is respected, the `db` proxy and the W11 shell agree on
   the same expression's output.
 
 ### Component

@@ -49,7 +49,8 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
   const cancelTokenRef = React.useRef<string | null>(null);
 
   const state = tab.state;
-  // Mirrors main's resolveDbName for a run with a blank field.
+  // Mirrors main's resolveDbName for a run with a blank field; keep the
+  // `'test'` fallback in sync with MongoPool.resolveDbName.
   const effectiveDb = state.dbName?.trim() || defaultDb || 'test';
   const hasFirstRun = !!(state.lastResult || state.lastError);
   const persistedHeight = state.resultPanelHeight ?? DEFAULT_RESULT_HEIGHT;

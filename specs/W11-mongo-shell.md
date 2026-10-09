@@ -143,7 +143,9 @@ Behaviour:
   pool caches the default only once a connect succeeds. The pane passes
   the focused tab's database (section 4), so a Shell opened from a
   `shop.orders` tab starts on `shop`, and one opened with no tab database
-  starts on the connection's default.
+  starts on the connection's default. When the connection already has a
+  live session, `start` returns it unchanged and does not consult
+  `dbName`; Restart stops the session first, then starts a new one.
 - It then spawns the runner child, creates the session's `rpcHost`
   over that client, and posts one `shell-start` request (database name
   and banner text only). The child writes the banner, then runs a
@@ -256,12 +258,13 @@ Behaviour:
   stop / write-after-stop / list semantics, and the read-only refusal.
 - **shell-runner.spec.ts**: the same service over a real pool and
   `mongodb-memory-server`. Covers reads and writes through main, `use`
-  and the prompt, the database a session opens on (an explicit name over
-  the connection's default over `test`), stop and `disposeAll` killing the child, a pool
-  disconnect and a read-only flip ending the session, a crashed child,
-  `process.exit()` and `.exit` inside the REPL, and that nothing posted
-  to the child (and nothing an escape can read from its environment)
-  carries a URI, user or password for a password-protected connection.
+  and the prompt, the database a session opens on (an explicit name
+  over the connection's default over `test`), stop and `disposeAll`
+  killing the child, a pool disconnect and a read-only flip ending the
+  session, a crashed child, `process.exit()` and `.exit` inside the
+  REPL, and that nothing posted to the child (and nothing an escape can
+  read from its environment) carries a URI, user or password for a
+  password-protected connection.
 - **shell-protocol.spec.ts** (unit): the message shape guards.
 
 ### Component
