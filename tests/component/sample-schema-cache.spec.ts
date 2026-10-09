@@ -198,7 +198,7 @@ describe('invalidateSampleSchemaCache racing an in-flight sample', () => {
     const fresh = sampleSchemaSource(ctx());
     expect(sampleSchemaSpy).toHaveBeenCalledTimes(2);
     calls[1]!.resolve([{ fresh: 1 }]);
-    expect((await fresh).map((s) => s.path)).toEqual(['fresh']);
+    expect((await fresh).flatMap((s) => (s.kind === 'field' ? [s.path] : []))).toEqual(['fresh']);
   });
 
   it('keeps the newer fetch in flight and cached when the stale one settles first', async () => {
