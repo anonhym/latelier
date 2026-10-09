@@ -4,6 +4,7 @@ import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
 import type { ShellOutputEvent } from '@shared/types';
+import { useLatest } from '../../commands/useLatest';
 
 const MAX_BUFFER_BYTES = 200_000;
 
@@ -11,6 +12,10 @@ interface Props {
   connectionId: string;
   /** Forwarded so the pane header can show context. */
   connectionName: string | null;
+  /** Database the shell opens on (the focused tab's). Read when a session
+   *  starts or restarts; a later change does not move a running session.
+   *  Omit to use the connection's default database. */
+  dbName?: string;
   /** CSS height value. Omit to fill the available space (e.g. when placed
    *  inside a react-resizable-panels Panel). Defaults to '100%'. */
   height?: number | string;
@@ -43,7 +48,7 @@ function shellReducer(_: StartState, action: ShellAction): StartState {
  * context. Streams stdout into a rolling buffer; forwards each entered line
  * to the session's stdin.
  */
-export function MongoShellPane({ connectionId, connectionName, height, onClose }: Props) {
+export function MongoShellPane({ connectionId, connectionName, dbName, height, onClose }: Props) {
   const T = themeVars;
   const [state, dispatch] = React.useReducer(shellReducer, { kind: 'idle' } satisfies StartState);
   const [buffer, setBuffer] = React.useState('');
@@ -109,6 +114,10 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
   // react-hooks/set-state-in-effect rule (no synchronous setState in an
   // effect body).
   const [restartNonce, setRestartNonce] = React.useState(0);
+  // Through a ref, and not an effect dependency: switching the focused tab
+  // must not restart the shell and wipe its scrollback. Declared before the
+  // effect so Restart sees the latest value.
+  const dbNameRef = useLatest(dbName);
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -117,7 +126,7 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
       dispatch({ type: 'starting' });
       setBuffer('');
       try {
-        const info = await api.mshell.start({ connectionId });
+        const info = await api.mshell.start({ connectionId, dbName: dbNameRef.current });
         if (cancelled) {
           void api.mshell.stop({ sessionId: info.sessionId }).catch(() => {});
           return;
@@ -139,7 +148,7 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
       sessionIdRef.current = null;
       if (id) void api.mshell.stop({ sessionId: id }).catch(() => {});
     };
-  }, [connectionId, restartNonce]);
+  }, [connectionId, restartNonce, dbNameRef]);
 
   // Up/Down arrow command history. Capped to prevent unbounded growth on
   // long sessions; consecutive duplicates collapse so a repeat-Enter user
