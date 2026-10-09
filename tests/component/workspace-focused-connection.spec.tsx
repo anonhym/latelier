@@ -4,7 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, multiConnectionMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ConnectionSummary, WorkspaceTab, CollectionTab } from '@shared/types';
+import type { IpcApi } from '@shared/ipc';
+import type {
+  ConnectionSummary,
+  WorkspaceTab,
+  CollectionTab,
+  ScriptTab,
+  ShellSessionInfo,
+} from '@shared/types';
 
 const now = '2026-07-26T12:00:00.000Z';
 
@@ -499,5 +506,87 @@ describe('The Focused Tab’s Connection', () => {
     // Focus moved to the read-only Connection, and the marker moved with it.
     await waitFor(() => expect(titleBar().getByText('Staging')).toBeTruthy());
     expect(titleBar().getByTitle('Read-only connection')).toBeTruthy();
+  });
+});
+
+describe('The database a Shell or Script tab starts on', () => {
+  function scriptTab(dbName?: string): ScriptTab {
+    return {
+      id: 't1',
+      kind: 'script',
+      connectionId: 'c1',
+      dbName: '',
+      collection: '',
+      position: 0,
+      isActive: true,
+      openedAt: now,
+      pinned: false,
+      state: { title: 'Script', source: '1', dbName },
+    };
+  }
+
+  function installWithShell(tab: WorkspaceTab, summary: Partial<ConnectionSummary> = {}) {
+    const start = vi.fn<IpcApi['mshell']['start']>(
+      async (): Promise<ShellSessionInfo> => ({
+        sessionId: 's1',
+        connectionId: 'c1',
+        startedAt: now,
+      }),
+    );
+    const listCollections = vi.fn<IpcApi['meta']['listCollections']>(async () => []);
+    installAtelierMock({
+      tabs: { list: async () => [tab] },
+      conn: { list: async () => [conn(summary)] },
+      meta: { listCollections },
+      mshell: {
+        start,
+        write: async () => undefined,
+        stop: async () => undefined,
+        list: async () => [],
+        onOutput: () => () => {},
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    return { start, listCollections };
+  }
+
+  async function openShell() {
+    await userEvent.click(await within(screen.getByRole('banner')).findByRole('button', { name: 'Shell' }));
+  }
+
+  it("opens the Shell on a collection tab's own database", async () => {
+    const { start } = installWithShell(collectionTab({ dbName: 'shop', collection: 'orders' }), {
+      defaultDb: 'smoke',
+    });
+    await screen.findByLabelText('Close orders');
+    await openShell();
+    await waitFor(() => expect(start).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop' }));
+  });
+
+  it("opens the Shell on a script tab's own database field", async () => {
+    const { start } = installWithShell(scriptTab('ledger'), { defaultDb: 'smoke' });
+    await screen.findByLabelText('Close Script');
+    await openShell();
+    await waitFor(() => expect(start).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'ledger' }));
+  });
+
+  it('leaves the Shell database to the connection when a script tab has a blank field', async () => {
+    const { start } = installWithShell(scriptTab('  '), { defaultDb: 'smoke' });
+    await screen.findByLabelText('Close Script');
+    await openShell();
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+    expect(start.mock.calls[0]![0]).toEqual({ connectionId: 'c1' });
+  });
+
+  it("completes a blank-field script tab against the connection's default database", async () => {
+    const { listCollections } = installWithShell(scriptTab(), { defaultDb: 'smoke' });
+    await screen.findByLabelText('Close Script');
+    await waitFor(() =>
+      expect(listCollections).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }),
+    );
   });
 });

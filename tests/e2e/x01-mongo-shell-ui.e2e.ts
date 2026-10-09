@@ -56,6 +56,11 @@ test('mongo shell ui: open pane, run a ping command, output renders', async () =
       // Wait for shell to be ready (placeholder switches from "starting…" to empty).
       await expect(shellInput).not.toHaveAttribute('placeholder', 'starting…', { timeout: 15000 });
 
+      // The shell opened on the focused tab's database, not on `test`.
+      await expect(win.getByTestId('mongo-shell-output')).toContainText('shop> ', {
+        timeout: 15000,
+      });
+
       // Submit a ping command — Enter is the submit key (MongoShellPane.tsx:283).
       // The REPL doesn't auto-await Promises, so prefix `await` (the
       // existing IPC mongo-shell.e2e.ts uses the same incantation).

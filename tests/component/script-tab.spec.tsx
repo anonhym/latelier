@@ -351,3 +351,51 @@ describe('ScriptTab result-panel resize keyboard support (#56)', () => {
     });
   });
 });
+
+describe('ScriptTab — completion database', () => {
+  function installListSpy() {
+    const listSpy = vi.fn<IpcApi['meta']['listCollections']>(async () => []);
+    installAtelierMock({ meta: { listCollections: listSpy } });
+    return listSpy;
+  }
+
+  it("lists the connection's default database's collections when the DB field is blank", async () => {
+    const listSpy = installListSpy();
+    render(<ScriptTab tab={tab()} defaultDb="smoke" onPatch={() => {}} />);
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }),
+    );
+    expect(listSpy).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'test' }));
+  });
+
+  it('a typed database name wins over the connection default', async () => {
+    const listSpy = installListSpy();
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 't', source: '', dbName: 'typed' } })}
+        defaultDb="smoke"
+        onPatch={() => {}}
+      />,
+    );
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'typed' }),
+    );
+    expect(listSpy).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'smoke' }));
+  });
+
+  it('falls back to test when the field is blank and the connection has no default', async () => {
+    const listSpy = installListSpy();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'test' }),
+    );
+  });
+
+  it('re-lists when the default database changes under a blank field', async () => {
+    const listSpy = installListSpy();
+    const { rerender } = render(<ScriptTab tab={tab()} defaultDb="smoke" onPatch={() => {}} />);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }));
+    rerender(<ScriptTab tab={tab()} defaultDb="other" onPatch={() => {}} />);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'other' }));
+  });
+});

@@ -117,26 +117,33 @@ one line in `DEFAULT_FIELD_SOURCES` or `DEFAULT_VALUE_SOURCES`.
   connectionId: string;
   dbName: string;
   collection: string;
-  limit?: number;   // default 50
-  maxTimeMS?: number; // default 3000
+  size?: number;   // integer 1..200, default 50
 }
 
 // Output
 {
-  fields: Array<{
-    path: string;        // dotted
-    type: DisplayType;   // first observed
-    frequency: number;   // occurrences across the sample
-  }>;
+  docs: unknown[];   // sampled documents, canonical EJSON
 }
 ```
 
-- Main runs `db.coll.aggregate([{ $facet: { recent: [{$sort:{_id:-1}},{$limit}], random: [{$sample:{size: limit}}] } }])`.
-- Flattens both batches, walks each doc once, emits one row per dotted
-  path with `DisplayType` + frequency.
-- Errors (unauthorized, read-only role that can't run `$sample`, timeout)
-  fail open — the channel returns `{ fields: [] }`. The renderer doesn't
-  surface the error; the user just sees fewer suggestions.
+- Main runs `db.coll.aggregate([{ $facet: { recent: [{$sort:{_id:-1}},{$limit: size}], random: [{$sample:{size}}] } }])`
+  under a fixed 3 s server-side budget (`STATS_TIMEOUT_MS`; the caller
+  cannot set it) and returns both branches concatenated, so a document
+  both branches pick appears twice.
+- Main does not derive paths. The renderer's `sampleSchemaSource` walks
+  `docs` once with `lastRunSource` (one row per dotted path with
+  `DisplayType` + frequency) and digests the same sample with
+  `summarizeSchema`.
+- A failed aggregate (unauthorized, read-only role that can't run
+  `$sample`, timeout) fails open — the channel returns `{ docs: [] }`. The
+  renderer doesn't surface the error; the user just sees fewer
+  suggestions. An absent collection is not an error either: it samples to
+  `{ docs: [] }`.
+- Not fail-open: a payload that breaks the schema (`size` outside 1..200, an
+  empty id) is `VALIDATION`, and an unknown `connectionId` is `NOT_FOUND`,
+  because the client lookup happens before the aggregate's `try`.
+  `tests/integration/meta-handlers.spec.ts` pins all of this through the
+  router.
 
 ## 4. Composition — `useSuggestions`
 
@@ -333,7 +340,8 @@ on app restart).
 
 ## 12. Error handling
 
-- `meta:sampleSchema` failures → `{ fields: [] }`, silent.
+- `meta:sampleSchema` aggregate failures → `{ docs: [] }`, silent. Validation
+  failures and an unknown connection still reach the renderer as typed errors (§3).
 - `getCaretRect` is deterministic given a textarea + valid offset; no
   catch. A thrown error would be a real bug, not a UX hiccup to hide.
 - Grammar detector never throws — returns `null` on ambiguity.

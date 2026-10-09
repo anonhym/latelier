@@ -232,6 +232,8 @@ export interface ConnectionSummary {
   port: number;
   connectionType: ConnType;
   lastUsedAt?: string;
+  /** The database the connection opens on. Shell and script tabs fall back to it when nothing else names a database. */
+  defaultDb?: string;
   status: 'unknown' | 'connected' | 'disconnected' | 'connecting' | 'error';
   serverVersion?: string;
   readOnly: boolean;
@@ -791,8 +793,9 @@ export interface ScriptTabState {
   title: string;
   /** Editor buffer. UTF-8. */
   source: string;
-  /** Default db for the `db` proxy at run time. Optional — scripts can
-   *  also call `use("...")` themselves. */
+  /** Default db for the `db` proxy at run time. Blank means the
+   *  connection's default database, else `test`. Scripts can also call
+   *  `use("...")` themselves. */
   dbName?: string;
   /** Hard ceiling, ms. Toolbar knob: 15_000 / 60_000 / 300_000 /
    *  86_400_000 ("no limit"). Defaults to 60_000. */
@@ -843,6 +846,7 @@ export type WorkspaceTab = CollectionTab | ScriptTab;
 
 export interface ScriptRunInput {
   connectionId: string;
+  /** Blank or absent means the connection's default database, else `test`. */
   dbName?: string;
   source: string;
   /** Renderer-supplied UUID; used by `script:cancel`. */

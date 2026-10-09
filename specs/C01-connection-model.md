@@ -94,6 +94,7 @@ export interface ConnectionSummary {
   port: number;
   connectionType: ConnType;
   lastUsedAt?: string;
+  defaultDb?: string;            // the connection's default database; the Shell and Script tabs start on it
   status: 'unknown' | 'connected' | 'disconnected' | 'error';
   serverVersion?: string;        // cached from last successful connect
 }
