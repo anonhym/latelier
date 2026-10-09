@@ -148,7 +148,8 @@ export class ScriptService {
       }
       if (run.ctrl.signal.aborted) throw stopError(run);
 
-      return await this.runInChild(run, client, input, maxTimeMs);
+      const dbName = this.pool.resolveDbName(input.connectionId, input.dbName);
+      return await this.runInChild(run, client, input, dbName, maxTimeMs);
     } finally {
       this.runs.delete(run);
       if (input.cancelToken) this.releaseToken(input.cancelToken, run.ctrl);
@@ -166,6 +167,7 @@ export class ScriptService {
     run: Run,
     client: MongoClient,
     input: ScriptRunInput,
+    dbName: string,
     maxTimeMs: number,
   ): Promise<ScriptRunResultWire> {
     return new Promise<ScriptRunResultWire>((resolve, reject) => {
@@ -253,7 +255,7 @@ export class ScriptService {
       const request: RunRequest = {
         type: 'run',
         source: input.source,
-        dbName: input.dbName ?? 'test',
+        dbName,
         ejsonRelaxed: input.ejsonRelaxed ?? false,
       };
       handle.postMessage(request);

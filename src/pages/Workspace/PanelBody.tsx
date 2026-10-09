@@ -118,6 +118,18 @@ function SubTabStrip({
   );
 }
 
+/**
+ * The database the Shell opens on: the focused tab's own. Taken from the tab
+ * and not from `collection`, which is null while the workspace meta loads even
+ * though a collection tab is active. A script tab with a blank field has none,
+ * so the connection's default database applies.
+ */
+function shellDbName(active: WorkspaceTab | null): string | undefined {
+  if (active?.kind === 'collection') return active.dbName;
+  if (active?.kind === 'script') return active.state.dbName?.trim() || undefined;
+  return undefined;
+}
+
 function CenteredPane({ children }: { children: React.ReactNode }) {
   const T = themeVars;
   return (
@@ -322,6 +334,7 @@ export function PanelBody({
         ) : activeScript ? (
           <ScriptTab
             tab={activeScript}
+            defaultDb={focusedConnection?.defaultDb}
             onPatch={patchActiveScript}
           />
         ) : collection ? (
@@ -575,6 +588,7 @@ export function PanelBody({
               <MongoShellPane
                 connectionId={focusedConnection.id}
                 connectionName={focusedConnection.name}
+                dbName={shellDbName(active)}
                 onClose={() => setShellOpen(false)}
               />
             </Panel>
