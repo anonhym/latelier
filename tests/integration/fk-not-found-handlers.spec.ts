@@ -39,9 +39,15 @@ const FIND_PAYLOAD = {
   queryRaw: '{}',
 };
 
-const cases: Array<{ channel: string; payload: (connectionId: string) => unknown }> = [
+const cases: Array<{
+  channel: string;
+  /** The table a successful call inserts one row into. */
+  table: string;
+  payload: (connectionId: string) => unknown;
+}> = [
   {
     channel: IPC_CHANNELS.savedCreate,
+    table: 'saved_queries',
     payload: (connectionId) => ({
       connectionId,
       dbName: 'd',
@@ -53,27 +59,33 @@ const cases: Array<{ channel: string; payload: (connectionId: string) => unknown
   },
   {
     channel: IPC_CHANNELS.tabsOpenCollection,
+    table: 'workspace_tabs',
     payload: (connectionId) => ({ connectionId, dbName: 'd', collection: 'c' }),
   },
   {
     channel: IPC_CHANNELS.tabsOpenAggregation,
+    table: 'workspace_tabs',
     payload: (connectionId) => ({ connectionId, dbName: 'd', collection: 'c' }),
   },
   {
     channel: IPC_CHANNELS.tabsOpenDefault,
+    table: 'workspace_tabs',
     payload: (connectionId) => ({ connectionId, dbName: 'd', collection: 'c' }),
   },
   {
     // The placeholder-tab branch: no db, no collection.
     channel: IPC_CHANNELS.tabsOpenDefault,
+    table: 'workspace_tabs',
     payload: (connectionId) => ({ connectionId }),
   },
   {
     channel: IPC_CHANNELS.tabsOpenScript,
+    table: 'workspace_tabs',
     payload: (connectionId) => ({ connectionId }),
   },
   {
     channel: IPC_CHANNELS.recentRecordFieldValues,
+    table: 'recent_field_values',
     payload: (connectionId) => ({
       connectionId,
       dbName: 'd',
@@ -124,13 +136,41 @@ describe('writes naming an unknown connection answer NOT_FOUND, not INTERNAL', (
     expect(count('recent_field_values')).toBe(0);
   });
 
-  // The control: the same payloads against a connection that exists succeed,
-  // so the NOT_FOUND above is the foreign key and not a broken payload.
+  // The control: the same payloads against a connection that exists insert
+  // exactly one row, so the NOT_FOUND above is the foreign key and not a broken
+  // payload. The tables are emptied first because the tab channels reuse an
+  // open tab for the same target (or, with no target, any tab of the
+  // connection) instead of inserting, which would let a control pass without
+  // ever reaching the repo.
   it.each(cases.map((c, i) => [`${c.channel} #${i}`, c] as const))(
-    'accepts the same payload for an existing connection: %s',
-    async (_name, { channel, payload }) => {
+    'inserts one row for the same payload against an existing connection: %s',
+    async (_name, { channel, table, payload }) => {
+      for (const t of ['saved_queries', 'workspace_tabs', 'recent_field_values']) {
+        tmp.db.prepare(`DELETE FROM ${t}`).run();
+      }
       const env = await shim.invoke(channel, payload(REAL));
       expect(env.ok).toBe(true);
+      expect(count(table)).toBe(1);
+    },
+  );
+});
+
+// `rethrowMissingConnection` reads any foreign-key violation on these tables as
+// "the connection does not exist", which holds only while `connection_id` is
+// the sole foreign key. A later migration that adds a second one must fail
+// here, not ship as a mislabelled NOT_FOUND.
+describe('tables written with a caller-supplied connectionId have connection_id as their only foreign key', () => {
+  it.each(['saved_queries', 'workspace_tabs', 'reference_rules', 'recent_field_values'])(
+    '%s',
+    (table) => {
+      const tmp = createTempDb();
+      try {
+        const fks = tmp.db.prepare(`PRAGMA foreign_key_list(${table})`).all();
+        expect(fks).toHaveLength(1);
+        expect(fks[0]).toMatchObject({ from: 'connection_id', table: 'connections' });
+      } finally {
+        tmp.cleanup();
+      }
     },
   );
 });
