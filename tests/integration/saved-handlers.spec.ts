@@ -360,6 +360,65 @@ describe('saved:* channels via router', () => {
       expect(read.data.payload).toEqual(payload);
     });
 
+    describe('description on a payload that names none', () => {
+      // AggregationTab's Save sends only `kind` and `stages`; the description typed into
+      // SavePipelineModal lives in the same payload and must survive that Save.
+      const newStages = [{ id: 1, op: '$limit', body: '5', enabled: true }];
+
+      async function savePipelineWith(description: string | undefined) {
+        const created = await create({
+          kind: 'aggregation',
+          name: 'pipeline',
+          payload: aggregationPayload({ description }),
+        });
+        return created.id;
+      }
+
+      async function update(id: string, payload: Record<string, unknown>): Promise<SavedQuery> {
+        const env = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedUpdate, { id, patch: { payload } });
+        if (!env.ok) throw new Error(`saved:update failed: ${env.error.code} ${env.error.message}`);
+        return env.data;
+      }
+
+      it('keeps the stored description, on the payload and on the derived field', async () => {
+        const id = await savePipelineWith('keep me');
+        const updated = await update(id, { kind: 'aggregation', stages: newStages });
+        expect(updated.payload).toEqual({ kind: 'aggregation', stages: newStages, description: 'keep me' });
+        expect(updated.description).toBe('keep me');
+
+        const read = await shim.invoke<SavedQuery>(IPC_CHANNELS.savedGet, { id });
+        expect(read.ok).toBe(true);
+        if (!read.ok) return;
+        expect(read.data.payload).toEqual({ kind: 'aggregation', stages: newStages, description: 'keep me' });
+        expect(read.data.description).toBe('keep me');
+      });
+
+      it('keeps it again on a second stages-only save', async () => {
+        const id = await savePipelineWith('keep me');
+        await update(id, { kind: 'aggregation', stages: newStages });
+        const second = await update(id, { kind: 'aggregation', stages: [] });
+        expect(second.description).toBe('keep me');
+      });
+
+      it('adds no description to a pipeline that never had one', async () => {
+        const id = await savePipelineWith(undefined);
+        const updated = await update(id, { kind: 'aggregation', stages: newStages });
+        expect(updated.payload).toEqual({ kind: 'aggregation', stages: newStages });
+      });
+
+      it('replaces the stored description when the payload names one', async () => {
+        const id = await savePipelineWith('keep me');
+        const updated = await update(id, { kind: 'aggregation', stages: newStages, description: 'new' });
+        expect(updated.description).toBe('new');
+      });
+
+      it('clears the stored description on an explicit empty string', async () => {
+        const id = await savePipelineWith('keep me');
+        const updated = await update(id, { kind: 'aggregation', stages: newStages, description: '' });
+        expect(updated.description).toBe('');
+      });
+    });
+
     it('renames without touching the payload when the patch carries only a name', async () => {
       const payload = findPayload({ queryRaw: '{"a":1}', description: 'keep me' });
       const created = await create({ payload });

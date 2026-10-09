@@ -103,8 +103,9 @@ describe('writes naming an unknown connection answer NOT_FOUND, not INTERNAL', (
     tmp = createTempDb();
     insertConnectionRow(tmp.db, REAL);
     const router = createRouter(shim.ipcMain, testSenderCheck);
-    registerSavedChannels(router, new SavedQueryService(new SavedQueryRepo(tmp.db)));
-    registerTabsChannels(router, new WorkspaceStateService(new WorkspaceTabRepo(tmp.db)));
+    const savedSvc = new SavedQueryService(new SavedQueryRepo(tmp.db));
+    registerSavedChannels(router, savedSvc);
+    registerTabsChannels(router, new WorkspaceStateService(new WorkspaceTabRepo(tmp.db), savedSvc));
     registerRecentChannels(
       router,
       new RecentQueryService(new RecentQueryRepo(tmp.db)),

@@ -638,12 +638,12 @@ app.whenReady().then(() => {
     log,
     auditSvc,
   );
-  // Workspace tabs
-  const tabsRepo = new WorkspaceTabRepo(db);
-  const tabsSvc = new WorkspaceStateService(tabsRepo);
-
   const savedRepo = new SavedQueryRepo(db);
   const savedSvc = new SavedQueryService(savedRepo);
+  // Workspace tabs; opening a saved pipeline reads its stored stages.
+  const tabsRepo = new WorkspaceTabRepo(db);
+  const tabsSvc = new WorkspaceStateService(tabsRepo, savedSvc);
+
   const recentRepo = new RecentQueryRepo(db);
   const recentSvc = new RecentQueryService(recentRepo, log);
   const recentFieldValueRepo = new RecentFieldValueRepo(db);
