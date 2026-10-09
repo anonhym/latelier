@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { BSON, EJSON, Binary, ObjectId, Long, Decimal128, BSONRegExp, Code, Timestamp, MinKey, MaxKey, BSONSymbol, Int32, Double } from 'bson';
 import {
   ejsonParse,
@@ -654,8 +654,10 @@ describe('safeEjsonParse — malformed $date / $binary content is rejected', () 
 
 // ─── Bare integers beyond 2^53 ──────────────────────────────────────────────
 // `JSON.parse` rounds `9007199254740993` to `9007199254740992` before any
-// walker sees it, so both parsers read the exact digits off the reviver's
-// `context.source` and keep them as a Long. Both copies run the same table.
+// walker sees it. The source-preserving parse that keeps the digits is shared
+// (src/utils/bigIntJson.ts, tested once in bigIntJson.spec.ts: every token
+// spelling, the gate, the missing-source case). Here each parser proves the
+// sentinel it gets back is revived to a Long, with the rest of its walk intact.
 describe.each([
   ['electron safeEjsonParse', ejsonParse],
   ['renderer ejsonParse', ejsonParseRenderer],
@@ -667,14 +669,12 @@ describe.each([
   };
 
   it.each([
-    ['2^53 + 1', '9007199254740993', '9007199254740993'],
-    ['2^53 exactly (the first integer isSafeInteger rejects)', '9007199254740992', '9007199254740992'],
-    ['negative -(2^53 + 1)', '-9007199254740993', '-9007199254740993'],
-    ['negative -(2^53) exactly', '-9007199254740992', '-9007199254740992'],
-    ['int64 max', '9223372036854775807', '9223372036854775807'],
-    ['int64 min', '-9223372036854775808', '-9223372036854775808'],
-  ])('%s becomes an exact Long', (_name, token, digits) => {
-    expect(longAtA(`{"a":${token}}`)).toBe(digits);
+    ['2^53 + 1', '9007199254740993'],
+    ['negative -(2^53 + 1)', '-9007199254740993'],
+    ['int64 max', '9223372036854775807'],
+    ['int64 min', '-9223372036854775808'],
+  ])('%s becomes an exact Long', (_name, token) => {
+    expect(longAtA(`{"a":${token}}`)).toBe(token);
   });
 
   it('keeps the digits exact inside arrays nested in objects, at any depth', () => {
@@ -686,33 +686,10 @@ describe.each([
     expect(out.c.d[0][0].toString()).toBe('-9007199254740993');
   });
 
-  it.each([
-    ['a space after the colon and before the brace', '{"a": -9007199254740993 }'],
-    ['no whitespace at all', '{"a":-9007199254740993}'],
-    ['tabs and newlines after the colon', '{"a":\n\t-9007199254740993\r\n}'],
-  ])('%s takes the exact path', (_name, raw) => {
-    expect(longAtA(raw)).toBe('-9007199254740993');
-  });
-
-  it.each([
-    ['after "[" with no space', '[9007199254740993]'],
-    ['after ", " in an array', '[1, 9007199254740993]'],
-    ['after "[" with a space', '[ 9007199254740993]'],
-    ['after a comma with no space', '[1,9007199254740993]'],
-  ])('an array element %s takes the exact path', (_name, raw) => {
-    const arr = parse<unknown[]>(raw);
-    const last = arr[arr.length - 1];
-    expect(last).toBeInstanceOf(Long);
-    expect((last as Long).toString()).toBe('9007199254740993');
-  });
-
-  it('a lone top-level scalar, padded or not, takes the exact path', () => {
-    // No delimiter before the digits: the gate needs its start-of-text branch.
-    for (const raw of ['9007199254740993', '  -9007199254740993\n']) {
-      const v = parse(raw);
-      expect(v).toBeInstanceOf(Long);
-      expect((v as Long).toString()).toBe(raw.trim());
-    }
+  it('a lone top-level scalar becomes a Long', () => {
+    const v = parse('  -9007199254740993\n');
+    expect(v).toBeInstanceOf(Long);
+    expect((v as Long).toString()).toBe('-9007199254740993');
   });
 
   it('stringifies as a canonical $numberLong with the exact digits', () => {
@@ -738,37 +715,17 @@ describe.each([
     expect((out.__proto__ as Long).toString()).toBe('9007199254740993');
   });
 
-  // What must NOT become a Long. Each stays what plain JSON.parse says, so the
-  // expectation is computed from JSON.parse rather than restated by hand.
-  it.each([
-    ['a safe 16-digit integer', '1234567890123456'],
-    ['the largest safe integer', '9007199254740991'],
-    ['the smallest safe integer', '-9007199254740991'],
-    ['a small integer', '12'],
-    ['a fraction', '1.5'],
-    ['an exponent beyond 2^53', '1e21'],
-    ['an exponent with an explicit big mantissa', '1.2345678901234567e19'],
-    ['a plain exponent', '1e20'],
-    ['a big integer spelled with a fraction', '12345678901234567890.0'],
-    ['a 2^53 + 1 integer spelled with a fraction', '9007199254740993.5'],
-    ['an integer spelled with a zero exponent', '9007199254740993e0'],
-    ['one past int64 max', '9223372036854775808'],
-    ['one past int64 min', '-9223372036854775809'],
-    ['a 21-digit integer', '123456789012345678901'],
-    ['an overflowing exponent (Infinity)', '1e400'],
-  ])('%s stays the JS number JSON.parse gives', (_name, token) => {
-    // A second field with a real big int forces the gate open, so the
-    // reviver actually sees `a`; without it the plain path would hide a bug.
-    const out = parse<{ a: unknown; keep: unknown }>(`{"a":${token},"keep":9007199254740993}`);
-    expect(typeof out.a).toBe('number');
-    expect(Object.is(out.a, JSON.parse(token))).toBe(true);
+  it('leaves what is not a big integer token a plain number or string', () => {
+    // A second field with a real big int forces the reviver on.
+    const out = parse<Record<string, unknown>>(
+      '{"safe":1234567890123456,"frac":1.5,"exp":1e20,"beyond":9223372036854775808,"str":"9007199254740993","keep":9007199254740993}',
+    );
+    expect(out.safe).toBe(1234567890123456);
+    expect(out.frac).toBe(1.5);
+    expect(out.exp).toBe(1e20);
+    expect(out.beyond).toBe(9223372036854775808);
+    expect(out.str).toBe('9007199254740993');
     expect(out.keep).toBeInstanceOf(Long);
-  });
-
-  it('leaves a string that looks like a big integer alone', () => {
-    const out = parse<{ a: unknown; b: unknown }>('{"a":"9007199254740993","b":9007199254740993}');
-    expect(out.a).toBe('9007199254740993');
-    expect(out.b).toBeInstanceOf(Long);
   });
 
   it('leaves an existing $numberLong sentinel exactly as it was', () => {
@@ -778,8 +735,16 @@ describe.each([
     expect(out.b.equals(out.a)).toBe(true);
   });
 
-  it('leaves a lone safe scalar a number even when the gate is open', () => {
-    expect(parse('1234567890123456')).toBe(1234567890123456);
+  it('refuses an integer beyond 2^53 when the engine gives no source text, instead of keeping the rounded double', () => {
+    const real = JSON.parse;
+    const spy = vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) =>
+      real(text, reviver ? (key: string, value: unknown) => reviver.call(undefined, key, value) : undefined),
+    );
+    try {
+      expect(() => parse('{"a":9007199254740993}')).toThrow(/no source text/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -795,82 +760,6 @@ describe('bare big integers: both parsers agree', () => {
     ]) {
       expect(ejsonStringify(ejsonParseRenderer(raw))).toBe(ejsonStringify(ejsonParse(raw)));
     }
-  });
-});
-
-// The reviver costs ~8x on a large payload, so a text with no 16-digit bare
-// integer must reach JSON.parse without one. Spying on JSON.parse is the only
-// way to see that: the result is identical either way.
-describe.each([
-  ['electron safeEjsonParse', ejsonParse],
-  ['renderer ejsonParse', ejsonParseRenderer],
-] as const)('%s — the reviver is only paid for when a 16-digit bare integer is present', (_label, parse) => {
-  afterEach(() => vi.restoreAllMocks());
-
-  function revivedFor(raw: string): boolean {
-    const spy = vi.spyOn(JSON, 'parse');
-    parse(raw);
-    // bson's EJSON.parse calls JSON.parse too; only our own call has this text.
-    const own = spy.mock.calls.filter((call) => call[0] === raw);
-    expect(own).toHaveLength(1);
-    return typeof own[0]![1] === 'function';
-  }
-
-  it.each([
-    ['a canonical $numberLong string', '{"a":{"$numberLong":"9007199254740993"}}'],
-    ['a canonical result payload', '[{"_id":{"$oid":"507f1f77bcf86cd799439011"},"n":{"$numberInt":"5"}}]'],
-    ['a 15-digit bare integer', '{"a":123456789012345}'],
-    ['a 16-digit string value', '{"a":"1234567890123456"}'],
-    ['a 16-digit run glued to a key character, not a value', '{"a1234567890123456":1}'],
-  ])('%s uses the plain JSON.parse', (_name, raw) => {
-    expect(revivedFor(raw)).toBe(false);
-  });
-
-  it.each([
-    ['after a colon', '{"a":1234567890123456}'],
-    ['after a colon and a space', '{"a": 1234567890123456}'],
-    ['after a comma', '[1,1234567890123456]'],
-    ['after a bracket', '[1234567890123456]'],
-    ['negative', '{"a":-1234567890123456}'],
-    ['negative after a space', '{"a": -1234567890123456}'],
-    ['at the very start', '1234567890123456'],
-    ['at the start after whitespace', '  \n1234567890123456'],
-    ['more than 16 digits', '{"a":12345678901234567890}'],
-  ])('a 16-digit bare integer %s opens the reviver', (_name, raw) => {
-    expect(revivedFor(raw)).toBe(true);
-  });
-});
-
-// If an engine ever lacks JSON.parse's source-text access, a rounded integer
-// must be refused, not stored. Simulated by calling the reviver with two
-// arguments, the way an engine without the feature would.
-describe.each([
-  ['electron safeEjsonParse', ejsonParse],
-  ['renderer ejsonParse', ejsonParseRenderer],
-] as const)('%s — no JSON.parse source text available', (_label, parse) => {
-  afterEach(() => vi.restoreAllMocks());
-
-  function withoutSourceText(): void {
-    const real = JSON.parse;
-    vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) =>
-      real(text, reviver ? (key: string, value: unknown) => reviver.call(undefined, key, value) : undefined),
-    );
-  }
-
-  it('refuses an integer beyond 2^53 rather than keeping the rounded double', () => {
-    withoutSourceText();
-    expect(() => parse('{"a":9007199254740993}')).toThrow(/no source text/);
-    expect(() => parse('{"a":-9223372036854775808}')).toThrow(/no source text/);
-  });
-
-  it('still parses everything that needs no source text', () => {
-    withoutSourceText();
-    const out = parse<Record<string, unknown>>(
-      '{"a":1.5,"b":1234567890123456,"c":"x","d":null,"e":[true],"f":{"$oid":"507f1f77bcf86cd799439011"}}',
-    );
-    expect(out.a).toBe(1.5);
-    expect(out.b).toBe(1234567890123456);
-    expect(out.f).toBeInstanceOf(ObjectId);
   });
 });
 
