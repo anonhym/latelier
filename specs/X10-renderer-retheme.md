@@ -1,6 +1,6 @@
 # X10 — Renderer re-theme
 
-> **Status: Applied.** Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
+> **Status: Implemented.** Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
 
 ## Purpose
 
@@ -55,10 +55,10 @@ Three options were on the table:
 
 ## Acceptance criteria
 
-- [x] Dark mode shows atelier-deep surfaces and atelier-ghost text. The splash bg blends seamlessly with the connection list bg behind it.
-- [x] Light mode keeps the warm paper feel; only the accent (buttons, focus, active states) is violet.
-- [x] No surface in `src/` references `#1A6835` or `#3DC870` (the two old accent colors).
-- [x] `npm run lint`, typecheck, and unit + component tests are green.
+- Dark mode shows atelier-deep surfaces and atelier-ghost text. The splash bg blends seamlessly with the connection list bg behind it.
+- Light mode keeps the warm paper feel; only the accent (buttons, focus, active states) is violet.
+- No surface in `src/` references `#1A6835` or `#3DC870` (the two old accent colors).
+- `npm run lint`, typecheck, and unit + component tests are green.
 
 ## See also
 

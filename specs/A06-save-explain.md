@@ -1,5 +1,7 @@
 # A06 — Save pipeline / save as collection / explain
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Three closely-related title-bar actions that extend the aggregation tab beyond "run + display": persisting a named pipeline for reuse, writing pipeline output to a new collection (via `$out`), and inspecting the query-planner's execution plan.
@@ -93,12 +95,12 @@ Server implementation:
 
 ## 4. Acceptance criteria
 
-- [ ] Save/Save as delegate to W09 correctly; tab state updates reflect saved status.
-- [ ] Save as collection with `$out` replaces the target collection's contents; a banner reports the new count.
-- [ ] `$merge` mode respects `whenMatched`/`whenNotMatched`.
-- [ ] Target equals source with `$out` is rejected before running.
-- [ ] Explain drawer renders a plan for `queryPlanner` on a seeded collection.
-- [ ] Explain with `$out`/`$merge` in the pipeline succeeds and shows the omission notice.
+- Save/Save as delegate to W09 correctly; tab state updates reflect saved status.
+- Save as collection with `$out` replaces the target collection's contents; a banner reports the new count.
+- `$merge` mode respects `whenMatched`/`whenNotMatched`.
+- Target equals source with `$out` is rejected before running.
+- Explain drawer renders a plan for `queryPlanner` on a seeded collection.
+- Explain with `$out`/`$merge` in the pipeline succeeds and shows the omission notice.
 
 ## 5. Test cases
 

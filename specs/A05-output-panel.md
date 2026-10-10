@@ -1,5 +1,7 @@
 # A05 — Pipeline output panel
 
+> **Status: Implemented.**
+
 ## Purpose
 
 The bottom panel of the aggregation tab. Shows the pipeline's final output in Tree / JSON / Table form, with a resizable height. Reuses W06's view components where possible, with agg-specific affordances (copy-all, save-as-collection, download JSON).
@@ -57,13 +59,13 @@ The bottom panel of the aggregation tab. Shows the pipeline's final output in Tr
 
 ## 5. Acceptance criteria
 
-- [ ] Drag handle resizes the panel within the documented bounds; double-click resets.
-- [ ] Height persists across tab switches and relaunches.
-- [ ] View mode switches synchronously (no re-run).
-- [ ] Copy produces EJSON canonical output.
-- [ ] Download writes a valid file to the chosen path.
-- [ ] Save as collection opens the A06 modal with target collection pre-filled.
-- [ ] Error state shows code and message; "Show details" reveals the raw error.
+- Drag handle resizes the panel within the documented bounds; double-click resets.
+- Height persists across tab switches and relaunches.
+- View mode switches synchronously (no re-run).
+- Copy produces EJSON canonical output.
+- Download writes a valid file to the chosen path.
+- Save as collection opens the A06 modal with target collection pre-filled.
+- Error state shows code and message; "Show details" reveals the raw error.
 
 ## 6. Test cases
 

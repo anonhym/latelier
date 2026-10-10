@@ -1,5 +1,7 @@
 # W12 — Script editor tab
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Give users a workspace tab where they can write a multi-statement
@@ -418,50 +420,50 @@ tracked as a follow-up in GitHub Issues.
 
 ## 6. Acceptance criteria
 
-- [x] Opening a Script tab shows an empty CodeMirror 6 editor with JS
-      syntax highlighting and the project's theme.
-- [x] `Cmd/Ctrl+Enter` runs the buffer; the result panel renders the
-      last expression value.
-- [x] `db.users.find().toArray()` produces a renderable array result
-      using the existing `ResultTable` (Tree / JSON / Table toggle,
-      same components as the W06 collection result area).
-- [x] `print("hi")` appears in the print buffer below the value.
-- [x] A script run with a blank database field runs on the connection's
-      default database (else `test`), and the editor's completions list
-      that database's collections.
-- [x] An infinite loop (`while (true) {}`) is killed by the
-      `maxTimeMs` ceiling; the renderer shows a `SystemError` with a
-      clear "script exceeded N ms" message.
-- [x] A microtask loop (`while (true) await Promise.resolve()`) with a
-      500 ms limit returns `TIMEOUT` within about a second, other IPC
-      calls keep answering meanwhile, and the next run succeeds.
-- [x] A runner that dies mid-run surfaces a `SystemError`, and live
-      runners are killed on quit.
-- [x] On a read-only connection a write is refused by main by every
-      route (collection call, `getCollection`/`collection`, a cached
-      method reference, `admin()`, `runCommand`, `$out`/`$merge`), and a
-      connection flipped read-only mid-run has its next write refused
-      even with no kill.
-- [x] Crafted frames from an escaped script (an unknown method, a
-      prototype name, another run's or an invented cursor id, malformed
-      EJSON) are answered with an `rpc-error` and change nothing.
-- [x] No URI, password or connection string appears in any message sent
-      to the runner, its argv, or its environment.
-- [x] The runner entry is built to `dist-electron/script-runner.cjs`
-      and ships inside `app.asar`; a packaged macOS arm64 build (unsigned,
-      `--dir`) with the release fuses runs a script. Windows, Linux and a
-      signed macOS build are not yet verified.
-- [x] Cancelling a long `find` (large collection, no index) via the
-      Cancel button aborts within ~1 s.
-- [x] Closing and reopening the app restores the buffer text, but not
-      the most recent result/error: results can hold production
-      documents, so they are never written to `state_json` (main strips
-      `lastResult` / `lastError` on every write and a migration scrubs
-      older rows). A reopened script tab shows its empty output state
-      until Run.
-- [x] EJSON round-trips (an `ObjectId` written in the buffer comes
-      back as `$oid` in the result, and renders as `ObjectId(...)` in
-      the table).
+- Opening a Script tab shows an empty CodeMirror 6 editor with JS
+  syntax highlighting and the project's theme.
+- `Cmd/Ctrl+Enter` runs the buffer; the result panel renders the
+  last expression value.
+- `db.users.find().toArray()` produces a renderable array result
+  using the existing `ResultTable` (Tree / JSON / Table toggle,
+  same components as the W06 collection result area).
+- `print("hi")` appears in the print buffer below the value.
+- A script run with a blank database field runs on the connection's
+  default database (else `test`), and the editor's completions list
+  that database's collections.
+- An infinite loop (`while (true) {}`) is killed by the
+  `maxTimeMs` ceiling; the renderer shows a `SystemError` with a
+  clear "script exceeded N ms" message.
+- A microtask loop (`while (true) await Promise.resolve()`) with a
+  500 ms limit returns `TIMEOUT` within about a second, other IPC
+  calls keep answering meanwhile, and the next run succeeds.
+- A runner that dies mid-run surfaces a `SystemError`, and live
+  runners are killed on quit.
+- On a read-only connection a write is refused by main by every
+  route (collection call, `getCollection`/`collection`, a cached
+  method reference, `admin()`, `runCommand`, `$out`/`$merge`), and a
+  connection flipped read-only mid-run has its next write refused
+  even with no kill.
+- Crafted frames from an escaped script (an unknown method, a
+  prototype name, another run's or an invented cursor id, malformed
+  EJSON) are answered with an `rpc-error` and change nothing.
+- No URI, password or connection string appears in any message sent
+  to the runner, its argv, or its environment.
+- The runner entry is built to `dist-electron/script-runner.cjs`
+  and ships inside `app.asar`; a packaged macOS arm64 build (unsigned,
+  `--dir`) with the release fuses runs a script. Windows, Linux and a
+  signed macOS build are not yet verified.
+- Cancelling a long `find` (large collection, no index) via the
+  Cancel button aborts within ~1 s.
+- Closing and reopening the app restores the buffer text, but not
+  the most recent result/error: results can hold production
+  documents, so they are never written to `state_json` (main strips
+  `lastResult` / `lastError` on every write and a migration scrubs
+  older rows). A reopened script tab shows its empty output state
+  until Run.
+- EJSON round-trips (an `ObjectId` written in the buffer comes
+  back as `$oid` in the result, and renders as `ObjectId(...)` in
+  the table).
 
 ## 7. Test cases
 

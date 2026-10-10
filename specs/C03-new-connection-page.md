@@ -1,5 +1,7 @@
 # C03 — NewConnection page UI
 
+> **Status: Implemented.**
+
 > **Note:** The form body described below now lives in the host-agnostic
 > `src/features/connections/ConnectionForm.tsx` (extracted from
 > `NewConnection.tsx`, see ADR 0001) so it can be reused outside the
@@ -161,15 +163,15 @@ Recap (from §4 Auth):
 
 ## 11. Acceptance criteria
 
-- [ ] Fresh form renders with `INITIAL` state; Save is enabled only when required fields present.
-- [ ] Pasting a valid URI fills all applicable fields.
-- [ ] Test button works without persisting.
-- [ ] Create round-trip: save → navigate to list → new connection appears.
-- [ ] Edit mode: loads existing values; password placeholder indicates "stored"; editing and saving updates vault.
-- [ ] Removing a stored password via the explicit button clears it server-side.
-- [ ] Validation errors highlight offending fields and jump to the right tab.
-- [ ] `⌘S` saves; `⌘↵` tests; `Esc` asks to discard changes if dirty.
-- [ ] Attempting to navigate away with `dirty = true` shows a confirmation dialog.
+- Fresh form renders with `INITIAL` state; Save is enabled only when required fields present.
+- Pasting a valid URI fills all applicable fields.
+- Test button works without persisting.
+- Create round-trip: save → navigate to list → new connection appears.
+- Edit mode: loads existing values; password placeholder indicates "stored"; editing and saving updates vault.
+- Removing a stored password via the explicit button clears it server-side.
+- Validation errors highlight offending fields and jump to the right tab.
+- `⌘S` saves; `⌘↵` tests; `Esc` asks to discard changes if dirty.
+- Attempting to navigate away with `dirty = true` shows a confirmation dialog.
 
 ## 12. Test cases
 

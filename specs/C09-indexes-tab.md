@@ -1,5 +1,7 @@
 # C09 — Indexes tab (real listing + create / drop)
 
+> **Status: Superseded by [W16](./W16-structure-view.md).** The index service it introduced still backs the Structure view.
+
 > **Removed by W16 Tier 2 (ADR 0003).** The Connection Manager's Indexes tab
 > is gone, along with `IndexesHost`, the DB/collection picker wrapper it used
 > in the interim. `IndexesTab` is namespace-scoped (`{connectionId, dbName,
@@ -337,18 +339,18 @@ Type the index name to confirm:
 
 ## 7. Acceptance criteria
 
-- [ ] Indexes tab in `DetailPanel.tsx` no longer renders `StubTab`; renders the new `IndexesTab` component.
-- [ ] DB picker lists every database (system DBs gated by the existing `ui.showSystemDbs` pref); collection picker re-uses `meta:listCollections` cache.
-- [ ] Selecting (db, collection) lists every index from `collection.indexes()` and includes `_id_`.
-- [ ] On a connection that authorizes `$indexStats` and `$collStats`, the **Use** and **Size** columns populate.
-- [ ] On a connection that does not authorize them (Atlas free tier), **Use** and **Size** read `—` and the rest of the table still renders.
-- [ ] Creating an index round-trips: form → `api.index.create` → server-assigned name visible in the list after refetch.
-- [ ] The Create index button is disabled while any field name is blank (whitespace-only counts as blank); no request is sent.
-- [ ] Creating a duplicate index keeps the drawer open with an inline `CONFLICT` error.
-- [ ] Dropping a non-`_id_` index removes it from the list after the two-step confirm.
-- [ ] Dropping `_id_` is impossible from the UI (no Drop button on its row) and refused server-side with `VALIDATION` if invoked via raw IPC.
-- [ ] ~~`ui.indexes.lastTarget` persists across reload: after restart, opening the Indexes tab re-selects the last DB / collection viewed (when both still exist).~~ **Retired by W16 Tier 1** — no longer applies; see that spec's Tier 1 acceptance criteria instead.
-- [ ] `npm run audit:ipc` passes with no allowlist changes (no `SECRET_INPUT` channels added).
+- Indexes tab in `DetailPanel.tsx` no longer renders `StubTab`; renders the new `IndexesTab` component.
+- DB picker lists every database (system DBs gated by the existing `ui.showSystemDbs` pref); collection picker re-uses `meta:listCollections` cache.
+- Selecting (db, collection) lists every index from `collection.indexes()` and includes `_id_`.
+- On a connection that authorizes `$indexStats` and `$collStats`, the **Use** and **Size** columns populate.
+- On a connection that does not authorize them (Atlas free tier), **Use** and **Size** read `—` and the rest of the table still renders.
+- Creating an index round-trips: form → `api.index.create` → server-assigned name visible in the list after refetch.
+- The Create index button is disabled while any field name is blank (whitespace-only counts as blank); no request is sent.
+- Creating a duplicate index keeps the drawer open with an inline `CONFLICT` error.
+- Dropping a non-`_id_` index removes it from the list after the two-step confirm.
+- Dropping `_id_` is impossible from the UI (no Drop button on its row) and refused server-side with `VALIDATION` if invoked via raw IPC.
+- ~~`ui.indexes.lastTarget` persists across reload: after restart, opening the Indexes tab re-selects the last DB / collection viewed (when both still exist).~~ **Retired by W16 Tier 1** — no longer applies; see that spec's Tier 1 acceptance criteria instead.
+- `npm run audit:ipc` passes with no allowlist changes (no `SECRET_INPUT` channels added).
 
 ## 8. Test cases
 

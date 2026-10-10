@@ -1,5 +1,7 @@
 # X19 — Keyboard operability of custom controls
 
+> **Status: Implemented.**
+
 Epic: #51 · Source: `docs/UX-AUDIT.md` §N2 (addendum).
 Base branch: `feature/n2-keyboard-operability`.
 
@@ -151,28 +153,28 @@ design, acceptance criteria and test position:
 
 Per interactive control this spec touches:
 
-- [ ] It is reachable by keyboard alone — either it is a tab stop, or it is a
-      member of a composite widget whose container is a tab stop and which moves
-      focus to it.
-- [ ] It exposes a `role` that matches what it does, and the state attribute
-      that role requires (`aria-selected`, `aria-expanded`, `aria-checked`,
-      `aria-sort`, `aria-valuenow`).
-- [ ] Every action it offers a pointer, it offers a keyboard. A context menu is
-      not a keyboard path.
-- [ ] No state is conveyed by colour alone.
-- [ ] It is not hover-gated — an affordance that only appears on `:hover` is
-      unreachable without a pointer, so it must also appear on `:focus-within`.
+- It is reachable by keyboard alone — either it is a tab stop, or it is a
+  member of a composite widget whose container is a tab stop and which moves
+  focus to it.
+- It exposes a `role` that matches what it does, and the state attribute
+  that role requires (`aria-selected`, `aria-expanded`, `aria-checked`,
+  `aria-sort`, `aria-valuenow`).
+- Every action it offers a pointer, it offers a keyboard. A context menu is
+  not a keyboard path.
+- No state is conveyed by colour alone.
+- It is not hover-gated — an affordance that only appears on `:hover` is
+  unreachable without a pointer, so it must also appear on `:focus-within`.
 
 Per composite widget (grid, tree, tablist, listbox):
 
-- [ ] Exactly one tab stop for the whole widget, never one per child.
-- [ ] Arrow keys move the active child; Home/End jump to first/last.
-- [ ] The active child is scrolled into view when it moves.
-- [ ] The active child is identified to assistive tech — `aria-activedescendant`
-      on the container, or real focus on the child.
-- [ ] The active child is visible without a screen reader, not only announced —
-      distinct from the selected treatment, and meeting WCAG 1.4.11 non-text
-      contrast against the surfaces it can sit on.
+- Exactly one tab stop for the whole widget, never one per child.
+- Arrow keys move the active child; Home/End jump to first/last.
+- The active child is scrolled into view when it moves.
+- The active child is identified to assistive tech — `aria-activedescendant`
+  on the container, or real focus on the child.
+- The active child is visible without a screen reader, not only announced —
+  distinct from the selected treatment, and meeting WCAG 1.4.11 non-text
+  contrast against the surfaces it can sit on.
 
 ## 5. Verification — mutation, not green
 

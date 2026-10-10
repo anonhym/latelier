@@ -1,5 +1,7 @@
 # C10 — Users tab (real listing + create / update / drop)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Replace the C08 `StubTab` for the Users tab in `DetailPanel.tsx` with a real database-user manager. Lists users defined on the server (per database, plus `admin`), shows their roles, and supports create / update / delete with the same safety posture as C03 connections — passwords go through `safeStorage`-encrypted *transport* (the same `SECRET_INPUT` allowlist mechanism used by `conn:create`) and never persist on disk client-side.
@@ -392,18 +394,18 @@ Type the username to confirm:
 
 ## 7. Acceptance criteria
 
-- [ ] Users tab in `DetailPanel.tsx` no longer renders `StubTab`; renders the new `UsersTab` component.
-- [ ] `All databases` listing returns every server-side user including those on `$external`.
-- [ ] Per-database listing only returns users whose home db matches the picker.
-- [ ] Creating a user with `readWrite@myapp` succeeds; the new row appears after refetch.
-- [ ] Creating a duplicate user keeps the drawer open with a `CONFLICT` inline error.
-- [ ] Editing a user's role list replaces it (verified server-side: old roles gone, new roles present).
-- [ ] Editing with an empty password field leaves the password unchanged.
-- [ ] Dropping a non-self user removes it after the two-step confirm.
-- [ ] On the row matching `connection.auth_username` + `connection.auth_database`, Edit and Drop buttons are absent.
-- [ ] `external: true` users open the drawer in role-only edit mode; password fields hidden.
-- [ ] `npm run audit:ipc` passes with the two new entries (`user:create`, `user:update`) in `scripts/ipc-secret-allowlist.txt`.
-- [ ] No log entry produced by a `createUser` / `updateUser` flow contains the plaintext password (verified by snapshot).
+- Users tab in `DetailPanel.tsx` no longer renders `StubTab`; renders the new `UsersTab` component.
+- `All databases` listing returns every server-side user including those on `$external`.
+- Per-database listing only returns users whose home db matches the picker.
+- Creating a user with `readWrite@myapp` succeeds; the new row appears after refetch.
+- Creating a duplicate user keeps the drawer open with a `CONFLICT` inline error.
+- Editing a user's role list replaces it (verified server-side: old roles gone, new roles present).
+- Editing with an empty password field leaves the password unchanged.
+- Dropping a non-self user removes it after the two-step confirm.
+- On the row matching `connection.auth_username` + `connection.auth_database`, Edit and Drop buttons are absent.
+- `external: true` users open the drawer in role-only edit mode; password fields hidden.
+- `npm run audit:ipc` passes with the two new entries (`user:create`, `user:update`) in `scripts/ipc-secret-allowlist.txt`.
+- No log entry produced by a `createUser` / `updateUser` flow contains the plaintext password (verified by snapshot).
 
 ## 8. Test cases
 

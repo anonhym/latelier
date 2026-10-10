@@ -1,5 +1,7 @@
 # X18 — Deepening seams: Shell Syntax fields and the Read-Only handle
 
+> **Status: Implemented.** §3's seam does not cover the Document Editor's JSON mode, which replaced two of the Pattern A surfaces listed there.
+
 ## Purpose
 
 Two cross-cutting rules in this codebase are applied by hand at every call site
@@ -262,21 +264,21 @@ the work: ticket 1 gives it one.
 
 ### Acceptance criteria
 
-- [ ] All seven Pattern A surfaces obtain their outcome and refusal from the hook,
-      and hold no refusal `useState` of their own.
-- [ ] No Pattern A surface calls `repairOnCommit`, `repairToCanonicalEjson` or
-      `refusalMessage` directly.
-- [ ] Pattern B call sites are unchanged, and `Aggregation/pipeline.ts` still calls
-      the pure functions directly — it is not React.
-- [ ] `src/utils/shellSyntax.ts` is byte-unchanged and its Stryker score does not
-      drop.
-- [ ] Every characterization test from ticket 1 passes **without modification**.
-- [ ] The empty-string suppression still holds where it is load-bearing — a blank
-      sort shows no refusal. (Audited: the sort blur is the only site that genuinely
-      depends on it. `pipeline.ts` guards blank earlier, so the suppression is dead
-      code on that path.)
-- [ ] `EditDrawer`'s pre-blur Save gate and `QueryBar`'s post-commit Run gate both
-      behave exactly as ticket 1 pinned them.
+- All seven Pattern A surfaces obtain their outcome and refusal from the hook,
+  and hold no refusal `useState` of their own.
+- No Pattern A surface calls `repairOnCommit`, `repairToCanonicalEjson` or
+  `refusalMessage` directly.
+- Pattern B call sites are unchanged, and `Aggregation/pipeline.ts` still calls
+  the pure functions directly — it is not React.
+- `src/utils/shellSyntax.ts` is byte-unchanged and its Stryker score does not
+  drop.
+- Every characterization test from ticket 1 passes **without modification**.
+- The empty-string suppression still holds where it is load-bearing — a blank
+  sort shows no refusal. (Audited: the sort blur is the only site that genuinely
+  depends on it. `pipeline.ts` guards blank earlier, so the suppression is dead
+  code on that path.)
+- `EditDrawer`'s pre-blur Save gate and `QueryBar`'s post-commit Run gate both
+  behave exactly as ticket 1 pinned them.
 
 ## 4. The Read-Only guarded handle
 
@@ -414,17 +416,17 @@ can be omitted — so nothing is lost by there being no separate amendment docum
 
 ### Acceptance criteria
 
-- [ ] No `assertWritable` call outside `MongoPool`.
-- [ ] No `getDb`/`getClient` call outside `MongoPool`.
-- [ ] Refusal still outranks local validation, and local validation still precedes any connection attempt. Both pinned by tests — neither was before.
-- [ ] `agg:run` registers cancellation before it connects.
-- [ ] Every one of the 18 previously-guarded methods obtains a write handle.
-- [ ] A read-only refusal still throws `ReadOnlyConnectionError` and still crosses
-      IPC as the same `IpcError.code` as before.
-- [ ] `tests/unit/read-only-channel-classification.spec.ts` still passes. It is
-      **not** retired in this ticket — a channel can still be classified wrong, and
-      the handle does not answer that. Retiring it is a separate decision.
-- [ ] Every characterization test from §2 passes without modification.
+- No `assertWritable` call outside `MongoPool`.
+- No `getDb`/`getClient` call outside `MongoPool`.
+- Refusal still outranks local validation, and local validation still precedes any connection attempt. Both pinned by tests — neither was before.
+- `agg:run` registers cancellation before it connects.
+- Every one of the 18 previously-guarded methods obtains a write handle.
+- A read-only refusal still throws `ReadOnlyConnectionError` and still crosses
+  IPC as the same `IpcError.code` as before.
+- `tests/unit/read-only-channel-classification.spec.ts` still passes. It is
+  **not** retired in this ticket — a channel can still be classified wrong, and
+  the handle does not answer that. Retiring it is a separate decision.
+- Every characterization test from §2 passes without modification.
 
 ## 5. Defect — a script keeps its write surface after the Connection flips
 
@@ -471,11 +473,11 @@ reference survives the spread.
 
 ### Acceptance criteria
 
-- [ ] A test flips a Connection to Read-Only *during* a running script and asserts
-      the next write through `db` is refused.
-- [ ] The same test shape covers `getSiblingDB` — a sibling proxy obtained before
-      the flip also refuses after it.
-- [ ] `ShellService`'s existing behaviour is unchanged.
+- A test flips a Connection to Read-Only *during* a running script and asserts
+  the next write through `db` is refused.
+- The same test shape covers `getSiblingDB` — a sibling proxy obtained before
+  the flip also refuses after it.
+- `ShellService`'s existing behaviour is unchanged.
 
 ## 6. The `maxTimeMS` bound on the source, not the handle
 
@@ -512,10 +514,10 @@ in the same diff.
 
 ### Acceptance criteria
 
-- [ ] One shared source for the bound; the six ad-hoc constants are gone.
-- [ ] Each of the previously-unbounded methods is bounded, and a test asserts it.
-- [ ] The bound is overridable per call for the operations that legitimately need
-      longer, and each override says why.
+- One shared source for the bound; the six ad-hoc constants are gone.
+- Each of the previously-unbounded methods is bounded, and a test asserts it.
+- The bound is overridable per call for the operations that legitimately need
+  longer, and each override says why.
 
 ## 7. Error classification on the handle
 
@@ -567,11 +569,11 @@ Two consequences worth recording, both found by review rather than by design:
 
 ### Acceptance criteria
 
-- [x] One classifier.
-- [x] A test asserts that a raw driver error reaching the router unclassified leaves
-      it as an `AppError` with the right code, with no service in the path — and
-      fails if the backstop is removed.
-- [x] Every code change relative to today is listed in the PR body.
+- One classifier.
+- A test asserts that a raw driver error reaching the router unclassified leaves
+  it as an `AppError` with the right code, with no service in the path — and
+  fails if the backstop is removed.
+- Every code change relative to today is listed in the PR body.
 
 ## 8. Ticket order
 

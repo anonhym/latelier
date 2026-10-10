@@ -1,5 +1,7 @@
 # C12 — Auto-remediation buttons in the troubleshooting drawer
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Turn the C11 drawer's advice from "read this and go fix it yourself" into
@@ -230,25 +232,25 @@ None. Action handlers are renderer-side closures over component state.
 
 ## 8. Acceptance criteria
 
-- [ ] In `NewConnection`, a Test failure with `errorCode: TIMEOUT` and
-      a message containing `ECONNRESET` opens the drawer with a
-      **Retry without TLS** button under the matching step.
-- [ ] Clicking it sets `tlsEnabled` to false on the form, runs Test,
-      and (when the next probe succeeds) auto-closes the drawer.
-- [ ] If the retry fails again, the drawer stays open and the failure
-      pill in the form reflects the new outcome.
-- [ ] Same flow for `errorCode: TIMEOUT` + `ENOTFOUND` →
-      **Retry with Direct connection** flips
-      `advanced.directConnection` to true.
-- [ ] On `DetailPanel`, the drawer renders the same recipes but no
-      action buttons appear (no handlers were registered).
-- [ ] Recipes without a `suggestedAction` (e.g., `auth-default`,
-      `unauthorized`) render no buttons regardless of trigger site.
-- [ ] The action button is disabled while a previous click is in
-      flight; double-clicks fire the handler exactly once.
-- [ ] `useTroubleshooting().open()` with no `actions` argument
-      (existing call sites — palette command, future surfaces) renders
-      the drawer with no action buttons.
+- In `NewConnection`, a Test failure with `errorCode: TIMEOUT` and
+  a message containing `ECONNRESET` opens the drawer with a
+  **Retry without TLS** button under the matching step.
+- Clicking it sets `tlsEnabled` to false on the form, runs Test,
+  and (when the next probe succeeds) auto-closes the drawer.
+- If the retry fails again, the drawer stays open and the failure
+  pill in the form reflects the new outcome.
+- Same flow for `errorCode: TIMEOUT` + `ENOTFOUND` →
+  **Retry with Direct connection** flips
+  `advanced.directConnection` to true.
+- On `DetailPanel`, the drawer renders the same recipes but no
+  action buttons appear (no handlers were registered).
+- Recipes without a `suggestedAction` (e.g., `auth-default`,
+  `unauthorized`) render no buttons regardless of trigger site.
+- The action button is disabled while a previous click is in
+  flight; double-clicks fire the handler exactly once.
+- `useTroubleshooting().open()` with no `actions` argument
+  (existing call sites — palette command, future surfaces) renders
+  the drawer with no action buttons.
 
 ## 9. Test cases
 

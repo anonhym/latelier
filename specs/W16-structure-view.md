@@ -1,5 +1,7 @@
 # W16 — Structure: the collection's shape and access paths
 
+> **Status: Accepted.** Tiers 1, 2 and 4 shipped. Tier 3, the plan badge, is not built.
+
 ## Purpose
 
 A user runs a find, gets their rows, and moves on. Nothing in the app tells
@@ -483,75 +485,75 @@ it is the smallest, and it puts the idea in the running app soonest.
 
 ### Tier 1 — collection-scope the index surface
 
-- [ ] The index component takes `{ connectionId, dbName, collection }` and
-      renders that namespace's indexes.
-- [ ] Its database and collection pickers are gone, as is the
-      `ui.indexes.lastTarget` preference read/write.
-- [ ] List, create (all existing options), and drop behave exactly as before
-      for a given namespace.
-- [ ] `IndexService` and the `index:*` channels are unchanged.
-- [ ] `specs/C09-indexes-tab.md` is amended to describe the collection-scoped
-      surface, and the references to it from `C05`, `C08`, `PLAN-connections`
-      and `README` still resolve.
+- The index component takes `{ connectionId, dbName, collection }` and
+  renders that namespace's indexes.
+- Its database and collection pickers are gone, as is the
+  `ui.indexes.lastTarget` preference read/write.
+- List, create (all existing options), and drop behave exactly as before
+  for a given namespace.
+- `IndexService` and the `index:*` channels are unchanged.
+- `specs/C09-indexes-tab.md` is amended to describe the collection-scoped
+  surface, and the references to it from `C05`, `C08`, `PLAN-connections`
+  and `README` still resolve.
 
 ### Tier 2 — the Structure view
 
-- [ ] `CollectionView` is `'documents' | 'aggregation' | 'structure'`; the
-      sub-tab strip shows three entries with Structure third.
-- [ ] Structure renders one scrolling pane: indexes section, then schema
-      section.
-- [ ] The schema section behaves exactly as the Schema view did, including
-      sample-size, explicit Refresh, and no re-sample on view switch.
-- [ ] Entering Structure fetches the index list; it does not trigger a schema
-      sample.
-- [ ] A tab persisted with `activeView: 'schema'` opens on Structure.
-- [ ] A tab persisted with an unrecognized `activeView` opens on Documents,
-      never blank.
-- [ ] The `activeView` enum in `electron/ipc/handlers/tabs.ts` accepts
-      `'structure'` (§7.1), and a tab left on Structure still persists its
-      other state — columns, page, `queryRaw` — across a relaunch.
-- [ ] The Connection Manager has no Indexes tab, and its `Tab` union no longer
-      names one.
-- [ ] `UsersTab` is untouched and still reachable.
+- `CollectionView` is `'documents' | 'aggregation' | 'structure'`; the
+  sub-tab strip shows three entries with Structure third.
+- Structure renders one scrolling pane: indexes section, then schema
+  section.
+- The schema section behaves exactly as the Schema view did, including
+  sample-size, explicit Refresh, and no re-sample on view switch.
+- Entering Structure fetches the index list; it does not trigger a schema
+  sample.
+- A tab persisted with `activeView: 'schema'` opens on Structure.
+- A tab persisted with an unrecognized `activeView` opens on Documents,
+  never blank.
+- The `activeView` enum in `electron/ipc/handlers/tabs.ts` accepts
+  `'structure'` (§7.1), and a tab left on Structure still persists its
+  other state — columns, page, `queryRaw` — across a relaunch.
+- The Connection Manager has no Indexes tab, and its `Tab` union no longer
+  names one.
+- `UsersTab` is untouched and still reachable.
 
 ### Tier 3 — the plan badge
 
-- [ ] Every successful find issues a `queryPlanner` explain for the same
-      filter, sort and projection.
-- [ ] The result bar shows the index name for an `IXSCAN`, `no index` for a
-      `COLLSCAN`, and nothing when the plan is unrecognized or the explain
-      failed.
-- [ ] A failed, slow, or cancelled explain never blocks, delays, or fails the
-      find; rows render regardless.
-- [ ] The badge is a button; activating it opens `ExplainDrawer` on the
-      already-fetched plan.
-- [ ] The badge updates on every run, including page changes, and reflects a
-      newly created index without an app restart.
-- [ ] While the result count is marked not current (X14 §5), the badge is
-      dimmed on the same condition, and its accessible name says so in words
-      (§3.4).
-- [ ] The badge has an accessible name; it is not colour-alone.
+- Every successful find issues a `queryPlanner` explain for the same
+  filter, sort and projection.
+- The result bar shows the index name for an `IXSCAN`, `no index` for a
+  `COLLSCAN`, and nothing when the plan is unrecognized or the explain
+  failed.
+- A failed, slow, or cancelled explain never blocks, delays, or fails the
+  find; rows render regardless.
+- The badge is a button; activating it opens `ExplainDrawer` on the
+  already-fetched plan.
+- The badge updates on every run, including page changes, and reflects a
+  newly created index without an app restart.
+- While the result count is marked not current (X14 §5), the badge is
+  dimmed on the same condition, and its accessible name says so in words
+  (§3.4).
+- The badge has an accessible name; it is not colour-alone.
 
 ### Tier 4 — create this index
 
-- [ ] On a `COLLSCAN` plan, `ExplainDrawer` offers **Create this index** when
-      the find caller supplies the action, and does not offer it on an
-      aggregation explain (§4.1).
-- [ ] It opens the create drawer for this collection, prefilled in ESR order
-      per §4.1, with sort directions preserved verbatim.
-- [ ] For each refusal case in §4.2 the drawer opens with fields empty.
-- [ ] The action never creates an index by itself — submission stays the
-      user's act.
-- [ ] The rationale line names the rule that produced the ordering.
+- On a `COLLSCAN` plan, `ExplainDrawer` offers **Create this index** when
+  the find caller supplies the action, and does not offer it on an
+  aggregation explain (§4.1).
+- It opens the create drawer for this collection, prefilled in ESR order
+  per §4.1, with sort directions preserved verbatim.
+- For each refusal case in §4.2 the drawer opens with fields empty.
+- The action never creates an index by itself — submission stays the
+  user's act.
+- The rationale line names the rule that produced the ordering.
 
 ### Invariants (all tiers)
 
-- [ ] No new IPC channel. The only contract change is the `activeView` enum in
-      `electron/ipc/handlers/tabs.ts` widening in step with `CollectionView`
-      (§7.1) — no channel gains, loses, or retypes any other field.
-- [ ] No renderer import of a forbidden module; the suggestion module is pure
-      and imports nothing from `electron/`.
-- [ ] No behavior change to `IndexService`, `MetaService`, or `QueryService`.
+- No new IPC channel. The only contract change is the `activeView` enum in
+  `electron/ipc/handlers/tabs.ts` widening in step with `CollectionView`
+  (§7.1) — no channel gains, loses, or retypes any other field.
+- No renderer import of a forbidden module; the suggestion module is pure
+  and imports nothing from `electron/`.
+- No behavior change to `IndexService`, `MetaService`, or `QueryService`.
 
 ## 10. Test cases
 

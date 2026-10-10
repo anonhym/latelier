@@ -1,5 +1,7 @@
 # C13 — Connection Export / Import
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Let a user write some or all of their saved Connections to a file and read them back, either on another machine, after a reinstall, or into a teammate's install. The file is a **Connection Export** (see `CONTEXT.md`). Secrets can travel inside it, but only encrypted under an **Export Passphrase** the user chooses at export time.
@@ -167,23 +169,23 @@ The table's footer holds only the three ways to add (§7). Export of every Conne
 
 ## Acceptance criteria
 
-- [ ] Export writes only the ticked Connections, every field except secrets and the three credential paths, as readable JSON with mode `0600`.
-- [ ] With "Include passwords", secrets are AES-256-GCM-encrypted under an scrypt key from the Export Passphrase, whose parameters and salt are recorded in the file. Without it, the file has `"encryption": null` and no `secrets` keys.
-- [ ] The Export Passphrase must be at least 12 characters and entered twice.
-- [ ] A secret that can't be decrypted is left out of the export and reported. The export still succeeds.
-- [ ] Import validates `format`/`version`, refuses a newer version with an "update" message, and rejects unknown fields.
-- [ ] The import preview shows the final names (with clash renames), the files that need re-picking, and secrets, before anything is written.
-- [ ] Import always creates new Connections and never modifies existing ones.
-- [ ] Credential paths are never imported; affected Connections are listed.
-- [ ] A wrong passphrase can be retried; "Import without passwords" imports everything else.
-- [ ] Without secure storage and with the plaintext fallback off, Connections import without secrets and the result says why.
-- [ ] Export and Import are reachable from the command palette, the File menu and the empty first-launch screen.
-- [ ] Plaintext secrets and the derived key never cross into the renderer.
-- [ ] Pasting several connection strings previews each line's saved name, credentials and errors before anything is written; bad lines are skipped and listed.
-- [ ] Defaults (read-only, direct connection) apply to every line; a line's own `directConnection` wins; SRV lines never get direct connection.
-- [ ] Lines missing a username or password are listed one per row for credentials; blanks are accepted.
-- [ ] The preview never returns a password to the renderer.
-- [ ] The Connections table checks rows (with check-all over the visible rows) and exports or deletes the checked set without closing.
+- Export writes only the ticked Connections, every field except secrets and the three credential paths, as readable JSON with mode `0600`.
+- With "Include passwords", secrets are AES-256-GCM-encrypted under an scrypt key from the Export Passphrase, whose parameters and salt are recorded in the file. Without it, the file has `"encryption": null` and no `secrets` keys.
+- The Export Passphrase must be at least 12 characters and entered twice.
+- A secret that can't be decrypted is left out of the export and reported. The export still succeeds.
+- Import validates `format`/`version`, refuses a newer version with an "update" message, and rejects unknown fields.
+- The import preview shows the final names (with clash renames), the files that need re-picking, and secrets, before anything is written.
+- Import always creates new Connections and never modifies existing ones.
+- Credential paths are never imported; affected Connections are listed.
+- A wrong passphrase can be retried; "Import without passwords" imports everything else.
+- Without secure storage and with the plaintext fallback off, Connections import without secrets and the result says why.
+- Export and Import are reachable from the command palette, the File menu and the empty first-launch screen.
+- Plaintext secrets and the derived key never cross into the renderer.
+- Pasting several connection strings previews each line's saved name, credentials and errors before anything is written; bad lines are skipped and listed.
+- Defaults (read-only, direct connection) apply to every line; a line's own `directConnection` wins; SRV lines never get direct connection.
+- Lines missing a username or password are listed one per row for credentials; blanks are accepted.
+- The preview never returns a password to the renderer.
+- The Connections table checks rows (with check-all over the visible rows) and exports or deletes the checked set without closing.
 
 ## Test cases
 

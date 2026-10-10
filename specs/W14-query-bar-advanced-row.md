@@ -1,5 +1,7 @@
 # W14 — Query bar advanced row: correctness, affordance, projection
 
+> **Status: Implemented.**
+
 ## Purpose
 
 W13 §7 made the query bar the **single owner** of sort / limit / projection by
@@ -254,28 +256,28 @@ so the 5-file contract and `scripts/ipc-secret-allowlist.txt` are untouched.
 
 ## 7. Acceptance criteria
 
-- [ ] Opening a tab with no advanced values, then switching to a tab whose
-      projection / sort / limit is set, leaves the advanced row **open**.
-- [ ] The inverse: first tab has a sort, second tab has none → the advanced row
-      is **collapsed** on the second tab.
-- [ ] Loading a Saved query with a projection into the active tab opens the
-      advanced row.
-- [ ] A user's explicit collapse of the advanced row is **not** undone by editing
-      the filter, typing in the query bar, or any other same-tab re-render.
-- [ ] When collapsed with at least one advanced value set, the trigger shows a
-      persistent indicator without hover, stating how many are set.
-- [ ] When collapsed and a set sort or limit cannot run as written, the indicator
-      also states how many errors there are (`n set · m error(s)`) in the warning
-      colour, and returns to plain `n set` once they are fixed.
-- [ ] The trigger keeps `aria-expanded` / `aria-controls` correct, remains
-      operable by Enter and Space, and shows a visible focus ring.
-- [ ] Typing an unparseable projection and blurring **retains the typed text**.
-- [ ] That failure renders a `role="alert"` message adjacent to the input.
-- [ ] A valid-but-unmodelable projection (`{a: 0}`, `$slice`) produces a message
-      distinct from the malformed-input message, and points at raw MQL.
-- [ ] A valid projection still commits and clears the draft exactly as today.
-- [ ] No change to `builder.projection`'s persisted shape; a tab saved before this
-      change restores identically.
+- Opening a tab with no advanced values, then switching to a tab whose
+  projection / sort / limit is set, leaves the advanced row **open**.
+- The inverse: first tab has a sort, second tab has none → the advanced row
+  is **collapsed** on the second tab.
+- Loading a Saved query with a projection into the active tab opens the
+  advanced row.
+- A user's explicit collapse of the advanced row is **not** undone by editing
+  the filter, typing in the query bar, or any other same-tab re-render.
+- When collapsed with at least one advanced value set, the trigger shows a
+  persistent indicator without hover, stating how many are set.
+- When collapsed and a set sort or limit cannot run as written, the indicator
+  also states how many errors there are (`n set · m error(s)`) in the warning
+  colour, and returns to plain `n set` once they are fixed.
+- The trigger keeps `aria-expanded` / `aria-controls` correct, remains
+  operable by Enter and Space, and shows a visible focus ring.
+- Typing an unparseable projection and blurring **retains the typed text**.
+- That failure renders a `role="alert"` message adjacent to the input.
+- A valid-but-unmodelable projection (`{a: 0}`, `$slice`) produces a message
+  distinct from the malformed-input message, and points at raw MQL.
+- A valid projection still commits and clears the draft exactly as today.
+- No change to `builder.projection`'s persisted shape; a tab saved before this
+  change restores identically.
 
 ## 8. Test cases
 

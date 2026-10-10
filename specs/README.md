@@ -12,7 +12,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 2. **Persistence**: SQLite via `better-sqlite3` at `app.getPath('userData')/latelier.db`. Migrations on startup. Schema versioned.
 3. **Secrets**: Electron `safeStorage` encrypts per-field strings; ciphertext stored as blobs in `connection_secrets`; plaintext never crosses IPC back to the renderer.
 4. **IPC**: one `window.atelier` namespace exposed via `contextBridge` (renamed from `window.mongolab`, see [X09](./X09-namespace-rename.md)). Every channel is `invoke`-style (promise). Every payload is runtime-validated in main. Errors return a structured envelope, not raw throws.
-5. **Process model**: single window with a tab system. Connection creation is a modal-like route; ConnectionManager and Workspace are top-level routes; Aggregation is a tab type *inside* Workspace.
+5. **Process model**: single window with a tab system. Connection creation is a modal-like route; ConnectionManager and Workspace are top-level routes; Aggregation is a sub-view of a collection tab *inside* Workspace.
 6. **BSON across the wire**: Extended JSON v2 (EJSON). Serialized in main, parsed in renderer when rendering; renderer-side edits are round-tripped through EJSON back to main.
 7. **Testing**: Vitest for unit/integration/component tests; Playwright + `@playwright/test` with the Electron driver for end-to-end. Each spec declares its test cases.
 
@@ -122,7 +122,20 @@ Iteration-1 specs are numbered in the order they were built: foundation first (F
 
 ## Spec template
 
-Every spec opens with:
+Every spec opens with a status line directly under its title:
+
+> **Status: Implemented.** An optional sentence on what differs from the text below.
+
+The value is one of:
+
+- **Draft**: the design is still being worked out.
+- **Accepted**: agreed and being built; the sentence says which parts have shipped.
+- **Implemented**: shipped, and the current behaviour.
+- **Superseded by [ID]**: replaced by another spec.
+
+The PR that ships or replaces a spec updates its status line. Gaps and follow-ups are GitHub Issues, not text in the spec: the status line says where a spec stands, an issue says what is left.
+
+After the status line come:
 
 1. **Purpose** — what this component does, in one paragraph.
 2. **Scope** — explicit in-scope / out-of-scope bullets.
@@ -130,5 +143,5 @@ Every spec opens with:
 
 Then numbered design sections, shaped by the component: types and data model, IPC contract, behavior and edge cases, UI and keyboard/accessibility notes, persistence, error handling — whichever apply. Most end with:
 
-- **Acceptance criteria** — a checklist of verifiable outcomes, ticked as they ship.
+- **Acceptance criteria** — verifiable outcomes, written as plain bullets, not checkboxes. They say what done means, not whether it is done; the Test cases section, where a spec has one, is what proves them.
 - **Test cases** — unit / integration / component / E2E.

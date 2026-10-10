@@ -1,5 +1,7 @@
 # W11 — Mongo shell pane (REPL in a runner child)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Give users a first-class shell affordance from inside the workspace: a
@@ -253,26 +255,26 @@ Behaviour:
 
 ## 6. Acceptance criteria
 
-- [x] Clicking the chrome "Shell" button opens the pane scoped to the
-      active connection; clicking again hides it.
-- [x] The pane opens the shell on the focused tab's database; with none
-      it opens on the connection's default database, else `test`.
-- [x] On open, the pane prints a banner naming the connection.
-- [x] Typing `await db.runCommand({ ping: 1 })` prints `{ "ok": 1 }`.
-- [x] `db.<coll>.find().toArray()` and `db.<coll>.countDocuments()` without
-      `await` print their result, and a bare cursor still prints its hint.
-- [x] An error, thrown or rejected (awaited or not), prints its message
-      and the session stays alive.
-- [x] A document-validation rejection prints which rule failed, and an
-      error nested in a printed result prints its message, not `{}`.
-- [x] `show dbs` and `show collections` work.
-- [x] `use <name>` switches the current database and updates the prompt.
-- [x] Closing the pane / quitting the app stops the session cleanly and
-      leaves no runner child alive.
-- [x] The REPL runs in a runner child; no URI, user or password is in
-      anything posted to it, nor in its environment or argv.
-- [x] A child that dies unexpectedly, or a connection that disconnects,
-      ends the session with an `exit` event (and a reason as `stderr`).
+- Clicking the chrome "Shell" button opens the pane scoped to the
+  active connection; clicking again hides it.
+- The pane opens the shell on the focused tab's database; with none
+  it opens on the connection's default database, else `test`.
+- On open, the pane prints a banner naming the connection.
+- Typing `await db.runCommand({ ping: 1 })` prints `{ "ok": 1 }`.
+- `db.<coll>.find().toArray()` and `db.<coll>.countDocuments()` without
+  `await` print their result, and a bare cursor still prints its hint.
+- An error, thrown or rejected (awaited or not), prints its message
+  and the session stays alive.
+- A document-validation rejection prints which rule failed, and an
+  error nested in a printed result prints its message, not `{}`.
+- `show dbs` and `show collections` work.
+- `use <name>` switches the current database and updates the prompt.
+- Closing the pane / quitting the app stops the session cleanly and
+  leaves no runner child alive.
+- The REPL runs in a runner child; no URI, user or password is in
+  anything posted to it, nor in its environment or argv.
+- A child that dies unexpectedly, or a connection that disconnects,
+  ends the session with an `exit` event (and a reason as `stderr`).
 
 ## 7. Test cases
 

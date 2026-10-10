@@ -1,5 +1,7 @@
 # C01 — Connection model, URI parser, validation
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Define the canonical `Connection` type used everywhere, the input shape used to create/update one, the rules for normalizing a pasted `mongodb://`/`mongodb+srv://` URI into that input, and the validation that guards both form submission and IPC payloads.
@@ -178,10 +180,10 @@ Before persistence:
 
 ## 6. Acceptance criteria
 
-- [ ] Valid `ConnectionInput` passes schema parse.
-- [ ] Each cross-field rule above has a failing test that produces a `ValidationError` naming the offending field.
-- [ ] `parseConnectionUri` round-trips: for an input built from form state then rebuilt by F05 into a URI, re-parsing returns the same structural shape (modulo password presence, which may be round-tripped or not depending on plaintext handling).
-- [ ] Invalid URIs throw `ValidationError` with a message pointing at the segment that failed.
+- Valid `ConnectionInput` passes schema parse.
+- Each cross-field rule above has a failing test that produces a `ValidationError` naming the offending field.
+- `parseConnectionUri` round-trips: for an input built from form state then rebuilt by F05 into a URI, re-parsing returns the same structural shape (modulo password presence, which may be round-tripped or not depending on plaintext handling).
+- Invalid URIs throw `ValidationError` with a message pointing at the segment that failed.
 
 ## 7. Test cases
 

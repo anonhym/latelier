@@ -1,5 +1,7 @@
 # C04 — Test connection action
 
+> **Status: Implemented.**
+
 ## Purpose
 
 A short-lived, non-persisting probe that validates a user-supplied connection configuration before they hit Save. Must handle every auth mechanism, map driver errors to user-actionable categories, and finish (success or fail) within a small, predictable time budget so the UI stays responsive.
@@ -81,12 +83,12 @@ C03 owns the state machine:
 
 ## 6. Acceptance criteria
 
-- [ ] A valid config against a reachable Mongo returns `{ ok: true }` within 2s on a local server.
-- [ ] An unreachable host returns `errorCode: 'NETWORK'` and does not leak an open MongoClient (verify via tests spying on `.close()`).
-- [ ] A valid host with wrong password returns `errorCode: 'AUTH'`.
-- [ ] A timeout returns `errorCode: 'TIMEOUT'` within ≤ 10 seconds total.
-- [ ] Calling `conn:test` with `ssh.enabled: true` returns a friendly "not supported" message (no attempt to connect).
-- [ ] Running Test does not insert any row into `connections`, `connection_secrets`, or touch `last_used_at`.
+- A valid config against a reachable Mongo returns `{ ok: true }` within 2s on a local server.
+- An unreachable host returns `errorCode: 'NETWORK'` and does not leak an open MongoClient (verify via tests spying on `.close()`).
+- A valid host with wrong password returns `errorCode: 'AUTH'`.
+- A timeout returns `errorCode: 'TIMEOUT'` within ≤ 10 seconds total.
+- Calling `conn:test` with `ssh.enabled: true` returns a friendly "not supported" message (no attempt to connect).
+- Running Test does not insert any row into `connections`, `connection_secrets`, or touch `last_used_at`.
 
 ## 7. Test cases
 

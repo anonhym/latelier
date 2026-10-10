@@ -1,5 +1,7 @@
 # A04 — Aggregation runner service
 
+> **Status: Implemented.** The `agg.instrumentation` setting in §3 is not wired: the runner always tries `$facet` first.
+
 ## Purpose
 
 Execute `aggregate()` against Mongo on the main side, capture per-stage document counts and samples, stream results back to the renderer, handle cancellation, and route write stages (`$out`, `$merge`) through an explicit confirmation.
@@ -145,12 +147,12 @@ Each stage body parsed as EJSON; unparseable → VALIDATION with `details.stageI
 
 ## 9. Acceptance criteria
 
-- [ ] A valid pipeline produces `rows`, `stageCounts`, and `stageSamples` populated for each enabled stage (except the final write stage if any).
-- [ ] Disabled stages don't affect execution or instrumentation.
-- [ ] Cancellation aborts both the main cursor and the instrumentation facet.
-- [ ] `$out`/`$merge` without `allowWrite: true` returns VALIDATION with structured details.
-- [ ] Fallback "separate" instrumentation runs when `$facet` is impossible.
-- [ ] Recent query row is inserted for each run.
+- A valid pipeline produces `rows`, `stageCounts`, and `stageSamples` populated for each enabled stage (except the final write stage if any).
+- Disabled stages don't affect execution or instrumentation.
+- Cancellation aborts both the main cursor and the instrumentation facet.
+- `$out`/`$merge` without `allowWrite: true` returns VALIDATION with structured details.
+- Fallback "separate" instrumentation runs when `$facet` is impossible.
+- Recent query row is inserted for each run.
 
 ## 10. Test cases
 

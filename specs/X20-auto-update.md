@@ -1,5 +1,7 @@
 # X20 — Auto-update
 
+> **Status: Implemented.**
+
 ## Purpose
 
 A desktop app that never updates strands its users on old versions and old bugs. The app is now released signed and notarized on macOS; with a signed build the OS lets an update replace the running app. This spec adds a background update check from GitHub Releases, a download that does not interrupt work, and a quiet prompt that offers to restart into the new version.
@@ -118,16 +120,16 @@ Accessibility: the action is a native button inside the notification; no click h
 
 ## Acceptance criteria
 
-- [ ] `electron-updater` 6.8.9 is an exact-pinned runtime dependency, listed in the main build's externals, and present in a packaged app's asar.
-- [ ] The update check runs once per launch, only when packaged and `ATELIER_USER_DATA_DIR` is unset; never in dev or under e2e.
-- [ ] A found update downloads in the background with no UI.
-- [ ] When downloaded, one non-modal notification offers "Restart to update"; clicking it quits, installs and relaunches.
-- [ ] Dismissing it leaves the update to install on next quit (verified on a signed build).
-- [ ] Every updater failure is logged with the app logger and shown to no one.
-- [ ] A packaged release's `latest-mac.yml` and `latest.yml` name files that exist as release assets under exactly those names, for both macOS arches.
-- [ ] The macOS release contains a zip per arch and its blockmap; the Windows release is unchanged except for its file name.
-- [ ] Linux packaging and behaviour are unchanged.
-- [ ] No new IPC channel carries a secret; the registration spec and `npm run audit:ipc` pass.
+- `electron-updater` 6.8.9 is an exact-pinned runtime dependency, listed in the main build's externals, and present in a packaged app's asar.
+- The update check runs once per launch, only when packaged and `ATELIER_USER_DATA_DIR` is unset; never in dev or under e2e.
+- A found update downloads in the background with no UI.
+- When downloaded, one non-modal notification offers "Restart to update"; clicking it quits, installs and relaunches.
+- Dismissing it leaves the update to install on next quit (verified on a signed build).
+- Every updater failure is logged with the app logger and shown to no one.
+- A packaged release's `latest-mac.yml` and `latest.yml` name files that exist as release assets under exactly those names, for both macOS arches.
+- The macOS release contains a zip per arch and its blockmap; the Windows release is unchanged except for its file name.
+- Linux packaging and behaviour are unchanged.
+- No new IPC channel carries a secret; the registration spec and `npm run audit:ipc` pass.
 
 ## Test cases
 

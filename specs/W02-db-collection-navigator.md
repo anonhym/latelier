@@ -1,5 +1,7 @@
 # W02 — DB / collection navigator sidebar
 
+> **Status: Implemented.** [X16](./X16-multi-connection.md) supersedes §1b's single active connection. The status lists in §10 predate later work: some "Deferred" items have since shipped, others have not.
+
 > **Amended 2026-04-22.** v2 grows the action surface to match MongoDB Compass's parity features (context menus on every row type, destructive-action convention, optional hover action bar). Additions are gated behind new IPC channels (see §12) and new sub-specs (see §13). The amendment keeps multi-connection deferred.
 
 > **Partly superseded by [X16](./X16-multi-connection.md).** X16 retired the single-connection
@@ -407,34 +409,34 @@ While any mutation IPC is in flight (drop / rename / create): affected row shows
 
 ### Met as of v2.2
 
-- [x] Opening workspace with a single-DB connection auto-expands that DB and highlights the active collection.
-- [x] Cmd-click opens a duplicate tab; plain click activates the existing tab.
-- [x] Alt-click opens an aggregation tab targeting the collection.
-- [x] Filter hides non-matching collections and auto-expands DBs; unexpanded DBs are force-loaded when the filter becomes active.
-- [x] Switching tabs within the same connection does not re-fetch.
-- [x] Refresh button invalidates cache for the current connection only.
-- [x] Refresh re-populates every previously-expanded database, not only the active one.
-- [x] Right-clicking a collection opens the collection context menu from §5.2 at the cursor, clamped to viewport. Rename / Drop render disabled.
-- [x] Right-clicking a DB row opens the DB context menu from §5.2. Create / Drop render disabled; Refresh and Copy-name are live.
-- [x] Right-clicking the connection row opens the Connection context menu from §5.2, with Disconnect ↔ Reconnect swapped based on live status.
-- [x] View rows show the view icon and `VIEW` badge; timeseries rows show `TS`.
-- [x] `aria-level` is 1 / 2 / 3 for connection / DB / collection; `aria-expanded` is present on connection and DB rows; `aria-selected` is present on the active collection.
-- [x] Keyboard map required rows (↑ / ↓ / ← / → / Enter / Home / End / Escape) fully wired across all three tree levels.
-- [x] Focused row has an outline-style ring distinct from the active-tab highlight; arrow-key nav does not move the active highlight.
-- [x] Hover action bar shows on DB rows on hover/focus with Create (disabled) + Refresh (live).
-- [x] The connection row is auto-expanded on first activation; user collapse persists across app launches via `prefs`.
-- [x] Connection status (`connected` / `connecting` / `disconnected` / `error`) is reflected live in the dot color.
-- [x] Navigator switches to the new connection when arriving via `openForConnection`; old tabs close; no NewTabPicker modal (§1b).
-- [x] The three-column layout renders even with zero tabs — navigator is always the discovery surface.
+- Opening workspace with a single-DB connection auto-expands that DB and highlights the active collection.
+- Cmd-click opens a duplicate tab; plain click activates the existing tab.
+- Alt-click opens an aggregation tab targeting the collection.
+- Filter hides non-matching collections and auto-expands DBs; unexpanded DBs are force-loaded when the filter becomes active.
+- Switching tabs within the same connection does not re-fetch.
+- Refresh button invalidates cache for the current connection only.
+- Refresh re-populates every previously-expanded database, not only the active one.
+- Right-clicking a collection opens the collection context menu from §5.2 at the cursor, clamped to viewport. Rename / Drop render disabled.
+- Right-clicking a DB row opens the DB context menu from §5.2. Create / Drop render disabled; Refresh and Copy-name are live.
+- Right-clicking the connection row opens the Connection context menu from §5.2, with Disconnect ↔ Reconnect swapped based on live status.
+- View rows show the view icon and `VIEW` badge; timeseries rows show `TS`.
+- `aria-level` is 1 / 2 / 3 for connection / DB / collection; `aria-expanded` is present on connection and DB rows; `aria-selected` is present on the active collection.
+- Keyboard map required rows (↑ / ↓ / ← / → / Enter / Home / End / Escape) fully wired across all three tree levels.
+- Focused row has an outline-style ring distinct from the active-tab highlight; arrow-key nav does not move the active highlight.
+- Hover action bar shows on DB rows on hover/focus with Create (disabled) + Refresh (live).
+- The connection row is auto-expanded on first activation; user collapse persists across app launches via `prefs`.
+- Connection status (`connected` / `connecting` / `disconnected` / `error`) is reflected live in the dot color.
+- Navigator switches to the new connection when arriving via `openForConnection`; old tabs close; no NewTabPicker modal (§1b).
+- The three-column layout renders even with zero tabs — navigator is always the discovery surface.
 
 ### Deferred (blocked on IPC / sub-specs)
 
-- [ ] Destructive actions (drop collection / drop DB / rename / create / duplicate view / modify view) go through confirmation modals per W02a–d. Today every destructive menu item is `disabled` with a "Coming soon" tooltip.
-- [ ] Action definitions are authored once per row kind in a shared `actions.ts` module. Currently each menu is built inline in the navigator; refactor lands when the first live mutation (W02d likely) is implemented.
-- [ ] Tab strip updates (close tabs on dropped namespace, rename tabs on namespace rename) — not exercised until mutation IPC lands.
-- [ ] Copy connection string (needs `conn:getUri`-equivalent IPC).
-- [ ] Inline per-DB error cards for `listCollections` failures (§8).
-- [ ] Keyboard stretch (Home / End are live; `*` expand-siblings and letter type-ahead remain deferred).
+- Destructive actions (drop collection / drop DB / rename / create / duplicate view / modify view) go through confirmation modals per W02a–d. Today every destructive menu item is `disabled` with a "Coming soon" tooltip.
+- Action definitions are authored once per row kind in a shared `actions.ts` module. Currently each menu is built inline in the navigator; refactor lands when the first live mutation (W02d likely) is implemented.
+- Tab strip updates (close tabs on dropped namespace, rename tabs on namespace rename) — not exercised until mutation IPC lands.
+- Copy connection string (needs `conn:getUri`-equivalent IPC).
+- Inline per-DB error cards for `listCollections` failures (§8).
+- Keyboard stretch (Home / End are live; `*` expand-siblings and letter type-ahead remain deferred).
 
 ---
 

@@ -1,5 +1,7 @@
 # F05 — Mongo client pool & lifecycle
 
+> **Status: Implemented.** [X18](./X18-deepening-seams.md) §4 replaced `getClient`/`getDb` with read handles and write grants.
+
 ## Purpose
 
 Maintain at most one live `MongoClient` per saved connection for the lifetime of the app, hide the details of URI construction (including secrets) from callers, and expose simple connect/disconnect/ping semantics.
@@ -204,11 +206,11 @@ Classifier lives in `electron/mongo/errors.ts` and has unit tests with fixture e
 
 ## 9. Acceptance criteria
 
-- [ ] At most one `MongoClient` exists per connection id across the app lifetime.
-- [ ] `getClient` called concurrently for the same id only opens one underlying client.
-- [ ] `disconnectAll` resolves within 5 seconds even if a client is unresponsive.
-- [ ] `probe` never leaves a lingering client on failure or success.
-- [ ] Status events fire exactly once per transition.
+- At most one `MongoClient` exists per connection id across the app lifetime.
+- `getClient` called concurrently for the same id only opens one underlying client.
+- `disconnectAll` resolves within 5 seconds even if a client is unresponsive.
+- `probe` never leaves a lingering client on failure or success.
+- Status events fire exactly once per transition.
 
 ## 10. Test cases
 

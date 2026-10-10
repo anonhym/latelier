@@ -1,5 +1,7 @@
 # X05 — Document references
 
+> **Status: Implemented.** The reference chips its follow-up section proposes now exist in the Table and Tree views.
+
 ## Purpose
 
 Let the user declare lightweight "foreign key" rules that map a field in one
@@ -252,24 +254,24 @@ current `lastRun.documents`.
 
 ## 11. Acceptance criteria
 
-- [x] `reference_rules` migration applies cleanly to existing DBs.
-- [x] `refs:*` IPC channels registered and reachable via
-      `api.refs.*` with correct typing.
-- [x] Creating a rule on a collection surfaces the `↗` chip on
-      matching fields in TreeView.
-- [x] Hovering the chip loads the target doc and shows a projected
-      preview.
-- [x] Clicking the chip opens the right drawer with the full
-      projected document.
-- [x] Drawer stacks multiple levels of references and the back arrow
-      pops the stack.
-- [x] Drawer closes on tab switch unless pinned.
-- [x] "Detect from sample" populates candidate fields based on
-      `lastRun.documents`.
-- [x] Rule editor creates/edits/deletes rules with projection +
-      display-template support.
-- [x] Connection deletion cascades to reference rules (FK).
-- [ ] *(Follow-up)* Chip rendering in TableView / JsonView.
-- [ ] *(Follow-up)* Auto-detect for aggregation tabs.
-- [ ] *(Follow-up)* Drawer state persisted in
-      `workspace_tabs.state_json` for tab switching while unpinned.
+- `reference_rules` migration applies cleanly to existing DBs.
+- `refs:*` IPC channels registered and reachable via
+  `api.refs.*` with correct typing.
+- Creating a rule on a collection surfaces the `↗` chip on
+  matching fields in TreeView.
+- Hovering the chip loads the target doc and shows a projected
+  preview.
+- Clicking the chip opens the right drawer with the full
+  projected document.
+- Drawer stacks multiple levels of references and the back arrow
+  pops the stack.
+- Drawer closes on tab switch unless pinned.
+- "Detect from sample" populates candidate fields based on
+  `lastRun.documents`.
+- Rule editor creates/edits/deletes rules with projection +
+  display-template support.
+- Connection deletion cascades to reference rules (FK).
+- *(Follow-up)* Chip rendering in TableView / JsonView.
+- *(Follow-up)* Auto-detect for aggregation tabs.
+- *(Follow-up)* Drawer state persisted in
+  `workspace_tabs.state_json` for tab switching while unpinned.

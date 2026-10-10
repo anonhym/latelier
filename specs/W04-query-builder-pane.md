@@ -1,5 +1,7 @@
 # W04 — Query builder pane (state + compile)
 
+> **Status: Implemented.** §1–§4, §7 and §8 are superseded by [W13](./W13-filter-tree-editor.md), and the saved-queries strip in §6 was removed.
+
 > **Partly superseded by [W13](./W13-filter-tree-editor.md).** W13 replaces the
 > `BuilderState.conditions` container model and the compile/parse contract with
 > a filter tree parsed from canonical EJSON text — §1–§4, §7 (including the
@@ -274,28 +276,28 @@ hand-edits to escape the flag.
 
 ## 9. Acceptance criteria
 
-- [x] Adding a condition defaults to the first field, `$eq`, `string`, empty value.
-- [x] Changing `valType` resets `op` to the first op applicable for that
+- Adding a condition defaults to the first field, `$eq`, `string`, empty value.
+- Changing `valType` resets `op` to the first op applicable for that
   type when the current op no longer fits.
-- [x] Toggling AND/OR with ≥ 2 conditions rewrites the compiled MQL envelope.
-- [x] Sort and Limit round-trip verbatim.
-- [x] Compile produces valid EJSON for every supported `valType`/op combination.
-- [x] Parse recognizes `{ field: { $op: val } }` and `{ $and: [...] }` / `{ $or: [...] }` shapes.
-- [x] Parse fails gracefully on free-form filters; the pane renders the "cannot sync" state.
-- [x] *(X03)* Op input offers the full operator catalog via autocomplete.
-- [x] *(X03)* Typing `eq` (no `$`) accepts `$eq`.
-- [x] *(X03)* Ops outside `FIELD_OPS[valType]` flag the row; Run is
+- Toggling AND/OR with ≥ 2 conditions rewrites the compiled MQL envelope.
+- Sort and Limit round-trip verbatim.
+- Compile produces valid EJSON for every supported `valType`/op combination.
+- Parse recognizes `{ field: { $op: val } }` and `{ $and: [...] }` / `{ $or: [...] }` shapes.
+- Parse fails gracefully on free-form filters; the pane renders the "cannot sync" state.
+- *(X03)* Op input offers the full operator catalog via autocomplete.
+- *(X03)* Typing `eq` (no `$`) accepts `$eq`.
+- *(X03)* Ops outside `FIELD_OPS[valType]` flag the row; Run is
   disabled with a tooltip.
-- [x] *(X03)* Object-shape ops (`$elemMatch`, `$text`, `$expr`, `$geo*`,
+- *(X03)* Object-shape ops (`$elemMatch`, `$text`, `$expr`, `$geo*`,
   `$jsonSchema`) flag the row as "needs raw JSON"; Run is disabled.
-- [x] *(X03)* Malformed `$mod` values (empty, single-element,
+- *(X03)* Malformed `$mod` values (empty, single-element,
   divisor-0) are caught pre-run.
-- [x] ** A flagged condition disables **both** Run buttons, and
+- ** A flagged condition disables **both** Run buttons, and
   blocks the runner even when invoked with no button involved
   (`query.run`, post-write re-runs).
-- [x] ** A flagged condition leaves delete-all unarmable rather than
+- ** A flagged condition leaves delete-all unarmable rather than
   widening its filter to `{}`.
-- [x] ** Builder edits do not overwrite `queryRaw` while the tab is
+- ** Builder edits do not overwrite `queryRaw` while the tab is
   dirty; the only Save modal and the `query.save` command are owned above
   the pane so they survive it being collapsed **.
 

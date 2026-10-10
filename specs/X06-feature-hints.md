@@ -1,5 +1,7 @@
 # X06 — Contextual feature hints
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Make non-obvious features discoverable at the moment a user would want them. The diagnostic for this spec is concrete: the project's own developer could not find how to configure document references (X05) without reading the source. The fix is not a one-time guided tour — it is small, dismissible, anchored callouts that fire when the user is in the right context, persist their dismissal, and stay out of the way otherwise.
@@ -137,16 +139,16 @@ The session-scoped counters (`tabs.pin`, `saved.create`, `palette.discover`) liv
 
 ## 7. Acceptance criteria
 
-- [ ] `ui.hints.dismissed` round-trips through `app_state` (set, relaunch, get returns the same value).
-- [ ] `prefs.getDismissedHints` / `prefs.dismissHint` / `prefs.resetHints` are exposed on `window.atelier.prefs` and typed in `shared/ipc.ts`.
-- [ ] On a collection tab whose results contain an `_id`-suffixed field and which has no reference rules, the **References** button shows the `refs.configure` hint exactly once.
-- [ ] Clicking "Got it" dismisses the hint and it does not re-appear after relaunch.
-- [ ] Clicking the CTA dismisses the hint and opens the references editor in the same gesture.
-- [ ] After three tab switches with zero pinned tabs, the `tabs.pin` hint anchors to the active tab.
-- [ ] After running the same query three times, the `saved.create` hint anchors to the Save button.
-- [ ] If two trigger conditions become true simultaneously, only one hint is rendered; the other waits.
-- [ ] Settings → Reset hints clears the dismissed list and the next eligible trigger reshows its hint.
-- [ ] No hint appears within 1.5 s of cold renderer mount.
+- `ui.hints.dismissed` round-trips through `app_state` (set, relaunch, get returns the same value).
+- `prefs.getDismissedHints` / `prefs.dismissHint` / `prefs.resetHints` are exposed on `window.atelier.prefs` and typed in `shared/ipc.ts`.
+- On a collection tab whose results contain an `_id`-suffixed field and which has no reference rules, the **References** button shows the `refs.configure` hint exactly once.
+- Clicking "Got it" dismisses the hint and it does not re-appear after relaunch.
+- Clicking the CTA dismisses the hint and opens the references editor in the same gesture.
+- After three tab switches with zero pinned tabs, the `tabs.pin` hint anchors to the active tab.
+- After running the same query three times, the `saved.create` hint anchors to the Save button.
+- If two trigger conditions become true simultaneously, only one hint is rendered; the other waits.
+- Settings → Reset hints clears the dismissed list and the next eligible trigger reshows its hint.
+- No hint appears within 1.5 s of cold renderer mount.
 
 ## 8. Test cases
 

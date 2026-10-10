@@ -1,5 +1,7 @@
 # W01 — Workspace shell + tab management
 
+> **Status: Implemented.** Aggregation is a sub-view of the collection tab (§5), not the separate tab kind §2 lists.
+
 ## Purpose
 
 The workspace is the tabbed IDE-like page. This spec defines the outer shell (title bar, tab strip, three-column layout placeholder) and, crucially, **the tab system**: what a tab is, how tabs are created/moved/closed, how state is persisted so relaunching the app restores the user's session.
@@ -169,12 +171,12 @@ Format: `{connection.name} / {dbName} / {collection}  [· kind]` where kind is r
 
 ## 12. Acceptance criteria
 
-- [ ] Relaunching the app restores previously open tabs, positions, active tab, and the builder state of the active collection tab (view mode, builder conditions, sort, limit).
-- [ ] Closing the last tab leaves the workspace on an empty state; reopening via "+" restores functionality.
-- [ ] Reordering tabs persists and survives relaunch.
-- [ ] Switching tabs never calls `api.meta.*` or `api.query.*` — those run on tab activation in their own spec.
-- [ ] Opening the same collection twice (with default `reuseExisting`) activates the existing tab.
-- [ ] Aggregation tab opens without a default pipeline; builder starts empty.
+- Relaunching the app restores previously open tabs, positions, active tab, and the builder state of the active collection tab (view mode, builder conditions, sort, limit).
+- Closing the last tab leaves the workspace on an empty state; reopening via "+" restores functionality.
+- Reordering tabs persists and survives relaunch.
+- Switching tabs never calls `api.meta.*` or `api.query.*` — those run on tab activation in their own spec.
+- Opening the same collection twice (with default `reuseExisting`) activates the existing tab.
+- Aggregation tab opens without a default pipeline; builder starts empty.
 
 ## 13. Test cases
 
