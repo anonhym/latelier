@@ -188,9 +188,10 @@ describe('Filter drawer — live match count (W15 §14.5)', () => {
     expect(screen.queryByText('≈9 match')).toBeNull();
   });
 
-  it('says the count is unavailable on failure and does not ask again', async () => {
+  it('says the count is unavailable after a timeout and does not ask again', async () => {
     const count = mountWith('{"a":{"$eq":1}}', async () => {
-      throw new Error('timed out');
+      // The preload throws the IpcError shape itself.
+      throw { code: 'TIMEOUT', message: 'operation exceeded time limit' };
     });
     const value = (await screen.findByDisplayValue('1')) as HTMLInputElement;
     await advance(500);
@@ -203,6 +204,50 @@ describe('Filter drawer — live match count (W15 §14.5)', () => {
 
     expect(count).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Match count unavailable')).toBeTruthy();
+  });
+});
+
+describe('Filter drawer — a count that fails for one filter (W15 §14.5)', () => {
+  it('a failure other than a timeout is unavailable for that filter only, and the next edit asks again', async () => {
+    const count = mountWith('{"a":{"$eq":1}}', async () => ({ count: 4 }));
+    const value = (await screen.findByDisplayValue('1')) as HTMLInputElement;
+    await advance(500);
+    expect(await screen.findByText('≈4 match')).toBeTruthy();
+
+    count.mockImplementationOnce(async () => {
+      throw { code: 'MONGO_ERROR', message: 'Regular expression is invalid' };
+    });
+    fireEvent.change(value, { target: { value: '2' } });
+    await advance(500);
+    expect(await screen.findByText('Match count unavailable')).toBeTruthy();
+
+    fireEvent.change(value, { target: { value: '3' } });
+    await advance(500);
+
+    expect(await screen.findByText('≈4 match')).toBeTruthy();
+    expect(count).toHaveBeenCalledTimes(3);
+    expect(count.mock.calls[2]?.[0].filter).toBe('{"a":{"$eq":3}}');
+  });
+
+  it('an invalid ObjectId never reaches the count, and the count comes back once it is fixed', async () => {
+    const OID = '507f1f77bcf86cd799439011';
+    const count = mountWith(`{"o":{"$eq":{"$oid":"${OID}"}}}`, async () => ({ count: 1 }));
+    const value = (await screen.findByDisplayValue(OID)) as HTMLInputElement;
+    await advance(500);
+    expect(await screen.findByText('≈1 match')).toBeTruthy();
+    count.mockClear();
+
+    fireEvent.change(value, { target: { value: OID.slice(0, 10) } });
+    await advance(1000);
+    expect(count).not.toHaveBeenCalled();
+    expect(screen.getByText(/not applied/)).toBeTruthy();
+
+    fireEvent.change(value, { target: { value: OID.replace('5', '6') } });
+    await advance(500);
+
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(count.mock.calls[0]?.[0].filter).toBe(`{"o":{"$eq":{"$oid":"${OID.replace('5', '6')}"}}}`);
+    expect(await screen.findByText('≈1 match')).toBeTruthy();
   });
 });
 
