@@ -376,9 +376,12 @@ the tree and the `queryRaw` it was last consistent with.
   so the drawer never shows a tree other than the one that runs. Without a
   usable draft, `parseFilter(queryRaw)` as before.
 - **Reconcile** (rule 3) still always parses and never reads the draft: an
-  outside text edit wins, and it clears the draft (`filterDraft: undefined`),
-  so a later return to the same text can't bring the replaced rows back on
-  the next remount.
+  outside text edit wins. One made while the drawer is mounted clears the
+  draft (`filterDraft: undefined`), so a later return to the same text can't
+  bring the replaced rows back on the next remount. One made while the drawer
+  is not mounted clears nothing: the draft is simply unused while its
+  `queryRaw` differs from the text, and would seed again if the text came
+  back to it.
 - **Commit.** Every edit patches `filterDraft: { root, queryRaw }`, with the
   `queryRaw` that is current once the edit lands — the new text on an `ok`
   print, the unchanged last good text on a no-op or blocked one. That
@@ -393,7 +396,8 @@ the tree and the `queryRaw` it was last consistent with.
 **History.** The drawer keeps an undo/redo history of its tree (`filterHistory.ts`:
 `past` / `present` / `future`, capped at 100 steps). Every edit pushes; edits
 carrying the same coalescing key back to back — keystrokes in one text box of
-one row — are one step. Undo and redo commit the tree they land on through
+one row — are one step. An edit that lands back on the tree the step began
+from (typing then deleting back) leaves no step at all. Undo and redo commit the tree they land on through
 the same print-and-commit path as any edit. The history is in memory only: it
 restarts from the new tree on an outside text edit, and a remount (tab
 switch, Reset, a Saved or Recent load) drops it, which is why Reset keeps its
