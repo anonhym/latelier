@@ -672,6 +672,35 @@ describe('Filter drawer — the bar moves to other valid text, then back', () =>
   });
 });
 
+describe('Filter drawer — Clear filter', () => {
+  // Only a switched-off row, so the tree prints to '{}', the text Clear
+  // filter writes: a text comparison alone can't see the clear.
+  const OFF_ONLY = { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) };
+
+  it('while the bar is invalid, drops the switched-off rows with the draft', async () => {
+    mountWith(makeState({ filterDraft: OFF_ONLY }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{}x' } });
+    await screen.findByText(/isn't valid JSON/);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+
+    await waitFor(() => expect(bar.value).toBe('{}'));
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    expect(screen.getByRole('button', { name: 'Add condition' })).toHaveProperty('disabled', false);
+  });
+
+  it('on a later page of an unfiltered query, drops the switched-off rows with the draft', async () => {
+    mountWith(makeState({ page: 1, filterDraft: OFF_ONLY }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+  });
+});
+
 describe('Filter drawer — undo / redo', () => {
   const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
 

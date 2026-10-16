@@ -1509,7 +1509,24 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // Saved-Recent load / Reset. Adjusted directly in the render body rather
   // than in an effect, so there's no stale-tree frame before the reseed
   // lands.
-  if (queryRaw !== lastPrinted) {
+  // The tab's draft as this component last saw it. The drawer writes one on
+  // every edit, so a draft that disappears was cleared either by the
+  // drawer's own re-parse below, where seeding again from the same text
+  // changes nothing, or from outside: Clear filter, which may write the very
+  // text the tree prints to ('{}', when only switched-off or pending rows are
+  // left) and so can't be seen by comparing text. Seed afresh, as a remount
+  // would.
+  const [seenDraft, setSeenDraft] = React.useState(filterDraft);
+  const clearedFromOutside = filterDraft !== seenDraft && filterDraft === undefined;
+  if (filterDraft !== seenDraft) setSeenDraft(filterDraft);
+  if (clearedFromOutside) {
+    const fresh = seedTree(queryRaw, undefined);
+    setLastPrinted(queryRaw);
+    setSyncedText(fresh.syncedText);
+    setHistory(initHistory(fresh.root));
+    setReadOnly(fresh.readOnly);
+    setProblems([]);
+  } else if (queryRaw !== lastPrinted) {
     setLastPrinted(queryRaw);
     const parsed = parseFilter(queryRaw);
     if (queryRaw === syncedText) {
