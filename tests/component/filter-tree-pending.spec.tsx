@@ -229,4 +229,67 @@ describe('Filter drawer — pending-row lifecycle (W13 §5, §11)', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryAllByPlaceholderText('field')).toHaveLength(1);
   });
+
+  it('a tab switch while the bar is invalid keeps the switched-off row for when the text comes back', async () => {
+    // The drawer remounts on the switch back, over text that doesn't parse.
+    // It opens frozen, but the tab's draft still stands for the text it was
+    // recorded against, so fixing the bar back to that text brings the tree
+    // back rather than re-parsing it without the switched-off row.
+    const A = '{"a":{"$eq":1}}';
+    const stateA = makeState({
+      queryRaw: A,
+      filterDraft: {
+        queryRaw: A,
+        root: {
+          kind: 'group',
+          logic: '$and',
+          children: [
+            { kind: 'cond', field: 'a', op: '$eq', valType: 'number', value: '1' },
+            { kind: 'cond', field: 'b', op: '$eq', valType: 'number', value: '2', disabled: true },
+          ],
+        },
+      },
+    });
+    const tabs = [
+      makeCollectionTab('tA', 'orders', stateA, 0, true),
+      makeCollectionTab('tB', 'users', makeState(), 1, false),
+    ];
+    const updateSpy = vi.fn(async (id: string) => tabs.find((t) => t.id === id)!);
+    const setActiveSpy = vi.fn(async (id: string) => ({ id }));
+    installAtelierMock({
+      tabs: {
+        list: async () => tabs,
+        setActive: setActiveSpy as unknown as IpcApi['tabs']['setActive'],
+        update: updateSpy as unknown as IpcApi['tabs']['update'],
+      },
+      conn: { list: async () => [CONNECTION] },
+      query: { find: vi.fn(async () => ({ documents: [], durationMs: 1, hasMore: false })), count: async () => ({ count: 0 }) },
+    });
+    const { container } = render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    const fields = () => (screen.queryAllByPlaceholderText('field') as HTMLInputElement[]).map((f) => f.value);
+    await waitFor(() => expect(fields()).toEqual(['a', 'b']));
+
+    fireEvent.change(await screen.findByTestId('query-bar-input'), { target: { value: `${A}x` } });
+    await screen.findByText(/isn't valid JSON/);
+    fireEvent.click(container.querySelector('[data-tab-id="tB"]')!);
+    await waitFor(() => expect(setActiveSpy).toHaveBeenCalledWith('tB'));
+    await waitFor(() => expect(fields()).toEqual([]));
+    fireEvent.click(container.querySelector('[data-tab-id="tA"]')!);
+    await waitFor(() => expect(setActiveSpy).toHaveBeenCalledWith('tA'));
+    await screen.findByText(/isn't valid JSON/);
+    const callsBefore = updateSpy.mock.calls.length;
+
+    fireEvent.change(await screen.findByTestId('query-bar-input'), { target: { value: A } });
+    await waitFor(() => expect(screen.queryByText(/isn't valid JSON/)).toBeNull());
+
+    expect(fields()).toEqual(['a', 'b']);
+    expect((screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement).checked).toBe(false);
+    // The draft holding the switched-off row is not cleared.
+    const later = updateSpy.mock.calls.slice(callsBefore).map((c) => (c as unknown[])[1] as { state?: object });
+    expect(later.some((arg) => arg.state && 'filterDraft' in arg.state)).toBe(false);
+  });
 });

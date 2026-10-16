@@ -1402,22 +1402,35 @@ function problemLabels(root: GroupNode, problems: NodeProblem[]): string[] {
  * that can't print yet, whose problems come back with it). A draft that
  * prints to anything else is ignored rather than trusted, so the drawer never
  * shows a tree other than the one that runs.
+ *
+ * Text that doesn't parse opens the drawer frozen. A trusted draft is still
+ * shown then, frozen, and stands for the text it was recorded against: the
+ * bar went bad after the draft was written (a typo, then a tab switch), and
+ * putting that text back gives the tree back, as it would have without the
+ * switch. With no such draft, no tree stands for any text (`syncedText`
+ * `null`).
  */
 function seedTree(
   text: string,
   draft: FilterDraft | undefined,
-): { root: GroupNode; readOnly: boolean; problems: NodeProblem[] } {
+): { root: GroupNode; readOnly: boolean; problems: NodeProblem[]; syncedText: string | null } {
+  const parsed = parseFilter(text);
   // A persisted tree is only data until checked: a malformed one falls back
   // to the text rather than reaching the printer.
-  if (draft && draft.queryRaw === text && isGroupNode(draft.root)) {
+  if (draft && (draft.queryRaw === text || !parsed.ok) && isGroupNode(draft.root)) {
     const printed = printFilter(draft.root);
-    if (!printed.ok) return { root: draft.root, readOnly: false, problems: printed.problems };
-    if (printed.json === text) return { root: draft.root, readOnly: false, problems: [] };
+    if (!printed.ok || printed.json === draft.queryRaw) {
+      return {
+        root: draft.root,
+        readOnly: !parsed.ok,
+        problems: printed.ok ? [] : printed.problems,
+        syncedText: draft.queryRaw,
+      };
+    }
   }
-  const parsed = parseFilter(text);
   return parsed.ok
-    ? { root: parsed.root, readOnly: false, problems: [] }
-    : { root: EMPTY_ROOT, readOnly: true, problems: [] };
+    ? { root: parsed.root, readOnly: false, problems: [], syncedText: text }
+    : { root: EMPTY_ROOT, readOnly: true, problems: [], syncedText: null };
 }
 
 /**
@@ -1451,10 +1464,13 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // update it during render without tripping the no-refs-during-render rule.
   const [lastPrinted, setLastPrinted] = React.useState(queryRaw);
   // The text the tree was last in sync with: the one it was seeded or
-  // re-parsed from, or the last one it printed. A blocked tree still stands
-  // for it, since its rows that print are unchanged. `null` when the drawer
-  // opened frozen on text that doesn't parse: no tree stands for any text.
-  const [syncedText, setSyncedText] = React.useState<string | null>(seed.readOnly ? null : queryRaw);
+  // re-parsed from, or the last one it printed. A blocked tree keeps it while
+  // edits to its other rows can't print either, so the tree kept on a return
+  // to this text may hold edits the text doesn't: that's fine, since the
+  // banner names the rows not applied and the live count is paused until
+  // the tree prints again. `null` when the drawer opened frozen with no tree
+  // standing for any text (see `seedTree`).
+  const [syncedText, setSyncedText] = React.useState<string | null>(seed.syncedText);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
   const liveCount = useLiveMatchCount({
     connectionId: meta.connectionId,
