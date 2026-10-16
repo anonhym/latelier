@@ -1017,13 +1017,15 @@ describe('Filter drawer — type-aware value editors', () => {
   });
 
   it('a list of valid ObjectIds edited as JSON shows no error', async () => {
-    mountWith(makeState({ queryRaw: `{"o":{"$in":[{"$oid":"${OID}"},{"$oid":"${OID.replace('0', '1')}"}]}}` }));
-
+    const { updateSpy } = mountWith(makeState({ queryRaw: `{"o":{"$in":[{"$oid":"${OID}"}]}}` }));
+    // A tree read back from queryRaw is not re-checked until it is edited, so edit it.
+    const list = `[{"$oid":"${OID}"},{"$oid":"${OID.replace('0', '1')}"}]`;
     const value = await screen.findByPlaceholderText('value');
-    await new Promise((r) => setTimeout(r, 50));
+    fireEvent.change(value, { target: { value: list } });
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"o":{"$in":${list}}}`));
     expect(value.getAttribute('aria-invalid')).not.toBe('true');
     expect(descriptionOf(value)).toBe('');
-    expect(screen.queryByText(/24 hex/)).toBeNull();
   });
 
   it('a null value has no value input', async () => {
