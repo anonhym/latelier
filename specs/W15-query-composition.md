@@ -1,6 +1,6 @@
 # W15 — Query composition: the whole find, not just the filter
 
-> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open, and §14 is a proposal rather than a plan.
+> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open only for the 1000-document cap. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
 
 ## Purpose
 
@@ -929,6 +929,14 @@ examples. A short built-in list — last 7 days, field exists and is non-null,
 case-insensitive contains, `$in` over a pasted list — would double as
 documentation for the operators behind them, which `operators.ts` already
 documents in prose.
+
+Shipped: an empty filter offers four starters under its "No conditions yet"
+note: Last 7 days (`$gte` on a date), Exists and is not null (`$ne: null`),
+Contains text (any case) (`$regex` with the inline `(?i)` flag) and One of a
+list (`$in`, edited as chips). Each button's tooltip names its operator. A
+starter adds one row with a blank field and puts the caret in it, so nothing
+reaches the filter text until the field is named. A read-only tree offers
+none.
 
 ### 14.9 First-class negation — P2
 

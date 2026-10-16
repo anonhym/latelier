@@ -979,3 +979,44 @@ describe('Filter drawer — a value whose type disagrees with the sample', () =>
     expect(sampleSchema).not.toHaveBeenCalled();
   });
 });
+
+describe('Filter drawer — starter templates', () => {
+  const LABELS = ['Last 7 days', 'Exists and is not null', 'Contains text (any case)', 'One of a list'];
+
+  it('an empty filter offers the four starters', async () => {
+    mountWith(makeState());
+
+    for (const name of LABELS) expect(await screen.findByRole('button', { name })).toBeTruthy();
+  });
+
+  it('a starter adds one pending row, focused on its field, and leaves queryRaw alone', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Last 7 days' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+    expect((screen.getByDisplayValue('$gte') as HTMLInputElement).placeholder).toBe('$op');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByPlaceholderText('field')));
+    // The row waits for a field, so nothing reaches queryRaw.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+    // The starters are for an empty filter only.
+    expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
+  });
+
+  it('a starter runs once its field is filled in', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Exists and is not null' }));
+    fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'email' } });
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"email":{"$ne":null}}'));
+  });
+
+  it('a filter that cannot be edited offers no starters', async () => {
+    mountWith(makeState({ queryRaw: '{not json' }));
+
+    await screen.findByLabelText('Drop a field here to add a condition');
+    expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
+  });
+});

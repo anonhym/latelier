@@ -74,6 +74,7 @@ import { useLiveMatchCount } from './useLiveMatchCount';
 import { CondValueEditor } from './CondValueEditor';
 import { useStructureEntries } from './useStructureEntries';
 import { condTypeWarning } from './condValue';
+import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -320,10 +321,15 @@ function insertRowKeepingFocus(
   const parent = path.slice(0, -1);
   const index = path[path.length - 1]! + offset;
   applyEdit(insertAt(root, parent, emptyCond(), index));
-  const nextKey = pathKey([...parent, index]);
+  focusRowFieldAfterRender([...parent, index]);
+}
+
+/** Puts the caret in the field box of the row at `path` once it has rendered. */
+function focusRowFieldAfterRender(path: NodePath): void {
+  const key = pathKey(path);
   requestAnimationFrame(() => {
     document
-      .querySelector<HTMLElement>(`[data-row-path="${nextKey}"] input[placeholder="field"]`)
+      .querySelector<HTMLElement>(`[data-row-path="${key}"] input[placeholder="field"]`)
       ?.focus();
   });
 }
@@ -1026,6 +1032,11 @@ function GroupView({
     const raw: RawNode = { kind: 'raw', json: '' };
     applyEdit(insertAt(root, path, raw));
   };
+  // Only offered on an empty root, so the new row is always row 0.
+  const addTemplate = (tpl: FilterTemplate) => {
+    applyEdit(insertAt(root, path, tpl.build(new Date())));
+    focusRowFieldAfterRender([...path, 0]);
+  };
   const setLogic = (logic: GroupNode['logic']) => applyEdit(updateAt(root, path, { ...node, logic }));
   const removeGroup = () => applyEdit(removeAt(root, path));
   const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
@@ -1207,6 +1218,19 @@ function GroupView({
             condition to narrow it down, or drag a field in from the results;
             the query bar above shows the same filter as text.
           </p>
+        )}
+        {/* Starters double as examples of the operators behind them; each
+            adds a row with a blank field, so nothing runs until it's named. */}
+        {isRoot && !readOnly && node.children.length === 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+            {FILTER_TEMPLATES.map((tpl) => (
+              <Tooltip key={tpl.id} label={`Uses ${tpl.operator}`} withArrow>
+                <Button variant="light" size="compact-xs" onClick={() => addTemplate(tpl)}>
+                  {tpl.label}
+                </Button>
+              </Tooltip>
+            ))}
+          </div>
         )}
         {node.children.map((child, i) => {
           const childPath = [...path, i];

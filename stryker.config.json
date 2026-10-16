@@ -44,6 +44,7 @@
     "src/pages/Workspace/columnReorderFocus.ts",
     "src/pages/Workspace/filterTree.ts",
     "src/pages/Workspace/condValue.ts",
+    "src/pages/Workspace/filterTemplates.ts",
     "src/pages/Workspace/legacyBuilder.ts",
     "src/pages/Workspace/views/tableColumns.ts",
     "src/pages/Workspace/exportFormat.ts",
