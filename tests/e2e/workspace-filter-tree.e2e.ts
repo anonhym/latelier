@@ -207,3 +207,72 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
     });
   });
 });
+
+/**
+ * W15 §14.3 and §14.8 end to end: a starter row and the chip editor build
+ * filters a real mongod runs. The case-insensitive starter relies on `(?i)`,
+ * PCRE's inline flag, which only a real server can confirm.
+ */
+test('filter tree editor: starters and chips build filters that run', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Filter Starter Target' },
+        {
+          dbName: 'shop',
+          collection: 'people',
+          docs: [
+            { name: 'Alice', tags: ['a'] },
+            { name: 'bob', tags: ['b'] },
+            { name: 'ALINA', tags: ['c'] },
+          ],
+        },
+      );
+      await expectStatusDot(win, 'Filter Starter Target', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'people');
+      await expect(win.getByText('bob')).toBeVisible({ timeout: 8000 });
+
+      // ─── Contains text (any case): name ~ (?i)ali ─────────────────────
+      await win.getByRole('button', { name: 'Contains text (any case)' }).click();
+      await expect(win.getByPlaceholder('field')).toBeFocused();
+      await win.getByPlaceholder('field').fill('name');
+      await win.getByPlaceholder('value').fill('(?i)ali');
+      await expect(ws.queryBarTextarea).toHaveValue('{"name":{"$regex":"(?i)ali"}}');
+
+      await ws.queryBarRunButton.click();
+      await expect(win.getByText('ALINA')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('Alice')).toBeVisible();
+      await expect(win.getByText('bob')).not.toBeVisible();
+
+      // ─── Reset, confirmed ─────────────────────────────────────────────
+      await win.getByRole('button', { name: 'Reset' }).click();
+      await expect(win.getByRole('dialog')).toBeVisible({ timeout: 4000 });
+      await win.getByRole('dialog').getByRole('button', { name: 'Reset' }).click();
+      await expect(ws.queryBarTextarea).toHaveValue('{}');
+
+      // ─── One of a list: tags in [a, c], entered as chips ─────────────
+      await win.getByRole('button', { name: 'One of a list' }).click();
+      await win.getByPlaceholder('field').fill('tags');
+      const chips = win.getByRole('combobox', { name: 'Values' });
+      await chips.fill('a');
+      await chips.press('Enter');
+      await chips.fill('c');
+      await chips.press('Enter');
+      await expect(win.getByRole('button', { name: 'Remove c', exact: true })).toBeVisible();
+      await expect(ws.queryBarTextarea).toHaveValue('{"tags":{"$in":["a","c"]}}');
+
+      await ws.queryBarRunButton.click();
+      await expect(win.getByText('ALINA')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('Alice')).toBeVisible();
+      await expect(win.getByText('bob')).not.toBeVisible();
+    });
+  });
+});

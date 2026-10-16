@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { api } from '../../api/atelier';
+import { api, isIpcError } from '../../api/atelier';
 
 /** How long the filter has to sit still before it is counted. */
 export const LIVE_COUNT_DEBOUNCE_MS = 500;
@@ -23,9 +23,11 @@ interface Target {
 /**
  * A debounced `api.query.count` of the committed filter, so the drawer can
  * show "≈1,240 match" before Run. Nothing is asked for an empty filter or
- * while `paused`. After one failed or timed-out count it stays unavailable
- * until the drawer remounts: a collection that is too big to count in the
- * probe budget should not be asked again on every keystroke.
+ * while `paused`. After a count times out it stays unavailable until the
+ * drawer remounts: a collection that is too big to count in the probe budget
+ * should not be asked again on every keystroke. Any other failure (a regex
+ * the server rejects, say) belongs to that filter text alone, so the next
+ * edit asks again.
  */
 export function useLiveMatchCount({
   connectionId,
@@ -36,11 +38,12 @@ export function useLiveMatchCount({
 }: Target): LiveMatchCount {
   const key = `${connectionId}\0${dbName}\0${collection}\0${queryRaw}`;
   const [settled, setSettled] = React.useState<{ key: string; count: number } | null>(null);
-  const [failed, setFailed] = React.useState(false);
+  const [failedKey, setFailedKey] = React.useState<string | null>(null);
+  const [timedOut, setTimedOut] = React.useState(false);
   const idle = paused || queryRaw.trim() === '{}' || !connectionId || !collection;
 
   React.useEffect(() => {
-    if (idle || failed) return;
+    if (idle || timedOut || failedKey === key) return;
     let current = true;
     const timer = setTimeout(() => {
       api.query
@@ -48,18 +51,20 @@ export function useLiveMatchCount({
         .then(({ count }) => {
           if (current) setSettled({ key, count });
         })
-        .catch(() => {
-          if (current) setFailed(true);
+        .catch((e: unknown) => {
+          if (!current) return;
+          if (isIpcError(e) && e.code === 'TIMEOUT') setTimedOut(true);
+          else setFailedKey(key);
         });
     }, LIVE_COUNT_DEBOUNCE_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [idle, failed, key, connectionId, dbName, collection, queryRaw]);
+  }, [idle, timedOut, failedKey, key, connectionId, dbName, collection, queryRaw]);
 
   if (idle) return { state: 'idle' };
-  if (failed) return { state: 'unavailable' };
+  if (timedOut || failedKey === key) return { state: 'unavailable' };
   if (settled?.key === key) return { state: 'ok', count: settled.count };
   return { state: 'counting' };
 }

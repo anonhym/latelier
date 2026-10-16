@@ -1,6 +1,6 @@
 # W15 — Query composition: the whole find, not just the filter
 
-> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open, and §14 is a proposal rather than a plan.
+> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open only for the 1000-document cap. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
 
 ## Purpose
 
@@ -832,6 +832,45 @@ Every `valType` shares one plain text input. The consequences differ by type:
 every type well enough to render `ISODate("…")` / `NumberDecimal("…")`. The
 editors just never followed.
 
+Shipped: the value editor follows the row's type and operator.
+
+- `$exists` and `null` rows show no value input.
+- `$in` / `$nin` / `$all` show the list as chips, whatever the value type.
+  - Typing a value and pressing Enter or a comma adds one. A pasted list split
+    on commas or new lines adds several. A value that itself holds a comma is
+    entered through "Edit as JSON".
+  - Each chip has its own named remove button.
+  - The chip box offers the same value suggestions as the text input; picking
+    one adds it as a chip.
+  - What a chip means follows the row's type. In a `string`, `objectid`,
+    `long`, `decimal` or `date` row a chip is the text as typed (`007`, a
+    19-digit long, an all-digit ObjectId), which the row's type then wraps. In
+    any other row `42` is a number and `true` / `false` / `null` are those
+    literals. `"42"` in quotes is text in every row.
+  - "Edit as JSON" switches to the text input and back. A list a chip can't
+    show faithfully keeps the text input: sub-documents, EJSON values such as
+    `{"$oid": …}`, and integers past 2^53.
+- A boolean with a comparison operator is a true / false choice. A blank value
+  shows as false, and nothing is written until one is picked.
+- A date with a comparison operator keeps its text input and adds a "Pick
+  date" button. It opens a small dialog holding a date-and-time input in local
+  time and the presets Now, Start of today, 7 days ago, 30 days ago and Start
+  of this month.
+  - The input works to the minute, so an edit made there drops the value's
+    seconds and milliseconds.
+  - Edits made in the input are one undo step.
+  - In the repeated hour of a daylight-saving fall-back, the input can't tell
+    the two hours apart and reads its time as the first one.
+- A value the server could not use does not print. The row keeps its last
+  good filter text, and the reason shows under the value input as that
+  input's description. That covers:
+  - an ObjectId that isn't 24 hex characters, alone or in a list;
+  - date text that isn't a date;
+  - a list item of a number, long or decimal row that a single value of that
+    row couldn't be (`abc`, `1.5` for a long, an empty item, `null`);
+  - an empty `$in` / `$nin`, which matches nothing (or everything) and is never
+    what a list was started for.
+
 ### 14.4 Filter-by-this-value from the result — P1
 
 The Table context menu offers *Copy field path*, *Copy value*, *Duplicate*,
@@ -857,8 +896,9 @@ would show "≈1,240 match" as the user builds.
 > or "Match count unavailable". It counts the committed filter text — the one
 > Run would send — half a second after the last edit, so a row the printer
 > refused is never counted. It asks nothing for an empty filter, while a
-> "not applied" banner or the invalid-text banner shows, and not at all after
-> one count has failed or timed out, until the drawer is opened again. A
+> "not applied" banner or the invalid-text banner shows. After a count times
+> out it asks nothing more until the drawer is opened again; any other failure
+> is unavailable for that filter text only, and the next edit asks again. A
 > response that arrives after a newer request was sent is ignored.
 
 
@@ -888,6 +928,23 @@ The precedent exists: `isApplicableOp` already drives an advisory for
 op-versus-type. This is the value-versus-schema half, from data already
 computed, and it stays advisory — sampling is not a constraint.
 
+Shipped: a condition whose value type disagrees with the sample shows a line
+under the row, such as "Sample: status is string in 100% of documents that
+have it". The share is of the sampled documents that hold the field. It
+uses the same ≥90% dominance rule as the document editor's warning (W17) and
+the same cached sample, so every row of a collection shares one fetch, and a
+row with a blank field asks for none. It stays silent where the comparison
+means nothing:
+
+- `$exists`, `$type`, `$regex`, `$all` and the other operators that don't
+  compare one value;
+- `null`, `regex` and array values;
+- a field the sample shows as an array, which matches by element;
+- number against long or decimal.
+
+A `$in` / `$nin` list is checked by its first non-null element, as it is sent.
+The line is advisory and never blocks printing.
+
 ### 14.8 Starter templates — P2
 
 Nothing seeds a common shape. Saved queries cover per-collection reuse but
@@ -896,6 +953,15 @@ examples. A short built-in list — last 7 days, field exists and is non-null,
 case-insensitive contains, `$in` over a pasted list — would double as
 documentation for the operators behind them, which `operators.ts` already
 documents in prose.
+
+Shipped: an empty filter offers four starters under its "No conditions yet"
+note: Last 7 days (`$gte` on a date), Exists and is not null (`$ne: null`),
+Contains text (any case) (`$regex` with the inline `(?i)` flag) and One of a
+list (`$in`, edited as chips). Each button's tooltip names its operator. A
+starter adds one row with a blank field and puts the caret in it, so nothing
+reaches the filter text until the field is named (and, for One of a list,
+until the list holds a value). A read-only tree offers
+none.
 
 ### 14.9 First-class negation — P2
 

@@ -6,14 +6,16 @@
 // called with) rather than internal component state — per the ticket's
 // testing note, a test that only inspects rendered DOM structure can pass
 // against a tree the printer would refuse to run.
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { isoToLocalInput, localInputToIso } from '../../src/pages/Workspace/condValue';
 
 const now = '2026-08-04T12:00:00.000Z';
 
@@ -90,7 +92,10 @@ function andRoot(...children: GroupNode['children']): GroupNode {
   return { kind: 'group', logic: '$and', children };
 }
 
-function mountWith(state: CollectionTabState) {
+function mountWith(
+  state: CollectionTabState,
+  overrides: { count?: IpcApi['query']['count']; sampleSchema?: IpcApi['meta']['sampleSchema'] } = {},
+) {
   const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
     documents: [],
     durationMs: 3,
@@ -105,7 +110,8 @@ function mountWith(state: CollectionTabState) {
       update: updateSpy as unknown as IpcApi['tabs']['update'],
     },
     conn: { list: async () => [CONNECTION] },
-    query: { find: findSpy, count: async () => ({ count: 0 }) },
+    query: { find: findSpy, count: overrides.count ?? (async () => ({ count: 0 })) },
+    ...(overrides.sampleSchema ? { meta: { sampleSchema: overrides.sampleSchema } } : {}),
   });
 
   const utils = render(
@@ -116,9 +122,16 @@ function mountWith(state: CollectionTabState) {
   return { ...utils, findSpy, updateSpy };
 }
 
+// The sampled schema is cached per collection for the whole module, so one
+// test's sample would otherwise answer the next test's rows.
+beforeEach(() => {
+  invalidateSampleSchemaCache();
+});
+
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §11)', () => {
@@ -765,6 +778,382 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
     await waitFor(() =>
       expect(lastWrittenDraft(updateSpy).draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true }),
     );
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+  });
+});
+
+describe('Filter drawer — type-aware value editors', () => {
+  const OID = '0123456789abcdef01234567';
+
+  async function setValueType(type: string) {
+    // Mantine labels the listbox with the input's name too; the input is the trigger.
+    const trigger = screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT');
+    fireEvent.click(trigger!);
+    fireEvent.click(await screen.findByRole('option', { name: type }));
+  }
+
+  describe('date', () => {
+    const START = '2026-01-01T00:00:00.000Z';
+
+    it('Pick date opens a datetime input holding the value in local time', async () => {
+      mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const input = (await screen.findByLabelText('Date and time')) as HTMLInputElement;
+      expect(input.type).toBe('datetime-local');
+      expect(input.value).toBe(isoToLocalInput(START));
+    });
+
+    it('a preset writes its timestamp to queryRaw', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-15T12:00:00.000Z'));
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      fireEvent.click(await screen.findByRole('button', { name: '7 days ago' }));
+
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe('{"d":{"$gte":{"$date":"2026-10-08T12:00:00.000Z"}}}'),
+      );
+    });
+
+    it('changing the datetime input writes that moment to queryRaw', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      fireEvent.change(await screen.findByLabelText('Date and time'), { target: { value: '2026-03-04T05:06' } });
+
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe(
+          `{"d":{"$gte":{"$date":"${localInputToIso('2026-03-04T05:06')}"}}}`,
+        ),
+      );
+    });
+
+    it('a half-filled datetime input (reported as empty) leaves the value alone', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const writesBefore = updateSpy.mock.calls.length;
+      fireEvent.change(await screen.findByLabelText('Date and time'), { target: { value: '' } });
+
+      await new Promise((r) => setTimeout(r, 300));
+      expect(updateSpy.mock.calls.length).toBe(writesBefore);
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe(START);
+    });
+
+    it('edits made in the datetime input are one undo step', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const input = await screen.findByLabelText('Date and time');
+      fireEvent.change(input, { target: { value: '2026-03-04T05:06' } });
+      fireEvent.change(input, { target: { value: '2026-03-04T05:07' } });
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"d":{"$gte":{"$date":"${localInputToIso('2026-03-04T05:07')}"}}}`),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Undo filter edit' }));
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"d":{"$gte":{"$date":"${START}"}}}`));
+    });
+
+    it('the picker is a dialog holding the input and the presets, not a menu', async () => {
+      mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const picker = await screen.findByRole('dialog', { name: 'Pick date' });
+
+      expect(within(picker).getByLabelText('Date and time')).toBeTruthy();
+      expect(within(picker).getByRole('button', { name: 'Start of this month' })).toBeTruthy();
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('arrow keys in the datetime input stay with the input instead of jumping to the presets', async () => {
+      mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const input = await screen.findByLabelText('Date and time');
+      input.focus();
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  describe('chips for $in', () => {
+    it('shows each element as a chip, and typing, removing and pasting edit the list', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a","b"]}}' }));
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      expect(screen.getByRole('button', { name: 'Remove a' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Remove b' })).toBeTruthy();
+
+      fireEvent.change(chipBox, { target: { value: 'c' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a","b","c"]}}'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove a' }));
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["b","c"]}}'));
+
+      fireEvent.paste(chipBox, { clipboardData: { getData: () => 'x, y\nB' } });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["b","c","x","y","B"]}}'));
+    });
+
+    it('a typed number or quoted text keeps its type', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":[]}}' }));
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      fireEvent.change(chipBox, { target: { value: '42' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+      fireEvent.change(chipBox, { target: { value: '"42"' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":[42,"42"]}}'));
+    });
+
+    it('a string list keeps typed digits as text', async () => {
+      const { updateSpy } = mountWith(
+        makeState({ queryRaw: '{"$and":[{"s":{"$in":["a"]}},{"s":{"$exists":true}}]}' }),
+      );
+      // Make the list's row a string row: the parser types a list as `array`.
+      await screen.findAllByPlaceholderText('field');
+      const trigger = screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT');
+      fireEvent.click(trigger!);
+      fireEvent.click(await screen.findByRole('option', { name: 'string' }));
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      fireEvent.change(chipBox, { target: { value: '007' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$and":[{"s":{"$in":["a","007"]}},{"s":{"$exists":true}}]}'),
+      );
+    });
+
+    it('offers value suggestions as chips, and picking one adds it', async () => {
+      const { updateSpy } = mountWith(
+        makeState({
+          queryRaw: '{"s":{"$in":["a"]}}',
+          lastRun: { documents: [{ s: 'shipped' }, { s: 'pending' }], durationMs: 0, ranAt: now },
+        }),
+      );
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      fireEvent.focus(chipBox);
+      fireEvent.click(chipBox);
+      fireEvent.click(await screen.findByRole('option', { name: 'shipped' }));
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a","shipped"]}}'));
+    });
+
+    it('Edit as JSON swaps to the text input holding the list', async () => {
+      mountWith(makeState({ queryRaw: '{"s":{"$in":["b","c"]}}' }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit as JSON' }));
+
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["b","c"]');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+
+    it('a list a chip cannot show keeps the text input', async () => {
+      mountWith(makeState({ queryRaw: `{"s":{"$in":[{"$oid":"${OID}"}]}}` }));
+
+      const value = await screen.findByPlaceholderText('value');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+
+      // Typing a list that parses does not swap the box out from under the caret.
+      fireEvent.change(value, { target: { value: '["a"]' } });
+      await waitFor(() => expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a"]'));
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+  });
+
+  it('a boolean value is a true / false choice', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"f":{"$eq":true}}' }));
+
+    const group = await screen.findByRole('radiogroup', { name: 'Value' });
+    expect((within(group).getByRole('radio', { name: 'true' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByPlaceholderText('value')).toBeNull();
+
+    fireEvent.click(within(group).getByRole('radio', { name: 'false' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"f":{"$eq":false}}'));
+  });
+
+  /** The text of the element(s) an input names as its description. */
+  function descriptionOf(el: HTMLElement): string {
+    return (el.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => (id ? (document.getElementById(id)?.textContent ?? '') : ''))
+      .join(' ')
+      .trim();
+  }
+
+  it('an ObjectId that is not 24 hex characters is described on its input and never printed', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'o' } });
+    await setValueType('objectid');
+    const value = screen.getByPlaceholderText('value');
+    fireEvent.change(value, { target: { value: 'abc' } });
+
+    await waitFor(() => expect(descriptionOf(value)).toBe('ObjectId must be 24 hex characters'));
+    expect(value.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Tab writes are debounced; once they settle, none carries the bad id.
+    await new Promise((r) => setTimeout(r, 300));
+    const written = (updateSpy.mock.calls as unknown[][]).map(
+      (c) => (c[1] as { state?: Partial<CollectionTabState> } | undefined)?.state?.queryRaw,
+    );
+    expect(written.some((q) => q?.includes('"abc"'))).toBe(false);
+
+    fireEvent.change(value, { target: { value: OID } });
+
+    await waitFor(() => expect(descriptionOf(value)).toBe(''));
+    expect(value.getAttribute('aria-invalid')).not.toBe('true');
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"o":{"$eq":{"$oid":"${OID}"}}}`));
+  });
+
+  it('a list of valid ObjectIds edited as JSON shows no error', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: `{"o":{"$in":[{"$oid":"${OID}"}]}}` }));
+    // A tree read back from queryRaw is not re-checked until it is edited, so edit it.
+    const list = `[{"$oid":"${OID}"},{"$oid":"${OID.replace('0', '1')}"}]`;
+    const value = await screen.findByPlaceholderText('value');
+    fireEvent.change(value, { target: { value: list } });
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"o":{"$in":${list}}}`));
+    expect(value.getAttribute('aria-invalid')).not.toBe('true');
+    expect(descriptionOf(value)).toBe('');
+  });
+
+  it('a null value has no value input', async () => {
+    mountWith(makeState({ queryRaw: '{"n":{"$eq":"x"}}' }));
+
+    expect(await screen.findByPlaceholderText('value')).toBeTruthy();
+    await setValueType('null');
+
+    await waitFor(() => expect(screen.queryByPlaceholderText('value')).toBeNull());
+  });
+});
+
+describe('Filter drawer — a value whose type disagrees with the sample', () => {
+  const statusSample = () => vi.fn(async () => ({ docs: Array(10).fill({ status: 'a' }) }));
+
+  it('says what the sampled documents hold, once per disagreeing row, from one sample', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState({ queryRaw: '{"$and":[{"status":{"$eq":5}},{"status":{"$eq":"x"}}]}' }), { sampleSchema });
+
+    expect(await screen.findByText('Sample: status is string in 100% of documents that have it')).toBeTruthy();
+    expect(screen.getAllByText(/^Sample: /)).toHaveLength(1);
+    expect(sampleSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing when the value agrees', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState({ queryRaw: '{"status":{"$eq":"x"}}' }), { sampleSchema });
+
+    await waitFor(() => expect(sampleSchema).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/^Sample: /)).toBeNull();
+  });
+
+  it('does not sample for a row whose field is still blank', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState(), { sampleSchema });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    await screen.findByPlaceholderText('field');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sampleSchema).not.toHaveBeenCalled();
+  });
+});
+
+describe('Filter drawer — starter templates', () => {
+  const LABELS = ['Last 7 days', 'Exists and is not null', 'Contains text (any case)', 'One of a list'];
+
+  it('an empty filter offers the four starters', async () => {
+    mountWith(makeState());
+
+    for (const name of LABELS) expect(await screen.findByRole('button', { name })).toBeTruthy();
+  });
+
+  it('a starter adds one pending row, focused on its field, and leaves queryRaw alone', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Last 7 days' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+    expect((screen.getByDisplayValue('$gte') as HTMLInputElement).placeholder).toBe('$op');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByPlaceholderText('field')));
+    // The row waits for a field, so nothing reaches queryRaw.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+    // The starters are for an empty filter only.
+    expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
+  });
+
+  it('a starter runs once its field is filled in', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Exists and is not null' }));
+    fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'email' } });
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"email":{"$ne":null}}'));
+  });
+
+  it('a filter that cannot be edited offers no starters', async () => {
+    mountWith(makeState({ queryRaw: '{not json' }));
+
+    await screen.findByLabelText('Drop a field here to add a condition');
+    expect(screen.queryByRole('button', { name: 'Last 7 days' })).toBeNull();
+  });
+});
+
+describe('Filter drawer — an empty $in list is never printed', () => {
+  const EMPTY = '$in needs at least one value';
+
+  function descriptionOf(el: HTMLElement): string {
+    return (el.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => (id ? (document.getElementById(id)?.textContent ?? '') : ''))
+      .join(' ')
+      .trim();
+  }
+
+  it('the One of a list starter waits for its first value', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'One of a list' }));
+    fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'tags' } });
+
+    const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+    await waitFor(() => expect(descriptionOf(chipBox)).toBe(EMPTY));
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+
+    fireEvent.change(chipBox, { target: { value: 'a' } });
+    fireEvent.keyDown(chipBox, { key: 'Enter' });
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"tags":{"$in":["a"]}}'));
+  });
+
+  it('removing the last chip leaves the filter text as it was', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a"]}}' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove a' }));
+
+    await waitFor(() => expect(descriptionOf(screen.getByRole('combobox', { name: 'Values' }))).toBe(EMPTY));
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+  });
+
+  it('switching $eq to $in over a value that is not a list leaves the filter text as it was', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$eq":"x"}}' }));
+
+    const op = await screen.findByDisplayValue('$eq');
+    fireEvent.change(op, { target: { value: '$in' } });
+    fireEvent.blur(op);
+
+    await waitFor(() => expect(descriptionOf(screen.getByPlaceholderText('value'))).toBe(EMPTY));
     expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
   });
 });

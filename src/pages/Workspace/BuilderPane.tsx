@@ -55,7 +55,7 @@ import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
-import { DEFAULT_FIELD_SOURCES, DEFAULT_VALUE_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
+import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
 import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -71,6 +71,10 @@ import type {
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
 import { useLiveMatchCount } from './useLiveMatchCount';
+import { CondValueEditor } from './CondValueEditor';
+import { useStructureEntries } from './useStructureEntries';
+import { condTypeWarning } from './condValue';
+import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -80,9 +84,6 @@ interface BuilderPaneProps {
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
-
-/** The only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
-const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
@@ -149,40 +150,6 @@ function IncludeBox({
       style={{ flexShrink: 0 }}
     />
   );
-}
-
-/**
- * Mongosh-flavored preview of the typed value the user just entered. Shown
- * as a faint hint to the right of the value input so the user sees what
- * the wrapped MQL will look like (e.g. `ISODate("2026-04-01")`) without
- * having to read the generated query bar.
- */
-function formatCondPreview(cond: { valType: ValType; value: string }): string {
-  const v = cond.value;
-  switch (cond.valType) {
-    case 'string':
-      return v ? `"${v}"` : '""';
-    case 'number':
-      return v || '0';
-    case 'long':
-      return v ? `NumberLong("${v}")` : 'NumberLong("…")';
-    case 'decimal':
-      return v ? `NumberDecimal("${v}")` : 'NumberDecimal("…")';
-    case 'boolean':
-      return v === 'true' ? 'true' : 'false';
-    case 'date':
-      return v ? `ISODate("${v}")` : 'ISODate("…")';
-    case 'null':
-      return 'null';
-    case 'regex':
-      return v ? `/${v}/` : '/…/';
-    case 'objectid':
-      return v ? `ObjectId("${v}")` : 'ObjectId("…")';
-    case 'array':
-      return v || '[]';
-    default:
-      return v || '…';
-  }
 }
 
 /** AND/OR/NOR segmented control shared by every group header (root + nested). */
@@ -354,10 +321,15 @@ function insertRowKeepingFocus(
   const parent = path.slice(0, -1);
   const index = path[path.length - 1]! + offset;
   applyEdit(insertAt(root, parent, emptyCond(), index));
-  const nextKey = pathKey([...parent, index]);
+  focusRowFieldAfterRender([...parent, index]);
+}
+
+/** Puts the caret in the field box of the row at `path` once it has rendered. */
+function focusRowFieldAfterRender(path: NodePath): void {
+  const key = pathKey(path);
   requestAnimationFrame(() => {
     document
-      .querySelector<HTMLElement>(`[data-row-path="${nextKey}"] input[placeholder="field"]`)
+      .querySelector<HTMLElement>(`[data-row-path="${key}"] input[placeholder="field"]`)
       ?.focus();
   });
 }
@@ -524,31 +496,15 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
-  // Value suggestions: gated on a non-empty field and one of
-  // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
-  // gets no popover, mirroring what `RecentFieldValueService` will ever
-  // record for it.
-  const valueInputRef = React.useRef<HTMLInputElement>(null);
-  const [valuePopoverOpen, setValuePopoverOpen] = React.useState(false);
-  const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
-  const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
-    () =>
-      suggestionContext && valueSuggestionsAllowed
-        ? { ...suggestionContext, target: { field: node.field, operator: node.op } }
-        : null,
-    [suggestionContext, valueSuggestionsAllowed, node.field, node.op],
-  );
-  const { items: valueSuggestionItems } = useSuggestions(
-    valuePopoverOpen ? valueSuggestionCtx : null,
-    node.value,
-    { valueSources: DEFAULT_VALUE_SOURCES },
-  );
-
   const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
-  // Keystrokes in one text box of this row are one undo step, not one each.
-  const typeInto = (box: 'field' | 'value', text: string) =>
-    patch({ [box]: text }, `${pathKey(path)}:${box}`);
+  // Keystrokes in one text box of this row are one undo step, not one each:
+  // the box's name becomes a key unique to this row.
+  const patchBox = (p: Partial<CondNode>, box?: string) =>
+    patch(p, box === undefined ? undefined : `${pathKey(path)}:${box}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
+  // The sample is only a hint: it never blocks the row from printing.
+  const structureEntries = useStructureEntries(suggestionContext, node.field.trim() !== '');
+  const typeWarning = condTypeWarning(structureEntries, node);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
   // per keystroke: `>` is a prefix of `>=`, so a keystroke map would convert
@@ -645,6 +601,11 @@ function CondRow({
   // is not waiting for a commit that would otherwise never come for text
   // like `$elemMatch`.
   const showConvertToRaw = opValue.startsWith('$') && !isCompilableOp(opValue);
+  // With a usable operator, a print problem can only be about the value, so
+  // it shows under the value input as that input's description; an operator
+  // problem stays on the row.
+  const valueProblem = isCompilableOp(node.op) ? problem : undefined;
+  const opProblem = valueProblem === undefined ? problem : undefined;
   const showOpDocs = node.op.startsWith('$') && !problem && hasOperatorDocs(node.op, 'query');
 
   // The row's one Remove control names what it removes. A row whose field is
@@ -685,7 +646,7 @@ function CondRow({
             value={node.field}
             disabled={readOnly}
             onChange={(e) => {
-              typeInto('field', e.target.value);
+              patchBox({ field: e.target.value }, 'field');
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => setFieldPopoverOpen(true)}
@@ -725,9 +686,9 @@ function CondRow({
               commitOpDraft();
               window.setTimeout(() => setOpPopoverOpen(false), 100);
             }}
-            aria-invalid={!!problem}
-            title={problem ?? undefined}
-            error={!!problem}
+            aria-invalid={!!opProblem}
+            title={opProblem}
+            error={!!opProblem}
             size="xs"
             style={{ width: 100, flexShrink: 0 }}
             styles={{ input: { fontFamily: 'monospace' } }}
@@ -814,7 +775,7 @@ function CondRow({
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: dim }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', opacity: dim }}>
         <Select
           value={node.valType}
           disabled={readOnly}
@@ -843,57 +804,13 @@ function CondRow({
             },
           }}
         />
-        {node.op !== '$exists' && (
-          <>
-            <TextInput
-              ref={valueInputRef}
-              placeholder="value"
-              value={node.value}
-              disabled={readOnly}
-              onChange={(e) => {
-                typeInto('value', e.target.value);
-                if (!valuePopoverOpen) setValuePopoverOpen(true);
-              }}
-              onFocus={() => setValuePopoverOpen(true)}
-              onBlur={() => {
-                window.setTimeout(() => setValuePopoverOpen(false), 100);
-              }}
-              size="xs"
-              style={{ flex: 1 }}
-              styles={{ input: { fontFamily: 'monospace' } }}
-            />
-            {valueSuggestionsAllowed && (
-              <SuggestionPopover
-                open={valuePopoverOpen}
-                items={valueSuggestionItems}
-                anchorRef={valueInputRef}
-                label="Value suggestions"
-                onSelect={(s) => {
-                  if (s.kind === 'value') patch({ value: s.display });
-                  setValuePopoverOpen(false);
-                  valueInputRef.current?.blur();
-                }}
-                onClose={() => setValuePopoverOpen(false)}
-              />
-            )}
-            <Tooltip label={formatCondPreview(node)} withArrow>
-              <span
-                style={{
-                  fontSize: 9,
-                  color: T.textGhost,
-                  fontFamily: '"JetBrains Mono", monospace',
-                  flexShrink: 0,
-                  maxWidth: 90,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {formatCondPreview(node)}
-              </span>
-            </Tooltip>
-          </>
-        )}
+        <CondValueEditor
+          node={node}
+          readOnly={readOnly}
+          problem={valueProblem}
+          onPatch={patchBox}
+          suggestionContext={suggestionContext}
+        />
       </div>
 
       {showConvertToRaw && (
@@ -909,9 +826,15 @@ function CondRow({
         </Button>
       )}
 
-      {problem && (
+      {opProblem && (
         <span role="alert" style={{ fontSize: 10, color: T.warn, lineHeight: 1.3 }}>
-          {problem}
+          {opProblem}
+        </span>
+      )}
+
+      {typeWarning && (
+        <span style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
+          Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents that have it
         </span>
       )}
     </div>
@@ -1115,6 +1038,11 @@ function GroupView({
     const raw: RawNode = { kind: 'raw', json: '' };
     applyEdit(insertAt(root, path, raw));
   };
+  // Only offered on an empty root, so the new row is always row 0.
+  const addTemplate = (tpl: FilterTemplate) => {
+    applyEdit(insertAt(root, path, tpl.build(new Date())));
+    focusRowFieldAfterRender([...path, 0]);
+  };
   const setLogic = (logic: GroupNode['logic']) => applyEdit(updateAt(root, path, { ...node, logic }));
   const removeGroup = () => applyEdit(removeAt(root, path));
   const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
@@ -1296,6 +1224,19 @@ function GroupView({
             condition to narrow it down, or drag a field in from the results;
             the query bar above shows the same filter as text.
           </p>
+        )}
+        {/* Starters double as examples of the operators behind them; each
+            adds a row with a blank field, so nothing runs until it's named. */}
+        {isRoot && !readOnly && node.children.length === 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+            {FILTER_TEMPLATES.map((tpl) => (
+              <Tooltip key={tpl.id} label={`Uses ${tpl.operator}`} withArrow>
+                <Button variant="light" size="compact-xs" onClick={() => addTemplate(tpl)}>
+                  {tpl.label}
+                </Button>
+              </Tooltip>
+            ))}
+          </div>
         )}
         {node.children.map((child, i) => {
           const childPath = [...path, i];
