@@ -108,6 +108,30 @@ function groupPosition(path: NodePath): string {
   return path.map((i) => i + 1).join('.');
 }
 
+// Which row a node object stands for. Nodes carry no ids and every edit
+// makes a new object, so a row's own edits pass its identity on (`sameRow`);
+// a node that moved, came back through undo, or was parsed from text keeps
+// the identity of the object it is. Keys the value editor, so its local state
+// (chips or JSON, half-typed chip, date picker) stays with its row rather
+// than with the slot the row is drawn in.
+const rowIdentities = new WeakMap<FilterNode, number>();
+let lastRowIdentity = 0;
+
+function rowIdentity(node: FilterNode): number {
+  let id = rowIdentities.get(node);
+  if (id === undefined) {
+    id = ++lastRowIdentity;
+    rowIdentities.set(node, id);
+  }
+  return id;
+}
+
+/** `next` is `prev` edited in place: the same row. */
+function sameRow<T extends FilterNode>(prev: FilterNode, next: T): T {
+  rowIdentities.set(next, rowIdentity(prev));
+  return next;
+}
+
 /**
  * Switches a node off or back on. `undefined` rather than `false` when on, so
  * a persisted draft carries the flag only where it means something.
@@ -496,7 +520,8 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
-  const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
+  const patch = (p: Partial<CondNode>, key?: string) =>
+    applyEdit(updateAt(root, path, sameRow(node, { ...node, ...p })), key);
   // Keystrokes in one text box of this row are one undo step, not one each:
   // the box's name becomes a key unique to this row.
   const patchBox = (p: Partial<CondNode>, box?: string) =>
@@ -590,7 +615,7 @@ function CondRow({
   // regardless of which uncompilable text it was given, so a still-drafted
   // `$elemMatch` converts the same as a committed one would.
   const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
-  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const toggle = () => applyEdit(updateAt(root, path, sameRow(node, toggleDisabled(node))));
   const dim = dimFor(node);
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
@@ -805,6 +830,7 @@ function CondRow({
           }}
         />
         <CondValueEditor
+          key={rowIdentity(node)}
           node={node}
           readOnly={readOnly}
           problem={valueProblem}

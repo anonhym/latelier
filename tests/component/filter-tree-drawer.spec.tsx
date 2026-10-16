@@ -981,6 +981,33 @@ describe('Filter drawer — type-aware value editors', () => {
       expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
     });
 
+    it('a row\'s "Edit as JSON" stays with that row, not with the slot, when a row above it goes', async () => {
+      const AB = '{"$and":[{"s":{"$in":["a"]}},{"t":{"$in":["b"]}}]}';
+      const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+      await waitFor(() => expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(2));
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Edit as JSON' })[0]!);
+      // Typing in the JSON box is this row's own edit: it stays JSON.
+      const json = screen.getByPlaceholderText('value') as HTMLInputElement;
+      fireEvent.change(json, { target: { value: '["a","z"]' } });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$and":[{"s":{"$in":["a","z"]}},{"t":{"$in":["b"]}}]}'));
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a","z"]');
+      expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove condition s' }));
+      await waitFor(() => expect(fieldValues()).toEqual(['t']));
+      // The row that moved up into the slot shows its own chips.
+      expect(screen.getByRole('combobox', { name: 'Values' })).toBeTruthy();
+      expect(screen.queryByPlaceholderText('value')).toBeNull();
+
+      // Undo puts the removed row back in the slot; neither row takes the
+      // other's JSON view, so both show their chips.
+      fireEvent.click(screen.getByRole('button', { name: 'Undo filter edit' }));
+      await waitFor(() => expect(fieldValues()).toEqual(['s', 't']));
+      expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(2);
+      expect(screen.queryByPlaceholderText('value')).toBeNull();
+    });
+
     it('a list a chip cannot show keeps the text input', async () => {
       mountWith(makeState({ queryRaw: `{"s":{"$in":[{"$oid":"${OID}"}]}}` }));
 
