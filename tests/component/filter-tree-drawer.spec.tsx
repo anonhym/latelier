@@ -643,6 +643,19 @@ describe('Filter drawer — undo / redo', () => {
     await waitFor(() => expect(fieldValues()).toEqual([]));
   });
 
+  it('typing into a box then deleting back leaves no do-nothing undo step', async () => {
+    mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const field = await screen.findByPlaceholderText('field');
+    fireEvent.change(field, { target: { value: 's' } });
+    fireEvent.change(field, { target: { value: '' } });
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+  });
+
   it('an edit to the filter text from outside the drawer clears the history', async () => {
     mountWith(makeState({ queryRaw: AB }));
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));

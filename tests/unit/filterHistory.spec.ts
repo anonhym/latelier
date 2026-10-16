@@ -83,4 +83,25 @@ describe('filterHistory', () => {
     expect(r.lastKey).toBeNull();
     expect(pushHistory(r, 'bc', 'k').past).toEqual(['a', 'b']);
   });
+
+  it('a push equal to the present adds no step', () => {
+    const h = pushHistory(initHistory({ a: 1 }), { a: 2 });
+    const same = pushHistory(h, { a: 2 });
+    expect(same.past).toEqual([{ a: 1 }]);
+    expect(same.present).toEqual({ a: 2 });
+  });
+
+  it('typing then deleting back to where the step began leaves no empty undo step', () => {
+    const typed = pushHistory(pushHistory(initHistory('a'), 'ab', 'k'), 'abc', 'k');
+    const back = pushHistory(typed, 'a', 'k');
+    expect(back).toEqual({ past: [], present: 'a', future: [], lastKey: null });
+    // Typing again starts a fresh step rather than silently overwriting.
+    expect(pushHistory(back, 'ax', 'k')).toEqual({ past: ['a'], present: 'ax', future: [], lastKey: 'k' });
+  });
+
+  it('a step that lands back where it started still clears the redo stack', () => {
+    const h = undo(pushHistory(pushHistory(initHistory('a'), 'b'), 'c'));
+    expect(h.future).toEqual(['c']);
+    expect(pushHistory(h, 'b').future).toEqual([]);
+  });
 });

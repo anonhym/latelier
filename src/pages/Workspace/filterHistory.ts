@@ -25,11 +25,24 @@ export function initHistory<T>(present: T): History<T> {
  * Records `next` as the new present. With the same `key` as the push before
  * it, `next` replaces the present instead of adding a step. Any push drops
  * the redo stack.
+ *
+ * A step that lands where the step before it started (an edit that changes
+ * nothing, or typing then deleting back) is no step at all: undoing it would
+ * do nothing visible. Values compare as JSON, which is what the history holds.
  */
 export function pushHistory<T>(h: History<T>, next: T, key?: string): History<T> {
   const lastKey = key ?? null;
   const past = lastKey !== null && lastKey === h.lastKey ? h.past : [...h.past, h.present].slice(-HISTORY_CAP);
+  // `past` is never empty here: a fresh or just-collapsed history has no key
+  // to coalesce on, so it always took the branch that appends.
+  if (sameValue(past.at(-1), next)) {
+    return { past: past.slice(0, -1), present: next, future: [], lastKey: null };
+  }
   return { past, present: next, future: [], lastKey };
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** One step back; `h` itself when there is none. */
