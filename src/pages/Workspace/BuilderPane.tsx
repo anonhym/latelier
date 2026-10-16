@@ -1605,10 +1605,10 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
           return;
         }
         // A dragged field can legitimately hold `undefined` (BSON's Undefined
-      // type) — `DocFieldTree`'s drag source now guards against starting
-      // such a drag at all, but this is defense in depth for any other
-      // payload source, since `condFromDragged` crashes downstream on one.
-      if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+        // type) — `DocFieldTree`'s drag source now guards against starting
+        // such a drag at all, but this is defense in depth for any other
+        // payload source, since `condFromDragged` crashes downstream on one.
+        if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
         applyEdit(insertAt(root, [], condFromDragged(dragged)));
       }}
       style={{
