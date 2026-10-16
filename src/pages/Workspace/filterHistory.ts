@@ -32,12 +32,13 @@ export function initHistory<T>(present: T): History<T> {
  */
 export function pushHistory<T>(h: History<T>, next: T, key?: string): History<T> {
   const lastKey = key ?? null;
-  const past = lastKey !== null && lastKey === h.lastKey ? h.past : [...h.past, h.present].slice(-HISTORY_CAP);
-  // `past` is never empty here: a fresh or just-collapsed history has no key
-  // to coalesce on, so it always took the branch that appends.
-  if (sameValue(past.at(-1), next)) {
-    return { past: past.slice(0, -1), present: next, future: [], lastKey: null };
+  const base = lastKey !== null && lastKey === h.lastKey ? h.past : [...h.past, h.present];
+  // Settled before the cap: a no-op that cut the oldest step first would then
+  // remove the duplicate and lose that step for nothing.
+  if (sameValue(base.at(-1), next)) {
+    return { past: base.slice(0, -1), present: next, future: [], lastKey: null };
   }
+  const past = base.slice(-HISTORY_CAP);
   return { past, present: next, future: [], lastKey };
 }
 

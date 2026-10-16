@@ -64,6 +64,16 @@ describe('filterHistory', () => {
     expect(h.present).toBe(HISTORY_CAP + 5);
   });
 
+  it('a no-op edit at the cap keeps every step, the oldest included', () => {
+    let h = initHistory(0);
+    for (let i = 1; i <= HISTORY_CAP; i++) h = pushHistory(h, i);
+    expect(h.past).toHaveLength(HISTORY_CAP);
+    const oldest = h.past[0];
+    const same = pushHistory(h, h.present);
+    expect(same.past).toHaveLength(HISTORY_CAP);
+    expect(same.past[0]).toBe(oldest);
+  });
+
   it('a push after an undo clears future', () => {
     const h = undo(pushHistory(initHistory('a'), 'b'));
     expect(h.future).toEqual(['b']);

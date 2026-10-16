@@ -690,7 +690,12 @@ function CondRow({
             anchorRef={fieldInputRef}
             onSelect={(s) => {
               if (s.kind === 'field') {
-                const nextValType = valTypeFromDisplayType(s.type);
+                // A null row has no value to retype, and a row with a value
+                // already chose its type (a starter, or typing): only a blank
+                // row takes the suggestion's type, or `$ne: null` turns into
+                // `$ne: ""`, which matches null and missing fields.
+                const adoptType = node.valType !== 'null' && node.value.trim() === '';
+                const nextValType = adoptType ? valTypeFromDisplayType(s.type) : node.valType;
                 const nextOp = opForValType(nextValType, node.op);
                 patch({ field: s.path, valType: nextValType, op: nextOp });
               }

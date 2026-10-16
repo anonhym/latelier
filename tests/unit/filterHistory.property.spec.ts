@@ -41,4 +41,14 @@ describe('filterHistory: undo and redo are inverses', () => {
       { numRuns: 50 },
     );
   });
+
+  it('an edit that changes nothing leaves past exactly as it was, at the cap or below', () => {
+    fc.assert(
+      fc.property(fc.uniqueArray(fc.integer(), { minLength: 1, maxLength: HISTORY_CAP + 30, size: 'max' }), (values) => {
+        const h = values.reduce((acc, v) => pushHistory(acc, v), initHistory(-1));
+        expect(pushHistory(h, h.present).past).toEqual(h.past);
+      }),
+      { numRuns: 50 },
+    );
+  });
 });

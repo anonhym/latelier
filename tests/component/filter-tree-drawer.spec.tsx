@@ -1313,6 +1313,49 @@ describe('Filter drawer — starter templates', () => {
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"email":{"$ne":null}}'));
   });
 
+  it('picking a string field suggestion keeps the null the starter chose', async () => {
+    const sampleSchema = vi.fn(async () => ({ docs: Array(10).fill({ email: 'a@b.c' }) }));
+    const { updateSpy } = mountWith(makeState(), { sampleSchema });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Exists and is not null' }));
+    const field = await screen.findByPlaceholderText('field');
+    fireEvent.focus(field);
+    fireEvent.click(await screen.findByRole('option', { name: /email/ }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"email":{"$ne":null}}'));
+  });
+
+  it('picking a field suggestion on a plain new row adopts the suggested type', async () => {
+    const sampleSchema = vi.fn(async () => ({ docs: Array(10).fill({ qty: 5 }) }));
+    mountWith(makeState(), { sampleSchema });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const field = await screen.findByPlaceholderText('field');
+    fireEvent.focus(field);
+    fireEvent.click(await screen.findByRole('option', { name: /qty/ }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT') as HTMLInputElement).value,
+      ).toBe('number'),
+    );
+  });
+
+  it('picking a field suggestion keeps the type of a starter that already holds a value', async () => {
+    const sampleSchema = vi.fn(async () => ({ docs: Array(10).fill({ qty: 5 }) }));
+    mountWith(makeState(), { sampleSchema });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Contains text (any case)' }));
+    const field = await screen.findByPlaceholderText('field');
+    fireEvent.focus(field);
+    fireEvent.click(await screen.findByRole('option', { name: /qty/ }));
+
+    await waitFor(() => expect((field as HTMLInputElement).value).toBe('qty'));
+    expect(
+      (screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT') as HTMLInputElement).value,
+    ).toBe('string');
+  });
+
   it('a filter that cannot be edited offers no starters', async () => {
     mountWith(makeState({ queryRaw: '{not json' }));
 
