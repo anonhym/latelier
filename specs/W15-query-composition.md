@@ -835,14 +835,16 @@ editors just never followed.
 Shipped: the value editor follows the row's type and operator.
 
 - `$exists` and `null` rows show no value input.
-- `$in` / `$nin` / `$all` show the list as chips. Typing a value and pressing
+- `$in` / `$nin` / `$all` show the list as chips, whatever the value type.
+  Typing a value and pressing
   Enter or a comma adds one, a pasted list split on commas or new lines adds
   several, and each chip has its own named remove button. A chip reads `42` as
   a number, `true` / `false` / `null` as those literals, and `"42"` in quotes
   as text. "Edit as JSON" switches to the text input and back. A list a chip
   can't show faithfully keeps the text input: sub-documents, EJSON values such
   as `{"$oid": …}`, and integers past 2^53.
-- A boolean with `$eq` / `$ne` is a true / false choice.
+- A boolean with a comparison operator is a true / false choice. A blank value
+  shows as false, and nothing is written until one is picked.
 - A date with a comparison operator keeps its text input and adds a "Pick
   date" menu. The menu holds a date-and-time input in local time and the
   presets Now, Start of today, 7 days ago, 30 days ago and Start of this month.
