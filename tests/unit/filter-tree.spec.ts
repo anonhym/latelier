@@ -10,6 +10,7 @@ import {
   moveAt,
   wrapInGroup,
   unwrapGroup,
+  andAtRoot,
   toRawNode,
   tryParseRaw,
   coerceArrayElementWire,
@@ -1694,5 +1695,21 @@ describe('negation — a single-child $nor wrap (§4)', () => {
 
   it('a field-level $not still reads as a raw clause', () => {
     expect(mustParse('{"f":{"$not":{"$gt":1}}}')).toEqual(group('$and', [raw('{"f":{"$not":{"$gt":1}}}')]));
+  });
+});
+
+describe('andAtRoot — require one more condition of the whole filter (§4)', () => {
+  it('appends to an $and root', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(andAtRoot(root, cond({ field: 'b' }))).toEqual(group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]));
+  });
+
+  it.each(['$or', '$nor'] as const)('ANDs with a root %s instead of joining it', (logic) => {
+    const root = group(logic, [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const next = andAtRoot(root, cond({ field: 'c' }));
+    expect(next).toEqual(group('$and', [root, cond({ field: 'c' })]));
+    expect(mustPrint(next)).toBe(
+      `{"$and":[{"${logic}":[{"a":{"$eq":"x"}},{"b":{"$eq":"x"}}]},{"c":{"$eq":"x"}}]}`,
+    );
   });
 });

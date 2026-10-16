@@ -733,6 +733,17 @@ function insertNodeAt(target: FilterNode, path: NodePath, node: FilterNode, inde
   return { ...target, children };
 }
 
+/**
+ * Adds `node` as one more requirement on the whole filter. An `$and` root
+ * takes it as another child; an `$or` or `$nor` root is wrapped in a new
+ * `$and` beside it, because joining the root group would make the node an
+ * alternative (or an exclusion) instead of a requirement.
+ */
+export function andAtRoot(root: GroupNode, node: FilterNode): GroupNode {
+  if (root.logic === '$and') return insertAt(root, [], node);
+  return { kind: 'group', logic: '$and', children: [root, node] };
+}
+
 /** `index` omitted appends — every existing caller relies on that. */
 export function insertAt(root: GroupNode, parent: NodePath, node: FilterNode, index?: number): GroupNode {
   return insertNodeAt(root, parent, node, index) as GroupNode;
