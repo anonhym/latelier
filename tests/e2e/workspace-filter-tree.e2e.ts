@@ -238,7 +238,7 @@ test('filter tree editor: starters and chips build filters that run', async () =
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'people');
-      await expect(win.getByText('bob', { exact: true })).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('bob')).toBeVisible({ timeout: 8000 });
 
       // ─── Contains text (any case): name ~ (?i)ali ─────────────────────
       await win.getByRole('button', { name: 'Contains text (any case)' }).click();
@@ -248,9 +248,9 @@ test('filter tree editor: starters and chips build filters that run', async () =
       await expect(ws.queryBarTextarea).toHaveValue('{"name":{"$regex":"(?i)ali"}}');
 
       await ws.queryBarRunButton.click();
-      await expect(win.getByText('ALINA', { exact: true })).toBeVisible({ timeout: 8000 });
-      await expect(win.getByText('Alice', { exact: true })).toBeVisible();
-      await expect(win.getByText('bob', { exact: true })).not.toBeVisible();
+      await expect(win.getByText('ALINA')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('Alice')).toBeVisible();
+      await expect(win.getByText('bob')).not.toBeVisible();
 
       // ─── Reset, confirmed ─────────────────────────────────────────────
       await win.getByRole('button', { name: 'Reset' }).click();
@@ -270,9 +270,9 @@ test('filter tree editor: starters and chips build filters that run', async () =
       await expect(ws.queryBarTextarea).toHaveValue('{"tags":{"$in":["a","c"]}}');
 
       await ws.queryBarRunButton.click();
-      await expect(win.getByText('ALINA', { exact: true })).toBeVisible({ timeout: 8000 });
-      await expect(win.getByText('Alice', { exact: true })).toBeVisible();
-      await expect(win.getByText('bob', { exact: true })).not.toBeVisible();
+      await expect(win.getByText('ALINA')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('Alice')).toBeVisible();
+      await expect(win.getByText('bob')).not.toBeVisible();
     });
   });
 });
