@@ -85,7 +85,7 @@ export function CondValueEditor({
 }) {
   const T = themeVars;
   const isListOp = ARRAY_VALUE_OPS.has(node.op);
-  const chips = isListOp ? chipsFromValue(node.value) : null;
+  const chips = isListOp ? chipsFromValue(node.value, node.valType) : null;
   // A list shows as chips until the person asks for the JSON, or starts
   // typing in the text box: a half-typed list that happens to parse must not
   // swap the box out from under the caret.

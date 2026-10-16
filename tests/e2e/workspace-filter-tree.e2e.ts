@@ -58,21 +58,21 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       // ─── Build (a AND (b OR c)) in the drawer ─────────────────────────
 
       // Root group defaults to AND. Add its first condition: a = "x".
-      await win.getByRole('button', { name: 'Add condition' }).first().click();
+      await win.getByRole('button', { name: 'Add condition', exact: true }).click();
       await win.getByPlaceholder('field').nth(0).fill('a');
       await win.getByPlaceholder('value').nth(0).fill('x');
 
       // Add a nested group as the root's second child.
-      await win.getByRole('button', { name: 'Add group' }).first().click();
+      await win.getByRole('button', { name: 'Add group', exact: true }).click();
 
       // The nested group is the second "Group logic" control in the tree —
       // flip it from its AND default to OR.
       const nestedLogic = win.getByRole('radiogroup', { name: 'Group logic' }).nth(1);
       await nestedLogic.getByRole('radio', { name: 'OR', exact: true }).click();
 
-      // Add the nested group's two conditions: b = "y", c = "z". Its own
-      // "Add condition" button is now the second one in the tree.
-      const nestedAddCondition = win.getByRole('button', { name: 'Add condition' }).nth(1);
+      // Add the nested group's two conditions: b = "y", c = "z". The group is
+      // the root's second child, and its add button says so.
+      const nestedAddCondition = win.getByRole('button', { name: 'Add condition to group 2', exact: true });
       await nestedAddCondition.click();
       await win.getByPlaceholder('field').nth(1).fill('b');
       await win.getByPlaceholder('value').nth(1).fill('y');
@@ -101,7 +101,7 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       // "Builder disabled" dead end.
       await ws.queryBarTextarea.fill('{"items":{"$elemMatch":{"sku":2}}}');
 
-      const rawClause = win.getByRole('textbox', { name: 'Raw clause' });
+      const rawClause = win.getByRole('textbox', { name: 'Raw clause 1', exact: true });
       await expect(rawClause).toBeVisible({ timeout: 5000 });
       await expect(rawClause).toHaveValue('{"items":{"$elemMatch":{"sku":2}}}');
       // Not frozen read-only: the "isn't valid JSON" banner must be absent.
@@ -194,7 +194,7 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
       // ─── b back on, then NOT b: only a = x with b ≠ y ────────────────
       await includeB.check();
       await expect(ws.queryBarTextarea).toHaveValue('{"$and":[{"a":{"$eq":"x"}},{"b":{"$eq":"y"}}]}');
-      await win.getByRole('button', { name: 'Condition options' }).nth(1).click();
+      await win.getByRole('button', { name: 'Condition options 2', exact: true }).click();
       await win.getByRole('menuitem', { name: 'Negate (NOT)' }).click();
       await expect(ws.queryBarTextarea).toHaveValue(
         '{"$and":[{"a":{"$eq":"x"}},{"$nor":[{"b":{"$eq":"y"}}]}]}',

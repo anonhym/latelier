@@ -810,6 +810,8 @@ prevention, at composition time, for the case that does not need a planner.
 
 ### 14.3 Type-aware value editors — P1
 
+The problem as first written, before the editors shipped (kept for history):
+
 Every `valType` shares one plain text input. The consequences differ by type:
 
 - **`date`** — the user hand-types an ISO-8601 string. No picker, no relative
@@ -825,10 +827,10 @@ Every `valType` shares one plain text input. The consequences differ by type:
   segmented control or switch is unambiguous.
 - **`objectid`** — 24-hex validity is checkable as you type; today a typo
   surfaces as a print problem.
-- **`null`** — the value input is hidden only for `$exists`
-  (`BuilderPane.tsx:402`); for `null` it renders an input that means nothing.
+- **`null`** — the value input is hidden only for `$exists`; for `null` it
+  renders an input that means nothing.
 
-`formatCondPreview` (`BuilderPane.tsx:84-110`) already knows the shape of
+`formatCondPreview` (now in `CondValueEditor.tsx`) already knows the shape of
 every type well enough to render `ISODate("…")` / `NumberDecimal("…")`. The
 editors just never followed.
 
@@ -849,11 +851,16 @@ Shipped: the value editor follows the row's type and operator.
     literals. `"42"` in quotes is text in every row.
   - "Edit as JSON" switches to the text input and back. A list a chip can't
     show faithfully keeps the text input: sub-documents, EJSON values such as
-    `{"$oid": …}`, and integers past 2^53.
+    `{"$oid": …}`, integers past 2^53, and anything but text in a `string`,
+    `objectid`, `long`, `decimal` or `date` row, where a chip would read back
+    as text after the next edit.
+  - The chips-or-JSON choice, a half-typed chip and an open date picker belong
+    to the row: a row that moves into its slot after a remove, move or undo
+    does not take them over.
 - A boolean with a comparison operator is a true / false choice. A blank value
   shows as false, and nothing is written until one is picked.
 - A date with a comparison operator keeps its text input and adds a "Pick
-  date" button. It opens a small dialog holding a date-and-time input in local
+  date" button. It opens a popover holding a date-and-time input in local
   time and the presets Now, Start of today, 7 days ago, 30 days ago and Start
   of this month.
   - The input works to the minute, so an edit made there drops the value's
@@ -868,8 +875,12 @@ Shipped: the value editor follows the row's type and operator.
   - date text that isn't a date;
   - a list item of a number, long or decimal row that a single value of that
     row couldn't be (`abc`, `1.5` for a long, an empty item, `null`);
-  - an empty `$in` / `$nin`, which matches nothing (or everything) and is never
-    what a list was started for.
+  - a list item of a boolean row that isn't `true` or `false` (`yes`, `1`,
+    `null`), which would otherwise go out as `false`;
+  - an empty `$in` / `$nin` / `$all` the user left, which matches nothing (or
+    everything) and is never what a list was started for. An empty list
+    already in the filter text is valid MongoDB and is not refused: it parses
+    to a raw clause, so it prints back as written.
 
 ### 14.4 Filter-by-this-value from the result — P1
 
@@ -897,16 +908,17 @@ would show "≈1,240 match" as the user builds.
 > Run would send — half a second after the last edit, so a row the printer
 > refused is never counted. It asks nothing for an empty filter, while a
 > "not applied" banner or the invalid-text banner shows. After a count times
-> out it asks nothing more until the drawer is opened again; any other failure
-> is unavailable for that filter text only, and the next edit asks again. A
-> response that arrives after a newer request was sent is ignored.
+> out, that collection is not counted again for the rest of the session, on
+> any filter, across tab switches, Reset and Saved or Recent loads; any other
+> failure is unavailable for that filter text only, and the next edit asks
+> again. A response that arrives after a newer request was sent is ignored.
 
 
 The value is not the number; it is catching "0 match" while the mistake is
 still on screen, instead of after a Run that returns an empty table.
 
-Needs a guard: skip while the tree has print problems, and skip when the
-collection is large enough that `countDocuments` is itself slow.
+The guards that shipped: no count while the tree has print problems, and the
+timeout latch above for a collection too large to count in the budget.
 
 ### 14.6 Undo / redo on the tree — P2
 

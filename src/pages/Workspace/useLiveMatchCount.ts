@@ -21,13 +21,24 @@ interface Target {
 }
 
 /**
+ * Collections whose count timed out, by connection, database and name. Module
+ * state so it outlives the drawer, which remounts on every tab switch, Reset
+ * and Saved or Recent load.
+ *
+ * ponytail: never forgotten until the window reloads; give entries an expiry
+ * if a collection that shrank should be counted again sooner.
+ */
+const timedOutCollections = new Set<string>();
+
+/**
  * A debounced `api.query.count` of the committed filter, so the drawer can
  * show "≈1,240 match" before Run. Nothing is asked for an empty filter or
- * while `paused`. After a count times out it stays unavailable until the
- * drawer remounts: a collection that is too big to count in the probe budget
- * should not be asked again on every keystroke. Any other failure (a regex
- * the server rejects, say) belongs to that filter text alone, so the next
- * edit asks again.
+ * while `paused`. After a count times out, that collection stays unavailable
+ * for the rest of the session: a collection that is too big to count in the
+ * probe budget should not be asked again on every keystroke or remount. Any
+ * other failure (a regex the server rejects, say) belongs to that filter text
+ * alone, so the next edit asks again. A failure that is not an IpcError is a
+ * bug: it shows unavailable too, and is rethrown so it is reported.
  */
 export function useLiveMatchCount({
   connectionId,
@@ -36,10 +47,13 @@ export function useLiveMatchCount({
   queryRaw,
   paused,
 }: Target): LiveMatchCount {
-  const key = `${connectionId}\0${dbName}\0${collection}\0${queryRaw}`;
+  const collectionKey = `${connectionId}\0${dbName}\0${collection}`;
+  const key = `${collectionKey}\0${queryRaw}`;
   const [settled, setSettled] = React.useState<{ key: string; count: number } | null>(null);
   const [failedKey, setFailedKey] = React.useState<string | null>(null);
-  const [timedOut, setTimedOut] = React.useState(false);
+  // Mirrors the module set for this collection, so a timeout re-renders.
+  const [, setTimeouts] = React.useState(0);
+  const timedOut = timedOutCollections.has(collectionKey);
   const idle = paused || queryRaw.trim() === '{}' || !connectionId || !collection;
 
   React.useEffect(() => {
@@ -52,16 +66,19 @@ export function useLiveMatchCount({
           if (current) setSettled({ key, count });
         })
         .catch((e: unknown) => {
-          if (!current) return;
-          if (isIpcError(e) && e.code === 'TIMEOUT') setTimedOut(true);
-          else setFailedKey(key);
+          if (isIpcError(e) && e.code === 'TIMEOUT') timedOutCollections.add(collectionKey);
+          if (current) {
+            if (timedOutCollections.has(collectionKey)) setTimeouts((n) => n + 1);
+            else setFailedKey(key);
+          }
+          if (!isIpcError(e)) throw e;
         });
     }, LIVE_COUNT_DEBOUNCE_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [idle, timedOut, failedKey, key, connectionId, dbName, collection, queryRaw]);
+  }, [idle, timedOut, failedKey, key, collectionKey, connectionId, dbName, collection, queryRaw]);
 
   if (idle) return { state: 'idle' };
   if (timedOut || failedKey === key) return { state: 'unavailable' };

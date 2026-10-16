@@ -34,6 +34,22 @@ const fieldNameArb = fc.string({ minLength: 1, maxLength: 6 }).filter((s) => s.t
 // ranges below passes `condValueProblem` regardless of which one is picked —
 // keeps every generated cond unconditionally printable.
 const SIMPLE_OPS = ['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'] as const;
+const LIST_OPS = ['$in', '$nin', '$all'] as const;
+
+const oidArb = fc.stringMatching(/^[0-9a-f]{24}$/);
+// Four-digit years only: the date check reads the ISO text back.
+const isoDateArb = fc
+  .date({ min: new Date('1970-01-01T00:00:00Z'), max: new Date('9999-12-31T23:59:59Z'), noInvalidDate: true })
+  .map((d) => d.toISOString());
+// One element of a list as JSON holds it: plain values and the sentinels.
+const listItemArb: fc.Arbitrary<unknown> = fc.oneof(
+  fc.string({ maxLength: 4 }),
+  fc.integer({ min: -1000, max: 1000 }),
+  fc.boolean(),
+  fc.constant(null),
+  oidArb.map(($oid) => ({ $oid })),
+  isoDateArb.map(($date) => ({ $date })),
+);
 
 const safeCondArb: fc.Arbitrary<CondNode> = fc.oneof(
   fc.record({
@@ -52,6 +68,30 @@ const safeCondArb: fc.Arbitrary<CondNode> = fc.oneof(
     // precision loss is a separate, deliberately documented ceiling (§3a in
     // filterTree.ts) this file isn't exercising.
     value: fc.integer({ min: -1000, max: 1000 }).map(String),
+  }),
+  // The two sentinel types the printer checks: only well-formed ones, so the
+  // row stays printable.
+  fc.record({
+    kind: fc.constant('cond' as const),
+    field: fieldNameArb,
+    op: fc.constantFrom(...SIMPLE_OPS),
+    valType: fc.constant<ValType>('objectid'),
+    value: oidArb,
+  }),
+  fc.record({
+    kind: fc.constant('cond' as const),
+    field: fieldNameArb,
+    op: fc.constantFrom(...SIMPLE_OPS),
+    valType: fc.constant<ValType>('date'),
+    value: isoDateArb,
+  }),
+  // A non-empty list, the shape `parseFilter` gives a list it reads.
+  fc.record({
+    kind: fc.constant('cond' as const),
+    field: fieldNameArb,
+    op: fc.constantFrom(...LIST_OPS),
+    valType: fc.constant<ValType>('array'),
+    value: fc.array(listItemArb, { minLength: 1, maxLength: 3 }).map((els) => JSON.stringify(els)),
   }),
 );
 
@@ -148,6 +188,50 @@ describe('printFilter: total over any tree', () => {
         expect(result.ok).toBe(false);
       }),
       { numRuns: 30 },
+    );
+  });
+});
+
+// ─── Text MongoDB accepts ────────────────────────────────────────────────────
+
+// Filter text of list operators, empty lists included, and sentinel values,
+// alone or sharing a field with another operator.
+const listFilterTextArb: fc.Arbitrary<string> = fc
+  .array(
+    fc.record({
+      field: fieldNameArb,
+      op: fc.constantFrom(...LIST_OPS),
+      items: fc.array(listItemArb, { maxLength: 3 }),
+      extra: fc.option(fc.oneof(listItemArb, fc.constant(true)), { nil: undefined }),
+    }),
+    { minLength: 1, maxLength: 3 },
+  )
+  .map((clauses) => {
+    const parts = clauses.map(({ field, op, items, extra }) => ({
+      [field]: extra === undefined ? { [op]: items } : { [op]: items, $ne: extra },
+    }));
+    // A one-clause `$and` prints as its clause, so it is written that way.
+    return JSON.stringify(parts.length === 1 ? parts[0] : { $and: parts });
+  });
+
+describe('parsed text prints back', () => {
+  it('a filter of list operators and sentinels, empty lists included, always prints, and prints its own text', () => {
+    fc.assert(
+      fc.property(listFilterTextArb, (text) => {
+        const parsed = parseFilter(text);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+        const printed = printFilter(parsed.root);
+        expect(printed.ok).toBe(true);
+        if (!printed.ok) return;
+        // Two operators on one field split into two rows, which print as an
+        // `$and` of the two: the same filter, written out. Every other text
+        // prints as written.
+        if (!text.includes('"$ne"')) expect(printed.json).toBe(text);
+        const again = parseFilter(printed.json);
+        expect(again.ok && printFilter(again.root)).toEqual({ ok: true, json: printed.json });
+      }),
+      { numRuns: 60 },
     );
   });
 });

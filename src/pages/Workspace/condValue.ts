@@ -65,11 +65,14 @@ function isChip(v: unknown): v is Chip {
 }
 
 /**
- * The chips a `$in` / `$nin` / `$all` value shows, or `null` when the value
- * holds something a chip can't show faithfully (a sub-document, an EJSON
- * sentinel, text that isn't a JSON array), which keeps the text input.
+ * The chips a `$in` / `$nin` / `$all` value of a `valType` row shows, or
+ * `null` when the value holds something a chip can't show faithfully (a
+ * sub-document, an EJSON sentinel, text that isn't a JSON array, anything but
+ * text in a text-typed row), which keeps the text input. A text row reads
+ * every typed chip as text, so its `1` or `null` would come back as `"1"` or
+ * `"null"` after the next edit.
  */
-export function chipsFromValue(value: string): Chip[] | null {
+export function chipsFromValue(value: string, valType: ValType): Chip[] | null {
   if (value.trim() === '') return [];
   let parsed: unknown;
   try {
@@ -81,7 +84,8 @@ export function chipsFromValue(value: string): Chip[] | null {
   catch {
     return null;
   }
-  return Array.isArray(parsed) && parsed.every(isChip) ? parsed : null;
+  if (!Array.isArray(parsed) || !parsed.every(isChip)) return null;
+  return TEXT_CHIP_TYPES.has(valType) && !parsed.every((el) => typeof el === 'string') ? null : parsed;
 }
 
 // Two digit runs that can't be re-split against each other: no super-linear

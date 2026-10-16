@@ -94,22 +94,34 @@ describe.runIf(inNewYork)('datetime-local conversion across a DST fall-back hour
 
 describe('chips', () => {
   it('reads a JSON array of primitives', () => {
-    expect(chipsFromValue('["a",1,true,null]')).toEqual(['a', 1, true, null]);
-    expect(chipsFromValue('  ')).toEqual([]);
-    expect(chipsFromValue('')).toEqual([]);
+    expect(chipsFromValue('["a",1,true,null]', 'array')).toEqual(['a', 1, true, null]);
+    expect(chipsFromValue('  ', 'array')).toEqual([]);
+    expect(chipsFromValue('', 'array')).toEqual([]);
   });
 
   it('refuses anything a chip cannot show', () => {
-    expect(chipsFromValue('[{"$oid":"0123456789abcdef01234567"}]')).toBeNull();
-    expect(chipsFromValue('[[1]]')).toBeNull();
-    expect(chipsFromValue('garbage')).toBeNull();
-    expect(chipsFromValue('{}')).toBeNull();
-    expect(chipsFromValue('"a"')).toBeNull();
+    expect(chipsFromValue('[{"$oid":"0123456789abcdef01234567"}]', 'array')).toBeNull();
+    expect(chipsFromValue('[[1]]', 'array')).toBeNull();
+    expect(chipsFromValue('garbage', 'array')).toBeNull();
+    expect(chipsFromValue('{}', 'array')).toBeNull();
+    expect(chipsFromValue('"a"', 'array')).toBeNull();
+  });
+
+  it('a text row shows a list as chips only when every item is text', () => {
+    // A bare chip in a text row reads back as text: an ObjectId row's 1 would
+    // go out as {"$oid":"1"} after the next edit, a date row's as {"$date":"1"}.
+    for (const vt of ['string', 'objectid', 'long', 'decimal', 'date'] as const) {
+      expect(chipsFromValue('["a",1]', vt)).toBeNull();
+      expect(chipsFromValue('[null]', vt)).toBeNull();
+      expect(chipsFromValue('[true]', vt)).toBeNull();
+      expect(chipsFromValue('["a","1"]', vt)).toEqual(['a', '1']);
+    }
+    expect(chipsFromValue('["a",1,true,null]', 'number')).toEqual(['a', 1, true, null]);
   });
 
   it('keeps an integer past 2^53 out of chips, where it would be rounded', () => {
-    expect(chipsFromValue('[9007199254740993]')).toBeNull();
-    expect(chipsFromValue('[9007199254740991, 1.5]')).toEqual([9007199254740991, 1.5]);
+    expect(chipsFromValue('[9007199254740993]', 'array')).toBeNull();
+    expect(chipsFromValue('[9007199254740991, 1.5]', 'array')).toEqual([9007199254740991, 1.5]);
   });
 
   it('reads typed chip text as the value it looks like', () => {

@@ -9,8 +9,3 @@
 export const QUERY_CAPS = { timeoutSeconds: 30, maxResultMb: 50 } as const;
 
 export const LIMIT_EXPLANATION = `Total across all pages. Queries stop after ${QUERY_CAPS.timeoutSeconds} s; results over ${QUERY_CAPS.maxResultMb} MB are refused.`;
-
-/** "limit N" for a limit that is really applied, `null` when the query has none. */
-export function limitChipText(limit: number | null): string | null {
-  return limit === null ? null : `limit ${limit}`;
-}

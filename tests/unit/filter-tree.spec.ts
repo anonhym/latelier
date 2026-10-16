@@ -1792,16 +1792,42 @@ describe('printFilter blocks a value the server cannot use', () => {
     expect([...ARRAY_VALUE_OPS]).toEqual(['$in', '$nin', '$all']);
   });
 
-  it('an empty $in / $nin list never means what was meant, so it does not print', () => {
-    for (const op of ['$in', '$nin']) {
+  it('an empty $in / $nin / $all list never means what was meant, so it does not print', () => {
+    for (const op of ['$in', '$nin', '$all']) {
       expect(problemOf(cond({ op, valType: 'string', value: '[]' }))).toBe(`${op} needs at least one value`);
       expect(problemOf(cond({ op, valType: 'array', value: ' [ ] ' }))).toBe(`${op} needs at least one value`);
       expect(problemOf(cond({ op, valType: 'string', value: '' }))).toBe(`${op} needs at least one value`);
       expect(problemOf(cond({ op, valType: 'string', value: 'not a list' }))).toBe(`${op} needs at least one value`);
       expect(problemOf(cond({ op, valType: 'string', value: '["a"]' }))).toBeUndefined();
     }
-    // `$all: []` is left alone: it is not one of the two this rule names.
-    expect(problemOf(cond({ op: '$all', valType: 'array', value: '[]' }))).toBeUndefined();
+  });
+
+  it('an empty list the text already holds stays as written, and the rest of the filter still prints', () => {
+    for (const op of ['$in', '$nin', '$all']) {
+      const text = `{"a":{"${op}":[]},"b":{"$eq":1}}`;
+      const root = mustParse(text);
+      expect(root.children[0]).toEqual({ kind: 'raw', json: `{"a":{"${op}":[]}}` });
+      // An edit to another row must not freeze the drawer on the untouched one.
+      const edited = updateAt(root, [1], cond({ field: 'b', op: '$eq', valType: 'number', value: '2' }));
+      expect(mustPrint(edited)).toBe(`{"$and":[{"a":{"${op}":[]}},{"b":{"$eq":2}}]}`);
+      // The same rule holds when the list shares its field with another operator.
+      const shared = mustParse(`{"a":{"${op}":[],"$exists":true}}`);
+      expect(shared.children).toEqual([{ kind: 'raw', json: `{"a":{"${op}":[],"$exists":true}}` }]);
+      // "Try to parse" on that raw clause keeps it raw rather than a blocked row.
+      expect(tryParseRaw({ kind: 'raw', json: `{"a":{"${op}":[]}}` })).toEqual({ kind: 'raw', json: `{"a":{"${op}":[]}}` });
+    }
+    // A non-empty list is still a row, and an implicit-$eq empty array is a value, not a list op.
+    expect(mustParse('{"a":{"$in":[1]}}').children[0]).toMatchObject({ kind: 'cond', op: '$in' });
+    expect(mustParse('{"a":[]}').children[0]).toMatchObject({ kind: 'cond', op: '$eq', value: '[]' });
+  });
+
+  it('a boolean list item is true or false, nothing else', () => {
+    const msg = 'Boolean value must be true or false';
+    for (const value of ['["yes"]', '[1]', '[null]', '[true,"maybe"]', '[[true]]', '[0]']) {
+      expect(problemOf(cond({ op: '$in', valType: 'boolean', value }))).toBe(msg);
+    }
+    const printed = printFilter(group('$and', [cond({ field: 'b', op: '$in', valType: 'boolean', value: '[true,false,"true","false"]' })]));
+    expect(printed).toEqual({ ok: true, json: '{"b":{"$in":[true,false,true,false]}}' });
   });
 
   it('an ObjectId that is not 24 hex characters does not print', () => {

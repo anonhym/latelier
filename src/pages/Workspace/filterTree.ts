@@ -220,19 +220,30 @@ function rawPair(field: string, value: unknown): RawNode {
 }
 
 /**
+ * `guessValue` for the value of operator `op`. An empty `$in`/`$nin`/`$all`
+ * list is valid text MongoDB accepts, but a row the printer blocks: as a row
+ * it would freeze the drawer on the first edit elsewhere. It stays raw, so it
+ * prints back verbatim.
+ */
+function guessOpValue(op: string, v: unknown): ValueGuess | null {
+  if (ARRAY_VALUE_OPS.has(op) && Array.isArray(v) && v.length === 0) return null;
+  return guessValue(v);
+}
+
+/**
  * `{ field: { $op1: v1, $op2: v2, ... } }` → one or more cond nodes, or a
  * single raw node when it can't be split/modeled (§2a, §2b).
  */
 function parseOperatorMap(field: string, obj: Record<string, unknown>, keys: string[]): FilterNode[] {
   if (keys.length === 1) {
     const op = keys[0];
-    const guess = guessValue(obj[op]);
+    const guess = guessOpValue(op, obj[op]);
     if (guess) return [condNode(field, op, guess)];
     return [rawPair(field, obj)];
   }
   const allSplittable = keys.every((k) => SPLITTABLE_OPS.has(k));
   if (allSplittable) {
-    const guesses = keys.map((k) => guessValue(obj[k]));
+    const guesses = keys.map((k) => guessOpValue(k, obj[k]));
     if (guesses.every((g): g is ValueGuess => g !== null)) {
       return keys.map((k, i) => condNode(field, k, guesses[i]));
     }
@@ -515,6 +526,9 @@ function numericTextProblem(valType: ValType, text: string): string | null {
   return null;
 }
 
+/** The list items a boolean row reads as themselves. */
+const BOOLEAN_ITEMS: ReadonlySet<unknown> = new Set<unknown>([true, false, 'true', 'false']);
+
 /**
  * The text a list item stands for, checked by `numericTextProblem` (which
  * ignores every type but number, long and decimal): '' for anything that is
@@ -560,9 +574,10 @@ function condValueProblem(node: CondNode): string | null {
   ) {
     return NUMBER_PRECISION_MESSAGE;
   }
-  if ((node.op === '$in' || node.op === '$nin') && parseJsonArrayLenient(node.value).length === 0) {
-    // An empty `$in` matches nothing and an empty `$nin` everything; neither
-    // is what a person building a list means, so the row waits for a value.
+  if (ARRAY_VALUE_OPS.has(node.op) && parseJsonArrayLenient(node.value).length === 0) {
+    // An empty `$in` or `$all` matches nothing and an empty `$nin`
+    // everything; none is what a person building a list means, so the row
+    // waits for a value. Text that already holds one parses to a raw clause.
     return `${node.op} needs at least one value`;
   }
   if (ARRAY_VALUE_OPS.has(node.op)) {
@@ -572,6 +587,9 @@ function condValueProblem(node: CondNode): string | null {
     for (const el of parseJsonArrayLenient(node.value)) {
       const problem = numericTextProblem(node.valType, listItemText(node.valType, el));
       if (problem) return problem;
+      // A boolean row's wire form turns anything but true / "true" into
+      // false, so `yes`, 1 or null would go out as false unannounced.
+      if (node.valType === 'boolean' && !BOOLEAN_ITEMS.has(el)) return 'Boolean value must be true or false';
     }
   }
   for (const wire of sentWireValues(node)) {

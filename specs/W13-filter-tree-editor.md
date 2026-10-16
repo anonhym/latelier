@@ -356,8 +356,8 @@ text:
    always remounts, and the remount re-seeds from **that tab's own** draft
    when it still matches, else from `parseFilter(queryRaw)` (§5.7). Pending
    and disabled rows therefore survive a tab switch. They are dropped only by
-   an outside text edit (the reconcile rule above), Reset, or a Saved/Recent
-   load.
+   an outside text edit (the reconcile rule above), Reset, a Saved/Recent
+   load, or Clear filter.
 
 ### 5.7 Persisted draft and history
 
@@ -375,13 +375,22 @@ the tree and the `queryRaw` it was last consistent with.
   `ok` with any other text ignores the draft and seeds from `parseFilter`,
   so the drawer never shows a tree other than the one that runs. Without a
   usable draft, `parseFilter(queryRaw)` as before.
+- **Seed over invalid text.** When `queryRaw` doesn't parse, a draft that is
+  a group and either is blocked or prints to its own `draft.queryRaw` seeds
+  the drawer frozen, read-only, with the note of §6a for a draft. The draft
+  is the drawer's own last state, not necessarily the last valid text: the
+  bar may have moved through other valid text while the drawer wasn't
+  mounted. Returning the bar to `draft.queryRaw` restores that tree, its
+  switched-off and pending rows included; any other valid text re-parses as
+  an outside edit. Without such a draft the drawer freezes on an empty tree
+  that stands for no text, so only valid text unfreezes it.
 - **Reconcile** (rule 3) still always parses and never reads the draft: an
   outside text edit wins. One made while the drawer is mounted clears the
   draft (`filterDraft: undefined`), so a later return to the same text can't
   bring the replaced rows back on the next remount. One made while the drawer
-  is not mounted clears nothing: the draft is simply unused while its
-  `queryRaw` differs from the text, and would seed again if the text came
-  back to it.
+  is not mounted clears nothing: the draft is unused while the text is other
+  valid text, seeds the drawer frozen while the text doesn't parse (above),
+  and would seed again if the text came back to it.
 - **Commit.** Every edit patches `filterDraft: { root, queryRaw }`, with the
   `queryRaw` that is current once the edit lands — the new text on an `ok`
   print, the unchanged last good text on a no-op or blocked one. That
@@ -389,7 +398,14 @@ the tree and the `queryRaw` it was last consistent with.
   switching a row off), which patch the draft and nothing else.
 - **Clear.** Reset, a Saved or Recent load, and *Clear filter* patch
   `filterDraft: undefined` together with their `queryRaw`, so the rows of the
-  filter just replaced can't come back.
+  filter just replaced can't come back. Reset and the loads also remount the
+  drawer. *Clear filter* doesn't, and its `'{}'` can equal the text the tree
+  already prints to (only switched-off or pending rows left, or a later page
+  of an unfiltered query), so the drawer can't see it by comparing text.
+  Instead, a draft removed while the drawer is mounted, by anything other
+  than the drawer's own reconcile, re-seeds the drawer from `queryRaw` as a
+  remount would, so the tree on screen never holds rows its draft no longer
+  does.
 - **What runs.** Save, Recent and Copy code all read `queryRaw`, so a disabled
   condition is never saved, recorded or copied.
 
@@ -487,6 +503,10 @@ unchanged.
 - Invalid JSON in the bar keeps today's warn underline. The drawer freezes on
   the last successfully parsed tree, renders read-only, and shows
   *"Filter text isn't valid JSON — the tree below is the last valid version."*
+  A drawer that mounted over invalid text and seeded from the tab's draft
+  (§5.7) can't claim that, so it shows *"Filter text isn't valid JSON —
+  showing this filter as you last left it in the drawer. Fix the text in the
+  bar to edit it."* instead.
 - The advanced grid (projection / sort / skip / limit) stays and becomes the
   **sole** editor for those fields — see §7.
 
@@ -656,7 +676,7 @@ Retired test ids and controls, so the churn isn't a surprise:
 - Switching tabs re-seeds each tab from its own state, even when both tabs' text is identical: a tab whose draft still matches its `queryRaw` gets its pending and disabled rows back; a tab with no draft shows only what its text holds.
 - Unchecking a row's or nested group's include checkbox removes it from `queryRaw` and keeps it on screen; re-checking restores the previous `queryRaw`.
 - A draft that prints to text other than `queryRaw`, or was written for other text, is ignored; a blocked draft seeds with its "N not applied" banner.
-- Reset, a Saved or Recent load, and Clear filter drop the draft.
+- Reset, a Saved or Recent load, and Clear filter drop the draft, and the drawer's rows with it, even when Clear filter writes the text the tree already prints to.
 - *Negate (NOT)* and *Negate group* wrap the node in a one-child `$nor`, shown as NOT; *Remove negation* restores the node.
 - A NOT re-parses as the same NOT group, a top-level one included.
 - *Add to filter* from Tree or Table view requires the new condition of the whole filter: with a root `$or` or `$nor` it is ANDed beside the root group, never added inside it.
@@ -666,6 +686,7 @@ Retired test ids and controls, so the churn isn't a surprise:
 - Typing `$elemMatch` into an op input offers "Convert to raw clause"; one click produces an editable raw node.
 - "Try to parse" converts a modellable raw node back into conds.
 - Invalid JSON in the bar leaves the drawer showing the last valid tree, read-only, with the banner.
+- A drawer mounted over invalid text with a usable draft shows the draft's tree read-only, with the note that it is the filter as last left in the drawer, not the last valid version; returning the bar to the draft's text restores it with its switched-off and pending rows, and other valid text re-parses.
 
 **Integration**
 - No sync pill, "Re-sync builder", "Accept builder", or "Builder disabled" control exists anywhere.

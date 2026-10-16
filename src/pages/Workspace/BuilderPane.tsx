@@ -101,11 +101,35 @@ function pathKey(path: NodePath): string {
 }
 
 /**
- * A nested group's position counted from 1 (`2.1` = first child of the
+ * A nested group's or row's position counted from 1 (`2.1` = first child of the
  * second), so its controls have names that tell one group from another.
  */
 function groupPosition(path: NodePath): string {
   return path.map((i) => i + 1).join('.');
+}
+
+// Which row a node object stands for. Nodes carry no ids and every edit
+// makes a new object, so a row's own edits pass its identity on (`sameRow`);
+// a node that moved, came back through undo, or was parsed from text keeps
+// the identity of the object it is. Keys the value editor, so its local state
+// (chips or JSON, half-typed chip, date picker) stays with its row rather
+// than with the slot the row is drawn in.
+const rowIdentities = new WeakMap<FilterNode, number>();
+let lastRowIdentity = 0;
+
+function rowIdentity(node: FilterNode): number {
+  let id = rowIdentities.get(node);
+  if (id === undefined) {
+    id = ++lastRowIdentity;
+    rowIdentities.set(node, id);
+  }
+  return id;
+}
+
+/** `next` is `prev` edited in place: the same row. */
+function sameRow<T extends FilterNode>(prev: FilterNode, next: T): T {
+  rowIdentities.set(next, rowIdentity(prev));
+  return next;
 }
 
 /**
@@ -434,17 +458,20 @@ function useRowDropHandlers(
       // silently overwrite (`mergeOrReplaceDragged` only merges onto an
       // existing `cond`, so a `raw` target always falls to replace). An
       // empty raw row has nothing to lose, so it replaces without asking.
+      // Either way the dropped-on row is edited in place, like its own
+      // controls edit it (`sameRow`), so a merge into a list keeps that row's
+      // value editor, an open "Edit as JSON" included.
       if (node.kind === 'raw' && node.json.trim()) {
         void confirmDestructive({
           title: 'Replace this raw clause?',
           body: 'Dropping a field here replaces this hand-typed clause with a new condition. Undo puts it back.',
           confirmLabel: 'Replace',
         }).then((proceed) => {
-          if (proceed) applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
+          if (proceed) applyEdit(updateAt(root, path, sameRow(node, carryDisabled(node, mergeOrReplaceDragged(node, dragged)))));
         });
         return;
       }
-      applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
+      applyEdit(updateAt(root, path, sameRow(node, carryDisabled(node, mergeOrReplaceDragged(node, dragged)))));
     },
   };
 }
@@ -496,7 +523,8 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
-  const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
+  const patch = (p: Partial<CondNode>, key?: string) =>
+    applyEdit(updateAt(root, path, sameRow(node, { ...node, ...p })), key);
   // Keystrokes in one text box of this row are one undo step, not one each:
   // the box's name becomes a key unique to this row.
   const patchBox = (p: Partial<CondNode>, box?: string) =>
@@ -590,7 +618,7 @@ function CondRow({
   // regardless of which uncompilable text it was given, so a still-drafted
   // `$elemMatch` converts the same as a committed one would.
   const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
-  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const toggle = () => applyEdit(updateAt(root, path, sameRow(node, toggleDisabled(node))));
   const dim = dimFor(node);
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
@@ -748,7 +776,7 @@ function CondRow({
             </OperatorTooltip>
           )}
           <RowMenu
-            ariaLabel="Condition options"
+            ariaLabel={`Condition options ${groupPosition(path)}`}
             disabled={readOnly}
             onConvertToRaw={convertToRaw}
             onWrap={wrap}
@@ -805,6 +833,7 @@ function CondRow({
           }}
         />
         <CondValueEditor
+          key={rowIdentity(node)}
           node={node}
           readOnly={readOnly}
           problem={valueProblem}
@@ -891,7 +920,7 @@ function RawRow({
       <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
         <IncludeBox
           node={node}
-          label="Include raw clause"
+          label={`Include raw clause ${groupPosition(path)}`}
           readOnly={readOnly}
           onToggle={toggle}
           describedBy={excludedNoteId}
@@ -902,7 +931,7 @@ function RawRow({
             disabled={readOnly}
             onChange={(e) => patchJson(e.target.value)}
             placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
-            aria-label="Raw clause"
+            aria-label={`Raw clause ${groupPosition(path)}`}
             aria-describedby={excludedNoteId}
             spellCheck={false}
             rows={2}
@@ -920,7 +949,7 @@ function RawRow({
             }}
           />
           <RowMenu
-            ariaLabel="Raw clause options"
+            ariaLabel={`Raw clause options ${groupPosition(path)}`}
             disabled={readOnly}
             onWrap={wrap}
             onNegate={negate}
@@ -931,14 +960,14 @@ function RawRow({
             canMoveDown={canMoveDown}
             rowKey={pathKey(path)}
           />
-          <Tooltip label="Remove raw clause" withArrow>
+          <Tooltip label={`Remove raw clause ${groupPosition(path)}`} withArrow>
             <ActionIcon
               variant="default"
               color="red"
               size="sm"
               disabled={readOnly}
               onClick={remove}
-              aria-label="Remove raw clause"
+              aria-label={`Remove raw clause ${groupPosition(path)}`}
             >
               {I.close}
             </ActionIcon>
@@ -1054,6 +1083,9 @@ function GroupView({
   // never shows NOT: it has no wrapper to remove.
   const isNegation = !isRoot && node.logic === '$nor' && node.children.length === 1;
   const position = groupPosition(path);
+  // The root is the one group without a position, so its add buttons keep
+  // the short names; a nested group's say which group they add to.
+  const toGroup = isRoot ? '' : ` to group ${position}`;
   // Everything inside a switched-off group is out of the filter too; its
   // rows point at this group's note, or at a switched-off ancestor's.
   const noteId = React.useId();
@@ -1149,7 +1181,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addCondition}
-              aria-label="Add condition"
+              aria-label={`Add condition${toGroup}`}
             >
               {I.plus}
             </ActionIcon>
@@ -1164,7 +1196,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addGroup}
-              aria-label="Add group"
+              aria-label={`Add group${toGroup}`}
             >
               {I.group}
             </ActionIcon>
@@ -1175,7 +1207,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addRaw}
-              aria-label="Add raw clause"
+              aria-label={`Add raw clause${toGroup}`}
             >
               {I.code}
             </ActionIcon>
@@ -1196,14 +1228,14 @@ function GroupView({
             </Tooltip>
           )}
           {!isRoot && (
-            <Tooltip label="Remove group" withArrow>
+            <Tooltip label={`Remove group ${position}`} withArrow>
               <ActionIcon
                 variant="default"
                 color="red"
                 size="sm"
                 disabled={readOnly}
                 onClick={removeGroup}
-                aria-label="Remove group"
+                aria-label={`Remove group ${position}`}
               >
                 {I.close}
               </ActionIcon>
@@ -1373,22 +1405,35 @@ function problemLabels(root: GroupNode, problems: NodeProblem[]): string[] {
  * that can't print yet, whose problems come back with it). A draft that
  * prints to anything else is ignored rather than trusted, so the drawer never
  * shows a tree other than the one that runs.
+ *
+ * Text that doesn't parse opens the drawer frozen. A trusted draft is still
+ * shown then, frozen, and stands for the text it was recorded against: the
+ * bar went bad after the draft was written (a typo, then a tab switch), and
+ * putting that text back gives the tree back, as it would have without the
+ * switch. With no such draft, no tree stands for any text (`syncedText`
+ * `null`).
  */
 function seedTree(
   text: string,
   draft: FilterDraft | undefined,
-): { root: GroupNode; readOnly: boolean; problems: NodeProblem[] } {
+): { root: GroupNode; readOnly: boolean; problems: NodeProblem[]; syncedText: string | null } {
+  const parsed = parseFilter(text);
   // A persisted tree is only data until checked: a malformed one falls back
   // to the text rather than reaching the printer.
-  if (draft && draft.queryRaw === text && isGroupNode(draft.root)) {
+  if (draft && (draft.queryRaw === text || !parsed.ok) && isGroupNode(draft.root)) {
     const printed = printFilter(draft.root);
-    if (!printed.ok) return { root: draft.root, readOnly: false, problems: printed.problems };
-    if (printed.json === text) return { root: draft.root, readOnly: false, problems: [] };
+    if (!printed.ok || printed.json === draft.queryRaw) {
+      return {
+        root: draft.root,
+        readOnly: !parsed.ok,
+        problems: printed.ok ? [] : printed.problems,
+        syncedText: draft.queryRaw,
+      };
+    }
   }
-  const parsed = parseFilter(text);
   return parsed.ok
-    ? { root: parsed.root, readOnly: false, problems: [] }
-    : { root: EMPTY_ROOT, readOnly: true, problems: [] };
+    ? { root: parsed.root, readOnly: false, problems: [], syncedText: text }
+    : { root: EMPTY_ROOT, readOnly: true, problems: [], syncedText: null };
 }
 
 /**
@@ -1421,6 +1466,21 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // "derive state from a changed prop" pattern, see react.dev) can read and
   // update it during render without tripping the no-refs-during-render rule.
   const [lastPrinted, setLastPrinted] = React.useState(queryRaw);
+  // The text the tree was last in sync with: the one it was seeded or
+  // re-parsed from, or the last one it printed. A blocked tree keeps it while
+  // edits to its other rows can't print either, so the tree kept on a return
+  // to this text may hold edits the text doesn't: that's fine, since the
+  // banner names the rows not applied and the live count is paused until
+  // the tree prints again. `null` when the drawer opened frozen with no tree
+  // standing for any text (see `seedTree`).
+  const [syncedText, setSyncedText] = React.useState<string | null>(seed.syncedText);
+  // Frozen on the tab's draft rather than on a tree parsed this session: the
+  // bar may have passed through other valid text since the draft was written
+  // (while the drawer wasn't mounted), so the banner can't call it the last
+  // valid version. Cleared when the bar comes back to the draft's text, and
+  // by the re-seed that follows any other clear of the draft (a re-parse of
+  // other valid text clears it too).
+  const [frozenOnDraft, setFrozenOnDraft] = React.useState(seed.readOnly && seed.syncedText !== null);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
   const liveCount = useLiveMatchCount({
     connectionId: meta.connectionId,
@@ -1459,10 +1519,37 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // Saved-Recent load / Reset. Adjusted directly in the render body rather
   // than in an effect, so there's no stale-tree frame before the reseed
   // lands.
-  if (queryRaw !== lastPrinted) {
+  // The tab's draft as this component last saw it. The drawer writes one on
+  // every edit, so a draft that disappears was cleared either by the
+  // drawer's own re-parse below, where seeding again from the same text
+  // changes nothing, or from outside: Clear filter, which may write the very
+  // text the tree prints to ('{}', when only switched-off or pending rows are
+  // left) and so can't be seen by comparing text. Seed afresh, as a remount
+  // would.
+  const [seenDraft, setSeenDraft] = React.useState(filterDraft);
+  const clearedFromOutside = filterDraft !== seenDraft && filterDraft === undefined;
+  if (filterDraft !== seenDraft) setSeenDraft(filterDraft);
+  if (clearedFromOutside) {
+    const fresh = seedTree(queryRaw, undefined);
+    setLastPrinted(queryRaw);
+    setSyncedText(fresh.syncedText);
+    setHistory(initHistory(fresh.root));
+    setReadOnly(fresh.readOnly);
+    setFrozenOnDraft(false);
+    setProblems([]);
+  } else if (queryRaw !== lastPrinted) {
     setLastPrinted(queryRaw);
     const parsed = parseFilter(queryRaw);
-    if (parsed.ok) {
+    if (queryRaw === syncedText) {
+      // The text came back to the one the tree stands for (a typo in the
+      // bar, then deleted): keep the tree, with its switched-off, pending and
+      // blocked rows, its history and its draft.
+      const current = printFilter(history.present);
+      setReadOnly(false);
+      setFrozenOnDraft(false);
+      setProblems(current.ok ? [] : current.problems);
+    } else if (parsed.ok) {
+      setSyncedText(queryRaw);
       // The text moved under the drawer, so steps recorded against the old
       // tree no longer apply: start the history again from the new one.
       setHistory(initHistory(parsed.root));
@@ -1493,6 +1580,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       // §5.4 — a pending row (empty field / blank raw json) or a switched-off
       // one prints to the same text as before; leave `queryRaw` out of the
       // patch so "+ Condition" / "+ Raw" truly leaves it untouched.
+      setSyncedText(printed.json);
       if (printed.json !== lastPrinted) {
         setLastPrinted(printed.json);
         onCommit({ queryRaw: printed.json, filterDraft: { root: nextRoot, queryRaw: printed.json } });
@@ -1598,10 +1686,10 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
           return;
         }
         // A dragged field can legitimately hold `undefined` (BSON's Undefined
-      // type) — `DocFieldTree`'s drag source now guards against starting
-      // such a drag at all, but this is defense in depth for any other
-      // payload source, since `condFromDragged` crashes downstream on one.
-      if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+        // type) — `DocFieldTree`'s drag source now guards against starting
+        // such a drag at all, but this is defense in depth for any other
+        // payload source, since `condFromDragged` crashes downstream on one.
+        if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
         applyEdit(insertAt(root, [], condFromDragged(dragged)));
       }}
       style={{
@@ -1639,7 +1727,9 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
             borderBottom: `1px solid ${T.border}`,
           }}
         >
-          Filter text isn&apos;t valid JSON — the tree below is the last valid version.
+          {frozenOnDraft
+            ? "Filter text isn't valid JSON — showing this filter as you last left it in the drawer. Fix the text in the bar to edit it."
+            : "Filter text isn't valid JSON — the tree below is the last valid version."}
         </div>
       )}
       {liveCount.state !== 'idle' && (

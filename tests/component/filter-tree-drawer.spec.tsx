@@ -205,11 +205,8 @@ describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §1
     const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add group' }));
-    // The nested group's own "Add condition" is the *second* one in the
-    // document (root's is first).
-    const addConditionButtons = await screen.findAllByRole('button', { name: 'Add condition' });
-    expect(addConditionButtons.length).toBeGreaterThanOrEqual(2);
-    fireEvent.click(addConditionButtons[addConditionButtons.length - 1]!);
+    // The new group is the root's second child.
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition to group 2' }));
 
     const fields = await screen.findAllByPlaceholderText('field');
     const pendingField = (fields as HTMLInputElement[]).find((f) => f.value === '')!;
@@ -369,8 +366,8 @@ describe('Filter drawer — switching a condition off (disable)', () => {
     const EXCLUDED = 'Excluded: its group is switched off';
     expect(await screen.findByRole('checkbox', { name: 'Include condition b', description: EXCLUDED })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Include group 2.2', description: EXCLUDED })).toBeTruthy();
-    expect(screen.getByRole('checkbox', { name: 'Include raw clause', description: EXCLUDED })).toBeTruthy();
-    expect(screen.getByRole('textbox', { name: 'Raw clause', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include raw clause 2.2.1', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Raw clause 2.2.1', description: EXCLUDED })).toBeTruthy();
     // Not inside a switched-off group: no cue, on the row or on the group's own box.
     expect(screen.getByRole('checkbox', { name: 'Include condition a' }).getAttribute('aria-describedby')).toBeNull();
     expect(screen.getByRole('checkbox', { name: 'Include group 2' }).getAttribute('aria-describedby')).toBeNull();
@@ -494,7 +491,7 @@ describe('Filter drawer — negation (NOT)', () => {
   it('Negate (NOT) wraps a condition in a one-child $nor shown as NOT, and Remove negation unwraps it', async () => {
     const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Condition options' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Condition options 1' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$nor":[{"a":{"$eq":1}}]}'));
@@ -540,8 +537,7 @@ describe('Filter drawer — negation (NOT)', () => {
     mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$nor":[{"b":{"$eq":2}}]}]}' }));
 
     await screen.findByText('NOT');
-    const addButtons = screen.getAllByRole('button', { name: 'Add condition' });
-    fireEvent.click(addButtons[addButtons.length - 1]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Add condition to group 2' }));
 
     await waitFor(() => expect(screen.queryByText('NOT')).toBeNull());
     expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(2);
@@ -556,7 +552,7 @@ describe('Filter drawer — insert a condition between rows', () => {
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
     const writesBefore = updateSpy.mock.calls.length;
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[1]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options 2' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
@@ -576,7 +572,7 @@ describe('Filter drawer — insert a condition between rows', () => {
     mountWith(makeState({ queryRaw: AB }));
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options 1' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition below' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
@@ -588,10 +584,178 @@ describe('Filter drawer — insert a condition between rows', () => {
   it('a raw clause row offers the same inserts', async () => {
     mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"items":{"$elemMatch":{"sku":1}}}]}' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options 2' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '']));
+  });
+});
+
+describe('Filter drawer — a bar edit that comes back to the same text', () => {
+  it('a typo in the bar, then deleted, keeps the switched-off row, the undo history and the draft', async () => {
+    const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include condition b' }));
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    const callsBefore = updateSpy.mock.calls.length;
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"a":{"$eq":1}}x' } });
+    await screen.findByText(/isn't valid JSON/);
+    fireEvent.change(bar, { target: { value: '{"a":{"$eq":1}}' } });
+    await waitFor(() => expect(screen.queryByText(/isn't valid JSON/)).toBeNull());
+
+    expect(fieldValues()).toEqual(['a', 'b']);
+    expect((screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement).checked).toBe(false);
+    const undo = screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+    expect(undo.disabled).toBe(false);
+    // The draft holding the switched-off row is not cleared.
+    const later = updateSpy.mock.calls.slice(callsBefore).map((c) => (c as unknown[])[1] as { state?: object });
+    expect(later.some((arg) => arg.state && 'filterDraft' in arg.state)).toBe(false);
+
+    fireEvent.click(undo);
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(AB));
+  });
+});
+
+describe('Filter drawer — a bar edit that comes back to the same text, over a blocked row', () => {
+  it('a typo in the bar, then deleted, keeps a row that does not print and the undo history', async () => {
+    const OID = '507f1f77bcf86cd799439011';
+    const AO = `{"$and":[{"a":{"$eq":1}},{"o":{"$eq":{"$oid":"${OID}"}}}]}`;
+    const { updateSpy } = mountWith(makeState({ queryRaw: AO }));
+    const oid = (await screen.findByDisplayValue(OID)) as HTMLInputElement;
+    fireEvent.change(oid, { target: { value: 'abc' } });
+    await screen.findByText(/not applied/);
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: `${AO}x` } });
+    await screen.findByText(/isn't valid JSON/);
+    fireEvent.change(bar, { target: { value: AO } });
+    await waitFor(() => expect(screen.queryByText(/isn't valid JSON/)).toBeNull());
+
+    expect(screen.getByDisplayValue('abc')).toBeTruthy();
+    expect(screen.getByText(/not applied/)).toBeTruthy();
+    const undo = screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+    expect(undo.disabled).toBe(false);
+    fireEvent.click(undo);
+    await waitFor(() => expect(screen.getByDisplayValue(OID)).toBeTruthy());
+  });
+});
+
+describe('Filter drawer — invalid bar text, edited and put back', () => {
+  it('stays frozen read-only: there is no tree the text stands for', async () => {
+    mountWith(makeState({ queryRaw: '{"a":' }));
+    await screen.findByText(/isn't valid JSON/);
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"a":x' } });
+    fireEvent.change(bar, { target: { value: '{"a":' } });
+
+    await screen.findByText(/isn't valid JSON/);
+    expect(screen.getByRole('button', { name: 'Add condition' })).toHaveProperty('disabled', true);
+  });
+});
+
+describe('Filter drawer — the bar moves to other valid text, then back', () => {
+  it('re-parses the tree from the text it came back to, not from the one it left', async () => {
+    const A = '{"a":{"$eq":1}}';
+    mountWith(makeState({ queryRaw: A }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+
+    fireEvent.change(bar, { target: { value: '{"b":{"$eq":2}}' } });
+    await waitFor(() => expect(fieldValues()).toEqual(['b']));
+    fireEvent.change(bar, { target: { value: A } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+});
+
+describe('Filter drawer — opened over invalid text with a draft from earlier text', () => {
+  const A = '{"a":{"$eq":1}}';
+  const B = '{"b":{"$eq":2}}';
+
+  // On the Saved tab the drawer isn't mounted, so the bar moves through
+  // valid B without the drawer seeing it or clearing A's draft.
+  async function openFrozenOnDraft() {
+    mountWith(
+      makeState({
+        queryRaw: A,
+        activeBuilderTab: 'Saved',
+        filterDraft: { queryRaw: A, root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: B } });
+    fireEvent.change(bar, { target: { value: `${B}x` } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Filter' }));
+    await screen.findByText(/as you last left it in the drawer/);
+    return bar;
+  }
+
+  async function typoShowsLastValid(bar: HTMLTextAreaElement, text: string) {
+    fireEvent.change(bar, { target: { value: `${text}x` } });
+    await screen.findByText(/last valid version/);
+    expect(screen.queryByText(/as you last left it in the drawer/)).toBeNull();
+  }
+
+  it('says the frozen tree is the one last left in the drawer, not the last valid text', async () => {
+    const bar = await openFrozenOnDraft();
+    expect(screen.queryByText(/last valid version/)).toBeNull();
+    expect(fieldValues()).toEqual(['a', 'b']);
+
+    fireEvent.change(bar, { target: { value: B } });
+    await waitFor(() => expect(fieldValues()).toEqual(['b']));
+    expect(screen.queryByRole('alert')).toBeNull();
+    // B's tree was parsed this session: a typo now freezes on the last valid version.
+    await typoShowsLastValid(bar, B);
+  });
+
+  it('putting the draft\'s text back restores its tree, and a later typo freezes on the last valid version', async () => {
+    const bar = await openFrozenOnDraft();
+
+    fireEvent.change(bar, { target: { value: A } });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(fieldValues()).toEqual(['a', 'b']);
+    await typoShowsLastValid(bar, A);
+  });
+
+  it('after Clear filter, a typo freezes on the last valid version', async () => {
+    const bar = await openFrozenOnDraft();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    await typoShowsLastValid(bar, '{}');
+  });
+});
+
+describe('Filter drawer — Clear filter', () => {
+  // Only a switched-off row, so the tree prints to '{}', the text Clear
+  // filter writes: a text comparison alone can't see the clear.
+  const OFF_ONLY = { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) };
+
+  it('while the bar is invalid, drops the switched-off rows with the draft', async () => {
+    mountWith(makeState({ filterDraft: OFF_ONLY }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{}x' } });
+    await screen.findByText(/isn't valid JSON/);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+
+    await waitFor(() => expect(bar.value).toBe('{}'));
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    expect(screen.getByRole('button', { name: 'Add condition' })).toHaveProperty('disabled', false);
+  });
+
+  it('on a later page of an unfiltered query, drops the switched-off rows with the draft', async () => {
+    mountWith(makeState({ page: 1, filterDraft: OFF_ONLY }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual([]));
   });
 });
 
@@ -746,7 +910,7 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
 
   it.each([
     ['a condition', { ...B2, disabled: true }, 'Include condition b'],
-    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause'],
+    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause 2'],
   ])('dropping onto %s that is switched off leaves it off and queryRaw unchanged', async (_what, row, label) => {
     const { container, updateSpy } = mountWith(
       makeState({ queryRaw: '{"a":{"$eq":1}}', filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, row) } }),
@@ -769,7 +933,7 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
         filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { kind: 'raw', json: '{"z":1}', disabled: true }) },
       }),
     );
-    await screen.findByRole('checkbox', { name: 'Include raw clause' });
+    await screen.findByRole('checkbox', { name: 'Include raw clause 2' });
 
     dropOnRow(container, '1', 'b', 5);
     const dialog = await screen.findByRole('dialog');
@@ -901,7 +1065,8 @@ describe('Filter drawer — type-aware value editors', () => {
     });
 
     it('a typed number or quoted text keeps its type', async () => {
-      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":[]}}' }));
+      // An empty list in the text stays a raw clause, so the list starts with one item.
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a"]}}' }));
 
       const chipBox = await screen.findByRole('combobox', { name: 'Values' });
       fireEvent.change(chipBox, { target: { value: '42' } });
@@ -909,7 +1074,7 @@ describe('Filter drawer — type-aware value editors', () => {
       fireEvent.change(chipBox, { target: { value: '"42"' } });
       fireEvent.keyDown(chipBox, { key: 'Enter' });
 
-      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":[42,"42"]}}'));
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a",42,"42"]}}'));
     });
 
     it('a string list keeps typed digits as text', async () => {
@@ -953,6 +1118,51 @@ describe('Filter drawer — type-aware value editors', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Edit as JSON' }));
 
       expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["b","c"]');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+
+    it('a row\'s "Edit as JSON" stays with that row, not with the slot, when a row above it goes', async () => {
+      const AB = '{"$and":[{"s":{"$in":["a"]}},{"t":{"$in":["b"]}}]}';
+      const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+      await waitFor(() => expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(2));
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Edit as JSON' })[0]!);
+      // Typing in the JSON box is this row's own edit: it stays JSON.
+      const json = screen.getByPlaceholderText('value') as HTMLInputElement;
+      fireEvent.change(json, { target: { value: '["a","z"]' } });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$and":[{"s":{"$in":["a","z"]}},{"t":{"$in":["b"]}}]}'));
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a","z"]');
+      expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove condition s' }));
+      await waitFor(() => expect(fieldValues()).toEqual(['t']));
+      // The row that moved up into the slot shows its own chips.
+      expect(screen.getByRole('combobox', { name: 'Values' })).toBeTruthy();
+      expect(screen.queryByPlaceholderText('value')).toBeNull();
+
+      // Undo puts the removed row back in the slot; neither row takes the
+      // other's JSON view, so both show their chips.
+      fireEvent.click(screen.getByRole('button', { name: 'Undo filter edit' }));
+      await waitFor(() => expect(fieldValues()).toEqual(['s', 't']));
+      expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(2);
+      expect(screen.queryByPlaceholderText('value')).toBeNull();
+    });
+
+    it('a field dropped onto a row in "Edit as JSON" merges into the list and stays JSON', async () => {
+      const { container, updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a"]}}' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit as JSON' }));
+      const row = container.querySelector('[data-row-path="0"]')!;
+      expect(row).toBeTruthy();
+      const dataTransfer = {
+        types: [DRAGGED_FIELD_MIME],
+        getData: (type: string) => (type === DRAGGED_FIELD_MIME ? JSON.stringify({ field: 's', value: 'b' }) : ''),
+      };
+
+      fireEvent.dragOver(row, { dataTransfer });
+      fireEvent.drop(row, { dataTransfer });
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a","b"]}}'));
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a","b"]');
       expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
     });
 
