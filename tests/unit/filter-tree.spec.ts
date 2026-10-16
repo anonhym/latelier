@@ -9,6 +9,9 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  unwrapGroup,
+  andAtRoot,
+  isGroupNode,
   toRawNode,
   tryParseRaw,
   coerceArrayElementWire,
@@ -91,10 +94,24 @@ describe('parseFilter — parse table (§2)', () => {
     expect(root.children).toHaveLength(2);
   });
 
-  it('{ $nor: [...] } -> root becomes a $nor group', () => {
-    const root = mustParse('{"$nor":[{"a":1}]}');
+  it('{ $nor: [x, y] } -> root becomes a $nor group', () => {
+    const root = mustParse('{"$nor":[{"a":1},{"b":2}]}');
     expect(root.logic).toBe('$nor');
-    expect(root.children).toHaveLength(1);
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('{ $nor: [x] } -> a NOT group under an $and root, not a $nor root', () => {
+    // A one-child $nor is how the drawer writes NOT; read back as the root
+    // itself it would lose its NOT and show as a NOR picker instead.
+    expect(mustParse('{"$nor":[{"a":1}]}')).toEqual(
+      group('$and', [group('$nor', [cond({ field: 'a', valType: 'number', value: '1' })])]),
+    );
+  });
+
+  it('{ $or: [x] } -> still the root itself', () => {
+    expect(mustParse('{"$or":[{"a":1}]}')).toEqual(
+      group('$or', [cond({ field: 'a', valType: 'number', value: '1' })]),
+    );
   });
 
   it('{ a: { $gte: 1, $lte: 5 } } -> two conds (§2a splittable pair)', () => {
@@ -1571,5 +1588,189 @@ describe('moveAt — an out-of-range path is a no-op even when the arithmetic wo
     // path [5] doesn't resolve (only indices 0-2 exist); delta -3 would put
     // a *real* index-5 node at slot 2 — but there is no such node.
     expect(moveAt(root, [5], -3)).toEqual(root);
+  });
+});
+
+describe('printFilter — a disabled node prints as pending (§3)', () => {
+  it('leaves a disabled cond out of the printed filter', () => {
+    const root = group('$and', [
+      cond({ field: 'a', valType: 'number', value: '1' }),
+      { ...cond({ field: 'b', valType: 'number', value: '2' }), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":1}}' });
+  });
+
+  it('a disabled cond with an invalid value raises no problem', () => {
+    const root = group('$and', [{ ...cond({ field: 'n', valType: 'number', value: 'abc' }), disabled: true }]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{}' });
+  });
+
+  it('a disabled raw node with invalid JSON raises no problem', () => {
+    const root = group('$and', [cond({ field: 'a' }), { ...raw('{nope'), disabled: true }]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('omits a disabled nested group whole, even when a child would block', () => {
+    const root = group('$and', [
+      cond({ field: 'a' }),
+      { ...group('$or', [cond({ field: 'n', valType: 'number', value: 'abc' }), cond({ field: 'b' })]), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('omits a $nor group whose only child is disabled, never printing {"$nor":[]}', () => {
+    const root = group('$and', [
+      cond({ field: 'a' }),
+      group('$nor', [{ ...cond({ field: 'b' }), disabled: true }]),
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('prints {} when every node is disabled', () => {
+    const root = group('$or', [
+      { ...cond({ field: 'a' }), disabled: true },
+      { ...raw('{"b":1}'), disabled: true },
+      { ...group('$and', [cond({ field: 'c' })]), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{}' });
+  });
+
+  it('parseFilter never sets disabled on any node', () => {
+    const parsed = mustParse(
+      '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":2},{"c":{"$elemMatch":{"d":1}}}]},{"$nor":[{"e":{"$gt":3}}]}]}',
+    );
+    const visit = (n: FilterNode): void => {
+      expect(n).not.toHaveProperty('disabled');
+      if (n.kind === 'group') n.children.forEach(visit);
+    };
+    visit(parsed);
+  });
+
+  it('toRawNode carries disabled over from the cond', () => {
+    expect(toRawNode({ ...cond({ field: 'a' }), disabled: true })).toEqual({
+      kind: 'raw',
+      json: '{"a":{"$eq":"x"}}',
+      disabled: true,
+    });
+    expect(toRawNode({ ...cond({ field: '' }), disabled: true })).toEqual({ kind: 'raw', json: '', disabled: true });
+    expect(toRawNode(cond({ field: 'a' }))).not.toHaveProperty('disabled');
+  });
+
+  it('tryParseRaw carries disabled over to what it models', () => {
+    expect(tryParseRaw({ ...raw('{"a":1}'), disabled: true })).toEqual({ ...cond({ field: 'a', valType: 'number', value: '1' }), disabled: true });
+    expect(tryParseRaw({ ...raw('{"a":1,"b":2}'), disabled: true })).toMatchObject({ kind: 'group', disabled: true });
+    expect(tryParseRaw(raw('{"a":1}'))).not.toHaveProperty('disabled');
+  });
+});
+
+describe('unwrapGroup — the inverse of a one-child wrap (§4)', () => {
+  it('replaces a single-child nested group with that child, in place', () => {
+    const root = group('$and', [cond({ field: 'a' }), group('$nor', [cond({ field: 'b' })]), cond({ field: 'c' })]);
+    expect(unwrapGroup(root, [1])).toEqual(
+      group('$and', [cond({ field: 'a' }), cond({ field: 'b' }), cond({ field: 'c' })]),
+    );
+  });
+
+  it('leaves a multi-child group alone', () => {
+    const root = group('$and', [group('$nor', [cond({ field: 'a' }), cond({ field: 'b' })])]);
+    expect(unwrapGroup(root, [0])).toBe(root);
+  });
+
+  it('never unwraps the root, even one whose only child is a group', () => {
+    const root = group('$nor', [group('$or', [cond({ field: 'a' }), cond({ field: 'b' })])]);
+    expect(unwrapGroup(root, [])).toBe(root);
+  });
+
+  it('leaves a cond path alone', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(unwrapGroup(root, [0])).toBe(root);
+  });
+
+  it('leaves a path that does not resolve alone', () => {
+    const root = group('$and', [group('$nor', [cond({ field: 'a' })])]);
+    expect(unwrapGroup(root, [3])).toBe(root);
+    expect(unwrapGroup(root, [0, 0, 0])).toBe(root);
+  });
+
+  it('a switched-off group hands its state to the child it leaves behind', () => {
+    const root = group('$and', [{ ...group('$nor', [cond({ field: 'a' })]), disabled: true }]);
+    expect(unwrapGroup(root, [0])).toEqual(group('$and', [{ ...cond({ field: 'a' }), disabled: true }]));
+  });
+});
+
+describe('negation — a single-child $nor wrap (§4)', () => {
+  it('wrapping a cond in $nor prints NOT that cond, and reads back as the same $nor', () => {
+    const root = group('$and', [cond({ field: 'a', valType: 'number', value: '1' })]);
+    const json = mustPrint(wrapInGroup(root, [0], '$nor'));
+    expect(json).toBe('{"$nor":[{"a":{"$eq":1}}]}');
+    // Reads back as the same tree: the NOT group under an $and root.
+    expect(mustParse(json)).toEqual(wrapInGroup(root, [0], '$nor'));
+  });
+
+  it('a field-level $not still reads as a raw clause', () => {
+    expect(mustParse('{"f":{"$not":{"$gt":1}}}')).toEqual(group('$and', [raw('{"f":{"$not":{"$gt":1}}}')]));
+  });
+});
+
+describe('andAtRoot — require one more condition of the whole filter (§4)', () => {
+  it('appends to an $and root', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(andAtRoot(root, cond({ field: 'b' }))).toEqual(group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]));
+  });
+
+  it.each(['$or', '$nor'] as const)('ANDs with a root %s instead of joining it', (logic) => {
+    const root = group(logic, [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const next = andAtRoot(root, cond({ field: 'c' }));
+    expect(next).toEqual(group('$and', [root, cond({ field: 'c' })]));
+    expect(mustPrint(next)).toBe(
+      `{"$and":[{"${logic}":[{"a":{"$eq":"x"}},{"b":{"$eq":"x"}}]},{"c":{"$eq":"x"}}]}`,
+    );
+  });
+});
+
+describe('isGroupNode — a persisted tree is checked before it is trusted (§5.7)', () => {
+  const good = group('$and', [
+    { ...cond({ field: 'a' }), disabled: true },
+    raw('{"b":1}'),
+    group('$nor', [cond({ field: 'c', valType: 'number', value: '2' })]),
+  ]);
+
+  it('accepts a well-formed tree', () => {
+    expect(isGroupNode(good)).toBe(true);
+    expect(isGroupNode(group('$or', []))).toBe(true);
+  });
+
+  it('round-trips through JSON, as a persisted draft does', () => {
+    expect(isGroupNode(JSON.parse(JSON.stringify(good)))).toBe(true);
+  });
+
+  it.each([
+    'string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array',
+  ] as const)('accepts a cond typed %s', (valType) => {
+    expect(isGroupNode(group('$and', [cond({ valType })]))).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['an array', []],
+    ['a string', 'group'],
+    ['a cond at the root', cond()],
+    ['a non-group kind carrying group fields', { kind: 'raw', json: '{}', logic: '$and', children: [] }],
+    ['a group without children', { kind: 'group', logic: '$and' }],
+    ['children that are not an array', { kind: 'group', logic: '$and', children: {} }],
+    ['an unknown logic', { kind: 'group', logic: '$xor', children: [] }],
+    ['a non-boolean disabled', { kind: 'group', logic: '$and', children: [], disabled: 'yes' }],
+    ['a nested group without children', group('$and', [{ kind: 'group', logic: '$or' } as unknown as FilterNode])],
+    ['a nested unknown kind', group('$and', [{ kind: 'text', json: '{}' } as unknown as FilterNode])],
+    ['a nested non-object', group('$and', [null as unknown as FilterNode])],
+    ['a cond without value', group('$and', [{ kind: 'cond', field: 'a', op: '$eq', valType: 'string' } as unknown as FilterNode])],
+    ['a cond with a numeric field', group('$and', [{ ...cond(), field: 1 } as unknown as FilterNode])],
+    ['a cond with a numeric op', group('$and', [{ ...cond(), op: 1 } as unknown as FilterNode])],
+    ['a cond with an unknown valType', group('$and', [{ ...cond(), valType: 'blob' } as unknown as FilterNode])],
+    ['a cond with a non-boolean disabled', group('$and', [{ ...cond(), disabled: 1 } as unknown as FilterNode])],
+    ['a raw node whose json is not text', group('$and', [{ kind: 'raw', json: { b: 1 } } as unknown as FilterNode])],
+    ['a raw node with a non-boolean disabled', group('$and', [{ ...raw('{}'), disabled: null } as unknown as FilterNode])],
+  ])('rejects %s', (_what, value) => {
+    expect(isGroupNode(value)).toBe(false);
   });
 });

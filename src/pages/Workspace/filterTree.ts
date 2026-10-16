@@ -5,35 +5,62 @@
 //
 // See specs/W13-filter-tree-editor.md for the full spec this module
 // implements (§1 model, §2 parseFilter, §3 printFilter, §4 edit API).
-import type { ValType } from '@shared/types';
+import type { ValType, CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
 import { isCompilableOp } from './builder';
 
 // ─── §1 Model ────────────────────────────────────────────────────────────────
 
+// The node types live in `shared/types.ts`, because a tab's persisted
+// `filterDraft` holds a tree; they are re-exported here so callers keep one
+// import site.
+export type { CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
+
 /** Node identity IS its position. No generated ids to keep stable. */
 export type NodePath = readonly number[];
 
-export interface CondNode {
-  kind: 'cond';
-  field: string;
-  op: string; // any $-prefixed op; print validates
-  valType: ValType;
-  value: string; // raw text, typed at print time
+const VAL_TYPES: ReadonlySet<string> = new Set<ValType>([
+  'string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array',
+]);
+
+function isOptionalFlag(v: unknown): boolean {
+  return v === undefined || typeof v === 'boolean';
 }
 
-export interface RawNode {
-  kind: 'raw';
-  /** One clause, verbatim. Printed byte-for-byte after a parse check. */
-  json: string;
+function isFilterNode(v: unknown): v is FilterNode {
+  if (!isPlainObject(v) || !isOptionalFlag(v.disabled)) return false;
+  switch (v.kind) {
+    case 'cond':
+      return (
+        typeof v.field === 'string' &&
+        typeof v.op === 'string' &&
+        VAL_TYPES.has(v.valType as string) &&
+        typeof v.value === 'string'
+      );
+    case 'raw':
+      return typeof v.json === 'string';
+    case 'group':
+      return isGroupNode(v);
+    default:
+      return false;
+  }
 }
 
-export interface GroupNode {
-  kind: 'group';
-  logic: '$and' | '$or' | '$nor';
-  children: FilterNode[];
+/**
+ * Structural check for a tree read back from storage (a tab's persisted
+ * draft, §5.7), which the type system can't vouch for: a hand-edited or
+ * older row could lack `children` and crash the printer. Every node is
+ * checked, all the way down.
+ */
+export function isGroupNode(v: unknown): v is GroupNode {
+  return (
+    isPlainObject(v) &&
+    v.kind === 'group' &&
+    LOGIC_KEYS.has(v.logic as string) &&
+    isOptionalFlag(v.disabled) &&
+    Array.isArray(v.children) &&
+    v.children.every(isFilterNode)
+  );
 }
-
-export type FilterNode = GroupNode | CondNode | RawNode;
 
 // ─── §2 parseFilter ──────────────────────────────────────────────────────────
 
@@ -301,7 +328,12 @@ function groupFromLogicArray(logic: GroupNode['logic'], arr: unknown[]): GroupNo
 
 function parseRoot(obj: Record<string, unknown>): GroupNode {
   const collapsed = collapseToNode(parseClauseToNodes(obj));
-  if (collapsed.kind === 'group') return collapsed;
+  // A one-child `$nor` is a NOT (§4). Taken as the root itself it would lose
+  // that reading — the root never shows NOT — so it stays a group under an
+  // `$and` root, the same tree the drawer printed it from.
+  if (collapsed.kind === 'group' && !(collapsed.logic === '$nor' && collapsed.children.length === 1)) {
+    return collapsed;
+  }
   return { kind: 'group', logic: '$and', children: [collapsed] };
 }
 
@@ -630,6 +662,12 @@ function parseRawWithPrecisionCheck(
 type PrintNodeResult = { kind: 'value'; value: unknown } | { kind: 'pending' } | { kind: 'blocked' };
 
 function printNode(node: FilterNode, path: number[], problems: NodeProblem[]): PrintNodeResult {
+  // A disabled node, and its whole subtree, is pending: no clause, no
+  // problem. Checked before anything else so an invalid row the user has
+  // switched off never blocks the rest of the filter.
+  // Stryker disable next-line ObjectLiteral,StringLiteral: same inert
+  // 'pending' literal as the two below (see the PrintNodeResult note).
+  if (node.disabled) return { kind: 'pending' };
   if (node.kind === 'cond') {
     // Stryker disable next-line ObjectLiteral,StringLiteral
     if (node.field.trim() === '') return { kind: 'pending' }; // §5 pending rule
@@ -744,6 +782,17 @@ function insertNodeAt(target: FilterNode, path: NodePath, node: FilterNode, inde
   return { ...target, children };
 }
 
+/**
+ * Adds `node` as one more requirement on the whole filter. An `$and` root
+ * takes it as another child; an `$or` or `$nor` root is wrapped in a new
+ * `$and` beside it, because joining the root group would make the node an
+ * alternative (or an exclusion) instead of a requirement.
+ */
+export function andAtRoot(root: GroupNode, node: FilterNode): GroupNode {
+  if (root.logic === '$and') return insertAt(root, [], node);
+  return { kind: 'group', logic: '$and', children: [root, node] };
+}
+
 /** `index` omitted appends — every existing caller relies on that. */
 export function insertAt(root: GroupNode, parent: NodePath, node: FilterNode, index?: number): GroupNode {
   return insertNodeAt(root, parent, node, index) as GroupNode;
@@ -807,14 +856,39 @@ export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['l
 }
 
 /**
+ * Replaces a nested group that holds exactly one child with that child — the
+ * inverse of `wrapInGroup`, and how a negation (a one-child `$nor`) is
+ * removed. Anything else is left alone, returning `root` itself: the root, a
+ * non-group, a group of several children, or a path that doesn't resolve.
+ * A switched-off group hands that to its child, so removing the wrapper
+ * never switches a condition back on.
+ */
+export function unwrapGroup(root: GroupNode, path: NodePath): GroupNode {
+  if (path.length === 0) return root;
+  const target = nodeAt(root, path);
+  if (!target || target.kind !== 'group' || target.children.length !== 1) return root;
+  return updateAt(root, path, carryDisabled(target, target.children[0]));
+}
+
+/**
  * Best-effort encode of a cond as a raw node. Falls back to a blank pending
  * raw node — never `{}`, which matches everything and would make a bad
  * fallback silently widen the group it sits in (§4).
  */
 export function toRawNode(cond: CondNode): RawNode {
-  if (cond.field.trim() === '') return { kind: 'raw', json: '' };
-  if (condValueProblem(cond)) return { kind: 'raw', json: '' };
-  return { kind: 'raw', json: JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } }) };
+  const json =
+    cond.field.trim() === '' || condValueProblem(cond)
+      ? ''
+      : JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } });
+  return carryDisabled(cond, { kind: 'raw', json });
+}
+
+/**
+ * A replacement keeps the node switched off if it was: converting a row, or
+ * dropping a field onto it, is not re-enabling it.
+ */
+export function carryDisabled<T extends FilterNode>(from: FilterNode, to: T): T {
+  return from.disabled ? { ...to, disabled: true } : to;
 }
 
 /**
@@ -837,5 +911,5 @@ export function tryParseRaw(raw: RawNode): FilterNode {
     return raw;
   }
   if (!isPlainObject(parsed)) return raw;
-  return collapseToNode(parseClauseToNodes(parsed));
+  return carryDisabled(raw, collapseToNode(parseClauseToNodes(parsed)));
 }

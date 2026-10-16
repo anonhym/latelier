@@ -171,10 +171,11 @@ describe('Filter drawer — pending-row lifecycle (W13 §5, §11)', () => {
     });
   });
 
-  it('switching tabs discards pending rows and re-seeds from queryRaw, even when both tabs share the same text', async () => {
+  it('switching tabs re-seeds each tab from its own state, even when both tabs share the same text', async () => {
     // §5.6 — the crux of the test: BOTH tabs hold the default '{}' text, so
     // text equality alone can never detect the switch. Only remounting on
-    // `key={tabId}` catches it.
+    // `key={tabId}` catches it. Each tab then seeds from its own persisted
+    // draft (§5.7): tab B has none, tab A has its pending row.
     const stateA = makeState();
     const stateB = makeState();
     const tabs = [
@@ -218,13 +219,14 @@ describe('Filter drawer — pending-row lifecycle (W13 §5, §11)', () => {
       expect(screen.queryAllByPlaceholderText('field')).toHaveLength(0);
     });
 
-    // Switch back to tab A — its pending row must be gone too (discarded on
-    // the switch away, not merely hidden).
+    // Switch back to tab A — its pending row comes back from tab A's own
+    // draft: the switch remounted the drawer, and the remount re-seeded from
+    // the draft because it still matches tab A's '{}'.
     const tabAEl = container.querySelector('[data-tab-id="tA"]');
     fireEvent.click(tabAEl!);
     await waitFor(() => expect(setActiveSpy).toHaveBeenCalledWith('tA'));
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryAllByPlaceholderText('field')).toHaveLength(0);
+    expect(screen.queryAllByPlaceholderText('field')).toHaveLength(1);
   });
 });

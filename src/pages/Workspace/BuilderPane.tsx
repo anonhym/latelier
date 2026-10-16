@@ -2,7 +2,9 @@ import React, { memo } from 'react';
 import {
   ActionIcon,
   Button,
+  Checkbox,
   Menu,
+  VisuallyHidden,
   Select,
   Tabs,
   TextInput,
@@ -35,8 +37,11 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  unwrapGroup,
   toRawNode,
   tryParseRaw,
+  carryDisabled,
+  isGroupNode,
   nodeAt,
   type GroupNode,
   type CondNode,
@@ -44,6 +49,7 @@ import {
   type NodePath,
   type NodeProblem,
 } from './filterTree';
+import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } from './filterHistory';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
@@ -56,6 +62,8 @@ import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type {
   BuilderState,
   BuilderTab,
+  CollectionTabState,
+  FilterNode,
   RecentQuery,
   SavedQuery,
   SavedQuerySummary,
@@ -78,12 +86,69 @@ const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
+/** A fresh condition row: blank field, so pending until the user fills it (W13 §5.4). */
+function emptyCond(): CondNode {
+  return { kind: 'cond', field: '', op: '$eq', valType: 'string', value: '' };
+}
+
 function pathsEqual(a: NodePath, b: NodePath): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 function pathKey(path: NodePath): string {
   return path.length === 0 ? 'root' : path.join('.');
+}
+
+/**
+ * A nested group's position counted from 1 (`2.1` = first child of the
+ * second), so its controls have names that tell one group from another.
+ */
+function groupPosition(path: NodePath): string {
+  return path.map((i) => i + 1).join('.');
+}
+
+/**
+ * Switches a node off or back on. `undefined` rather than `false` when on, so
+ * a persisted draft carries the flag only where it means something.
+ */
+function toggleDisabled<T extends FilterNode>(node: T): T {
+  return { ...node, disabled: !node.disabled || undefined };
+}
+
+/** Opacity for the content of a switched-off row or group; its checkbox stays at full strength. */
+function dimFor(node: FilterNode): number | undefined {
+  return node.disabled ? 0.5 : undefined;
+}
+
+/**
+ * The "include" checkbox on a row or nested group. Unchecking leaves the node
+ * on screen and editable but out of the printed filter (W13 §3), which is how
+ * a user tries the query without one condition and gets it back unchanged.
+ */
+function IncludeBox({
+  node,
+  label,
+  readOnly,
+  onToggle,
+  describedBy,
+}: {
+  node: FilterNode;
+  label: string;
+  readOnly: boolean;
+  onToggle: () => void;
+  describedBy: string | undefined;
+}) {
+  return (
+    <Checkbox
+      size="xs"
+      aria-label={label}
+      aria-describedby={describedBy}
+      checked={!node.disabled}
+      disabled={readOnly}
+      onChange={onToggle}
+      style={{ flexShrink: 0 }}
+    />
+  );
 }
 
 /**
@@ -175,8 +240,9 @@ function LogicPicker({
 }
 
 /**
- * The row-level "⋮" menu: Move up / Move down / Convert to raw clause (cond
- * rows only) / Wrap in group / Duplicate.
+ * The row-level "⋮" menu: Insert condition above / below / Move up / Move
+ * down / Convert to raw clause (cond rows only) / Wrap in group / Negate (NOT)
+ * / Duplicate.
  *
  * Remove has its own one-click ✕ beside this menu rather than living here
  * too — one affordance per action, not two. Move up/down live here instead
@@ -188,6 +254,8 @@ function LogicPicker({
 function RowMenu({
   onConvertToRaw,
   onWrap,
+  onNegate,
+  onInsert,
   onDuplicate,
   onMove,
   canMoveUp,
@@ -198,6 +266,9 @@ function RowMenu({
 }: {
   onConvertToRaw?: () => void;
   onWrap: () => void;
+  onNegate: () => void;
+  /** Adds a blank condition beside this row: `0` above it, `1` below. */
+  onInsert: (offset: 0 | 1) => void;
   onDuplicate: () => void;
   onMove: (delta: number) => void;
   canMoveUp: boolean;
@@ -222,6 +293,8 @@ function RowMenu({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
+        <Menu.Item onClick={() => onInsert(0)}>Insert condition above</Menu.Item>
+        <Menu.Item onClick={() => onInsert(1)}>Insert condition below</Menu.Item>
         <Menu.Item disabled={!canMoveUp} onClick={() => onMove(-1)}>
           Move up
         </Menu.Item>
@@ -230,6 +303,7 @@ function RowMenu({
         </Menu.Item>
         {onConvertToRaw && <Menu.Item onClick={onConvertToRaw}>Convert to raw clause</Menu.Item>}
         <Menu.Item onClick={onWrap}>Wrap in group</Menu.Item>
+        <Menu.Item onClick={onNegate}>Negate (NOT)</Menu.Item>
         <Menu.Item onClick={onDuplicate}>Duplicate</Menu.Item>
       </Menu.Dropdown>
     </Menu>
@@ -264,9 +338,37 @@ function moveRowKeepingFocus(
   });
 }
 
+/**
+ * Insert a blank condition beside a row and put the caret in its field box,
+ * so composing in the middle of a filter doesn't mean appending at the end and
+ * moving the row up step by step. The row is pending, so `queryRaw` is
+ * untouched until its field is filled in. Focus is found by the new row's
+ * path after the render, the same way `moveRowKeepingFocus` does it.
+ */
+function insertRowKeepingFocus(
+  root: GroupNode,
+  path: NodePath,
+  offset: 0 | 1,
+  applyEdit: (next: GroupNode) => void,
+): void {
+  const parent = path.slice(0, -1);
+  const index = path[path.length - 1]! + offset;
+  applyEdit(insertAt(root, parent, emptyCond(), index));
+  const nextKey = pathKey([...parent, index]);
+  requestAnimationFrame(() => {
+    document
+      .querySelector<HTMLElement>(`[data-row-path="${nextKey}"] input[placeholder="field"]`)
+      ?.focus();
+  });
+}
+
 interface TreeEditProps {
   root: GroupNode;
-  applyEdit: (next: GroupNode) => void;
+  /**
+   * Commits a new tree. Edits that pass the same `key` back to back are one
+   * undo step (typing in one box); structural edits pass none.
+   */
+  applyEdit: (next: GroupNode, key?: string) => void;
   readOnly: boolean;
   /**
    * `pathKey` of the single group/row currently highlighted as a drop
@@ -282,6 +384,12 @@ interface TreeEditProps {
    */
   activeDropPath: string | null;
   setActiveDropPath: (path: string | null) => void;
+  /**
+   * Id of the visually hidden "Excluded" note of the nearest switched-off
+   * group around this node, if any. The dimming is visual only; this is the
+   * same fact for assistive tech.
+   */
+  excludedNoteId?: string;
 }
 
 /** Where the row sits among its siblings — drives the move items' ends. */
@@ -357,14 +465,14 @@ function useRowDropHandlers(
       if (node.kind === 'raw' && node.json.trim()) {
         void confirmDestructive({
           title: 'Replace this raw clause?',
-          body: 'Dropping a field here replaces this hand-typed clause with a new condition. It cannot be undone.',
+          body: 'Dropping a field here replaces this hand-typed clause with a new condition. Undo puts it back.',
           confirmLabel: 'Replace',
         }).then((proceed) => {
-          if (proceed) applyEdit(updateAt(root, path, mergeOrReplaceDragged(node, dragged)));
+          if (proceed) applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
         });
         return;
       }
-      applyEdit(updateAt(root, path, mergeOrReplaceDragged(node, dragged)));
+      applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
     },
   };
 }
@@ -381,6 +489,7 @@ function CondRow({
   suggestionContext,
   canMoveUp,
   canMoveDown,
+  excludedNoteId,
 }: TreeEditProps & RowMoveProps & {
   node: CondNode;
   path: NodePath;
@@ -435,7 +544,10 @@ function CondRow({
     { valueSources: DEFAULT_VALUE_SOURCES },
   );
 
-  const patch = (p: Partial<CondNode>) => applyEdit(updateAt(root, path, { ...node, ...p }));
+  const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
+  // Keystrokes in one text box of this row are one undo step, not one each.
+  const typeInto = (box: 'field' | 'value', text: string) =>
+    patch({ [box]: text }, `${pathKey(path)}:${box}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
@@ -511,13 +623,19 @@ function CondRow({
   };
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
+  // NOT over any subtree is a one-child `$nor`: no new node kind, and it
+  // prints and parses as plain MongoDB.
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
+  const insert = (offset: 0 | 1) => insertRowKeepingFocus(root, path, offset, applyEdit);
   // Converts on the *typed* op, not only the committed one: `toRawNode` falls
   // back to a blank pending raw node whenever the op is uncompilable (below),
   // regardless of which uncompilable text it was given, so a still-drafted
   // `$elemMatch` converts the same as a committed one would.
   const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
   // offer a one-click escape to a raw clause the instant the op looks
@@ -553,139 +671,150 @@ function CondRow({
       }}
     >
       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-        <TextInput
-          ref={fieldInputRef}
-          placeholder="field"
-          value={node.field}
-          disabled={readOnly}
-          onChange={(e) => {
-            patch({ field: e.target.value });
-            if (!fieldPopoverOpen) setFieldPopoverOpen(true);
-          }}
-          onFocus={() => setFieldPopoverOpen(true)}
-          onBlur={() => {
-            window.setTimeout(() => setFieldPopoverOpen(false), 100);
-          }}
-          size="xs"
-          style={{ flex: 1 }}
+        <IncludeBox
+          node={node}
+          label={node.field.trim() ? `Include condition ${node.field}` : 'Include condition'}
+          readOnly={readOnly}
+          onToggle={toggle}
+          describedBy={excludedNoteId}
         />
-        <SuggestionPopover
-          open={fieldPopoverOpen}
-          items={fieldSuggestionItems}
-          anchorRef={fieldInputRef}
-          onSelect={(s) => {
-            if (s.kind === 'field') {
-              const nextValType = valTypeFromDisplayType(s.type);
-              const nextOp = opForValType(nextValType, node.op);
-              patch({ field: s.path, valType: nextValType, op: nextOp });
-            }
-            setFieldPopoverOpen(false);
-            fieldInputRef.current?.blur();
-          }}
-          onClose={() => setFieldPopoverOpen(false)}
-        />
-        <TextInput
-          ref={opInputRef}
-          placeholder="$op"
-          value={opValue}
-          disabled={readOnly}
-          onChange={(e) => {
-            setOpDraft(e.target.value);
-            if (!opPopoverOpen) setOpPopoverOpen(true);
-          }}
-          onFocus={() => setOpPopoverOpen(true)}
-          onKeyDown={handleOpKeyDown}
-          onBlur={() => {
-            commitOpDraft();
-            window.setTimeout(() => setOpPopoverOpen(false), 100);
-          }}
-          aria-invalid={!!problem}
-          title={problem ?? undefined}
-          error={!!problem}
-          size="xs"
-          style={{ width: 100, flexShrink: 0 }}
-          styles={{ input: { fontFamily: 'monospace' } }}
-        />
-        <SuggestionPopover
-          open={opPopoverOpen}
-          items={opSuggestionItems}
-          anchorRef={opInputRef}
-          label="Operator suggestions"
-          onSelect={(s) => {
-            if (s.kind === 'operator') {
-              // The popover blurs the input on its way out, so the blur
-              // handler runs next — against the *stale* `node.op`, because
-              // this patch has not rendered yet. Without the flag, choosing
-              // `$in` after typing `>` would land `$gt`: two patches in one
-              // tick, and `patch` spreads a stale `node` rather than taking a
-              // functional update.
-              symbolResolvedByPopover.current = true;
-              patch({ op: s.name });
-              // A pick is itself a commit (per the issue's fix shape) — clear
-              // the draft so the box falls back to `node.op` (about to become
-              // `s.name`) instead of showing the typed text the pick replaced.
-              setOpDraft(null);
-            }
-            setOpPopoverOpen(false);
-            opInputRef.current?.blur();
-          }}
-          onClose={() => setOpPopoverOpen(false)}
-        />
-        {showOpDocs && (
-          <OperatorTooltip name={node.op} prefClass="query" placement="below">
-            <button
-              type="button"
-              aria-label={`Documentation for ${node.op}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                border: `1px solid ${T.border}`,
-                background: 'none',
-                padding: 0,
-                margin: 0,
-                font: 'inherit',
-                color: T.textGhost,
-                fontSize: 10,
-                fontWeight: 600,
-                cursor: 'help',
-                flexShrink: 0,
-                userSelect: 'none',
-              }}
-            >
-              ?
-            </button>
-          </OperatorTooltip>
-        )}
-        <RowMenu
-          ariaLabel="Condition options"
-          disabled={readOnly}
-          onConvertToRaw={convertToRaw}
-          onWrap={wrap}
-          onDuplicate={duplicate}
-          onMove={move}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          rowKey={pathKey(path)}
-        />
-        <Tooltip label={removeLabel} withArrow>
-          <ActionIcon
-            variant="default"
-            color="red"
-            size="sm"
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1, minWidth: 0, opacity: dim }}>
+          <TextInput
+            ref={fieldInputRef}
+            placeholder="field"
+            value={node.field}
             disabled={readOnly}
-            onClick={remove}
-            aria-label={removeLabel}
-          >
-            {I.close}
-          </ActionIcon>
-        </Tooltip>
+            onChange={(e) => {
+              typeInto('field', e.target.value);
+              if (!fieldPopoverOpen) setFieldPopoverOpen(true);
+            }}
+            onFocus={() => setFieldPopoverOpen(true)}
+            onBlur={() => {
+              window.setTimeout(() => setFieldPopoverOpen(false), 100);
+            }}
+            size="xs"
+            style={{ flex: 1 }}
+          />
+          <SuggestionPopover
+            open={fieldPopoverOpen}
+            items={fieldSuggestionItems}
+            anchorRef={fieldInputRef}
+            onSelect={(s) => {
+              if (s.kind === 'field') {
+                const nextValType = valTypeFromDisplayType(s.type);
+                const nextOp = opForValType(nextValType, node.op);
+                patch({ field: s.path, valType: nextValType, op: nextOp });
+              }
+              setFieldPopoverOpen(false);
+              fieldInputRef.current?.blur();
+            }}
+            onClose={() => setFieldPopoverOpen(false)}
+          />
+          <TextInput
+            ref={opInputRef}
+            placeholder="$op"
+            value={opValue}
+            disabled={readOnly}
+            onChange={(e) => {
+              setOpDraft(e.target.value);
+              if (!opPopoverOpen) setOpPopoverOpen(true);
+            }}
+            onFocus={() => setOpPopoverOpen(true)}
+            onKeyDown={handleOpKeyDown}
+            onBlur={() => {
+              commitOpDraft();
+              window.setTimeout(() => setOpPopoverOpen(false), 100);
+            }}
+            aria-invalid={!!problem}
+            title={problem ?? undefined}
+            error={!!problem}
+            size="xs"
+            style={{ width: 100, flexShrink: 0 }}
+            styles={{ input: { fontFamily: 'monospace' } }}
+          />
+          <SuggestionPopover
+            open={opPopoverOpen}
+            items={opSuggestionItems}
+            anchorRef={opInputRef}
+            label="Operator suggestions"
+            onSelect={(s) => {
+              if (s.kind === 'operator') {
+                // The popover blurs the input on its way out, so the blur
+                // handler runs next — against the *stale* `node.op`, because
+                // this patch has not rendered yet. Without the flag, choosing
+                // `$in` after typing `>` would land `$gt`: two patches in one
+                // tick, and `patch` spreads a stale `node` rather than taking a
+                // functional update.
+                symbolResolvedByPopover.current = true;
+                patch({ op: s.name });
+                // A pick is itself a commit (per the issue's fix shape) — clear
+                // the draft so the box falls back to `node.op` (about to become
+                // `s.name`) instead of showing the typed text the pick replaced.
+                setOpDraft(null);
+              }
+              setOpPopoverOpen(false);
+              opInputRef.current?.blur();
+            }}
+            onClose={() => setOpPopoverOpen(false)}
+          />
+          {showOpDocs && (
+            <OperatorTooltip name={node.op} prefClass="query" placement="below">
+              <button
+                type="button"
+                aria-label={`Documentation for ${node.op}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  border: `1px solid ${T.border}`,
+                  background: 'none',
+                  padding: 0,
+                  margin: 0,
+                  font: 'inherit',
+                  color: T.textGhost,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'help',
+                  flexShrink: 0,
+                  userSelect: 'none',
+                }}
+              >
+                ?
+              </button>
+            </OperatorTooltip>
+          )}
+          <RowMenu
+            ariaLabel="Condition options"
+            disabled={readOnly}
+            onConvertToRaw={convertToRaw}
+            onWrap={wrap}
+            onNegate={negate}
+            onInsert={insert}
+            onDuplicate={duplicate}
+            onMove={move}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            rowKey={pathKey(path)}
+          />
+          <Tooltip label={removeLabel} withArrow>
+            <ActionIcon
+              variant="default"
+              color="red"
+              size="sm"
+              disabled={readOnly}
+              onClick={remove}
+              aria-label={removeLabel}
+            >
+              {I.close}
+            </ActionIcon>
+          </Tooltip>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: dim }}>
         <Select
           value={node.valType}
           disabled={readOnly}
@@ -722,7 +851,7 @@ function CondRow({
               value={node.value}
               disabled={readOnly}
               onChange={(e) => {
-                patch({ value: e.target.value });
+                typeInto('value', e.target.value);
                 if (!valuePopoverOpen) setValuePopoverOpen(true);
               }}
               onFocus={() => setValuePopoverOpen(true)}
@@ -800,18 +929,25 @@ function RawRow({
   setActiveDropPath,
   canMoveUp,
   canMoveDown,
+  excludedNoteId,
 }: TreeEditProps & RowMoveProps & {
   node: RawNode;
   path: NodePath;
   problem: string | undefined;
 }) {
   const T = themeVars;
-  const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }));
+  const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }), `${pathKey(path)}:json`);
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
+  // NOT over any subtree is a one-child `$nor`: no new node kind, and it
+  // prints and parses as plain MongoDB.
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
+  const insert = (offset: 0 | 1) => insertRowKeepingFocus(root, path, offset, applyEdit);
   const tryParse = () => applyEdit(updateAt(root, path, tryParseRaw(node)));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   return (
@@ -830,51 +966,63 @@ function RawRow({
       }}
     >
       <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-        <textarea
-          value={node.json}
-          disabled={readOnly}
-          onChange={(e) => patchJson(e.target.value)}
-          placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
-          aria-label="Raw clause"
-          spellCheck={false}
-          rows={2}
-          style={{
-            flex: 1,
-            fontFamily: '"JetBrains Mono", monospace',
-            fontSize: 11,
-            padding: '4px 6px',
-            border: `1px solid ${problem ? T.warn : T.border}`,
-            borderRadius: T.rx,
-            background: T.bg,
-            color: T.text,
-            resize: 'vertical',
-            outline: 'none',
-          }}
+        <IncludeBox
+          node={node}
+          label="Include raw clause"
+          readOnly={readOnly}
+          onToggle={toggle}
+          describedBy={excludedNoteId}
         />
-        <RowMenu
-          ariaLabel="Raw clause options"
-          disabled={readOnly}
-          onWrap={wrap}
-          onDuplicate={duplicate}
-          onMove={move}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          rowKey={pathKey(path)}
-        />
-        <Tooltip label="Remove raw clause" withArrow>
-          <ActionIcon
-            variant="default"
-            color="red"
-            size="sm"
+        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
+          <textarea
+            value={node.json}
             disabled={readOnly}
-            onClick={remove}
-            aria-label="Remove raw clause"
-          >
-            {I.close}
-          </ActionIcon>
-        </Tooltip>
+            onChange={(e) => patchJson(e.target.value)}
+            placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
+            aria-label="Raw clause"
+            aria-describedby={excludedNoteId}
+            spellCheck={false}
+            rows={2}
+            style={{
+              flex: 1,
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: 11,
+              padding: '4px 6px',
+              border: `1px solid ${problem ? T.warn : T.border}`,
+              borderRadius: T.rx,
+              background: T.bg,
+              color: T.text,
+              resize: 'vertical',
+              outline: 'none',
+            }}
+          />
+          <RowMenu
+            ariaLabel="Raw clause options"
+            disabled={readOnly}
+            onWrap={wrap}
+            onNegate={negate}
+            onInsert={insert}
+            onDuplicate={duplicate}
+            onMove={move}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            rowKey={pathKey(path)}
+          />
+          <Tooltip label="Remove raw clause" withArrow>
+            <ActionIcon
+              variant="default"
+              color="red"
+              size="sm"
+              disabled={readOnly}
+              onClick={remove}
+              aria-label="Remove raw clause"
+            >
+              {I.close}
+            </ActionIcon>
+          </Tooltip>
+        </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, opacity: dim }}>
         <Button variant="subtle" size="compact-xs" disabled={readOnly} onClick={tryParse}>
           Try to parse
         </Button>
@@ -899,12 +1047,16 @@ function GroupView({
   setActiveDropPath,
   isRoot,
   suggestionContext,
+  headerExtra,
+  excludedNoteId,
 }: TreeEditProps & {
   node: GroupNode;
   path: NodePath;
   problems: NodeProblem[];
   isRoot: boolean;
   suggestionContext: SuggestionContext | null;
+  /** Controls placed at the right end of this group's header (the root's Undo / Redo). */
+  headerExtra?: React.ReactNode;
 }) {
   const T = themeVars;
 
@@ -954,10 +1106,7 @@ function GroupView({
     applyEdit(insertAt(root, path, condFromDragged(dragged)));
   };
 
-  const addCondition = () => {
-    const cond: CondNode = { kind: 'cond', field: '', op: '$eq', valType: 'string', value: '' };
-    applyEdit(insertAt(root, path, cond));
-  };
+  const addCondition = () => applyEdit(insertAt(root, path, emptyCond()));
   const addGroup = () => {
     const group: GroupNode = { kind: 'group', logic: '$and', children: [] };
     applyEdit(insertAt(root, path, group));
@@ -968,6 +1117,19 @@ function GroupView({
   };
   const setLogic = (logic: GroupNode['logic']) => applyEdit(updateAt(root, path, { ...node, logic }));
   const removeGroup = () => applyEdit(removeAt(root, path));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
+  const removeNegation = () => applyEdit(unwrapGroup(root, path));
+  // A nested one-child `$nor` reads as NOT of that child, so it is shown as
+  // one. Adding a second child makes it an ordinary NOR group again. The root
+  // never shows NOT: it has no wrapper to remove.
+  const isNegation = !isRoot && node.logic === '$nor' && node.children.length === 1;
+  const position = groupPosition(path);
+  // Everything inside a switched-off group is out of the filter too; its
+  // rows point at this group's note, or at a switched-off ancestor's.
+  const noteId = React.useId();
+  const childNoteId = node.disabled ? noteId : excludedNoteId;
 
   const problemFor = (childPath: NodePath): string | undefined =>
     problems.find((p) => pathsEqual(p.path, childPath))?.message;
@@ -1023,61 +1185,105 @@ function GroupView({
           borderBottom: isRoot ? `1px solid ${T.border}` : 'none',
         }}
       >
-        <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
-        <Tooltip label="Add condition" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addCondition}
-            aria-label="Add condition"
-          >
-            {I.plus}
-          </ActionIcon>
-        </Tooltip>
-        {/* Three add buttons, three glyphs. "Add condition" keeps the plus;
-            the nested group takes parentheses (how a boolean group is
-            written); `<>` moves to the raw clause, the only one of the
-            three it actually describes. */}
-        <Tooltip label="Add nested group" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addGroup}
-            aria-label="Add group"
-          >
-            {I.group}
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Add raw clause" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addRaw}
-            aria-label="Add raw clause"
-          >
-            {I.code}
-          </ActionIcon>
-        </Tooltip>
-        <span style={{ flex: 1 }} />
         {!isRoot && (
-          <Tooltip label="Remove group" withArrow>
+          <IncludeBox
+            node={node}
+            label={`Include group ${position}`}
+            readOnly={readOnly}
+            onToggle={toggle}
+            describedBy={excludedNoteId}
+          />
+        )}
+        {node.disabled && <VisuallyHidden id={noteId}>Excluded: its group is switched off</VisuallyHidden>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, opacity: dim }}>
+          {isNegation ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: T.accent }}>NOT</span>
+              <Tooltip label={`Remove negation ${position}`} withArrow>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  disabled={readOnly}
+                  onClick={removeNegation}
+                  aria-label={`Remove negation ${position}`}
+                >
+                  {I.close}
+                </ActionIcon>
+              </Tooltip>
+            </span>
+          ) : (
+            <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
+          )}
+          <Tooltip label="Add condition" withArrow>
             <ActionIcon
               variant="default"
-              color="red"
               size="sm"
               disabled={readOnly}
-              onClick={removeGroup}
-              aria-label="Remove group"
+              onClick={addCondition}
+              aria-label="Add condition"
             >
-              {I.close}
+              {I.plus}
             </ActionIcon>
           </Tooltip>
-        )}
+          {/* Three add buttons, three glyphs. "Add condition" keeps the plus;
+              the nested group takes parentheses (how a boolean group is
+              written); `<>` moves to the raw clause, the only one of the
+              three it actually describes. */}
+          <Tooltip label="Add nested group" withArrow>
+            <ActionIcon
+              variant="default"
+              size="sm"
+              disabled={readOnly}
+              onClick={addGroup}
+              aria-label="Add group"
+            >
+              {I.group}
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Add raw clause" withArrow>
+            <ActionIcon
+              variant="default"
+              size="sm"
+              disabled={readOnly}
+              onClick={addRaw}
+              aria-label="Add raw clause"
+            >
+              {I.code}
+            </ActionIcon>
+          </Tooltip>
+          <span style={{ flex: 1 }} />
+          {headerExtra}
+          {!isRoot && !isNegation && (
+            <Tooltip label={`Negate group ${position}`} withArrow>
+              <ActionIcon
+                variant="default"
+                size="sm"
+                disabled={readOnly}
+                onClick={negate}
+                aria-label={`Negate group ${position}`}
+              >
+                <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>¬</span>
+              </ActionIcon>
+            </Tooltip>
+          )}
+          {!isRoot && (
+            <Tooltip label="Remove group" withArrow>
+              <ActionIcon
+                variant="default"
+                color="red"
+                size="sm"
+                disabled={readOnly}
+                onClick={removeGroup}
+                aria-label="Remove group"
+              >
+                {I.close}
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </div>
       </div>
-      <div style={{ padding: isRoot ? '6px 10px 4px' : 0 }}>
+      <div style={{ padding: isRoot ? '6px 10px 4px' : 0, opacity: dim }}>
         {/* Say what an empty tree's state means and what to do about it, in
             words, rather than leaving a radiogroup and three icon buttons
             over blank space — but not while the tree is frozen read-only
@@ -1108,6 +1314,7 @@ function GroupView({
                 setActiveDropPath={setActiveDropPath}
                 isRoot={false}
                 suggestionContext={suggestionContext}
+                excludedNoteId={childNoteId}
               />
             );
           }
@@ -1126,6 +1333,7 @@ function GroupView({
                 suggestionContext={suggestionContext}
                 canMoveUp={i > 0}
                 canMoveDown={i < node.children.length - 1}
+                excludedNoteId={childNoteId}
               />
             );
           }
@@ -1142,6 +1350,7 @@ function GroupView({
               problem={problemFor(childPath)}
               canMoveUp={i > 0}
               canMoveDown={i < node.children.length - 1}
+              excludedNoteId={childNoteId}
             />
           );
         })}
@@ -1186,9 +1395,17 @@ function GroupView({
   );
 }
 
+type FilterDraft = NonNullable<CollectionTabState['filterDraft']>;
+
 interface FilterDrawerProps {
   queryRaw: string;
-  onCommit: (patch: { queryRaw: string }) => void;
+  /** The tab's persisted draft; read once, to seed (W13 §5.7). */
+  filterDraft: FilterDraft | undefined;
+  /**
+   * Every edit writes the draft; `queryRaw` only when the printed text
+   * changed. An outside text edit clears the draft (`undefined`).
+   */
+  onCommit: (patch: { queryRaw?: string; filterDraft: FilterDraft | undefined }) => void;
   suggestionContext: SuggestionContext | null;
 }
 
@@ -1208,30 +1425,56 @@ function problemLabels(root: GroupNode, problems: NodeProblem[]): string[] {
   return [...seen];
 }
 
-function seedTree(text: string): { root: GroupNode; readOnly: boolean } {
+/**
+ * The tree a freshly mounted drawer shows (W13 §5.7). The tab's draft wins
+ * only while it is still the tree behind `text`: it was recorded against the
+ * same text, and printing it gives that text back, or it is blocked (a row
+ * that can't print yet, whose problems come back with it). A draft that
+ * prints to anything else is ignored rather than trusted, so the drawer never
+ * shows a tree other than the one that runs.
+ */
+function seedTree(
+  text: string,
+  draft: FilterDraft | undefined,
+): { root: GroupNode; readOnly: boolean; problems: NodeProblem[] } {
+  // A persisted tree is only data until checked: a malformed one falls back
+  // to the text rather than reaching the printer.
+  if (draft && draft.queryRaw === text && isGroupNode(draft.root)) {
+    const printed = printFilter(draft.root);
+    if (!printed.ok) return { root: draft.root, readOnly: false, problems: printed.problems };
+    if (printed.json === text) return { root: draft.root, readOnly: false, problems: [] };
+  }
   const parsed = parseFilter(text);
-  return parsed.ok ? { root: parsed.root, readOnly: false } : { root: EMPTY_ROOT, readOnly: true };
+  return parsed.ok
+    ? { root: parsed.root, readOnly: false, problems: [] }
+    : { root: EMPTY_ROOT, readOnly: true, problems: [] };
 }
 
 /**
  * The recursive filter-tree editor (W13 §5, §6). A *view* of `queryRaw`, not
- * its own source of truth: the local `root` is only ever seeded from
- * `queryRaw` (on mount, and again whenever `queryRaw` changes from outside
- * this component — §5.3's reconcile rule) and only ever written back to
- * `queryRaw` through `printFilter`'s fail-closed gate.
+ * its own source of truth: the local `root` is seeded on mount from the tab's
+ * draft when that still matches `queryRaw`, else from `queryRaw` itself
+ * (§5.7); re-seeded from `queryRaw` whenever it changes from outside this
+ * component (§5.3's reconcile rule); and only ever written back to `queryRaw`
+ * through `printFilter`'s fail-closed gate.
  *
- * Remounted (fresh `root`/`lastPrinted`/`problems`) whenever the caller
- * changes this component's `key` — done for the tab id (§5.6: two tabs
- * commonly share `queryRaw: '{}'`, so text equality alone can't detect a
- * tab switch) and for each Reset / Saved / Recent load (§5.3's other
+ * Remounted (fresh `root`/`lastPrinted`/`problems`/history) whenever the
+ * caller changes this component's `key` — done for the tab id (§5.6: two
+ * tabs commonly share `queryRaw: '{}'`, so text equality alone can't detect
+ * a tab switch) and for each Reset / Saved / Recent load (§5.3's other
  * external-edit triggers), which may coincidentally write the same text
  * the drawer already holds and so wouldn't otherwise be seen as a change.
  */
-function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerProps) {
+function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: FilterDrawerProps) {
   const T = themeVars;
   const { meta } = useCollectionWorkspace();
-  const [tree, setTree] = React.useState(() => seedTree(queryRaw));
-  const [problems, setProblems] = React.useState<NodeProblem[]>([]);
+  const [seed] = React.useState(() => seedTree(queryRaw, filterDraft));
+  // Undo / redo history of the tree (§5.7): in memory only, so a remount (tab
+  // switch, Reset, a Saved or Recent load) starts it afresh.
+  const [history, setHistory] = React.useState<History<GroupNode>>(() => initHistory(seed.root));
+  const [readOnly, setReadOnly] = React.useState(seed.readOnly);
+  const root = history.present;
+  const [problems, setProblems] = React.useState<NodeProblem[]>(seed.problems);
   // The text this component itself last wrote (or last reconciled against)
   // — state, not a ref, so the reconcile check below (React's sanctioned
   // "derive state from a changed prop" pattern, see react.dev) can read and
@@ -1243,7 +1486,15 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
     dbName: meta.dbName,
     collection: meta.collection,
     queryRaw,
-    paused: problems.length > 0 || tree.readOnly,
+    // The tree can't be trusted to match `queryRaw`: it's blocked or read-only.
+    paused: problems.length > 0 || readOnly,
+  });
+  // Bumped by the reconcile below, which runs during render and so can't
+  // patch the tab itself; the effect after it does, once per bump.
+  const [outsideEdits, setOutsideEdits] = React.useState(0);
+  const onCommitRef = React.useRef(onCommit);
+  React.useEffect(() => {
+    onCommitRef.current = onCommit;
   });
 
   // Single global catch-all for "the drag ended without landing anywhere I
@@ -1271,34 +1522,106 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
     setLastPrinted(queryRaw);
     const parsed = parseFilter(queryRaw);
     if (parsed.ok) {
-      setTree({ root: parsed.root, readOnly: false });
+      // The text moved under the drawer, so steps recorded against the old
+      // tree no longer apply: start the history again from the new one.
+      setHistory(initHistory(parsed.root));
+      setReadOnly(false);
       setProblems([]);
+      // The outside text replaced the drawer's tree, rows the text can't
+      // carry included: drop the tab's draft too, so a later return to the
+      // same text can't bring those rows back on the next remount.
+      setOutsideEdits((n) => n + 1);
     } else {
       // §6a — invalid JSON in the bar freezes the drawer read-only on the
       // last valid tree rather than blanking it.
-      setTree((prev) => ({ root: prev.root, readOnly: true }));
+      setReadOnly(true);
     }
   }
 
-  const applyEdit = (nextRoot: GroupNode) => {
-    setTree({ root: nextRoot, readOnly: false });
+  React.useEffect(() => {
+    if (outsideEdits > 0) onCommitRef.current({ filterDraft: undefined });
+  }, [outsideEdits]);
+
+  // The one print-and-commit path for a new tree. The draft is written on
+  // every edit (§5.7), recorded against the `queryRaw` that is current once
+  // this edit lands, so a pending or switched-off row survives a tab switch.
+  const commitRoot = (nextRoot: GroupNode) => {
     const printed = printFilter(nextRoot);
     if (printed.ok) {
       setProblems([]);
-      // §5.4 — a pending row (empty field / blank raw json) prints to the
-      // same text as before it was added; skip the no-op commit so
-      // "+ Condition" / "+ Raw" truly leaves `queryRaw` untouched.
+      // §5.4 — a pending row (empty field / blank raw json) or a switched-off
+      // one prints to the same text as before; leave `queryRaw` out of the
+      // patch so "+ Condition" / "+ Raw" truly leaves it untouched.
       if (printed.json !== lastPrinted) {
         setLastPrinted(printed.json);
-        onCommit({ queryRaw: printed.json });
+        onCommit({ queryRaw: printed.json, filterDraft: { root: nextRoot, queryRaw: printed.json } });
+        return;
       }
     } else {
       // §5.5 — print failed: keep the edit in the local tree, surface the
       // message on the offending row, leave `queryRaw` at its last good
-      // value (we simply don't call onCommit).
+      // value.
       setProblems(printed.problems);
     }
+    onCommit({ filterDraft: { root: nextRoot, queryRaw: lastPrinted } });
   };
+
+  const applyEdit = (nextRoot: GroupNode, key?: string) => {
+    setHistory((h) => pushHistory(h, nextRoot, key));
+    setReadOnly(false);
+    commitRoot(nextRoot);
+  };
+
+  // Undo and redo commit through the same path as any edit, so the tree
+  // they land on is printed, checked and written back like one.
+  const undoRef = React.useRef<HTMLButtonElement>(null);
+  const redoRef = React.useRef<HTMLButtonElement>(null);
+  const stepHistory = (
+    step: (h: History<GroupNode>) => History<GroupNode>,
+    canStepAgain: (h: History<GroupNode>) => boolean,
+    other: React.RefObject<HTMLButtonElement | null>,
+  ) => {
+    const next = step(history);
+    if (next === history) return;
+    setHistory(next);
+    commitRoot(next.present);
+    // The pressed button is about to disable itself, which drops keyboard
+    // focus to the page. The other one is always enabled after a step (an
+    // undo leaves something to redo, and back), so focus moves there.
+    if (!canStepAgain(next)) requestAnimationFrame(() => other.current?.focus());
+  };
+
+  // Named for what they undo: a write's own Undo can be on screen at the same
+  // time (the toast after a save or delete), and two buttons both called
+  // "Undo" would leave a screen-reader user guessing which is which.
+  const historyButtons = (
+    <>
+      <Tooltip label="Undo filter edit" withArrow>
+        <ActionIcon
+          ref={undoRef}
+          variant="default"
+          size="sm"
+          disabled={readOnly || !canUndo(history)}
+          onClick={() => stepHistory(undo, canUndo, redoRef)}
+          aria-label="Undo filter edit"
+        >
+          {I.undo}
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Redo filter edit" withArrow>
+        <ActionIcon
+          ref={redoRef}
+          variant="default"
+          size="sm"
+          disabled={readOnly || !canRedo(history)}
+          onClick={() => stepHistory(redo, canRedo, undoRef)}
+          aria-label="Redo filter edit"
+        >
+          {I.redo}
+        </ActionIcon>
+      </Tooltip>
+    </>
+  );
 
   return (
     <div
@@ -1312,7 +1635,7 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
       // GroupView didn't already claim and stop, so it always means the
       // root group.
       onDragOver={(e) => {
-        if (tree.readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
         // Reaching this handler at all means no GroupView's own
@@ -1322,7 +1645,7 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
         if (activeDropPath !== 'root') setActiveDropPath('root');
       }}
       onDrop={(e) => {
-        if (tree.readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
         e.preventDefault();
         setActiveDropPath(null);
         const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
@@ -1338,7 +1661,7 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
       // such a drag at all, but this is defense in depth for any other
       // payload source, since `condFromDragged` crashes downstream on one.
       if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
-        applyEdit(insertAt(tree.root, [], condFromDragged(dragged)));
+        applyEdit(insertAt(root, [], condFromDragged(dragged)));
       }}
       style={{
         border: `1.5px solid ${T.border}`,
@@ -1361,10 +1684,10 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
             borderBottom: `1px solid ${T.redBorder}`,
           }}
         >
-          ⚠ {problems.length} not applied: {problemLabels(tree.root, problems).join(', ')}
+          ⚠ {problems.length} not applied: {problemLabels(root, problems).join(', ')}
         </div>
       )}
-      {tree.readOnly && (
+      {readOnly && (
         <div
           role="alert"
           style={{
@@ -1388,16 +1711,17 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
         </div>
       )}
       <GroupView
-        node={tree.root}
+        node={root}
         path={[]}
-        root={tree.root}
+        root={root}
         applyEdit={applyEdit}
         problems={problems}
-        readOnly={tree.readOnly}
+        readOnly={readOnly}
         activeDropPath={activeDropPath}
         setActiveDropPath={setActiveDropPath}
         isRoot
         suggestionContext={suggestionContext}
+        headerExtra={historyButtons}
       />
     </div>
   );
@@ -1484,8 +1808,8 @@ function BuilderPaneInner({
   // Reset sits in the footer beside Save and can discard a tree that
   // represents arbitrarily much work, so it goes through a confirm rather
   // than wiping the whole tree and `queryRaw` on one click with no recovery.
-  // Undo on the tree (§14.6) would be the better long-run answer and is its
-  // own feature; a confirm is what closes the hole today.
+  // The tree's own Undo can't stand in for it: Reset remounts the drawer, and
+  // the history lives and dies with the mount.
   // `confirmDestructive` is the one confirm the app has, not a fourth
   // hand-rolled dialog.
   const handleReset = () => {
@@ -1502,7 +1826,7 @@ function BuilderPaneInner({
     }).then((proceed) => {
       if (!proceed) return;
       const empty: BuilderState = emptyBuilder();
-      onPatch({ builder: empty, queryRaw: '{}' });
+      onPatch({ builder: empty, queryRaw: '{}', filterDraft: undefined });
       setLoadGen((g) => g + 1);
     });
   };
@@ -1566,7 +1890,8 @@ function BuilderPaneInner({
   const handleSavedRunHere = (saved: SavedQuery) => {
     if (saved.payload.kind === 'find') {
       const patch = hydrateFindPayload(saved.payload as unknown as LegacySavedFindPayload);
-      onPatch(patch);
+      // The draft belongs to the filter being replaced: drop it with it.
+      onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
       setLoadGen((g) => g + 1);
     }
@@ -1575,7 +1900,7 @@ function BuilderPaneInner({
   const handleRecentRunHere = (recent: RecentQuery) => {
     if (recent.payload.kind === 'find') {
       const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload);
-      onPatch(patch);
+      onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
       setLoadGen((g) => g + 1);
     }
@@ -1636,6 +1961,7 @@ function BuilderPaneInner({
               <FilterDrawer
                 key={`${meta.tabId}:${loadGen}`}
                 queryRaw={state.queryRaw}
+                filterDraft={state.filterDraft}
                 onCommit={onPatch}
                 suggestionContext={suggestionContext}
               />

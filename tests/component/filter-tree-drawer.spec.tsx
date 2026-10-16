@@ -7,12 +7,12 @@
 // testing note, a test that only inspects rendered DOM structure can pass
 // against a tree the printer would refuse to run.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { CollectionTabState, WorkspaceTab } from '@shared/types';
+import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
 const now = '2026-08-04T12:00:00.000Z';
@@ -65,6 +65,29 @@ function lastWrittenQueryRaw(updateSpy: ReturnType<typeof vi.fn>): string | unde
     if (patch && 'queryRaw' in patch) return patch.queryRaw;
   }
   return undefined;
+}
+
+/** The most recent patch that carried a `filterDraft` key, and that key's value. */
+function lastWrittenDraft(
+  updateSpy: ReturnType<typeof vi.fn>,
+): { found: boolean; draft: CollectionTabState['filterDraft'] } {
+  for (let i = updateSpy.mock.calls.length - 1; i >= 0; i--) {
+    const arg = updateSpy.mock.calls[i]?.[1] as { state?: Partial<CollectionTabState> } | undefined;
+    const patch = arg?.state;
+    if (patch && 'filterDraft' in patch) return { found: true, draft: patch.filterDraft };
+  }
+  return { found: false, draft: undefined };
+}
+
+function fieldValues(): string[] {
+  return (screen.queryAllByPlaceholderText('field') as HTMLInputElement[]).map((f) => f.value);
+}
+
+const A1 = { kind: 'cond', field: 'a', op: '$eq', valType: 'number', value: '1' } as const;
+const B2 = { kind: 'cond', field: 'b', op: '$eq', valType: 'number', value: '2' } as const;
+
+function andRoot(...children: GroupNode['children']): GroupNode {
+  return { kind: 'group', logic: '$and', children };
 }
 
 function mountWith(state: CollectionTabState) {
@@ -278,5 +301,470 @@ describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §1
       expect(raw).toBeDefined();
       expect(JSON.parse(raw!)).toEqual({ active: { $eq: true } });
     });
+  });
+});
+
+describe('Filter drawer — switching a condition off (disable)', () => {
+  it('unchecking a row drops it from queryRaw but keeps it on screen, and re-checking brings it back', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include condition b' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a', 'b']);
+    const box = screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+
+    const { draft } = lastWrittenDraft(updateSpy);
+    expect(draft?.queryRaw).toBe('{"a":{"$eq":1}}');
+    expect(draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true });
+
+    fireEvent.click(box);
+    await waitFor(() =>
+      expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}'),
+    );
+  });
+
+  it('names each group control by the group\'s position, so no two read the same', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"$and":[{"$or":[{"a":{"$eq":1}},{"b":{"$eq":2}}]},{"$or":[{"c":{"$eq":3}},{"$or":[{"d":{"$eq":4}},{"e":{"$eq":5}}]}]}]}',
+      }),
+    );
+
+    const names = (await screen.findAllByRole('checkbox', { name: /^Include group/ })).map((c) =>
+      c.getAttribute('aria-label'),
+    );
+    expect(names).toEqual(['Include group 1', 'Include group 2', 'Include group 2.2']);
+    expect(screen.getAllByRole('button', { name: /^Negate group/ })).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Negate group 2.2' })).toBeTruthy();
+  });
+
+  it('a row inside a switched-off group says so to assistive tech; one in an included group does not', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: andRoot(A1, { kind: 'group', logic: '$or', disabled: true, children: [B2, { kind: 'group', logic: '$and', children: [{ kind: 'raw', json: '{"z":1}' }] }] }),
+        },
+      }),
+    );
+
+    const EXCLUDED = 'Excluded: its group is switched off';
+    expect(await screen.findByRole('checkbox', { name: 'Include condition b', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include group 2.2', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include raw clause', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Raw clause', description: EXCLUDED })).toBeTruthy();
+    // Not inside a switched-off group: no cue, on the row or on the group's own box.
+    expect(screen.getByRole('checkbox', { name: 'Include condition a' }).getAttribute('aria-describedby')).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'Include group 2' }).getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('unchecking a nested group drops the whole group from queryRaw', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include group 2' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('Filter drawer — the persisted draft', () => {
+  it('seeds from a matching draft, so a switched-off row is still there', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+
+    const box = (await screen.findByRole('checkbox', { name: 'Include condition b' })) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(fieldValues()).toEqual(['a', 'b']);
+  });
+
+  it('ignores a malformed draft and seeds from the text, without throwing', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: { kind: 'group', logic: '$and' } as unknown as GroupNode,
+        },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
+  it('ignores a draft written for other filter text', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"x":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
+  it('ignores a draft whose tree prints to something other than queryRaw', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        // Same text recorded, but the tree itself prints {"$and":[a, b]}:
+        // showing it would put a tree on screen that is not what runs.
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, B2) },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
+  it('a draft holding a row that cannot print comes back with its "not applied" banner', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: andRoot(A1, { kind: 'cond', field: 'n', op: '$eq', valType: 'number', value: 'abc' }),
+        },
+      }),
+    );
+
+    const values = (await screen.findAllByPlaceholderText('value')) as HTMLInputElement[];
+    expect(values.map((v) => v.value)).toEqual(['1', 'abc']);
+    expect(screen.getByRole('status').textContent).toContain('1 not applied: n');
+  });
+
+  it('an edit to the filter text from outside the drawer clears the draft', async () => {
+    const { updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"c":1}' } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['c']));
+    await waitFor(() => expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined }));
+  });
+
+  it('Reset clears the draft along with the filter', async () => {
+    const { updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{}',
+        filterDraft: { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) },
+      }),
+    );
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Reset' })[0]!);
+
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    await waitFor(() => expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined }));
+  });
+});
+
+describe('Filter drawer — negation (NOT)', () => {
+  it('Negate (NOT) wraps a condition in a one-child $nor shown as NOT, and Remove negation unwraps it', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Condition options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$nor":[{"a":{"$eq":1}}]}'));
+    expect(screen.getByText('NOT')).toBeTruthy();
+    // The NOT label replaces the logic picker on that group; only the root's is left.
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove negation 1' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(screen.queryByText('NOT')).toBeNull();
+    expect(fieldValues()).toEqual(['a']);
+  });
+
+  it('a top-level NOT read back from the filter text still shows as NOT', async () => {
+    mountWith(makeState({ queryRaw: '{"$nor":[{"a":{"$eq":1}}]}' }));
+
+    expect(await screen.findByText('NOT')).toBeTruthy();
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^Remove negation/ })).toBeTruthy();
+  });
+
+  it('Negate group wraps a nested group in $nor', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Negate group 2' }));
+
+    await waitFor(() =>
+      expect(lastWrittenQueryRaw(updateSpy)).toBe(
+        '{"$and":[{"a":{"$eq":1}},{"$nor":[{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}]}',
+      ),
+    );
+    // The new NOT wrapper offers no "Negate group" of its own; the $or inside it still does.
+    expect(screen.getAllByRole('button', { name: /^Negate group/ }).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Negate group 2.1',
+    ]);
+    expect(screen.getByRole('button', { name: 'Remove negation 2' })).toBeTruthy();
+  });
+
+  it('a second child turns a negation back into an ordinary NOR group', async () => {
+    mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$nor":[{"b":{"$eq":2}}]}]}' }));
+
+    await screen.findByText('NOT');
+    const addButtons = screen.getAllByRole('button', { name: 'Add condition' });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    await waitFor(() => expect(screen.queryByText('NOT')).toBeNull());
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(2);
+  });
+});
+
+describe('Filter drawer — insert a condition between rows', () => {
+  const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+
+  it('Insert condition above puts a blank row before this one, focused, and leaves queryRaw alone', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    const writesBefore = updateSpy.mock.calls.length;
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[1]!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByPlaceholderText('field')[1]),
+    );
+    // The blank row is pending, so nothing new reaches queryRaw.
+    await new Promise((r) => setTimeout(r, 300));
+    const newPatches = (updateSpy.mock.calls as unknown[][])
+      .slice(writesBefore)
+      .map((c) => (c[1] as { state?: Partial<CollectionTabState> } | undefined)?.state ?? {});
+    expect(newPatches.length).toBeGreaterThan(0);
+    expect(newPatches.some((p) => 'queryRaw' in p)).toBe(false);
+  });
+
+  it('Insert condition below puts a blank row after this one, focused', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[0]!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition below' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByPlaceholderText('field')[1]),
+    );
+  });
+
+  it('a raw clause row offers the same inserts', async () => {
+    mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"items":{"$elemMatch":{"sku":1}}}]}' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '']));
+  });
+});
+
+describe('Filter drawer — undo / redo', () => {
+  const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+
+  function undoButton(): HTMLButtonElement {
+    return screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+  }
+  function redoButton(): HTMLButtonElement {
+    return screen.getByRole('button', { name: 'Redo filter edit' }) as HTMLButtonElement;
+  }
+
+  it('undo puts a removed condition back in queryRaw, and redo removes it again', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    expect(undoButton().disabled).toBe(true);
+    expect(redoButton().disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(AB));
+    expect(fieldValues()).toEqual(['a', 'b']);
+    expect(undoButton().disabled).toBe(true);
+
+    fireEvent.click(redoButton());
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a']);
+    expect(redoButton().disabled).toBe(true);
+  });
+
+  it('when Undo or Redo runs out of steps, focus moves to the other one instead of falling to the page', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(undoButton().disabled).toBe(false));
+
+    undoButton().focus();
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(undoButton().disabled).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(redoButton()));
+
+    fireEvent.click(redoButton());
+    await waitFor(() => expect(redoButton().disabled).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(undoButton()));
+  });
+
+  it('typing into one field is a single undo step', async () => {
+    mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const field = await screen.findByPlaceholderText('field');
+    for (const v of ['s', 'st', 'sta']) fireEvent.change(field, { target: { value: v } });
+    await waitFor(() => expect(fieldValues()).toEqual(['sta']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+  });
+
+  it('typing into a box then deleting back leaves no do-nothing undo step', async () => {
+    mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const field = await screen.findByPlaceholderText('field');
+    fireEvent.change(field, { target: { value: 's' } });
+    fireEvent.change(field, { target: { value: '' } });
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+  });
+
+  it('an edit to the filter text from outside the drawer clears the history', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(undoButton().disabled).toBe(false));
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"c":1}' } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['c']));
+    expect(undoButton().disabled).toBe(true);
+  });
+});
+
+describe('Filter drawer — a Saved or Recent load drops the draft', () => {
+  const FIND_PAYLOAD = {
+    kind: 'find' as const,
+    builder: { projection: [], sort: '', limit: '' },
+    queryRaw: '{"z":{"$eq":"loaded"}}',
+  };
+  const DRAFT = { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) };
+
+  function mountLoading(tab: 'Saved' | 'Recent') {
+    const state = makeState({ activeBuilderTab: tab, filterDraft: DRAFT });
+    const updateSpy = vi.fn(async () => makeCollectionTab(state));
+    const saved = {
+      id: 'q1', connectionId: 'c1', dbName: 'mydb', collection: 'users', kind: 'find',
+      name: 'Loaded', createdAt: now, updatedAt: now, payload: FIND_PAYLOAD,
+    } as unknown as SavedQuery;
+    const recent = {
+      id: 'r1', connectionId: 'c1', dbName: 'mydb', collection: 'users', kind: 'find',
+      payload: FIND_PAYLOAD, ranAt: now, durationMs: 1, resultCount: 0,
+    } as unknown as RecentQuery;
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab(state)],
+        setActive: async (id) => ({ id }),
+        update: updateSpy as unknown as IpcApi['tabs']['update'],
+      },
+      conn: { list: async () => [CONNECTION] },
+      saved: { list: async () => [saved], get: async () => saved } as unknown as IpcApi['saved'],
+      recent: { list: async () => [recent] } as unknown as IpcApi['recent'],
+      query: { find: vi.fn(async () => ({ documents: [], durationMs: 1, hasMore: false })), count: async () => ({ count: 0 }) },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    return updateSpy;
+  }
+
+  it.each(['Saved', 'Recent'] as const)('Run here from %s writes filterDraft: undefined with the loaded queryRaw', async (tab) => {
+    const updateSpy = mountLoading(tab);
+
+    fireEvent.click(await screen.findByTitle('Run here'));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"z":{"$eq":"loaded"}}'));
+    expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined });
+  });
+});
+
+describe('Filter drawer — a drop onto a switched-off row keeps it off', () => {
+  function dropOnRow(container: HTMLElement, rowKey: string, field: string, value: unknown) {
+    const row = container.querySelector(`[data-row-path="${rowKey}"]`)!;
+    expect(row).toBeTruthy();
+    const dataTransfer = {
+      types: [DRAGGED_FIELD_MIME],
+      getData: (type: string) => (type === DRAGGED_FIELD_MIME ? JSON.stringify({ field, value }) : ''),
+    };
+    fireEvent.dragOver(row, { dataTransfer });
+    fireEvent.drop(row, { dataTransfer });
+  }
+
+  it.each([
+    ['a condition', { ...B2, disabled: true }, 'Include condition b'],
+    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause'],
+  ])('dropping onto %s that is switched off leaves it off and queryRaw unchanged', async (_what, row, label) => {
+    const { container, updateSpy } = mountWith(
+      makeState({ queryRaw: '{"a":{"$eq":1}}', filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, row) } }),
+    );
+    expect(((await screen.findByRole('checkbox', { name: label })) as HTMLInputElement).checked).toBe(false);
+
+    dropOnRow(container, '1', 'b', 5);
+
+    await waitFor(() => expect(lastWrittenDraft(updateSpy).found).toBe(true));
+    const { draft } = lastWrittenDraft(updateSpy);
+    expect(draft?.root.children[1]).toMatchObject({ kind: 'cond', field: 'b', disabled: true });
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+    expect((screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('a switched-off hand-typed raw clause stays off after the replace is confirmed', async () => {
+    const { container, updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { kind: 'raw', json: '{"z":1}', disabled: true }) },
+      }),
+    );
+    await screen.findByRole('checkbox', { name: 'Include raw clause' });
+
+    dropOnRow(container, '1', 'b', 5);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
+
+    await waitFor(() =>
+      expect(lastWrittenDraft(updateSpy).draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true }),
+    );
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
   });
 });

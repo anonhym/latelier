@@ -8,6 +8,8 @@ import {
   insertAt,
   removeAt,
   moveAt,
+  wrapInGroup,
+  unwrapGroup,
   toRawNode,
   tryParseRaw,
   buildScalarWire,
@@ -271,6 +273,67 @@ describe('buildScalarWire: total over any (valType, value)', () => {
         expect(() => buildScalarWire(valType, value)).not.toThrow();
       }),
       { numRuns: 40 },
+    );
+  });
+});
+
+// ─── Disabled nodes (W13 §3) ─────────────────────────────────────────────────
+
+/** Switches off each non-root node whose turn in `flags` is true, in pre-order. */
+function sprinkleDisabled(root: GroupNode, flags: boolean[]): GroupNode {
+  let i = 0;
+  const visit = (n: FilterNode): FilterNode => {
+    const off = flags[i++ % flags.length];
+    const next: FilterNode = n.kind === 'group' ? { ...n, children: n.children.map(visit) } : { ...n };
+    return off ? { ...next, disabled: true } : next;
+  };
+  return { ...root, children: root.children.map(visit) };
+}
+
+/** What a disabled node means, spelled out: the tree without it. */
+function stripDisabled(root: GroupNode): GroupNode {
+  const strip = (children: FilterNode[]): FilterNode[] =>
+    children
+      .filter((c) => !c.disabled)
+      .map((c) => (c.kind === 'group' ? { ...c, children: strip(c.children) } : c));
+  return { ...root, children: strip(root.children) };
+}
+
+describe('printFilter: a disabled node prints as if it were not there', () => {
+  it('printing with disabled nodes equals printing the tree with them removed', () => {
+    fc.assert(
+      fc.property(safeGroup, fc.array(fc.boolean(), { minLength: 1, maxLength: 12 }), (t, flags) => {
+        const withDisabled = sprinkleDisabled(t, flags);
+        expect(printFilter(withDisabled)).toEqual(printFilter(stripDisabled(withDisabled)));
+      }),
+      { numRuns: 200 },
+    );
+  });
+});
+
+// ─── Negation (W13 §4) ───────────────────────────────────────────────────────
+
+/** Every non-root path in the tree, pre-order. */
+function allPaths(root: GroupNode): number[][] {
+  const out: number[][] = [];
+  const walk = (n: FilterNode, path: number[]): void => {
+    if (path.length > 0) out.push(path);
+    if (n.kind === 'group') n.children.forEach((c, i) => walk(c, [...path, i]));
+  };
+  walk(root, []);
+  return out;
+}
+
+describe('unwrapGroup undoes a negation wrap', () => {
+  it('unwrapGroup(wrapInGroup(t, p, "$nor"), p) is t, for any node of any tree', () => {
+    const treeAndPath = safeGroup
+      .filter((t) => t.children.length > 0)
+      .chain((t) => fc.constantFrom(...allPaths(t)).map((p) => ({ t, p })));
+    fc.assert(
+      fc.property(treeAndPath, ({ t, p }) => {
+        expect(unwrapGroup(wrapInGroup(t, p, '$nor'), p)).toEqual(t);
+      }),
+      { numRuns: 200 },
     );
   });
 });
