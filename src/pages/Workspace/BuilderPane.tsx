@@ -81,6 +81,11 @@ const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
+/** A fresh condition row: blank field, so pending until the user fills it (W13 §5.4). */
+function emptyCond(): CondNode {
+  return { kind: 'cond', field: '', op: '$eq', valType: 'string', value: '' };
+}
+
 function pathsEqual(a: NodePath, b: NodePath): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
@@ -219,8 +224,9 @@ function LogicPicker({
 }
 
 /**
- * The row-level "⋮" menu: Move up / Move down / Convert to raw clause (cond
- * rows only) / Wrap in group / Negate (NOT) / Duplicate.
+ * The row-level "⋮" menu: Insert condition above / below / Move up / Move
+ * down / Convert to raw clause (cond rows only) / Wrap in group / Negate (NOT)
+ * / Duplicate.
  *
  * Remove has its own one-click ✕ beside this menu rather than living here
  * too — one affordance per action, not two. Move up/down live here instead
@@ -233,6 +239,7 @@ function RowMenu({
   onConvertToRaw,
   onWrap,
   onNegate,
+  onInsert,
   onDuplicate,
   onMove,
   canMoveUp,
@@ -244,6 +251,8 @@ function RowMenu({
   onConvertToRaw?: () => void;
   onWrap: () => void;
   onNegate: () => void;
+  /** Adds a blank condition beside this row: `0` above it, `1` below. */
+  onInsert: (offset: 0 | 1) => void;
   onDuplicate: () => void;
   onMove: (delta: number) => void;
   canMoveUp: boolean;
@@ -268,6 +277,8 @@ function RowMenu({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
+        <Menu.Item onClick={() => onInsert(0)}>Insert condition above</Menu.Item>
+        <Menu.Item onClick={() => onInsert(1)}>Insert condition below</Menu.Item>
         <Menu.Item disabled={!canMoveUp} onClick={() => onMove(-1)}>
           Move up
         </Menu.Item>
@@ -307,6 +318,30 @@ function moveRowKeepingFocus(
   requestAnimationFrame(() => {
     document
       .querySelector<HTMLElement>(`[data-row-menu="${nextKey}"]`)
+      ?.focus();
+  });
+}
+
+/**
+ * Insert a blank condition beside a row and put the caret in its field box,
+ * so composing in the middle of a filter doesn't mean appending at the end and
+ * moving the row up step by step. The row is pending, so `queryRaw` is
+ * untouched until its field is filled in. Focus is found by the new row's
+ * path after the render, the same way `moveRowKeepingFocus` does it.
+ */
+function insertRowKeepingFocus(
+  root: GroupNode,
+  path: NodePath,
+  offset: 0 | 1,
+  applyEdit: (next: GroupNode) => void,
+): void {
+  const parent = path.slice(0, -1);
+  const index = path[path.length - 1]! + offset;
+  applyEdit(insertAt(root, parent, emptyCond(), index));
+  const nextKey = pathKey([...parent, index]);
+  requestAnimationFrame(() => {
+    document
+      .querySelector<HTMLElement>(`[data-row-path="${nextKey}"] input[placeholder="field"]`)
       ?.focus();
   });
 }
@@ -563,6 +598,7 @@ function CondRow({
   const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
+  const insert = (offset: 0 | 1) => insertRowKeepingFocus(root, path, offset, applyEdit);
   // Converts on the *typed* op, not only the committed one: `toRawNode` falls
   // back to a blank pending raw node whenever the op is uncompilable (below),
   // regardless of which uncompilable text it was given, so a still-drafted
@@ -725,6 +761,7 @@ function CondRow({
             onConvertToRaw={convertToRaw}
             onWrap={wrap}
             onNegate={negate}
+            onInsert={insert}
             onDuplicate={duplicate}
             onMove={move}
             canMoveUp={canMoveUp}
@@ -875,6 +912,7 @@ function RawRow({
   const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
+  const insert = (offset: 0 | 1) => insertRowKeepingFocus(root, path, offset, applyEdit);
   const tryParse = () => applyEdit(updateAt(root, path, tryParseRaw(node)));
   const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
   const dim = dimFor(node);
@@ -924,6 +962,7 @@ function RawRow({
             disabled={readOnly}
             onWrap={wrap}
             onNegate={negate}
+            onInsert={insert}
             onDuplicate={duplicate}
             onMove={move}
             canMoveUp={canMoveUp}
@@ -1024,10 +1063,7 @@ function GroupView({
     applyEdit(insertAt(root, path, condFromDragged(dragged)));
   };
 
-  const addCondition = () => {
-    const cond: CondNode = { kind: 'cond', field: '', op: '$eq', valType: 'string', value: '' };
-    applyEdit(insertAt(root, path, cond));
-  };
+  const addCondition = () => applyEdit(insertAt(root, path, emptyCond()));
   const addGroup = () => {
     const group: GroupNode = { kind: 'group', logic: '$and', children: [] };
     applyEdit(insertAt(root, path, group));

@@ -458,3 +458,50 @@ describe('Filter drawer — negation (NOT)', () => {
     expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(2);
   });
 });
+
+describe('Filter drawer — insert a condition between rows', () => {
+  const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+
+  it('Insert condition above puts a blank row before this one, focused, and leaves queryRaw alone', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    const writesBefore = updateSpy.mock.calls.length;
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[1]!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByPlaceholderText('field')[1]),
+    );
+    // The blank row is pending, so nothing new reaches queryRaw.
+    await new Promise((r) => setTimeout(r, 300));
+    const newPatches = (updateSpy.mock.calls as unknown[][])
+      .slice(writesBefore)
+      .map((c) => (c[1] as { state?: Partial<CollectionTabState> } | undefined)?.state ?? {});
+    expect(newPatches.length).toBeGreaterThan(0);
+    expect(newPatches.some((p) => 'queryRaw' in p)).toBe(false);
+  });
+
+  it('Insert condition below puts a blank row after this one, focused', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[0]!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition below' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByPlaceholderText('field')[1]),
+    );
+  });
+
+  it('a raw clause row offers the same inserts', async () => {
+    mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"items":{"$elemMatch":{"sku":1}}}]}' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a', '']));
+  });
+});
