@@ -379,8 +379,8 @@ export interface NodeProblem {
 
 export type PrintOutcome = { ok: true; json: string } | { ok: false; problems: NodeProblem[] };
 
-const SIMPLE_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
-const ARRAY_VALUE_OPS = new Set(['$in', '$nin', '$all']);
+export const SIMPLE_OPS: ReadonlySet<string> = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
+export const ARRAY_VALUE_OPS: ReadonlySet<string> = new Set(['$in', '$nin', '$all']);
 const BITS_OPS = new Set(['$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet']);
 
 const NUMBER_PRECISION_MESSAGE =
@@ -539,6 +539,15 @@ function condValueProblem(node: CondNode): string | null {
   ) {
     return 'Decimal value must be a number';
   }
+  if ((node.op === '$in' || node.op === '$nin') && parseJsonArrayLenient(node.value).length === 0) {
+    // An empty `$in` matches nothing and an empty `$nin` everything; neither
+    // is what a person building a list means, so the row waits for a value.
+    return `${node.op} needs at least one value`;
+  }
+  for (const wire of sentWireValues(node)) {
+    const problem = sentinelProblem(wire);
+    if (problem) return problem;
+  }
   if (node.op === '$mod') {
     const arr = parseJsonArrayLenient(node.value);
     if (arr.length !== 2) return '$mod value must be a 2-element array, e.g. [2, 1]';
@@ -556,6 +565,34 @@ function condValueProblem(node: CondNode): string | null {
     if (typeof remainder !== 'number' || !Number.isFinite(remainder)) {
       return '$mod remainder must be a finite number';
     }
+  }
+  return null;
+}
+
+/** The values a scalar or list cond puts on the wire; other ops send none worth checking here. */
+function sentWireValues(node: CondNode): unknown[] {
+  if (SIMPLE_OPS.has(node.op)) return [buildScalarWire(node.valType, node.value)];
+  if (ARRAY_VALUE_OPS.has(node.op)) {
+    return parseJsonArrayLenient(node.value).map((el) => coerceArrayElementWire(el, node.valType));
+  }
+  // Stryker disable next-line ArrayDeclaration: any string placed here fails
+  // `sentinelProblem`'s plain-object check, the same as no value at all.
+  return [];
+}
+
+/**
+ * An `{$oid}` or `{$date}` the main process could not turn into a value: bson
+ * throws on a malformed ObjectId and turns unreadable date text into an
+ * Invalid Date. Blocking it here keeps it out of `queryRaw`, so neither Run
+ * nor the live count ever sends it.
+ */
+function sentinelProblem(wire: unknown): string | null {
+  if (!isPlainObject(wire) || Object.keys(wire).length !== 1) return null;
+  if (typeof wire.$oid === 'string' && !/^[0-9a-f]{24}$/i.test(wire.$oid)) {
+    return 'ObjectId must be 24 hex characters';
+  }
+  if (typeof wire.$date === 'string' && Number.isNaN(Date.parse(wire.$date))) {
+    return 'Date must be a date, e.g. 2026-01-31T00:00:00Z';
   }
   return null;
 }

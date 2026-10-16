@@ -9,6 +9,7 @@ import {
   localInputToIso,
   type Chip,
 } from '../../src/pages/Workspace/condValue';
+import type { ValType } from '@shared/types';
 
 // Two numbers are left out. `-0`: `String(-0)` and `JSON.stringify(-0)` both
 // write "0", so no text form can carry it, and `toEqual` tells it from `0`.
@@ -35,18 +36,43 @@ describe('condValue properties', () => {
   it('a chip survives being shown as text and typed back in', () => {
     fc.assert(
       fc.property(chipArb, (chip) => {
-        expect(parseChipText(chipText(chip))).toEqual(chip);
+        expect(parseChipText(chipText(chip, 'array'), 'array')).toEqual(chip);
       }),
     );
   });
 
+  it('whatever is typed, its chip shows as text that reads back as the same chip, in every row type', () => {
+    const valTypes: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'objectid', 'array'];
+    fc.assert(
+      fc.property(fc.string(), fc.constantFrom(...valTypes), (typed, vt) => {
+        const chip = parseChipText(typed, vt);
+        expect(parseChipText(chipText(chip, vt), vt)).toEqual(chip);
+      }),
+    );
+  });
+
+  // Holds in any zone, so it needs no pinned TZ (Stryker's runner ignores an
+  // assigned one). The local text always survives. The instant survives too,
+  // except inside a daylight-saving fall-back hour, where the same local text
+  // also named an earlier instant and reading it back picks that one
+  // (pinned in condValue.spec.ts).
   it('a date to the minute survives the datetime-local input', () => {
     fc.assert(
       fc.property(
-        fc.date({ min: new Date('1970-01-01T00:00:00Z'), max: new Date('2100-12-31T23:59:00Z'), noInvalidDate: true }),
+        fc.oneof(
+          fc.date({ min: new Date('1970-01-01T00:00:00Z'), max: new Date('2100-12-31T23:59:00Z'), noInvalidDate: true }),
+          // The second 01:30 of New York's 2026 fall-back, so a run in such a
+          // zone exercises the repeated-time branch.
+          fc.constant(new Date('2026-11-01T06:30:00.000Z')),
+        ),
         (d) => {
           const minute = new Date(Math.floor(d.getTime() / 60_000) * 60_000);
-          expect(localInputToIso(isoToLocalInput(minute.toISOString()))).toBe(minute.toISOString());
+          const text = isoToLocalInput(minute.toISOString());
+          const back = localInputToIso(text);
+          expect(isoToLocalInput(back)).toBe(text);
+          // Only a repeated local time may read back differently, and then
+          // as its earlier occurrence (an hour, or half one in a few zones).
+          if (back !== minute.toISOString()) expect(Date.parse(back)).toBeLessThan(minute.getTime());
         },
       ),
     );

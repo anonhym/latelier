@@ -17,6 +17,8 @@ import {
   coerceArrayElementWire,
   buildScalarWire,
   parseJsonArrayLenient,
+  SIMPLE_OPS,
+  ARRAY_VALUE_OPS,
   type GroupNode,
   type CondNode,
   type RawNode,
@@ -1772,5 +1774,69 @@ describe('isGroupNode — a persisted tree is checked before it is trusted (§5.
     ['a raw node with a non-boolean disabled', group('$and', [{ ...raw('{}'), disabled: null } as unknown as FilterNode])],
   ])('rejects %s', (_what, value) => {
     expect(isGroupNode(value)).toBe(false);
+  });
+});
+
+// ─── Value shapes the server would refuse, or that can never match ──────────
+
+describe('printFilter blocks a value the server cannot use', () => {
+  const OID = '507f1f77bcf86cd799439011';
+
+  function problemOf(c: CondNode): string | undefined {
+    const p = printFilter(group('$and', [c]));
+    return p.ok ? undefined : p.problems[0]?.message;
+  }
+
+  it('exports the scalar and list operator sets', () => {
+    expect([...SIMPLE_OPS]).toEqual(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
+    expect([...ARRAY_VALUE_OPS]).toEqual(['$in', '$nin', '$all']);
+  });
+
+  it('an empty $in / $nin list never means what was meant, so it does not print', () => {
+    for (const op of ['$in', '$nin']) {
+      expect(problemOf(cond({ op, valType: 'string', value: '[]' }))).toBe(`${op} needs at least one value`);
+      expect(problemOf(cond({ op, valType: 'array', value: ' [ ] ' }))).toBe(`${op} needs at least one value`);
+      expect(problemOf(cond({ op, valType: 'string', value: '' }))).toBe(`${op} needs at least one value`);
+      expect(problemOf(cond({ op, valType: 'string', value: 'not a list' }))).toBe(`${op} needs at least one value`);
+      expect(problemOf(cond({ op, valType: 'string', value: '["a"]' }))).toBeUndefined();
+    }
+    // `$all: []` is left alone: it is not one of the two this rule names.
+    expect(problemOf(cond({ op: '$all', valType: 'array', value: '[]' }))).toBeUndefined();
+  });
+
+  it('an ObjectId that is not 24 hex characters does not print', () => {
+    const msg = 'ObjectId must be 24 hex characters';
+    expect(problemOf(cond({ valType: 'objectid', value: 'abc' }))).toBe(msg);
+    expect(problemOf(cond({ valType: 'objectid', value: '' }))).toBe(msg);
+    expect(problemOf(cond({ op: '$ne', valType: 'objectid', value: `${OID}0` }))).toBe(msg);
+    expect(problemOf(cond({ valType: 'objectid', value: OID }))).toBeUndefined();
+    expect(problemOf(cond({ valType: 'objectid', value: OID.toUpperCase() }))).toBeUndefined();
+    // Each element of a list, whether the row's type wraps it or it came wrapped.
+    expect(problemOf(cond({ op: '$in', valType: 'objectid', value: `["${OID}","abc"]` }))).toBe(msg);
+    expect(problemOf(cond({ op: '$nin', valType: 'array', value: `[{"$oid":"abc"}]` }))).toBe(msg);
+    expect(problemOf(cond({ op: '$in', valType: 'objectid', value: `["${OID}"]` }))).toBeUndefined();
+    expect(problemOf(cond({ op: '$in', valType: 'array', value: `[1,{"$oid":"${OID}"}]` }))).toBeUndefined();
+  });
+
+  it('a date the server cannot read does not print', () => {
+    const msg = 'Date must be a date, e.g. 2026-01-31T00:00:00Z';
+    expect(problemOf(cond({ op: '$gte', valType: 'date', value: 'garbage' }))).toBe(msg);
+    expect(problemOf(cond({ op: '$gte', valType: 'date', value: '' }))).toBe(msg);
+    expect(problemOf(cond({ op: '$in', valType: 'date', value: '["2026-01-01","nope"]' }))).toBe(msg);
+    expect(problemOf(cond({ op: '$gte', valType: 'date', value: '2026-01-01T00:00:00.000Z' }))).toBeUndefined();
+    expect(problemOf(cond({ op: '$in', valType: 'array', value: '[{"$date":"2026-01-01"}]' }))).toBeUndefined();
+    // A `$date` that is not text (EJSON's canonical `{$numberLong}` form) is left to the server.
+    expect(problemOf(cond({ op: '$in', valType: 'array', value: '[{"$date":{"$numberLong":"0"}}]' }))).toBeUndefined();
+  });
+
+  it('leaves values of other types alone', () => {
+    expect(problemOf(cond({ valType: 'string', value: 'abc' }))).toBeUndefined();
+    expect(problemOf(cond({ op: '$in', valType: 'string', value: '["abc"]' }))).toBeUndefined();
+    expect(problemOf(cond({ op: '$exists', valType: 'objectid', value: 'true' }))).toBeUndefined();
+    expect(problemOf(cond({ op: '$type', valType: 'date', value: 'date' }))).toBeUndefined();
+    // `$type` takes a list of type names, which an ObjectId row must not wrap.
+    expect(problemOf(cond({ op: '$type', valType: 'objectid', value: '["string","null"]' }))).toBeUndefined();
+    // `$oid` beside another key is a sub-document, not an ObjectId.
+    expect(problemOf(cond({ op: '$in', valType: 'array', value: '[{"$oid":"abc","extra":1}]' }))).toBeUndefined();
   });
 });

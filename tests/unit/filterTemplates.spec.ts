@@ -41,7 +41,12 @@ describe('filter templates', () => {
     expect(withField('last7d')).toBe('{"f":{"$gte":{"$date":"2026-10-08T12:00:00.000Z"}}}');
     expect(withField('notNull')).toBe('{"f":{"$ne":null}}');
     expect(withField('containsCi')).toBe('{"f":{"$regex":"(?i)"}}');
-    expect(withField('inList')).toBe('{"f":{"$in":[]}}');
+    expect(printed({ ...template('inList').build(NOW), field: 'f', value: '["a"]' })).toBe('{"f":{"$in":["a"]}}');
+  });
+
+  it('One of a list waits for its first value, since an empty $in matches nothing', () => {
+    const root: GroupNode = { kind: 'group', logic: '$and', children: [{ ...template('inList').build(NOW), field: 'f' }] };
+    expect(printFilter(root)).toEqual({ ok: false, problems: [{ path: [0], message: '$in needs at least one value' }] });
   });
 
   it('builds conditions whose type and value pick the right value editor', () => {

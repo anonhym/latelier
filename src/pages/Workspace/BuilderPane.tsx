@@ -601,6 +601,11 @@ function CondRow({
   // is not waiting for a commit that would otherwise never come for text
   // like `$elemMatch`.
   const showConvertToRaw = opValue.startsWith('$') && !isCompilableOp(opValue);
+  // With a usable operator, a print problem can only be about the value, so
+  // it shows under the value input as that input's description; an operator
+  // problem stays on the row.
+  const valueProblem = isCompilableOp(node.op) ? problem : undefined;
+  const opProblem = valueProblem === undefined ? problem : undefined;
   const showOpDocs = node.op.startsWith('$') && !problem && hasOperatorDocs(node.op, 'query');
 
   // The row's one Remove control names what it removes. A row whose field is
@@ -681,9 +686,9 @@ function CondRow({
               commitOpDraft();
               window.setTimeout(() => setOpPopoverOpen(false), 100);
             }}
-            aria-invalid={!!problem}
-            title={problem ?? undefined}
-            error={!!problem}
+            aria-invalid={!!opProblem}
+            title={opProblem}
+            error={!!opProblem}
             size="xs"
             style={{ width: 100, flexShrink: 0 }}
             styles={{ input: { fontFamily: 'monospace' } }}
@@ -770,7 +775,7 @@ function CondRow({
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: dim }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', opacity: dim }}>
         <Select
           value={node.valType}
           disabled={readOnly}
@@ -802,6 +807,7 @@ function CondRow({
         <CondValueEditor
           node={node}
           readOnly={readOnly}
+          problem={valueProblem}
           onPatch={patchBox}
           suggestionContext={suggestionContext}
         />
@@ -820,15 +826,15 @@ function CondRow({
         </Button>
       )}
 
-      {problem && (
+      {opProblem && (
         <span role="alert" style={{ fontSize: 10, color: T.warn, lineHeight: 1.3 }}>
-          {problem}
+          {opProblem}
         </span>
       )}
 
       {typeWarning && (
         <span style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
-          Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents
+          Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents that have it
         </span>
       )}
     </div>

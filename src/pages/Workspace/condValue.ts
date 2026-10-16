@@ -3,14 +3,7 @@
 // that text and what each editor shows, without React.
 import type { CondNode, SchemaSampleEntry, ValType } from '@shared/types';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
-import { coerceArrayElementWire, parseJsonArrayLenient } from './filterTree';
-
-export const SIMPLE_OPS: ReadonlySet<string> = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
-export const ARRAY_VALUE_OPS: ReadonlySet<string> = new Set(['$in', '$nin', '$all']);
-
-export function isObjectIdHex(s: string): boolean {
-  return /^[0-9a-f]{24}$/i.test(s.trim());
-}
+import { SIMPLE_OPS, coerceArrayElementWire, parseJsonArrayLenient } from './filterTree';
 
 export type DatePresetId = 'now' | 'startOfToday' | '7d' | '30d' | 'startOfMonth';
 
@@ -96,11 +89,21 @@ export function chipsFromValue(value: string): Chip[] | null {
 const NUMBER_TEXT = /^-?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
 /**
- * What a typed chip means: a number, `true` / `false` / `null`, or a string.
- * Quoting (`"42"`) is how a person asks for the string.
+ * Row types whose list elements are text the row's type wraps on the wire
+ * (`{$oid}`, `{$numberLong}`, …). Reading `007`, a 19-digit long or an
+ * all-digit ObjectId as a JS number first would lose digits before the
+ * wrapping ever saw them.
  */
-export function parseChipText(t: string): Chip {
+const TEXT_CHIP_TYPES: ReadonlySet<ValType> = new Set<ValType>(['string', 'objectid', 'long', 'decimal', 'date']);
+
+/**
+ * What a typed chip means for a row of `valType`. In a text-typed row it is
+ * the text itself. Elsewhere it is a number, `true` / `false` / `null`, or a
+ * string. Quoting (`"42"`) asks for the string either way.
+ */
+export function parseChipText(t: string, valType: ValType): Chip {
   const s = t.trim();
+  if (TEXT_CHIP_TYPES.has(valType)) return jsonString(s) ?? s;
   if (NUMBER_TEXT.test(s)) {
     const n = Number(s);
     if (Number.isFinite(n)) return n;
@@ -125,10 +128,10 @@ function jsonString(s: string): string | null {
   return typeof v === 'string' ? v : null;
 }
 
-/** A chip's label: quoted only when the bare text would read back as something else. */
-export function chipText(el: Chip): string {
+/** A chip's label in a row of `valType`: quoted only when the bare text would read back as something else. */
+export function chipText(el: Chip, valType: ValType): string {
   if (typeof el !== 'string') return String(el);
-  return parseChipText(el) === el ? el : JSON.stringify(el);
+  return parseChipText(el, valType) === el ? el : JSON.stringify(el);
 }
 
 export function valueFromChips(els: Chip[]): string {
