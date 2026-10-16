@@ -327,12 +327,48 @@ describe('Filter drawer — switching a condition off (disable)', () => {
     );
   });
 
+  it('names each group control by the group\'s position, so no two read the same', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"$and":[{"$or":[{"a":{"$eq":1}},{"b":{"$eq":2}}]},{"$or":[{"c":{"$eq":3}},{"$or":[{"d":{"$eq":4}},{"e":{"$eq":5}}]}]}]}',
+      }),
+    );
+
+    const names = (await screen.findAllByRole('checkbox', { name: /^Include group/ })).map((c) =>
+      c.getAttribute('aria-label'),
+    );
+    expect(names).toEqual(['Include group 1', 'Include group 2', 'Include group 2.2']);
+    expect(screen.getAllByRole('button', { name: /^Negate group/ })).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Negate group 2.2' })).toBeTruthy();
+  });
+
+  it('a row inside a switched-off group says so to assistive tech; one in an included group does not', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: andRoot(A1, { kind: 'group', logic: '$or', disabled: true, children: [B2, { kind: 'group', logic: '$and', children: [{ kind: 'raw', json: '{"z":1}' }] }] }),
+        },
+      }),
+    );
+
+    const EXCLUDED = 'Excluded: its group is switched off';
+    expect(await screen.findByRole('checkbox', { name: 'Include condition b', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include group 2.2', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include raw clause', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Raw clause', description: EXCLUDED })).toBeTruthy();
+    // Not inside a switched-off group: no cue, on the row or on the group's own box.
+    expect(screen.getByRole('checkbox', { name: 'Include condition a' }).getAttribute('aria-describedby')).toBeNull();
+    expect(screen.getByRole('checkbox', { name: 'Include group 2' }).getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('unchecking a nested group drops the whole group from queryRaw', async () => {
     const { updateSpy } = mountWith(
       makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
     );
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include group' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include group 2' }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
     expect(fieldValues()).toEqual(['a', 'b', 'c']);
@@ -453,7 +489,7 @@ describe('Filter drawer — negation (NOT)', () => {
     // The NOT label replaces the logic picker on that group; only the root's is left.
     expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove negation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove negation 1' }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
     expect(screen.queryByText('NOT')).toBeNull();
@@ -473,7 +509,7 @@ describe('Filter drawer — negation (NOT)', () => {
       makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Negate group' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Negate group 2' }));
 
     await waitFor(() =>
       expect(lastWrittenQueryRaw(updateSpy)).toBe(
@@ -481,8 +517,10 @@ describe('Filter drawer — negation (NOT)', () => {
       ),
     );
     // The new NOT wrapper offers no "Negate group" of its own; the $or inside it still does.
-    expect(screen.getAllByRole('button', { name: 'Negate group' })).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Remove negation' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Negate group/ }).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Negate group 2.1',
+    ]);
+    expect(screen.getByRole('button', { name: 'Remove negation 2' })).toBeTruthy();
   });
 
   it('a second child turns a negation back into an ordinary NOR group', async () => {

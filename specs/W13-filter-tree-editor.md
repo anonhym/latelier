@@ -438,15 +438,21 @@ unchanged.
 
 - **Group header**: logic segmented control + the three add buttons. Nested
   groups render their own header, indented, with a left rule, plus an
-  *Include group* checkbox before the logic control and a *Negate group*
-  button. A nested one-child `$nor` shows as **NOT** in place of the logic
-  control, with a *Remove negation* button; a second child turns it back into
+  *Include group N* checkbox before the logic control and a *Negate group N*
+  button, where *N* is the group's position counted from 1 (`2.1` is the first
+  child of the second), so no two groups' controls share a name. A nested
+  one-child `$nor` shows as **NOT** in place of the logic control, with a
+  *Remove negation N* button; a second child turns it back into
   an ordinary NOR group. The root group's header carries *Undo filter edit*
   and *Redo filter edit* (§5.7), named for what they undo because a write's
   own Undo toast can be on screen at the same time.
 - **Include checkbox**: every cond and raw row starts with one
   (*Include condition &lt;field&gt;*, *Include raw clause*). Unchecking sets
   `disabled` (§1): the row stays, dimmed but editable, and leaves `queryRaw`.
+  The dimming is visual only, so everything inside a switched-off group —
+  each row's checkbox and raw textarea, each nested group's checkbox — is
+  also described by a visually hidden note, "Excluded: its group is switched
+  off".
 - **Cond row**: unchanged from W04 §5 (field / op / valType / value, both
   autocompletes per X02 and X03). The `⋮` menu adds: *Insert condition
   above* / *below* (a blank pending row at that index, with the caret in its

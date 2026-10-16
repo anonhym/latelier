@@ -4,6 +4,7 @@ import {
   Button,
   Checkbox,
   Menu,
+  VisuallyHidden,
   Select,
   Tabs,
   TextInput,
@@ -98,6 +99,14 @@ function pathKey(path: NodePath): string {
 }
 
 /**
+ * A nested group's position counted from 1 (`2.1` = first child of the
+ * second), so its controls have names that tell one group from another.
+ */
+function groupPosition(path: NodePath): string {
+  return path.map((i) => i + 1).join('.');
+}
+
+/**
  * Switches a node off or back on. `undefined` rather than `false` when on, so
  * a persisted draft carries the flag only where it means something.
  */
@@ -120,16 +129,19 @@ function IncludeBox({
   label,
   readOnly,
   onToggle,
+  describedBy,
 }: {
   node: FilterNode;
   label: string;
   readOnly: boolean;
   onToggle: () => void;
+  describedBy: string | undefined;
 }) {
   return (
     <Checkbox
       size="xs"
       aria-label={label}
+      aria-describedby={describedBy}
       checked={!node.disabled}
       disabled={readOnly}
       onChange={onToggle}
@@ -371,6 +383,12 @@ interface TreeEditProps {
    */
   activeDropPath: string | null;
   setActiveDropPath: (path: string | null) => void;
+  /**
+   * Id of the visually hidden "Excluded" note of the nearest switched-off
+   * group around this node, if any. The dimming is visual only; this is the
+   * same fact for assistive tech.
+   */
+  excludedNoteId?: string;
 }
 
 /** Where the row sits among its siblings — drives the move items' ends. */
@@ -470,6 +488,7 @@ function CondRow({
   suggestionContext,
   canMoveUp,
   canMoveDown,
+  excludedNoteId,
 }: TreeEditProps & RowMoveProps & {
   node: CondNode;
   path: NodePath;
@@ -656,6 +675,7 @@ function CondRow({
           label={node.field.trim() ? `Include condition ${node.field}` : 'Include condition'}
           readOnly={readOnly}
           onToggle={toggle}
+          describedBy={excludedNoteId}
         />
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1, minWidth: 0, opacity: dim }}>
           <TextInput
@@ -908,6 +928,7 @@ function RawRow({
   setActiveDropPath,
   canMoveUp,
   canMoveDown,
+  excludedNoteId,
 }: TreeEditProps & RowMoveProps & {
   node: RawNode;
   path: NodePath;
@@ -944,7 +965,13 @@ function RawRow({
       }}
     >
       <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-        <IncludeBox node={node} label="Include raw clause" readOnly={readOnly} onToggle={toggle} />
+        <IncludeBox
+          node={node}
+          label="Include raw clause"
+          readOnly={readOnly}
+          onToggle={toggle}
+          describedBy={excludedNoteId}
+        />
         <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
           <textarea
             value={node.json}
@@ -952,6 +979,7 @@ function RawRow({
             onChange={(e) => patchJson(e.target.value)}
             placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
             aria-label="Raw clause"
+            aria-describedby={excludedNoteId}
             spellCheck={false}
             rows={2}
             style={{
@@ -1019,6 +1047,7 @@ function GroupView({
   isRoot,
   suggestionContext,
   headerExtra,
+  excludedNoteId,
 }: TreeEditProps & {
   node: GroupNode;
   path: NodePath;
@@ -1095,6 +1124,11 @@ function GroupView({
   // one. Adding a second child makes it an ordinary NOR group again. The root
   // never shows NOT: it has no wrapper to remove.
   const isNegation = !isRoot && node.logic === '$nor' && node.children.length === 1;
+  const position = groupPosition(path);
+  // Everything inside a switched-off group is out of the filter too; its
+  // rows point at this group's note, or at a switched-off ancestor's.
+  const noteId = React.useId();
+  const childNoteId = node.disabled ? noteId : excludedNoteId;
 
   const problemFor = (childPath: NodePath): string | undefined =>
     problems.find((p) => pathsEqual(p.path, childPath))?.message;
@@ -1150,19 +1184,28 @@ function GroupView({
           borderBottom: isRoot ? `1px solid ${T.border}` : 'none',
         }}
       >
-        {!isRoot && <IncludeBox node={node} label="Include group" readOnly={readOnly} onToggle={toggle} />}
+        {!isRoot && (
+          <IncludeBox
+            node={node}
+            label={`Include group ${position}`}
+            readOnly={readOnly}
+            onToggle={toggle}
+            describedBy={excludedNoteId}
+          />
+        )}
+        {node.disabled && <VisuallyHidden id={noteId}>Excluded: its group is switched off</VisuallyHidden>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, opacity: dim }}>
           {isNegation ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: T.accent }}>NOT</span>
-              <Tooltip label="Remove negation" withArrow>
+              <Tooltip label={`Remove negation ${position}`} withArrow>
                 <ActionIcon
                   variant="subtle"
                   color="gray"
                   size="xs"
                   disabled={readOnly}
                   onClick={removeNegation}
-                  aria-label="Remove negation"
+                  aria-label={`Remove negation ${position}`}
                 >
                   {I.close}
                 </ActionIcon>
@@ -1211,13 +1254,13 @@ function GroupView({
           <span style={{ flex: 1 }} />
           {headerExtra}
           {!isRoot && !isNegation && (
-            <Tooltip label="Negate group" withArrow>
+            <Tooltip label={`Negate group ${position}`} withArrow>
               <ActionIcon
                 variant="default"
                 size="sm"
                 disabled={readOnly}
                 onClick={negate}
-                aria-label="Negate group"
+                aria-label={`Negate group ${position}`}
               >
                 <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>¬</span>
               </ActionIcon>
@@ -1270,6 +1313,7 @@ function GroupView({
                 setActiveDropPath={setActiveDropPath}
                 isRoot={false}
                 suggestionContext={suggestionContext}
+                excludedNoteId={childNoteId}
               />
             );
           }
@@ -1288,6 +1332,7 @@ function GroupView({
                 suggestionContext={suggestionContext}
                 canMoveUp={i > 0}
                 canMoveDown={i < node.children.length - 1}
+                excludedNoteId={childNoteId}
               />
             );
           }
@@ -1304,6 +1349,7 @@ function GroupView({
               problem={problemFor(childPath)}
               canMoveUp={i > 0}
               canMoveDown={i < node.children.length - 1}
+              excludedNoteId={childNoteId}
             />
           );
         })}
