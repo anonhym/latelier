@@ -3,16 +3,19 @@
 // moved. Counts are asserted through `api.query.count` (what was actually
 // asked of the main process) and through the status line the user reads.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '../helpers/render';
+import { render, renderHook, screen, fireEvent, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
+import { useLiveMatchCount } from '../../src/pages/Workspace/useLiveMatchCount';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
 const now = '2026-10-15T12:00:00.000Z';
 
-function makeTab(queryRaw: string): WorkspaceTab {
+// A timeout is remembered per collection for the whole run, so a test that
+// times one out names its own collection.
+function makeTab(queryRaw: string, collection = 'users'): WorkspaceTab {
   const state: CollectionTabState = {
     view: 'Tree',
     builder: { projection: [], sort: '', limit: '' },
@@ -27,7 +30,7 @@ function makeTab(queryRaw: string): WorkspaceTab {
     kind: 'collection',
     connectionId: 'c1',
     dbName: 'mydb',
-    collection: 'users',
+    collection,
     position: 0,
     isActive: true,
     openedAt: now,
@@ -49,9 +52,9 @@ const CONNECTION = {
 
 type CountFn = IpcApi['query']['count'];
 
-function mountWith(queryRaw: string, count: CountFn) {
+function mountWith(queryRaw: string, count: CountFn, collection?: string) {
   const countSpy = vi.fn<CountFn>(count);
-  const tab = makeTab(queryRaw);
+  const tab = makeTab(queryRaw, collection);
   installAtelierMock({
     tabs: {
       list: async () => [tab],
@@ -192,7 +195,7 @@ describe('Filter drawer — live match count (W15 §14.5)', () => {
     const count = mountWith('{"a":{"$eq":1}}', async () => {
       // The preload throws the IpcError shape itself.
       throw { code: 'TIMEOUT', message: 'operation exceeded time limit' };
-    });
+    }, 'timed-out-in-drawer');
     const value = (await screen.findByDisplayValue('1')) as HTMLInputElement;
     await advance(500);
 
@@ -204,6 +207,69 @@ describe('Filter drawer — live match count (W15 §14.5)', () => {
 
     expect(count).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Match count unavailable')).toBeTruthy();
+  });
+});
+
+describe('Live match count — a timeout outlives the drawer (W15 §14.5)', () => {
+  const TIMEOUT = { code: 'TIMEOUT', message: 'operation exceeded time limit' };
+
+  function countHook(collection: string, queryRaw: string) {
+    return renderHook(() =>
+      useLiveMatchCount({ connectionId: 'c1', dbName: 'mydb', collection, queryRaw, paused: false }),
+    );
+  }
+
+  it('a collection that timed out is not asked again when the drawer remounts, while another collection still is', async () => {
+    const count = vi.fn<CountFn>(async () => {
+      throw TIMEOUT;
+    });
+    installAtelierMock({ query: { count } });
+
+    const first = countHook('huge', '{"a":1}');
+    await advance(500);
+    expect(first.result.current).toEqual({ state: 'unavailable' });
+    first.unmount();
+
+    // A tab switch or Reset remounts the drawer, with any filter.
+    const again = countHook('huge', '{"a":2}');
+    await advance(1000);
+    expect(again.result.current).toEqual({ state: 'unavailable' });
+    expect(count).toHaveBeenCalledTimes(1);
+
+    count.mockImplementation(async () => ({ count: 3 }));
+    const other = countHook('small', '{"a":1}');
+    await advance(500);
+    expect(other.result.current).toEqual({ state: 'ok', count: 3 });
+    expect(count).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failure that is not an IpcError shows unavailable and is rethrown, not swallowed', async () => {
+    const bug = new TypeError('count is not a function');
+    installAtelierMock({
+      query: {
+        count: async () => {
+          throw bug;
+        },
+      },
+    });
+    // The rethrow surfaces as an unhandled rejection, which is how the
+    // renderer reports it; caught here so the run itself stays clean.
+    const saved = process.listeners('unhandledRejection');
+    process.removeAllListeners('unhandledRejection');
+    const reported: unknown[] = [];
+    process.on('unhandledRejection', (reason) => reported.push(reason));
+    try {
+      const { result } = countHook('buggy', '{"a":1}');
+      await advance(500);
+      await act(async () => {
+        await new Promise((r) => setImmediate(r));
+      });
+      expect(result.current).toEqual({ state: 'unavailable' });
+      expect(reported).toEqual([bug]);
+    } finally {
+      process.removeAllListeners('unhandledRejection');
+      for (const l of saved) process.on('unhandledRejection', l);
+    }
   });
 });
 
