@@ -796,6 +796,21 @@ export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['l
 }
 
 /**
+ * Replaces a nested group that holds exactly one child with that child — the
+ * inverse of `wrapInGroup`, and how a negation (a one-child `$nor`) is
+ * removed. Anything else is left alone, returning `root` itself: the root, a
+ * non-group, a group of several children, or a path that doesn't resolve.
+ * A switched-off group hands that to its child, so removing the wrapper
+ * never switches a condition back on.
+ */
+export function unwrapGroup(root: GroupNode, path: NodePath): GroupNode {
+  if (path.length === 0) return root;
+  const target = nodeAt(root, path);
+  if (!target || target.kind !== 'group' || target.children.length !== 1) return root;
+  return updateAt(root, path, carryDisabled(target, target.children[0]));
+}
+
+/**
  * Best-effort encode of a cond as a raw node. Falls back to a blank pending
  * raw node — never `{}`, which matches everything and would make a bad
  * fallback silently widen the group it sits in (§4).

@@ -36,6 +36,7 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  unwrapGroup,
   toRawNode,
   tryParseRaw,
   nodeAt,
@@ -219,7 +220,7 @@ function LogicPicker({
 
 /**
  * The row-level "⋮" menu: Move up / Move down / Convert to raw clause (cond
- * rows only) / Wrap in group / Duplicate.
+ * rows only) / Wrap in group / Negate (NOT) / Duplicate.
  *
  * Remove has its own one-click ✕ beside this menu rather than living here
  * too — one affordance per action, not two. Move up/down live here instead
@@ -231,6 +232,7 @@ function LogicPicker({
 function RowMenu({
   onConvertToRaw,
   onWrap,
+  onNegate,
   onDuplicate,
   onMove,
   canMoveUp,
@@ -241,6 +243,7 @@ function RowMenu({
 }: {
   onConvertToRaw?: () => void;
   onWrap: () => void;
+  onNegate: () => void;
   onDuplicate: () => void;
   onMove: (delta: number) => void;
   canMoveUp: boolean;
@@ -273,6 +276,7 @@ function RowMenu({
         </Menu.Item>
         {onConvertToRaw && <Menu.Item onClick={onConvertToRaw}>Convert to raw clause</Menu.Item>}
         <Menu.Item onClick={onWrap}>Wrap in group</Menu.Item>
+        <Menu.Item onClick={onNegate}>Negate (NOT)</Menu.Item>
         <Menu.Item onClick={onDuplicate}>Duplicate</Menu.Item>
       </Menu.Dropdown>
     </Menu>
@@ -554,6 +558,9 @@ function CondRow({
   };
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
+  // NOT over any subtree is a one-child `$nor`: no new node kind, and it
+  // prints and parses as plain MongoDB.
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
   // Converts on the *typed* op, not only the committed one: `toRawNode` falls
@@ -717,6 +724,7 @@ function CondRow({
             disabled={readOnly}
             onConvertToRaw={convertToRaw}
             onWrap={wrap}
+            onNegate={negate}
             onDuplicate={duplicate}
             onMove={move}
             canMoveUp={canMoveUp}
@@ -862,6 +870,9 @@ function RawRow({
   const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }));
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
+  // NOT over any subtree is a one-child `$nor`: no new node kind, and it
+  // prints and parses as plain MongoDB.
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
   const tryParse = () => applyEdit(updateAt(root, path, tryParseRaw(node)));
@@ -912,6 +923,7 @@ function RawRow({
             ariaLabel="Raw clause options"
             disabled={readOnly}
             onWrap={wrap}
+            onNegate={negate}
             onDuplicate={duplicate}
             onMove={move}
             canMoveUp={canMoveUp}
@@ -1028,6 +1040,12 @@ function GroupView({
   const removeGroup = () => applyEdit(removeAt(root, path));
   const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
   const dim = dimFor(node);
+  const negate = () => applyEdit(wrapInGroup(root, path, '$nor'));
+  const removeNegation = () => applyEdit(unwrapGroup(root, path));
+  // A nested one-child `$nor` reads as NOT of that child, so it is shown as
+  // one. Adding a second child makes it an ordinary NOR group again. The root
+  // never shows NOT: it has no wrapper to remove.
+  const isNegation = !isRoot && node.logic === '$nor' && node.children.length === 1;
 
   const problemFor = (childPath: NodePath): string | undefined =>
     problems.find((p) => pathsEqual(p.path, childPath))?.message;
@@ -1085,7 +1103,25 @@ function GroupView({
       >
         {!isRoot && <IncludeBox node={node} label="Include group" readOnly={readOnly} onToggle={toggle} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, opacity: dim }}>
-          <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
+          {isNegation ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: T.accent }}>NOT</span>
+              <Tooltip label="Remove negation" withArrow>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  disabled={readOnly}
+                  onClick={removeNegation}
+                  aria-label="Remove negation"
+                >
+                  {I.close}
+                </ActionIcon>
+              </Tooltip>
+            </span>
+          ) : (
+            <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
+          )}
           <Tooltip label="Add condition" withArrow>
             <ActionIcon
               variant="default"
@@ -1124,6 +1160,19 @@ function GroupView({
             </ActionIcon>
           </Tooltip>
           <span style={{ flex: 1 }} />
+          {!isRoot && !isNegation && (
+            <Tooltip label="Negate group" withArrow>
+              <ActionIcon
+                variant="default"
+                size="sm"
+                disabled={readOnly}
+                onClick={negate}
+                aria-label="Negate group"
+              >
+                <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>¬</span>
+              </ActionIcon>
+            </Tooltip>
+          )}
           {!isRoot && (
             <Tooltip label="Remove group" withArrow>
               <ActionIcon

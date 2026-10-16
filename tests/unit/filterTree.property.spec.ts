@@ -8,6 +8,8 @@ import {
   insertAt,
   removeAt,
   moveAt,
+  wrapInGroup,
+  unwrapGroup,
   toRawNode,
   tryParseRaw,
   buildScalarWire,
@@ -303,6 +305,33 @@ describe('printFilter: a disabled node prints as if it were not there', () => {
       fc.property(safeGroup, fc.array(fc.boolean(), { minLength: 1, maxLength: 12 }), (t, flags) => {
         const withDisabled = sprinkleDisabled(t, flags);
         expect(printFilter(withDisabled)).toEqual(printFilter(stripDisabled(withDisabled)));
+      }),
+      { numRuns: 200 },
+    );
+  });
+});
+
+// ─── Negation (W13 §4) ───────────────────────────────────────────────────────
+
+/** Every non-root path in the tree, pre-order. */
+function allPaths(root: GroupNode): number[][] {
+  const out: number[][] = [];
+  const walk = (n: FilterNode, path: number[]): void => {
+    if (path.length > 0) out.push(path);
+    if (n.kind === 'group') n.children.forEach((c, i) => walk(c, [...path, i]));
+  };
+  walk(root, []);
+  return out;
+}
+
+describe('unwrapGroup undoes a negation wrap', () => {
+  it('unwrapGroup(wrapInGroup(t, p, "$nor"), p) is t, for any node of any tree', () => {
+    const treeAndPath = safeGroup
+      .filter((t) => t.children.length > 0)
+      .chain((t) => fc.constantFrom(...allPaths(t)).map((p) => ({ t, p })));
+    fc.assert(
+      fc.property(treeAndPath, ({ t, p }) => {
+        expect(unwrapGroup(wrapInGroup(t, p, '$nor'), p)).toEqual(t);
       }),
       { numRuns: 200 },
     );

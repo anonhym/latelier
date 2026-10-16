@@ -410,3 +410,51 @@ describe('Filter drawer — the persisted draft', () => {
     await waitFor(() => expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined }));
   });
 });
+
+describe('Filter drawer — negation (NOT)', () => {
+  it('Negate (NOT) wraps a condition in a one-child $nor shown as NOT, and Remove negation unwraps it', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Condition options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$nor":[{"a":{"$eq":1}}]}'));
+    expect(screen.getByText('NOT')).toBeTruthy();
+    // The NOT label replaces the logic picker on that group; only the root's is left.
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove negation' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(screen.queryByText('NOT')).toBeNull();
+    expect(fieldValues()).toEqual(['a']);
+  });
+
+  it('Negate group wraps a nested group in $nor', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Negate group' }));
+
+    await waitFor(() =>
+      expect(lastWrittenQueryRaw(updateSpy)).toBe(
+        '{"$and":[{"a":{"$eq":1}},{"$nor":[{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}]}',
+      ),
+    );
+    // The new NOT wrapper offers no "Negate group" of its own; the $or inside it still does.
+    expect(screen.getAllByRole('button', { name: 'Negate group' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Remove negation' })).toBeTruthy();
+  });
+
+  it('a second child turns a negation back into an ordinary NOR group', async () => {
+    mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$nor":[{"b":{"$eq":2}}]}]}' }));
+
+    await screen.findByText('NOT');
+    const addButtons = screen.getAllByRole('button', { name: 'Add condition' });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    await waitFor(() => expect(screen.queryByText('NOT')).toBeNull());
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(2);
+  });
+});

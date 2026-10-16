@@ -9,6 +9,7 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  unwrapGroup,
   toRawNode,
   tryParseRaw,
   coerceArrayElementWire,
@@ -1643,5 +1644,55 @@ describe('printFilter — a disabled node prints as pending (§3)', () => {
     expect(tryParseRaw({ ...raw('{"a":1}'), disabled: true })).toEqual({ ...cond({ field: 'a', valType: 'number', value: '1' }), disabled: true });
     expect(tryParseRaw({ ...raw('{"a":1,"b":2}'), disabled: true })).toMatchObject({ kind: 'group', disabled: true });
     expect(tryParseRaw(raw('{"a":1}'))).not.toHaveProperty('disabled');
+  });
+});
+
+describe('unwrapGroup — the inverse of a one-child wrap (§4)', () => {
+  it('replaces a single-child nested group with that child, in place', () => {
+    const root = group('$and', [cond({ field: 'a' }), group('$nor', [cond({ field: 'b' })]), cond({ field: 'c' })]);
+    expect(unwrapGroup(root, [1])).toEqual(
+      group('$and', [cond({ field: 'a' }), cond({ field: 'b' }), cond({ field: 'c' })]),
+    );
+  });
+
+  it('leaves a multi-child group alone', () => {
+    const root = group('$and', [group('$nor', [cond({ field: 'a' }), cond({ field: 'b' })])]);
+    expect(unwrapGroup(root, [0])).toBe(root);
+  });
+
+  it('never unwraps the root, even one whose only child is a group', () => {
+    const root = group('$nor', [group('$or', [cond({ field: 'a' }), cond({ field: 'b' })])]);
+    expect(unwrapGroup(root, [])).toBe(root);
+  });
+
+  it('leaves a cond path alone', () => {
+    const root = group('$and', [cond({ field: 'a' })]);
+    expect(unwrapGroup(root, [0])).toBe(root);
+  });
+
+  it('leaves a path that does not resolve alone', () => {
+    const root = group('$and', [group('$nor', [cond({ field: 'a' })])]);
+    expect(unwrapGroup(root, [3])).toBe(root);
+    expect(unwrapGroup(root, [0, 0, 0])).toBe(root);
+  });
+
+  it('a switched-off group hands its state to the child it leaves behind', () => {
+    const root = group('$and', [{ ...group('$nor', [cond({ field: 'a' })]), disabled: true }]);
+    expect(unwrapGroup(root, [0])).toEqual(group('$and', [{ ...cond({ field: 'a' }), disabled: true }]));
+  });
+});
+
+describe('negation — a single-child $nor wrap (§4)', () => {
+  it('wrapping a cond in $nor prints NOT that cond, and reads back as the same $nor', () => {
+    const root = group('$and', [cond({ field: 'a', valType: 'number', value: '1' })]);
+    const json = mustPrint(wrapInGroup(root, [0], '$nor'));
+    expect(json).toBe('{"$nor":[{"a":{"$eq":1}}]}');
+    // A lone top-level $nor collapses to the root group itself.
+    const back = mustParse(json);
+    expect(back).toEqual(group('$nor', [cond({ field: 'a', valType: 'number', value: '1' })]));
+  });
+
+  it('a field-level $not still reads as a raw clause', () => {
+    expect(mustParse('{"f":{"$not":{"$gt":1}}}')).toEqual(group('$and', [raw('{"f":{"$not":{"$gt":1}}}')]));
   });
 });
