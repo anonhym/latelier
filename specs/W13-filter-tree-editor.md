@@ -371,10 +371,9 @@ the tree and the `queryRaw` it was last consistent with.
   so the drawer never shows a tree other than the one that runs. Without a
   usable draft, `parseFilter(queryRaw)` as before.
 - **Reconcile** (rule 3) still always parses and never reads the draft: an
-  outside text edit wins. It does not clear the draft either: a draft whose
-  text no longer matches is simply unused, and the next drawer edit
-  overwrites it. Should the bar text later return to exactly the draft's
-  recorded text, a remount would seed from that draft again.
+  outside text edit wins, and it clears the draft (`filterDraft: undefined`),
+  so a later return to the same text can't bring the replaced rows back on
+  the next remount.
 - **Commit.** Every edit patches `filterDraft: { root, queryRaw }`, with the
   `queryRaw` that is current once the edit lands — the new text on an `ok`
   print, the unchanged last good text on a no-op or blocked one. That

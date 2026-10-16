@@ -524,8 +524,8 @@ function CondRow({
 
   const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
   // Keystrokes in one text box of this row are one undo step, not one each.
-  const typeInto = (p: Pick<CondNode, 'field'> | Pick<CondNode, 'value'>) =>
-    patch(p, `${pathKey(path)}:${Object.keys(p).sort().join(',')}`);
+  const typeInto = (box: 'field' | 'value', text: string) =>
+    patch({ [box]: text }, `${pathKey(path)}:${box}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
@@ -662,7 +662,7 @@ function CondRow({
             value={node.field}
             disabled={readOnly}
             onChange={(e) => {
-              typeInto({ field: e.target.value });
+              typeInto('field', e.target.value);
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => setFieldPopoverOpen(true)}
@@ -828,7 +828,7 @@ function CondRow({
               value={node.value}
               disabled={readOnly}
               onChange={(e) => {
-                typeInto({ value: e.target.value });
+                typeInto('value', e.target.value);
                 if (!valuePopoverOpen) setValuePopoverOpen(true);
               }}
               onFocus={() => setValuePopoverOpen(true)}
@@ -1352,8 +1352,11 @@ interface FilterDrawerProps {
   queryRaw: string;
   /** The tab's persisted draft; read once, to seed (W13 §5.7). */
   filterDraft: FilterDraft | undefined;
-  /** Every edit writes the draft; `queryRaw` only when the printed text changed. */
-  onCommit: (patch: { queryRaw?: string; filterDraft: FilterDraft }) => void;
+  /**
+   * Every edit writes the draft; `queryRaw` only when the printed text
+   * changed. An outside text edit clears the draft (`undefined`).
+   */
+  onCommit: (patch: { queryRaw?: string; filterDraft: FilterDraft | undefined }) => void;
   suggestionContext: SuggestionContext | null;
 }
 
@@ -1426,6 +1429,13 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // update it during render without tripping the no-refs-during-render rule.
   const [lastPrinted, setLastPrinted] = React.useState(queryRaw);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
+  // Bumped by the reconcile below, which runs during render and so can't
+  // patch the tab itself; the effect after it does, once per bump.
+  const [outsideEdits, setOutsideEdits] = React.useState(0);
+  const onCommitRef = React.useRef(onCommit);
+  React.useEffect(() => {
+    onCommitRef.current = onCommit;
+  });
 
   // Single global catch-all for "the drag ended without landing anywhere I
   // control" — cancelled, dropped outside the window, Escape — covering
@@ -1457,12 +1467,20 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       setHistory(initHistory(parsed.root));
       setReadOnly(false);
       setProblems([]);
+      // The outside text replaced the drawer's tree, rows the text can't
+      // carry included: drop the tab's draft too, so a later return to the
+      // same text can't bring those rows back on the next remount.
+      setOutsideEdits((n) => n + 1);
     } else {
       // §6a — invalid JSON in the bar freezes the drawer read-only on the
       // last valid tree rather than blanking it.
       setReadOnly(true);
     }
   }
+
+  React.useEffect(() => {
+    if (outsideEdits > 0) onCommitRef.current({ filterDraft: undefined });
+  }, [outsideEdits]);
 
   // The one print-and-commit path for a new tree. The draft is written on
   // every edit (§5.7), recorded against the `queryRaw` that is current once

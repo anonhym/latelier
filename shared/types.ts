@@ -814,10 +814,9 @@ export interface CollectionTabState {
    * The filter drawer's own tree, kept with the `queryRaw` it was last
    * consistent with (W13 §5.7). It carries what the text cannot: switched-off
    * and still-blank rows, so they survive a tab switch. Used to seed the
-   * drawer only while `queryRaw` still equals the recorded text (and the tree
-   * prints back to it); an outside edit leaves it unused rather than clearing
-   * it, and the next drawer edit overwrites it. Optional, so tabs persisted before it restore as if
-   * there were no draft.
+   * drawer only while `queryRaw` still equals the recorded text and the tree
+   * prints back to it; an outside edit to the text clears it. Optional, so
+   * tabs persisted before it restore as if there were no draft.
    */
   filterDraft?: { root: GroupNode; queryRaw: string };
   page: number;

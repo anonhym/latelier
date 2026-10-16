@@ -393,6 +393,22 @@ describe('Filter drawer — the persisted draft', () => {
     expect(screen.getByRole('status').textContent).toContain('1 not applied: n');
   });
 
+  it('an edit to the filter text from outside the drawer clears the draft', async () => {
+    const { updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"c":1}' } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['c']));
+    await waitFor(() => expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined }));
+  });
+
   it('Reset clears the draft along with the filter', async () => {
     const { updateSpy } = mountWith(
       makeState({
