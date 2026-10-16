@@ -205,11 +205,8 @@ describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §1
     const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add group' }));
-    // The nested group's own "Add condition" is the *second* one in the
-    // document (root's is first).
-    const addConditionButtons = await screen.findAllByRole('button', { name: 'Add condition' });
-    expect(addConditionButtons.length).toBeGreaterThanOrEqual(2);
-    fireEvent.click(addConditionButtons[addConditionButtons.length - 1]!);
+    // The new group is the root's second child.
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition to group 2' }));
 
     const fields = await screen.findAllByPlaceholderText('field');
     const pendingField = (fields as HTMLInputElement[]).find((f) => f.value === '')!;
@@ -369,7 +366,7 @@ describe('Filter drawer — switching a condition off (disable)', () => {
     const EXCLUDED = 'Excluded: its group is switched off';
     expect(await screen.findByRole('checkbox', { name: 'Include condition b', description: EXCLUDED })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Include group 2.2', description: EXCLUDED })).toBeTruthy();
-    expect(screen.getByRole('checkbox', { name: 'Include raw clause', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Include raw clause 2.2.1', description: EXCLUDED })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Raw clause', description: EXCLUDED })).toBeTruthy();
     // Not inside a switched-off group: no cue, on the row or on the group's own box.
     expect(screen.getByRole('checkbox', { name: 'Include condition a' }).getAttribute('aria-describedby')).toBeNull();
@@ -540,8 +537,7 @@ describe('Filter drawer — negation (NOT)', () => {
     mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$nor":[{"b":{"$eq":2}}]}]}' }));
 
     await screen.findByText('NOT');
-    const addButtons = screen.getAllByRole('button', { name: 'Add condition' });
-    fireEvent.click(addButtons[addButtons.length - 1]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Add condition to group 2' }));
 
     await waitFor(() => expect(screen.queryByText('NOT')).toBeNull());
     expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(2);
@@ -774,7 +770,7 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
 
   it.each([
     ['a condition', { ...B2, disabled: true }, 'Include condition b'],
-    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause'],
+    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause 2'],
   ])('dropping onto %s that is switched off leaves it off and queryRaw unchanged', async (_what, row, label) => {
     const { container, updateSpy } = mountWith(
       makeState({ queryRaw: '{"a":{"$eq":1}}', filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, row) } }),
@@ -797,7 +793,7 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
         filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { kind: 'raw', json: '{"z":1}', disabled: true }) },
       }),
     );
-    await screen.findByRole('checkbox', { name: 'Include raw clause' });
+    await screen.findByRole('checkbox', { name: 'Include raw clause 2' });
 
     dropOnRow(container, '1', 'b', 5);
     const dialog = await screen.findByRole('dialog');

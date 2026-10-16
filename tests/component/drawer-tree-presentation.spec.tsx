@@ -221,14 +221,38 @@ describe('W15 §13.1 — rows reorder within their group', () => {
     await screen.findAllByPlaceholderText('field');
     expect(fieldOrder()).toEqual(['x', 'a', 'b', 'c']);
     // The nested group is real, not flattened.
-    expect(screen.getByRole('button', { name: 'Remove group' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove group 2' })).toBeTruthy();
 
     // The last child of the nested group, moved up inside it.
     await openRowMenu(3);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Move up' }));
 
     await waitFor(() => expect(fieldOrder()).toEqual(['x', 'a', 'c', 'b']));
-    expect(screen.getByRole('button', { name: 'Remove group' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove group 2' })).toBeTruthy();
+  });
+});
+
+describe('Group and raw-row controls are named by position', () => {
+  it('each nested group\'s add and remove buttons, and each raw row\'s checkbox, say which one they act on', async () => {
+    mountWith(
+      makeState({
+        queryRaw:
+          '{"x":{"$eq":"0"},"$or":[{"a":{"$eq":"1"}},{"b":{"$eq":"2"}}],"$nor":[{"c":{"$eq":"3"}},{"d":{"$eq":"4"}}],"$where":"1"}',
+      }),
+    );
+    await screen.findAllByPlaceholderText('field');
+
+    for (const g of ['2', '3']) {
+      expect(screen.getByRole('button', { name: `Add condition to group ${g}` })).toBeTruthy();
+      expect(screen.getByRole('button', { name: `Add group to group ${g}` })).toBeTruthy();
+      expect(screen.getByRole('button', { name: `Add raw clause to group ${g}` })).toBeTruthy();
+      expect(screen.getByRole('button', { name: `Remove group ${g}` })).toBeTruthy();
+    }
+    expect(screen.getByRole('checkbox', { name: 'Include raw clause 4' })).toBeTruthy();
+    // The root is the only group without a position, so its names stay short.
+    expect(screen.getAllByRole('button', { name: 'Add condition' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Add group' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Add raw clause' })).toHaveLength(1);
   });
 });
 

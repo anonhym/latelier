@@ -101,7 +101,7 @@ function pathKey(path: NodePath): string {
 }
 
 /**
- * A nested group's position counted from 1 (`2.1` = first child of the
+ * A nested group's or row's position counted from 1 (`2.1` = first child of the
  * second), so its controls have names that tell one group from another.
  */
 function groupPosition(path: NodePath): string {
@@ -891,7 +891,7 @@ function RawRow({
       <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
         <IncludeBox
           node={node}
-          label="Include raw clause"
+          label={`Include raw clause ${groupPosition(path)}`}
           readOnly={readOnly}
           onToggle={toggle}
           describedBy={excludedNoteId}
@@ -1054,6 +1054,9 @@ function GroupView({
   // never shows NOT: it has no wrapper to remove.
   const isNegation = !isRoot && node.logic === '$nor' && node.children.length === 1;
   const position = groupPosition(path);
+  // The root is the one group without a position, so its add buttons keep
+  // the short names; a nested group's say which group they add to.
+  const toGroup = isRoot ? '' : ` to group ${position}`;
   // Everything inside a switched-off group is out of the filter too; its
   // rows point at this group's note, or at a switched-off ancestor's.
   const noteId = React.useId();
@@ -1149,7 +1152,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addCondition}
-              aria-label="Add condition"
+              aria-label={`Add condition${toGroup}`}
             >
               {I.plus}
             </ActionIcon>
@@ -1164,7 +1167,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addGroup}
-              aria-label="Add group"
+              aria-label={`Add group${toGroup}`}
             >
               {I.group}
             </ActionIcon>
@@ -1175,7 +1178,7 @@ function GroupView({
               size="sm"
               disabled={readOnly}
               onClick={addRaw}
-              aria-label="Add raw clause"
+              aria-label={`Add raw clause${toGroup}`}
             >
               {I.code}
             </ActionIcon>
@@ -1196,14 +1199,14 @@ function GroupView({
             </Tooltip>
           )}
           {!isRoot && (
-            <Tooltip label="Remove group" withArrow>
+            <Tooltip label={`Remove group ${position}`} withArrow>
               <ActionIcon
                 variant="default"
                 color="red"
                 size="sm"
                 disabled={readOnly}
                 onClick={removeGroup}
-                aria-label="Remove group"
+                aria-label={`Remove group ${position}`}
               >
                 {I.close}
               </ActionIcon>

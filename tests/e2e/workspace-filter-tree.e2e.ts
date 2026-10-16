@@ -58,21 +58,21 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       // ─── Build (a AND (b OR c)) in the drawer ─────────────────────────
 
       // Root group defaults to AND. Add its first condition: a = "x".
-      await win.getByRole('button', { name: 'Add condition' }).first().click();
+      await win.getByRole('button', { name: 'Add condition', exact: true }).click();
       await win.getByPlaceholder('field').nth(0).fill('a');
       await win.getByPlaceholder('value').nth(0).fill('x');
 
       // Add a nested group as the root's second child.
-      await win.getByRole('button', { name: 'Add group' }).first().click();
+      await win.getByRole('button', { name: 'Add group', exact: true }).click();
 
       // The nested group is the second "Group logic" control in the tree —
       // flip it from its AND default to OR.
       const nestedLogic = win.getByRole('radiogroup', { name: 'Group logic' }).nth(1);
       await nestedLogic.getByRole('radio', { name: 'OR', exact: true }).click();
 
-      // Add the nested group's two conditions: b = "y", c = "z". Its own
-      // "Add condition" button is now the second one in the tree.
-      const nestedAddCondition = win.getByRole('button', { name: 'Add condition' }).nth(1);
+      // Add the nested group's two conditions: b = "y", c = "z". The group is
+      // the root's second child, and its add button says so.
+      const nestedAddCondition = win.getByRole('button', { name: 'Add condition to group 2', exact: true });
       await nestedAddCondition.click();
       await win.getByPlaceholder('field').nth(1).fill('b');
       await win.getByPlaceholder('value').nth(1).fill('y');
