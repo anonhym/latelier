@@ -128,7 +128,7 @@ describe('Filter drawer — pending-row lifecycle (W13 §5, §11)', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add raw clause' }));
 
-    const rawInput = await screen.findByLabelText('Raw clause');
+    const rawInput = await screen.findByLabelText('Raw clause 1');
     expect(rawInput).toBeTruthy();
     const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
     expect(bar.value).toBe('{}');

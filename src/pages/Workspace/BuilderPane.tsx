@@ -773,7 +773,7 @@ function CondRow({
             </OperatorTooltip>
           )}
           <RowMenu
-            ariaLabel="Condition options"
+            ariaLabel={`Condition options ${groupPosition(path)}`}
             disabled={readOnly}
             onConvertToRaw={convertToRaw}
             onWrap={wrap}
@@ -928,7 +928,7 @@ function RawRow({
             disabled={readOnly}
             onChange={(e) => patchJson(e.target.value)}
             placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
-            aria-label="Raw clause"
+            aria-label={`Raw clause ${groupPosition(path)}`}
             aria-describedby={excludedNoteId}
             spellCheck={false}
             rows={2}
@@ -946,7 +946,7 @@ function RawRow({
             }}
           />
           <RowMenu
-            ariaLabel="Raw clause options"
+            ariaLabel={`Raw clause options ${groupPosition(path)}`}
             disabled={readOnly}
             onWrap={wrap}
             onNegate={negate}
@@ -957,14 +957,14 @@ function RawRow({
             canMoveDown={canMoveDown}
             rowKey={pathKey(path)}
           />
-          <Tooltip label="Remove raw clause" withArrow>
+          <Tooltip label={`Remove raw clause ${groupPosition(path)}`} withArrow>
             <ActionIcon
               variant="default"
               color="red"
               size="sm"
               disabled={readOnly}
               onClick={remove}
-              aria-label="Remove raw clause"
+              aria-label={`Remove raw clause ${groupPosition(path)}`}
             >
               {I.close}
             </ActionIcon>

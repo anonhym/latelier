@@ -367,7 +367,7 @@ describe('Filter drawer — switching a condition off (disable)', () => {
     expect(await screen.findByRole('checkbox', { name: 'Include condition b', description: EXCLUDED })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Include group 2.2', description: EXCLUDED })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Include raw clause 2.2.1', description: EXCLUDED })).toBeTruthy();
-    expect(screen.getByRole('textbox', { name: 'Raw clause', description: EXCLUDED })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Raw clause 2.2.1', description: EXCLUDED })).toBeTruthy();
     // Not inside a switched-off group: no cue, on the row or on the group's own box.
     expect(screen.getByRole('checkbox', { name: 'Include condition a' }).getAttribute('aria-describedby')).toBeNull();
     expect(screen.getByRole('checkbox', { name: 'Include group 2' }).getAttribute('aria-describedby')).toBeNull();
@@ -491,7 +491,7 @@ describe('Filter drawer — negation (NOT)', () => {
   it('Negate (NOT) wraps a condition in a one-child $nor shown as NOT, and Remove negation unwraps it', async () => {
     const { updateSpy } = mountWith(makeState({ queryRaw: '{"a":{"$eq":1}}' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Condition options' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Condition options 1' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$nor":[{"a":{"$eq":1}}]}'));
@@ -552,7 +552,7 @@ describe('Filter drawer — insert a condition between rows', () => {
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
     const writesBefore = updateSpy.mock.calls.length;
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[1]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options 2' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
@@ -572,7 +572,7 @@ describe('Filter drawer — insert a condition between rows', () => {
     mountWith(makeState({ queryRaw: AB }));
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Condition options' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options 1' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition below' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '', 'b']));
@@ -584,7 +584,7 @@ describe('Filter drawer — insert a condition between rows', () => {
   it('a raw clause row offers the same inserts', async () => {
     mountWith(makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"items":{"$elemMatch":{"sku":1}}}]}' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Raw clause options 2' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Insert condition above' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['a', '']));

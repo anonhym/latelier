@@ -272,7 +272,7 @@ describe('Filter drawer — what the live count counts (W15 §14.5)', () => {
     await advance(500);
     count.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Condition options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options 1' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
     await advance(500);
 

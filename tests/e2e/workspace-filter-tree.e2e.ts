@@ -101,7 +101,7 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       // "Builder disabled" dead end.
       await ws.queryBarTextarea.fill('{"items":{"$elemMatch":{"sku":2}}}');
 
-      const rawClause = win.getByRole('textbox', { name: 'Raw clause' });
+      const rawClause = win.getByRole('textbox', { name: 'Raw clause 1', exact: true });
       await expect(rawClause).toBeVisible({ timeout: 5000 });
       await expect(rawClause).toHaveValue('{"items":{"$elemMatch":{"sku":2}}}');
       // Not frozen read-only: the "isn't valid JSON" banner must be absent.
@@ -194,7 +194,7 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
       // ─── b back on, then NOT b: only a = x with b ≠ y ────────────────
       await includeB.check();
       await expect(ws.queryBarTextarea).toHaveValue('{"$and":[{"a":{"$eq":"x"}},{"b":{"$eq":"y"}}]}');
-      await win.getByRole('button', { name: 'Condition options' }).nth(1).click();
+      await win.getByRole('button', { name: 'Condition options 2', exact: true }).click();
       await win.getByRole('menuitem', { name: 'Negate (NOT)' }).click();
       await expect(ws.queryBarTextarea).toHaveValue(
         '{"$and":[{"a":{"$eq":"x"}},{"$nor":[{"b":{"$eq":"y"}}]}]}',
