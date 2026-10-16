@@ -1745,10 +1745,17 @@ describe('isGroupNode — a persisted tree is checked before it is trusted (§5.
   });
 
   it.each([
+    'string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array',
+  ] as const)('accepts a cond typed %s', (valType) => {
+    expect(isGroupNode(group('$and', [cond({ valType })]))).toBe(true);
+  });
+
+  it.each([
     ['null', null],
     ['an array', []],
     ['a string', 'group'],
     ['a cond at the root', cond()],
+    ['a non-group kind carrying group fields', { kind: 'raw', json: '{}', logic: '$and', children: [] }],
     ['a group without children', { kind: 'group', logic: '$and' }],
     ['children that are not an array', { kind: 'group', logic: '$and', children: {} }],
     ['an unknown logic', { kind: 'group', logic: '$xor', children: [] }],
