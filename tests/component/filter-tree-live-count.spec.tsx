@@ -15,8 +15,13 @@ const now = '2026-10-15T12:00:00.000Z';
 
 // A timeout is remembered per collection for the whole run, so a test that
 // times one out names its own collection.
-function makeTab(queryRaw: string, collection = 'users'): WorkspaceTab {
+function makeTab(
+  queryRaw: string,
+  collection = 'users',
+  filterDraft?: CollectionTabState['filterDraft'],
+): WorkspaceTab {
   const state: CollectionTabState = {
+    filterDraft,
     view: 'Tree',
     builder: { projection: [], sort: '', limit: '' },
     queryRaw,
@@ -52,9 +57,14 @@ const CONNECTION = {
 
 type CountFn = IpcApi['query']['count'];
 
-function mountWith(queryRaw: string, count: CountFn, collection?: string) {
+function mountWith(
+  queryRaw: string,
+  count: CountFn,
+  collection?: string,
+  filterDraft?: CollectionTabState['filterDraft'],
+) {
   const countSpy = vi.fn<CountFn>(count);
-  const tab = makeTab(queryRaw, collection);
+  const tab = makeTab(queryRaw, collection, filterDraft);
   installAtelierMock({
     tabs: {
       list: async () => [tab],
@@ -207,6 +217,67 @@ describe('Filter drawer — live match count (W15 §14.5)', () => {
 
     expect(count).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Match count unavailable')).toBeTruthy();
+  });
+});
+
+describe('Filter drawer — what the live count counts (W15 §14.5)', () => {
+  it('counts again without a row that is switched off', async () => {
+    const count = mountWith('{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}', async () => ({ count: 1 }));
+    await screen.findAllByPlaceholderText('field');
+    await advance(500);
+    count.mockClear();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include condition b' }));
+    await advance(500);
+
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(count.mock.calls[0]?.[0].filter).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('counts again without a group that is switched off', async () => {
+    const count = mountWith('{"a":{"$eq":1},"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}', async () => ({ count: 1 }));
+    await screen.findAllByPlaceholderText('field');
+    await advance(500);
+    count.mockClear();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include group 2' }));
+    await advance(500);
+
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(count.mock.calls[0]?.[0].filter).toBe('{"a":{"$eq":1}}');
+  });
+
+  it('asks nothing while a seeded draft holds a row that does not print', async () => {
+    const text = '{"a":{"$eq":1}}';
+    const count = mountWith(text, async () => ({ count: 1 }), undefined, {
+      queryRaw: text,
+      root: {
+        kind: 'group',
+        logic: '$and',
+        children: [
+          { kind: 'cond', field: 'a', op: '$eq', valType: 'number', value: '1' },
+          { kind: 'cond', field: 'b', op: '$gt', valType: 'number', value: 'not-a-number' },
+        ],
+      },
+    });
+    await screen.findByText(/not applied/);
+    await advance(1000);
+
+    expect(count).not.toHaveBeenCalled();
+  });
+
+  it('counts through a NOT wrap', async () => {
+    const count = mountWith('{"a":{"$eq":1}}', async () => ({ count: 1 }));
+    await screen.findByPlaceholderText('field');
+    await advance(500);
+    count.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Condition options' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Negate (NOT)' }));
+    await advance(500);
+
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(count.mock.calls[0]?.[0].filter).toBe('{"$nor":[{"a":{"$eq":1}}]}');
   });
 });
 
