@@ -657,6 +657,21 @@ describe('Filter drawer — invalid bar text, edited and put back', () => {
   });
 });
 
+describe('Filter drawer — the bar moves to other valid text, then back', () => {
+  it('re-parses the tree from the text it came back to, not from the one it left', async () => {
+    const A = '{"a":{"$eq":1}}';
+    mountWith(makeState({ queryRaw: A }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+
+    fireEvent.change(bar, { target: { value: '{"b":{"$eq":2}}' } });
+    await waitFor(() => expect(fieldValues()).toEqual(['b']));
+    fireEvent.change(bar, { target: { value: A } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+});
+
 describe('Filter drawer — undo / redo', () => {
   const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
 
