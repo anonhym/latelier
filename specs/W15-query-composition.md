@@ -854,6 +854,8 @@ is pure and returns a new root each time. A bounded history stack is close to
 free, and it is the right mitigation for §13.1's unconfirmed Reset — cheaper
 and less annoying than a confirm dialog.
 
+Shipped: the drawer keeps a bounded, in-memory undo/redo history of its tree, with buttons in the root group's header (W13 §5.7). Reset keeps its confirm, since a Reset remounts the drawer and the history goes with it.
+
 ### 14.7 Schema-driven mismatch warnings — P2
 
 `summarizeSchema` (`schemaSummary.ts`) already computes per-field type
@@ -880,6 +882,8 @@ documents in prose.
 at the field level. "NOT this whole condition" — wrapping an arbitrary
 subtree — has no control, so a user's only route is hand-writing raw JSON for
 a shape the tree could otherwise represent.
+
+Shipped: any row or nested group can be negated from the drawer, which wraps it in a one-child `$nor` shown as NOT and removable in one click (W13 §4).
 
 ### 14.10 Sequencing
 
