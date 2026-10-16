@@ -12,7 +12,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { CollectionTabState, GroupNode, WorkspaceTab } from '@shared/types';
+import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
 const now = '2026-08-04T12:00:00.000Z';
@@ -563,5 +563,53 @@ describe('Filter drawer — undo / redo', () => {
 
     await waitFor(() => expect(fieldValues()).toEqual(['c']));
     expect(undoButton().disabled).toBe(true);
+  });
+});
+
+describe('Filter drawer — a Saved or Recent load drops the draft', () => {
+  const FIND_PAYLOAD = {
+    kind: 'find' as const,
+    builder: { projection: [], sort: '', limit: '' },
+    queryRaw: '{"z":{"$eq":"loaded"}}',
+  };
+  const DRAFT = { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) };
+
+  function mountLoading(tab: 'Saved' | 'Recent') {
+    const state = makeState({ activeBuilderTab: tab, filterDraft: DRAFT });
+    const updateSpy = vi.fn(async () => makeCollectionTab(state));
+    const saved = {
+      id: 'q1', connectionId: 'c1', dbName: 'mydb', collection: 'users', kind: 'find',
+      name: 'Loaded', createdAt: now, updatedAt: now, payload: FIND_PAYLOAD,
+    } as unknown as SavedQuery;
+    const recent = {
+      id: 'r1', connectionId: 'c1', dbName: 'mydb', collection: 'users', kind: 'find',
+      payload: FIND_PAYLOAD, ranAt: now, durationMs: 1, resultCount: 0,
+    } as unknown as RecentQuery;
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab(state)],
+        setActive: async (id) => ({ id }),
+        update: updateSpy as unknown as IpcApi['tabs']['update'],
+      },
+      conn: { list: async () => [CONNECTION] },
+      saved: { list: async () => [saved], get: async () => saved } as unknown as IpcApi['saved'],
+      recent: { list: async () => [recent] } as unknown as IpcApi['recent'],
+      query: { find: vi.fn(async () => ({ documents: [], durationMs: 1, hasMore: false })), count: async () => ({ count: 0 }) },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    return updateSpy;
+  }
+
+  it.each(['Saved', 'Recent'] as const)('Run here from %s writes filterDraft: undefined with the loaded queryRaw', async (tab) => {
+    const updateSpy = mountLoading(tab);
+
+    fireEvent.click(await screen.findByTitle('Run here'));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"z":{"$eq":"loaded"}}'));
+    expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined });
   });
 });
