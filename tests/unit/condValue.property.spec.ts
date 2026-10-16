@@ -28,7 +28,18 @@ describe('condValue properties', () => {
   it('a list of chips survives being written to the value and read back', () => {
     fc.assert(
       fc.property(fc.array(chipArb), (chips) => {
-        expect(chipsFromValue(valueFromChips(chips))).toEqual(chips);
+        expect(chipsFromValue(valueFromChips(chips), 'array')).toEqual(chips);
+      }),
+    );
+  });
+
+  it('every chip a list shows reads back as itself once edited, in every row type', () => {
+    const valTypes: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'objectid', 'array'];
+    fc.assert(
+      fc.property(fc.array(chipArb, { maxLength: 4 }), fc.constantFrom(...valTypes), (els, vt) => {
+        const chips = chipsFromValue(valueFromChips(els), vt);
+        if (chips === null) return;
+        expect(chips.map((c) => parseChipText(chipText(c, vt), vt))).toEqual(chips);
       }),
     );
   });

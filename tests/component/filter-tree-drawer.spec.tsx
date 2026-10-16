@@ -901,7 +901,8 @@ describe('Filter drawer — type-aware value editors', () => {
     });
 
     it('a typed number or quoted text keeps its type', async () => {
-      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":[]}}' }));
+      // An empty list in the text stays a raw clause, so the list starts with one item.
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a"]}}' }));
 
       const chipBox = await screen.findByRole('combobox', { name: 'Values' });
       fireEvent.change(chipBox, { target: { value: '42' } });
@@ -909,7 +910,7 @@ describe('Filter drawer — type-aware value editors', () => {
       fireEvent.change(chipBox, { target: { value: '"42"' } });
       fireEvent.keyDown(chipBox, { key: 'Enter' });
 
-      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":[42,"42"]}}'));
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a",42,"42"]}}'));
     });
 
     it('a string list keeps typed digits as text', async () => {
