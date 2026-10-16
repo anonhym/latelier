@@ -117,6 +117,12 @@ W14 §2 called the badge a fix for "nothing indicates that projection / sort /
 limit exist and are hidden". It is a fix for users who already know they
 exist. It is not discovery.
 
+> **Shipped (pointer):** under the filter tree the drawer carries one muted
+> line: sort, limit and skip are set in the query bar's advanced row, and
+> projection is under Fields. It is static text, not a control — a pointer is
+> enough once the reader knows where to look.
+
+
 ### 1.3 The drawer is dimmed dead weight on two of three views — P2
 
 `Workspace.tsx:2366-2373` keeps `BuilderPane` mounted under `opacity: 0.35`,
@@ -297,6 +303,12 @@ budget: page 2 of a limit-10 query returns fewer rows, past the cap
 
 That is a defensible design. It is also indistinguishable, from the UI, from
 "the query broke on page 3". The label is one word: `limit`.
+
+> **Shipped (semantics):** the limit field names its meaning on hover, on
+> keyboard focus and to a screen reader: the limit is the total across all
+> pages, not per page, and a query stops after 30 seconds or when its result
+> passes 50 MB. The same sentence is used wherever the limit is explained.
+
 
 ### 4.3 The server caps limit at 1000 invisibly — P2
 
@@ -840,6 +852,15 @@ There is no feedback between editing the tree and pressing Run. A debounced
 (`shared/ipc.ts:224`), it is already fired in the background by the runner
 (`useQueryRunner.ts:192-205`), and `countDocuments` carries its own 5s budget —
 would show "≈1,240 match" as the user builds.
+
+> **Shipped:** a line under the filter tree reads "≈1,240 match", "Counting…"
+> or "Match count unavailable". It counts the committed filter text — the one
+> Run would send — half a second after the last edit, so a row the printer
+> refused is never counted. It asks nothing for an empty filter, while a
+> "not applied" banner or the invalid-text banner shows, and not at all after
+> one count has failed or timed out, until the drawer is opened again. A
+> response that arrives after a newer request was sent is ignored.
+
 
 The value is not the number; it is catching "0 match" while the mistake is
 still on screen, instead of after a Run that returns an empty table.
