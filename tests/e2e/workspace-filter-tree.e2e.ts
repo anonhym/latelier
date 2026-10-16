@@ -6,7 +6,7 @@ import {
   withApp,
 } from '../helpers/e2eApp';
 import { WorkspacePage } from './pages';
-import { seedActiveConnectionWithDocs } from './helpers/uiSeed';
+import { seedActiveConnectionWithDocs, seedDocuments } from './helpers/uiSeed';
 import { expectConsoleClean, expectStatusDot } from './helpers/uiAsserts';
 
 test.afterAll(stopAllMemoryServers);
@@ -113,6 +113,97 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       await expect(win.getByText('match-ab')).not.toBeVisible();
       await expect(win.getByText('no-match-a-only')).not.toBeVisible();
       await expect(win.getByText('no-match-bc-only')).not.toBeVisible();
+    });
+  });
+});
+
+/**
+ * W13 §3 and §5.7 end to end: a switched-off condition leaves the filter that
+ * runs, survives a switch to another tab and back (from the tab's persisted
+ * draft), and a negated one runs as NOT against a real mongod.
+ */
+test('filter tree editor: switch a condition off, keep it across a tab switch, then negate it', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      const conn = await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Filter Toggle Target' },
+        {
+          dbName: 'shop',
+          collection: 'orders',
+          docs: [
+            { name: 'doc-xy', a: 'x', b: 'y' },
+            { name: 'doc-xz', a: 'x', b: 'z' },
+            { name: 'doc-wy', a: 'w', b: 'y' },
+          ],
+        },
+      );
+      await seedDocuments(win, {
+        connectionId: conn.id,
+        dbName: 'shop',
+        collection: 'users',
+        docs: [{ name: 'user-1' }],
+      });
+      await expectStatusDot(win, 'Filter Toggle Target', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await expect(win.getByText('doc-wy')).toBeVisible({ timeout: 8000 });
+
+      // ─── a = x AND b = y: one row ─────────────────────────────────────
+      const addCondition = win.getByRole('button', { name: 'Add condition' }).first();
+      await addCondition.click();
+      await win.getByPlaceholder('field').nth(0).fill('a');
+      await win.getByPlaceholder('value').nth(0).fill('x');
+      await addCondition.click();
+      await win.getByPlaceholder('field').nth(1).fill('b');
+      await win.getByPlaceholder('value').nth(1).fill('y');
+      await expect(ws.queryBarTextarea).toHaveValue('{"$and":[{"a":{"$eq":"x"}},{"b":{"$eq":"y"}}]}');
+
+      await ws.queryBarRunButton.click();
+      await expect(win.getByText('doc-xy')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('doc-xz')).not.toBeVisible();
+      await expect(win.getByText('doc-wy')).not.toBeVisible();
+
+      // ─── switch b off: two rows ───────────────────────────────────────
+      const includeB = win.getByRole('checkbox', { name: 'Include condition b' });
+      await includeB.uncheck();
+      await expect(ws.queryBarTextarea).toHaveValue('{"a":{"$eq":"x"}}');
+
+      await ws.queryBarRunButton.click();
+      await expect(win.getByText('doc-xz')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('doc-xy')).toBeVisible();
+      await expect(win.getByText('doc-wy')).not.toBeVisible();
+
+      // ─── another tab and back: b is still there, still off ───────────
+      // `shop` is already expanded, so the collection row is clicked directly.
+      await ws.collectionRow('shop', 'users').click();
+      await expect(ws.tabByName('users')).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+      await expect(win.getByPlaceholder('field')).toHaveCount(0);
+
+      await ws.tabByName('orders').click();
+      await expect(ws.tabByName('orders')).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+      await expect(win.getByPlaceholder('field').nth(1)).toHaveValue('b');
+      await expect(includeB).not.toBeChecked();
+
+      // ─── b back on, then NOT b: only a = x with b ≠ y ────────────────
+      await includeB.check();
+      await expect(ws.queryBarTextarea).toHaveValue('{"$and":[{"a":{"$eq":"x"}},{"b":{"$eq":"y"}}]}');
+      await win.getByRole('button', { name: 'Condition options' }).nth(1).click();
+      await win.getByRole('menuitem', { name: 'Negate (NOT)' }).click();
+      await expect(ws.queryBarTextarea).toHaveValue(
+        '{"$and":[{"a":{"$eq":"x"}},{"$nor":[{"b":{"$eq":"y"}}]}]}',
+      );
+
+      await ws.queryBarRunButton.click();
+      await expect(win.getByText('doc-xz')).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('doc-xy')).not.toBeVisible();
+      await expect(win.getByText('doc-wy')).not.toBeVisible();
     });
   });
 });
