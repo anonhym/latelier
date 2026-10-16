@@ -838,8 +838,11 @@ export function toRawNode(cond: CondNode): RawNode {
   return carryDisabled(cond, { kind: 'raw', json });
 }
 
-/** A conversion keeps the node switched off if it was: converting is not re-enabling. */
-function carryDisabled<T extends FilterNode>(from: FilterNode, to: T): T {
+/**
+ * A replacement keeps the node switched off if it was: converting a row, or
+ * dropping a field onto it, is not re-enabling it.
+ */
+export function carryDisabled<T extends FilterNode>(from: FilterNode, to: T): T {
   return from.disabled ? { ...to, disabled: true } : to;
 }
 

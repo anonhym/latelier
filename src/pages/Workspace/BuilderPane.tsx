@@ -39,6 +39,7 @@ import {
   unwrapGroup,
   toRawNode,
   tryParseRaw,
+  carryDisabled,
   nodeAt,
   type GroupNode,
   type CondNode,
@@ -447,11 +448,11 @@ function useRowDropHandlers(
           body: 'Dropping a field here replaces this hand-typed clause with a new condition. Undo puts it back.',
           confirmLabel: 'Replace',
         }).then((proceed) => {
-          if (proceed) applyEdit(updateAt(root, path, mergeOrReplaceDragged(node, dragged)));
+          if (proceed) applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
         });
         return;
       }
-      applyEdit(updateAt(root, path, mergeOrReplaceDragged(node, dragged)));
+      applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
     },
   };
 }

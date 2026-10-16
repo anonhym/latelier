@@ -637,3 +637,53 @@ describe('Filter drawer — a Saved or Recent load drops the draft', () => {
     expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined });
   });
 });
+
+describe('Filter drawer — a drop onto a switched-off row keeps it off', () => {
+  function dropOnRow(container: HTMLElement, rowKey: string, field: string, value: unknown) {
+    const row = container.querySelector(`[data-row-path="${rowKey}"]`)!;
+    expect(row).toBeTruthy();
+    const dataTransfer = {
+      types: [DRAGGED_FIELD_MIME],
+      getData: (type: string) => (type === DRAGGED_FIELD_MIME ? JSON.stringify({ field, value }) : ''),
+    };
+    fireEvent.dragOver(row, { dataTransfer });
+    fireEvent.drop(row, { dataTransfer });
+  }
+
+  it.each([
+    ['a condition', { ...B2, disabled: true }, 'Include condition b'],
+    ['a raw clause', { kind: 'raw' as const, json: '', disabled: true }, 'Include raw clause'],
+  ])('dropping onto %s that is switched off leaves it off and queryRaw unchanged', async (_what, row, label) => {
+    const { container, updateSpy } = mountWith(
+      makeState({ queryRaw: '{"a":{"$eq":1}}', filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, row) } }),
+    );
+    expect(((await screen.findByRole('checkbox', { name: label })) as HTMLInputElement).checked).toBe(false);
+
+    dropOnRow(container, '1', 'b', 5);
+
+    await waitFor(() => expect(lastWrittenDraft(updateSpy).found).toBe(true));
+    const { draft } = lastWrittenDraft(updateSpy);
+    expect(draft?.root.children[1]).toMatchObject({ kind: 'cond', field: 'b', disabled: true });
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+    expect((screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('a switched-off hand-typed raw clause stays off after the replace is confirmed', async () => {
+    const { container, updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { kind: 'raw', json: '{"z":1}', disabled: true }) },
+      }),
+    );
+    await screen.findByRole('checkbox', { name: 'Include raw clause' });
+
+    dropOnRow(container, '1', 'b', 5);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }));
+
+    await waitFor(() =>
+      expect(lastWrittenDraft(updateSpy).draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true }),
+    );
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+  });
+});
