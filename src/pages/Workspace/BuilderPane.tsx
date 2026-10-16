@@ -62,6 +62,7 @@ import type {
   ValType,
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
+import { useLiveMatchCount } from './useLiveMatchCount';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -1228,6 +1229,7 @@ function seedTree(text: string): { root: GroupNode; readOnly: boolean } {
  */
 function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerProps) {
   const T = themeVars;
+  const { meta } = useCollectionWorkspace();
   const [tree, setTree] = React.useState(() => seedTree(queryRaw));
   const [problems, setProblems] = React.useState<NodeProblem[]>([]);
   // The text this component itself last wrote (or last reconciled against)
@@ -1236,6 +1238,13 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
   // update it during render without tripping the no-refs-during-render rule.
   const [lastPrinted, setLastPrinted] = React.useState(queryRaw);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
+  const liveCount = useLiveMatchCount({
+    connectionId: meta.connectionId,
+    dbName: meta.dbName,
+    collection: meta.collection,
+    queryRaw,
+    paused: problems.length > 0 || tree.readOnly,
+  });
 
   // Single global catch-all for "the drag ended without landing anywhere I
   // control" — cancelled, dropped outside the window, Escape — covering
@@ -1367,6 +1376,15 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
           }}
         >
           Filter text isn&apos;t valid JSON — the tree below is the last valid version.
+        </div>
+      )}
+      {liveCount.state !== 'idle' && (
+        // `aria-live` without `role="status"`: the banners above are the
+        // drawer's status roles, and a count is not a problem report.
+        <div aria-live="polite" style={{ fontSize: 10, padding: '4px 10px', color: T.textMuted }}>
+          {liveCount.state === 'ok' && `≈${liveCount.count.toLocaleString()} match`}
+          {liveCount.state === 'counting' && 'Counting…'}
+          {liveCount.state === 'unavailable' && 'Match count unavailable'}
         </div>
       )}
       <GroupView
@@ -1621,6 +1639,10 @@ function BuilderPaneInner({
                 onCommit={onPatch}
                 suggestionContext={suggestionContext}
               />
+              <div style={{ fontSize: 10, color: T.textMuted }}>
+                Sort, limit and skip are set in the query bar&apos;s advanced row; projection is
+                under Fields.
+              </div>
             </div>
           </div>
 
