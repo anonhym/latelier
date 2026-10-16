@@ -266,7 +266,7 @@ test('filter tree editor: starters and chips build filters that run', async () =
       await chips.press('Enter');
       await chips.fill('c');
       await chips.press('Enter');
-      await expect(win.getByRole('button', { name: 'Remove c' })).toBeVisible();
+      await expect(win.getByRole('button', { name: 'Remove c', exact: true })).toBeVisible();
       await expect(ws.queryBarTextarea).toHaveValue('{"tags":{"$in":["a","c"]}}');
 
       await ws.queryBarRunButton.click();
