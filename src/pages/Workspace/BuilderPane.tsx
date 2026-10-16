@@ -46,6 +46,7 @@ import {
   type NodePath,
   type NodeProblem,
 } from './filterTree';
+import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } from './filterHistory';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
@@ -348,7 +349,11 @@ function insertRowKeepingFocus(
 
 interface TreeEditProps {
   root: GroupNode;
-  applyEdit: (next: GroupNode) => void;
+  /**
+   * Commits a new tree. Edits that pass the same `key` back to back are one
+   * undo step (typing in one box); structural edits pass none.
+   */
+  applyEdit: (next: GroupNode, key?: string) => void;
   readOnly: boolean;
   /**
    * `pathKey` of the single group/row currently highlighted as a drop
@@ -439,7 +444,7 @@ function useRowDropHandlers(
       if (node.kind === 'raw' && node.json.trim()) {
         void confirmDestructive({
           title: 'Replace this raw clause?',
-          body: 'Dropping a field here replaces this hand-typed clause with a new condition. It cannot be undone.',
+          body: 'Dropping a field here replaces this hand-typed clause with a new condition. Undo puts it back.',
           confirmLabel: 'Replace',
         }).then((proceed) => {
           if (proceed) applyEdit(updateAt(root, path, mergeOrReplaceDragged(node, dragged)));
@@ -517,7 +522,10 @@ function CondRow({
     { valueSources: DEFAULT_VALUE_SOURCES },
   );
 
-  const patch = (p: Partial<CondNode>) => applyEdit(updateAt(root, path, { ...node, ...p }));
+  const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
+  // Keystrokes in one text box of this row are one undo step, not one each.
+  const typeInto = (p: Pick<CondNode, 'field'> | Pick<CondNode, 'value'>) =>
+    patch(p, `${pathKey(path)}:${Object.keys(p).sort().join(',')}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
@@ -654,7 +662,7 @@ function CondRow({
             value={node.field}
             disabled={readOnly}
             onChange={(e) => {
-              patch({ field: e.target.value });
+              typeInto({ field: e.target.value });
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => setFieldPopoverOpen(true)}
@@ -820,7 +828,7 @@ function CondRow({
               value={node.value}
               disabled={readOnly}
               onChange={(e) => {
-                patch({ value: e.target.value });
+                typeInto({ value: e.target.value });
                 if (!valuePopoverOpen) setValuePopoverOpen(true);
               }}
               onFocus={() => setValuePopoverOpen(true)}
@@ -904,7 +912,7 @@ function RawRow({
   problem: string | undefined;
 }) {
   const T = themeVars;
-  const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }));
+  const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }), `${pathKey(path)}:json`);
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
   // NOT over any subtree is a one-child `$nor`: no new node kind, and it
@@ -1008,12 +1016,15 @@ function GroupView({
   setActiveDropPath,
   isRoot,
   suggestionContext,
+  headerExtra,
 }: TreeEditProps & {
   node: GroupNode;
   path: NodePath;
   problems: NodeProblem[];
   isRoot: boolean;
   suggestionContext: SuggestionContext | null;
+  /** Controls placed at the right end of this group's header (the root's Undo / Redo). */
+  headerExtra?: React.ReactNode;
 }) {
   const T = themeVars;
 
@@ -1196,6 +1207,7 @@ function GroupView({
             </ActionIcon>
           </Tooltip>
           <span style={{ flex: 1 }} />
+          {headerExtra}
           {!isRoot && !isNegation && (
             <Tooltip label="Negate group" withArrow>
               <ActionIcon
@@ -1386,22 +1398,27 @@ function seedTree(
 
 /**
  * The recursive filter-tree editor (W13 §5, §6). A *view* of `queryRaw`, not
- * its own source of truth: the local `root` is only ever seeded from
- * `queryRaw` (on mount, and again whenever `queryRaw` changes from outside
- * this component — §5.3's reconcile rule) and only ever written back to
- * `queryRaw` through `printFilter`'s fail-closed gate.
+ * its own source of truth: the local `root` is seeded on mount from the tab's
+ * draft when that still matches `queryRaw`, else from `queryRaw` itself
+ * (§5.7); re-seeded from `queryRaw` whenever it changes from outside this
+ * component (§5.3's reconcile rule); and only ever written back to `queryRaw`
+ * through `printFilter`'s fail-closed gate.
  *
- * Remounted (fresh `root`/`lastPrinted`/`problems`) whenever the caller
- * changes this component's `key` — done for the tab id (§5.6: two tabs
- * commonly share `queryRaw: '{}'`, so text equality alone can't detect a
- * tab switch) and for each Reset / Saved / Recent load (§5.3's other
+ * Remounted (fresh `root`/`lastPrinted`/`problems`/history) whenever the
+ * caller changes this component's `key` — done for the tab id (§5.6: two
+ * tabs commonly share `queryRaw: '{}'`, so text equality alone can't detect
+ * a tab switch) and for each Reset / Saved / Recent load (§5.3's other
  * external-edit triggers), which may coincidentally write the same text
  * the drawer already holds and so wouldn't otherwise be seen as a change.
  */
 function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: FilterDrawerProps) {
   const T = themeVars;
   const [seed] = React.useState(() => seedTree(queryRaw, filterDraft));
-  const [tree, setTree] = React.useState({ root: seed.root, readOnly: seed.readOnly });
+  // Undo / redo history of the tree (§5.7): in memory only, so a remount (tab
+  // switch, Reset, a Saved or Recent load) starts it afresh.
+  const [history, setHistory] = React.useState<History<GroupNode>>(() => initHistory(seed.root));
+  const [readOnly, setReadOnly] = React.useState(seed.readOnly);
+  const root = history.present;
   const [problems, setProblems] = React.useState<NodeProblem[]>(seed.problems);
   // The text this component itself last wrote (or last reconciled against)
   // — state, not a ref, so the reconcile check below (React's sanctioned
@@ -1435,12 +1452,15 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     setLastPrinted(queryRaw);
     const parsed = parseFilter(queryRaw);
     if (parsed.ok) {
-      setTree({ root: parsed.root, readOnly: false });
+      // The text moved under the drawer, so steps recorded against the old
+      // tree no longer apply: start the history again from the new one.
+      setHistory(initHistory(parsed.root));
+      setReadOnly(false);
       setProblems([]);
     } else {
       // §6a — invalid JSON in the bar freezes the drawer read-only on the
       // last valid tree rather than blanking it.
-      setTree((prev) => ({ root: prev.root, readOnly: true }));
+      setReadOnly(true);
     }
   }
 
@@ -1468,10 +1488,50 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     onCommit({ filterDraft: { root: nextRoot, queryRaw: lastPrinted } });
   };
 
-  const applyEdit = (nextRoot: GroupNode) => {
-    setTree({ root: nextRoot, readOnly: false });
+  const applyEdit = (nextRoot: GroupNode, key?: string) => {
+    setHistory((h) => pushHistory(h, nextRoot, key));
+    setReadOnly(false);
     commitRoot(nextRoot);
   };
+
+  // Undo and redo commit through the same path as any edit, so the tree
+  // they land on is printed, checked and written back like one.
+  const stepHistory = (step: (h: History<GroupNode>) => History<GroupNode>) => {
+    const next = step(history);
+    if (next === history) return;
+    setHistory(next);
+    commitRoot(next.present);
+  };
+
+  // Named for what they undo: a write's own Undo can be on screen at the same
+  // time (the toast after a save or delete), and two buttons both called
+  // "Undo" would leave a screen-reader user guessing which is which.
+  const historyButtons = (
+    <>
+      <Tooltip label="Undo filter edit" withArrow>
+        <ActionIcon
+          variant="default"
+          size="sm"
+          disabled={readOnly || !canUndo(history)}
+          onClick={() => stepHistory(undo)}
+          aria-label="Undo filter edit"
+        >
+          {I.undo}
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Redo filter edit" withArrow>
+        <ActionIcon
+          variant="default"
+          size="sm"
+          disabled={readOnly || !canRedo(history)}
+          onClick={() => stepHistory(redo)}
+          aria-label="Redo filter edit"
+        >
+          {I.redo}
+        </ActionIcon>
+      </Tooltip>
+    </>
+  );
 
   return (
     <div
@@ -1485,7 +1545,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       // GroupView didn't already claim and stop, so it always means the
       // root group.
       onDragOver={(e) => {
-        if (tree.readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
         // Reaching this handler at all means no GroupView's own
@@ -1495,7 +1555,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         if (activeDropPath !== 'root') setActiveDropPath('root');
       }}
       onDrop={(e) => {
-        if (tree.readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
         e.preventDefault();
         setActiveDropPath(null);
         const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
@@ -1511,7 +1571,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       // such a drag at all, but this is defense in depth for any other
       // payload source, since `condFromDragged` crashes downstream on one.
       if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
-        applyEdit(insertAt(tree.root, [], condFromDragged(dragged)));
+        applyEdit(insertAt(root, [], condFromDragged(dragged)));
       }}
       style={{
         border: `1.5px solid ${T.border}`,
@@ -1534,10 +1594,10 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
             borderBottom: `1px solid ${T.redBorder}`,
           }}
         >
-          ⚠ {problems.length} not applied: {problemLabels(tree.root, problems).join(', ')}
+          ⚠ {problems.length} not applied: {problemLabels(root, problems).join(', ')}
         </div>
       )}
-      {tree.readOnly && (
+      {readOnly && (
         <div
           role="alert"
           style={{
@@ -1552,16 +1612,17 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         </div>
       )}
       <GroupView
-        node={tree.root}
+        node={root}
         path={[]}
-        root={tree.root}
+        root={root}
         applyEdit={applyEdit}
         problems={problems}
-        readOnly={tree.readOnly}
+        readOnly={readOnly}
         activeDropPath={activeDropPath}
         setActiveDropPath={setActiveDropPath}
         isRoot
         suggestionContext={suggestionContext}
+        headerExtra={historyButtons}
       />
     </div>
   );
@@ -1648,8 +1709,8 @@ function BuilderPaneInner({
   // Reset sits in the footer beside Save and can discard a tree that
   // represents arbitrarily much work, so it goes through a confirm rather
   // than wiping the whole tree and `queryRaw` on one click with no recovery.
-  // Undo on the tree (§14.6) would be the better long-run answer and is its
-  // own feature; a confirm is what closes the hole today.
+  // The tree's own Undo can't stand in for it: Reset remounts the drawer, and
+  // the history lives and dies with the mount.
   // `confirmDestructive` is the one confirm the app has, not a fourth
   // hand-rolled dialog.
   const handleReset = () => {

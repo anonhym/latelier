@@ -505,3 +505,63 @@ describe('Filter drawer — insert a condition between rows', () => {
     await waitFor(() => expect(fieldValues()).toEqual(['a', '']));
   });
 });
+
+describe('Filter drawer — undo / redo', () => {
+  const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+
+  function undoButton(): HTMLButtonElement {
+    return screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+  }
+  function redoButton(): HTMLButtonElement {
+    return screen.getByRole('button', { name: 'Redo filter edit' }) as HTMLButtonElement;
+  }
+
+  it('undo puts a removed condition back in queryRaw, and redo removes it again', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    expect(undoButton().disabled).toBe(true);
+    expect(redoButton().disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(AB));
+    expect(fieldValues()).toEqual(['a', 'b']);
+    expect(undoButton().disabled).toBe(true);
+
+    fireEvent.click(redoButton());
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a']);
+    expect(redoButton().disabled).toBe(true);
+  });
+
+  it('typing into one field is a single undo step', async () => {
+    mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const field = await screen.findByPlaceholderText('field');
+    for (const v of ['s', 'st', 'sta']) fireEvent.change(field, { target: { value: v } });
+    await waitFor(() => expect(fieldValues()).toEqual(['sta']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual(['']));
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+  });
+
+  it('an edit to the filter text from outside the drawer clears the history', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(undoButton().disabled).toBe(false));
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"c":1}' } });
+
+    await waitFor(() => expect(fieldValues()).toEqual(['c']));
+    expect(undoButton().disabled).toBe(true);
+  });
+});
