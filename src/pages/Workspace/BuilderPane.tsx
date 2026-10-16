@@ -40,6 +40,7 @@ import {
   toRawNode,
   tryParseRaw,
   carryDisabled,
+  isGroupNode,
   nodeAt,
   type GroupNode,
   type CondNode,
@@ -1389,7 +1390,9 @@ function seedTree(
   text: string,
   draft: FilterDraft | undefined,
 ): { root: GroupNode; readOnly: boolean; problems: NodeProblem[] } {
-  if (draft && draft.queryRaw === text && draft.root.kind === 'group') {
+  // A persisted tree is only data until checked: a malformed one falls back
+  // to the text rather than reaching the printer.
+  if (draft && draft.queryRaw === text && isGroupNode(draft.root)) {
     const printed = printFilter(draft.root);
     if (!printed.ok) return { root: draft.root, readOnly: false, problems: printed.problems };
     if (printed.json === text) return { root: draft.root, readOnly: false, problems: [] };

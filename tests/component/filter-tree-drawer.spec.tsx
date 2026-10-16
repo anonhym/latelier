@@ -353,6 +353,20 @@ describe('Filter drawer — the persisted draft', () => {
     expect(fieldValues()).toEqual(['a', 'b']);
   });
 
+  it('ignores a malformed draft and seeds from the text, without throwing', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: { kind: 'group', logic: '$and' } as unknown as GroupNode,
+        },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
   it('ignores a draft written for other filter text', async () => {
     mountWith(
       makeState({

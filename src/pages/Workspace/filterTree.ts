@@ -18,6 +18,50 @@ export type { CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
 /** Node identity IS its position. No generated ids to keep stable. */
 export type NodePath = readonly number[];
 
+const VAL_TYPES: ReadonlySet<string> = new Set<ValType>([
+  'string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array',
+]);
+
+function isOptionalFlag(v: unknown): boolean {
+  return v === undefined || typeof v === 'boolean';
+}
+
+function isFilterNode(v: unknown): v is FilterNode {
+  if (!isPlainObject(v) || !isOptionalFlag(v.disabled)) return false;
+  switch (v.kind) {
+    case 'cond':
+      return (
+        typeof v.field === 'string' &&
+        typeof v.op === 'string' &&
+        VAL_TYPES.has(v.valType as string) &&
+        typeof v.value === 'string'
+      );
+    case 'raw':
+      return typeof v.json === 'string';
+    case 'group':
+      return isGroupNode(v);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Structural check for a tree read back from storage (a tab's persisted
+ * draft, §5.7), which the type system can't vouch for: a hand-edited or
+ * older row could lack `children` and crash the printer. Every node is
+ * checked, all the way down.
+ */
+export function isGroupNode(v: unknown): v is GroupNode {
+  return (
+    isPlainObject(v) &&
+    v.kind === 'group' &&
+    LOGIC_KEYS.has(v.logic as string) &&
+    isOptionalFlag(v.disabled) &&
+    Array.isArray(v.children) &&
+    v.children.every(isFilterNode)
+  );
+}
+
 // ─── §2 parseFilter ──────────────────────────────────────────────────────────
 
 export type ParseOutcome = { ok: true; root: GroupNode } | { ok: false; reason: string };

@@ -11,6 +11,7 @@ import {
   wrapInGroup,
   unwrapGroup,
   andAtRoot,
+  isGroupNode,
   toRawNode,
   tryParseRaw,
   coerceArrayElementWire,
@@ -1724,5 +1725,45 @@ describe('andAtRoot — require one more condition of the whole filter (§4)', (
     expect(mustPrint(next)).toBe(
       `{"$and":[{"${logic}":[{"a":{"$eq":"x"}},{"b":{"$eq":"x"}}]},{"c":{"$eq":"x"}}]}`,
     );
+  });
+});
+
+describe('isGroupNode — a persisted tree is checked before it is trusted (§5.7)', () => {
+  const good = group('$and', [
+    { ...cond({ field: 'a' }), disabled: true },
+    raw('{"b":1}'),
+    group('$nor', [cond({ field: 'c', valType: 'number', value: '2' })]),
+  ]);
+
+  it('accepts a well-formed tree', () => {
+    expect(isGroupNode(good)).toBe(true);
+    expect(isGroupNode(group('$or', []))).toBe(true);
+  });
+
+  it('round-trips through JSON, as a persisted draft does', () => {
+    expect(isGroupNode(JSON.parse(JSON.stringify(good)))).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['an array', []],
+    ['a string', 'group'],
+    ['a cond at the root', cond()],
+    ['a group without children', { kind: 'group', logic: '$and' }],
+    ['children that are not an array', { kind: 'group', logic: '$and', children: {} }],
+    ['an unknown logic', { kind: 'group', logic: '$xor', children: [] }],
+    ['a non-boolean disabled', { kind: 'group', logic: '$and', children: [], disabled: 'yes' }],
+    ['a nested group without children', group('$and', [{ kind: 'group', logic: '$or' } as unknown as FilterNode])],
+    ['a nested unknown kind', group('$and', [{ kind: 'text', json: '{}' } as unknown as FilterNode])],
+    ['a nested non-object', group('$and', [null as unknown as FilterNode])],
+    ['a cond without value', group('$and', [{ kind: 'cond', field: 'a', op: '$eq', valType: 'string' } as unknown as FilterNode])],
+    ['a cond with a numeric field', group('$and', [{ ...cond(), field: 1 } as unknown as FilterNode])],
+    ['a cond with a numeric op', group('$and', [{ ...cond(), op: 1 } as unknown as FilterNode])],
+    ['a cond with an unknown valType', group('$and', [{ ...cond(), valType: 'blob' } as unknown as FilterNode])],
+    ['a cond with a non-boolean disabled', group('$and', [{ ...cond(), disabled: 1 } as unknown as FilterNode])],
+    ['a raw node whose json is not text', group('$and', [{ kind: 'raw', json: { b: 1 } } as unknown as FilterNode])],
+    ['a raw node with a non-boolean disabled', group('$and', [{ ...raw('{}'), disabled: null } as unknown as FilterNode])],
+  ])('rejects %s', (_what, value) => {
+    expect(isGroupNode(value)).toBe(false);
   });
 });
