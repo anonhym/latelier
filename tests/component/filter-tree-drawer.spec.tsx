@@ -595,6 +595,34 @@ describe('Filter drawer — insert a condition between rows', () => {
   });
 });
 
+describe('Filter drawer — a bar edit that comes back to the same text', () => {
+  it('a typo in the bar, then deleted, keeps the switched-off row, the undo history and the draft', async () => {
+    const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
+    const { updateSpy } = mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include condition b' }));
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    const callsBefore = updateSpy.mock.calls.length;
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"a":{"$eq":1}}x' } });
+    await screen.findByText(/isn't valid JSON/);
+    fireEvent.change(bar, { target: { value: '{"a":{"$eq":1}}' } });
+    await waitFor(() => expect(screen.queryByText(/isn't valid JSON/)).toBeNull());
+
+    expect(fieldValues()).toEqual(['a', 'b']);
+    expect((screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement).checked).toBe(false);
+    const undo = screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+    expect(undo.disabled).toBe(false);
+    // The draft holding the switched-off row is not cleared.
+    const later = updateSpy.mock.calls.slice(callsBefore).map((c) => (c as unknown[])[1] as { state?: object });
+    expect(later.some((arg) => arg.state && 'filterDraft' in arg.state)).toBe(false);
+
+    fireEvent.click(undo);
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(AB));
+  });
+});
+
 describe('Filter drawer — undo / redo', () => {
   const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
 

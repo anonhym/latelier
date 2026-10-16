@@ -1461,8 +1461,15 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // lands.
   if (queryRaw !== lastPrinted) {
     setLastPrinted(queryRaw);
+    const current = printFilter(history.present);
     const parsed = parseFilter(queryRaw);
-    if (parsed.ok) {
+    if (current.ok && current.json === queryRaw) {
+      // The text came back to what the tree already prints (a typo in the
+      // bar, then deleted): keep the tree, with its switched-off and pending
+      // rows, its history and its draft.
+      setReadOnly(false);
+      setProblems([]);
+    } else if (parsed.ok) {
       // The text moved under the drawer, so steps recorded against the old
       // tree no longer apply: start the history again from the new one.
       setHistory(initHistory(parsed.root));
