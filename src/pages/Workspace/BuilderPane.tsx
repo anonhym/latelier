@@ -1450,6 +1450,11 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // "derive state from a changed prop" pattern, see react.dev) can read and
   // update it during render without tripping the no-refs-during-render rule.
   const [lastPrinted, setLastPrinted] = React.useState(queryRaw);
+  // The text the tree was last in sync with: the one it was seeded or
+  // re-parsed from, or the last one it printed. A blocked tree still stands
+  // for it, since its rows that print are unchanged. `null` when the drawer
+  // opened frozen on text that doesn't parse: no tree stands for any text.
+  const [syncedText, setSyncedText] = React.useState<string | null>(seed.readOnly ? null : queryRaw);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
   const liveCount = useLiveMatchCount({
     connectionId: meta.connectionId,
@@ -1490,15 +1495,16 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // lands.
   if (queryRaw !== lastPrinted) {
     setLastPrinted(queryRaw);
-    const current = printFilter(history.present);
     const parsed = parseFilter(queryRaw);
-    if (current.ok && current.json === queryRaw) {
-      // The text came back to what the tree already prints (a typo in the
-      // bar, then deleted): keep the tree, with its switched-off and pending
-      // rows, its history and its draft.
+    if (queryRaw === syncedText) {
+      // The text came back to the one the tree stands for (a typo in the
+      // bar, then deleted): keep the tree, with its switched-off, pending and
+      // blocked rows, its history and its draft.
+      const current = printFilter(history.present);
       setReadOnly(false);
-      setProblems([]);
+      setProblems(current.ok ? [] : current.problems);
     } else if (parsed.ok) {
+      setSyncedText(queryRaw);
       // The text moved under the drawer, so steps recorded against the old
       // tree no longer apply: start the history again from the new one.
       setHistory(initHistory(parsed.root));
@@ -1529,6 +1535,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       // §5.4 — a pending row (empty field / blank raw json) or a switched-off
       // one prints to the same text as before; leave `queryRaw` out of the
       // patch so "+ Condition" / "+ Raw" truly leaves it untouched.
+      setSyncedText(printed.json);
       if (printed.json !== lastPrinted) {
         setLastPrinted(printed.json);
         onCommit({ queryRaw: printed.json, filterDraft: { root: nextRoot, queryRaw: printed.json } });

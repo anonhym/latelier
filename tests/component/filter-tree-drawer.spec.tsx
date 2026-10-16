@@ -619,6 +619,44 @@ describe('Filter drawer — a bar edit that comes back to the same text', () => 
   });
 });
 
+describe('Filter drawer — a bar edit that comes back to the same text, over a blocked row', () => {
+  it('a typo in the bar, then deleted, keeps a row that does not print and the undo history', async () => {
+    const OID = '507f1f77bcf86cd799439011';
+    const AO = `{"$and":[{"a":{"$eq":1}},{"o":{"$eq":{"$oid":"${OID}"}}}]}`;
+    const { updateSpy } = mountWith(makeState({ queryRaw: AO }));
+    const oid = (await screen.findByDisplayValue(OID)) as HTMLInputElement;
+    fireEvent.change(oid, { target: { value: 'abc' } });
+    await screen.findByText(/not applied/);
+    expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: `${AO}x` } });
+    await screen.findByText(/isn't valid JSON/);
+    fireEvent.change(bar, { target: { value: AO } });
+    await waitFor(() => expect(screen.queryByText(/isn't valid JSON/)).toBeNull());
+
+    expect(screen.getByDisplayValue('abc')).toBeTruthy();
+    expect(screen.getByText(/not applied/)).toBeTruthy();
+    const undo = screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+    expect(undo.disabled).toBe(false);
+    fireEvent.click(undo);
+    await waitFor(() => expect(screen.getByDisplayValue(OID)).toBeTruthy());
+  });
+});
+
+describe('Filter drawer — invalid bar text, edited and put back', () => {
+  it('stays frozen read-only: there is no tree the text stands for', async () => {
+    mountWith(makeState({ queryRaw: '{"a":' }));
+    await screen.findByText(/isn't valid JSON/);
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: '{"a":x' } });
+    fireEvent.change(bar, { target: { value: '{"a":' } });
+
+    await screen.findByText(/isn't valid JSON/);
+    expect(screen.getByRole('button', { name: 'Add condition' })).toHaveProperty('disabled', true);
+  });
+});
+
 describe('Filter drawer — undo / redo', () => {
   const AB = '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}';
 
