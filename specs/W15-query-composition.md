@@ -866,6 +866,8 @@ Shipped: the value editor follows the row's type and operator.
   input's description. That covers:
   - an ObjectId that isn't 24 hex characters, alone or in a list;
   - date text that isn't a date;
+  - a list item of a number, long or decimal row that a single value of that
+    row couldn't be (`abc`, `1.5` for a long, an empty item, `null`);
   - an empty `$in` / `$nin`, which matches nothing (or everything) and is never
     what a list was started for.
 

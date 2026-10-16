@@ -1818,6 +1818,43 @@ describe('printFilter blocks a value the server cannot use', () => {
     expect(problemOf(cond({ op: '$in', valType: 'array', value: `[1,{"$oid":"${OID}"}]` }))).toBeUndefined();
   });
 
+  it('a number, long or decimal list item is held to the rule its single value is', () => {
+    const notNumber = 'Value must be a valid number';
+    // Each of these used to print: "abc" and "" as null and 0, null as 0, true as 1.
+    for (const value of ['["abc"]', '[1,"abc"]', '[""]', '[null]', '[true]', '[[1]]', '[" "]', '[{"$numberDecimal":"5"}]']) {
+      expect(problemOf(cond({ op: '$in', valType: 'number', value }))).toBe(notNumber);
+    }
+    expect(problemOf(cond({ op: '$nin', valType: 'number', value: '["9007199254740993"]' }))).toBe(
+      'Contains a number too large to represent exactly — use {"$numberLong": "..."} or {"$numberDecimal": "..."} instead',
+    );
+    // `$mod` keeps its own rule, whatever the row's type.
+    expect(problemOf(cond({ op: '$mod', valType: 'number', value: '[2,"x"]' }))).toBe(
+      '$mod remainder must be a finite number',
+    );
+    for (const value of ['["1.5"]', '["abc"]', '[null]', '[{"$numberLong":5}]', '[{"$numberLong":"x"}]']) {
+      expect(problemOf(cond({ op: '$in', valType: 'long', value }))).toBe('Long value must be an integer');
+    }
+    for (const value of ['["abc"]', '[""]', '[{"$numberDecimal":"1.2.3"}]']) {
+      expect(problemOf(cond({ op: '$all', valType: 'decimal', value }))).toBe('Decimal value must be a number');
+    }
+  });
+
+  it('a valid number, long or decimal list prints as it did', () => {
+    const printed = (c: Partial<CondNode>) => {
+      const p = printFilter(group('$and', [cond({ field: 'n', ...c })]));
+      return p.ok ? p.json : p.problems[0]?.message;
+    };
+    expect(printed({ op: '$in', valType: 'number', value: '[1,"2"," 3 ",-4.5,"1e3"]' })).toBe(
+      '{"n":{"$in":[1,2,3,-4.5,1000]}}',
+    );
+    expect(printed({ op: '$nin', valType: 'long', value: '["9007199254740993",-2,{"$numberLong":"7"}]' })).toBe(
+      '{"n":{"$nin":[{"$numberLong":"9007199254740993"},{"$numberLong":"-2"},{"$numberLong":"7"}]}}',
+    );
+    expect(printed({ op: '$in', valType: 'decimal', value: '["1.50",2,{"$numberDecimal":".5e-3"}]' })).toBe(
+      '{"n":{"$in":[{"$numberDecimal":"1.50"},{"$numberDecimal":"2"},{"$numberDecimal":".5e-3"}]}}',
+    );
+  });
+
   it('a date the server cannot read does not print', () => {
     const msg = 'Date must be a date, e.g. 2026-01-31T00:00:00Z';
     expect(problemOf(cond({ op: '$gte', valType: 'date', value: 'garbage' }))).toBe(msg);

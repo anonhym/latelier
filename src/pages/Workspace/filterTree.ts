@@ -491,6 +491,46 @@ export function buildScalarWire(valType: ValType, value: string): unknown {
   }
 }
 
+/** Why `text` is not a value of a number, long or decimal row, or null when it is (or the type is another). */
+function numericTextProblem(valType: ValType, text: string): string | null {
+  if (valType === 'number') {
+    const n = Number(text);
+    if (text.trim() === '' || !Number.isFinite(n)) return 'Value must be a valid number';
+    // §3a's big-integer guard, cond path: `number` is representable per §2b
+    // (unlike `long`/`decimal`, which carry exact text), so a plain-number
+    // cond skips the raw-node guard entirely. A value beyond 2^53 would
+    // otherwise round silently on print.
+    if (isUnsafeNumber(n)) return NUMBER_PRECISION_MESSAGE;
+  }
+  if (valType === 'long' && !/^[+-]?\d+$/.test(text.trim())) return 'Long value must be an integer';
+  if (
+    valType === 'decimal' &&
+    // `\d+(\.\d*)?` accepts exactly what `\d+\.?\d*` did, but the two digit
+    // runs can no longer be re-split against each other on a long numeric
+    // string — that ambiguity is the super-linear backtracking in S8786.
+    !/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(text.trim())
+  ) {
+    return 'Decimal value must be a number';
+  }
+  return null;
+}
+
+/**
+ * The text a list item stands for, checked by `numericTextProblem` (which
+ * ignores every type but number, long and decimal): '' for anything that is
+ * not a number, a string or the row's own wrapped form (null, true, a nested
+ * list), so it fails the row's rule instead of printing as 0, 1 or "null".
+ */
+function listItemText(valType: ValType, el: unknown): string {
+  if (typeof el === 'number' || typeof el === 'string') return String(el);
+  // A number row has no wrapped form: `Number()` turns any object into NaN.
+  const key = valType === 'long' ? '$numberLong' : '$numberDecimal';
+  const inner = isPlainObject(el) && valType !== 'number' ? el[key] : undefined;
+  // Stryker disable next-line StringLiteral: any non-numeric text fails every
+  // row's rule, so the exact text standing for "no value" is unobservable.
+  return typeof inner === 'string' ? inner : '';
+}
+
 /**
  * Blocking-validity checks for a cond (§3). Deliberately mirrors
  * `describeCondProblem` in builder.ts (same number/long/decimal/$mod
@@ -503,15 +543,9 @@ function condValueProblem(node: CondNode): string | null {
   if (!isCompilableOp(node.op)) return `${node.op} is not encodable — convert to a raw clause`;
   const isScalarNumeric =
     !ARRAY_VALUE_OPS.has(node.op) && node.op !== '$mod' && node.value.trim() !== '';
-  if (node.valType === 'number' && isScalarNumeric && !Number.isFinite(Number(node.value))) {
-    return 'Value must be a valid number';
-  }
-  if (node.valType === 'number' && isScalarNumeric) {
-    // §3a's big-integer guard, cond path: `number` is representable per §2b
-    // (unlike `long`/`decimal`, which carry exact text), so a plain-number
-    // cond skips the raw-node guard entirely. A scalar $gt/$eq/etc. beyond
-    // 2^53 would otherwise round silently on print.
-    if (isUnsafeNumber(Number(node.value))) return NUMBER_PRECISION_MESSAGE;
+  if (isScalarNumeric) {
+    const problem = numericTextProblem(node.valType, node.value);
+    if (problem) return problem;
   }
   if (
     // Not gated on node.valType: parseFilter always assigns array-value-op
@@ -526,23 +560,19 @@ function condValueProblem(node: CondNode): string | null {
   ) {
     return NUMBER_PRECISION_MESSAGE;
   }
-  if (node.valType === 'long' && isScalarNumeric && !/^[+-]?\d+$/.test(node.value.trim())) {
-    return 'Long value must be an integer';
-  }
-  if (
-    node.valType === 'decimal' &&
-    isScalarNumeric &&
-    // `\d+(\.\d*)?` accepts exactly what `\d+\.?\d*` did, but the two digit
-    // runs can no longer be re-split against each other on a long numeric
-    // string — that ambiguity is the super-linear backtracking in S8786.
-    !/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(node.value.trim())
-  ) {
-    return 'Decimal value must be a number';
-  }
   if ((node.op === '$in' || node.op === '$nin') && parseJsonArrayLenient(node.value).length === 0) {
     // An empty `$in` matches nothing and an empty `$nin` everything; neither
     // is what a person building a list means, so the row waits for a value.
     return `${node.op} needs at least one value`;
+  }
+  if (ARRAY_VALUE_OPS.has(node.op)) {
+    // A list a number, long or decimal row sends is held to the rule its
+    // single value is: otherwise "abc" prints as null, "" and null as 0, and
+    // a long or decimal the server cannot read goes out as written.
+    for (const el of parseJsonArrayLenient(node.value)) {
+      const problem = numericTextProblem(node.valType, listItemText(node.valType, el));
+      if (problem) return problem;
+    }
   }
   for (const wire of sentWireValues(node)) {
     const problem = sentinelProblem(wire);
