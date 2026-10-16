@@ -72,6 +72,8 @@ import type {
 import { useCollectionWorkspace } from './context';
 import { useLiveMatchCount } from './useLiveMatchCount';
 import { CondValueEditor } from './CondValueEditor';
+import { useStructureEntries } from './useStructureEntries';
+import { condTypeWarning } from './condValue';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -494,6 +496,9 @@ function CondRow({
   const patchBox = (p: Partial<CondNode>, box?: string) =>
     patch(p, box === undefined ? undefined : `${pathKey(path)}:${box}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
+  // The sample is only a hint: it never blocks the row from printing.
+  const structureEntries = useStructureEntries(suggestionContext, node.field.trim() !== '');
+  const typeWarning = condTypeWarning(structureEntries, node);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
   // per keystroke: `>` is a prefix of `>=`, so a keystroke map would convert
@@ -812,6 +817,12 @@ function CondRow({
       {problem && (
         <span role="alert" style={{ fontSize: 10, color: T.warn, lineHeight: 1.3 }}>
           {problem}
+        </span>
+      )}
+
+      {typeWarning && (
+        <span style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
+          Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents
         </span>
       )}
     </div>

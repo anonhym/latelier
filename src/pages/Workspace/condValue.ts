@@ -1,6 +1,9 @@
 // Pure helpers behind the filter tree's type-aware value editors (W15 §14.3).
 // A condition's value is always text (`CondNode.value`); these convert between
 // that text and what each editor shows, without React.
+import type { CondNode, SchemaSampleEntry, ValType } from '@shared/types';
+import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
+import { coerceArrayElementWire, parseJsonArrayLenient } from './filterTree';
 
 export const SIMPLE_OPS: ReadonlySet<string> = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
 export const ARRAY_VALUE_OPS: ReadonlySet<string> = new Set(['$in', '$nin', '$all']);
@@ -130,4 +133,50 @@ export function chipText(el: Chip): string {
 
 export function valueFromChips(els: Chip[]): string {
   return JSON.stringify(els);
+}
+
+/** The `inferType` name of what a scalar `valType` sends; types with no single answer are absent. */
+const INFER_TYPE_OF: Partial<Record<ValType, string>> = {
+  string: 'string',
+  number: 'number',
+  long: 'long',
+  decimal: 'decimal',
+  boolean: 'boolean',
+  date: 'date',
+  objectid: 'objectid',
+};
+
+const NUMBER_FAMILY: ReadonlySet<string> = new Set(['number', 'long', 'decimal']);
+
+/** The `inferType` of what a condition's value sends, or `null` where a type comparison means nothing. */
+function sentType(cond: CondNode): string | null {
+  if (SIMPLE_OPS.has(cond.op)) return INFER_TYPE_OF[cond.valType] ?? null;
+  if (cond.op !== '$in' && cond.op !== '$nin') return null;
+  const first = parseJsonArrayLenient(cond.value)
+    .map((el) => coerceArrayElementWire(el, cond.valType))
+    .find((el) => el !== null);
+  return first === undefined ? null : inferType(first);
+}
+
+/**
+ * W15 §14.7 — does a condition's value disagree with the type the sampled
+ * documents hold for its field? Advisory: it never blocks printing.
+ *
+ * Silent wherever the comparison means nothing: an operator that doesn't
+ * compare a value (`$exists`, `$type`, `$regex`, `$all`, …), a `null` /
+ * `regex` / array value, a field the sample shows as an array (it matches by
+ * element), and number against long or decimal (MongoDB compares them as
+ * numbers).
+ */
+export function condTypeWarning(
+  entriesByPath: ReadonlyMap<string, SchemaSampleEntry>,
+  cond: CondNode,
+): TypeWarning | null {
+  const field = cond.field.trim();
+  const actual = sentType(cond);
+  if (field === '' || actual === null) return null;
+  const warning = checkFieldType(entriesByPath, field, actual);
+  if (!warning || warning.expectedType === 'array') return null;
+  if (NUMBER_FAMILY.has(warning.expectedType) && NUMBER_FAMILY.has(actual)) return null;
+  return warning;
 }

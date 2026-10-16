@@ -905,6 +905,22 @@ The precedent exists: `isApplicableOp` already drives an advisory for
 op-versus-type. This is the value-versus-schema half, from data already
 computed, and it stays advisory — sampling is not a constraint.
 
+Shipped: a condition whose value type disagrees with the sample shows a line
+under the row, such as "Sample: status is string in 100% of documents". It
+uses the same ≥90% dominance rule as the document editor's warning (W17) and
+the same cached sample, so every row of a collection shares one fetch, and a
+row with a blank field asks for none. It stays silent where the comparison
+means nothing:
+
+- `$exists`, `$type`, `$regex`, `$all` and the other operators that don't
+  compare one value;
+- `null`, `regex` and array values;
+- a field the sample shows as an array, which matches by element;
+- number against long or decimal.
+
+A `$in` / `$nin` list is checked by its first non-null element, as it is sent.
+The line is advisory and never blocks printing.
+
 ### 14.8 Starter templates — P2
 
 Nothing seeds a common shape. Saved queries cover per-collection reuse but

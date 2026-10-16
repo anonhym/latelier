@@ -947,3 +947,35 @@ describe('Filter drawer — type-aware value editors', () => {
     await waitFor(() => expect(screen.queryByPlaceholderText('value')).toBeNull());
   });
 });
+
+describe('Filter drawer — a value whose type disagrees with the sample', () => {
+  const statusSample = () => vi.fn(async () => ({ docs: Array(10).fill({ status: 'a' }) }));
+
+  it('says what the sampled documents hold, once per disagreeing row, from one sample', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState({ queryRaw: '{"$and":[{"status":{"$eq":5}},{"status":{"$eq":"x"}}]}' }), { sampleSchema });
+
+    expect(await screen.findByText('Sample: status is string in 100% of documents')).toBeTruthy();
+    expect(screen.getAllByText(/^Sample: /)).toHaveLength(1);
+    expect(sampleSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing when the value agrees', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState({ queryRaw: '{"status":{"$eq":"x"}}' }), { sampleSchema });
+
+    await waitFor(() => expect(sampleSchema).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/^Sample: /)).toBeNull();
+  });
+
+  it('does not sample for a row whose field is still blank', async () => {
+    const sampleSchema = statusSample();
+    mountWith(makeState(), { sampleSchema });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    await screen.findByPlaceholderText('field');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sampleSchema).not.toHaveBeenCalled();
+  });
+});

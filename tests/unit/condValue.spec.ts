@@ -11,7 +11,10 @@ import {
   valueFromChips,
   SIMPLE_OPS,
   ARRAY_VALUE_OPS,
+  condTypeWarning,
 } from '../../src/pages/Workspace/condValue';
+import { summarizeSchema } from '../../src/pages/Workspace/schemaSummary';
+import type { CondNode, ValType } from '@shared/types';
 
 const NOW = new Date('2026-10-15T12:00:00.000Z');
 
@@ -149,5 +152,88 @@ describe('operator sets', () => {
   it('names the scalar and array-value operators', () => {
     expect([...SIMPLE_OPS]).toEqual(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
     expect([...ARRAY_VALUE_OPS]).toEqual(['$in', '$nin', '$all']);
+  });
+});
+
+describe('condTypeWarning', () => {
+  const entries = new Map(
+    summarizeSchema(Array(10).fill({ status: 'a', n: 1, tags: ['x'], mixed: 1 }).concat(
+      Array(2).fill({ mixed: 'b' }),
+    )).map((e) => [e.path, e]),
+  );
+  const cond = (field: string, op: string, valType: ValType, value = ''): CondNode => ({
+    kind: 'cond',
+    field,
+    op,
+    valType,
+    value,
+  });
+
+  it('warns when the value type disagrees with what the sample holds', () => {
+    expect(condTypeWarning(entries, cond('status', '$eq', 'number', '5'))).toEqual({
+      field: 'status',
+      expectedType: 'string',
+      actualType: 'number',
+      percent: 100,
+    });
+    for (const [vt, actual] of [
+      ['long', 'long'],
+      ['decimal', 'decimal'],
+      ['boolean', 'boolean'],
+      ['date', 'date'],
+      ['objectid', 'objectid'],
+    ] as const) {
+      expect(condTypeWarning(entries, cond('status', '$gt', vt))?.actualType).toBe(actual);
+    }
+    expect(condTypeWarning(entries, cond('n', '$lte', 'string', 'x'))?.expectedType).toBe('number');
+  });
+
+  it('is silent when the value type agrees', () => {
+    expect(condTypeWarning(entries, cond('status', '$eq', 'string', 'a'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$ne', 'string'))).toBeNull();
+  });
+
+  it('treats number, long and decimal as one family', () => {
+    expect(condTypeWarning(entries, cond('n', '$eq', 'long', '1'))).toBeNull();
+    expect(condTypeWarning(entries, cond('n', '$eq', 'decimal', '1'))).toBeNull();
+  });
+
+  it('checks a list by its first non-null element, as it is sent', () => {
+    expect(condTypeWarning(entries, cond('status', '$in', 'array', '[null,1,2]'))?.actualType).toBe('number');
+    expect(condTypeWarning(entries, cond('status', '$nin', 'array', '[1]'))?.actualType).toBe('number');
+    expect(condTypeWarning(entries, cond('status', '$in', 'array', '["a"]'))).toBeNull();
+    // A string-typed list sends every element as a string.
+    expect(condTypeWarning(entries, cond('status', '$in', 'string', '[1,2]'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$in', 'array', '[]'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$in', 'array', '[null]'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$in', 'array', 'oops'))).toBeNull();
+  });
+
+  it('stays silent where a type comparison means nothing', () => {
+    // An array field matches its elements, so the field's own type says nothing.
+    expect(condTypeWarning(entries, cond('tags', '$eq', 'string', 'x'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$exists', 'string', 'true'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$type', 'string', 'number'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$regex', 'regex', 'a'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$all', 'array', '[1]'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$eq', 'null'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$eq', 'regex', 'a'))).toBeNull();
+    expect(condTypeWarning(entries, cond('status', '$eq', 'array', '[1]'))).toBeNull();
+    expect(condTypeWarning(entries, cond('nope', '$eq', 'number', '1'))).toBeNull();
+    expect(condTypeWarning(entries, cond('', '$eq', 'number', '1'))).toBeNull();
+    expect(condTypeWarning(entries, cond('  ', '$eq', 'number', '1'))).toBeNull();
+    // A field the sample shows as mixed has no type to disagree with.
+    expect(condTypeWarning(entries, cond('mixed', '$eq', 'boolean', 'true'))).toBeNull();
+  });
+
+  it('is silent for a blank field even when the sample has an empty-named field', () => {
+    // A blank field is a pending row, never printed, so nothing to warn about.
+    const withEmptyKey = new Map(summarizeSchema(Array(3).fill({ '': 'a' })).map((e) => [e.path, e]));
+    expect(withEmptyKey.has('')).toBe(true);
+    expect(condTypeWarning(withEmptyKey, cond('', '$eq', 'number', '1'))).toBeNull();
+  });
+
+  it('looks the field up by its trimmed name', () => {
+    expect(condTypeWarning(entries, cond(' status ', '$eq', 'number', '5'))?.field).toBe('status');
   });
 });
