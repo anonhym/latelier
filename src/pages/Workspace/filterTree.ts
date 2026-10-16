@@ -5,35 +5,18 @@
 //
 // See specs/W13-filter-tree-editor.md for the full spec this module
 // implements (§1 model, §2 parseFilter, §3 printFilter, §4 edit API).
-import type { ValType } from '@shared/types';
+import type { ValType, CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
 import { isCompilableOp } from './builder';
 
 // ─── §1 Model ────────────────────────────────────────────────────────────────
 
+// The node types live in `shared/types.ts`, because a tab's persisted
+// `filterDraft` holds a tree; they are re-exported here so callers keep one
+// import site.
+export type { CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
+
 /** Node identity IS its position. No generated ids to keep stable. */
 export type NodePath = readonly number[];
-
-export interface CondNode {
-  kind: 'cond';
-  field: string;
-  op: string; // any $-prefixed op; print validates
-  valType: ValType;
-  value: string; // raw text, typed at print time
-}
-
-export interface RawNode {
-  kind: 'raw';
-  /** One clause, verbatim. Printed byte-for-byte after a parse check. */
-  json: string;
-}
-
-export interface GroupNode {
-  kind: 'group';
-  logic: '$and' | '$or' | '$nor';
-  children: FilterNode[];
-}
-
-export type FilterNode = GroupNode | CondNode | RawNode;
 
 // ─── §2 parseFilter ──────────────────────────────────────────────────────────
 
@@ -630,6 +613,12 @@ function parseRawWithPrecisionCheck(
 type PrintNodeResult = { kind: 'value'; value: unknown } | { kind: 'pending' } | { kind: 'blocked' };
 
 function printNode(node: FilterNode, path: number[], problems: NodeProblem[]): PrintNodeResult {
+  // A disabled node, and its whole subtree, is pending: no clause, no
+  // problem. Checked before anything else so an invalid row the user has
+  // switched off never blocks the rest of the filter.
+  // Stryker disable next-line ObjectLiteral,StringLiteral: same inert
+  // 'pending' literal as the two below (see the PrintNodeResult note).
+  if (node.disabled) return { kind: 'pending' };
   if (node.kind === 'cond') {
     // Stryker disable next-line ObjectLiteral,StringLiteral
     if (node.field.trim() === '') return { kind: 'pending' }; // §5 pending rule
@@ -812,9 +801,16 @@ export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['l
  * fallback silently widen the group it sits in (§4).
  */
 export function toRawNode(cond: CondNode): RawNode {
-  if (cond.field.trim() === '') return { kind: 'raw', json: '' };
-  if (condValueProblem(cond)) return { kind: 'raw', json: '' };
-  return { kind: 'raw', json: JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } }) };
+  const json =
+    cond.field.trim() === '' || condValueProblem(cond)
+      ? ''
+      : JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } });
+  return carryDisabled(cond, { kind: 'raw', json });
+}
+
+/** A conversion keeps the node switched off if it was: converting is not re-enabling. */
+function carryDisabled<T extends FilterNode>(from: FilterNode, to: T): T {
+  return from.disabled ? { ...to, disabled: true } : to;
 }
 
 /**
@@ -837,5 +833,5 @@ export function tryParseRaw(raw: RawNode): FilterNode {
     return raw;
   }
   if (!isPlainObject(parsed)) return raw;
-  return collapseToNode(parseClauseToNodes(parsed));
+  return carryDisabled(raw, collapseToNode(parseClauseToNodes(parsed)));
 }

@@ -7,12 +7,12 @@
 // testing note, a test that only inspects rendered DOM structure can pass
 // against a tree the printer would refuse to run.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { CollectionTabState, WorkspaceTab } from '@shared/types';
+import type { CollectionTabState, GroupNode, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
 const now = '2026-08-04T12:00:00.000Z';
@@ -65,6 +65,29 @@ function lastWrittenQueryRaw(updateSpy: ReturnType<typeof vi.fn>): string | unde
     if (patch && 'queryRaw' in patch) return patch.queryRaw;
   }
   return undefined;
+}
+
+/** The most recent patch that carried a `filterDraft` key, and that key's value. */
+function lastWrittenDraft(
+  updateSpy: ReturnType<typeof vi.fn>,
+): { found: boolean; draft: CollectionTabState['filterDraft'] } {
+  for (let i = updateSpy.mock.calls.length - 1; i >= 0; i--) {
+    const arg = updateSpy.mock.calls[i]?.[1] as { state?: Partial<CollectionTabState> } | undefined;
+    const patch = arg?.state;
+    if (patch && 'filterDraft' in patch) return { found: true, draft: patch.filterDraft };
+  }
+  return { found: false, draft: undefined };
+}
+
+function fieldValues(): string[] {
+  return (screen.queryAllByPlaceholderText('field') as HTMLInputElement[]).map((f) => f.value);
+}
+
+const A1 = { kind: 'cond', field: 'a', op: '$eq', valType: 'number', value: '1' } as const;
+const B2 = { kind: 'cond', field: 'b', op: '$eq', valType: 'number', value: '2' } as const;
+
+function andRoot(...children: GroupNode['children']): GroupNode {
+  return { kind: 'group', logic: '$and', children };
 }
 
 function mountWith(state: CollectionTabState) {
@@ -278,5 +301,112 @@ describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §1
       expect(raw).toBeDefined();
       expect(JSON.parse(raw!)).toEqual({ active: { $eq: true } });
     });
+  });
+});
+
+describe('Filter drawer — switching a condition off (disable)', () => {
+  it('unchecking a row drops it from queryRaw but keeps it on screen, and re-checking brings it back', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include condition b' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a', 'b']);
+    const box = screen.getByRole('checkbox', { name: 'Include condition b' }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+
+    const { draft } = lastWrittenDraft(updateSpy);
+    expect(draft?.queryRaw).toBe('{"a":{"$eq":1}}');
+    expect(draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true });
+
+    fireEvent.click(box);
+    await waitFor(() =>
+      expect(lastWrittenQueryRaw(updateSpy)).toBe('{"$and":[{"a":{"$eq":1}},{"b":{"$eq":2}}]}'),
+    );
+  });
+
+  it('unchecking a nested group drops the whole group from queryRaw', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include group' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
+    expect(fieldValues()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('Filter drawer — the persisted draft', () => {
+  it('seeds from a matching draft, so a switched-off row is still there', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+
+    const box = (await screen.findByRole('checkbox', { name: 'Include condition b' })) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(fieldValues()).toEqual(['a', 'b']);
+  });
+
+  it('ignores a draft written for other filter text', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: { queryRaw: '{"x":{"$eq":1}}', root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
+  it('ignores a draft whose tree prints to something other than queryRaw', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        // Same text recorded, but the tree itself prints {"$and":[a, b]}:
+        // showing it would put a tree on screen that is not what runs.
+        filterDraft: { queryRaw: '{"a":{"$eq":1}}', root: andRoot(A1, B2) },
+      }),
+    );
+
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+  });
+
+  it('a draft holding a row that cannot print comes back with its "not applied" banner', async () => {
+    mountWith(
+      makeState({
+        queryRaw: '{"a":{"$eq":1}}',
+        filterDraft: {
+          queryRaw: '{"a":{"$eq":1}}',
+          root: andRoot(A1, { kind: 'cond', field: 'n', op: '$eq', valType: 'number', value: 'abc' }),
+        },
+      }),
+    );
+
+    const values = (await screen.findAllByPlaceholderText('value')) as HTMLInputElement[];
+    expect(values.map((v) => v.value)).toEqual(['1', 'abc']);
+    expect(screen.getByRole('status').textContent).toContain('1 not applied: n');
+  });
+
+  it('Reset clears the draft along with the filter', async () => {
+    const { updateSpy } = mountWith(
+      makeState({
+        queryRaw: '{}',
+        filterDraft: { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) },
+      }),
+    );
+    await waitFor(() => expect(fieldValues()).toEqual(['a']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Reset' })[0]!);
+
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    await waitFor(() => expect(lastWrittenDraft(updateSpy)).toEqual({ found: true, draft: undefined }));
   });
 });

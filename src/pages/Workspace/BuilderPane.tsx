@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import {
   ActionIcon,
   Button,
+  Checkbox,
   Menu,
   Select,
   Tabs,
@@ -56,6 +57,8 @@ import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type {
   BuilderState,
   BuilderTab,
+  CollectionTabState,
+  FilterNode,
   RecentQuery,
   SavedQuery,
   SavedQuerySummary,
@@ -83,6 +86,47 @@ function pathsEqual(a: NodePath, b: NodePath): boolean {
 
 function pathKey(path: NodePath): string {
   return path.length === 0 ? 'root' : path.join('.');
+}
+
+/**
+ * Switches a node off or back on. `undefined` rather than `false` when on, so
+ * a persisted draft carries the flag only where it means something.
+ */
+function toggleDisabled<T extends FilterNode>(node: T): T {
+  return { ...node, disabled: !node.disabled || undefined };
+}
+
+/** Opacity for the content of a switched-off row or group; its checkbox stays at full strength. */
+function dimFor(node: FilterNode): number | undefined {
+  return node.disabled ? 0.5 : undefined;
+}
+
+/**
+ * The "include" checkbox on a row or nested group. Unchecking leaves the node
+ * on screen and editable but out of the printed filter (W13 §3), which is how
+ * a user tries the query without one condition and gets it back unchanged.
+ */
+function IncludeBox({
+  node,
+  label,
+  readOnly,
+  onToggle,
+}: {
+  node: FilterNode;
+  label: string;
+  readOnly: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Checkbox
+      size="xs"
+      aria-label={label}
+      checked={!node.disabled}
+      disabled={readOnly}
+      onChange={onToggle}
+      style={{ flexShrink: 0 }}
+    />
+  );
 }
 
 /**
@@ -517,6 +561,8 @@ function CondRow({
   // regardless of which uncompilable text it was given, so a still-drafted
   // `$elemMatch` converts the same as a committed one would.
   const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
 
   // §6 — typing an unmodelled op (e.g. $elemMatch) is no longer a dead end:
   // offer a one-click escape to a raw clause the instant the op looks
@@ -552,139 +598,147 @@ function CondRow({
       }}
     >
       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-        <TextInput
-          ref={fieldInputRef}
-          placeholder="field"
-          value={node.field}
-          disabled={readOnly}
-          onChange={(e) => {
-            patch({ field: e.target.value });
-            if (!fieldPopoverOpen) setFieldPopoverOpen(true);
-          }}
-          onFocus={() => setFieldPopoverOpen(true)}
-          onBlur={() => {
-            window.setTimeout(() => setFieldPopoverOpen(false), 100);
-          }}
-          size="xs"
-          style={{ flex: 1 }}
+        <IncludeBox
+          node={node}
+          label={node.field.trim() ? `Include condition ${node.field}` : 'Include condition'}
+          readOnly={readOnly}
+          onToggle={toggle}
         />
-        <SuggestionPopover
-          open={fieldPopoverOpen}
-          items={fieldSuggestionItems}
-          anchorRef={fieldInputRef}
-          onSelect={(s) => {
-            if (s.kind === 'field') {
-              const nextValType = valTypeFromDisplayType(s.type);
-              const nextOp = opForValType(nextValType, node.op);
-              patch({ field: s.path, valType: nextValType, op: nextOp });
-            }
-            setFieldPopoverOpen(false);
-            fieldInputRef.current?.blur();
-          }}
-          onClose={() => setFieldPopoverOpen(false)}
-        />
-        <TextInput
-          ref={opInputRef}
-          placeholder="$op"
-          value={opValue}
-          disabled={readOnly}
-          onChange={(e) => {
-            setOpDraft(e.target.value);
-            if (!opPopoverOpen) setOpPopoverOpen(true);
-          }}
-          onFocus={() => setOpPopoverOpen(true)}
-          onKeyDown={handleOpKeyDown}
-          onBlur={() => {
-            commitOpDraft();
-            window.setTimeout(() => setOpPopoverOpen(false), 100);
-          }}
-          aria-invalid={!!problem}
-          title={problem ?? undefined}
-          error={!!problem}
-          size="xs"
-          style={{ width: 100, flexShrink: 0 }}
-          styles={{ input: { fontFamily: 'monospace' } }}
-        />
-        <SuggestionPopover
-          open={opPopoverOpen}
-          items={opSuggestionItems}
-          anchorRef={opInputRef}
-          label="Operator suggestions"
-          onSelect={(s) => {
-            if (s.kind === 'operator') {
-              // The popover blurs the input on its way out, so the blur
-              // handler runs next — against the *stale* `node.op`, because
-              // this patch has not rendered yet. Without the flag, choosing
-              // `$in` after typing `>` would land `$gt`: two patches in one
-              // tick, and `patch` spreads a stale `node` rather than taking a
-              // functional update.
-              symbolResolvedByPopover.current = true;
-              patch({ op: s.name });
-              // A pick is itself a commit (per the issue's fix shape) — clear
-              // the draft so the box falls back to `node.op` (about to become
-              // `s.name`) instead of showing the typed text the pick replaced.
-              setOpDraft(null);
-            }
-            setOpPopoverOpen(false);
-            opInputRef.current?.blur();
-          }}
-          onClose={() => setOpPopoverOpen(false)}
-        />
-        {showOpDocs && (
-          <OperatorTooltip name={node.op} prefClass="query" placement="below">
-            <button
-              type="button"
-              aria-label={`Documentation for ${node.op}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                border: `1px solid ${T.border}`,
-                background: 'none',
-                padding: 0,
-                margin: 0,
-                font: 'inherit',
-                color: T.textGhost,
-                fontSize: 10,
-                fontWeight: 600,
-                cursor: 'help',
-                flexShrink: 0,
-                userSelect: 'none',
-              }}
-            >
-              ?
-            </button>
-          </OperatorTooltip>
-        )}
-        <RowMenu
-          ariaLabel="Condition options"
-          disabled={readOnly}
-          onConvertToRaw={convertToRaw}
-          onWrap={wrap}
-          onDuplicate={duplicate}
-          onMove={move}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          rowKey={pathKey(path)}
-        />
-        <Tooltip label={removeLabel} withArrow>
-          <ActionIcon
-            variant="default"
-            color="red"
-            size="sm"
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1, minWidth: 0, opacity: dim }}>
+          <TextInput
+            ref={fieldInputRef}
+            placeholder="field"
+            value={node.field}
             disabled={readOnly}
-            onClick={remove}
-            aria-label={removeLabel}
-          >
-            {I.close}
-          </ActionIcon>
-        </Tooltip>
+            onChange={(e) => {
+              patch({ field: e.target.value });
+              if (!fieldPopoverOpen) setFieldPopoverOpen(true);
+            }}
+            onFocus={() => setFieldPopoverOpen(true)}
+            onBlur={() => {
+              window.setTimeout(() => setFieldPopoverOpen(false), 100);
+            }}
+            size="xs"
+            style={{ flex: 1 }}
+          />
+          <SuggestionPopover
+            open={fieldPopoverOpen}
+            items={fieldSuggestionItems}
+            anchorRef={fieldInputRef}
+            onSelect={(s) => {
+              if (s.kind === 'field') {
+                const nextValType = valTypeFromDisplayType(s.type);
+                const nextOp = opForValType(nextValType, node.op);
+                patch({ field: s.path, valType: nextValType, op: nextOp });
+              }
+              setFieldPopoverOpen(false);
+              fieldInputRef.current?.blur();
+            }}
+            onClose={() => setFieldPopoverOpen(false)}
+          />
+          <TextInput
+            ref={opInputRef}
+            placeholder="$op"
+            value={opValue}
+            disabled={readOnly}
+            onChange={(e) => {
+              setOpDraft(e.target.value);
+              if (!opPopoverOpen) setOpPopoverOpen(true);
+            }}
+            onFocus={() => setOpPopoverOpen(true)}
+            onKeyDown={handleOpKeyDown}
+            onBlur={() => {
+              commitOpDraft();
+              window.setTimeout(() => setOpPopoverOpen(false), 100);
+            }}
+            aria-invalid={!!problem}
+            title={problem ?? undefined}
+            error={!!problem}
+            size="xs"
+            style={{ width: 100, flexShrink: 0 }}
+            styles={{ input: { fontFamily: 'monospace' } }}
+          />
+          <SuggestionPopover
+            open={opPopoverOpen}
+            items={opSuggestionItems}
+            anchorRef={opInputRef}
+            label="Operator suggestions"
+            onSelect={(s) => {
+              if (s.kind === 'operator') {
+                // The popover blurs the input on its way out, so the blur
+                // handler runs next — against the *stale* `node.op`, because
+                // this patch has not rendered yet. Without the flag, choosing
+                // `$in` after typing `>` would land `$gt`: two patches in one
+                // tick, and `patch` spreads a stale `node` rather than taking a
+                // functional update.
+                symbolResolvedByPopover.current = true;
+                patch({ op: s.name });
+                // A pick is itself a commit (per the issue's fix shape) — clear
+                // the draft so the box falls back to `node.op` (about to become
+                // `s.name`) instead of showing the typed text the pick replaced.
+                setOpDraft(null);
+              }
+              setOpPopoverOpen(false);
+              opInputRef.current?.blur();
+            }}
+            onClose={() => setOpPopoverOpen(false)}
+          />
+          {showOpDocs && (
+            <OperatorTooltip name={node.op} prefClass="query" placement="below">
+              <button
+                type="button"
+                aria-label={`Documentation for ${node.op}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  border: `1px solid ${T.border}`,
+                  background: 'none',
+                  padding: 0,
+                  margin: 0,
+                  font: 'inherit',
+                  color: T.textGhost,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'help',
+                  flexShrink: 0,
+                  userSelect: 'none',
+                }}
+              >
+                ?
+              </button>
+            </OperatorTooltip>
+          )}
+          <RowMenu
+            ariaLabel="Condition options"
+            disabled={readOnly}
+            onConvertToRaw={convertToRaw}
+            onWrap={wrap}
+            onDuplicate={duplicate}
+            onMove={move}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            rowKey={pathKey(path)}
+          />
+          <Tooltip label={removeLabel} withArrow>
+            <ActionIcon
+              variant="default"
+              color="red"
+              size="sm"
+              disabled={readOnly}
+              onClick={remove}
+              aria-label={removeLabel}
+            >
+              {I.close}
+            </ActionIcon>
+          </Tooltip>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: dim }}>
         <Select
           value={node.valType}
           disabled={readOnly}
@@ -811,6 +865,8 @@ function RawRow({
   const duplicate = () => applyEdit(insertAt(root, path.slice(0, -1), { ...node }));
   const move = (delta: number) => moveRowKeepingFocus(root, path, delta, applyEdit);
   const tryParse = () => applyEdit(updateAt(root, path, tryParseRaw(node)));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   return (
@@ -829,51 +885,54 @@ function RawRow({
       }}
     >
       <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-        <textarea
-          value={node.json}
-          disabled={readOnly}
-          onChange={(e) => patchJson(e.target.value)}
-          placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
-          aria-label="Raw clause"
-          spellCheck={false}
-          rows={2}
-          style={{
-            flex: 1,
-            fontFamily: '"JetBrains Mono", monospace',
-            fontSize: 11,
-            padding: '4px 6px',
-            border: `1px solid ${problem ? T.warn : T.border}`,
-            borderRadius: T.rx,
-            background: T.bg,
-            color: T.text,
-            resize: 'vertical',
-            outline: 'none',
-          }}
-        />
-        <RowMenu
-          ariaLabel="Raw clause options"
-          disabled={readOnly}
-          onWrap={wrap}
-          onDuplicate={duplicate}
-          onMove={move}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          rowKey={pathKey(path)}
-        />
-        <Tooltip label="Remove raw clause" withArrow>
-          <ActionIcon
-            variant="default"
-            color="red"
-            size="sm"
+        <IncludeBox node={node} label="Include raw clause" readOnly={readOnly} onToggle={toggle} />
+        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
+          <textarea
+            value={node.json}
             disabled={readOnly}
-            onClick={remove}
-            aria-label="Remove raw clause"
-          >
-            {I.close}
-          </ActionIcon>
-        </Tooltip>
+            onChange={(e) => patchJson(e.target.value)}
+            placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
+            aria-label="Raw clause"
+            spellCheck={false}
+            rows={2}
+            style={{
+              flex: 1,
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: 11,
+              padding: '4px 6px',
+              border: `1px solid ${problem ? T.warn : T.border}`,
+              borderRadius: T.rx,
+              background: T.bg,
+              color: T.text,
+              resize: 'vertical',
+              outline: 'none',
+            }}
+          />
+          <RowMenu
+            ariaLabel="Raw clause options"
+            disabled={readOnly}
+            onWrap={wrap}
+            onDuplicate={duplicate}
+            onMove={move}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            rowKey={pathKey(path)}
+          />
+          <Tooltip label="Remove raw clause" withArrow>
+            <ActionIcon
+              variant="default"
+              color="red"
+              size="sm"
+              disabled={readOnly}
+              onClick={remove}
+              aria-label="Remove raw clause"
+            >
+              {I.close}
+            </ActionIcon>
+          </Tooltip>
+        </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, opacity: dim }}>
         <Button variant="subtle" size="compact-xs" disabled={readOnly} onClick={tryParse}>
           Try to parse
         </Button>
@@ -967,6 +1026,8 @@ function GroupView({
   };
   const setLogic = (logic: GroupNode['logic']) => applyEdit(updateAt(root, path, { ...node, logic }));
   const removeGroup = () => applyEdit(removeAt(root, path));
+  const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
+  const dim = dimFor(node);
 
   const problemFor = (childPath: NodePath): string | undefined =>
     problems.find((p) => pathsEqual(p.path, childPath))?.message;
@@ -1022,61 +1083,64 @@ function GroupView({
           borderBottom: isRoot ? `1px solid ${T.border}` : 'none',
         }}
       >
-        <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
-        <Tooltip label="Add condition" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addCondition}
-            aria-label="Add condition"
-          >
-            {I.plus}
-          </ActionIcon>
-        </Tooltip>
-        {/* Three add buttons, three glyphs. "Add condition" keeps the plus;
-            the nested group takes parentheses (how a boolean group is
-            written); `<>` moves to the raw clause, the only one of the
-            three it actually describes. */}
-        <Tooltip label="Add nested group" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addGroup}
-            aria-label="Add group"
-          >
-            {I.group}
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Add raw clause" withArrow>
-          <ActionIcon
-            variant="default"
-            size="sm"
-            disabled={readOnly}
-            onClick={addRaw}
-            aria-label="Add raw clause"
-          >
-            {I.code}
-          </ActionIcon>
-        </Tooltip>
-        <span style={{ flex: 1 }} />
-        {!isRoot && (
-          <Tooltip label="Remove group" withArrow>
+        {!isRoot && <IncludeBox node={node} label="Include group" readOnly={readOnly} onToggle={toggle} />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, opacity: dim }}>
+          <LogicPicker value={node.logic} onChange={setLogic} disabled={readOnly} />
+          <Tooltip label="Add condition" withArrow>
             <ActionIcon
               variant="default"
-              color="red"
               size="sm"
               disabled={readOnly}
-              onClick={removeGroup}
-              aria-label="Remove group"
+              onClick={addCondition}
+              aria-label="Add condition"
             >
-              {I.close}
+              {I.plus}
             </ActionIcon>
           </Tooltip>
-        )}
+          {/* Three add buttons, three glyphs. "Add condition" keeps the plus;
+              the nested group takes parentheses (how a boolean group is
+              written); `<>` moves to the raw clause, the only one of the
+              three it actually describes. */}
+          <Tooltip label="Add nested group" withArrow>
+            <ActionIcon
+              variant="default"
+              size="sm"
+              disabled={readOnly}
+              onClick={addGroup}
+              aria-label="Add group"
+            >
+              {I.group}
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Add raw clause" withArrow>
+            <ActionIcon
+              variant="default"
+              size="sm"
+              disabled={readOnly}
+              onClick={addRaw}
+              aria-label="Add raw clause"
+            >
+              {I.code}
+            </ActionIcon>
+          </Tooltip>
+          <span style={{ flex: 1 }} />
+          {!isRoot && (
+            <Tooltip label="Remove group" withArrow>
+              <ActionIcon
+                variant="default"
+                color="red"
+                size="sm"
+                disabled={readOnly}
+                onClick={removeGroup}
+                aria-label="Remove group"
+              >
+                {I.close}
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </div>
       </div>
-      <div style={{ padding: isRoot ? '6px 10px 4px' : 0 }}>
+      <div style={{ padding: isRoot ? '6px 10px 4px' : 0, opacity: dim }}>
         {/* Say what an empty tree's state means and what to do about it, in
             words, rather than leaving a radiogroup and three icon buttons
             over blank space — but not while the tree is frozen read-only
@@ -1185,9 +1249,14 @@ function GroupView({
   );
 }
 
+type FilterDraft = NonNullable<CollectionTabState['filterDraft']>;
+
 interface FilterDrawerProps {
   queryRaw: string;
-  onCommit: (patch: { queryRaw: string }) => void;
+  /** The tab's persisted draft; read once, to seed (W13 §5.7). */
+  filterDraft: FilterDraft | undefined;
+  /** Every edit writes the draft; `queryRaw` only when the printed text changed. */
+  onCommit: (patch: { queryRaw?: string; filterDraft: FilterDraft }) => void;
   suggestionContext: SuggestionContext | null;
 }
 
@@ -1207,9 +1276,27 @@ function problemLabels(root: GroupNode, problems: NodeProblem[]): string[] {
   return [...seen];
 }
 
-function seedTree(text: string): { root: GroupNode; readOnly: boolean } {
+/**
+ * The tree a freshly mounted drawer shows (W13 §5.7). The tab's draft wins
+ * only while it is still the tree behind `text`: it was recorded against the
+ * same text, and printing it gives that text back, or it is blocked (a row
+ * that can't print yet, whose problems come back with it). A draft that
+ * prints to anything else is ignored rather than trusted, so the drawer never
+ * shows a tree other than the one that runs.
+ */
+function seedTree(
+  text: string,
+  draft: FilterDraft | undefined,
+): { root: GroupNode; readOnly: boolean; problems: NodeProblem[] } {
+  if (draft && draft.queryRaw === text && draft.root.kind === 'group') {
+    const printed = printFilter(draft.root);
+    if (!printed.ok) return { root: draft.root, readOnly: false, problems: printed.problems };
+    if (printed.json === text) return { root: draft.root, readOnly: false, problems: [] };
+  }
   const parsed = parseFilter(text);
-  return parsed.ok ? { root: parsed.root, readOnly: false } : { root: EMPTY_ROOT, readOnly: true };
+  return parsed.ok
+    ? { root: parsed.root, readOnly: false, problems: [] }
+    : { root: EMPTY_ROOT, readOnly: true, problems: [] };
 }
 
 /**
@@ -1226,10 +1313,11 @@ function seedTree(text: string): { root: GroupNode; readOnly: boolean } {
  * external-edit triggers), which may coincidentally write the same text
  * the drawer already holds and so wouldn't otherwise be seen as a change.
  */
-function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerProps) {
+function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: FilterDrawerProps) {
   const T = themeVars;
-  const [tree, setTree] = React.useState(() => seedTree(queryRaw));
-  const [problems, setProblems] = React.useState<NodeProblem[]>([]);
+  const [seed] = React.useState(() => seedTree(queryRaw, filterDraft));
+  const [tree, setTree] = React.useState({ root: seed.root, readOnly: seed.readOnly });
+  const [problems, setProblems] = React.useState<NodeProblem[]>(seed.problems);
   // The text this component itself last wrote (or last reconciled against)
   // — state, not a ref, so the reconcile check below (React's sanctioned
   // "derive state from a changed prop" pattern, see react.dev) can read and
@@ -1271,24 +1359,33 @@ function FilterDrawer({ queryRaw, onCommit, suggestionContext }: FilterDrawerPro
     }
   }
 
-  const applyEdit = (nextRoot: GroupNode) => {
-    setTree({ root: nextRoot, readOnly: false });
+  // The one print-and-commit path for a new tree. The draft is written on
+  // every edit (§5.7), recorded against the `queryRaw` that is current once
+  // this edit lands, so a pending or switched-off row survives a tab switch.
+  const commitRoot = (nextRoot: GroupNode) => {
     const printed = printFilter(nextRoot);
     if (printed.ok) {
       setProblems([]);
-      // §5.4 — a pending row (empty field / blank raw json) prints to the
-      // same text as before it was added; skip the no-op commit so
-      // "+ Condition" / "+ Raw" truly leaves `queryRaw` untouched.
+      // §5.4 — a pending row (empty field / blank raw json) or a switched-off
+      // one prints to the same text as before; leave `queryRaw` out of the
+      // patch so "+ Condition" / "+ Raw" truly leaves it untouched.
       if (printed.json !== lastPrinted) {
         setLastPrinted(printed.json);
-        onCommit({ queryRaw: printed.json });
+        onCommit({ queryRaw: printed.json, filterDraft: { root: nextRoot, queryRaw: printed.json } });
+        return;
       }
     } else {
       // §5.5 — print failed: keep the edit in the local tree, surface the
       // message on the offending row, leave `queryRaw` at its last good
-      // value (we simply don't call onCommit).
+      // value.
       setProblems(printed.problems);
     }
+    onCommit({ filterDraft: { root: nextRoot, queryRaw: lastPrinted } });
+  };
+
+  const applyEdit = (nextRoot: GroupNode) => {
+    setTree({ root: nextRoot, readOnly: false });
+    commitRoot(nextRoot);
   };
 
   return (
@@ -1484,7 +1581,7 @@ function BuilderPaneInner({
     }).then((proceed) => {
       if (!proceed) return;
       const empty: BuilderState = emptyBuilder();
-      onPatch({ builder: empty, queryRaw: '{}' });
+      onPatch({ builder: empty, queryRaw: '{}', filterDraft: undefined });
       setLoadGen((g) => g + 1);
     });
   };
@@ -1548,7 +1645,8 @@ function BuilderPaneInner({
   const handleSavedRunHere = (saved: SavedQuery) => {
     if (saved.payload.kind === 'find') {
       const patch = hydrateFindPayload(saved.payload as unknown as LegacySavedFindPayload);
-      onPatch(patch);
+      // The draft belongs to the filter being replaced: drop it with it.
+      onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
       setLoadGen((g) => g + 1);
     }
@@ -1557,7 +1655,7 @@ function BuilderPaneInner({
   const handleRecentRunHere = (recent: RecentQuery) => {
     if (recent.payload.kind === 'find') {
       const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload);
-      onPatch(patch);
+      onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
       setLoadGen((g) => g + 1);
     }
@@ -1618,6 +1716,7 @@ function BuilderPaneInner({
               <FilterDrawer
                 key={`${meta.tabId}:${loadGen}`}
                 queryRaw={state.queryRaw}
+                filterDraft={state.filterDraft}
                 onCommit={onPatch}
                 suggestionContext={suggestionContext}
               />

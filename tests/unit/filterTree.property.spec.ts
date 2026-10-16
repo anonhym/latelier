@@ -274,3 +274,37 @@ describe('buildScalarWire: total over any (valType, value)', () => {
     );
   });
 });
+
+// ─── Disabled nodes (W13 §3) ─────────────────────────────────────────────────
+
+/** Switches off each non-root node whose turn in `flags` is true, in pre-order. */
+function sprinkleDisabled(root: GroupNode, flags: boolean[]): GroupNode {
+  let i = 0;
+  const visit = (n: FilterNode): FilterNode => {
+    const off = flags[i++ % flags.length];
+    const next: FilterNode = n.kind === 'group' ? { ...n, children: n.children.map(visit) } : { ...n };
+    return off ? { ...next, disabled: true } : next;
+  };
+  return { ...root, children: root.children.map(visit) };
+}
+
+/** What a disabled node means, spelled out: the tree without it. */
+function stripDisabled(root: GroupNode): GroupNode {
+  const strip = (children: FilterNode[]): FilterNode[] =>
+    children
+      .filter((c) => !c.disabled)
+      .map((c) => (c.kind === 'group' ? { ...c, children: strip(c.children) } : c));
+  return { ...root, children: strip(root.children) };
+}
+
+describe('printFilter: a disabled node prints as if it were not there', () => {
+  it('printing with disabled nodes equals printing the tree with them removed', () => {
+    fc.assert(
+      fc.property(safeGroup, fc.array(fc.boolean(), { minLength: 1, maxLength: 12 }), (t, flags) => {
+        const withDisabled = sprinkleDisabled(t, flags);
+        expect(printFilter(withDisabled)).toEqual(printFilter(stripDisabled(withDisabled)));
+      }),
+      { numRuns: 200 },
+    );
+  });
+});

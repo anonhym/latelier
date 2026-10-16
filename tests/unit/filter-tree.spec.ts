@@ -1573,3 +1573,75 @@ describe('moveAt — an out-of-range path is a no-op even when the arithmetic wo
     expect(moveAt(root, [5], -3)).toEqual(root);
   });
 });
+
+describe('printFilter — a disabled node prints as pending (§3)', () => {
+  it('leaves a disabled cond out of the printed filter', () => {
+    const root = group('$and', [
+      cond({ field: 'a', valType: 'number', value: '1' }),
+      { ...cond({ field: 'b', valType: 'number', value: '2' }), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":1}}' });
+  });
+
+  it('a disabled cond with an invalid value raises no problem', () => {
+    const root = group('$and', [{ ...cond({ field: 'n', valType: 'number', value: 'abc' }), disabled: true }]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{}' });
+  });
+
+  it('a disabled raw node with invalid JSON raises no problem', () => {
+    const root = group('$and', [cond({ field: 'a' }), { ...raw('{nope'), disabled: true }]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('omits a disabled nested group whole, even when a child would block', () => {
+    const root = group('$and', [
+      cond({ field: 'a' }),
+      { ...group('$or', [cond({ field: 'n', valType: 'number', value: 'abc' }), cond({ field: 'b' })]), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('omits a $nor group whose only child is disabled, never printing {"$nor":[]}', () => {
+    const root = group('$and', [
+      cond({ field: 'a' }),
+      group('$nor', [{ ...cond({ field: 'b' }), disabled: true }]),
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{"a":{"$eq":"x"}}' });
+  });
+
+  it('prints {} when every node is disabled', () => {
+    const root = group('$or', [
+      { ...cond({ field: 'a' }), disabled: true },
+      { ...raw('{"b":1}'), disabled: true },
+      { ...group('$and', [cond({ field: 'c' })]), disabled: true },
+    ]);
+    expect(printFilter(root)).toEqual({ ok: true, json: '{}' });
+  });
+
+  it('parseFilter never sets disabled on any node', () => {
+    const parsed = mustParse(
+      '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":2},{"c":{"$elemMatch":{"d":1}}}]},{"$nor":[{"e":{"$gt":3}}]}]}',
+    );
+    const visit = (n: FilterNode): void => {
+      expect(n).not.toHaveProperty('disabled');
+      if (n.kind === 'group') n.children.forEach(visit);
+    };
+    visit(parsed);
+  });
+
+  it('toRawNode carries disabled over from the cond', () => {
+    expect(toRawNode({ ...cond({ field: 'a' }), disabled: true })).toEqual({
+      kind: 'raw',
+      json: '{"a":{"$eq":"x"}}',
+      disabled: true,
+    });
+    expect(toRawNode({ ...cond({ field: '' }), disabled: true })).toEqual({ kind: 'raw', json: '', disabled: true });
+    expect(toRawNode(cond({ field: 'a' }))).not.toHaveProperty('disabled');
+  });
+
+  it('tryParseRaw carries disabled over to what it models', () => {
+    expect(tryParseRaw({ ...raw('{"a":1}'), disabled: true })).toEqual({ ...cond({ field: 'a', valType: 'number', value: '1' }), disabled: true });
+    expect(tryParseRaw({ ...raw('{"a":1,"b":2}'), disabled: true })).toMatchObject({ kind: 'group', disabled: true });
+    expect(tryParseRaw(raw('{"a":1}'))).not.toHaveProperty('disabled');
+  });
+});
