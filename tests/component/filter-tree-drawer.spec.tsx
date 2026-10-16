@@ -574,6 +574,22 @@ describe('Filter drawer — undo / redo', () => {
     expect(redoButton().disabled).toBe(true);
   });
 
+  it('when Undo or Redo runs out of steps, focus moves to the other one instead of falling to the page', async () => {
+    mountWith(makeState({ queryRaw: AB }));
+    await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await waitFor(() => expect(undoButton().disabled).toBe(false));
+
+    undoButton().focus();
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(undoButton().disabled).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(redoButton()));
+
+    fireEvent.click(redoButton());
+    await waitFor(() => expect(redoButton().disabled).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(undoButton()));
+  });
+
   it('typing into one field is a single undo step', async () => {
     mountWith(makeState());
 

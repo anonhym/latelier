@@ -1518,11 +1518,21 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
 
   // Undo and redo commit through the same path as any edit, so the tree
   // they land on is printed, checked and written back like one.
-  const stepHistory = (step: (h: History<GroupNode>) => History<GroupNode>) => {
+  const undoRef = React.useRef<HTMLButtonElement>(null);
+  const redoRef = React.useRef<HTMLButtonElement>(null);
+  const stepHistory = (
+    step: (h: History<GroupNode>) => History<GroupNode>,
+    canStepAgain: (h: History<GroupNode>) => boolean,
+    other: React.RefObject<HTMLButtonElement | null>,
+  ) => {
     const next = step(history);
     if (next === history) return;
     setHistory(next);
     commitRoot(next.present);
+    // The pressed button is about to disable itself, which drops keyboard
+    // focus to the page. The other one is always enabled after a step (an
+    // undo leaves something to redo, and back), so focus moves there.
+    if (!canStepAgain(next)) requestAnimationFrame(() => other.current?.focus());
   };
 
   // Named for what they undo: a write's own Undo can be on screen at the same
@@ -1532,10 +1542,11 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     <>
       <Tooltip label="Undo filter edit" withArrow>
         <ActionIcon
+          ref={undoRef}
           variant="default"
           size="sm"
           disabled={readOnly || !canUndo(history)}
-          onClick={() => stepHistory(undo)}
+          onClick={() => stepHistory(undo, canUndo, redoRef)}
           aria-label="Undo filter edit"
         >
           {I.undo}
@@ -1543,10 +1554,11 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       </Tooltip>
       <Tooltip label="Redo filter edit" withArrow>
         <ActionIcon
+          ref={redoRef}
           variant="default"
           size="sm"
           disabled={readOnly || !canRedo(history)}
-          onClick={() => stepHistory(redo)}
+          onClick={() => stepHistory(redo, canRedo, undoRef)}
           aria-label="Redo filter edit"
         >
           {I.redo}
