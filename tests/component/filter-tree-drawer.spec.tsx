@@ -6,14 +6,16 @@
 // called with) rather than internal component state — per the ticket's
 // testing note, a test that only inspects rendered DOM structure can pass
 // against a tree the printer would refuse to run.
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { isoToLocalInput, localInputToIso } from '../../src/pages/Workspace/condValue';
 
 const now = '2026-08-04T12:00:00.000Z';
 
@@ -90,7 +92,10 @@ function andRoot(...children: GroupNode['children']): GroupNode {
   return { kind: 'group', logic: '$and', children };
 }
 
-function mountWith(state: CollectionTabState) {
+function mountWith(
+  state: CollectionTabState,
+  overrides: { count?: IpcApi['query']['count']; sampleSchema?: IpcApi['meta']['sampleSchema'] } = {},
+) {
   const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
     documents: [],
     durationMs: 3,
@@ -105,7 +110,8 @@ function mountWith(state: CollectionTabState) {
       update: updateSpy as unknown as IpcApi['tabs']['update'],
     },
     conn: { list: async () => [CONNECTION] },
-    query: { find: findSpy, count: async () => ({ count: 0 }) },
+    query: { find: findSpy, count: overrides.count ?? (async () => ({ count: 0 })) },
+    ...(overrides.sampleSchema ? { meta: { sampleSchema: overrides.sampleSchema } } : {}),
   });
 
   const utils = render(
@@ -116,9 +122,16 @@ function mountWith(state: CollectionTabState) {
   return { ...utils, findSpy, updateSpy };
 }
 
+// The sampled schema is cached per collection for the whole module, so one
+// test's sample would otherwise answer the next test's rows.
+beforeEach(() => {
+  invalidateSampleSchemaCache();
+});
+
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §11)', () => {
@@ -766,5 +779,171 @@ describe('Filter drawer — a drop onto a switched-off row keeps it off', () => 
       expect(lastWrittenDraft(updateSpy).draft?.root.children[1]).toMatchObject({ field: 'b', disabled: true }),
     );
     expect(lastWrittenQueryRaw(updateSpy)).toBeUndefined();
+  });
+});
+
+describe('Filter drawer — type-aware value editors', () => {
+  const OID = '0123456789abcdef01234567';
+
+  async function setValueType(type: string) {
+    // Mantine labels the listbox with the input's name too; the input is the trigger.
+    const trigger = screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT');
+    fireEvent.click(trigger!);
+    fireEvent.click(await screen.findByRole('option', { name: type }));
+  }
+
+  describe('date', () => {
+    const START = '2026-01-01T00:00:00.000Z';
+
+    it('Pick date opens a datetime input holding the value in local time', async () => {
+      mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const input = (await screen.findByLabelText('Date and time')) as HTMLInputElement;
+      expect(input.type).toBe('datetime-local');
+      expect(input.value).toBe(isoToLocalInput(START));
+    });
+
+    it('a preset writes its timestamp to queryRaw', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-15T12:00:00.000Z'));
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: '7 days ago' }));
+
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe('{"d":{"$gte":{"$date":"2026-10-08T12:00:00.000Z"}}}'),
+      );
+    });
+
+    it('changing the datetime input writes that moment to queryRaw', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      fireEvent.change(await screen.findByLabelText('Date and time'), { target: { value: '2026-03-04T05:06' } });
+
+      await waitFor(() =>
+        expect(lastWrittenQueryRaw(updateSpy)).toBe(
+          `{"d":{"$gte":{"$date":"${localInputToIso('2026-03-04T05:06')}"}}}`,
+        ),
+      );
+    });
+
+    it('a half-filled datetime input (reported as empty) leaves the value alone', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const writesBefore = updateSpy.mock.calls.length;
+      fireEvent.change(await screen.findByLabelText('Date and time'), { target: { value: '' } });
+
+      await new Promise((r) => setTimeout(r, 300));
+      expect(updateSpy.mock.calls.length).toBe(writesBefore);
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe(START);
+    });
+
+    it('arrow keys in the datetime input stay with the input instead of jumping to the presets', async () => {
+      mountWith(makeState({ queryRaw: `{"d":{"$gte":{"$date":"${START}"}}}` }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Pick date' }));
+      const input = await screen.findByLabelText('Date and time');
+      input.focus();
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  describe('chips for $in', () => {
+    it('shows each element as a chip, and typing, removing and pasting edit the list', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a","b"]}}' }));
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      expect(screen.getByRole('button', { name: 'Remove a' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Remove b' })).toBeTruthy();
+
+      fireEvent.change(chipBox, { target: { value: 'c' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a","b","c"]}}'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove a' }));
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["b","c"]}}'));
+
+      fireEvent.paste(chipBox, { clipboardData: { getData: () => 'x, y\nB' } });
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["b","c","x","y","B"]}}'));
+    });
+
+    it('a typed number or quoted text keeps its type', async () => {
+      const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":[]}}' }));
+
+      const chipBox = await screen.findByRole('combobox', { name: 'Values' });
+      fireEvent.change(chipBox, { target: { value: '42' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+      fireEvent.change(chipBox, { target: { value: '"42"' } });
+      fireEvent.keyDown(chipBox, { key: 'Enter' });
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":[42,"42"]}}'));
+    });
+
+    it('Edit as JSON swaps to the text input holding the list', async () => {
+      mountWith(makeState({ queryRaw: '{"s":{"$in":["b","c"]}}' }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit as JSON' }));
+
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["b","c"]');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+
+    it('a list a chip cannot show keeps the text input', async () => {
+      mountWith(makeState({ queryRaw: `{"s":{"$in":[{"$oid":"${OID}"}]}}` }));
+
+      const value = await screen.findByPlaceholderText('value');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+
+      // Typing a list that parses does not swap the box out from under the caret.
+      fireEvent.change(value, { target: { value: '["a"]' } });
+      await waitFor(() => expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a"]'));
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+  });
+
+  it('a boolean value is a true / false choice', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"f":{"$eq":true}}' }));
+
+    const group = await screen.findByRole('radiogroup', { name: 'Value' });
+    expect((within(group).getByRole('radio', { name: 'true' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByPlaceholderText('value')).toBeNull();
+
+    fireEvent.click(within(group).getByRole('radio', { name: 'false' }));
+
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"f":{"$eq":false}}'));
+  });
+
+  it('an ObjectId value that is not 24 hex characters is flagged as typed', async () => {
+    const { updateSpy } = mountWith(makeState());
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'o' } });
+    await setValueType('objectid');
+    const value = screen.getByPlaceholderText('value');
+    fireEvent.change(value, { target: { value: 'abc' } });
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/24 hex/);
+    expect(value.getAttribute('aria-invalid')).toBe('true');
+
+    fireEvent.change(value, { target: { value: OID } });
+
+    await waitFor(() => expect(screen.queryByText(/24 hex/)).toBeNull());
+    expect(value.getAttribute('aria-invalid')).not.toBe('true');
+    await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe(`{"o":{"$eq":{"$oid":"${OID}"}}}`));
+  });
+
+  it('a null value has no value input', async () => {
+    mountWith(makeState({ queryRaw: '{"n":{"$eq":"x"}}' }));
+
+    expect(await screen.findByPlaceholderText('value')).toBeTruthy();
+    await setValueType('null');
+
+    await waitFor(() => expect(screen.queryByPlaceholderText('value')).toBeNull());
   });
 });

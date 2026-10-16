@@ -55,7 +55,7 @@ import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
-import { DEFAULT_FIELD_SOURCES, DEFAULT_VALUE_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
+import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
 import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -71,6 +71,7 @@ import type {
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
 import { useLiveMatchCount } from './useLiveMatchCount';
+import { CondValueEditor } from './CondValueEditor';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -80,9 +81,6 @@ interface BuilderPaneProps {
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
-
-/** The only ops the value popover offers suggestions for — mirrors `RECORDABLE_OPS` in `RecentFieldValueService`. */
-const VALUE_SUGGESTION_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
 
 const EMPTY_ROOT: GroupNode = { kind: 'group', logic: '$and', children: [] };
 
@@ -149,40 +147,6 @@ function IncludeBox({
       style={{ flexShrink: 0 }}
     />
   );
-}
-
-/**
- * Mongosh-flavored preview of the typed value the user just entered. Shown
- * as a faint hint to the right of the value input so the user sees what
- * the wrapped MQL will look like (e.g. `ISODate("2026-04-01")`) without
- * having to read the generated query bar.
- */
-function formatCondPreview(cond: { valType: ValType; value: string }): string {
-  const v = cond.value;
-  switch (cond.valType) {
-    case 'string':
-      return v ? `"${v}"` : '""';
-    case 'number':
-      return v || '0';
-    case 'long':
-      return v ? `NumberLong("${v}")` : 'NumberLong("…")';
-    case 'decimal':
-      return v ? `NumberDecimal("${v}")` : 'NumberDecimal("…")';
-    case 'boolean':
-      return v === 'true' ? 'true' : 'false';
-    case 'date':
-      return v ? `ISODate("${v}")` : 'ISODate("…")';
-    case 'null':
-      return 'null';
-    case 'regex':
-      return v ? `/${v}/` : '/…/';
-    case 'objectid':
-      return v ? `ObjectId("${v}")` : 'ObjectId("…")';
-    case 'array':
-      return v || '[]';
-    default:
-      return v || '…';
-  }
 }
 
 /** AND/OR/NOR segmented control shared by every group header (root + nested). */
@@ -524,30 +488,11 @@ function CondRow({
     { fieldSources: [fieldOperatorSource] },
   );
 
-  // Value suggestions: gated on a non-empty field and one of
-  // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
-  // gets no popover, mirroring what `RecentFieldValueService` will ever
-  // record for it.
-  const valueInputRef = React.useRef<HTMLInputElement>(null);
-  const [valuePopoverOpen, setValuePopoverOpen] = React.useState(false);
-  const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
-  const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
-    () =>
-      suggestionContext && valueSuggestionsAllowed
-        ? { ...suggestionContext, target: { field: node.field, operator: node.op } }
-        : null,
-    [suggestionContext, valueSuggestionsAllowed, node.field, node.op],
-  );
-  const { items: valueSuggestionItems } = useSuggestions(
-    valuePopoverOpen ? valueSuggestionCtx : null,
-    node.value,
-    { valueSources: DEFAULT_VALUE_SOURCES },
-  );
-
   const patch = (p: Partial<CondNode>, key?: string) => applyEdit(updateAt(root, path, { ...node, ...p }), key);
-  // Keystrokes in one text box of this row are one undo step, not one each.
-  const typeInto = (box: 'field' | 'value', text: string) =>
-    patch({ [box]: text }, `${pathKey(path)}:${box}`);
+  // Keystrokes in one text box of this row are one undo step, not one each:
+  // the box's name becomes a key unique to this row.
+  const patchBox = (p: Partial<CondNode>, box?: string) =>
+    patch(p, box === undefined ? undefined : `${pathKey(path)}:${box}`);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
 
   // ADR 0004's scope note — a typed symbol becomes its operator on blur, never
@@ -685,7 +630,7 @@ function CondRow({
             value={node.field}
             disabled={readOnly}
             onChange={(e) => {
-              typeInto('field', e.target.value);
+              patchBox({ field: e.target.value }, 'field');
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => setFieldPopoverOpen(true)}
@@ -843,57 +788,12 @@ function CondRow({
             },
           }}
         />
-        {node.op !== '$exists' && (
-          <>
-            <TextInput
-              ref={valueInputRef}
-              placeholder="value"
-              value={node.value}
-              disabled={readOnly}
-              onChange={(e) => {
-                typeInto('value', e.target.value);
-                if (!valuePopoverOpen) setValuePopoverOpen(true);
-              }}
-              onFocus={() => setValuePopoverOpen(true)}
-              onBlur={() => {
-                window.setTimeout(() => setValuePopoverOpen(false), 100);
-              }}
-              size="xs"
-              style={{ flex: 1 }}
-              styles={{ input: { fontFamily: 'monospace' } }}
-            />
-            {valueSuggestionsAllowed && (
-              <SuggestionPopover
-                open={valuePopoverOpen}
-                items={valueSuggestionItems}
-                anchorRef={valueInputRef}
-                label="Value suggestions"
-                onSelect={(s) => {
-                  if (s.kind === 'value') patch({ value: s.display });
-                  setValuePopoverOpen(false);
-                  valueInputRef.current?.blur();
-                }}
-                onClose={() => setValuePopoverOpen(false)}
-              />
-            )}
-            <Tooltip label={formatCondPreview(node)} withArrow>
-              <span
-                style={{
-                  fontSize: 9,
-                  color: T.textGhost,
-                  fontFamily: '"JetBrains Mono", monospace',
-                  flexShrink: 0,
-                  maxWidth: 90,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {formatCondPreview(node)}
-              </span>
-            </Tooltip>
-          </>
-        )}
+        <CondValueEditor
+          node={node}
+          readOnly={readOnly}
+          onPatch={patchBox}
+          suggestionContext={suggestionContext}
+        />
       </div>
 
       {showConvertToRaw && (
