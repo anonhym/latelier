@@ -284,7 +284,11 @@ function groupFromLogicArray(logic: GroupNode['logic'], arr: unknown[]): GroupNo
 
 function parseRoot(obj: Record<string, unknown>): GroupNode {
   const collapsed = collapseToNode(parseClauseToNodes(obj));
-  if (collapsed.kind === 'group') return collapsed;
+  // A one-child `$nor` is a NOT (§4). Taken as the root itself it would lose
+  // that reading — the root never shows NOT — so it stays a group under an
+  // `$and` root, the same tree the drawer printed it from.
+  const isNot = collapsed.kind === 'group' && collapsed.logic === '$nor' && collapsed.children.length === 1;
+  if (collapsed.kind === 'group' && !isNot) return collapsed;
   return { kind: 'group', logic: '$and', children: [collapsed] };
 }
 

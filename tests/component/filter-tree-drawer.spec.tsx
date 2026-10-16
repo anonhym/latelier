@@ -446,6 +446,14 @@ describe('Filter drawer — negation (NOT)', () => {
     expect(fieldValues()).toEqual(['a']);
   });
 
+  it('a top-level NOT read back from the filter text still shows as NOT', async () => {
+    mountWith(makeState({ queryRaw: '{"$nor":[{"a":{"$eq":1}}]}' }));
+
+    expect(await screen.findByText('NOT')).toBeTruthy();
+    expect(screen.getAllByRole('radiogroup', { name: 'Group logic' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^Remove negation/ })).toBeTruthy();
+  });
+
   it('Negate group wraps a nested group in $nor', async () => {
     const { updateSpy } = mountWith(
       makeState({ queryRaw: '{"$and":[{"a":{"$eq":1}},{"$or":[{"b":{"$eq":2}},{"c":{"$eq":3}}]}]}' }),

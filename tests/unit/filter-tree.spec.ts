@@ -93,10 +93,24 @@ describe('parseFilter — parse table (§2)', () => {
     expect(root.children).toHaveLength(2);
   });
 
-  it('{ $nor: [...] } -> root becomes a $nor group', () => {
-    const root = mustParse('{"$nor":[{"a":1}]}');
+  it('{ $nor: [x, y] } -> root becomes a $nor group', () => {
+    const root = mustParse('{"$nor":[{"a":1},{"b":2}]}');
     expect(root.logic).toBe('$nor');
-    expect(root.children).toHaveLength(1);
+    expect(root.children).toHaveLength(2);
+  });
+
+  it('{ $nor: [x] } -> a NOT group under an $and root, not a $nor root', () => {
+    // A one-child $nor is how the drawer writes NOT; read back as the root
+    // itself it would lose its NOT and show as a NOR picker instead.
+    expect(mustParse('{"$nor":[{"a":1}]}')).toEqual(
+      group('$and', [group('$nor', [cond({ field: 'a', valType: 'number', value: '1' })])]),
+    );
+  });
+
+  it('{ $or: [x] } -> still the root itself', () => {
+    expect(mustParse('{"$or":[{"a":1}]}')).toEqual(
+      group('$or', [cond({ field: 'a', valType: 'number', value: '1' })]),
+    );
   });
 
   it('{ a: { $gte: 1, $lte: 5 } } -> two conds (§2a splittable pair)', () => {
@@ -1688,9 +1702,8 @@ describe('negation — a single-child $nor wrap (§4)', () => {
     const root = group('$and', [cond({ field: 'a', valType: 'number', value: '1' })]);
     const json = mustPrint(wrapInGroup(root, [0], '$nor'));
     expect(json).toBe('{"$nor":[{"a":{"$eq":1}}]}');
-    // A lone top-level $nor collapses to the root group itself.
-    const back = mustParse(json);
-    expect(back).toEqual(group('$nor', [cond({ field: 'a', valType: 'number', value: '1' })]));
+    // Reads back as the same tree: the NOT group under an $and root.
+    expect(mustParse(json)).toEqual(wrapInGroup(root, [0], '$nor'));
   });
 
   it('a field-level $not still reads as a raw clause', () => {

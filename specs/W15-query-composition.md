@@ -883,7 +883,7 @@ at the field level. "NOT this whole condition" — wrapping an arbitrary
 subtree — has no control, so a user's only route is hand-writing raw JSON for
 a shape the tree could otherwise represent.
 
-Shipped: any row or nested group can be negated from the drawer, which wraps it in a one-child `$nor` shown as NOT and removable in one click (W13 §4).
+Shipped: any row or nested group can be negated from the drawer, which wraps it in a one-child `$nor` shown as NOT and removable in one click; a NOT, a top-level one included, reads back from the filter text as the same NOT group (W13 §2, §4).
 
 ### 14.10 Sequencing
 

@@ -117,6 +117,7 @@ the most idiomatic filter there is (`{ status: "active", qty: { $gt: 5 } }`).
 | `{ name: { $eq: "x" } }` | one cond |
 | `{ a: 1, b: 2 }` | root `$and`, two conds |
 | `{ $and: [...] }` / `{ $or: [...] }` / `{ $nor: [...] }` | group, recursive |
+| `{ $nor: [x] }` (exactly one item) | root `$and` holding a one-child `$nor` group: a NOT (§4), kept as a group so it reads back as one |
 | `{ a: { $gte: 1, $lte: 5 } }` | two conds — **only** per §2a |
 | `{ a: { $regex: "x", $options: "i" } }` | one **raw** node (§2a) |
 | `{ items: { $elemMatch: {...} } }` | one raw node |
@@ -276,6 +277,7 @@ export function insertAt(root: GroupNode, parent: NodePath, node: FilterNode, in
 export function removeAt(root: GroupNode, path: NodePath): GroupNode;
 export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['logic']): GroupNode;
 export function unwrapGroup(root: GroupNode, path: NodePath): GroupNode; // a one-child nested group → its child
+export function andAtRoot(root: GroupNode, node: FilterNode): GroupNode;   // one more requirement on the whole filter
 export function toRawNode(cond: CondNode): RawNode;     // best-effort encode; falls back to a blank pending raw node
 export function tryParseRaw(raw: RawNode): FilterNode;  // raw → cond(s) when §2 can model it (wrapped in $and if >1), else unchanged
 ```
@@ -291,7 +293,10 @@ one-child `$nor`, which prints and parses as plain MongoDB. Negating is
 `wrapInGroup(root, path, '$nor')`; removing it is `unwrapGroup`, which
 replaces a nested group holding exactly one child with that child, and
 returns `root` itself for anything else (the root, a non-group, a group of
-several children, a path that does not resolve). A disabled group hands its
+several children, a path that does not resolve). A NOT round-trips through
+the text: `parseFilter` keeps a top-level one-child `$nor` as a group under an
+`$and` root (§2) instead of absorbing it into the root, which never shows NOT.
+A root `$or`, or a `$nor` of several items, still parses to the root itself. A disabled group hands its
 `disabled` to the child it leaves behind, so removing the wrapper never
 switches a condition back on. `toRawNode` and `tryParseRaw` carry `disabled`
 over the same way. Field-level `$not` stays a raw node (§2).
@@ -643,6 +648,8 @@ Retired test ids and controls, so the churn isn't a surprise:
 - A draft that prints to text other than `queryRaw`, or was written for other text, is ignored; a blocked draft seeds with its "N not applied" banner.
 - Reset, a Saved or Recent load, and Clear filter drop the draft.
 - *Negate (NOT)* and *Negate group* wrap the node in a one-child `$nor`, shown as NOT; *Remove negation* restores the node.
+- A NOT re-parses as the same NOT group, a top-level one included.
+- *Add to filter* from Tree or Table view requires the new condition of the whole filter: with a root `$or` or `$nor` it is ANDed beside the root group, never added inside it.
 - *Insert condition above / below* adds a blank row at that position, focused, without changing `queryRaw`.
 - Undo and redo step the tree and `queryRaw` back and forth; typing into one box is one step; an outside text edit clears the history.
 - An edit whose print fails leaves `queryRaw` untouched and shows the message on that row.
@@ -678,7 +685,8 @@ Retired test ids and controls, so the churn isn't a surprise:
 - Semantics: hand-checked (input, expected-output) pairs — the corpus that the fixpoint property cannot cover.
 - Problems: each blocking case of §3 returns the correct `path`.
 - Disabled nodes: a disabled cond, raw node or group prints as pending with no problem; a `$nor` whose only child is disabled is omitted; `parseFilter` never sets `disabled`; `toRawNode` / `tryParseRaw` carry it over.
-- `unwrapGroup`: unwraps a one-child nested group; returns `root` for the root, a multi-child group, a cond and a bad path. Negating a cond prints `{"$nor":[…]}` and parses back to a `$nor` root.
+- `unwrapGroup`: unwraps a one-child nested group; returns `root` for the root, a multi-child group, a cond and a bad path. Negating a top-level cond prints `{"$nor":[…]}` and parses back to the same tree: a NOT group under an `$and` root.
+- `andAtRoot`: appends to an `$and` root; wraps a root `$or` / `$nor` in an `$and` beside the new node.
 - Edit API: `updateAt` / `insertAt` / `removeAt` / `wrapInGroup` purity and path arithmetic; `removeAt` collapsing an emptied nested group; the root group surviving; `toRawNode`'s fallback is a blank pending raw node, never `{}`; `tryParseRaw` on a clause modeling to more than one cond returns an `$and`-wrapped group, and a single-cond clause returns bare.
 
 ### Property — `tests/unit/filterTree.property.spec.ts`, `tests/unit/filterHistory.property.spec.ts`
