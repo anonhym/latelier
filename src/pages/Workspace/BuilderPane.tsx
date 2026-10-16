@@ -1474,6 +1474,13 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // the tree prints again. `null` when the drawer opened frozen with no tree
   // standing for any text (see `seedTree`).
   const [syncedText, setSyncedText] = React.useState<string | null>(seed.syncedText);
+  // Frozen on the tab's draft rather than on a tree parsed this session: the
+  // bar may have passed through other valid text since the draft was written
+  // (while the drawer wasn't mounted), so the banner can't call it the last
+  // valid version. Cleared when the bar comes back to the draft's text, and
+  // by the re-seed that follows any other clear of the draft (a re-parse of
+  // other valid text clears it too).
+  const [frozenOnDraft, setFrozenOnDraft] = React.useState(seed.readOnly && seed.syncedText !== null);
   const [activeDropPath, setActiveDropPath] = React.useState<string | null>(null);
   const liveCount = useLiveMatchCount({
     connectionId: meta.connectionId,
@@ -1528,6 +1535,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     setSyncedText(fresh.syncedText);
     setHistory(initHistory(fresh.root));
     setReadOnly(fresh.readOnly);
+    setFrozenOnDraft(false);
     setProblems([]);
   } else if (queryRaw !== lastPrinted) {
     setLastPrinted(queryRaw);
@@ -1538,6 +1546,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       // blocked rows, its history and its draft.
       const current = printFilter(history.present);
       setReadOnly(false);
+      setFrozenOnDraft(false);
       setProblems(current.ok ? [] : current.problems);
     } else if (parsed.ok) {
       setSyncedText(queryRaw);
@@ -1718,7 +1727,9 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
             borderBottom: `1px solid ${T.border}`,
           }}
         >
-          Filter text isn&apos;t valid JSON — the tree below is the last valid version.
+          {frozenOnDraft
+            ? "Filter text isn't valid JSON — showing this filter as you last left it in the drawer. Fix the text in the bar to edit it."
+            : "Filter text isn't valid JSON — the tree below is the last valid version."}
         </div>
       )}
       {liveCount.state !== 'idle' && (

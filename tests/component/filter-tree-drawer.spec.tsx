@@ -672,6 +672,64 @@ describe('Filter drawer — the bar moves to other valid text, then back', () =>
   });
 });
 
+describe('Filter drawer — opened over invalid text with a draft from earlier text', () => {
+  const A = '{"a":{"$eq":1}}';
+  const B = '{"b":{"$eq":2}}';
+
+  // On the Saved tab the drawer isn't mounted, so the bar moves through
+  // valid B without the drawer seeing it or clearing A's draft.
+  async function openFrozenOnDraft() {
+    mountWith(
+      makeState({
+        queryRaw: A,
+        activeBuilderTab: 'Saved',
+        filterDraft: { queryRaw: A, root: andRoot(A1, { ...B2, disabled: true }) },
+      }),
+    );
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: B } });
+    fireEvent.change(bar, { target: { value: `${B}x` } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Filter' }));
+    await screen.findByText(/as you last left it in the drawer/);
+    return bar;
+  }
+
+  async function typoShowsLastValid(bar: HTMLTextAreaElement, text: string) {
+    fireEvent.change(bar, { target: { value: `${text}x` } });
+    await screen.findByText(/last valid version/);
+    expect(screen.queryByText(/as you last left it in the drawer/)).toBeNull();
+  }
+
+  it('says the frozen tree is the one last left in the drawer, not the last valid text', async () => {
+    const bar = await openFrozenOnDraft();
+    expect(screen.queryByText(/last valid version/)).toBeNull();
+    expect(fieldValues()).toEqual(['a', 'b']);
+
+    fireEvent.change(bar, { target: { value: B } });
+    await waitFor(() => expect(fieldValues()).toEqual(['b']));
+    expect(screen.queryByRole('alert')).toBeNull();
+    // B's tree was parsed this session: a typo now freezes on the last valid version.
+    await typoShowsLastValid(bar, B);
+  });
+
+  it('putting the draft\'s text back restores its tree, and a later typo freezes on the last valid version', async () => {
+    const bar = await openFrozenOnDraft();
+
+    fireEvent.change(bar, { target: { value: A } });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(fieldValues()).toEqual(['a', 'b']);
+    await typoShowsLastValid(bar, A);
+  });
+
+  it('after Clear filter, a typo freezes on the last valid version', async () => {
+    const bar = await openFrozenOnDraft();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filter' }));
+    await waitFor(() => expect(fieldValues()).toEqual([]));
+    await typoShowsLastValid(bar, '{}');
+  });
+});
+
 describe('Filter drawer — Clear filter', () => {
   // Only a switched-off row, so the tree prints to '{}', the text Clear
   // filter writes: a text comparison alone can't see the clear.
