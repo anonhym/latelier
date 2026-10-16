@@ -458,17 +458,20 @@ function useRowDropHandlers(
       // silently overwrite (`mergeOrReplaceDragged` only merges onto an
       // existing `cond`, so a `raw` target always falls to replace). An
       // empty raw row has nothing to lose, so it replaces without asking.
+      // Either way the dropped-on row is edited in place, like its own
+      // controls edit it (`sameRow`), so a merge into a list keeps that row's
+      // value editor, an open "Edit as JSON" included.
       if (node.kind === 'raw' && node.json.trim()) {
         void confirmDestructive({
           title: 'Replace this raw clause?',
           body: 'Dropping a field here replaces this hand-typed clause with a new condition. Undo puts it back.',
           confirmLabel: 'Replace',
         }).then((proceed) => {
-          if (proceed) applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
+          if (proceed) applyEdit(updateAt(root, path, sameRow(node, carryDisabled(node, mergeOrReplaceDragged(node, dragged)))));
         });
         return;
       }
-      applyEdit(updateAt(root, path, carryDisabled(node, mergeOrReplaceDragged(node, dragged))));
+      applyEdit(updateAt(root, path, sameRow(node, carryDisabled(node, mergeOrReplaceDragged(node, dragged)))));
     },
   };
 }

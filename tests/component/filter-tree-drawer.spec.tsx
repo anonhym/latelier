@@ -1090,6 +1090,24 @@ describe('Filter drawer — type-aware value editors', () => {
       expect(screen.queryByPlaceholderText('value')).toBeNull();
     });
 
+    it('a field dropped onto a row in "Edit as JSON" merges into the list and stays JSON', async () => {
+      const { container, updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$in":["a"]}}' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit as JSON' }));
+      const row = container.querySelector('[data-row-path="0"]')!;
+      expect(row).toBeTruthy();
+      const dataTransfer = {
+        types: [DRAGGED_FIELD_MIME],
+        getData: (type: string) => (type === DRAGGED_FIELD_MIME ? JSON.stringify({ field: 's', value: 'b' }) : ''),
+      };
+
+      fireEvent.dragOver(row, { dataTransfer });
+      fireEvent.drop(row, { dataTransfer });
+
+      await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"s":{"$in":["a","b"]}}'));
+      expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a","b"]');
+      expect(screen.queryByRole('combobox', { name: 'Values' })).toBeNull();
+    });
+
     it('a list a chip cannot show keeps the text input', async () => {
       mountWith(makeState({ queryRaw: `{"s":{"$in":[{"$oid":"${OID}"}]}}` }));
 
