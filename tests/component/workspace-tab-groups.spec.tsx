@@ -1068,6 +1068,22 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     expect(isDisabled('Close to the right')).toBe(false);
   });
 
+  it('clicking the Connection name toggles the Tab Group; there is no "+" tab', async () => {
+    mountTabs([
+      { id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true },
+      { id: 'x', connectionId: 'c2', collection: 'xray' },
+    ]);
+    await waitFor(() => expect(tabOrder()).toHaveLength(2));
+    const staging = strip().getByRole('group', { name: 'Staging' });
+    const header = within(staging).getByRole('button', { name: 'Collapse group' });
+    expect(header.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(within(staging).getByText('Staging'));
+    await waitFor(() => expect(tabOrder()).toHaveLength(1));
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'New collection tab' })).toBeNull();
+  });
+
   it('leaves the tabs of a collapsed group alone: they are not on screen', async () => {
     const { close } = mountTabs([
       { id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true },
