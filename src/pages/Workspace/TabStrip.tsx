@@ -240,7 +240,9 @@ export function TabStrip({
               type="button"
               onClick={() => toggleGroupCollapsed(connectionId)}
               aria-expanded={!collapsed}
-              aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+              // The visible Connection name is the accessible name (Label in Name);
+              // `aria-expanded` carries the state.
+              aria-label={name}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -251,7 +253,8 @@ export function TabStrip({
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 border: 'none',
-                color: groupActive ? T.text : T.textMuted,
+                // Solid text on both fills: muted text on the tint fell under 4.5:1.
+                color: T.text,
                 background: `color-mix(in srgb, ${groupColor} ${groupActive ? 55 : 22}%, ${T.bg})`,
                 borderLeft: `3px solid ${connection?.color ?? T.border}`,
                 transition: 'background 120ms',

@@ -1075,7 +1075,7 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     ]);
     await waitFor(() => expect(tabOrder()).toHaveLength(2));
     const staging = strip().getByRole('group', { name: 'Staging' });
-    const header = within(staging).getByRole('button', { name: 'Collapse group' });
+    const header = within(staging).getByRole('button', { name: 'Staging' });
     expect(header.getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.click(within(staging).getByText('Staging'));
@@ -1092,7 +1092,7 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     ]);
     await waitFor(() => expect(tabOrder()).toHaveLength(3));
     const staging = strip().getByRole('group', { name: 'Staging' });
-    fireEvent.click(within(staging).getByRole('button', { name: 'Collapse group' }));
+    fireEvent.click(within(staging).getByRole('button', { name: 'Staging' }));
     await waitFor(() => expect(tabOrder()).toHaveLength(2));
 
     fireEvent.contextMenu(tab('alpha'));
@@ -1109,7 +1109,7 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     expect(isDisabled('Close to the right')).toBe(true);
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
 
-    fireEvent.click(within(staging).getByRole('button', { name: 'Expand group' }));
+    fireEvent.click(within(staging).getByRole('button', { name: 'Staging' }));
     expect(await strip().findByRole('tab', { name: /^xray / })).toBeTruthy();
   });
 
