@@ -260,7 +260,9 @@ describe('Group and raw-row controls are named by position', () => {
     expect(screen.getAllByRole('button', { name: 'Add condition' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Add group' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Add raw clause' })).toHaveLength(1);
-  });
+    // ~20 `getByRole` calls over a large tree: ~0.6s locally, but past the 5s
+    // default on the CI runner under `--coverage` (#550), hence the timeout.
+  }, 20_000);
 });
 
 describe('W15 §13.7 — the "N not applied" banner names the offending rows', () => {
