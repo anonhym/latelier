@@ -109,7 +109,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
       count: async () => ({ count: 0 }),
       findOne: async () => ({ document: null, durationMs: 0 }),
-      explain: unused('query.explain') as IpcApi['query']['explain'],
+      // The query runner asks for a plan after every run (the plan badge). A
+      // null plan means no badge, which is what most component tests want;
+      // tests that check the explain call install their own spy.
+      explain: (async () => ({ plan: null, verbosity: 'queryPlanner' })) as IpcApi['query']['explain'],
       cancel: async () => undefined,
       export: unused('query.export') as IpcApi['query']['export'],
     },
@@ -432,7 +435,7 @@ function makePermissiveStub(): IpcApi {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
       count: async () => ({ count: 0 }),
       findOne: async () => ({ document: null, durationMs: 0 }),
-      explain: noopAsync as IpcApi['query']['explain'],
+      explain: (async () => ({ plan: null, verbosity: 'queryPlanner' })) as IpcApi['query']['explain'],
       cancel: async () => undefined,
       export: noopAsync as IpcApi['query']['export'],
     },
