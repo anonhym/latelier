@@ -147,6 +147,32 @@ describe('sortProblem', () => {
     expect(sortProblem('{"a":1')).toMatch(/parse/i);
     expect(sortProblem('{"a":1')).not.toMatch(/must be a document/i);
   });
+
+  // The driver throws "Invalid sort direction" on these at run time, so the
+  // Run gate refuses them up front and names the field.
+  it.each(['2', '-7', '0.5', '0', '" asc"', 'true', 'null', '"bogus"', '{"x":1}', '[1]', '{"$meta":1}'])(
+    'refuses the driver-refused direction %s, naming the field',
+    (dir) => {
+      expect(sortProblem('{"a":1,"b":' + dir + '}')).toBe(
+        'Sort direction for "b" must be 1, -1, "asc" or "desc".',
+      );
+    },
+  );
+
+  it.each([
+    '"asc"',
+    '"DESC"',
+    '"ascending"',
+    '"descending"',
+    '"1"',
+    '"-1"',
+    '{"$numberInt":"-1"}',
+    '{"$numberLong":"1"}',
+    '{"$meta":"textScore"}',
+    '{"$meta":"indexKey","x":1}',
+  ])('accepts the driver direction %s', (dir) => {
+    expect(sortProblem('{"a":' + dir + '}')).toBeNull();
+  });
 });
 
 // W15 §4.1 — the compiled value and the message shown for it, asserted
@@ -665,6 +691,15 @@ describe('classifySort', () => {
     expect(classifySort('nonsense')).toBe('invalid');
   });
 
+  it('a direction the driver refuses is invalid, not an undrawable sort', () => {
+    expect(classifySort('{"a":2}')).toBe('invalid');
+    expect(classifySort('{"a":1,"b":" asc"}')).toBe('invalid');
+  });
+
+  it('EJSON number directions are drawn like plain ones', () => {
+    expect(classifySort('{"a":{"$numberInt":"1"},"b":{"$numberLong":"-1"}}')).toBe('mapped');
+  });
+
   it('agrees with the gate on every input: `invalid` iff `sortProblem` complains', () => {
     // The two must not drift — that divergence is the whole reason
     // this rule was centralised. A classifier with its own parser would pass every
@@ -679,6 +714,8 @@ describe('classifySort', () => {
       '{"a":1',
       'nonsense',
       '{"$oid":"not-an-oid"}',
+      '{"a":2}',
+      '{"a":"asc","b":{"$numberInt":"-1"}}',
     ]) {
       expect([raw, classifySort(raw) === 'invalid']).toEqual([raw, sortProblem(raw) !== null]);
     }

@@ -172,7 +172,17 @@ export function sortProblem(raw: string): string | null {
   if (raw.trim() === '') return null;
   if (!isValidEjson(raw)) return "Can't parse this sort. Expected EJSON like { field: 1 }.";
   if (!isEjsonDocument(raw)) return 'A sort must be a document, like { field: 1 }.';
+  for (const [field, dir] of Object.entries(ejsonParse<Record<string, unknown>>(raw))) {
+    if (normalizeSortDir(dir) === undefined && !isMetaSort(dir)) {
+      return `Sort direction for "${field}" must be 1, -1, "asc" or "desc".`;
+    }
+  }
   return null;
+}
+
+/** The driver's `isMeta`: a `{ $meta: "<string>" }` direction, e.g. `textScore`. */
+function isMetaSort(dir: unknown): boolean {
+  return isPlainDocument(dir) && typeof ownGet(dir as Record<string, unknown>, '$meta') === 'string';
 }
 
 export type SortClass =
@@ -196,29 +206,9 @@ export function classifySort(
 ): SortClass {
   if ((raw ?? '').trim() === '') return 'none';
   if (sortProblem(raw) !== null) return 'invalid';
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  }
-  // Stryker disable next-line BlockStatement: sortProblem above already
-  // calls isValidEjson(raw), which parses the identical `raw` string via
-  // `JSON.parse` under the hood (ejsonParse) — if that had thrown, we'd
-  // already have returned 'invalid' on the line above, so this JSON.parse
-  // can never throw here; the whole catch body is unreachable dead code.
-  catch {
-    // Stryker disable next-line StringLiteral: unreachable per the same
-    // proof above — this literal can never actually be returned.
-    return 'invalid';
-  }
-  // Stryker disable next-line ConditionalExpression,LogicalOperator,StringLiteral:
-  // sortProblem's `isEjsonDocument` check (line above) calls `isPlainDocument`,
-  // whose own first line is the byte-identical condition
-  // `!parsed || typeof parsed !== 'object' || Array.isArray(parsed)` — since
-  // that already returned false (i.e. sortProblem was null) for us to reach
-  // this point, this line's condition is always false too; verified by
-  // reading `isPlainDocument` in src/utils/ejson.ts.
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'unrepresentable';
-  const total = Object.keys(parsed).length;
+  // sortProblem has already parsed `raw` as an EJSON document whose every
+  // value is a driver direction or a `$meta`, so this parse cannot throw.
+  const total = Object.keys(ejsonParse<Record<string, unknown>>(raw)).length;
   if (total === 0) return 'none';
   const mapped = Object.keys(parseSortString(raw));
   const drawn = shownFields ? mapped.filter((k) => shownFields.has(k)).length : mapped.length;
