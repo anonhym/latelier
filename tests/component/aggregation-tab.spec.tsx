@@ -723,6 +723,28 @@ describe('AggregationTab — cancelling a run', () => {
     expect(screen.queryByText('· 7ms')).toBeNull();
   });
 
+  it('a cancelled write run that then fails shows the error, not a completion notice', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: /Stopping/ });
+    await act(async () =>
+      pending.reject({
+        code: 'CONFLICT',
+        message: '$merge with whenMatched: fail found an existing document',
+        details: { mongoCode: 11000 },
+      }),
+    );
+
+    expect(
+      await screen.findByText('$merge with whenMatched: fail found an existing document'),
+    ).toBeTruthy();
+    expect(screen.getByText('CONFLICT')).toBeTruthy();
+    expect(screen.queryByText(/ran to completion/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('a read-only run still stops at once and drops its late result', async () => {
     const pending = deferred<typeof ranOk>();
     const run = vi.fn(async () => pending.promise);
