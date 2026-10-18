@@ -433,7 +433,7 @@ function createWindow(): void {
   // window actually holds is the same string the guards compare against. With
   // `loadFile` the expected value would be re-derived, and a difference in
   // percent-encoding or path normalisation would deny every navigation.
-  win.loadURL(APP_URL);
+  win.loadURL(APP_URL).catch((err: unknown) => log?.error('window', 'loadURL failed', { err: String(err) }));
 }
 
 // Platform events ------------------------------------------------------------
@@ -853,4 +853,4 @@ app.whenReady().then(() => {
   registerDevResetShortcut();
 
   log.info('boot', 'ready');
-});
+}).catch((err: unknown) => reportFatalAndExit('Boot failed', err));
