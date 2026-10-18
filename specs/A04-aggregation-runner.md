@@ -123,6 +123,7 @@ Preview-up-to-stage is simpler: run the truncated pipeline plus `$limit: N`; ret
 
 - `registerCancel(token)` creates an `AbortController` keyed by token.
 - `agg:cancel` aborts it; active cursors close.
+- A write pipeline (`$out`/`$merge`) is the exception: the server does not stop the write when its client disconnects, so once the write is sent it runs to completion and the run reports completed (with empty per-stage counts when the cancel lands before instrumentation finishes), never "cancelled". A cancel that arrives before the write is sent still rejects with "cancelled".
 - Auto-cancel on tab close.
 
 ## 6. Write-stage confirmation

@@ -495,6 +495,157 @@ describe('AggregationService', () => {
       }
     });
   });
+
+  /**
+   * Cancel against a real server, mid-pipeline. The slow stage is a JS
+   * `$function` busy loop (`$where`/`sleep` is refused in aggregation), about
+   * 3ms per document, so an uncancelled run takes about 4.5s.
+   *
+   * A read aggregate is killed server-side once the driver aborts and drops
+   * the socket. A `$out` aggregate is not: the server finishes it and the
+   * write lands anyway. So a write pipeline must never report "cancelled" once
+   * its write can no longer be stopped — it runs to completion and reports
+   * completed.
+   */
+  describe('cancel mid-pipeline', () => {
+    const cancelDb = 'aggcancel';
+    const slowColl = 'slow_src';
+    const docCount = 1500;
+    const slowMatch: Stage = {
+      id: 1,
+      op: '$match',
+      body: JSON.stringify({
+        $expr: {
+          $function: {
+            body: 'function(){ var t = Date.now(); while (Date.now() - t < 3) {} return true; }',
+            args: [],
+            lang: 'js',
+          },
+        },
+      }),
+      enabled: true,
+    };
+
+    const db = async () => (await pool.write(connId).client()).db(cancelDb);
+
+    const aggregatesOnSlowColl = async (): Promise<number> => {
+      const client = await pool.write(connId).client();
+      // Match on namespace only: currentOp shows a long command (the
+      // instrumentation $facet) as `command.$truncated`, so a filter on
+      // `command.aggregate` would never see it.
+      const res = await client.db('admin').command({
+        currentOp: 1,
+        ns: `${cancelDb}.${slowColl}`,
+      });
+      return (res.inprog as unknown[]).length;
+    };
+
+    const untilNoAggregate = async (budgetMs: number): Promise<number> => {
+      const deadline = Date.now() + budgetMs;
+      let n = await aggregatesOnSlowColl();
+      while (n > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        n = await aggregatesOnSlowColl();
+      }
+      return n;
+    };
+
+    beforeAll(async () => {
+      const d = await db();
+      await d.dropDatabase();
+      await d
+        .collection(slowColl)
+        .insertMany(Array.from({ length: docCount }, (_, i) => ({ i })));
+    });
+
+    afterAll(async () => {
+      // Let any op a failing run left behind drain before the next suite.
+      await untilNoAggregate(10_000);
+      await (await db()).dropDatabase();
+    });
+
+    it('a cancelled read pipeline rejects at once and stops working on the server', async () => {
+      const token = 'cancel-read-mid-pipeline';
+      const t0 = Date.now();
+      const run = svc
+        .run({
+          connectionId: connId,
+          dbName: cancelDb,
+          collection: slowColl,
+          // `$group` emits nothing until it has read every document, so the
+          // whole read is one long `aggregate` command currentOp can see
+          // (otherwise the first batch returns early and the rest runs as
+          // `getMore`s the probe does not match).
+          stages: [
+            slowMatch,
+            { id: 2, op: '$group', body: '{"_id":null,"n":{"$sum":1}}', enabled: true },
+          ],
+          cancelToken: token,
+        })
+        .catch((e: unknown) => e);
+      setTimeout(() => svc.cancel(token), 300);
+      const err = await run;
+      const elapsed = Date.now() - t0;
+
+      expect(err).toMatchObject({ message: 'cancelled' });
+      // The uncancelled run takes ~4.5s.
+      expect(elapsed).toBeLessThan(2500);
+      // Without the signal on the main aggregate or on the instrumentation
+      // $facet, that aggregate keeps the server busy after the run has
+      // already reported cancelled.
+      expect(await untilNoAggregate(3000)).toBe(0);
+    });
+
+    it('a write pipeline cancelled mid-flight completes and is reported as completed', async () => {
+      const target = 'cancel_out_target';
+      const token = 'cancel-write-mid-pipeline';
+      const run = svc.run({
+        connectionId: connId,
+        dbName: cancelDb,
+        collection: slowColl,
+        stages: [slowMatch, { id: 2, op: '$out', body: JSON.stringify(target), enabled: true }],
+        allowWrite: true,
+        cancelToken: token,
+      });
+      setTimeout(() => svc.cancel(token), 300);
+
+      const result = await run;
+      expect(result.rowsJson).toBe('[]');
+      expect(await (await db()).collection(target).countDocuments()).toBe(docCount);
+    });
+
+    it('a cancel during instrumentation, after the write landed, is reported as completed', async () => {
+      type WithInstrument = { instrument: (...a: unknown[]) => unknown };
+      const target = 'cancel_race_target';
+      const token = 'cancel-after-write';
+      const original = (svc as unknown as WithInstrument).instrument;
+      const spy = vi
+        .spyOn(svc as unknown as WithInstrument, 'instrument')
+        .mockImplementation(function (this: unknown, ...args: unknown[]) {
+          svc.cancel(token);
+          return original.apply(this, args);
+        });
+      try {
+        const result = await svc.run({
+          connectionId: connId,
+          dbName,
+          collection: collName,
+          stages: [
+            { id: 1, op: '$match', body: '{"posted":true}', enabled: true },
+            { id: 2, op: '$out', body: JSON.stringify(target), enabled: true },
+          ],
+          allowWrite: true,
+          cancelToken: token,
+        });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(result.rowsJson).toBe('[]');
+        const client = await pool.write(connId).client();
+        expect(await client.db(dbName).collection(target).countDocuments()).toBe(4);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });
 
 /**
