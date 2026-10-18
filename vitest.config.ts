@@ -9,6 +9,8 @@ export default defineConfig({
     },
   },
   test: {
+    // jsdom is noisy at the 300ms default; flag only genuinely slow tests.
+    slowTestThreshold: 1_000,
     // Off unless asked for (`npm test -- --coverage`); CI sends the lcov
     // reports to SonarCloud. `include` lists the app's own code so a file no
     // test loads reports as uncovered rather than not at all.
@@ -45,7 +47,10 @@ export default defineConfig({
           setupFiles: ['tests/helpers/jsdomSetup.ts'],
           // jsdom role queries over a large tree run ~8x slower on the CI
           // runner under --coverage than locally; the 5s default flaked (#550).
-          testTimeout: 20_000,
+          // Only coverage runs get the headroom, so a slow test still fails
+          // (or shows up via slowTestThreshold) in a plain run. `npm test`
+          // forwards `--coverage` into each child vitest's argv.
+          testTimeout: process.argv.includes('--coverage') ? 20_000 : 5_000,
         },
       },
     ],
