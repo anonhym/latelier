@@ -109,9 +109,6 @@ export class AggregationService {
     const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
     let t0 = Date.now();
 
-    // Set once a write pipeline's write has run to completion: from then on a
-    // cancel can no longer undo anything, so it must not be reported.
-    let writeLanded = false;
     this.running++;
     try {
       if (beforeExecute) {
@@ -140,7 +137,6 @@ export class AggregationService {
         });
         if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
         await cursor.toArray();
-        writeLanded = true;
         durationMs = Date.now() - t0;
         rowsJson = '[]';
         rowCount = 0;
@@ -200,7 +196,7 @@ export class AggregationService {
         hasMore,
       };
     } catch (err) {
-      if (controller.signal.aborted && !writeLanded) {
+      if (controller.signal.aborted) {
         throw new SystemError('INTERNAL', 'cancelled');
       }
       const classified = classifyMongoOpError(err);
