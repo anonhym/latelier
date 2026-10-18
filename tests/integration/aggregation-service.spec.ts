@@ -547,6 +547,16 @@ describe('AggregationService', () => {
       return n;
     };
 
+    // Poll until the server is running an op on the source collection, so a
+    // cancel lands mid-flight however slow setup was on a loaded machine.
+    const untilAggregateRunning = async (budgetMs: number): Promise<void> => {
+      const deadline = Date.now() + budgetMs;
+      while ((await aggregatesOnSlowColl()) === 0) {
+        if (Date.now() > deadline) throw new Error('aggregate never started on the server');
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    };
+
     beforeAll(async () => {
       const d = await db();
       await d.dropDatabase();
@@ -604,7 +614,8 @@ describe('AggregationService', () => {
         allowWrite: true,
         cancelToken: token,
       });
-      setTimeout(() => svc.cancel(token), 300);
+      await untilAggregateRunning(15_000);
+      svc.cancel(token);
 
       const result = await run;
       expect(result.rowsJson).toBe('[]');
