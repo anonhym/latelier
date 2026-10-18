@@ -81,7 +81,7 @@ screen and editable, but the printer treats it as pending (§3). `parseFilter`
 never sets it, so it only ever exists in a drawer's own tree and its draft.
 The root group is never disabled; the drawer offers no control for it.
 
-The root is **always** a `GroupNode`. `ValType`, `FIELD_OPS`, `isApplicableOp`,
+The root is **always** a `GroupNode`. `ValType`, `FIELD_OPS`,
 `buildTypedValue`, and `coerceArrayElement` carry over unchanged — W13 replaces
 the *container* model, not the value model.
 

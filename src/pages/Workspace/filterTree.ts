@@ -559,11 +559,9 @@ function listItemText(valType: ValType, el: unknown): string {
 }
 
 /**
- * Blocking-validity checks for a cond (§3). Deliberately mirrors
- * `describeCondProblem` in builder.ts (same number/long/decimal/$mod
- * checks) — NOT its "doesn't apply to <valType>" line, which is advisory
- * only per §3 ("applicability is advisory, as today") and must never block
- * printing.
+ * Blocking-validity checks for a cond (§3): number/long/decimal/$mod.
+ * Applicability (an op outside `FIELD_OPS[valType]`) is deliberately not
+ * checked here: per §3 it is advisory only and must never block printing.
  */
 function condValueProblem(node: CondNode): string | null {
   if (!node.op.startsWith('$')) return 'Operator must start with "$"';
