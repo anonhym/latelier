@@ -252,8 +252,8 @@ Every op the builder emits falls into one of:
 | size / bits  | `$size`, `$bitsAllClear/…AnySet/…AllSet/…AnyClear`           | `Number(value)`                                 |
 | needs-raw    | everything else (e.g., `$elemMatch`, `$text`, `$expr`, `$geo*`) | row flagged invalid; Run blocked             |
 
-`isCompilableOp(op)` names the buckets above; `isApplicableOp(op, valType)`
-checks `FIELD_OPS[valType]` membership.
+`isCompilableOp(op)` names the buckets above; applicability is
+`FIELD_OPS[valType]` membership (`FIELD_OPS` is the applicability table).
 
 ### `describeCondProblem(cond) → string | null`
 
@@ -263,7 +263,7 @@ problem it finds, in order:
 1. Empty field → `null` (not yet a problem — row just doesn't compile).
 2. Op doesn't start with `$` → `'Operator must start with "$"'`.
 3. `!isCompilableOp(op)` → `'<op> needs raw JSON — open the query textarea'`.
-4. `!isApplicableOp(op, valType)` → `'<op> doesn\'t apply to <valType>'`.
+4. op not in `FIELD_OPS[valType]` → `'<op> doesn\'t apply to <valType>'`.
 5. `$mod` specifically:
    - value not a 2-element array → `'$mod value must be a 2-element array, e.g. [2, 1]'`
    - divisor is 0 → `'$mod divisor cannot be 0'`
@@ -382,8 +382,8 @@ lives in memory.
   - `describeCondProblem` returns the expected message for: valid row,
     needs-raw op, mismatched valType, malformed `$mod` (missing /
     single-element / divisor 0).
-  - `isCompilableOp` / `isApplicableOp` exercise the trivial-shape
-    and object-shape boundaries.
+  - `isCompilableOp` exercises the trivial-shape and object-shape
+    boundaries; `FIELD_OPS` is asserted as the exact per-valType table.
 
 ### Component
 

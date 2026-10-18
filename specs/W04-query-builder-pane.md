@@ -86,7 +86,7 @@ Algorithm:
    supplies default 50).
 5. **`invalidCondIds`**: IDs of conditions whose op the compiler can't
    encode (`!isCompilableOp(op)`), whose op doesn't apply to the
-   valType (`!isApplicableOp(op, valType)`), or which have an
+   valType (op not in `FIELD_OPS[valType]`), or which have an
    op-specific value problem (`$mod` with a malformed or divisor-0
    value). See §2b.
 
@@ -119,13 +119,13 @@ Drives row-level warning text. Returns the first applicable:
 1. Empty field → `null` (not yet a problem — skipped entirely).
 2. Op doesn't start with `$` → `'Operator must start with "$"'`.
 3. `!isCompilableOp(op)` → `'<op> needs raw JSON — open the query textarea'`.
-4. `!isApplicableOp(op, valType)` → `"<op> doesn't apply to <valType>"`.
+4. op not in `FIELD_OPS[valType]` → `"<op> doesn't apply to <valType>"`.
 5. `$mod` specifically:
    - value not a 2-element array → `'$mod value must be a 2-element array, e.g. [2, 1]'`
    - divisor is 0 → `'$mod divisor cannot be 0'`
 
-`isApplicableOp(op, valType)` = `FIELD_OPS[valType].includes(op)`.
-`isCompilableOp(op)` enumerates the shape buckets above.
+Applicability is `FIELD_OPS[valType].includes(op)`; `FIELD_OPS` is the
+applicability table. `isCompilableOp(op)` enumerates the shape buckets above.
 
 ## 3. Parse — MQL → builder (best-effort)
 
@@ -310,8 +310,8 @@ hand-edits to escape the flag.
   logic AND/OR, single-condition short-circuit, empty state → `{}`,
   each shape bucket (`$in`, `$mod`, `$size`, `$bits*`, `$regex`,
   `$type`), `describeCondProblem` messages for needs-raw, mismatched
-  valType, and the `$mod`-specific cases, plus `isCompilableOp` /
-  `isApplicableOp` boundaries.
+  valType, and the `$mod`-specific cases, plus `isCompilableOp` and
+  `FIELD_OPS` boundaries.
 - **parseMqlToBuilder.spec.ts**: round-trips for supported shapes;
   failures for free-form filters; recognizes `$and`, `$or`, `$date`,
   `$oid`, `$regex`.
