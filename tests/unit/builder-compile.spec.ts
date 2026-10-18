@@ -8,8 +8,6 @@ import {
   effectivePageLimit,
   findProblem,
   filterProblem,
-  isApplicableOp,
-  isCompilableOp,
   isDefaultQueryState,
   isUnfilteredFirstPage,
   limitWarning,
@@ -26,7 +24,7 @@ import {
 } from '../../src/pages/Workspace/builder';
 import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 import type { BuilderState, CollectionTabState } from '@shared/types';
-import type { FilterNode } from '../../src/pages/Workspace/filterTree';
+import { isCompilableOp, type FilterNode } from '../../src/pages/Workspace/filterTree';
 
 function makeTabState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
   return {
@@ -187,7 +185,7 @@ describe('limitWarning', () => {
   });
 });
 
-describe('isCompilableOp / isApplicableOp', () => {
+describe('isCompilableOp / FIELD_OPS', () => {
   it('isCompilableOp covers the trivial-shape ops', () => {
     for (const op of ['$eq', '$ne', '$in', '$regex', '$type', '$mod', '$size', '$bitsAllClear']) {
       expect(isCompilableOp(op)).toBe(true);
@@ -198,12 +196,6 @@ describe('isCompilableOp / isApplicableOp', () => {
     for (const op of ['$elemMatch', '$text', '$expr', '$geoWithin', '$jsonSchema']) {
       expect(isCompilableOp(op)).toBe(false);
     }
-  });
-
-  it('isApplicableOp respects FIELD_OPS', () => {
-    expect(isApplicableOp('$regex', 'string')).toBe(true);
-    expect(isApplicableOp('$regex', 'number')).toBe(false);
-    expect(isApplicableOp('$all', 'array')).toBe(true);
   });
 
   it('FIELD_OPS is exactly the documented table, per valType', () => {

@@ -27,10 +27,6 @@ export const FIELD_OPS: Record<ValType, MqlOp[]> = {
   array:    ['$in', '$nin', '$all', '$exists', '$type', '$size'],
 };
 
-export function isApplicableOp(op: string, valType: ValType): boolean {
-  return (FIELD_OPS[valType] as readonly string[]).includes(op);
-}
-
 export function valTypeFromDisplayType(dt: DisplayType | undefined): ValType {
   switch (dt) {
     case 'objectid': return 'objectid';
@@ -55,24 +51,6 @@ export function opForValType(valType: ValType, currentOp: string): MqlOp {
   // non-empty — ops[0] can never be undefined for any real or invalid-cast
   // valType, so this `?? '$eq'` fallback is unreachable defensive code.
   return ops[0] ?? '$eq';
-}
-
-const SIMPLE_OPS = new Set<string>(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']);
-const ARRAY_VALUE_OPS = new Set<string>(['$in', '$nin', '$all']);
-const BITS_OPS = new Set<string>(['$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet']);
-
-/** Ops the compiler can handle; others flag the row as needing raw JSON. */
-export function isCompilableOp(op: string): boolean {
-  return (
-    SIMPLE_OPS.has(op) ||
-    ARRAY_VALUE_OPS.has(op) ||
-    BITS_OPS.has(op) ||
-    op === '$exists' ||
-    op === '$regex' ||
-    op === '$type' ||
-    op === '$mod' ||
-    op === '$size'
-  );
 }
 
 export type SortDir = 1 | -1;

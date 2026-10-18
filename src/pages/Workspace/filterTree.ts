@@ -6,7 +6,6 @@
 // See specs/W13-filter-tree-editor.md for the full spec this module
 // implements (§1 model, §2 parseFilter, §3 printFilter, §4 edit API).
 import type { ValType, CondNode, RawNode, GroupNode, FilterNode } from '@shared/types';
-import { isCompilableOp } from './builder';
 
 // ─── §1 Model ────────────────────────────────────────────────────────────────
 
@@ -394,6 +393,20 @@ export const SIMPLE_OPS: ReadonlySet<string> = new Set(['$eq', '$ne', '$gt', '$g
 export const ARRAY_VALUE_OPS: ReadonlySet<string> = new Set(['$in', '$nin', '$all']);
 const BITS_OPS = new Set(['$bitsAllClear', '$bitsAnyClear', '$bitsAllSet', '$bitsAnySet']);
 
+/** Ops the compiler can handle; others flag the row as needing raw JSON. */
+export function isCompilableOp(op: string): boolean {
+  return (
+    SIMPLE_OPS.has(op) ||
+    ARRAY_VALUE_OPS.has(op) ||
+    BITS_OPS.has(op) ||
+    op === '$exists' ||
+    op === '$regex' ||
+    op === '$type' ||
+    op === '$mod' ||
+    op === '$size'
+  );
+}
+
 const NUMBER_PRECISION_MESSAGE =
   'Contains a number too large to represent exactly — use {"$numberLong": "..."} or {"$numberDecimal": "..."} instead';
 
@@ -684,7 +697,7 @@ function encodeCondValue(node: CondNode): unknown {
   }
   // Stryker disable next-line ConditionalExpression: isCompilableOp's op set
   // is exactly SIMPLE_OPS + ARRAY_VALUE_OPS + $exists/$regex/$type/$mod/$size
-  // + BITS_OPS (see builder.ts) — every one of those is handled by an earlier
+  // + BITS_OPS (see isCompilableOp above) — every one of those is handled by an earlier
   // return in this function except $size/BITS_OPS, so any op reaching this
   // line through printFilter is already guaranteed to be $size or a bits op.
   if (op === '$size' || BITS_OPS.has(op)) {
