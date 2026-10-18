@@ -496,19 +496,19 @@ describe('parseSortString', () => {
     expect(parseSortString('{"name":1,"age":-1}')).toEqual({ name: 1, age: -1 });
   });
 
-  it('accepts "asc"/"desc" strings (case-insensitive, trimmed)', () => {
+  it('accepts "asc"/"desc" strings (case-insensitive)', () => {
     expect(parseSortString('{"name":"asc","age":"DESC"}')).toEqual({
       name: 1,
       age: -1,
     });
-    expect(parseSortString('{"a":" Ascending ","b":"descending"}')).toEqual({
+    expect(parseSortString('{"a":"Ascending","b":"descending"}')).toEqual({
       a: 1,
       b: -1,
     });
   });
 
-  it('coerces positive/negative numbers other than ±1', () => {
-    expect(parseSortString('{"a":2,"b":-7}')).toEqual({ a: 1, b: -1 });
+  it('drops numbers other than ±1, which the driver refuses', () => {
+    expect(parseSortString('{"a":2,"b":-7}')).toEqual({});
   });
 
   it('drops fields with shapes we don\'t model (e.g. $meta textScore)', () => {
@@ -531,8 +531,8 @@ describe('parseSortString', () => {
     expect(parseSortString('{"a":1e999,"b":1}')).toEqual({ b: 1 });
   });
 
-  it('a fractional positive/negative number still resolves by sign, at the >0/<0 boundary', () => {
-    expect(parseSortString('{"a":0.5,"b":-0.5}')).toEqual({ a: 1, b: -1 });
+  it('drops a fractional direction, which the driver refuses', () => {
+    expect(parseSortString('{"a":0.5,"b":-0.5}')).toEqual({});
   });
 
   it('drops a field whose direction string is unrecognized', () => {
@@ -546,6 +546,58 @@ describe('parseSortString', () => {
 
   it('a null raw input is treated as empty, not a crash', () => {
     expect(parseSortString(null as unknown as string)).toEqual({});
+  });
+
+  // The driver decides what runs: `prepareDirection` in
+  // node_modules/mongodb/lib/sort.js accepts a direction only when its
+  // lowercased string form is one of the six words below (plus `{$meta}`,
+  // which has no ±1 to draw). Anything it would throw on draws no arrow.
+  it.each([
+    ['1', 1],
+    ['-1', -1],
+    ['"1"', 1],
+    ['"-1"', -1],
+    ['"asc"', 1],
+    ['"desc"', -1],
+    ['"ascending"', 1],
+    ['"descending"', -1],
+    ['"ASC"', 1],
+    ['"Descending"', -1],
+    ['{"$numberInt":"1"}', 1],
+    ['{"$numberInt":"-1"}', -1],
+    ['{"$numberLong":"1"}', 1],
+    ['{"$numberDouble":"-1.0"}', -1],
+    ['{"$numberDecimal":"1"}', 1],
+  ] as const)('accepts the driver direction %s', (dir, expected) => {
+    expect(parseSortString('{"f":' + dir + '}')).toEqual({ f: expected });
+  });
+
+  it.each([
+    '2',
+    '-7',
+    '0.5',
+    '0',
+    '1.5',
+    '" asc"',
+    '"asc "',
+    '"+1"',
+    '"1.0"',
+    'true',
+    'null',
+    '"bogus"',
+    '"constructor"',
+    '"__proto__"',
+    '{"$numberInt":"2"}',
+    '{"$meta":"textScore"}',
+    '{"x":1}',
+    '[1]',
+    '[{"x":1}]',
+  ])('drops the driver-refused direction %s', (dir) => {
+    expect(parseSortString('{"f":' + dir + ',"g":1}')).toEqual({ g: 1 });
+  });
+
+  it('a lone EJSON sentinel is a value, not a sort document', () => {
+    expect(parseSortString('{"$numberInt":"1"}')).toEqual({});
   });
 });
 
@@ -575,7 +627,7 @@ describe('classifySort', () => {
   it('every key modelled is a fully mapped sort', () => {
     expect(classifySort('{"name":1}')).toBe('mapped');
     expect(classifySort('{"name":1,"age":-1}')).toBe('mapped');
-    // The lenient direction forms `parseSortString` accepts count as mapped.
+    // String directions the driver accepts count as mapped.
     expect(classifySort('{"name":"asc","age":"desc"}')).toBe('mapped');
   });
 

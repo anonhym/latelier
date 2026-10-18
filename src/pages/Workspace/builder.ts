@@ -1,6 +1,6 @@
 import type { BuilderState, CollectionTabState, MqlOp, ValType } from '@shared/types';
 import { toDisplayValue, type DisplayType } from '../../utils/displayValue';
-import { isEjsonDocument, isValidEjson } from '../../utils/ejson';
+import { ejsonParse, isEjsonDocument, isPlainDocument, isValidEjson } from '../../utils/ejson';
 import {
   buildScalarWire,
   coerceArrayElementWire,
@@ -55,58 +55,48 @@ export function opForValType(valType: ValType, currentOp: string): MqlOp {
 
 export type SortDir = 1 | -1;
 
+/**
+ * The driver's own rule (`prepareDirection` in node_modules/mongodb/lib/sort.js):
+ * a direction is valid only when its lowercased string form is one of these six
+ * words. bson numerics stringify to their digits, so `{"$numberInt":"1"}`
+ * counts; `2`, `0.5` and `" asc"` make the driver throw, so they draw nothing.
+ * `{$meta}` is valid but has no ±1 to draw. Sub-documents and arrays are
+ * skipped before stringifying: `ejsonParse` builds sub-documents with a null
+ * prototype, which `String()` throws on. The driver would accept `[1]`; no
+ * sort the app writes has that shape.
+ */
+const SORT_DIRECTIONS: Record<string, SortDir> = {
+  '1': 1,
+  asc: 1,
+  ascending: 1,
+  '-1': -1,
+  desc: -1,
+  descending: -1,
+};
+
 function normalizeSortDir(v: unknown): SortDir | undefined {
-  // Stryker disable next-line ConditionalExpression: whenever v === 1,
-  // disabling this early return still falls through to the generic
-  // number branch below (typeof 1 === 'number', Number.isFinite(1), 1 > 0),
-  // which returns the identical `1` — verified for every input shape.
-  if (v === 1) return 1;
-  // Stryker disable next-line ConditionalExpression,UnaryOperator: same
-  // argument as the v === 1 case above — the generic number branch below
-  // (v < 0) reproduces -1 for v === -1 regardless of this check (or of
-  // comparing against the wrong literal, since whatever value the check
-  // targets, either the v===1 branch above or this generic branch already
-  // returns the same result for it).
-  if (v === -1) return -1;
-  // Stryker disable next-line ConditionalExpression: Number.isFinite is
-  // type-strict — it already returns false for any non-number v — so the
-  // redundant `typeof v === 'number'` conjunct can't change the result.
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    if (v > 0) return 1;
-    if (v < 0) return -1;
-    return undefined;
-  }
-  if (typeof v === 'string') {
-    const s = v.trim().toLowerCase();
-    if (s === 'asc' || s === 'ascending' || s === '1') return 1;
-    if (s === 'desc' || s === 'descending' || s === '-1') return -1;
-  }
-  return undefined;
+  if (Array.isArray(v) || isPlainDocument(v)) return undefined;
+  return ownGet(SORT_DIRECTIONS, String(v).toLowerCase());
 }
 
-/** Parses `{"name":1,"age":-1}`. Unparseable/unmodeled shapes drop silently to `{}`. */
+/** Parses `{"name":1,"age":-1}` as EJSON. Unparseable/unmodeled shapes drop silently to `{}`. */
 export function parseSortString(raw: string): Record<string, SortDir> {
   // Stryker disable next-line StringLiteral: this fallback only fires when
-  // `raw` is null/undefined, and whatever non-JSON placeholder text stands in
-  // for '' still fails JSON.parse below the same way — trimmed is non-empty,
-  // parsing throws, and the catch returns the identical {} either way.
+  // `raw` is null/undefined, and ejsonParse throws on '' and on any
+  // placeholder text Stryker substitutes alike, so the catch returns the
+  // identical {} either way.
   const trimmed = (raw ?? '').trim();
-  // Stryker disable next-line ConditionalExpression: whenever trimmed === '',
-  // JSON.parse('') always throws (empty input), so removing this early
-  // return still lands on the identical `{}` via the catch block below.
-  if (!trimmed) return {};
   let parsed: unknown;
   try {
-    parsed = JSON.parse(trimmed);
+    parsed = ejsonParse(trimmed);
   }
   // Stryker disable next-line BlockStatement: an emptied catch leaves
-  // `parsed` at its initial `undefined`, and the very next line's
-  // `!parsed` is then true — returning the identical `{}` this catch
-  // returns explicitly.
+  // `parsed` at its initial `undefined`, which isPlainDocument on the next
+  // line rejects — returning the identical `{}` this catch returns.
   catch {
     return {};
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  if (!isPlainDocument(parsed)) return {};
   const out: Record<string, SortDir> = {};
   for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
     const dir = normalizeSortDir(v);
