@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Collection, Document } from 'mongodb';
+import type { Collection, Document, MongoClient } from 'mongodb';
 import type {
   AggExplainInput,
   AggInput,
@@ -150,7 +150,7 @@ export class AggregationService {
         if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
         writeSent = true;
         const written = cursor.toArray();
-        const stop = () => void this.killWrite(grant!, comment, written);
+        const stop = () => void this.killWrite(input.connectionId, comment, written);
         controller.signal.addEventListener('abort', stop, { once: true });
         try {
           await written;
@@ -421,11 +421,15 @@ export class AggregationService {
    * op shows up or the write settles. `killOp` answers ok for any opid, so
    * whether the write stopped is read from how `written` settles, not here.
    *
+   * The commands go over a control client of their own: on the pooled client
+   * they would queue behind the very aggregate they are meant to stop
+   * whenever it holds the pool's last connection.
+   *
    * A refusal (no `killop` privilege, a hosted tier that disallows these
    * commands) only costs the stop: the write runs to completion as before.
    */
   private async killWrite(
-    grant: WriteGrant,
+    connectionId: string,
     comment: string,
     written: Promise<unknown>,
   ): Promise<void> {
@@ -434,8 +438,10 @@ export class AggregationService {
       settled = true;
     };
     written.then(markSettled, markSettled);
+    let control: MongoClient | undefined;
     try {
-      const admin = (await grant.client()).db('admin');
+      control = await this.pool.openControlClient(connectionId);
+      const admin = control.db('admin');
       while (!settled) {
         const { inprog } = (await admin.command({
           currentOp: 1,
@@ -455,6 +461,12 @@ export class AggregationService {
     } catch (err) {
       this.log?.warn('agg', 'could not stop the write on the server; it runs to completion', {
         message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      await control?.close().catch((err: unknown) => {
+        this.log?.warn('agg', 'closing the control client failed', {
+          message: err instanceof Error ? err.message : String(err),
+        });
       });
     }
   }

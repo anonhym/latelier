@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { Collection, Db, MongoServerError } from 'mongodb';
 import type { Stage } from '@shared/types';
 import { MongoPool } from '../../electron/mongo/MongoPool';
@@ -586,6 +586,12 @@ describe('AggregationService', () => {
         .insertMany(Array.from({ length: docCount }, (_, i) => ({ i })));
     });
 
+    // A failed test can leave its slow op running, and the next test's
+    // `untilAggregateRunning` would then see that op instead of its own.
+    beforeEach(async () => {
+      expect(await untilNoAggregate(15_000)).toBe(0);
+    });
+
     afterAll(async () => {
       // Let any op a failing run left behind drain before the next suite.
       await untilNoAggregate(10_000);
@@ -644,8 +650,9 @@ describe('AggregationService', () => {
         (await d.listCollections().toArray())
           .map((c) => c.name)
           .filter((n) => n.startsWith('tmp.agg_out.'));
-      // The write is under way: `$out` fills its temp collection first.
-      expect(await tempOuts()).toHaveLength(1);
+      // The write is under way: `$out` fills a temp collection, created just
+      // after the op appears in currentOp.
+      await expect.poll(tempOuts, { timeout: 5000 }).toHaveLength(1);
       svc.cancel(token);
 
       const err = await run;
@@ -659,6 +666,50 @@ describe('AggregationService', () => {
       expect(ids).toEqual(['old1', 'old2']);
       expect(await tempOuts()).toEqual([]);
       expect(await untilNoAggregate(3000)).toBe(0);
+    });
+
+    it("a cancelled write is killed even when it holds its pool's only connection", async () => {
+      const target = 'cancel_out_tight_pool_target';
+      const token = 'cancel-out-tight-pool';
+      const tightId = 'agg-conn-pool-of-one';
+      const uri = new URL(getSharedMongoUri());
+      const tight = makeConnection(
+        tightId,
+        { host: uri.hostname, port: Number(uri.port) },
+        { advanced: { ...makeConnection(tightId, { host: '', port: 0 }).advanced, maxPoolSize: 1 } },
+      );
+      const tightPool = new MongoPool({
+        repo: makeReader([tight]),
+        vault: { get: () => null } as unknown as import('../../electron/secrets/SecretsVault').SecretsVault,
+      });
+      const tightSvc = new AggregationService(
+        tightPool,
+        new RecentQueryService(new RecentQueryRepo(tmp.db)),
+      );
+      try {
+        const run = tightSvc
+          .run({
+            connectionId: tightId,
+            dbName: cancelDb,
+            collection: slowColl,
+            stages: [slowMatch, { id: 2, op: '$out', body: JSON.stringify(target), enabled: true }],
+            allowWrite: true,
+            cancelToken: token,
+          })
+          .catch((e: unknown) => e);
+        await untilAggregateRunning(15_000);
+        tightSvc.cancel(token);
+
+        // A `currentOp` on the write's own pool would wait for the write to
+        // finish, and the run would come back completed instead.
+        expect(await run).toMatchObject({
+          message: 'cancelled',
+          details: { writeStageOp: '$out', partialWrite: false },
+        });
+        expect(await (await db()).collection(target).countDocuments()).toBe(0);
+      } finally {
+        await tightPool.disconnectAll();
+      }
     });
 
     it('a cancelled $merge is killed on the server and reports the documents it already wrote', async () => {
