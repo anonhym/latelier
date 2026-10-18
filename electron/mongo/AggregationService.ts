@@ -108,6 +108,9 @@ export class AggregationService {
     }
     const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
     let t0 = Date.now();
+    // Once a $out/$merge is sent it cannot be stopped, so its own error is
+    // the real outcome and a cancel no longer turns it into "cancelled".
+    let writeSent = false;
 
     this.running++;
     try {
@@ -136,6 +139,7 @@ export class AggregationService {
           maxTimeMS: QUERY_TIMEOUT_MS,
         });
         if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
+        writeSent = true;
         await cursor.toArray();
         durationMs = Date.now() - t0;
         rowsJson = '[]';
@@ -196,7 +200,7 @@ export class AggregationService {
         hasMore,
       };
     } catch (err) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !writeSent) {
         throw new SystemError('INTERNAL', 'cancelled');
       }
       const classified = classifyMongoOpError(err);

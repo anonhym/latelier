@@ -622,6 +622,40 @@ describe('AggregationService', () => {
       expect(await (await db()).collection(target).countDocuments()).toBe(docCount);
     });
 
+    it("a sent write's own failure after a cancel is reported as that failure, not cancelled", async () => {
+      const target = 'cancel_merge_fail_target';
+      const token = 'cancel-write-then-fail';
+      const d = await db();
+      // Every source `_id` already exists in the target, so `whenMatched:
+      // 'fail'` rejects when $merge flushes, after the slow stage has run.
+      const ids = await d.collection(slowColl).find({}, { projection: { _id: 1 } }).toArray();
+      await d.collection(target).insertMany(ids.map(({ _id }) => ({ _id, old: true })));
+      const run = svc
+        .run({
+          connectionId: connId,
+          dbName: cancelDb,
+          collection: slowColl,
+          stages: [
+            slowMatch,
+            {
+              id: 2,
+              op: '$merge',
+              body: JSON.stringify({ into: target, whenMatched: 'fail' }),
+              enabled: true,
+            },
+          ],
+          allowWrite: true,
+          cancelToken: token,
+        })
+        .catch((e: unknown) => e);
+      await untilAggregateRunning(15_000);
+      svc.cancel(token);
+
+      const err = await run;
+      expect(err).toMatchObject({ code: 'CONFLICT', details: { mongoCode: 11000 } });
+      expect((err as Error).message).not.toBe('cancelled');
+    });
+
     it('a cancel during instrumentation, after the write landed, is reported as completed', async () => {
       type WithInstrument = { instrument: (...a: unknown[]) => unknown };
       const target = 'cancel_race_target';
