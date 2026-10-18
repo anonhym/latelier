@@ -559,17 +559,17 @@ describe('AggregationService', () => {
       }
     };
 
-    // Refuses `killOp` the way a server does for a user without the `killop`
+    // Refuses a command the way a server does for a user without the
     // privilege. Stubbed: the shared server runs without auth, so it has no
-    // user to lack the privilege. Install it only once the run is on the
-    // server, since the probes above use `currentOp` through the same Db.
-    const refuseKillOp = () => {
+    // user to lack one. Install it only once the run is on the server, since
+    // the probes above use `currentOp` through the same Db.
+    const refuseCommand = (name: 'killOp' | 'currentOp' = 'killOp') => {
       const command = Db.prototype.command;
       return vi.spyOn(Db.prototype, 'command').mockImplementation(function (
         this: Db,
         ...args: Parameters<Db['command']>
       ) {
-        if ('killOp' in args[0]) {
+        if (name in args[0]) {
           return Promise.reject(
             new MongoServerError({ ok: 0, code: 13, codeName: 'Unauthorized', errmsg: 'not authorized' }),
           );
@@ -640,6 +640,12 @@ describe('AggregationService', () => {
         })
         .catch((e: unknown) => e);
       await untilAggregateRunning(15_000);
+      const tempOuts = async () =>
+        (await d.listCollections().toArray())
+          .map((c) => c.name)
+          .filter((n) => n.startsWith('tmp.agg_out.'));
+      // The write is under way: `$out` fills its temp collection first.
+      expect(await tempOuts()).toHaveLength(1);
       svc.cancel(token);
 
       const err = await run;
@@ -651,8 +657,7 @@ describe('AggregationService', () => {
       // kill leaves the target as it was and drops the temp collection.
       const ids = await d.collection(target).find().map((x) => x._id as unknown).toArray();
       expect(ids).toEqual(['old1', 'old2']);
-      const names = (await d.listCollections().toArray()).map((c) => c.name);
-      expect(names.filter((n) => n.startsWith('tmp.'))).toEqual([]);
+      expect(await tempOuts()).toEqual([]);
       expect(await untilNoAggregate(3000)).toBe(0);
     });
 
@@ -696,9 +701,9 @@ describe('AggregationService', () => {
       expect(await aggregatesOnSlowColl(bigColl)).toBe(0);
     });
 
-    it('a write whose kill is refused runs to completion and is reported as completed', async () => {
-      const target = 'cancel_out_refused_target';
-      const token = 'cancel-out-kill-refused';
+    it.each(['killOp', 'currentOp'] as const)('a write whose %s is refused runs to completion and is reported as completed', async (refused) => {
+      const target = `cancel_out_refused_${refused}`;
+      const token = `cancel-out-${refused}-refused`;
       const warn = vi.fn();
       const logged = new AggregationService(
         pool,
@@ -714,7 +719,7 @@ describe('AggregationService', () => {
         cancelToken: token,
       });
       await untilAggregateRunning(15_000);
-      const spy = refuseKillOp();
+      const spy = refuseCommand(refused);
       try {
         logged.cancel(token);
         const result = await run;
@@ -759,7 +764,7 @@ describe('AggregationService', () => {
       await untilAggregateRunning(15_000);
       // A kill would stop the write before its one batch flushes; refused, the
       // write runs on and fails on its own.
-      const spy = refuseKillOp();
+      const spy = refuseCommand();
       let err: unknown;
       try {
         svc.cancel(token);

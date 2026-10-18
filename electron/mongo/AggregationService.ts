@@ -442,11 +442,12 @@ export class AggregationService {
           $ownOps: true,
           'command.comment': comment,
         })) as { inprog: Array<{ opid: unknown }> };
-        const op = inprog[0];
-        if (op) {
-          // Passed back as `currentOp` gave it: a number on mongod, a
-          // "shard:opid" string on mongos.
-          await admin.command({ killOp: 1, op: op.opid });
+        if (inprog.length > 0) {
+          // Every match: on a sharded cluster each shard runs its own part of
+          // the pipeline under the same comment. The opid goes back as
+          // `currentOp` gave it, a number on mongod and a "shard:opid" string
+          // on mongos.
+          for (const op of inprog) await admin.command({ killOp: 1, op: op.opid });
           return;
         }
         await new Promise((r) => setTimeout(r, KILL_POLL_MS));
