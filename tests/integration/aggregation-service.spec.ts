@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { Collection } from 'mongodb';
 import type { Stage } from '@shared/types';
 import { MongoPool } from '../../electron/mongo/MongoPool';
@@ -7,10 +6,9 @@ import { AggregationService } from '../../electron/mongo/AggregationService';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { createTempDb, type TempDb } from '../helpers/db';
-import { getSharedServer, makeConnection, makeReader } from '../helpers/mongo';
+import { getSharedMongoUri, makeConnection, makeReader } from '../helpers/mongo';
 
 describe('AggregationService', () => {
-  let server: MongoMemoryServer;
   let pool: MongoPool;
   let svc: AggregationService;
   let tmp: TempDb;
@@ -19,8 +17,7 @@ describe('AggregationService', () => {
   const collName = 'transactions';
 
   beforeAll(async () => {
-    server = await getSharedServer();
-    const uri = server.getUri();
+    const uri = getSharedMongoUri();
     const hp = { host: new URL(uri).hostname, port: Number(new URL(uri).port) };
     const conn = makeConnection(connId, hp, { defaultDb: dbName });
     pool = new MongoPool({
@@ -353,7 +350,7 @@ describe('AggregationService', () => {
     const roConnId = 'agg-guard-ro';
 
     beforeAll(() => {
-      const hp = { host: new URL(server.getUri()).hostname, port: Number(new URL(server.getUri()).port) };
+      const hp = { host: new URL(getSharedMongoUri()).hostname, port: Number(new URL(getSharedMongoUri()).port) };
       const rwConn = makeConnection(rwConnId, hp, { defaultDb: dbName });
       const roConn = makeConnection(roConnId, hp, { defaultDb: dbName, readOnly: true });
       guardPool = new MongoPool({
@@ -745,7 +742,6 @@ describe('AggregationService — cancel during connection setup', () => {
  * threw, which is why it needed a test rather than a bug report.
  */
 describe('AggregationService — a write stage rejected by a validator', () => {
-  let server: MongoMemoryServer;
   let pool: MongoPool;
   let svc: AggregationService;
   let tmp: TempDb;
@@ -755,8 +751,7 @@ describe('AggregationService — a write stage rejected by a validator', () => {
   const destColl = 'dv_validated';
 
   beforeAll(async () => {
-    server = await getSharedServer();
-    const uri = server.getUri();
+    const uri = getSharedMongoUri();
     const hp = { host: new URL(uri).hostname, port: Number(new URL(uri).port) };
     const conn = makeConnection(connId, hp, { defaultDb: dbName });
     pool = new MongoPool({
@@ -776,7 +771,7 @@ describe('AggregationService — a write stage rejected by a validator', () => {
         $jsonSchema: { bsonType: 'object', required: ['n'], properties: { n: { bsonType: 'int' } } },
       },
     });
-  }, 60_000);
+  });
 
   afterAll(async () => {
     await pool.disconnectAll();

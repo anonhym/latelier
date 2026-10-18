@@ -4,8 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, 'shared'),
-      '@': path.resolve(__dirname, 'src'),
+      '@shared': path.resolve(import.meta.dirname, 'shared'),
+      '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
   test: {
@@ -34,6 +34,7 @@ export default defineConfig({
           name: 'integration',
           environment: 'node',
           include: ['tests/integration/**/*.spec.ts'],
+          globalSetup: ['tests/helpers/mongoGlobalSetup.ts'],
           testTimeout: 30_000,
           hookTimeout: 30_000,
         },
