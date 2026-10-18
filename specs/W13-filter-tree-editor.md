@@ -87,8 +87,8 @@ the *container* model, not the value model.
 
 > **Take the value model from `src/pages/Workspace/builder.ts`, not from W04
 > §1.** W04 §1's `ValType` list predates the BSON-precision work and is missing
-> `long` and `decimal`, which `FIELD_OPS`, `buildTypedValue`, and
-> `describeCondProblem` have all handled since. The shipped union is
+> `long` and `decimal`, which `FIELD_OPS`, `buildTypedValue`, and the
+> condition-problem check (now `condValueProblem`) have all handled since. The shipped union is
 > `'string' | 'number' | 'long' | 'decimal' | 'boolean' | 'date' | 'null' |
 > 'regex' | 'objectid' | 'array'`. `long`/`decimal` are comparison-only on
 > purpose — `$mod` and `$bits*` route through `Number()`, which re-introduces
@@ -214,7 +214,7 @@ node the printer can't encode never reaches `queryRaw`, so it can never reach
 | Node | Problem |
 | --- | --- |
 | cond | op doesn't start with `$` |
-| cond | value invalid for `valType` — the `number` / `long` / `decimal` / `$mod` checks already in `describeCondProblem` |
+| cond | value invalid for `valType` — the `number` / `long` / `decimal` / `$mod` checks in `condValueProblem` (W04 §2b) |
 | cond | op not encodable as `{ field: { $op: value } }` (the UI offers "convert to raw clause" instead of letting this happen — the check is a backstop) |
 | raw | non-blank `json` isn't valid JSON, or isn't an object |
 | raw | `json` contains a numeric literal that `JSON.parse` → `JSON.stringify` round-tripping would alter (§3a) |

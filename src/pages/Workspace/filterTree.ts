@@ -657,14 +657,15 @@ function sentinelProblem(wire: unknown): string | null {
 }
 
 /**
- * Encodes an already-validated cond's value onto the wire. Lenient where
- * `describeCondProblem` is lenient (e.g. a malformed `$in` array silently
- * encodes as `[]`, matching builder.ts's `buildCondValue`/`parseJsonArray`)
- * — `condValueProblem` above is the single source of blocking validation.
+ * Encodes an already-validated cond's value onto the wire. Lenient on its
+ * own (a malformed `$in` array would encode as `[]`), because
+ * `condValueProblem` above is the single source of blocking validation and
+ * already refuses an empty or unparseable list before this runs.
  *
  * `$exists` deliberately preserves the stored boolean text instead of
- * builder.ts's `buildCondValue`, which always emits `true`: forcing `true`
- * would silently flip a parsed `{$exists:false}` on the very first print,
+ * the pre-W13 `buildCondValue` (frozen in legacyBuilder.ts), which always
+ * emits `true`: forcing `true` would silently flip a parsed
+ * `{$exists:false}` on the very first print,
  * breaking the semantic round-trip this module exists to guarantee.
  */
 function encodeCondValue(node: CondNode): unknown {
