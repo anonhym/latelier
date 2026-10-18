@@ -970,7 +970,10 @@ function WorkspaceInner() {
   );
 
   const openConnectionScreen = React.useCallback(
-    (id: string) => navigate(`/connections/${id}`),
+    (id: string) => {
+      // The dialogs hook ignores the result; navigate's promise only settles the transition.
+      void navigate(`/connections/${id}`);
+    },
     [navigate],
   );
 
