@@ -1,6 +1,6 @@
 # X11 — Workspace composition refactor
 
-> **Status: Shipped.** The phased migration below landed — `src/pages/Workspace/context.ts` (`CollectionWorkspaceContext`/`Provider`/`useCollectionWorkspace`), the `<ResultViewer>` compound component replacing the old `ResultArea` monolith, and `ScriptTab` as the second-consumer reuse case are all in the codebase (phases tagged in source comments as "X11 phase N"). The acceptance-criteria checkboxes below were not individually re-audited against final code — treat this spec as historical design record for the target shape, and prefer reading the current source under `src/pages/Workspace/` for the ground truth of what shipped.
+> **Status: Implemented.** The phased migration below landed — `src/pages/Workspace/context.ts` (`CollectionWorkspaceContext`/`Provider`/`useCollectionWorkspace`), the `<ResultViewer>` compound component replacing the old `ResultArea` monolith, and `ScriptTab` as the second-consumer reuse case are all in the codebase (phases tagged in source comments as "X11 phase N"). The acceptance criteria below were not individually re-audited against final code — treat this spec as historical design record for the target shape, and prefer reading the current source under `src/pages/Workspace/` for the ground truth of what shipped.
 
 ## Purpose
 
@@ -202,41 +202,41 @@ No forks. No new props on the compounds. ~10 lines for the consumer.
 ## Acceptance criteria
 
 ### Phase 1 — narrow view-component props
-- [ ] `TreeView` props: no `state: CollectionTabState`; explicit `expandedRows`, `onRowExpand`, `documents`.
-- [ ] `TableView` props: no `state`; explicit `columns`, `onColumnResize`, `documents`, `sort`, `onSortField`.
-- [ ] `ResultBar` props: no `state`; explicit `page`, `pageSize`, `totalCount`, `lastRunHasMore`, `docCount`, `durationMs`, `view`, `onViewChange`, `onPage`, `isLoading`.
-- [ ] `ScriptTab` still compiles and renders without code changes beyond prop-shape updates.
-- [ ] `npm test` green; no behavioral regressions in workspace integration tests.
+- `TreeView` props: no `state: CollectionTabState`; explicit `expandedRows`, `onRowExpand`, `documents`.
+- `TableView` props: no `state`; explicit `columns`, `onColumnResize`, `documents`, `sort`, `onSortField`.
+- `ResultBar` props: no `state`; explicit `page`, `pageSize`, `totalCount`, `lastRunHasMore`, `docCount`, `durationMs`, `view`, `onViewChange`, `onPage`, `isLoading`.
+- `ScriptTab` still compiles and renders without code changes beyond prop-shape updates.
+- `npm test` green; no behavioral regressions in workspace integration tests.
 
 ### Phase 2 — provider
-- [ ] `src/pages/Workspace/context.ts` exports `CollectionWorkspaceContext`, `CollectionWorkspaceProvider`, `useCollectionWorkspace`.
-- [ ] `WorkspaceInner` wraps its Documents-view subtree in the provider; no consumer reads from context yet.
-- [ ] Throwing the provider outside a consumer surfaces a clear error message.
-- [ ] No change to `useWorkspaceTabs`.
+- `src/pages/Workspace/context.ts` exports `CollectionWorkspaceContext`, `CollectionWorkspaceProvider`, `useCollectionWorkspace`.
+- `WorkspaceInner` wraps its Documents-view subtree in the provider; no consumer reads from context yet.
+- Throwing the provider outside a consumer surfaces a clear error message.
+- No change to `useWorkspaceTabs`.
 
 ### Phase 3 — consumer migration
-- [ ] `QueryBar` reads `state`, `actions`, `meta` from context (no `state` / `onPatch` / `tabId` props).
-- [ ] `BuilderPane` reads from context.
-- [ ] `ResultBar` reads from context.
-- [ ] `TreeView` / `TableView` call `actions.openEdit` / `actions.openDelete` from context; `onEditDoc` / `onDeleteDoc` props removed from these and from `ResultArea`.
-- [ ] No `CollectionTabState` import left in any presentational component under `src/pages/Workspace/views/`.
+- `QueryBar` reads `state`, `actions`, `meta` from context (no `state` / `onPatch` / `tabId` props).
+- `BuilderPane` reads from context.
+- `ResultBar` reads from context.
+- `TreeView` / `TableView` call `actions.openEdit` / `actions.openDelete` from context; `onEditDoc` / `onDeleteDoc` props removed from these and from `ResultArea`.
+- No `CollectionTabState` import left in any presentational component under `src/pages/Workspace/views/`.
 
 ### Phase 4 — `useQueryRunner`
-- [ ] `run()` removed from `WorkspaceInner`; `useQueryRunner` extracted under `src/pages/Workspace/`.
-- [ ] Provider wires `actions.run` to the hook.
-- [ ] Unit tests cover: success path, error path, pagination override, count side-fire, EJSON wire shape.
+- `run()` removed from `WorkspaceInner`; `useQueryRunner` extracted under `src/pages/Workspace/`.
+- Provider wires `actions.run` to the hook.
+- Unit tests cover: success path, error path, pagination override, count side-fire, EJSON wire shape.
 
 ### Phase 5 — compound restructure (`ResultViewer` only)
-- [ ] `<ResultViewer>` exposes `Pagination`, `Body`, `Tree`, `Table`, `Json`, `EmptyState` slots.
-- [ ] Page composes `<ResultViewer>` explicitly; the `<ResultArea>` monolith is removed.
-- [ ] `<ResultViewer>` supports being rendered without a tab context, given a manually-constructed provider value.
+- `<ResultViewer>` exposes `Pagination`, `Body`, `Tree`, `Table`, `Json`, `EmptyState` slots.
+- Page composes `<ResultViewer>` explicitly; the `<ResultArea>` monolith is removed.
+- `<ResultViewer>` supports being rendered without a tab context, given a manually-constructed provider value.
 
 ### Phase 5 — deferred (sub-slot decomposition for `QueryEditor` / `QueryBuilder`)
 Splitting `QueryBar` (~520 LoC) and `BuilderPane` (~900 LoC) into named sub-slots is high-effort with no current behavioral change — both monoliths already render portably inside any `<CollectionWorkspaceProvider>` after phase 3. Defer the slot extraction until a real second consumer needs to compose a subset (e.g. saved-query preview wants only `Filter` + `SyncPill`). Tracked separately; revisit when the need is concrete.
 
 ### Phase 6 — reuse demonstrated
-- [ ] Either: `ScriptTab` renders its result view through `<ResultViewer>` (no direct `TreeView` / `JsonView` / `TableView` imports), or a new `<SavedQueryPreview>` consumer exists and renders against a synthetic provider.
-- [ ] Component test exercises the second consumer end-to-end.
+- Either: `ScriptTab` renders its result view through `<ResultViewer>` (no direct `TreeView` / `JsonView` / `TableView` imports), or a new `<SavedQueryPreview>` consumer exists and renders against a synthetic provider.
+- Component test exercises the second consumer end-to-end.
 
 ## Test cases
 

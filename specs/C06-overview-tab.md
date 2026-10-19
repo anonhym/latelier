@@ -1,5 +1,7 @@
 # C06 — Overview tab (real stats)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Replace the mocked server/storage/performance cards with real data drawn from the live Mongo server. Shows only metrics we can trust: MongoDB version, uptime, connection counts, DB count, data/storage size, index count, ops/sec, cache hit rate, topology.
@@ -41,7 +43,7 @@ Derived fields:
 | `dataSizeBytes`        | `listDbs.totalSize` |
 | `storageSizeBytes`     | `sum over listDbs.databases[*].sizeOnDisk` |
 | `indexCount`           | sum of per-collection `nindexes` across all databases; see §3 |
-| `topology`             | from client topology description |
+| `topology`             | from the `hello` reply captured at connect (`Single`, `ReplicaSet`, `Sharded`, or `Unknown` when hello failed) |
 
 ## 2. Ops/sec computation
 
@@ -113,17 +115,17 @@ Three cards (Server, Storage, Performance) in a flex-wrap row — same as mock. 
 
 ## 7. Acceptance criteria
 
-- [ ] Selecting a connection in C05 and clicking Overview triggers at most one `mongo:serverInfo` call.
-- [ ] Opening Overview on a cached connection renders within one frame (< 16ms).
-- [ ] Refresh interval stops when the window is hidden.
-- [ ] Values are formatted humanely (bytes as KB/MB/GB/TB, uptime as days/hours).
-- [ ] Disconnected state offers Connect; Connect transition works.
-- [ ] Large-deploy heuristic skips index count when `databaseCount > 50`.
+- Selecting a connection in C05 and clicking Overview triggers at most one `mongo:serverInfo` call.
+- Opening Overview on a cached connection renders within one frame (< 16ms).
+- Refresh interval stops when the window is hidden.
+- Values are formatted humanely (bytes as KB/MB/GB/TB, uptime as days/hours).
+- Disconnected state offers Connect; Connect transition works.
+- Large-deploy heuristic skips index count when `databaseCount > 50`.
 
 ## 8. Test cases
 
 ### Integration (against `mongodb-memory-server`)
-- **serverinfo-basics.spec.ts**: returns populated fields; `databaseCount >= 1`; topology is `Single` for in-memory.
+- **`tests/integration/mongo-pool.spec.ts`**: returns populated fields; `databaseCount >= 1`; topology is `Single` for in-memory, with and without a logger attached; a client whose `hello` fails still connects and reports `Unknown`.
 - **opcounters-delta.spec.ts**: two successive calls on a quiet server report a small (≥ 0, < large) per-sec rate.
 - **index-count-skip.spec.ts**: stub `listDatabases` to return 60 entries → `indexCount === null`.
 

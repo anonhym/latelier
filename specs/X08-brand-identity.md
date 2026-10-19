@@ -1,6 +1,6 @@
 # X08 — Brand identity (L'Atelier)
 
-> **Status: Applied** (visual rollout). Application steps §3.1–§3.6 landed on branch `feat/x08-brand-identity`. The runtime app shows the L'Atelier favicon, splash, and packaged-app icons; the renderer surfaces `--atelier-violet` via CSS custom properties. **Code-level rename of `MongoLab` → `L'Atelier`** (`appId`, `productName`, `window.mongolab` IPC namespace, `MONGOLAB_USER_DATA_DIR`) **remains out of scope** — tracked separately in [X09](./X09-namespace-rename.md), which carries the `mongolab.db` userData migration that rename needs.
+> **Status: Implemented** (visual rollout). Application steps §3.1–§3.6 landed on branch `feat/x08-brand-identity`. The runtime app shows the L'Atelier favicon, splash, and packaged-app icons; the renderer surfaces `--atelier-violet` via CSS custom properties. **Code-level rename of `MongoLab` → `L'Atelier`** (`appId`, `productName`, `window.mongolab` IPC namespace, `MONGOLAB_USER_DATA_DIR`) **was out of scope here** and shipped as [X09](./X09-namespace-rename.md), which carries the `mongolab.db` userData migration that rename needs.
 
 ## Purpose
 
@@ -161,12 +161,12 @@ X08 ships with option (1). **Update**: option (3) — full re-theme — was appl
 
 The spec is "applied" when:
 
-- [x] `public/favicon.svg` shows the L'Atelier mark in browser tabs and the dev window.
-- [x] Packaged app (`npm run build` → release output) shows the L'Atelier icon in Finder / File Explorer / dock.
-- [x] App splash on cold start shows the icon and a violet progress indicator before the first route renders.
-- [x] README hero is the L'Atelier wordmark.
-- [x] At least one runtime stylesheet references `--atelier-violet` (smallest expression of token surfacing).
-- [x] No remaining references to MongoLab in user-visible *visual* surfaces. The string "MongoLab" still appears in code identifiers (`window.mongolab`, `ATELIER_USER_DATA_DIR`, etc.) — that's the future rename spec, not this one.
+- `public/favicon.svg` shows the L'Atelier mark in browser tabs and the dev window.
+- Packaged app (`npm run build` → release output) shows the L'Atelier icon in Finder / File Explorer / dock.
+- App splash on cold start shows the icon and a violet progress indicator before the first route renders.
+- README hero is the L'Atelier wordmark.
+- At least one runtime stylesheet references `--atelier-violet` (smallest expression of token surfacing).
+- No remaining references to MongoLab in user-visible *visual* surfaces. The string "MongoLab" still appears in code identifiers (`window.mongolab`, `ATELIER_USER_DATA_DIR`, etc.) — that's the future rename spec, not this one.
 
 ## 5. Test cases
 

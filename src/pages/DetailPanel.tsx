@@ -16,21 +16,10 @@ import { CreateCollectionDrawer } from './Workspace/CreateCollectionDrawer';
 import { useTroubleshooting } from '../troubleshooting/TroubleshootingContext';
 import { relativeTime } from '../utils/relativeTime';
 import { ownGet } from '../utils/ownProperty';
+import { humanBytes } from '../utils/humanBytes';
 
 const TABS = ['Overview', 'Collections', 'Users'] as const;
 type Tab = typeof TABS[number];
-
-function humanBytes(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
 
 function humanDuration(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '—';
@@ -507,17 +496,17 @@ function CollectionsTab({ conn, runtime }: {
                         <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{c.name}</span>
                       </div>
                       <div style={{ fontSize: 11, color: T.textMuted, fontVariantNumeric: 'tabular-nums' }}>
-                        {c.documentCount.toLocaleString()}
+                        {c.documentCount?.toLocaleString() ?? '—'}
                       </div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{humanBytes(c.sizeBytes)}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{c.indexCount}</div>
+                      <div style={{ fontSize: 11, color: T.textMuted }}>{c.sizeBytes === undefined ? '—' : humanBytes(c.sizeBytes)}</div>
+                      <div style={{ fontSize: 11, color: T.textMuted }}>{c.indexCount ?? '—'}</div>
                       <div style={{ fontSize: 11, color: T.textMuted }}>
                         {relativeTime(c.lastModified, '—')}
                       </div>
                       <div style={{ padding: '6px 0' }}>
                         <Button size="compact-xs" variant="subtle" leftSection={I.open} onClick={() => {
                           void api.conn.touchUsed(conn.id);
-                          navigate('/workspace', {
+                          void navigate('/workspace', {
                             state: {
                               openConnectionId: conn.id,
                               openCollection: { dbName: db.name, collection: c.name },
@@ -673,7 +662,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
             )}
             <Button variant="filled" size="compact-xs" leftSection={I.open} onClick={() => {
               void api.conn.touchUsed(selected.id);
-              navigate('/workspace', { state: { openConnectionId: selected.id } });
+              void navigate('/workspace', { state: { openConnectionId: selected.id } });
             }}>
               Open workspace
             </Button>

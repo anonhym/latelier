@@ -1,5 +1,7 @@
 # F01 — Architecture & conventions
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Lock the cross-cutting technical decisions so every other spec can reference them by name instead of re-deriving them. Anyone implementing any spec must read this one first.
@@ -212,10 +214,10 @@ See F04 for the full contract. Highlights:
 
 ## 8. Acceptance criteria
 
-- [ ] Renderer bundle does not contain any Node-only dependency (verify via `vite build --report`).
-- [ ] `tsc -b` passes for both projects with `strict: true`.
-- [ ] `npm run test:unit`, `test:integration`, `test:component`, `test:e2e` each execute at least one spec-defined test.
-- [ ] Running the app produces a `latelier.<date>.log` file in the userData directory.
+- Renderer bundle does not contain any Node-only dependency (verify via `vite build --report`).
+- `tsc -b` passes for both projects with `strict: true`.
+- `npm run test:unit`, `test:integration`, `test:component`, `test:e2e` each execute at least one spec-defined test.
+- Running the app produces a `latelier.<date>.log` file in the userData directory.
 
 ## 9. Test cases
 

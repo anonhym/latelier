@@ -4,9 +4,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { DarkCtx } from '../../src/ThemeContext';
 import { AggregationTab } from '../../src/pages/Workspace/Aggregation/AggregationTab';
+import { notifications } from '@mantine/notifications';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationTabState, AggStagePreview } from '@shared/types';
+
+// Mocked at the exact module AggregationTab imports; the rest stays real
+// because the tab reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 /**
  * Unlike `renderTab` below (a static `state` prop + a noop `onPatch` spy —
@@ -458,6 +467,23 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
     expect(payload.stages.map((s) => s.body)).toEqual(CANONICAL);
   });
 
+  // `WorkspaceStateService.list` restores the stored stages of a saved-pipeline tab that is
+  // clean and has none, on the footing that every edit leaves the tab dirty. Emptying the
+  // pipeline by hand is the edit that would otherwise look the same as a never-loaded tab.
+  it('removing the last stage leaves a saved pipeline dirty, not clean and empty', () => {
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+      savedId: 's1',
+      name: 'p',
+    });
+    expect(screen.queryByLabelText('Unsaved changes')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete stage' }));
+
+    expect(screen.getByLabelText('Unsaved changes')).toBeTruthy();
+  });
+
   // docs/adr/0013 — stage delete is local editor state: no confirm, an Undo
   // toast instead. `renderStatefulTab`, not `renderTab`: the restore has to
   // round-trip through `onPatch` and come back as props for the accordion to
@@ -526,5 +552,264 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       expect(opAt(0)).toMatch(/\$sort/);
       expect(screen.queryByRole('button', { name: /currently \$match\)/ })).toBeNull();
     });
+  });
+});
+
+/**
+ * A confirmed `$out`/`$merge` run writes to a collection the renderer can't
+ * name (main parses the target out of the stage body), so the tab drops the
+ * connection's field-suggestion samples. A run with no write stage, and a
+ * write run still waiting on its confirmation, change nothing.
+ */
+describe('AggregationTab — field-suggestion sample after a write run', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+  const WRITE_STAGES: AggregationTabState['stages'] = [
+    { id: 1, op: '$match', body: '{}', enabled: true },
+    { id: 2, op: '$out', body: '"monthly"', enabled: true },
+  ];
+  const writeBlocked = {
+    code: 'VALIDATION',
+    message: 'run blocked: write stage present',
+    details: { kind: 'writeStage', writeStageOp: '$out', targetCollection: 'monthly' },
+  };
+  const ranOk = { rows: [], durationMs: 1, stageCounts: {}, stageSamples: {}, hasMore: false };
+
+  beforeEach(() => invalidate.mockClear());
+
+  it('is dropped for the connection once the confirmed write run settles', async () => {
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      if (!input.allowWrite) throw writeBlocked;
+      return ranOk;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    expect(run.mock.calls[1]![0]).toMatchObject({ allowWrite: true });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('is dropped even when the confirmed write run fails part-way', async () => {
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      throw input.allowWrite ? { code: 'INTERNAL', message: 'merge failed' } : writeBlocked;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  it('is kept while the write is still unconfirmed, and after a cancelled confirmation', async () => {
+    const run = vi.fn(async () => {
+      throw writeBlocked;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    // Wait for the dialog itself: while the blocked run is in flight the tab's
+    // own run button also reads "Cancel".
+    await screen.findByRole('button', { name: 'Proceed' });
+    expect(invalidate).not.toHaveBeenCalled(); // blocked, nothing written yet
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('is kept by a run with no write stage', async () => {
+    const run = vi.fn(async () => ranOk);
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Cancel on a confirmed write run. Main lets a `$out`/`$merge` that has
+ * already been sent run to completion (the server would finish it anyway), so
+ * the tab must not drop the run on Cancel: it waits, says it is stopping, and
+ * reports what actually happened. A read-only run still stops at once.
+ */
+describe('AggregationTab — cancelling a run', () => {
+  const WRITE_STAGES: AggregationTabState['stages'] = [
+    { id: 1, op: '$match', body: '{}', enabled: true },
+    { id: 2, op: '$out', body: '"monthly"', enabled: true },
+  ];
+  const writeBlocked = {
+    code: 'VALIDATION',
+    message: 'run blocked: write stage present',
+    details: { kind: 'writeStage', writeStageOp: '$out', targetCollection: 'monthly' },
+  };
+  const ranOk = { rows: [], durationMs: 7, stageCounts: {}, stageSamples: {}, hasMore: false };
+
+  // Mantine's notification store is module-global and outlives RTL's
+  // unmount: one test's toast would still be on screen for the next one's
+  // "no completion notice" assertion.
+  afterEach(() => notifications.clean());
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  /** Starts a confirmed write run whose main-side promise is `pending`. */
+  async function startWriteRun(pending: Promise<typeof ranOk>) {
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      if (!input.allowWrite) throw writeBlocked;
+      return pending;
+    });
+    const cancel = vi.fn(async () => undefined);
+    installAtelierMock({ agg: { run: run as never, cancel: cancel as never } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    return { run, cancel };
+  }
+
+  it('a cancelled write run that completes shows its result and says the write ran to completion', async () => {
+    const pending = deferred<typeof ranOk>();
+    const { run, cancel } = await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    const token = (run.mock.calls[1]![0] as { cancelToken: string }).cancelToken;
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ token });
+    expect((await screen.findByRole('button', { name: /Stopping/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      await screen.findByText('Asking the server to stop the write stage.'),
+    ).toBeTruthy();
+
+    await act(async () => pending.resolve(ranOk));
+
+    expect(
+      await screen.findByText("The write couldn't be stopped, so it ran to completion."),
+    ).toBeTruthy();
+    expect(screen.queryByText('· 7ms')).not.toBeNull();
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a write run cancelled before the write was sent stops without an error or a completion notice', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: /Stopping/ });
+    await act(async () => pending.reject({ code: 'INTERNAL', message: 'cancelled' }));
+
+    expect((await screen.findByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/ran to completion/)).toBeNull();
+    expect(screen.queryByText(/Write stopped/)).toBeNull();
+    expect(screen.queryByText(/cancelled/)).toBeNull();
+    expect(screen.queryByText('· 7ms')).toBeNull();
+  });
+
+  it('a $out write killed on the server says its target was left unchanged', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: /Stopping/ });
+    await act(async () =>
+      pending.reject({
+        code: 'INTERNAL',
+        message: 'cancelled',
+        details: { writeStageOp: '$out', partialWrite: false },
+      }),
+    );
+
+    expect(
+      await screen.findByText('Write stopped. The $out target was left unchanged.'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/ran to completion/)).toBeNull();
+    expect(screen.queryByText('· 7ms')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a $merge write killed on the server warns that some documents may already be written', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: /Stopping/ });
+    await act(async () =>
+      pending.reject({
+        code: 'INTERNAL',
+        message: 'cancelled',
+        details: { writeStageOp: '$merge', partialWrite: true },
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Write stopped. $merge may already have written some documents, and they stay in the target.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/left unchanged/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a cancelled write run that then fails shows the error, not a completion notice', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: /Stopping/ });
+    await act(async () =>
+      pending.reject({
+        code: 'CONFLICT',
+        message: '$merge with whenMatched: fail found an existing document',
+        details: { mongoCode: 11000 },
+      }),
+    );
+
+    expect(
+      await screen.findByText('$merge with whenMatched: fail found an existing document'),
+    ).toBeTruthy();
+    expect(screen.getByText('CONFLICT')).toBeTruthy();
+    expect(screen.queryByText(/ran to completion/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a read-only run still stops at once and drops its late result', async () => {
+    const pending = deferred<typeof ranOk>();
+    const run = vi.fn(async () => pending.promise);
+    const cancel = vi.fn(async () => undefined);
+    installAtelierMock({ agg: { run: run as never, cancel: cancel as never } });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: /Stopping/ })).toBeNull();
+    await act(async () => pending.resolve(ranOk));
+    expect(screen.queryByText('· 7ms')).toBeNull();
+    expect(screen.queryByText(/ran to completion/)).toBeNull();
   });
 });

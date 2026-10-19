@@ -1,5 +1,7 @@
 # A02 — Pipeline outline + model
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Define the `Stage` data model used throughout aggregation, validate it, and render the left-side outline that shows the pipeline as a labeled vertical flow (source → stage → stage → … → output) with per-stage document counts.
@@ -112,12 +114,12 @@ Reuse existing `OP_COLOR` map (from `Aggregation.tsx`). Extend for `$replaceRoot
 
 ## 6. Acceptance criteria
 
-- [ ] Adding a stage via `addStage` produces a unique id and positions correctly when `afterIndex` is given.
-- [ ] Disabled stages are excluded from execution but remain in the outline.
-- [ ] Reordering persists across tab switches and relaunches.
-- [ ] Validation marks stages with invalid EJSON and disables Run.
-- [ ] Known unknown ops render a warning badge but don't block Run (server will reject, and the error surfaces in the error panel).
-- [ ] Stage-count staleness is visually signaled after edits.
+- Adding a stage via `addStage` produces a unique id and positions correctly when `afterIndex` is given.
+- Disabled stages are excluded from execution but remain in the outline.
+- Reordering persists across tab switches and relaunches.
+- Validation marks stages with invalid EJSON and disables Run.
+- Known unknown ops render a warning badge but don't block Run (server will reject, and the error surfaces in the error panel).
+- Stage-count staleness is visually signaled after edits.
 
 ## 7. Test cases
 

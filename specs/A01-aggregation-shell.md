@@ -1,5 +1,7 @@
 # A01 — Aggregation shell + tab routing
 
+> **Status: Implemented.** Aggregation opens as a sub-view of the collection tab, not as a tab of its own.
+
 ## Purpose
 
 Wire the existing Aggregation mock as an in-workspace tab type rather than a standalone page. Provides the title-bar actions, the tab lifecycle, and the hosting container that holds the pipeline outline, stage accordion, and output panel.
@@ -100,11 +102,11 @@ If `dirty: true` and user closes via `×` or `⌘W`:
 
 ## 7. Acceptance criteria
 
-- [ ] Aggregation opens as a tab in Workspace, not a separate route.
-- [ ] Closing the tab with `dirty=true` prompts; `dirty=false` closes silently.
-- [ ] Save updates an existing saved pipeline; Save as always opens the modal.
-- [ ] Title bar buttons reflect disabled state while a run is in flight.
-- [ ] Dark toggle persists across aggregation/collection tabs within the same window.
+- Aggregation opens as a tab in Workspace, not a separate route.
+- Closing the tab with `dirty=true` prompts; `dirty=false` closes silently.
+- Save updates an existing saved pipeline; Save as always opens the modal.
+- Title bar buttons reflect disabled state while a run is in flight.
+- Dark toggle persists across aggregation/collection tabs within the same window.
 
 ## 8. Test cases
 

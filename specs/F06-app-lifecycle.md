@@ -1,5 +1,7 @@
 # F06 — App startup & shutdown
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Choreograph the bring-up and teardown sequence so every other spec's assumptions hold: the DB is open and migrated before any IPC is registered; the window only appears after services are ready; secrets, mongo clients, and logs flush cleanly on quit.
@@ -46,7 +48,7 @@ app.whenReady().then(async () => {
   const docSvc    = new DocumentService(pool);
   const savedSvc  = new SavedQueryService(savedRepo, connRepo);
   const recentSvc = new RecentQueryService(recentRepo);
-  const tabsSvc   = new WorkspaceStateService(tabsRepo);
+  const tabsSvc   = new WorkspaceStateService(tabsRepo, savedSvc);   // reads a saved pipeline's stages on open
   const prefsSvc  = new PreviewFieldsService(prefsRepo);
   const appSvc    = new AppStateService(stateRepo);
 
@@ -88,25 +90,41 @@ If any of steps 1–6 throws, the app shows an error dialog via `dialog.showErro
 ## 4. Shutdown sequence
 
 ```ts
-app.on('before-quit', async (e) => {
+app.on('before-quit', (e) => {
   e.preventDefault();
   log.info('shutdown', 'begin');
-  await Promise.race([
-    (async () => {
-      await tabsSvc.persistCurrent();      // renderer hands off a final snapshot via IPC if needed
-      await pool.disconnectAll();
-      db.close();
-    })(),
-    new Promise(r => setTimeout(r, 8000)),
-  ]);
-  log.info('shutdown', 'end');
-  app.exit(0);
+  const work = runTeardown(
+    [
+      ['persist bounds', persistBoundsNow],
+      ['dispose documents', () => docSvc.dispose()],
+      ['dispose shells', () => mshellSvc.disposeAll()],
+      ['cancel scripts', () => scriptSvc.cancelAll()],
+      ['disconnect pool', () => pool.disconnectAll()],
+      ['close db', () => closeDatabase(db)],
+    ],
+    (step, err) => log.warn('shutdown', `error during ${step}`, { err: String(err) }),
+  );
+  void Promise.race([work, new Promise(r => setTimeout(r, 8000))]).then(() => {
+    log.info('shutdown', 'end');
+    app.exit(0);
+  });
 });
 ```
 
 - 8-second hard budget. Anything still pending is abandoned.
+- Each step runs in its own try/catch (`runTeardown`, `electron/quitGuard.ts`): a step that throws or rejects is logged by name and the later steps still run, so a failed step never leaves the pool connected or the database open.
 - `db.close()` is last — once it returns, no more writes are possible.
-- On macOS, closing the last window does NOT quit (`window-all-closed` unless `process.platform !== 'darwin'`) — existing behavior.
+- On macOS, closing the last window does NOT quit (`window-all-closed` unless `process.platform !== 'darwin'`) — existing behavior. The app and its sessions keep running, so closing the window cuts off no work.
+
+### Quit with running work
+
+Before the sequence above starts, `before-quit` checks for work that quitting would kill:
+
+- **Counted:** script runs in flight (`ScriptService.runningCount()`), shell sessions with a command still running (`ShellService.busyCount()`, W11 section 3), imports in flight (`ImportService.runningCount()`) and aggregation runs in flight (`AggregationService.runningCount()`). An idle shell is not counted.
+- **Not counted:** plain finds. They run in main with no handle the check can read, so quitting still cuts them off without asking.
+- **Where it is asked:** off macOS, closing the last window quits the app, so the window's `close` event is held and the question is asked there, before the window goes; a Cancel then leaves the window as it was. On macOS closing the window stops nothing, so it is not asked. Any other quit (`Cmd/Ctrl+Q`, `app.quit()`) is held in `before-quit` the same way. A Quit answer lets the close and the app quit that follows it through without a second question, and a quit or close requested while the question is open is not asked again. The decisions live in `createQuitGate` (`electron/quitGuard.ts`).
+- **Prompt:** when something is counted, the quit is held and a native warning dialog names what stops, for example `This will stop 1 running script and 2 running shell commands.` (three or more kinds read as a comma list), with `Cancel` (default) and `Quit`. Cancel leaves the app running. Quit quits again, past the check, into the sequence above. A second quit request while the dialog is open is the same question.
+- **Bypass:** a system shutdown, restart or log-off is not asked about, since the work goes with it either way: Electron's `powerMonitor` `shutdown` event (macOS and Linux) and the window's `session-end` event (Windows) set a flag that skips the check.
 
 ## 5. Restore on activate
 
@@ -133,11 +151,12 @@ app.on('before-quit', async (e) => {
 
 ## 9. Acceptance criteria
 
-- [ ] With a clean userData dir, first launch: DB created, migrations run, window appears with no error dialogs.
-- [ ] Second instance quits silently and focuses the primary.
-- [ ] On quit with a live MongoClient, the app exits within 8 seconds.
-- [ ] A DB file that fails to open (corrupt) produces an error dialog naming the file path and tells the user how to reset.
-- [ ] `app:log` IPC entries appear in the log file with the correct process tag.
+- With a clean userData dir, first launch: DB created, migrations run, window appears with no error dialogs.
+- Second instance quits silently and focuses the primary.
+- On quit with a live MongoClient, the app exits within 8 seconds.
+- Quitting with a script or shell command running asks first, and Cancel keeps the app open; quitting with nothing running does not ask.
+- A DB file that fails to open (corrupt) produces an error dialog naming the file path and tells the user how to reset.
+- `app:log` IPC entries appear in the log file with the correct process tag.
 
 ## 10. Test cases
 
@@ -145,7 +164,9 @@ app.on('before-quit', async (e) => {
 - **boot-order.spec.ts** (with stubbed Electron `app`/`BrowserWindow`): assert registration order is DB → services → IPC → window.
 - **single-instance.spec.ts**: second `app.requestSingleInstanceLock` returns false → the test harness observes a quit call and a `second-instance` event emission on the first.
 - **shutdown-budget.spec.ts**: stub `pool.disconnectAll` to hang; total shutdown time is ≤ 8s.
+- **quit-guard.spec.ts** (unit): the sentence for each mix of running scripts and shell commands, none when idle, and the gate: asked once per close, a request while the question is open, the shutdown bypass, and Cancel followed by a later quit asking again.
 
 ### E2E
 - **first-run.e2e.ts**: delete the userData dir; launch; assert the connections page renders empty state and the DB file exists on disk.
 - **crash-reload.e2e.ts**: force a renderer crash via `window.location = 'about:crash'`; assert the window reloads once.
+- **f06-quit-confirm.e2e.ts**: with the dialog stubbed in main, quitting idle exits without asking; with a script or a shell command running it asks, names it, stays open on Cancel and exits on Quit; off macOS, closing the window with work running asks once, keeps the window on Cancel and exits on Quit.

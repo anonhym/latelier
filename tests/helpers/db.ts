@@ -45,3 +45,13 @@ export function createTempDb(): TempDb {
     },
   };
 }
+
+/** Insert a `connections` row with only the columns that have no schema default (name derived from `id`, names are unique) so FK-bound tables accept rows for `id`. */
+export function insertConnectionRow(db: Database, id: string): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO connections (
+       id, name, connection_type, host, port, auth_mech, created_at, updated_at
+     ) VALUES (?, ?, 'standard', 'localhost', 27017, 'none', ?, ?)`,
+  ).run(id, `Test ${id}`, now, now);
+}

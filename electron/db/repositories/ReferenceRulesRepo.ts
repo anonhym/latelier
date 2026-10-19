@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { ReferenceRule } from '@shared/types';
 import { ConflictError, NotFoundError } from '../../errors.ts';
-import { isUniqueConstraintError } from '../sqliteErrors.ts';
+import { isUniqueConstraintError, rethrowMissingConnection } from '../sqliteErrors.ts';
 
 interface ReferenceRuleRow {
   id: string;
@@ -89,7 +89,7 @@ export class ReferenceRulesRepo {
           { field: 'sourceField' },
         );
       }
-      throw err;
+      rethrowMissingConnection(err, row.connection_id);
     }
     return this.findByIdOrThrow(row.id);
   }

@@ -35,7 +35,9 @@ test('saved+recent: Save modal persists; Saved + Recent tabs reflect activity', 
 
       // Run once so the recent panel has an entry.
       await ws.queryBarRunButton.click();
-      await expect(win.getByText('aaa')).toBeVisible({ timeout: 8000 });
+      // Exact and quoted: the Tree view prints each ObjectId as its last 8 hex chars, so a
+      // bare substring like `aaa` can also match a generated id and trip strict mode.
+      await expect(win.getByText('"aaa"', { exact: true })).toBeVisible({ timeout: 8000 });
 
       // Click the QueryBar toolbar's Save (data-hint-anchor="saved.create").
       await win.locator('[data-hint-anchor="saved.create"]').click();

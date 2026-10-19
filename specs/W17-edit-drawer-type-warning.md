@@ -1,5 +1,7 @@
 # W17 — A field-type warning in the Update drawer
 
+> **Status: Implemented.** The Update drawer it was built in is gone; [W18](./W18-document-editor.md)'s Document Editor shows the same warning.
+
 ## Purpose
 
 `EditDrawer`'s Update mode writes a `$set` built from whatever EJSON the user
@@ -242,32 +244,32 @@ cache key. `ipc-channel-auditor` has nothing new to audit.
 
 Single tier — the whole spec is one ticket.
 
-- [ ] `sampleSchemaSource`'s cache entry holds `structureEntries` alongside
-      `suggestions`, computed from the same fetched `docs`, on the same fetch
-      and the same TTL.
-- [ ] `getStructureEntries` and `sampleSchemaSource` share one in-flight fetch
-      per collection within the TTL window — calling both does not double the
-      sample call.
-- [ ] `checkFieldType` returns `null` for a field with no sampled entry.
-- [ ] `checkFieldType` returns `null` when the dominant type's share is below
-      90%, regardless of agreement or disagreement with `actualType`.
-- [ ] `checkFieldType` returns `null` when the dominant type (≥90% share)
-      agrees with `actualType`.
-- [ ] `checkFieldType` returns a `TypeWarning` with the correct rounded
-      `percent` when the dominant type (≥90% share) disagrees.
-- [ ] `EditDrawer` shows one warning line per disagreeing top-level field,
-      only in Update mode, only while the buffer is valid EJSON.
-- [ ] A BSON-typed value written in its sentinel form (`{"$oid": "…"}` against
-      an `objectid` field) is read as that type, not as `object` — no warning
-      on correct input.
-- [ ] A sentinel key mixed with other keys (`{"$oid": "…", "extra": true}`) is
-      read as `object`, agreeing with what `ejsonParse`/`updateOne` actually
-      store, and is therefore skipped rather than mislabelled.
-- [ ] The warning never disables Save, and Save behaves exactly as before —
-      §3's check is read-only.
-- [ ] A nested or dotted `$set` key is not checked (out of scope, not
-      silently mis-checked as a top-level miss).
-- [ ] Replace mode and `InsertDrawer` show no warning.
+- `sampleSchemaSource`'s cache entry holds `structureEntries` alongside
+  `suggestions`, computed from the same fetched `docs`, on the same fetch
+  and the same TTL.
+- `getStructureEntries` and `sampleSchemaSource` share one in-flight fetch
+  per collection within the TTL window — calling both does not double the
+  sample call.
+- `checkFieldType` returns `null` for a field with no sampled entry.
+- `checkFieldType` returns `null` when the dominant type's share is below
+  90%, regardless of agreement or disagreement with `actualType`.
+- `checkFieldType` returns `null` when the dominant type (≥90% share)
+  agrees with `actualType`.
+- `checkFieldType` returns a `TypeWarning` with the correct rounded
+  `percent` when the dominant type (≥90% share) disagrees.
+- `EditDrawer` shows one warning line per disagreeing top-level field,
+  only in Update mode, only while the buffer is valid EJSON.
+- A BSON-typed value written in its sentinel form (`{"$oid": "…"}` against
+  an `objectid` field) is read as that type, not as `object` — no warning
+  on correct input.
+- A sentinel key mixed with other keys (`{"$oid": "…", "extra": true}`) is
+  read as `object`, agreeing with what `ejsonParse`/`updateOne` actually
+  store, and is therefore skipped rather than mislabelled.
+- The warning never disables Save, and Save behaves exactly as before —
+  §3's check is read-only.
+- A nested or dotted `$set` key is not checked (out of scope, not
+  silently mis-checked as a top-level miss).
+- Replace mode and `InsertDrawer` show no warning.
 
 ## 7. Test cases
 

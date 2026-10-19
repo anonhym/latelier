@@ -34,8 +34,12 @@ import { useRegisterCommands } from '../../../commands/useRegisterCommands';
 import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
+import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { ExplainDrawer } from './ExplainDrawer';
 import { SaveAsCollectionModal } from './SaveAsCollectionModal';
+import { notifyCollectionChanged } from '../../../state/collectionChanges';
+import { SaveAsViewModal } from './SaveAsViewModal';
+import { saveResultMessage } from './saveResultMessage';
 import { SavePipelineModal } from './SavePipelineModal';
 
 interface Props {
@@ -64,11 +68,22 @@ export function AggregationTab({
   const [explainOpen, setExplainOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
   const [saveAsCollectionOpen, setSaveAsCollectionOpen] = React.useState(false);
+  // The repaired stages the view is saved from, or null while the dialog is closed.
+  const [saveAsViewStages, setSaveAsViewStages] = React.useState<Stage[] | null>(null);
   const [writeWarning, setWriteWarning] = React.useState<{
     op: string;
     target?: string;
   } | null>(null);
   const runTokenRef = React.useRef<string | null>(null);
+  // A confirmed write run can't be dropped on Cancel: main asks the server to
+  // kill a write that was already sent, and the run settles as stopped, as
+  // completed (the kill was refused or came too late) or as the write's own
+  // error. `runIsWriteRef` marks the run in flight as one; `stopping` (state
+  // for the button, ref for the settling run's closure) is the
+  // Cancel-was-pressed state while it settles.
+  const runIsWriteRef = React.useRef(false);
+  const stoppingRef = React.useRef(false);
+  const [stopping, setStopping] = React.useState(false);
   const [lastRunSig, setLastRunSig] = React.useState<Map<number, string>>(
     () => new Map(),
   );
@@ -231,6 +246,9 @@ export function AggregationTab({
       const runStages = repairStageBodies();
       const token = crypto.randomUUID();
       runTokenRef.current = token;
+      runIsWriteRef.current = allowWrite;
+      stoppingRef.current = false;
+      setStopping(false);
       setRunning(true);
       try {
         const result = await api.agg.run({
@@ -252,8 +270,25 @@ export function AggregationTab({
         };
         onPatch({ lastRun });
         setLastRunSig(new Map(runStages.map((s) => [s.id, stageSig(s)])));
+        if (stoppingRef.current) {
+          notify.info("The write couldn't be stopped, so it ran to completion.");
+        }
       } catch (e) {
         if (runTokenRef.current !== token) return;
+        if (stoppingRef.current && isIpcError(e) && e.message === 'cancelled') {
+          // Killed on the server. Without these details the cancel reached main
+          // before the write was sent: nothing ran, and the tab stops quietly,
+          // as it does for a cancelled read-only run.
+          const stopped = (e.details ?? {}) as { writeStageOp?: string; partialWrite?: boolean };
+          if (stopped.partialWrite) {
+            notify.warning(
+              `Write stopped. ${stopped.writeStageOp} may already have written some documents, and they stay in the target.`,
+            );
+          } else if (stopped.writeStageOp) {
+            notify.info(`Write stopped. The ${stopped.writeStageOp} target was left unchanged.`);
+          }
+          return;
+        }
         if (isIpcError(e)) {
           const details = (e.details ?? {}) as {
             kind?: string;
@@ -290,8 +325,15 @@ export function AggregationTab({
           });
         }
       } finally {
+        // A confirmed run is one with a `$out`/`$merge` stage, whose target
+        // main parses out of the stage body, so the renderer can't name the
+        // collection it wrote: drop the connection's samples, even when the
+        // run threw part-way through a `$merge`.
+        if (allowWrite) invalidateSampleSchemaCache(connectionId);
         if (runTokenRef.current === token) {
           runTokenRef.current = null;
+          stoppingRef.current = false;
+          setStopping(false);
           setRunning(false);
         }
       }
@@ -306,8 +348,18 @@ export function AggregationTab({
 
   const onCancelRun = () => {
     const token = runTokenRef.current;
-    if (!token) return;
+    if (!token || stoppingRef.current) return;
     void api.agg.cancel({ token }).catch(() => {});
+    if (runIsWriteRef.current) {
+      // Keep the token: the run settles as stopped, completed or failed, and
+      // executeRun reports which.
+      stoppingRef.current = true;
+      setStopping(true);
+      notify.info('Asking the server to stop the write stage.', {
+        title: 'Stopping…',
+      });
+      return;
+    }
     runTokenRef.current = null;
     setRunning(false);
   };
@@ -437,6 +489,9 @@ export function AggregationTab({
     repairStageBodies();
     setSaveAsCollectionOpen(true);
   };
+
+  // The repaired array, not `stages`: the repair patch has not round-tripped yet.
+  const onSaveAsView = () => setSaveAsViewStages(repairStageBodies());
 
   // ── Palette commands + keyboard handlers ───────────────────────
   // The latest-ref pattern keeps the keyboard handler (registered once via
@@ -582,10 +637,10 @@ export function AggregationTab({
           size="compact-xs"
           variant="filled"
           leftSection={running ? I.close : I.play}
-          disabled={!running && !validation.ok}
+          disabled={stopping || (!running && !validation.ok)}
           onClick={running ? onCancelRun : onRun}
         >
-          {running ? 'Cancel' : 'Run'}
+          {running ? (stopping ? 'Stopping…' : 'Cancel') : 'Run'}
         </Button>
         <Button size="compact-xs" variant="default" leftSection={I.eye} disabled={running || !validation.ok} onClick={onExplain}>
           Explain
@@ -642,6 +697,7 @@ export function AggregationTab({
             onHeightCommit={onHeightCommit}
             onViewChange={onViewChange}
             onSaveAsCollection={onSaveAsCollection}
+            onSaveAsView={onSaveAsView}
           />
         </div>
       </div>
@@ -689,9 +745,23 @@ export function AggregationTab({
           stages={stages}
           onClose={() => setSaveAsCollectionOpen(false)}
           onWritten={(info) => {
-            notify.success(
-              `Wrote ${info.count ?? '?'} documents to ${info.dbName}.${info.collection}`,
-            );
+            // The target may be in another database than the source.
+            notifyCollectionChanged({ connectionId, dbName: info.dbName, collection: info.collection });
+            notify.success(saveResultMessage(info));
+          }}
+        />
+      )}
+
+      {saveAsViewStages && (
+        <SaveAsViewModal
+          connectionId={connectionId}
+          dbName={dbName}
+          collection={collection}
+          stages={saveAsViewStages}
+          onClose={() => setSaveAsViewStages(null)}
+          onCreated={(name) => {
+            notifyCollectionChanged({ connectionId, dbName, collection: name });
+            notify.success(`Created view “${name}”`);
           }}
         />
       )}

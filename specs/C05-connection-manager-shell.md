@@ -1,5 +1,7 @@
 # C05 — ConnectionManager deep detail screen
 
+> **Status: Implemented.** ADR 0001 retired its list sidebar; `/connections` now redirects to the workspace.
+
 ## Purpose
 
 The deep, bare detail screen for one Connection (path `/connections/:id`). Houses the title bar
@@ -91,13 +93,13 @@ Rendered by `DetailPanel`, next to the Connection's name/status:
 
 ## 9. Acceptance criteria
 
-- [ ] `/connections/:id` renders the Connection named by the route param, with its Overview /
-      Collections / Indexes / Users tabs intact.
-- [ ] An id that doesn't resolve shows the not-found state, not a blank screen or a crash.
-- [ ] The back affordance navigates to `/workspace`.
-- [ ] Deleting the shown Connection navigates to `/workspace`.
-- [ ] `/connections` (bare) and `/` both redirect to `/workspace`.
-- [ ] A Mongo status change broadcast by main updates the header's status badge within 500ms.
+- `/connections/:id` renders the Connection named by the route param, with its Overview /
+  Collections / Indexes / Users tabs intact.
+- An id that doesn't resolve shows the not-found state, not a blank screen or a crash.
+- The back affordance navigates to `/workspace`.
+- Deleting the shown Connection navigates to `/workspace`.
+- `/connections` (bare) and `/` both redirect to `/workspace`.
+- A Mongo status change broadcast by main updates the header's status badge within 500ms.
 
 ## 10. Test cases
 

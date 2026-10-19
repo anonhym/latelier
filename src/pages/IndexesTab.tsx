@@ -25,6 +25,7 @@ import type {
   IndexInfo,
 } from '@shared/types';
 import type { IndexSuggestion } from '../utils/indexSuggestion';
+import { humanBytes } from '../utils/humanBytes';
 
 /**
  * A one-shot request from `ExplainDrawer`'s "Create an index for this
@@ -37,18 +38,6 @@ import type { IndexSuggestion } from '../utils/indexSuggestion';
 export interface IndexCreateRequest {
   requestId: string;
   suggestion: IndexSuggestion | null;
-}
-
-function humanBytes(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function humanCount(n: number): string {
@@ -115,12 +104,20 @@ export function IndexesTab({
   connectionId,
   dbName,
   collection,
+  viewOn,
   initialCreate,
   onInitialCreateConsumed,
+  onChanged,
 }: {
   connectionId: string;
   dbName: string;
   collection: string;
+  /**
+   * Set when the namespace is a view: the collection it reads from. The server
+   * rejects `listIndexes` on a view, so no list is requested and no create or
+   * drop is offered.
+   */
+  viewOn?: string;
   /** See `IndexCreateRequest`. Omitted (or `null`) outside the ExplainDrawer flow. */
   initialCreate?: IndexCreateRequest | null;
   /**
@@ -132,6 +129,8 @@ export function IndexesTab({
    * ago. Omitted for the same reason `initialCreate` can be omitted.
    */
   onInitialCreateConsumed?: () => void;
+  /** An index was created or dropped, so figures derived from them (the statistics header) are stale. */
+  onChanged?: () => void;
 }) {
   const T = themeVars;
   const target = React.useMemo(() => ({ dbName, collection }), [dbName, collection]);
@@ -163,8 +162,13 @@ export function IndexesTab({
   // FieldsControl.tsx:84-91 — which is the bug this exists to fix.
   const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
+  // Only the latest request may write state: a slow reply for a collection the
+  // tab has since left must not overwrite the one now on screen.
+  const latest = React.useRef(0);
+
   const loadIndexes = React.useCallback(
     async (t: { dbName: string; collection: string }) => {
+      const id = ++latest.current;
       setLoadingIndexes(true);
       setIndexError(null);
       try {
@@ -173,16 +177,18 @@ export function IndexesTab({
           dbName: t.dbName,
           collection: t.collection,
         });
-        setIndexes(rows);
+        if (id === latest.current) setIndexes(rows);
       } catch (err) {
-        if (isIpcError(err)) {
-          setIndexError({ message: err.message, code: err.code });
-        } else {
-          setIndexError({ message: String(err) });
+        if (id === latest.current) {
+          if (isIpcError(err)) {
+            setIndexError({ message: err.message, code: err.code });
+          } else {
+            setIndexError({ message: String(err) });
+          }
+          setIndexes(null);
         }
-        setIndexes(null);
       } finally {
-        setLoadingIndexes(false);
+        if (id === latest.current) setLoadingIndexes(false);
       }
     },
     [connectionId],
@@ -190,9 +196,14 @@ export function IndexesTab({
 
   /* eslint-disable react-hooks/set-state-in-effect */
   React.useEffect(() => {
+    if (viewOn !== undefined) return;
     void loadIndexes(target);
     setExpandedRow(null);
-  }, [target, loadIndexes]);
+    const request = latest;
+    return () => {
+      request.current++;
+    };
+  }, [target, loadIndexes, viewOn]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Opens the create-index drawer prefilled from ExplainDrawer's "Create an
@@ -232,6 +243,14 @@ export function IndexesTab({
   // plain scrolling block instead — one scroller for the whole pane — so
   // this lays out at its natural content height and lets the page provide
   // the only scrollbar.
+  if (viewOn !== undefined) {
+    return (
+      <div style={{ padding: '10px 16px', fontSize: 12, color: T.textMuted, borderBottom: `1px solid ${T.border}` }}>
+        Views have no indexes of their own. This view uses the indexes of {viewOn}, the collection it reads from.
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 'none', display: 'flex', flexDirection: 'column', overflow: 'visible', position: 'relative' }}>
       <div
@@ -318,6 +337,7 @@ export function IndexesTab({
               setDrawerOpen(false);
               setCreatePrefill(null);
               void loadIndexes(target);
+              onChanged?.();
             }}
             connectionId={connectionId}
             initialFields={createPrefill?.keys.map((k) => ({ field: k.field, direction: k.direction }))}
@@ -333,6 +353,7 @@ export function IndexesTab({
             onDropped={() => {
               setDropName(null);
               void loadIndexes(target);
+              onChanged?.();
             }}
             returnFocusTo={dropReturnFocus}
             connectionId={connectionId}
@@ -586,6 +607,8 @@ function CreateIndexDrawer({
   const [collation, setCollation] = React.useState(DEFAULT_COLLATION);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // The server rejects an empty field name but accepts whitespace, so block blank ones here rather than after a round trip.
+  const canSubmit = fields.every((f) => f.field.trim() !== '');
 
   const isDirty =
     JSON.stringify(fields) !== JSON.stringify(baselineFields) ||
@@ -618,7 +641,7 @@ function CreateIndexDrawer({
   };
 
   const submit = async () => {
-    if (submitting) return;
+    if (submitting || !canSubmit) return;
     setError(null);
     if (ttlEnabled) {
       if (fields.length !== 1) {
@@ -850,7 +873,13 @@ function CreateIndexDrawer({
         >
           Cancel
         </Button>
-        <SubmitButton variant="filled" size="compact-xs" onClick={() => void submit()} submitting={submitting}>
+        <SubmitButton
+          variant="filled"
+          size="compact-xs"
+          onClick={() => void submit()}
+          disabled={!canSubmit}
+          submitting={submitting}
+        >
           {submitting ? 'Creating…' : 'Create index'}
         </SubmitButton>
       </div>

@@ -1,5 +1,7 @@
 # W18 — Document Editor
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Writing one document by hand takes two surfaces today, `EditDrawer` and `InsertDrawer`. Both are 400px drawers holding a plain textarea. Editing makes the user pick an Operation kind before touching a value: Replace (the whole document as JSON) or Update (a hand-typed `$set` into a buffer that starts empty, so field names are typed from memory). Nothing lets a user change one value without writing JSON.
@@ -129,6 +131,8 @@ Quick Edit (the inline Table cell) keeps its behavior for strings and gains:
 - **numbers**: a numeric input that keeps the loaded numeric type, saved as a one-path diff through the same save path (§5) with its compare-and-set guard;
 - **booleans**: a toggle, saved the same way.
 
+A string or number cell stays open, read-only, until its write settles. A failed write (an error, or a compare-and-set that matched nothing) keeps the cell open with the typed value and the reason in an inline alert, as well as the toast; Enter, or editing the value first, tries again, and losing focus does not re-send the failed write. Escape, or the table swapping to other documents, drops a write still in flight: its late result touches nothing.
+
 Any other type (Date, ObjectId, Object, Array, …) opens the Document Editor on that field: scrolled into view, focused, and expanded if nested. `isInlineEditable` widens to match; `_id` stays non-editable.
 
 ## 9. What goes away
@@ -142,26 +146,27 @@ None new. `doc:updateOne` already returns `{ matchedCount, modifiedCount }`, whi
 
 ## 11. Acceptance criteria
 
-- [ ] Edit, Insert and Duplicate open one centered modal; neither drawer remains.
-- [ ] The modal remembers its resized size across relaunch.
-- [ ] Fields is the default view; switching views keeps edits both ways.
-- [ ] Invalid JSON blocks both the switch to Fields and Save, with the text preserved.
-- [ ] Each scalar type edits in its own input and saves with its type preserved (Int64 stays Int64).
-- [ ] A type changes only through the type selector.
-- [ ] Nested objects edit as rows; arrays edit as rows of expandable, recursive elements (`[i]`), with Add item and per-element remove.
-- [ ] Add and remove field work; `_id` is not editable or removable; a duplicate name is refused.
-- [ ] Edited rows are marked, and editing a value back to its original clears the mark.
-- [ ] The W17 warning appears on a disagreeing row and never blocks Save.
-- [ ] The filter box appears above 15 fields and not at or below it.
-- [ ] Save with no change sends no request.
-- [ ] Save sends `$set` / `$unset` of exactly the changed paths, dotted for nested objects, whole for arrays, never `replaceOne`.
-- [ ] The update filter carries one compare-and-set guard per changed path.
-- [ ] A concurrent change to an edited field shows the conflict; Reload re-applies the edits onto the fresh copy; Overwrite saves unguarded.
-- [ ] A concurrent change to a field the user did not touch does not block the save.
-- [ ] A top-level array in the JSON view inserts many, with the count on the button.
-- [ ] ⌘↵ saves; ⌘S does nothing; Escape closes a popup before the editor.
-- [ ] `E` on a focused row opens the editor in all three views; focus returns to the row on close.
-- [ ] Quick Edit edits numbers and booleans in place with types preserved; other types open the editor on that field.
+- Edit, Insert and Duplicate open one centered modal; neither drawer remains.
+- The modal remembers its resized size across relaunch.
+- Fields is the default view; switching views keeps edits both ways.
+- Invalid JSON blocks both the switch to Fields and Save, with the text preserved.
+- Each scalar type edits in its own input and saves with its type preserved (Int64 stays Int64).
+- A type changes only through the type selector.
+- Nested objects edit as rows; arrays edit as rows of expandable, recursive elements (`[i]`), with Add item and per-element remove.
+- Add and remove field work; `_id` is not editable or removable; a duplicate name is refused.
+- Edited rows are marked, and editing a value back to its original clears the mark.
+- The W17 warning appears on a disagreeing row and never blocks Save.
+- The filter box appears above 15 fields and not at or below it.
+- Save with no change sends no request.
+- Save sends `$set` / `$unset` of exactly the changed paths, dotted for nested objects, whole for arrays, never `replaceOne`.
+- The update filter carries one compare-and-set guard per changed path.
+- A concurrent change to an edited field shows the conflict; Reload re-applies the edits onto the fresh copy; Overwrite saves unguarded.
+- A concurrent change to a field the user did not touch does not block the save.
+- A top-level array in the JSON view inserts many, with the count on the button.
+- ⌘↵ saves; ⌘S does nothing; Escape closes a popup before the editor.
+- `E` on a focused row opens the editor in all three views; focus returns to the row on close.
+- Quick Edit edits numbers and booleans in place with types preserved; other types open the editor on that field.
+- A Quick Edit write that fails keeps the cell open with the typed value and an inline error.
 
 ## 12. Test cases
 

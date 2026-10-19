@@ -10,6 +10,14 @@ import { setFocusedConnectionId } from '../../src/state/focusedConnection';
 import { AuditLogModal } from '../../src/pages/AuditLogModal';
 import type { AuditEntry, AuditListInput, ConnectionSummary } from '../../shared/types';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+
+// Mocked at the exact module AuditLogModal imports; the rest stays real
+// because the palette tree reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 const CONNECTIONS = [
   { id: 'c1', name: 'Local' },
@@ -75,6 +83,7 @@ afterEach(() => {
   setFocusedConnectionId(null);
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 describe('AuditLogModal', () => {
@@ -220,6 +229,48 @@ describe('AuditLogModal', () => {
       await waitFor(() => expect(screen.queryByRole('button', { name: 'Revert' })).toBeNull());
       expect(undo).toHaveBeenCalledWith({ entryId: 'r1' });
       expect(within((await screen.findAllByRole('row'))[1]!).getByText('Undone')).toBeTruthy();
+    });
+
+    // Undo rewrites documents, and the entry may be a rename, drop or import
+    // with no single collection, so the whole Connection's samples go. The
+    // entry names its Connection; the picker can have moved on by the time
+    // the request settles.
+    it('drops the field-suggestion samples of the entry\'s own Connection once the Revert lands', async () => {
+      const other: AuditEntry = { ...REVERSIBLE, connectionId: 'c2' };
+      installAtelierMock({
+        conn: { list: async () => CONNECTIONS },
+        audit: { list: async () => [other], undo: async () => ({ restored: 1, skipped: 0 }) },
+      });
+      render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+
+      await waitFor(() => expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c2'));
+    });
+
+    it('drops them when the Revert is refused as well: the request may have restored documents before failing, and an extra resample is harmless', async () => {
+      installAtelierMock({
+        conn: { list: async () => CONNECTIONS },
+        audit: {
+          list: async () => [REVERSIBLE],
+          undo: async () => Promise.reject({ code: 'AUDIT_UNDO_EXPIRED', message: 'AUDIT_UNDO_EXPIRED' }),
+        },
+      });
+      render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+
+      await screen.findByRole('alert');
+      expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c1');
+    });
+
+    it('leaves them alone until a Revert is clicked', async () => {
+      installAtelierMock({ conn: { list: async () => CONNECTIONS }, audit: { list: async () => [REVERSIBLE] } });
+      render(<AuditLogModal initialConnectionId="c1" onClose={() => {}} />);
+
+      await screen.findByRole('button', { name: 'Revert' });
+
+      expect(invalidateSampleSchemaCache).not.toHaveBeenCalled();
     });
 
     it('explains a refused Revert in words', async () => {

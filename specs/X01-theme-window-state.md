@@ -1,5 +1,7 @@
 # X01 — Theme & window state persistence
 
+> **Status: Implemented.** Theme changes arrive on `prefs:theme-event`, not on the `prefs:watch` channel named here.
+
 ## Purpose
 
 Move theme preference and window geometry from renderer-only `localStorage` (current state) to main-process-owned persistence in the `app_state` table, so both are authoritative across renderers, survive hard reloads, and follow the "all state in main" rule.
@@ -88,12 +90,12 @@ On first start after upgrade, if `localStorage['ml-theme']` exists, migrate it t
 
 ## 6. Acceptance criteria
 
-- [ ] Theme toggles persist across relaunches and across hard reloads of the renderer.
-- [ ] Switching to `system` tracks OS theme in real time.
-- [ ] Moving the window and quitting restores the same position next launch.
-- [ ] Maximizing and quitting reopens maximized.
-- [ ] A bounds value that would place the window offscreen is discarded in favor of defaults.
-- [ ] No calls to `localStorage` remain in the renderer for theme.
+- Theme toggles persist across relaunches and across hard reloads of the renderer.
+- Switching to `system` tracks OS theme in real time.
+- Moving the window and quitting restores the same position next launch.
+- Maximizing and quitting reopens maximized.
+- A bounds value that would place the window offscreen is discarded in favor of defaults.
+- No calls to `localStorage` remain in the renderer for theme.
 
 ## 7. Test cases
 

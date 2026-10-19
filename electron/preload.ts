@@ -3,6 +3,7 @@ import { IPC_CHANNELS, type Envelope, type IpcApi, type MenuCommand } from '@sha
 import type {
   AggResult,
   AggResultWire,
+  AggSaveCounts,
   DataImportProgressEvent,
   FindResult,
   FindResultWire,
@@ -41,6 +42,7 @@ const api: IpcApi = {
   conn: {
     list: () => call(IPC_CHANNELS.connList),
     get: (id) => call(IPC_CHANNELS.connGet, { id }),
+    getUri: (id) => call(IPC_CHANNELS.connGetUri, { id }),
     create: (input) => call(IPC_CHANNELS.connCreate, input),
     update: (id, patch) => call(IPC_CHANNELS.connUpdate, { id, patch }),
     delete: (id) => call(IPC_CHANNELS.connDelete, { id }),
@@ -48,10 +50,10 @@ const api: IpcApi = {
     parseUri: (uri) => call(IPC_CHANNELS.connParseUri, { uri }),
     test: (input) => call(IPC_CHANNELS.connTest, input),
     export: (input) => call(IPC_CHANNELS.connExport, input),
-    importPreview: () => call(IPC_CHANNELS.connImportPreview, {}),
+    importOpen: () => call(IPC_CHANNELS.connImportOpen, {}),
+    importMap: (input) => call(IPC_CHANNELS.connImportMap, input),
+    importUris: (uris) => call(IPC_CHANNELS.connImportUris, { uris }),
     importCommit: (input) => call(IPC_CHANNELS.connImportCommit, input),
-    previewUris: (uris) => call(IPC_CHANNELS.connPreviewUris, { uris }),
-    createFromUris: (input) => call(IPC_CHANNELS.connCreateFromUris, input),
   },
 
   app: {
@@ -98,6 +100,7 @@ const api: IpcApi = {
     listDatabases: (input) => call(IPC_CHANNELS.metaListDatabases, input),
     listCollections: (input) => call(IPC_CHANNELS.metaListCollections, input),
     sampleSchema: (input) => call(IPC_CHANNELS.metaSampleSchema, input),
+    collectionDetails: (input) => call(IPC_CHANNELS.metaCollectionDetails, input),
   },
 
   index: {
@@ -110,6 +113,7 @@ const api: IpcApi = {
     create: (input) => call(IPC_CHANNELS.collectionCreate, input),
     drop: (input) => call(IPC_CHANNELS.collectionDrop, input),
     rename: (input) => call(IPC_CHANNELS.collectionRename, input),
+    modify: (input) => call(IPC_CHANNELS.collectionModify, input),
   },
 
   database: {
@@ -207,7 +211,7 @@ const api: IpcApi = {
     previewUpToStage: (input) => call(IPC_CHANNELS.aggPreviewUpToStage, input),
     cancel: (input) => call(IPC_CHANNELS.aggCancel, input),
     runAndSave: async (input) => parseAggResult(
-      await call<AggResultWire & { writtenCount?: number }>(IPC_CHANNELS.aggRunAndSave, input),
+      await call<AggResultWire & AggSaveCounts>(IPC_CHANNELS.aggRunAndSave, input),
     ),
     explain: (input) => call(IPC_CHANNELS.aggExplain, input),
   },

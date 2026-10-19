@@ -1,5 +1,7 @@
 # X15 — Dialog consolidation onto Mantine + unsaved-changes guards
 
+> **Status: Implemented.**
+
 This is *epic N1 — Consolidate hand-rolled dialogs onto Mantine + unsaved-changes guards*.
 
 ## Purpose
@@ -312,12 +314,12 @@ Two things follow for anyone extending X15:
 
 Per dialog X15 touches — **migrated or already Mantine**:
 
-- [ ] Escape closes it (via the dirty-guard where one applies).
-- [ ] Focus moves into the dialog on open, is trapped while open, and returns to
-      the trigger on close.
-- [ ] `role="dialog"` resolves to the **panel**, not the backdrop.
-- [ ] It has an accessible name.
-- [ ] `✕`/close controls have an `aria-label`.
+- Escape closes it (via the dirty-guard where one applies).
+- Focus moves into the dialog on open, is trapped while open, and returns to
+  the trigger on close.
+- `role="dialog"` resolves to the **panel**, not the backdrop.
+- It has an accessible name.
+- `✕`/close controls have an `aria-label`.
 
 > **These apply to every dialog, not only the hand-rolled ones.** An earlier
 > draft scoped this list to "migrated overlays", which quietly exempted the
@@ -333,12 +335,12 @@ Per dialog X15 touches — **migrated or already Mantine**:
 
 Per input-holding dialog, additionally:
 
-- [ ] `closeOnClickOutside={false}`.
-- [ ] A backdrop click with a dirty buffer is **inert** — it does not close, and
-      it does not prompt. The typed text is still there afterwards.
-- [ ] Escape with a dirty buffer **prompts**; Cancel keeps the typed text and
-      leaves the dialog open; Discard closes it.
-- [ ] Closing a clean dialog does *not* prompt.
+- `closeOnClickOutside={false}`.
+- A backdrop click with a dirty buffer is **inert** — it does not close, and
+  it does not prompt. The typed text is still there afterwards.
+- Escape with a dirty buffer **prompts**; Cancel keeps the typed text and
+  leaves the dialog open; Discard closes it.
+- Closing a clean dialog does *not* prompt.
 
 ### The backdrop is inert, it does not prompt — and why that distinction matters
 

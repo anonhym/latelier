@@ -8,9 +8,11 @@ import {
 
 // Guards dispatch after unmount: React's dispatch reads `window`, which throws once jsdom tears down mid-flight IPC.
 // Re-arms mountedRef in the effect body (not just cleanup) so StrictMode's cleanup-then-remount doesn't leave it permanently false.
+// `isMounted` lets a multi-step async load stop before issuing its next IPC call, not only before dispatching the result.
 export function useNavigatorTree(): {
   state: NavigatorTreeState;
   dispatch: React.Dispatch<NavigatorTreeAction>;
+  isMounted: () => boolean;
 } {
   const [state, rawDispatch] = React.useReducer(
     navigatorTreeReducer,
@@ -27,5 +29,6 @@ export function useNavigatorTree(): {
     if (!mountedRef.current) return;
     rawDispatch(action);
   }, []);
-  return { state, dispatch };
+  const isMounted = React.useCallback(() => mountedRef.current, []);
+  return { state, dispatch, isMounted };
 }

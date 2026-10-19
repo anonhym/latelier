@@ -154,6 +154,7 @@ function Body({
           collection={meta.collection}
           onClose={() => setImportOpen(false)}
           onImported={() => actions.run()}
+          onPartialImport={() => actions.run()}
         />
       )}
     </div>

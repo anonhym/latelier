@@ -4,6 +4,7 @@ import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
 import type { ShellOutputEvent } from '@shared/types';
+import { useLatest } from '../../commands/useLatest';
 
 const MAX_BUFFER_BYTES = 200_000;
 
@@ -11,6 +12,10 @@ interface Props {
   connectionId: string;
   /** Forwarded so the pane header can show context. */
   connectionName: string | null;
+  /** Database the shell opens on (the focused tab's). Read when a session
+   *  starts or restarts; a later change does not move a running session.
+   *  Omit to use the connection's default database. */
+  dbName?: string;
   /** CSS height value. Omit to fill the available space (e.g. when placed
    *  inside a react-resizable-panels Panel). Defaults to '100%'. */
   height?: number | string;
@@ -21,20 +26,32 @@ type StartState =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | { kind: 'ready'; sessionId: string }
+  /** The session ended (exit, Stop, the connection went away); a new one needs Restart. */
+  | { kind: 'stopped' }
   | { kind: 'error'; message: string };
 
 type ShellAction =
-  | { type: 'idle' }
+  | { type: 'stopped' }
   | { type: 'starting' }
   | { type: 'ready'; sessionId: string }
   | { type: 'error'; message: string };
 
 function shellReducer(_: StartState, action: ShellAction): StartState {
   switch (action.type) {
-    case 'idle':     return { kind: 'idle' };
+    case 'stopped':  return { kind: 'stopped' };
     case 'starting': return { kind: 'starting' };
     case 'ready':    return { kind: 'ready', sessionId: action.sessionId };
     case 'error':    return { kind: 'error', message: action.message };
+  }
+}
+
+function placeholderFor(kind: StartState['kind'], busy: boolean): string {
+  switch (kind) {
+    case 'ready':   return busy ? 'running… Ctrl+C to interrupt' : '';
+    case 'stopped': return 'shell stopped — press Restart';
+    case 'error':   return 'shell unavailable — press Restart';
+    case 'idle':
+    case 'starting': return 'starting…';
   }
 }
 
@@ -43,11 +60,18 @@ function shellReducer(_: StartState, action: ShellAction): StartState {
  * context. Streams stdout into a rolling buffer; forwards each entered line
  * to the session's stdin.
  */
-export function MongoShellPane({ connectionId, connectionName, height, onClose }: Props) {
+export function MongoShellPane({ connectionId, connectionName, dbName, height, onClose }: Props) {
   const T = themeVars;
   const [state, dispatch] = React.useReducer(shellReducer, { kind: 'idle' } satisfies StartState);
   const [buffer, setBuffer] = React.useState('');
   const [input, setInput] = React.useState('');
+  // Lines sent whose prompt has not come back: the shell is busy while any is
+  // outstanding. A count and not a flag, since input is never paused and a
+  // late result can arrive after later lines have already finished.
+  const [pending, setPending] = React.useState(0);
+  const busy = state.kind === 'ready' && pending > 0;
+  // Set by Interrupt so the restart it triggers keeps the scrollback.
+  const keepBufferRef = React.useRef(false);
   const outputRef = React.useRef<HTMLPreElement | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   // Whether the user was scrolled to (or near) the bottom before the most
@@ -78,8 +102,13 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
       if (evt.sessionId !== sessionIdRef.current) return;
       if (evt.kind === 'exit') {
         append('\n[shell session ended]\n');
-        dispatch({ type: 'idle' });
+        dispatch({ type: 'stopped' });
+        setPending(0);
         sessionIdRef.current = null;
+        return;
+      }
+      if (evt.kind === 'prompt') {
+        setPending((n) => Math.max(0, n - 1));
         return;
       }
       if (evt.data) append(evt.data);
@@ -109,15 +138,21 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
   // react-hooks/set-state-in-effect rule (no synchronous setState in an
   // effect body).
   const [restartNonce, setRestartNonce] = React.useState(0);
+  // Through a ref, and not an effect dependency: switching the focused tab
+  // must not restart the shell and wipe its scrollback. Declared before the
+  // effect so Restart sees the latest value.
+  const dbNameRef = useLatest(dbName);
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
       await Promise.resolve();
       if (cancelled) return;
       dispatch({ type: 'starting' });
-      setBuffer('');
+      setPending(0);
+      if (!keepBufferRef.current) setBuffer('');
+      keepBufferRef.current = false;
       try {
-        const info = await api.mshell.start({ connectionId });
+        const info = await api.mshell.start({ connectionId, dbName: dbNameRef.current });
         if (cancelled) {
           void api.mshell.stop({ sessionId: info.sessionId }).catch(() => {});
           return;
@@ -139,7 +174,7 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
       sessionIdRef.current = null;
       if (id) void api.mshell.stop({ sessionId: id }).catch(() => {});
     };
-  }, [connectionId, restartNonce]);
+  }, [connectionId, restartNonce, dbNameRef]);
 
   // Up/Down arrow command history. Capped to prevent unbounded growth on
   // long sessions; consecutive duplicates collapse so a repeat-Enter user
@@ -177,7 +212,13 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
     // The REPL doesn't echo stdin — paint what the user typed locally so
     // they see their own command in the transcript.
     append(`> ${line}\n`);
-    void api.mshell.write({ sessionId: state.sessionId, data: line + '\n' }).catch(() => {});
+    setPending((n) => n + 1);
+    // A refused write (read-only switch, session gone) never gets a prompt back,
+    // so it is taken off the busy count here and its reason printed.
+    void api.mshell.write({ sessionId: state.sessionId, data: line + '\n' }).catch((err: unknown) => {
+      setPending((n) => Math.max(0, n - 1));
+      append(`[could not send the command: ${getErrorMessage(err, 'write failed')}]\n`);
+    });
   };
 
   const navigateHistory = (direction: 'up' | 'down') => {
@@ -207,6 +248,28 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
   const handleStop = async () => {
     const id = sessionIdRef.current;
     if (id) await api.mshell.stop({ sessionId: id }).catch(() => {});
+  };
+
+  // The call being waited on cannot be cancelled inside the session, so
+  // interrupting ends the session and starts another, as Restart does but
+  // keeping what was printed so far. Variables defined in the old one are gone.
+  const handleInterrupt = async () => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    // Forget the old session first: its goodbye must not read as the new one ending.
+    sessionIdRef.current = null;
+    dispatch({ type: 'starting' });
+    setPending(0);
+    try {
+      await api.mshell.stop({ sessionId: id });
+    } catch (err) {
+      append(`\n[could not interrupt the shell: ${getErrorMessage(err, 'stop failed')}]\n`);
+      dispatch({ type: 'stopped' });
+      return;
+    }
+    append('\n[interrupted — the running call was cancelled; shell restarted, variables were lost]\n');
+    keepBufferRef.current = true;
+    setRestartNonce((n) => n + 1);
   };
 
   const handleRestart = () => {
@@ -243,6 +306,14 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
         </span>
         {connectionName && <span>· {connectionName}</span>}
         <span style={{ flex: 1 }} />
+        {busy && (
+          <>
+            <span role="status" data-testid="mongo-shell-busy">running…</span>
+            <Button variant="default" size="compact-xs" onClick={() => void handleInterrupt()}>
+              Interrupt
+            </Button>
+          </>
+        )}
         <Tooltip label="Restart shell" withArrow>
           <Button
             variant="default"
@@ -331,6 +402,15 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               submitLine();
+            } else if (
+              e.key === 'c' &&
+              e.ctrlKey &&
+              busy &&
+              // Selected text means copy, as in any text field.
+              e.currentTarget.selectionStart === e.currentTarget.selectionEnd
+            ) {
+              e.preventDefault();
+              void handleInterrupt();
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               navigateHistory('up');
@@ -340,7 +420,7 @@ export function MongoShellPane({ connectionId, connectionName, height, onClose }
             }
           }}
           disabled={state.kind !== 'ready'}
-          placeholder={state.kind === 'ready' ? '' : 'starting…'}
+          placeholder={placeholderFor(state.kind, busy)}
           style={{
             flex: 1,
             background: 'transparent',

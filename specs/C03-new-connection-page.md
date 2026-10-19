@@ -1,5 +1,7 @@
 # C03 — NewConnection page UI
 
+> **Status: Implemented.**
+
 > **Note:** The form body described below now lives in the host-agnostic
 > `src/features/connections/ConnectionForm.tsx` (extracted from
 > `NewConnection.tsx`, see ADR 0001) so it can be reused outside the
@@ -161,15 +163,15 @@ Recap (from §4 Auth):
 
 ## 11. Acceptance criteria
 
-- [ ] Fresh form renders with `INITIAL` state; Save is enabled only when required fields present.
-- [ ] Pasting a valid URI fills all applicable fields.
-- [ ] Test button works without persisting.
-- [ ] Create round-trip: save → navigate to list → new connection appears.
-- [ ] Edit mode: loads existing values; password placeholder indicates "stored"; editing and saving updates vault.
-- [ ] Removing a stored password via the explicit button clears it server-side.
-- [ ] Validation errors highlight offending fields and jump to the right tab.
-- [ ] `⌘S` saves; `⌘↵` tests; `Esc` asks to discard changes if dirty.
-- [ ] Attempting to navigate away with `dirty = true` shows a confirmation dialog.
+- Fresh form renders with `INITIAL` state; Save is enabled only when required fields present.
+- Pasting a valid URI fills all applicable fields.
+- Test button works without persisting.
+- Create round-trip: save → navigate to list → new connection appears.
+- Edit mode: loads existing values; password placeholder indicates "stored"; editing and saving updates vault.
+- Removing a stored password via the explicit button clears it server-side.
+- Validation errors highlight offending fields and jump to the right tab.
+- `⌘S` saves; `⌘↵` tests; `Esc` asks to discard changes if dirty.
+- Leaving the full-page form with unsaved changes through an in-app navigation shows a "Discard changes?" confirmation: the back link, Cancel, the command palette or a shortcut. The app runs on a data router (`createHashRouter` + `RouterProvider`) so `useBlocker` can intercept every router navigation; the blocker lets a navigation through when the form is clean, when only the search or state changes, and right after a successful save. Keep editing stays on the form with what was typed; Discard continues the navigation. Closing the window, quitting and reloading are not router navigations and are not covered.
 
 ## 12. Test cases
 
@@ -183,6 +185,7 @@ Recap (from §4 Auth):
 - **secrets-unavailable.spec.tsx**: mock returns `SECRETS_UNAVAILABLE` → banner offers "save without password" when mechanism is `none`/`x509`.
 - **edit-mode-load.spec.tsx**: mock `api.conn.get` returns a connection with `hasPasswordStored: true` → password input shows stored placeholder; Save without editing password sends an update without plaintext.
 - **remove-stored-password.spec.tsx**: click "Remove stored password" → update payload carries `clearPassword: true`.
+- **new-connection.spec.tsx (unsaved-changes guard)**: with the Name edited, the back link and Cancel raise the confirmation and the route does not change; Keep editing keeps the typed value; Discard navigates away; a clean form and a successful save navigate with no prompt; a programmatic navigation (as the palette does) is blocked while the form is dirty.
 
 ### E2E (Playwright + Electron + memory Mongo)
 - **create-test-save.e2e.ts**: click **+** on list → fill form against a known mongodb-memory-server → Test shows ok → Save → landed on list with new connection highlighted.

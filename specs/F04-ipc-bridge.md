@@ -1,5 +1,7 @@
 # F04 — IPC bridge & error envelope
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Define the single typed channel through which the renderer talks to the main process. Every main-side capability used by the UI goes through this bridge; there are no hidden paths. This spec is the source of truth for the wire format — every other spec's "IPC contract" section refines a subset of it.
@@ -216,22 +218,22 @@ The same predicate backs the `will-navigate` guard, so the navigation rule and t
 
 ## 8. Security audit checklist
 
-- [ ] `contextIsolation: true`, `nodeIntegration: false`, **`sandbox: true`** set on the window. The preload reaches only for `contextBridge` and `ipcRenderer`, both of which a sandboxed preload still gets; a preload that needs `fs` or `path` would have to give this up, and the OS-level sandbox is worth more than the convenience.
-- [ ] Every channel passes sender validation (§8.1); `createRouter` cannot be constructed without it.
-- [ ] `preload.ts` exposes ONLY the `atelier` object; nothing else reaches `window`.
-- [ ] `webSecurity` stays at its default `true`.
-- [ ] No channel declared in this spec returns plaintext secrets.
-- [ ] CI grep: `grep -r "SECRET_INPUT" electron/` matches only channels in the permitted list (`conn:create`, `conn:update`, `conn:test`).
+- `contextIsolation: true`, `nodeIntegration: false`, **`sandbox: true`** set on the window. The preload reaches only for `contextBridge` and `ipcRenderer`, both of which a sandboxed preload still gets; a preload that needs `fs` or `path` would have to give this up, and the OS-level sandbox is worth more than the convenience.
+- Every channel passes sender validation (§8.1); `createRouter` cannot be constructed without it.
+- `preload.ts` exposes ONLY the `atelier` object; nothing else reaches `window`.
+- `webSecurity` stays at its default `true`.
+- No channel declared in this spec returns plaintext secrets.
+- CI grep: `grep -r "SECRET_INPUT" electron/` matches only channels in the permitted list (`conn:create`, `conn:update`, `conn:test`).
 
 ## 9. Acceptance criteria
 
-- [ ] Renderer code compiles with only imports from `@shared/ipc` and `@shared/types`.
-- [ ] Calling a non-existent channel returns `{ ok: false, error: { code: 'INTERNAL' } }` (via `ipcMain.handle` default).
-- [ ] Calling a channel with malformed payload returns `code: 'VALIDATION'` and a message naming the failed field.
-- [ ] An `invoke` from a frame that is not the window's main frame returns `code: 'UNTRUSTED_SENDER'`, and the handler never runs.
-- [ ] An `invoke` from the window's main frame **after it holds a foreign document** returns `code: 'UNTRUSTED_SENDER'`.
-- [ ] A denied request is not written to the log at `debug` — an untrusted payload is not ours to record.
-- [ ] Every registered channel has a schema.
+- Renderer code compiles with only imports from `@shared/ipc` and `@shared/types`.
+- Calling a non-existent channel returns `{ ok: false, error: { code: 'INTERNAL' } }` (via `ipcMain.handle` default).
+- Calling a channel with malformed payload returns `code: 'VALIDATION'` and a message naming the failed field.
+- An `invoke` from a frame that is not the window's main frame returns `code: 'UNTRUSTED_SENDER'`, and the handler never runs.
+- An `invoke` from the window's main frame **after it holds a foreign document** returns `code: 'UNTRUSTED_SENDER'`.
+- A denied request is not written to the log at `debug` — an untrusted payload is not ours to record.
+- Every registered channel has a schema.
 
 ## 10. Test cases
 

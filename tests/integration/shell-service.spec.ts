@@ -9,7 +9,11 @@ import type { ShellOutputEvent } from '@shared/types';
 
 /** The pool is an emitter: the service listens for status and read-only flips. */
 function poolStub(stub: object): MongoPool {
-  return Object.assign(new EventEmitter(), stub) as unknown as MongoPool;
+  return Object.assign(
+    new EventEmitter(),
+    { resolveDbName: (_id: string, dbName?: string) => dbName?.trim() || 'test' },
+    stub,
+  ) as unknown as MongoPool;
 }
 
 /**

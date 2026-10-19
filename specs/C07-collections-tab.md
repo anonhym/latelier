@@ -1,5 +1,7 @@
 # C07 — Collections tab (real listing)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 List every collection across every database on the selected connection, with real document counts, size, index count, and last-modified timestamps. Clicking a row opens that collection in the Workspace (W01). Clicking "Open" on the header opens the default database's first collection.
@@ -124,13 +126,13 @@ Both validate input as UUID string / plain string.
 
 ## 9. Acceptance criteria
 
-- [ ] Tab lists every collection from every non-system database by default.
-- [ ] Toggling "Show system DBs" reveals `admin`/`local`/`config`; preference persists across relaunches.
-- [ ] Row counts and sizes match `$collStats` output.
-- [ ] Clicking a row opens Workspace with the chosen collection pre-selected.
-- [ ] On Atlas free tier (no `$collStats`), fallback counts still render.
-- [ ] Filter narrows rows within each DB group and hides empty groups.
-- [ ] Virtualization kicks in beyond 200 rows (verify via DOM node count).
+- Tab lists every collection from every non-system database by default.
+- Toggling "Show system DBs" reveals `admin`/`local`/`config`; preference persists across relaunches.
+- Row counts and sizes match `$collStats` output.
+- Clicking a row opens Workspace with the chosen collection pre-selected.
+- On Atlas free tier (no `$collStats`), fallback counts still render.
+- Filter narrows rows within each DB group and hides empty groups.
+- Virtualization kicks in beyond 200 rows (verify via DOM node count).
 
 ## 10. Test cases
 

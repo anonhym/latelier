@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { ObjectId } from 'bson';
-import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
 import { ReferenceRulesService } from '../../electron/services/ReferenceRulesService';
+import { NotFoundError } from '../../electron/errors';
 import { createTempDb, type TempDb } from '../helpers/db';
-import { getSharedServer, makeConnection, makeReader } from '../helpers/mongo';
+import { getSharedMongoUri, makeConnection, makeReader } from '../helpers/mongo';
 
 const CONN_ID = 'ref-conn';
 const DB_NAME = 'refdb';
@@ -29,15 +29,13 @@ async function seedConnection(tmp: TempDb): Promise<void> {
 }
 
 describe('ReferenceRulesService', () => {
-  let server: MongoMemoryServer;
   let pool: MongoPool;
   let tmp: TempDb;
   let svc: ReferenceRulesService;
   let repo: ReferenceRulesRepo;
 
   beforeAll(async () => {
-    server = await getSharedServer();
-    const uri = server.getUri();
+    const uri = getSharedMongoUri();
     const hp = { host: new URL(uri).hostname, port: Number(new URL(uri).port) };
     const conn = makeConnection(CONN_ID, hp, { defaultDb: DB_NAME });
     pool = new MongoPool({
@@ -97,6 +95,21 @@ describe('ReferenceRulesService', () => {
     };
     svc.create(base);
     expect(() => svc.create(base)).toThrow(/already exists/);
+  });
+
+  it('create for an unknown connection throws NotFoundError, not the raw foreign-key error', () => {
+    const create = () =>
+      svc.create({
+        connectionId: 'no-such-conn',
+        sourceDb: DB_NAME,
+        sourceCollection: 'orders',
+        sourceField: 'contact_id',
+        targetDb: DB_NAME,
+        targetCollection: 'contacts',
+      });
+    expect(create).toThrow(NotFoundError);
+    expect(create).toThrow('connection no-such-conn not found');
+    expect(repo.listByConnection('no-such-conn')).toEqual([]);
   });
 
   it('update mutates allowed fields and bumps updated_at', async () => {

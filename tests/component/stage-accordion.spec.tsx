@@ -762,6 +762,18 @@ describe('StageAccordion — stage body editor (T2.4)', () => {
 
       expect(onBodyChange).toHaveBeenCalledWith(7, '{\n  "_id": "$field"\n}');
     });
+
+    it.each([
+      ['Shell Syntax', '{ n: 9007199254740993 }'],
+      ['JSON', '{"n":9007199254740993}'],
+    ])('Format keeps an integer beyond 2^53 exact in a %s body', (_name, body) => {
+      const onBodyChange = vi.fn<NonNullable<AccordionProps['onBodyChange']>>();
+      renderAccordion([stage({ id: 7, op: '$match', body })], { activeId: 7, onBodyChange });
+
+      fireEvent.click(screen.getByText('Format'));
+
+      expect(onBodyChange).toHaveBeenCalledWith(7, '{\n  "n": 9007199254740993\n}');
+    });
   });
 });
 

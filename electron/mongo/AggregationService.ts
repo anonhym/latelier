@@ -1,9 +1,11 @@
-import type { Collection, Document } from 'mongodb';
+import { randomUUID } from 'node:crypto';
+import type { Collection, Document, MongoClient } from 'mongodb';
 import type {
   AggExplainInput,
   AggInput,
   AggResultWire,
   AggRunAndSaveInput,
+  AggSaveCounts,
   AggStagePreview,
   PreviewInput,
   Stage,
@@ -17,7 +19,8 @@ import {
 } from '../errors.ts';
 import { classifyMongoOpError } from './errors.ts';
 import type { MongoPool, WriteGrant } from './MongoPool.ts';
-import type { RecentQueryService } from '../services/RecentQueryService.ts';
+import { logRecentWriteFailure, type RecentQueryService } from '../services/RecentQueryService.ts';
+import type { Logger } from '../log.ts';
 import { isWriteStage } from './writeStages.ts';
 import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS } from './timeouts.ts';
 
@@ -26,6 +29,10 @@ const SAMPLE_PER_STAGE = 5;
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 10_000;
 const MAX_BYTES = 200 * 1024 * 1024;
+// How often a cancelled write looks for its op in `currentOp` until it shows up.
+const KILL_POLL_MS = 100;
+// The server's code for an op stopped by `killOp`.
+const INTERRUPTED = 11601;
 
 export { isWriteStage };
 
@@ -37,13 +44,24 @@ export class AggregationService {
   private pool: MongoPool;
   private recent: RecentQueryService;
   private active = new Map<string, CancelEntry>();
+  // Runs between pipeline start and finish, token or not; `active` only holds tokened ones.
+  private running = 0;
+  private log: Logger | undefined;
 
-  constructor(pool: MongoPool, recent: RecentQueryService) {
+  constructor(pool: MongoPool, recent: RecentQueryService, log?: Logger) {
     this.pool = pool;
     this.recent = recent;
+    this.log = log;
   }
 
-  async run(input: AggInput): Promise<AggResultWire> {
+  /**
+   * `beforeExecute` runs once the pipeline is validated, the write grant is
+   * taken and the cancel token is registered, just before the pipeline
+   * executes. `runAndSave` counts a `$merge` target there, so a read-only
+   * connection or a malformed stage is refused before the server is asked
+   * anything (ADR 0005), and a cancel during the count stops the write.
+   */
+  async run(input: AggInput, beforeExecute?: () => Promise<void>): Promise<AggResultWire> {
     const enabled = this.requireEnabledStages(input.stages);
     const writeStage = enabled.find((s) => isWriteStage(s.op));
     if (writeStage && !input.allowWrite) {
@@ -80,16 +98,32 @@ export class AggregationService {
 
     const pipeline = enabled.map((s) => parseStage(s));
     const controller = this.registerCancel(input.cancelToken);
-    const coll = await this.getCollection(
-      input.connectionId,
-      input.dbName,
-      input.collection,
-      grant,
-    );
-    const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-    const t0 = Date.now();
-
+    let coll: Collection<Document>;
     try {
+      coll = await this.getCollection(
+        input.connectionId,
+        input.dbName,
+        input.collection,
+        grant,
+      );
+    } catch (err) {
+      // The run never started, so the try/finally below will not clear the token.
+      this.clearCancel(input.cancelToken);
+      throw err;
+    }
+    const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    let t0 = Date.now();
+    // Once a $out/$merge is sent, a cancel can only ask the server to kill it,
+    // so its own error, or its completion, is the real outcome.
+    let writeSent = false;
+
+    this.running++;
+    try {
+      if (beforeExecute) {
+        await beforeExecute();
+        if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
+        t0 = Date.now();
+      }
       let rowsJson: string;
       let rowCount: number;
       let hasMore: boolean;
@@ -101,24 +135,49 @@ export class AggregationService {
         // Write pipelines run untouched and skip instrumentation for the
         // final write stage (it produces no documents).
         const nonWrite = enabled.slice(0, enabled.length - 1);
+        // No `signal` here on purpose: aborting makes the driver drop the
+        // socket and throw at once, but the server does not stop a $out/$merge
+        // when its client disconnects — the write lands seconds later while the
+        // UI would already say "cancelled". A cancel instead finds the op by
+        // its comment and kills it, and the socket stays open to hear how the
+        // write ended.
+        const comment = `latelier-agg:${randomUUID()}`;
         const cursor = coll.aggregate(pipeline, {
           allowDiskUse: true,
           maxTimeMS: QUERY_TIMEOUT_MS,
+          comment,
         });
         if (controller.signal.aborted) throw new SystemError('INTERNAL', 'cancelled');
-        await cursor.toArray();
+        writeSent = true;
+        const written = cursor.toArray();
+        const stop = () => void this.killWrite(input.connectionId, comment, written);
+        controller.signal.addEventListener('abort', stop, { once: true });
+        try {
+          await written;
+        } finally {
+          controller.signal.removeEventListener('abort', stop);
+        }
         durationMs = Date.now() - t0;
         rowsJson = '[]';
         rowCount = 0;
         hasMore = false;
-        const instrumented = await this.instrument(coll, nonWrite, controller.signal);
-        stageCounts = instrumented.stageCounts;
-        stageSamples = instrumented.stageSamples;
+        try {
+          const instrumented = await this.instrument(coll, nonWrite, controller.signal);
+          stageCounts = instrumented.stageCounts;
+          stageSamples = instrumented.stageSamples;
+        } catch (err) {
+          // The write already landed: a cancel now only skips the per-stage
+          // counts, and the run is reported as completed.
+          if (!controller.signal.aborted) throw err;
+          stageCounts = {};
+          stageSamples = {};
+        }
       } else {
         const mainPipeline = [...pipeline, { $limit: limit }];
         const cursor = coll.aggregate(mainPipeline, {
           allowDiskUse: true,
           maxTimeMS: QUERY_TIMEOUT_MS,
+          signal: controller.signal,
         });
         const [rawRows, instrumented] = await Promise.all([
           cursor.toArray(),
@@ -147,7 +206,7 @@ export class AggregationService {
           durationMs,
           rowCount,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
 
       return {
         rowsJson,
@@ -157,8 +216,17 @@ export class AggregationService {
         hasMore,
       };
     } catch (err) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !writeSent) {
         throw new SystemError('INTERNAL', 'cancelled');
+      }
+      // The kill landed: a `$out` writes to a temp collection and renames it at
+      // the end, so its target is untouched; a `$merge` keeps every batch it
+      // already flushed, and nothing rolls them back.
+      if (controller.signal.aborted && (err as { code?: unknown }).code === INTERRUPTED) {
+        throw new SystemError('INTERNAL', 'cancelled', {
+          writeStageOp: writeStage!.op,
+          partialWrite: writeStage!.op === '$merge',
+        });
       }
       const classified = classifyMongoOpError(err);
       // Record failures so the recent-query history stays consistent with
@@ -175,11 +243,17 @@ export class AggregationService {
           0,
           classified.code,
         )
-        .catch(() => {});
+        .catch((e: unknown) => logRecentWriteFailure(this.log, e));
       throw classified;
     } finally {
+      this.running--;
       this.clearCancel(input.cancelToken);
     }
+  }
+
+  /** Runs in flight, for the quit confirmation. */
+  runningCount(): number {
+    return this.running;
   }
 
   async previewUpToStage(input: PreviewInput): Promise<AggStagePreview> {
@@ -232,9 +306,7 @@ export class AggregationService {
     }
   }
 
-  async runAndSave(
-    input: AggRunAndSaveInput,
-  ): Promise<AggResultWire & { writtenCount?: number }> {
+  async runAndSave(input: AggRunAndSaveInput): Promise<AggResultWire & AggSaveCounts> {
     validateCollectionName(input.target.collection);
     if (
       input.target.mode === '$out' &&
@@ -274,23 +346,32 @@ export class AggregationService {
             enabled: true,
           };
 
-    const result = await this.run({
-      ...input,
-      stages: [...input.stages, writeStage],
-      allowWrite: true,
-    });
+    // `$merge` leaves the target's existing documents in place, so only its
+    // size before the run tells how much of the size after is new.
+    const isMerge = input.target.mode === '$merge';
+    let countBefore: number | undefined;
+    const result = await this.run(
+      {
+        ...input,
+        stages: [...input.stages, writeStage],
+        allowWrite: true,
+      },
+      isMerge
+        ? async () => {
+            countBefore = await this.countTarget(input);
+          }
+        : undefined,
+    );
 
-    let writtenCount: number | undefined;
-    try {
-      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
-      writtenCount = await db
-        .collection(input.target.collection)
-        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
-    } catch {
-      writtenCount = undefined;
-    }
-
-    return { ...result, writtenCount };
+    const countAfter = await this.countTarget(input);
+    if (!isMerge) return { ...result, writtenCount: countAfter };
+    return {
+      ...result,
+      mergeCounts:
+        countBefore !== undefined && countAfter !== undefined
+          ? { before: countBefore, after: countAfter }
+          : undefined,
+    };
   }
 
   async explain(
@@ -330,6 +411,89 @@ export class AggregationService {
   }
 
   // ─── internals ─────────────────────────────────────────────────────────
+
+  /**
+   * Kills a sent write on the server. The op is found by the comment `run()`
+   * tagged it with; the comment survives in `currentOp` even when a long
+   * command shows as `command.$truncated`. `$ownOps` lets a user without the
+   * `inprog` privilege see their own ops. The cursor is lazy, so the command
+   * may not have reached the server when Cancel lands: keep looking until the
+   * op shows up or the write settles. `killOp` answers ok for any opid, so
+   * whether the write stopped is read from how `written` settles, not here.
+   *
+   * The commands go over a control client of their own: on the pooled client
+   * they would queue behind the very aggregate they are meant to stop
+   * whenever it holds the pool's last connection.
+   *
+   * A refusal (no `killop` privilege, a hosted tier that disallows these
+   * commands) only costs the stop: the write runs to completion as before.
+   */
+  private async killWrite(
+    connectionId: string,
+    comment: string,
+    written: Promise<unknown>,
+  ): Promise<void> {
+    let settled = false;
+    const markSettled = () => {
+      settled = true;
+    };
+    written.then(markSettled, markSettled);
+    let control: MongoClient | undefined;
+    try {
+      control = await this.pool.openControlClient(connectionId);
+      const admin = control.db('admin');
+      while (!settled) {
+        const { inprog } = (await admin.command({
+          currentOp: 1,
+          $ownOps: true,
+          'command.comment': comment,
+        })) as { inprog: Array<{ opid: unknown }> };
+        if (inprog.length > 0) {
+          // Every match: on a sharded cluster each shard runs its own part of
+          // the pipeline under the same comment. The opid goes back as
+          // `currentOp` gave it, a number on mongod and a "shard:opid" string
+          // on mongos.
+          for (const op of inprog) await admin.command({ killOp: 1, op: op.opid });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, KILL_POLL_MS));
+      }
+    } catch (err) {
+      this.log?.warn('agg', 'could not stop the write on the server; it runs to completion', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      await control?.close().catch((err: unknown) => {
+        this.log?.warn('agg', 'closing the control client failed', {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+  }
+
+  /**
+   * Size of a save target, or undefined when it cannot be read. The count only
+   * decorates the success message, so a failed probe must not fail a write that
+   * already happened; it is logged instead. The count before a `$merge` runs
+   * only once `run()` has connected, so an unreachable server has already
+   * failed the save, once, before this is reached.
+   */
+  private async countTarget(input: AggRunAndSaveInput): Promise<number | undefined> {
+    try {
+      const db = await this.pool.readDb(input.connectionId, input.target.dbName);
+      return await db
+        .collection(input.target.collection)
+        .countDocuments({}, { maxTimeMS: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      this.log?.warn('agg', 'counting the save target failed', {
+        connectionId: input.connectionId,
+        dbName: input.target.dbName,
+        collection: input.target.collection,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
 
   private requireEnabledStages(stages: Stage[]): Stage[] {
     const enabled = stages.filter((s) => s.enabled);
@@ -404,6 +568,7 @@ export class AggregationService {
     const cursor = coll.aggregate([{ $facet: facet }], {
       allowDiskUse: true,
       maxTimeMS: QUERY_TIMEOUT_MS,
+      signal,
     });
     const arr = (await cursor.toArray()) as [Record<string, Document[]>] | [];
     const row = arr[0] ?? {};
@@ -437,6 +602,7 @@ export class AggregationService {
           .aggregate([...cumulative, { $count: 'c' }], {
             allowDiskUse: true,
             maxTimeMS: QUERY_TIMEOUT_MS,
+            signal,
           })
           .toArray()) as Array<{ c?: number }>;
         stageCounts[stage.id] = countArr[0]?.c ?? 0;
@@ -448,6 +614,7 @@ export class AggregationService {
           .aggregate([...cumulative, { $limit: SAMPLE_PER_STAGE }], {
             allowDiskUse: true,
             maxTimeMS: QUERY_TIMEOUT_MS,
+            signal,
           })
           .toArray();
         stageSamples[stage.id] = ejsonEncodeArray(sampleDocs, false);

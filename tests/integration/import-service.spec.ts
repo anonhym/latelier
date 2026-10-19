@@ -3,18 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { Collection, Decimal128, MongoClient, MongoNetworkError, ObjectId } from 'mongodb';
-import type { MongoMemoryServer } from 'mongodb-memory-server';
+import { Collection, Decimal128, Long, MongoClient, MongoNetworkError, ObjectId } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { createReadStream } from 'node:fs';
 import { ImportService, jsonlRecords } from '../../electron/mongo/ImportService';
 import { importDigest, undoCaptureOf } from '../../electron/mongo/undo';
 import type { SecretsVault } from '../../electron/secrets/SecretsVault';
 import type { CsvColumnMapping, CsvColumnType } from '../../shared/types';
-import { getSharedServer, makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
+import { getSharedMongoUri, makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
 
 describe('ImportService.importFile', () => {
-  let server: MongoMemoryServer;
   let client: MongoClient;
   let pool: MongoPool;
   let svc: ImportService;
@@ -23,14 +21,13 @@ describe('ImportService.importFile', () => {
   const coll = 'people';
 
   beforeAll(async () => {
-    server = await getSharedServer();
-    const hp = uriToHostPort(server.getUri());
-    client = await MongoClient.connect(server.getUri());
+    const hp = uriToHostPort(getSharedMongoUri());
+    client = await MongoClient.connect(getSharedMongoUri());
     pool = new MongoPool({
       repo: makeReader([makeConnection('c1', hp), makeConnection('c-ro', hp, { readOnly: true })]),
       vault: { get: () => null } as unknown as SecretsVault,
     });
-  }, 60_000);
+  });
 
   afterAll(async () => {
     await pool.disconnectAll();
@@ -73,6 +70,23 @@ describe('ImportService.importFile', () => {
     const byId = new Map(docs.map((d) => [String(d._id), d]));
     expect(byId.get(oid.toHexString())!.n).toEqual(Decimal128.fromString('1.5'));
     expect(byId.get('b')!.at).toEqual(new Date('2024-01-02T03:04:05Z'));
+  });
+
+  // JSON.parse rounds a bare integer past 2^53, so what the file says as
+  // 9007199254740993 used to land as 9007199254740992. Both formats, and the
+  // server-side $type, not only what the driver hands back.
+  it.each([
+    ['a JSON array', 'big.json', '[{"_id":1,"n":9007199254740993,"m":-9223372036854775808,"d":1.5e18}]'],
+    ['JSONL', 'big.jsonl', '{"_id":1,"n":9007199254740993,"m":-9223372036854775808,"d":1.5e18}\n'],
+  ])('imports a bare integer past 2^53 from %s as an exact int64, and a double spelling as a double (#279)', async (_name, fileName, content) => {
+    const report = await run(await file(fileName, content));
+    expect(report.inserted).toBe(1);
+    const c = client.db(dbName).collection(coll);
+    expect(await c.countDocuments({ n: { $type: 'long' }, m: { $type: 'long' }, d: { $type: 'double' } })).toBe(1);
+    const doc = (await c.findOne({ _id: 1 as never }, { promoteLongs: false }))!;
+    expect((doc.n as Long).toString()).toBe('9007199254740993');
+    expect((doc.m as Long).toString()).toBe('-9223372036854775808');
+    expect(doc.d).toBe(1.5e18);
   });
 
   it('imports JSONL, skipping blank lines and a leading BOM', async () => {
@@ -212,6 +226,36 @@ describe('ImportService.importFile', () => {
     });
     const p = await file('net.jsonl', '{"_id":1}\n{"_id":2}\n{"_id":3}\n{"_id":4}\n');
     await expect(run(p)).rejects.toMatchObject({ code: 'NETWORK', message: expect.stringMatching(/connection reset/), details: { insertedCount: 2 } });
+  });
+
+  describe('runningCount', () => {
+    const jsonl = (n: number) => Array.from({ length: n }, (_, i) => JSON.stringify({ _id: i })).join('\n');
+
+    it('counts an import in flight, tokened or not, and not after it ends', async () => {
+      const p = await file('rc.jsonl', jsonl(3));
+      const seen: number[] = [];
+      const spy = vi.spyOn(Collection.prototype, 'insertMany').mockImplementation(async () => {
+        seen.push(svc.runningCount());
+        return { insertedCount: 3, insertedIds: {}, acknowledged: true } as never;
+      });
+      expect(svc.runningCount()).toBe(0);
+      await run(p);
+      await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'rc-tok' });
+      spy.mockRestore();
+      expect(seen).toEqual([1, 1]);
+      expect(svc.runningCount()).toBe(0);
+    });
+
+    it('stops counting a cancelled import and one that fails to parse', async () => {
+      svc = new ImportService(pool, { batchSize: 1, emit: () => svc.cancel('rc-cancel') });
+      const p = await file('rc2.jsonl', jsonl(3));
+      const report = await svc.importFile({ connectionId: 'c1', dbName, collection: coll, path: p, cancelToken: 'rc-cancel' });
+      expect(report.cancelled).toBe(true);
+      expect(svc.runningCount()).toBe(0);
+      const bad = await file('rc3.json', '[{"_id":1},');
+      await expect(run(bad)).rejects.toMatchObject({ code: 'VALIDATION' });
+      expect(svc.runningCount()).toBe(0);
+    });
   });
 
   describe('cancel', () => {

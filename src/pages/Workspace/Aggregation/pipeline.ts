@@ -1,5 +1,6 @@
 import type { PipelineState, Stage, StageOp } from '@shared/types';
-import { isValidEjson } from '../../../utils/ejson';
+import { prettyPrintJsonKeepingBigInts } from '../../../utils/bigIntJson';
+import { ejsonParse, ejsonStringify, isValidEjson } from '../../../utils/ejson';
 import { refusalMessage, repairToCanonicalEjson } from '../../../utils/shellSyntax';
 import { stageOperatorSummary } from '../../../features/fieldSuggestions/operators';
 
@@ -348,9 +349,27 @@ export function stageSummary(stage: Stage): string {
 
 export function formatBody(body: string): string {
   try {
-    const parsed = JSON.parse(body);
-    return JSON.stringify(parsed, null, 2);
+    // Not `JSON.stringify(JSON.parse(body))`: that rounds an integer beyond 2^53.
+    return prettyPrintJsonKeepingBigInts(body, 2);
   } catch {
     return body;
   }
+}
+
+/**
+ * The enabled stages as one canonical EJSON array, the `pipeline` a view is
+ * created with. Throws naming the first enabled stage whose body does not
+ * parse by its 1-based position in the builder, with the parser's reason.
+ */
+export function stagesToPipelineJson(stages: Stage[]): string {
+  const pipeline: Record<string, unknown>[] = [];
+  stages.forEach((s, i) => {
+    if (!s.enabled) return;
+    try {
+      pipeline.push({ [s.op]: ejsonParse(s.body) });
+    } catch (e) {
+      throw new Error(`stage ${i + 1} (${s.op}): invalid EJSON — ${(e as Error).message}`, { cause: e });
+    }
+  });
+  return ejsonStringify(pipeline);
 }

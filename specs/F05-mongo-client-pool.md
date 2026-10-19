@@ -1,5 +1,7 @@
 # F05 — Mongo client pool & lifecycle
 
+> **Status: Implemented.** [X18](./X18-deepening-seams.md) §4 replaced `getClient`/`getDb` with read handles and write grants.
+
 ## Purpose
 
 Maintain at most one live `MongoClient` per saved connection for the lifetime of the app, hide the details of URI construction (including secrets) from callers, and expose simple connect/disconnect/ping semantics.
@@ -95,7 +97,7 @@ export interface ServerInfo {
 export interface ProbeResult {
   ok: boolean;
   serverVersion?: string;
-  topology?: string;
+  topology?: 'Single' | 'ReplicaSet' | 'Sharded' | 'Unknown';
   roundTripMs?: number;
   errorCode?: 'AUTH' | 'NETWORK' | 'TIMEOUT' | 'TLS' | 'UNKNOWN';
   errorMessage?: string;
@@ -149,20 +151,20 @@ function buildUri(c: Connection, password?: string): string {
 2. If `status === 'connected'`, return existing client.
 3. If `status === 'connecting'`, await the shared promise.
 4. Else set `status = 'connecting'`, build URI, decrypt password, `new MongoClient(...)`, `.connect()`.
-5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve.
+5. On success → store, set `status = 'connected'`, record `serverVersion` and `topology`, resolve. `topology` is classified from one `hello` reply (`isMaster` on MongoDB < 4.4), fetched with or without a logger; the same reply feeds the `hello snapshot` log entry (info level). A failed hello leaves `topology = 'Unknown'` and never fails the connect.
 6. On failure → set `status = 'error'`, store `errorMessage`, reject all waiters, do not retain the client.
 7. Subsequent `getClient` calls after an error re-attempt from step 4.
 
 ### probe
 - Builds URI with a **separate** MongoClient with `serverSelectionTimeoutMS: 5000`, `connectTimeoutMS: 5000`.
-- Connects, pings, reads `buildInfo`, closes.
+- Connects, pings, reads `buildInfo` and `hello` (for `topology`), closes.
 - Classifies errors into `AUTH | NETWORK | TIMEOUT | TLS | UNKNOWN` (see §6).
 - Used by both:
   - C04 **Test connection** — called with form data *before* save.
   - C02 `connect` IPC — called to warm the pool post-save (optional).
 
 ### disconnect / disconnectAll
-- `await client.close()`. Remove from map. Set status `disconnected`.
+- `await client.close()`. Remove from map. Set status `disconnected`. `serverVersion` and `topology` are cleared with it, and also when the connection drops on its own or a later connect attempt fails: they describe the server a live connection reached, so `status()` never reports them next to `disconnected` or `error`.
 - `disconnectAll` runs in parallel (`Promise.allSettled`) and logs any failures.
 
 ## 5. Events
@@ -204,11 +206,11 @@ Classifier lives in `electron/mongo/errors.ts` and has unit tests with fixture e
 
 ## 9. Acceptance criteria
 
-- [ ] At most one `MongoClient` exists per connection id across the app lifetime.
-- [ ] `getClient` called concurrently for the same id only opens one underlying client.
-- [ ] `disconnectAll` resolves within 5 seconds even if a client is unresponsive.
-- [ ] `probe` never leaves a lingering client on failure or success.
-- [ ] Status events fire exactly once per transition.
+- At most one `MongoClient` exists per connection id across the app lifetime.
+- `getClient` called concurrently for the same id only opens one underlying client.
+- `disconnectAll` resolves within 5 seconds even if a client is unresponsive.
+- `probe` never leaves a lingering client on failure or success.
+- Status events fire exactly once per transition.
 
 ## 10. Test cases
 

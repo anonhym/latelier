@@ -7,7 +7,7 @@ import type {
   UserRoleRef,
   UserUpdateInput,
 } from '@shared/types';
-import { ejsonParse, ejsonStringify } from './ejson.ts';
+import { ejsonParse, ejsonStringifyDriverValue } from './ejson.ts';
 import { classifyMongoOpError } from './errors.ts';
 import { ValidationError } from '../errors.ts';
 import type { MongoPool } from './MongoPool.ts';
@@ -185,7 +185,7 @@ export function toUserInfo(raw: RawUser): UserInfo {
     external,
   };
   if (raw.customData !== undefined) {
-    info.customData = ejsonStringify(raw.customData);
+    info.customData = ejsonStringifyDriverValue(raw.customData);
   }
   return info;
 }

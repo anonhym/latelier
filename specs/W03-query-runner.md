@@ -1,5 +1,7 @@
 # W03 — Query runner service
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Run `find` queries and related read operations against Mongo on behalf of the renderer. Owns pagination, cancellation, EJSON serialization, and the capture of each run into the "recent queries" history (W10).
@@ -137,6 +139,15 @@ Reuse F05's classifier plus:
 - `err.codeName === 'Unauthorized'` → `UNAUTHORIZED`.
 - Query-shape errors (`err.code === 2` BadValue) → `VALIDATION` with `details.mongoMessage`.
 
+`query:find` words the two ceilings it enforces for the person who hit them,
+keeping the raw message in `details.mongoMessage`:
+
+- `TIMEOUT` (the 30 s `maxTimeMS`): "The query was stopped after 30 s. Add an index or narrow the filter."
+- A result over the 50 MB encoded-size cap is a `VALIDATION` error, not `INTERNAL`: "The result is larger than 50 MB. Add a filter, a projection, or lower the rows per page."
+
+Both ceilings are constructor inputs (`QueryService`'s `limits`) so a test can
+lower them rather than seed 50 MB or wait 30 s.
+
 Renderer uses these to show readable banners (W05 footer pill).
 
 ## 8. EJSON helpers
@@ -154,12 +165,12 @@ On the renderer side, we **lazy-parse**. JSON view and Tree view can render EJSO
 
 ## 9. Acceptance criteria
 
-- [ ] `query:find` against a seeded collection returns documents in EJSON canonical form.
-- [ ] `ObjectId` round-trip: input filter with `{ "_id": { "$oid": "…" } }` finds the doc; returned doc's `_id` is also an `$oid` shape.
-- [ ] `limit: 0` is rejected by validation (must be ≥ 1).
-- [ ] `limit: 10` plus a result of exactly 10 docs yields `hasMore: true`; a result of 9 docs yields `hasMore: false`.
-- [ ] `query:cancel` aborts an in-flight long query and the handler returns a VALIDATION-free TIMEOUT-like error.
-- [ ] `query:count` with a pathological filter times out within ~5 seconds.
+- `query:find` against a seeded collection returns documents in EJSON canonical form.
+- `ObjectId` round-trip: input filter with `{ "_id": { "$oid": "…" } }` finds the doc; returned doc's `_id` is also an `$oid` shape.
+- `limit: 0` is rejected by validation (must be ≥ 1).
+- `limit: 10` plus a result of exactly 10 docs yields `hasMore: true`; a result of 9 docs yields `hasMore: false`.
+- `query:cancel` aborts an in-flight long query and the handler returns a VALIDATION-free TIMEOUT-like error.
+- `query:count` with a pathological filter times out within ~5 seconds.
 
 ## 10. Test cases
 

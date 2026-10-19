@@ -1,5 +1,7 @@
 # W10 — Recent queries + preview field preferences
 
+> **Status: Implemented.** The preview-field preferences in §2 were removed along with the picker.
+
 ## Purpose
 
 Two small persistence features bundled because they share the same UX footprint: they both scope by connection/db/collection and both are exposed via the workspace panes. Recent gives users a view of their most recent runs to re-use; preview fields persist the user's chosen display columns across sessions.
@@ -113,12 +115,12 @@ A tiny `MaintenanceService` registered at startup runs every 24 hours (and once 
 
 ## 4. Acceptance criteria
 
-- [ ] Each successful or errored query run produces exactly one row in `recent_queries` within 100ms of completion.
-- [ ] The per-connection cap (200) evicts the oldest rows on insert.
-- [ ] Retention cleanup removes rows older than 30 days at startup.
-- [ ] Recent tab lists rows in `ran_at DESC` order; "Run here" re-runs with the exact payload.
-- [ ] `prefs:getPreviewFields` returns `null` for an unknown collection; the default-derivation logic then fires.
-- [ ] Changes to preview fields via the picker persist across relaunches.
+- Each successful or errored query run produces exactly one row in `recent_queries` within 100ms of completion.
+- The per-connection cap (200) evicts the oldest rows on insert.
+- Retention cleanup removes rows older than 30 days at startup.
+- Recent tab lists rows in `ran_at DESC` order; "Run here" re-runs with the exact payload.
+- `prefs:getPreviewFields` returns `null` for an unknown collection; the default-derivation logic then fires.
+- Changes to preview fields via the picker persist across relaunches.
 
 ## 5. Test cases
 

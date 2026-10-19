@@ -1,5 +1,6 @@
 import type { Database, Statement } from 'better-sqlite3';
 import { withTransaction } from '../sqlite.ts';
+import { rethrowMissingConnection } from '../sqliteErrors.ts';
 
 // SQLite still allows the legacy 'aggregation' literal for rows that haven't
 // been migrated yet. Runtime inserts use 'collection' or 'script' (W12).
@@ -28,6 +29,7 @@ export class WorkspaceTabRepo {
   private insertStmt: Statement;
   private updateStateStmt: Statement<[string, string]>;
   private deleteStmt: Statement<[string]>;
+  private deleteAllStmt: Statement<[]>;
   private findByIdStmt: Statement<[string]>;
   private listStmt: Statement;
   private findMatchingStmt: Statement<[string, StoredTabKind, string, string]>;
@@ -53,6 +55,7 @@ export class WorkspaceTabRepo {
       'UPDATE workspace_tabs SET state_json = ? WHERE id = ?',
     );
     this.deleteStmt = db.prepare('DELETE FROM workspace_tabs WHERE id = ?');
+    this.deleteAllStmt = db.prepare('DELETE FROM workspace_tabs');
     this.findByIdStmt = db.prepare('SELECT * FROM workspace_tabs WHERE id = ?');
     this.listStmt = db.prepare(
       'SELECT * FROM workspace_tabs ORDER BY pinned DESC, position ASC',
@@ -96,7 +99,11 @@ export class WorkspaceTabRepo {
   }
 
   insert(row: WorkspaceTabRow): void {
-    this.insertStmt.run(row);
+    try {
+      this.insertStmt.run(row);
+    } catch (err) {
+      rethrowMissingConnection(err, row.connection_id);
+    }
   }
 
   updateState(id: string, stateJson: string): void {
@@ -105,6 +112,11 @@ export class WorkspaceTabRepo {
 
   deleteById(id: string): number {
     return this.deleteStmt.run(id).changes;
+  }
+
+  /** One statement, so a partial failure cannot leave some tabs behind. */
+  deleteAll(): number {
+    return this.deleteAllStmt.run().changes;
   }
 
   findById(id: string): WorkspaceTabRow | null {

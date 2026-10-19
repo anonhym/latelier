@@ -1,5 +1,7 @@
 # W06 — Result views (Tree / JSON / Table)
 
+> **Status: Implemented.** The preview-fields picker in §2 was removed; the Fields control replaced it.
+
 ## Purpose
 
 Render the current result set in one of three views. Tree shows collapsed rows with a preview and expands to a typed field grid. JSON shows syntax-highlighted EJSON. Table shows tabular rows with column overflow. All three share a single data source (the tab's last successful run) and a single selection concept.
@@ -99,13 +101,13 @@ Row layout (matches existing mock):
 
 ## 6. Acceptance criteria
 
-- [ ] All three views render the same underlying `documents` array without re-running the query.
-- [ ] Changing preview fields updates Tree and Table header order without a new run.
-- [ ] Selection state persists while switching view modes.
-- [ ] Expanding a row in Tree persists across tab switches (top-level only).
-- [ ] EJSON values (ObjectId, Date, Long, Decimal) render with correct type badges.
-- [ ] Column resize in Table persists across relaunches.
-- [ ] Switching view modes is instant (no extra fetch).
+- All three views render the same underlying `documents` array without re-running the query.
+- Changing preview fields updates Tree and Table header order without a new run.
+- Selection state persists while switching view modes.
+- Expanding a row in Tree persists across tab switches (top-level only).
+- EJSON values (ObjectId, Date, Long, Decimal) render with correct type badges.
+- Column resize in Table persists across relaunches.
+- Switching view modes is instant (no extra fetch).
 
 ## 7. Test cases
 

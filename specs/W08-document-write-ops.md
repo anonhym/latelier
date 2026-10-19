@@ -1,5 +1,7 @@
 # W08 — Document write ops (insert, edit, delete)
 
+> **Status: Implemented.** Its edit and insert drawers, and `doc:replace`, are superseded by [W18](./W18-document-editor.md)'s Document Editor.
+
 ## Purpose
 
 Allow users to insert, modify, and remove documents from the active collection. All writes go through main so validation, EJSON round-tripping, and safety guards run server-side. Each operation has a clear UI flow and requires explicit confirmation when dangerous.
@@ -146,20 +148,20 @@ After any successful write:
 
 ## 8. Acceptance criteria
 
-- [ ] Insert adds a document and the refresh shows it if it matches the current filter.
-- [ ] Pasting a top-level JSON array of objects into Insert calls `doc:insertMany` (not `doc:insert`) and inserts every document; a single top-level object still calls `doc:insert` unchanged.
-- [ ] An empty array (`[]`) or an array containing a non-object item is rejected client-side: Insert disabled, inline error, no IPC call. The server (`DocumentService.insertMany`) independently rejects the same cases with `VALIDATION`.
-- [ ] `insertMany` uses `ordered: true`; on a duplicate-key failure partway through the batch, exactly the documents before the failing one are persisted, and the service surfaces `CONFLICT` with `details.insertedCount` set to that count.
-- [ ] On that partial failure, the Insert drawer stays open, shows a banner stating how many of N documents were inserted, and still triggers a grid refresh (`onPartialInsert`) so the partially-inserted rows are visible — it does not silently close or discard the user's text.
-- [ ] Editing changes the document in place.
-- [ ] Editing cannot remove the `_id`; the original is restored.
-- [ ] The Edit drawer's Update fields ($set) mode sends only the patched fields via `doc:updateOne`, leaving unmentioned fields on the document untouched.
-- [ ] Update fields ($set) mode is blocked for invalid EJSON, a non-object patch, an empty patch, a patch containing `_id`, or a document with no original `_id`.
-- [ ] Deleting a single doc removes it from the result.
-- [ ] deleteMany is gated: cannot run without typing the collection name; cannot run without `confirmToken`.
-- [ ] Duplicate-key error surfaces as CONFLICT with a useful message.
-- [ ] Schema-validation failure surfaces the server's validation errors.
-- [ ] All write ops refresh the result automatically.
+- Insert adds a document and the refresh shows it if it matches the current filter.
+- Pasting a top-level JSON array of objects into Insert calls `doc:insertMany` (not `doc:insert`) and inserts every document; a single top-level object still calls `doc:insert` unchanged.
+- An empty array (`[]`) or an array containing a non-object item is rejected client-side: Insert disabled, inline error, no IPC call. The server (`DocumentService.insertMany`) independently rejects the same cases with `VALIDATION`.
+- `insertMany` uses `ordered: true`; on a duplicate-key failure partway through the batch, exactly the documents before the failing one are persisted, and the service surfaces `CONFLICT` with `details.insertedCount` set to that count.
+- On that partial failure, the Insert drawer stays open, shows a banner stating how many of N documents were inserted, and still triggers a grid refresh (`onPartialInsert`) so the partially-inserted rows are visible — it does not silently close or discard the user's text.
+- Editing changes the document in place.
+- Editing cannot remove the `_id`; the original is restored.
+- The Edit drawer's Update fields ($set) mode sends only the patched fields via `doc:updateOne`, leaving unmentioned fields on the document untouched.
+- Update fields ($set) mode is blocked for invalid EJSON, a non-object patch, an empty patch, a patch containing `_id`, or a document with no original `_id`.
+- Deleting a single doc removes it from the result.
+- deleteMany is gated: cannot run without typing the collection name; cannot run without `confirmToken`.
+- Duplicate-key error surfaces as CONFLICT with a useful message.
+- Schema-validation failure surfaces the server's validation errors.
+- All write ops refresh the result automatically.
 
 ## 9. Test cases
 

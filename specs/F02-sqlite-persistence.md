@@ -1,5 +1,7 @@
 # F02 — SQLite persistence & migrations
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Provide a single, well-typed, versioned SQLite store for every piece of persistent state MongoLab keeps. Wrap `better-sqlite3` so services see a small, testable surface: a `Database` handle plus a set of repositories.
@@ -233,11 +235,11 @@ Repositories MAY nest transactions safely (`better-sqlite3` uses savepoints).
 
 ## 8. Acceptance criteria
 
-- [ ] App starts with no DB present and creates one at the correct path.
-- [ ] Migration runner is idempotent: running twice in a row leaves `schema_version.version` unchanged.
-- [ ] Re-running the app reads the existing DB without running migrations again.
-- [ ] Foreign-key cascades: deleting a connection removes its `connection_secrets`, `saved_queries`, `recent_queries`, `workspace_tabs`, `preview_fields`.
-- [ ] `PRAGMA foreign_keys` is confirmed `= 1` after open.
+- App starts with no DB present and creates one at the correct path.
+- Migration runner is idempotent: running twice in a row leaves `schema_version.version` unchanged.
+- Re-running the app reads the existing DB without running migrations again.
+- Foreign-key cascades: deleting a connection removes its `connection_secrets`, `saved_queries`, `recent_queries`, `workspace_tabs`, `preview_fields`.
+- `PRAGMA foreign_keys` is confirmed `= 1` after open.
 
 ## 9. Test cases
 

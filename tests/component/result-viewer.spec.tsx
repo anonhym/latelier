@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
@@ -19,6 +20,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  uninstallAtelierMock();
   if (originalClipboard !== undefined) {
     Object.defineProperty(navigator, 'clipboard', {
       value: originalClipboard,
@@ -117,6 +119,40 @@ describe('ResultViewer compound', () => {
     );
     expect(screen.queryByText('This collection is empty')).toBeNull();
     expect(screen.getByRole('dialog', { name: /import into/i })).toBeTruthy();
+  });
+
+  // The failure carries no report, so the result list is re-run from the
+  // partial-import callback instead of `onImported`.
+  it('re-runs the query when the empty-state import fails after some documents landed', async () => {
+    installAtelierMock({
+      app: { pickFile: async () => ({ path: '/home/me/people.jsonl' }) } as never,
+      data: {
+        import: async () => {
+          throw { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } };
+        },
+      },
+    });
+    const actions = emptyWorkspaceActions();
+    render(
+      <CollectionWorkspaceProvider
+        state={makeState({
+          queryRaw: '{}',
+          page: 0,
+          lastRun: { documents: [], durationMs: 0, ranAt: new Date().toISOString() },
+        })}
+        actions={actions}
+        meta={makeMeta({})}
+      >
+        <ResultViewer>
+          <ResultViewer.Body onClearFilter={noop} onColumnResize={noop} onRowExpand={noop} />
+        </ResultViewer>
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /import documents/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose file…' }));
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(actions.run).toHaveBeenCalledTimes(1);
   });
 
   it('Body hides the import CTA for a read-only consumer, but still shows the empty-collection message', () => {

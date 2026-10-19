@@ -17,9 +17,12 @@ interface TabStripProps {
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
-  onOpenNew: () => void;
   onOpenNewScript: () => void;
   onTogglePin: (id: string) => void;
+  /** Close `ids` as one action (Close others / Close to the right); `keepId` is the tab the menu was opened on. */
+  onCloseMany: (ids: string[], keepId: string) => void;
+  /** Show this collection tab's row in the navigator. */
+  onReveal: (id: string) => void;
 }
 
 /** A tab's read-only marker (spec §4.4). The group chip has carried one
@@ -53,9 +56,10 @@ export function TabStrip({
   onActivate,
   onClose,
   onReorder,
-  onOpenNew,
   onOpenNewScript,
   onTogglePin,
+  onCloseMany,
+  onReveal,
 }: TabStripProps) {
   const T = themeVars;
   const [dragId, setDragId] = React.useState<string | null>(null);
@@ -160,6 +164,22 @@ export function TabStrip({
     [tabs, connections],
   );
 
+  // Bulk closes read the strip's on-screen (grouped) order, never the stored
+  // one, and leave pinned tabs alone. A collapsed group's tabs are not on
+  // screen, so they are not closed either.
+  const bulkTargets = React.useMemo(() => {
+    if (!menuTab) return { others: [], right: [] };
+    const onScreen = groups
+      .filter((g) => g.connectionId === menuTab.connectionId || !collapsedGroups.has(g.connectionId))
+      .flatMap((g) => g.tabs);
+    const at = onScreen.findIndex((t) => t.id === menuTab.id);
+    const closable = (t: WorkspaceTab) => t.id !== menuTab.id && !t.pinned;
+    return {
+      others: onScreen.filter(closable).map((t) => t.id),
+      right: onScreen.slice(at + 1).filter(closable).map((t) => t.id),
+    };
+  }, [groups, menuTab, collapsedGroups]);
+
   return (
     <div
       ref={stripRef}
@@ -197,6 +217,8 @@ export function TabStrip({
         // Connection has even loaded.
         const dormant = isDormant(connection);
         const collapsed = collapsedGroups.has(connectionId);
+        const groupActive = groupTabs.some((t) => t.id === activeId);
+        const groupColor = connection?.color ?? T.border;
         return (
           <div
             key={connectionId}
@@ -207,64 +229,51 @@ export function TabStrip({
               alignItems: 'stretch',
               // The divider between groups.
               borderRight: `2px solid ${T.borderMed}`,
+              marginRight: 8,
             }}
           >
-            {/* The chip: the name is the identity, the colour is the second
-                cue — two Connections can share a palette family. */}
-            <div
+            {/* The Tab Group header: the name is the identity, the filled colour
+                is the second cue — two Connections can share a palette
+                family. One button, so a click anywhere on it toggles the
+                group. Lit when the group holds the Focused Tab. */}
+            <button
+              type="button"
+              onClick={() => toggleGroupCollapsed(connectionId)}
+              aria-expanded={!collapsed}
+              // The visible Connection name is the accessible name (Label in Name);
+              // `aria-expanded` carries the state.
+              aria-label={name}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '0 8px',
+                padding: '0 10px',
                 fontSize: 11,
-                color: T.textMuted,
-                background: T.bg,
+                fontWeight: 600,
+                cursor: 'pointer',
                 whiteSpace: 'nowrap',
+                border: 'none',
+                // Solid text on both fills: muted text on the tint fell under 4.5:1.
+                color: T.text,
+                background: `color-mix(in srgb, ${groupColor} ${groupActive ? 55 : 22}%, ${T.bg})`,
                 borderLeft: `3px solid ${connection?.color ?? T.border}`,
+                transition: 'background 120ms',
               }}
             >
-              <button
-                onClick={() => toggleGroupCollapsed(connectionId)}
-                aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+              <span
+                aria-hidden
                 style={{
                   display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 14,
-                  height: 14,
-                  padding: 0,
-                  background: 'none',
-                  border: 'none',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  flexShrink: 0,
                   fontSize: 10,
                   transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
                   transition: 'transform 120ms',
                 }}
               >
                 {I.chevD}
-              </button>
+              </span>
               <span>{name}</span>
-              {readOnly && (
-                <Tooltip label="Read-only connection" withArrow>
-                  <span
-                    aria-label="Read-only"
-                    style={{
-                      fontSize: 9,
-                      color: T.warnText,
-                      border: `1px solid ${T.warnBorder}`,
-                      background: T.warnSoft,
-                      borderRadius: 3,
-                      padding: '0 3px',
-                    }}
-                  >
-                    RO
-                  </span>
-                </Tooltip>
-              )}
-            </div>
+              {readOnly && <ReadOnlyBadge />}
+            </button>
             {!collapsed && groupTabs.map((tab) => {
               const active = tab.id === activeId;
               const over =
@@ -359,11 +368,13 @@ export function TabStrip({
                     // otherwise imply is current.
                     color: dormant ? T.textGhost : active ? T.text : T.textMuted,
                     borderRight: `1px solid ${T.border}`,
+                    // Connection colour on every tab, dim until it is the
+                    // Focused Tab.
                     borderBottom: active
                       ? `2px solid ${connection?.color ?? T.accent}`
                       : over
                         ? `2px solid ${T.accentBorder}`
-                        : '2px solid transparent',
+                        : `2px solid color-mix(in srgb, ${groupColor} 35%, transparent)`,
                     opacity: dragId === tab.id ? 0.6 : dormant ? 0.6 : 1,
                   }}
                 >
@@ -377,9 +388,7 @@ export function TabStrip({
                       </span>
                     </Tooltip>
                   )}
-                  <span style={{ fontSize: 11 }}>
-                    {tab.kind === 'script' ? '⌥' : '⚡'}
-                  </span>
+                  {tab.kind === 'script' && <span style={{ fontSize: 11 }}>⌥</span>}
                   <span>{label}</span>
                   {readOnly && <ReadOnlyBadge />}
                   <ActionIcon
@@ -408,18 +417,6 @@ export function TabStrip({
           </div>
         );
       })}
-      <Tooltip label="New collection tab" withArrow>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="md"
-          onClick={onOpenNew}
-          aria-label="New collection tab"
-          style={{ alignSelf: 'center', margin: '0 4px' }}
-        >
-          {I.plus}
-        </ActionIcon>
-      </Tooltip>
       <Tooltip label="New script tab" withArrow>
         <button
           onClick={onOpenNewScript}
@@ -466,6 +463,29 @@ export function TabStrip({
                 // docstring for why a bare ref read here is refused at lint.
                 focusReturnTo: () => stripRef.current,
               },
+              {
+                kind: 'item',
+                label: 'Close others',
+                onClick: () => onCloseMany(bulkTargets.others, menu.tabId),
+                disabled: bulkTargets.others.length === 0,
+                disabledTitle: 'No other unpinned tabs',
+              },
+              {
+                kind: 'item',
+                label: 'Close to the right',
+                onClick: () => onCloseMany(bulkTargets.right, menu.tabId),
+                disabled: bulkTargets.right.length === 0,
+                disabledTitle: 'No unpinned tabs to the right',
+              },
+              ...(menuTab.kind === 'collection'
+                ? [
+                    {
+                      kind: 'item' as const,
+                      label: 'Reveal in sidebar',
+                      onClick: () => onReveal(menu.tabId),
+                    },
+                  ]
+                : []),
             ],
           }}
           onClose={() => setMenu(null)}

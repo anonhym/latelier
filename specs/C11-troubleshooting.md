@@ -1,5 +1,7 @@
 # C11 — Connection troubleshooting drawer + inline explainers + docs
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Turn connection failures from a dead-end ("Connection failed.") into a guided
@@ -403,34 +405,34 @@ slot in cleanly, but the failure rate doesn't justify the friction.
 
 ## 8. Acceptance criteria
 
-- [ ] On `NewConnection`, a failed Test renders a `Help me fix this →`
-      button next to the failure pill; clicking opens the drawer with
-      the matching recipe.
-- [ ] On `DetailPanel`, the connection-error state renders a `Help me
-      fix this` link next to the existing Retry button; clicking opens
-      the drawer with the matching recipe.
-- [ ] An `AUTH` failure with no specific message picks the
-      `auth-default` recipe.
-- [ ] A `TIMEOUT` failure whose message contains
-      `ECONNRESET` picks `docker-tls` (not `replica-host` or the
-      generic `unknown`).
-- [ ] A `TIMEOUT` failure whose message contains
-      `getaddrinfo ENOTFOUND` picks `replica-host`.
-- [ ] A failure with no `errorCode` at all picks `unknown` and the
-      drawer still renders cleanly.
-- [ ] The drawer's "Open docs" footer button calls
-      `api.app.openExternal` with an `https://github.com/...` URL ending
-      in `#${recipe.docAnchor}`.
-- [ ] `Esc` closes the drawer and restores focus to the trigger button.
-- [ ] The drawer is reachable from the command palette via
-      `Open connection troubleshooting`, even with no failure visible
-      (renders the `unknown` recipe).
-- [ ] The TLS tab renders the inline explainer regardless of toggle
-      state; the Advanced tab renders the Direct-connection explainer
-      regardless of toggle state.
-- [ ] `docs/troubleshooting.md` exists, contains an `## <id>` heading
-      for every registry entry, and the build-time alignment unit
-      test passes.
+- On `NewConnection`, a failed Test renders a `Help me fix this →`
+  button next to the failure pill; clicking opens the drawer with
+  the matching recipe.
+- On `DetailPanel`, the connection-error state renders a `Help me
+  fix this` link next to the existing Retry button; clicking opens
+  the drawer with the matching recipe.
+- An `AUTH` failure with no specific message picks the
+  `auth-default` recipe.
+- A `TIMEOUT` failure whose message contains
+  `ECONNRESET` picks `docker-tls` (not `replica-host` or the
+  generic `unknown`).
+- A `TIMEOUT` failure whose message contains
+  `getaddrinfo ENOTFOUND` picks `replica-host`.
+- A failure with no `errorCode` at all picks `unknown` and the
+  drawer still renders cleanly.
+- The drawer's "Open docs" footer button calls
+  `api.app.openExternal` with an `https://github.com/...` URL ending
+  in `#${recipe.docAnchor}`.
+- `Esc` closes the drawer and restores focus to the trigger button.
+- The drawer is reachable from the command palette via
+  `Open connection troubleshooting`, even with no failure visible
+  (renders the `unknown` recipe).
+- The TLS tab renders the inline explainer regardless of toggle
+  state; the Advanced tab renders the Direct-connection explainer
+  regardless of toggle state.
+- `docs/troubleshooting.md` exists, contains an `## <id>` heading
+  for every registry entry, and the build-time alignment unit
+  test passes.
 
 ## 9. Test cases
 

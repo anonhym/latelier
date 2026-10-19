@@ -1,5 +1,7 @@
 # W09 — Saved queries (repo + UI)
 
+> **Status: Implemented.** The "Saved for this collection" strip in §7 was removed.
+
 ## Purpose
 
 Persist named queries (find-style) and aggregation pipelines so users can re-run them on the same or different connection/collection. Surface them in the workspace Saved tab and, optionally, in the Builder tab's "Saved for {collection}" section.
@@ -66,6 +68,10 @@ export interface SavedQuery extends SavedQuerySummary {
 
 `saved:list` returns summaries ordered by `updated_at DESC`. Filters are AND-combined.
 
+For `kind` `find` and `aggregation`, `saved:create` and `saved:update` require `payload.kind` to equal the query's `kind` and the payload to match that variant's shape (`saved:update` checks against the stored row's kind, since a patch names none), rejecting a mismatch with `VALIDATION`; `script` has no payload variant, so its payload is not checked, and reads never validate, so rows saved before this rule stay readable.
+
+`description` is stored in the payload (`saved:create` sets it) and `saved:update` replaces the payload as a whole, with one exception: an update payload that names no `description` keeps the stored one, so the stages-only payload of the aggregation Save (§5) does not drop what the Save dialog recorded. A `description` the payload does name replaces it, an empty string included: that stores an empty description. A name-only patch never touches the payload.
+
 ## 3. Repo
 
 ```ts
@@ -104,7 +110,7 @@ From the workspace:
 
 - "Save" / "Save as" buttons in the Aggregation title bar (A01/A06).
 - `Save`:
-  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { stages }`.
+  - If the tab was opened from an existing saved pipeline (`state.savedId` set): `saved:update` with `patch.payload = { kind: 'aggregation', stages }`. The stored `description` is kept (§2).
   - Else: open the same modal as find, pre-selected kind `aggregation`.
 - `Save as`: always open modal pre-filled with current name + " (copy)".
 
@@ -117,7 +123,8 @@ From the workspace:
 - **Run here**: hydrate the active tab's state from payload and immediately trigger Run.
   - If active tab kind mismatches payload kind, falls back to "Open in new tab".
   - If active tab is clean → overwrite; if active tab has unsaved changes → confirm dialog.
-- **Open in new tab**: call `tabs:openCollection` or `tabs:openAggregation` with hydrated state.
+- **Open in new tab**: call `tabs:openCollection` or `tabs:openAggregation`. For a pipeline the call carries `savedId`, not stages: main reads the saved row and seeds the tab's `stages` from it (W01 §5), so the tab never opens empty over a stored pipeline, which its next Save would overwrite.
+  - The collection's tab is reused when one is open, and its pipeline is replaced. If that pipeline has unsaved changes → the same confirm as closing the tab ("Discard unsaved pipeline changes?"); Cancel leaves the tab as it was.
 - **Rename**: inline edit (see §8).
 - **Delete**: confirm dialog → `saved:delete` → remove from list.
 
@@ -140,12 +147,13 @@ From the workspace:
 
 ## 10. Acceptance criteria
 
-- [ ] Create, list, update, delete, duplicate, and rename all round-trip through IPC.
-- [ ] Duplicate name in the same scope returns CONFLICT with a readable message.
-- [ ] Saved tab shows only queries scoped to the tab's collection by default; a small "Show all" toggles the scope to connection-wide.
-- [ ] "Run here" hydrates state correctly for both kinds.
-- [ ] Saved aggregation reopened in a fresh window preserves `stages` exactly.
-- [ ] Deleting a saved query that's currently loaded in a tab doesn't break the tab; the tab drops its `savedId`.
+- Create, list, update, delete, duplicate, and rename all round-trip through IPC.
+- Duplicate name in the same scope returns CONFLICT with a readable message.
+- Saved tab shows only queries scoped to the tab's collection by default; a small "Show all" toggles the scope to connection-wide.
+- "Run here" hydrates state correctly for both kinds.
+- Saved aggregation reopened in a fresh window preserves `stages` exactly.
+- Opening a saved pipeline, then Save with no edits, leaves the stored `stages` and `description` unchanged.
+- Deleting a saved query that's currently loaded in a tab doesn't break the tab; the tab drops its `savedId`.
 
 ## 11. Test cases
 

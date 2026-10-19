@@ -74,6 +74,12 @@ const trigger = (container: HTMLElement) =>
 const indicator = (container: HTMLElement) =>
   within(trigger(container)).queryByText(/^\d+ set$/);
 
+// The same badge once a collapsed value cannot run as written. Kept as its own
+// matcher so the clean-state `indicator` keeps pinning the plain "n set" text
+// exactly: an error variant must not satisfy it, nor the other way round.
+const errorIndicator = (container: HTMLElement) =>
+  within(trigger(container)).queryByText(/^\d+ set · \d+ errors?$/);
+
 // Tab A: nothing advanced set. Tab B: a sort.
 const tabA = () => ({ state: makeState(), meta: makeMeta('tA', 'users') });
 const tabB = () => ({
@@ -213,5 +219,96 @@ describe('QueryBar — collapsed advanced count indicator', () => {
     fireEvent.keyDown(t, { key: ' ' });
     expect(t.getAttribute('aria-expanded')).toBe('true');
     expect(advancedRegion(container)).not.toBeNull();
+  });
+});
+
+/**
+ * W14 §2 — the sort and limit notices live inside the advanced region, so a
+ * collapsed row with an unrunnable sort disabled Run and said nothing about
+ * why. The badge now carries the count of values that cannot run as written;
+ * the notices themselves stay where they are, in the expanded row.
+ */
+describe('QueryBar — collapsed advanced error indicator', () => {
+  const meta = makeMeta('t1', 'users');
+  // Same route as the count indicator: a tab with advanced values mounts open,
+  // so the user collapses it to reach the state that hides the notices.
+  const collapsed = (builder: BuilderState) => {
+    const r = render(<Bar state={makeState(builder)} meta={meta} />);
+    fireEvent.click(trigger(r.container));
+    expect(advancedRegion(r.container)).toBeNull();
+    return r;
+  };
+
+  it('flags an unparseable sort', () => {
+    const { container } = collapsed(b({ sort: '{"a":' }));
+    expect(errorIndicator(container)?.textContent).toBe('1 set · 1 error');
+    expect(indicator(container)).toBeNull();
+  });
+
+  it('flags a limit that would run with no limit', () => {
+    const { container } = collapsed(b({ sort: '{"a":1}', limit: 'abc' }));
+    expect(errorIndicator(container)?.textContent).toBe('2 set · 1 error');
+  });
+
+  it('counts both problems and pluralises', () => {
+    const { container } = collapsed(b({ sort: '{"a":', limit: 'abc' }));
+    expect(errorIndicator(container)?.textContent).toBe('2 set · 2 errors');
+  });
+
+  it('counts a sort that parses but is not a document', () => {
+    const { container } = collapsed(b({ sort: '[1,2]' }));
+    expect(errorIndicator(container)?.textContent).toBe('1 set · 1 error');
+  });
+
+  it('counts a limit whose tail is ignored', () => {
+    const { container } = collapsed(b({ limit: '20abc' }));
+    expect(errorIndicator(container)?.textContent).toBe('1 set · 1 error');
+  });
+
+  // Mantine writes the resolved colour into the badge root's inline custom
+  // properties, which is the only place the tint is observable under jsdom.
+  const badgeStyle = (badge: HTMLElement | null) =>
+    badge?.parentElement?.getAttribute('style') ?? '';
+
+  it('tints the error badge with the warning colour and the plain one with the accent', () => {
+    const bad = collapsed(b({ sort: '{"a":' }));
+    const warn = badgeStyle(errorIndicator(bad.container));
+    expect(warn).toContain('--badge-color: var(--atelier-warn)');
+    bad.unmount();
+
+    const ok = collapsed(b({ sort: '{"a":1}' }));
+    const accent = badgeStyle(indicator(ok.container));
+    expect(accent).toContain('--badge-color: var(--atelier-accent)');
+  });
+
+  it('keeps the plain count for values that can run', () => {
+    const one = collapsed(b({ sort: '{"a":1}' }));
+    expect(indicator(one.container)?.textContent).toBe('1 set');
+    expect(errorIndicator(one.container)).toBeNull();
+    one.unmount();
+
+    const both = collapsed(b({ sort: '{"a":1}', limit: '20' }));
+    expect(indicator(both.container)?.textContent).toBe('2 set');
+    expect(errorIndicator(both.container)).toBeNull();
+  });
+
+  it('shows no badge while expanded, only the notice beside the input', () => {
+    const { container } = render(
+      <Bar state={makeState(b({ sort: '{"a":' }))} meta={meta} />,
+    );
+    expect(advancedRegion(container)).not.toBeNull();
+    expect(container.querySelector('#query-bar-sort-error')).not.toBeNull();
+    expect(indicator(container)).toBeNull();
+    expect(errorIndicator(container)).toBeNull();
+  });
+
+  it('returns to the plain count once the value is fixed', () => {
+    const { container, rerender } = collapsed(b({ sort: '{"a":' }));
+    expect(errorIndicator(container)?.textContent).toBe('1 set · 1 error');
+
+    rerender(<Bar state={makeState(b({ sort: '{"a":1}' }))} meta={meta} />);
+    expect(advancedRegion(container)).toBeNull();
+    expect(indicator(container)?.textContent).toBe('1 set');
+    expect(errorIndicator(container)).toBeNull();
   });
 });

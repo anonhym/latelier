@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { MongoClient } from 'mongodb';
-import type { MongoMemoryServer } from 'mongodb-memory-server';
 import { ScriptService } from '../../electron/services/ScriptService';
 import { ConnectionRepo } from '../../electron/db/repositories/ConnectionRepo';
 import { ConnectionService, connectionReader } from '../../electron/mongo/ConnectionService';
@@ -12,17 +11,16 @@ import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { createTestSpawner, type TestSpawner } from '../helpers/runnerSpawner';
 import {
-  getSharedServer,
-  stopSharedServer,
+  getSharedMongoUri,
   uriToHostPort,
   makeConnection,
   makeReader,
 } from '../helpers/mongo';
 
-// Scripts run against the `test` database unless the call names another.
-const DB = 'test';
+// The connection default for these scripts. Unique to this file: every
+// integration file shares one mongod.
+const DB = 'script_service_db';
 
-let server: MongoMemoryServer;
 let hp: { host: string; port: number };
 let tmp: TempDb | undefined;
 let pool: MongoPool | undefined;
@@ -30,12 +28,7 @@ let spawner: TestSpawner;
 let svc: ScriptService | undefined;
 
 beforeAll(async () => {
-  server = await getSharedServer();
-  hp = uriToHostPort(server.getUri());
-}, 60_000);
-
-afterAll(async () => {
-  await stopSharedServer();
+  hp = uriToHostPort(getSharedMongoUri());
 });
 
 afterEach(async () => {
@@ -81,7 +74,7 @@ function fakePool(readClient: () => Promise<unknown>): MongoPool {
 }
 
 async function countDocs(coll: string): Promise<number> {
-  const client = new MongoClient(server.getUri());
+  const client = new MongoClient(getSharedMongoUri());
   try {
     return await client.db(DB).collection(coll).countDocuments();
   } finally {
@@ -130,6 +123,40 @@ describe('ScriptService — results', () => {
     expect(JSON.parse(r.valueJson!).db).toBe('another_db');
   });
 
+  it("runs on the connection's default database when no dbName is given", async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('an explicit dbName wins over the connection default', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: 'another_db',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('another_db');
+  });
+
+  it('a blank dbName counts as unset, so the connection default applies', async () => {
+    const r = await setup({ c1: { defaultDb: 'script_default' } }).run({
+      connectionId: 'c1',
+      dbName: '  ',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('script_default');
+  });
+
+  it('falls back to test when the connection has no default database', async () => {
+    const r = await setup({ c1: { defaultDb: undefined } }).run({
+      connectionId: 'c1',
+      source: 'await db.runCommand({ dbStats: 1 })',
+    });
+    expect(JSON.parse(r.valueJson!).db).toBe('test');
+  });
+
   it('use() switches the database for later calls', async () => {
     const r = await setup().run({
       connectionId: 'c1',
@@ -143,6 +170,45 @@ describe('ScriptService — results', () => {
     expect(r.printBuffer).toContain('hello world');
     // Plain primitives (numbers/booleans/strings) bypass EJSON wrapping.
     expect(r.valueJson).toBe('42');
+  });
+
+  it('prints a Long past 2^53 with its exact digits, built in the script or read back from the database', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: [
+        'print({ built: NumberLong("9007199254740993") });',
+        'await db.print_wide.deleteMany({});',
+        'await db.print_wide.insertOne({ big: NumberLong("9007199254740993"), safe: NumberLong("5") });',
+        'printjson(await db.print_wide.findOne({}, { projection: { _id: 0 } }));',
+        '1',
+      ].join('\n'),
+    });
+    expect(r.printBuffer).toContain('"built": {\n    "$numberLong": "9007199254740993"\n  }');
+    expect(r.printBuffer).toContain('"big": {\n    "$numberLong": "9007199254740993"\n  }');
+    // A Long inside the safe range keeps printing as a bare number.
+    expect(r.printBuffer).toContain('"safe": 5');
+    expect(r.printBuffer).not.toContain('9007199254740992');
+  });
+
+  it('prints a function as inspect does, not as an empty line', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'function named() {}\nprint(named); 1' });
+    expect(r.printBuffer).toContain('[Function: named]');
+  });
+
+  it('prints a collection and a cursor as a one-line hint, not an empty object', async () => {
+    const r = await setup().run({
+      connectionId: 'c1',
+      source: 'print(db.print_hint); console.log(db.print_hint.find()); use("print_other"); printjson(db.print_hint); 1',
+    });
+    expect(r.printBuffer).toContain(`[Collection ${DB}.print_hint]`);
+    expect(r.printBuffer).toContain(`Cursor on ${DB}.print_hint`);
+    expect(r.printBuffer).toContain('[Collection print_other.print_hint]');
+    expect(r.printBuffer).not.toMatch(/^\{\}$/m);
+  });
+
+  it('returns a bare collection as its one-line hint, not an empty object', async () => {
+    const r = await setup().run({ connectionId: 'c1', source: 'db.print_hint' });
+    expect(JSON.parse(r.valueJson!)).toBe(`[Collection ${DB}.print_hint]`);
   });
 
   it('caps the print buffer at ~64 KB', async () => {
@@ -284,6 +350,29 @@ describe('ScriptService — errors', () => {
 function svcRun(input: Parameters<ScriptService['run']>[0]): ReturnType<ScriptService['run']> {
   return svc!.run(input);
 }
+
+describe('ScriptService — runningCount', () => {
+  it('is 1 while a script runs and 0 once it is cancelled', async () => {
+    const s = setup();
+    expect(s.runningCount()).toBe(0);
+    const run = s.run({
+      connectionId: 'c1',
+      source: 'await new Promise(() => {})',
+      cancelToken: 'count-cancel',
+    });
+    const settled = run.catch((err: unknown) => err);
+    await until(async () => s.runningCount() === 1, 'the script to be counted');
+    s.cancel('count-cancel');
+    await settled;
+    expect(s.runningCount()).toBe(0);
+  });
+
+  it('is 0 after a script finishes', async () => {
+    const s = setup();
+    await s.run({ connectionId: 'c1', source: '1 + 1' });
+    expect(s.runningCount()).toBe(0);
+  });
+});
 
 describe('ScriptService — timeouts kill the runner', () => {
   it('enforces maxTimeMs on a CPU-bound runaway', async () => {
@@ -449,7 +538,7 @@ describe('ScriptService — runner lifecycle', () => {
       authUsername: 'nobody',
     });
     pool = new MongoPool({ repo: makeReader([authed]), vault });
-    const direct = new MongoClient(server.getUri());
+    const direct = new MongoClient(getSharedMongoUri());
     vi.spyOn(pool, 'readClient').mockResolvedValue(direct);
     svc = new ScriptService({ pool, spawner });
     try {

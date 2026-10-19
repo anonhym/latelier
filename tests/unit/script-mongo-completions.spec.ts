@@ -5,8 +5,7 @@ import {
   type CompletionResult,
 } from '@codemirror/autocomplete';
 import { EditorState } from '@codemirror/state';
-import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
-import { ensureSyntaxTree } from '@codemirror/language';
+import { javascriptLanguage } from '@codemirror/lang-javascript';
 import {
   mongoCompletionSource,
   mongoCompletions,
@@ -16,6 +15,7 @@ import {
   setSampleSchemaCacheTtl,
 } from '../../src/features/fieldSuggestions/sources';
 import { api } from '../../src/api/atelier';
+import { parsedJsState } from '../helpers/parsedState';
 
 vi.mock('../../src/api/atelier', () => ({
   api: {
@@ -202,11 +202,7 @@ function realCtx(doc: string, cursor: string = '█'): CompletionContext {
   const pos = doc.indexOf(cursor);
   if (pos < 0) throw new Error(`cursor token ${cursor} not found in doc`);
   const stripped = doc.slice(0, pos) + doc.slice(pos + cursor.length);
-  const state = EditorState.create({ doc: stripped, extensions: [javascript()] });
-  // Lezer parses incrementally; force a synchronous parse so `syntaxTree`
-  // returns a complete tree for the detector to walk.
-  ensureSyntaxTree(state, stripped.length, 5_000);
-  return new RealCompletionContext(state, pos, false);
+  return new RealCompletionContext(parsedJsState(stripped), pos, false);
 }
 
 describe('mongoCompletionSource — field-position branch', () => {

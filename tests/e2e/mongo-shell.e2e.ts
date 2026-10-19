@@ -81,7 +81,10 @@ test('mshell REPL in a runner child pings the server through the existing pool',
             if (evt.sessionId !== session.sessionId) return;
             if (evt.kind === 'stdout' && evt.data) {
               seen.push(evt.data);
-              if (seen.join('').includes('"ok": 1')) {
+              // The ping is awaited while later input keeps running, so its
+              // reply can print after the helper names.
+              const joined = seen.join('');
+              if (joined.includes('"ok": 1') && joined.includes('[Function: help]')) {
                 stop();
                 resolve();
               }
@@ -95,7 +98,9 @@ test('mshell REPL in a runner child pings the server through the existing pool',
 
         await api.mshell.write({
           sessionId: session.sessionId,
-          data: 'await db.runCommand({ ping: 1 })\n',
+          // A bare helper prints its own name, which only the built,
+          // bundled runner can get wrong.
+          data: 'await db.runCommand({ ping: 1 })\ndb\nhelp\n',
         });
         await collected;
         await api.mshell.stop({ sessionId: session.sessionId });
@@ -105,6 +110,8 @@ test('mshell REPL in a runner child pings the server through the existing pool',
     );
 
     expect(result.joined).toContain('"ok": 1');
+    expect(result.joined).toContain('[Function: db]');
+    expect(result.joined).toContain('[Function: help]');
   } finally {
     await app.close();
     await mongoServer.stop();

@@ -1,5 +1,7 @@
 # X20 — Auto-update
 
+> **Status: Implemented.**
+
 ## Purpose
 
 A desktop app that never updates strands its users on old versions and old bugs. The app is now released signed and notarized on macOS; with a signed build the OS lets an update replace the running app. This spec adds a background update check from GitHub Releases, a download that does not interrupt work, and a quiet prompt that offers to restart into the new version.
@@ -50,7 +52,7 @@ The check runs once, after the main window has been created, off the critical pa
 
 - `start()` (async, never rejects): when disabled (section 2) does nothing and never loads the updater. Otherwise loads it, sets `autoDownload = true`, `autoInstallOnAppQuit = true`, subscribes to `update-downloaded` and `error`, calls `checkForUpdates()` and logs any rejection, including a failed load.
 - State: `{ status: 'idle' } | { status: 'ready', version }`. `update-downloaded` moves it to `ready` and emits it to the renderer. Nothing else changes visible state; checking, downloading and "no update available" are invisible.
-- `restart()`: when `ready`, calls `quitAndInstall(true, true)` (silent, relaunch). When not `ready`, throws a `ValidationError` naming the actual state; it never installs speculatively.
+- `restart()`: when `ready`, calls `quitAndInstall(true, true)` (silent, relaunch). When not `ready`, throws a `ValidationError` naming the actual state; it never installs speculatively. With scripts, shell commands, imports or aggregations running, it asks the quit question (F06) first, because `quitAndInstall` starts the installer before the app's `before-quit` fires and sets a flag that ignores every later install: asking at `before-quit` would be too late to cancel. Quit installs, and the quit that follows is let through without asking again. Cancel installs nothing, keeps the state `ready` and re-sends it, so the prompt offers Restart again. An install that fails after Quit (electron-updater emits `error` from inside `quitAndInstall` and does not quit) takes the approval back, so a later quit over running work asks again, and re-sends `ready` the same way; `restart()` then answers `restarting: false`.
 - Errors: both a rejected `checkForUpdates()` and the updater's `error` event are written with `electron/log.ts` (`warn`, tag `updater`) and nothing else. Never a modal, never a notification, never thrown into the IPC envelope.
 - The updater's own logger is an adapter onto `electron/log.ts`, so its output is redacted like every other log line.
 
@@ -72,7 +74,7 @@ No payload carries a secret: no `SECRET_INPUT` tag, no allowlist entry.
 | Channel | Kind | Payload in | Payload out |
 |---|---|---|---|
 | `updates:getState` | invoke | `{}` | `UpdateState` |
-| `updates:restart` | invoke | `{}` | `{ restarting: true }` |
+| `updates:restart` | invoke | `{}` | `{ restarting: boolean }` (`false` when the quit question was cancelled) |
 | `updates:state-event` | main → renderer push | — | `UpdateState` |
 
 `getState` exists because the push can fire before the renderer has subscribed (the update may finish downloading while the window loads); the renderer asks once on mount, then listens.
@@ -92,7 +94,7 @@ Files: `shared/types.ts` (`UpdateState`), `shared/ipc.ts` (`IpcApi.updates`, `IP
 
 ### 5.2 release workflow
 
-`release.yml` keeps `--publish never` and its upload step. One `latest-mac.yml` lists both arch zips (electron-builder merges them), so the macOS job builds `--x64 --arm64` as it does today. The macOS glob adds `release/*.zip.blockmap` so differential downloads work; without it the updater falls back to a full download.
+`release.yml` keeps `--publish never`. A `verify` job runs lint, typecheck, the IPC audit and the vitest suite against the tagged commit, and fails a tag that is not `v` plus the `package.json` version; the build legs need it. Each build leg uploads its release files as a workflow artifact, and on a tag a single `publish` job (the only one with `contents: write`) downloads them all and attaches them to the GitHub release. One `latest-mac.yml` lists both arch zips (electron-builder merges them), so the macOS job builds `--x64 --arm64` as it does today. The macOS glob adds `release/*.zip.blockmap` so differential downloads work; without it the updater falls back to a full download.
 
 ## 6. Renderer
 
@@ -118,16 +120,16 @@ Accessibility: the action is a native button inside the notification; no click h
 
 ## Acceptance criteria
 
-- [ ] `electron-updater` 6.8.9 is an exact-pinned runtime dependency, listed in the main build's externals, and present in a packaged app's asar.
-- [ ] The update check runs once per launch, only when packaged and `ATELIER_USER_DATA_DIR` is unset; never in dev or under e2e.
-- [ ] A found update downloads in the background with no UI.
-- [ ] When downloaded, one non-modal notification offers "Restart to update"; clicking it quits, installs and relaunches.
-- [ ] Dismissing it leaves the update to install on next quit (verified on a signed build).
-- [ ] Every updater failure is logged with the app logger and shown to no one.
-- [ ] A packaged release's `latest-mac.yml` and `latest.yml` name files that exist as release assets under exactly those names, for both macOS arches.
-- [ ] The macOS release contains a zip per arch and its blockmap; the Windows release is unchanged except for its file name.
-- [ ] Linux packaging and behaviour are unchanged.
-- [ ] No new IPC channel carries a secret; the registration spec and `npm run audit:ipc` pass.
+- `electron-updater` 6.8.9 is an exact-pinned runtime dependency, listed in the main build's externals, and present in a packaged app's asar.
+- The update check runs once per launch, only when packaged and `ATELIER_USER_DATA_DIR` is unset; never in dev or under e2e.
+- A found update downloads in the background with no UI.
+- When downloaded, one non-modal notification offers "Restart to update"; clicking it quits, installs and relaunches.
+- Dismissing it leaves the update to install on next quit (verified on a signed build).
+- Every updater failure is logged with the app logger and shown to no one.
+- A packaged release's `latest-mac.yml` and `latest.yml` name files that exist as release assets under exactly those names, for both macOS arches.
+- The macOS release contains a zip per arch and its blockmap; the Windows release is unchanged except for its file name.
+- Linux packaging and behaviour are unchanged.
+- No new IPC channel carries a secret; the registration spec and `npm run audit:ipc` pass.
 
 ## Test cases
 
@@ -137,6 +139,7 @@ Unit (`tests/unit/update-service.spec.ts`, fake `UpdaterLike`, no network):
 - `start()` enabled: `autoDownload` and `autoInstallOnAppQuit` are true; `checkForUpdates` called once.
 - `update-downloaded` → state `ready` with the version; the emitter is called with it.
 - `restart()` when ready calls `quitAndInstall(true, true)` exactly once; when idle throws and does not call it.
+- `restart()` over running work asks once before installing; Cancel installs nothing and re-sends `ready`; Quit installs once and the quit that follows asks nothing.
 - A rejected `checkForUpdates` and an `error` event are logged at warn and neither throws nor changes state.
 
 Integration (`tests/integration/updates-handlers.spec.ts`, router shim):

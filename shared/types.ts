@@ -101,79 +101,12 @@ export type ConnectionExportResult =
   | { written: number; omittedSecrets: { name: string; field: ExportSecretField }[] }
   | { cancelled: true };
 
-export type ImportPreview =
-  | {
-      /** Single-use handle to the parsed file held in main. */
-      token: string;
-      hasSecrets: boolean;
-      entries: {
-        index: number;
-        name: string;
-        savedAs: string;
-        repick: RepickFile[];
-        hasSecrets: boolean;
-      }[];
-    }
-  | { cancelled: true };
-
-export interface ImportCommitInput {
-  token: string;
-  indices: number[];
-  passphrase?: string;
-  withoutSecrets?: boolean;
-}
-
-export interface ImportCommitResult {
-  /** `index` is the entry's position in the file, which is what the preview listed. */
-  created: { index: number; id: string; name: string }[];
-  /** Entries that could not be created; the others were still imported. */
-  failed: { index: number; name: string; reason: string }[];
-  secretsNotStored: { name: string; reason: string }[];
-}
-
-// Adding Connections from pasted connection strings (C13 §7.1). Passwords go
-// in only: the preview says whether a line has one, never what it is.
-
-/** Applied to every line of a batch. */
-export interface UriBatchDefaults {
-  readOnly: boolean;
-  directConnection: boolean;
-}
-
 /** What the user typed for one line in the credentials step. */
 export interface UriCredentials {
   index: number;
   /** Typed in the second step; `''` means the user cleared it: no authentication. */
   username?: string;
   password?: string;
-}
-
-export type UriPreviewEntry =
-  | {
-      index: number;
-      ok: true;
-      /** The name it will be saved under, after clash renaming. */
-      savedAs: string;
-      host: string;
-      port: number;
-      srv: boolean;
-      authUsername?: string;
-      hasPassword: boolean;
-      /** Missing a username or a password, so the credentials step lists it. */
-      needsCredentials: boolean;
-      repick: RepickFile[];
-      warnings: string[];
-    }
-  | { index: number; ok: false; reason: string };
-
-export interface UriPreview {
-  entries: UriPreviewEntry[];
-}
-
-export interface UriCommitInput {
-  uris: string[];
-  defaults: UriBatchDefaults;
-  credentials: UriCredentials[];
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -232,6 +165,8 @@ export interface ConnectionSummary {
   port: number;
   connectionType: ConnType;
   lastUsedAt?: string;
+  /** The database the connection opens on. Shell and script tabs fall back to it when nothing else names a database. */
+  defaultDb?: string;
   status: 'unknown' | 'connected' | 'disconnected' | 'connecting' | 'error';
   serverVersion?: string;
   readOnly: boolean;
@@ -253,13 +188,126 @@ export type ConnectionUpdate = Partial<ConnectionInput> & {
  * dropped).
  */
 export interface ParsedUriWarning {
-  code: 'MULTI_HOST_TRUNCATED' | 'OPTION_DROPPED' | 'TLS_VERIFY_DISABLED';
+  code: 'MULTI_HOST_TRUNCATED' | 'OPTION_DROPPED' | 'TLS_VERIFY_DISABLED' | 'PROXY_DROPPED';
   detail?: string;
 }
 
 export interface ParsedUri {
   input: Partial<ConnectionInput>;
   warnings: ParsedUriWarning[];
+  /** tlsCAFile -> 'tlsCa', tlsCertificateKeyFile -> 'tlsClientCert'; never a path. */
+  repick?: RepickFile[];
+  /** The string set directConnection itself (any value). */
+  directConnectionExplicit?: boolean;
+}
+
+// ─── Import wizard (C14) ────────────────────────────────────────────────────
+
+// shared/ is types-only: the runtime target list lives in unknownJson.ts (main) and mapTargets.ts (renderer).
+export type MapTarget =
+  | 'name' | 'connectionString' | 'host' | 'port' | 'username'
+  | 'password' | 'authDatabase' | 'defaultDb' | 'tls';
+
+export type ImportSource = 'latelier' | 'compass' | 'uris' | 'unknown';
+
+export type ReviewRow =
+  | {
+      index: number;
+      ok: true;
+      savedAs: string;
+      /** The name the row asked for, when a clash renamed it to savedAs. */
+      renamedFrom?: string;
+      host: string;
+      /** Absent on SRV. */
+      port?: number;
+      srv: boolean;
+      authUsername?: string;
+      /** A password exists, plaintext or sealed. */
+      hasPassword: boolean;
+      /** The password only exists sealed (needs the passphrase). */
+      passwordSealed: boolean;
+      /** Missing a username or a password (plaintext or sealed), so the review asks for both; never X.509 or AWS. */
+      needsCredentials: boolean;
+      /** Null on SRV. */
+      directConnection: boolean | null;
+      defaultTicked: boolean;
+      repick: RepickFile[];
+      warnings: string[];
+      tls: boolean;
+      defaultDb?: string;
+      ssh: boolean;
+    }
+  | { index: number; ok: false; reason: string };
+
+export interface Review {
+  hasEncryptedSecrets: boolean;
+  rows: ReviewRow[];
+}
+
+export interface MappingField {
+  path: string;
+  sample: string;
+  masked: boolean;
+  suggested?: MapTarget;
+}
+
+export interface MappingCollection {
+  at: string;
+  rows: number;
+  fields: MappingField[];
+  truncatedRows?: number;
+  /** Field paths left out because two leaves of a row share them (C14 §5.2). */
+  ambiguousFields?: number;
+}
+
+export type ImportOpenResult =
+  | { cancelled: true }
+  | { token: string; source: 'latelier' | 'compass'; review: Review }
+  | {
+      token: string;
+      source: 'unknown';
+      collections: MappingCollection[];
+      /** Paths left out because two lists share them (C14 §5.1). */
+      ambiguousCollections?: number;
+    };
+
+export interface ImportMapInput {
+  token: string;
+  at: string;
+  mapping: Partial<Record<MapTarget, string>>;
+}
+export interface ImportMapResult {
+  review: Review;
+}
+
+export interface ImportUrisInput {
+  uris: string[];
+}
+export interface ImportUrisResult {
+  token: string;
+  review: Review;
+}
+
+export interface ImportCommitInput {
+  token: string;
+  indices: number[];
+  passphrase?: string;
+  withoutSecrets?: boolean;
+  readOnly: boolean;
+  credentials: { index: number; username?: string; password?: string }[];
+  /** One per ticked non-SRV row. */
+  directConnection: { index: number; value: boolean }[];
+}
+
+export interface ImportCommitResult {
+  created: { index: number; id: string; name: string }[];
+  renamed: { index: number; from: string; to: string }[];
+  /** Validation/create failures. */
+  skipped: { index: number; name: string; reason: string }[];
+  repick: { name: string; files: RepickFile[] }[];
+  secretsNotStored: { name: string; reason: string }[];
+  /** e.g. Compass secret fields dropped after decryption. */
+  warnings: { name: string; message: string }[];
 }
 
 // ─── Workspace tabs (W01) ───────────────────────────────────────────────────
@@ -276,9 +324,9 @@ export type BuilderTab = 'Builder' | 'Saved' | 'Recent';
  * Operators with a value-shape-compatible encoder. Other operator strings
  * are allowed on `CondNode.op` (the user can type any op via autocomplete)
  * but are advisory-flagged as "doesn't apply" or "not encodable" outside
- * this set — see `builder.ts`'s `isCompilableOp`/`isApplicableOp` and
- * `filterTree.ts`'s printer (the live encoder, post-W13) for the shape
- * buckets.
+ * this set — see `filterTree.ts`'s `isCompilableOp` and printer (the live
+ * encoder, post-W13) for the shape buckets, and `builder.ts`'s `FIELD_OPS`
+ * for the per-valType applicability table.
  */
 export type MqlOp =
   | '$eq' | '$ne' | '$gt' | '$gte' | '$lt' | '$lte'
@@ -287,6 +335,42 @@ export type MqlOp =
 
 export type ValType =
   | 'string' | 'number' | 'long' | 'decimal' | 'boolean' | 'date' | 'null' | 'regex' | 'objectid' | 'array';
+
+// ─── Filter tree nodes (W13 §1) ─────────────────────────────────────────────
+//
+// Here rather than in `filterTree.ts` because `CollectionTabState.filterDraft`
+// persists a tree, and `shared/` cannot import from the renderer.
+// `filterTree.ts` re-exports them.
+//
+// `disabled` switches a node off without deleting it: the printer treats a
+// disabled node, and its whole subtree, as pending (W13 §3). `parseFilter`
+// never sets it, so it exists only in a drawer's own tree and its draft.
+
+export interface CondNode {
+  kind: 'cond';
+  field: string;
+  op: string; // any $-prefixed op; print validates
+  valType: ValType;
+  value: string; // raw text, typed at print time
+  disabled?: boolean;
+}
+
+export interface RawNode {
+  kind: 'raw';
+  /** One clause, verbatim. Printed byte-for-byte after a parse check. */
+  json: string;
+  disabled?: boolean;
+}
+
+export interface GroupNode {
+  kind: 'group';
+  logic: '$and' | '$or' | '$nor';
+  children: FilterNode[];
+  /** Never set on the root group: the drawer offers no control for it. */
+  disabled?: boolean;
+}
+
+export type FilterNode = GroupNode | CondNode | RawNode;
 
 /**
  * Sort/limit/projection knobs, each editable in exactly one place: sort and
@@ -459,6 +543,13 @@ export interface LastRun {
   durationMs: number;
   ranAt: string;
   error?: LastRunError;
+  /**
+   * The `queryPlanner` explain of the query that produced `documents`, for the
+   * result bar's plan badge. Renderer-memory only: `lastRun` is stripped from
+   * every persisted tab write. Absent until the side-fired explain resolves,
+   * and when it fails.
+   */
+  plan?: unknown;
 }
 
 // ─── Saved queries (W09) ─────────────────────────────────────────────────────
@@ -572,6 +663,19 @@ export type AggSaveMode = '$out' | '$merge';
 export interface AggMergeOptions {
   whenMatched?: 'replace' | 'keepExisting' | 'merge' | 'fail';
   whenNotMatched?: 'insert' | 'discard' | 'fail';
+}
+
+/**
+ * What `agg:runAndSave` reports about the target on top of the usual result.
+ * `$out` replaces the target, so its total after the run is exactly what was
+ * written (`writtenCount`). `$merge` adds to and updates in place whatever the
+ * target already holds, so a count of documents written cannot be derived from
+ * totals; only the target's size around the run is known (`mergeCounts`).
+ * Each is absent when its count could not be read.
+ */
+export interface AggSaveCounts {
+  writtenCount?: number;
+  mergeCounts?: { before: number; after: number };
 }
 
 export interface AggRunAndSaveInput extends AggInput {
@@ -713,6 +817,17 @@ export interface CollectionTabState {
   builder: BuilderState;
   /** Canonical filter text (W13 §8) — required, defaults to `'{}'`. */
   queryRaw: string;
+  /**
+   * The filter drawer's own tree, kept with the `queryRaw` it was last
+   * consistent with (W13 §5.7). It carries what the text cannot: switched-off
+   * and still-blank rows, so they survive a tab switch. Used to seed the
+   * drawer only while `queryRaw` still equals the recorded text and the tree
+   * prints back to it. An outside edit to the text made while the drawer is
+   * open clears it; one made with the drawer closed only leaves it unused
+   * while the text differs. Optional, so
+   * tabs persisted before it restore as if there were no draft.
+   */
+  filterDraft?: { root: GroupNode; queryRaw: string };
   page: number;
   pageSize: number;
   totalCount?: number;
@@ -768,6 +883,17 @@ export interface SchemaSampleEntry {
   frequency: number;
   /** BSON-shaped type histogram (counts), e.g. { string: 8, null: 2 }. */
   types: Record<string, number>;
+  /**
+   * Distinct scalar values seen on this path in the sample. A count, never the
+   * values: `entries` is persisted with the tab. Absent when no scalar was seen.
+   */
+  distinct?: number;
+  /**
+   * Min, max and average over the sample's `number`/`long`/`decimal`
+   * occurrences of this path. Absent when none was finite. Dropped before
+   * persisting for a secret-named path.
+   */
+  numeric?: { min: number; max: number; avg: number };
 }
 
 export interface SchemaTabState {
@@ -791,8 +917,9 @@ export interface ScriptTabState {
   title: string;
   /** Editor buffer. UTF-8. */
   source: string;
-  /** Default db for the `db` proxy at run time. Optional — scripts can
-   *  also call `use("...")` themselves. */
+  /** Default db for the `db` proxy at run time. Blank means the
+   *  connection's default database, else `test`. Scripts can also call
+   *  `use("...")` themselves. */
   dbName?: string;
   /** Hard ceiling, ms. Toolbar knob: 15_000 / 60_000 / 300_000 /
    *  86_400_000 ("no limit"). Defaults to 60_000. */
@@ -843,6 +970,7 @@ export type WorkspaceTab = CollectionTab | ScriptTab;
 
 export interface ScriptRunInput {
   connectionId: string;
+  /** Blank or absent means the connection's default database, else `test`. */
   dbName?: string;
   source: string;
   /** Renderer-supplied UUID; used by `script:cancel`. */
@@ -1050,7 +1178,8 @@ export interface IndexDropInput {
 // ─── Collection / database admin (T1.1) ──────────────────────────────────────
 
 export type ValidationLevel = 'off' | 'strict' | 'moderate';
-export type ValidationAction = 'error' | 'warn';
+/** `errorAndLog` is newer than MongoDB 8.0: 8.0.5 refuses it in `collMod` as an invalid enum value. */
+export type ValidationAction = 'error' | 'warn' | 'errorAndLog';
 
 export interface CollectionCreateOptions {
   capped?: boolean;
@@ -1071,6 +1200,10 @@ export interface CollectionCreateOptions {
   validator?: string;
   validationLevel?: ValidationLevel;
   validationAction?: ValidationAction;
+  /** Makes a view on this collection of the same database; `pipeline` needs it. */
+  viewOn?: string;
+  /** EJSON canonical array of stages; write stages are refused. */
+  pipeline?: string;
 }
 
 export interface CollectionCreateInput {
@@ -1078,6 +1211,27 @@ export interface CollectionCreateInput {
   dbName: string;
   collection: string;
   options: CollectionCreateOptions;
+}
+
+/**
+ * `collMod` on an existing collection: either its validation rules or, for a
+ * view, its definition (`viewOn` and `pipeline` together), never both at once.
+ */
+export interface CollectionModifyOptions {
+  /** EJSON canonical document; `'{}'` clears the rules. */
+  validator?: string;
+  validationLevel?: ValidationLevel;
+  validationAction?: ValidationAction;
+  viewOn?: string;
+  /** EJSON canonical array of stages. */
+  pipeline?: string;
+}
+
+export interface CollectionModifyInput {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+  options: CollectionModifyOptions;
 }
 
 export interface CollectionDropInput {
@@ -1184,7 +1338,11 @@ export interface ShellSessionInfo {
   startedAt: string;
 }
 
-export type ShellOutputKind = 'stdout' | 'stderr' | 'exit';
+/**
+ * `prompt` carries no data: the REPL is ready for another line, so one
+ * previously written line has finished (its result, if any, was already sent).
+ */
+export type ShellOutputKind = 'stdout' | 'stderr' | 'prompt' | 'exit';
 
 export interface ShellOutputEvent {
   sessionId: string;

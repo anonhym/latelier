@@ -1,5 +1,7 @@
 # C02 — Connection repository (CRUD)
 
+> **Status: Implemented.**
+
 ## Purpose
 
 Own all SQL for the `connections` and `connection_secrets` tables. Provide a typed surface for creating, reading, updating, deleting, and listing connections, and expose those operations over IPC.
@@ -75,6 +77,7 @@ export class ConnectionService {
 ### list
 1. `repo.list()`.
 2. For each row, build a `ConnectionSummary` with:
+   - `defaultDb` from the row's `default_db` (undefined when unset).
    - `status` from `pool.status(id).status`.
    - `serverVersion` from `pool.status(id).serverVersion` (undefined if never connected).
 3. Return array.
@@ -141,12 +144,12 @@ Called by the UI when the user opens a workspace for this connection (C05 "Open 
 
 ## 6. Acceptance criteria
 
-- [ ] Create returns a `Connection` whose `hasPasswordStored` reflects whether plaintext was supplied.
-- [ ] Creating with a duplicate `name` returns `CONFLICT`.
-- [ ] Updating with `clearPassword: true` leaves the row intact and removes the vault entry; subsequent `get` has `hasPasswordStored: false`.
-- [ ] Deleting a connection removes all dependent rows (verified via F02 cascade test).
-- [ ] Changing `host` triggers a `pool.disconnect(id)` call.
-- [ ] `list` returns summaries in the documented order.
+- Create returns a `Connection` whose `hasPasswordStored` reflects whether plaintext was supplied.
+- Creating with a duplicate `name` returns `CONFLICT`.
+- Updating with `clearPassword: true` leaves the row intact and removes the vault entry; subsequent `get` has `hasPasswordStored: false`.
+- Deleting a connection removes all dependent rows (verified via F02 cascade test).
+- Changing `host` triggers a `pool.disconnect(id)` call.
+- `list` returns summaries in the documented order.
 
 ## 7. Test cases
 

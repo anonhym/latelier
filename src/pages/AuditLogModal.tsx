@@ -3,6 +3,7 @@ import { Button, Group, Modal, NativeSelect, Stack, Table, Text, TextInput } fro
 import type { AuditEntry, ConnectionSummary } from '@shared/types';
 import { api, getErrorMessage } from '../api/atelier';
 import { undoFailureMessage } from '../utils/auditUndo';
+import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
 
 interface AuditLogModalProps {
@@ -102,13 +103,19 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
     };
   }, [connectionId, dbName, collection, reload]);
 
-  const revert = (entryId: string) => {
-    setReverting(entryId);
+  const revert = (entry: AuditEntry) => {
+    setReverting(entry.id);
     setRevertError(null);
     api.audit
-      .undo({ entryId })
+      .undo({ entryId: entry.id })
       .catch((err: unknown) => setRevertError(undoFailureMessage(err)))
       .finally(() => {
+        // Undo rewrites documents, and the entry can be a rename, drop or
+        // import with no single collection, so the whole Connection's
+        // field-suggestion samples go. The entry's own Connection, not the
+        // picker's: it can have moved on while the request ran. Also when the
+        // request failed, since it may have restored documents before that.
+        invalidateSampleSchemaCache(entry.connectionId);
         setReverting(null);
         setReload((n) => n + 1);
       });
@@ -172,7 +179,7 @@ export function AuditLogModal({ initialConnectionId, onClose }: AuditLogModalPro
                         size="compact-xs"
                         loading={reverting === e.id}
                         disabled={reverting !== null}
-                        onClick={() => revert(e.id)}
+                        onClick={() => revert(e)}
                       >
                         Revert
                       </Button>

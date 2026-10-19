@@ -180,6 +180,15 @@ describe('ConnectionService', () => {
     expect(order[2]).toBe('C');
   });
 
+  it("list carries each connection's default database, undefined when unset", async () => {
+    await svc.create(validInput({ name: 'With', defaultDb: 'smoke' }));
+    await svc.create(validInput({ name: 'Without' }));
+
+    const byName = new Map(svc.list().map((s) => [s.name, s]));
+    expect(byName.get('With')!.defaultDb).toBe('smoke');
+    expect(byName.get('Without')!.defaultDb).toBeUndefined();
+  });
+
   it('touchUsed updates last_used_at', async () => {
     const c = await svc.create(validInput());
     expect(repo.findById(c.id)!.last_used_at).toBeNull();
@@ -203,5 +212,15 @@ describe('ConnectionService', () => {
     ).rejects.toThrow();
     // No row should remain from the aborted create.
     expect(repo.list().length).toBe(0);
+  });
+  it('update leaves the row unchanged when the vault fails', async () => {
+    const c = await svc.create(validInput());
+    const before = repo.findById(c.id);
+    const badVault = new SecretsVault(tmp.db, createSafeStorageMock({ available: false }));
+    const brokenSvc = new ConnectionService({ repo, vault: badVault, pool });
+    await expect(
+      brokenSvc.update(c.id, { host: 'changed', password: 'p' }),
+    ).rejects.toThrow();
+    expect(repo.findById(c.id)).toEqual(before);
   });
 });

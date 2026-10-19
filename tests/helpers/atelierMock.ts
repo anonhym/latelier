@@ -27,6 +27,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     conn: {
       list: async () => [],
       get: unused('conn.get') as IpcApi['conn']['get'],
+      getUri: unused('conn.getUri') as IpcApi['conn']['getUri'],
       create: unused('conn.create') as IpcApi['conn']['create'],
       update: unused('conn.update') as IpcApi['conn']['update'],
       delete: unused('conn.delete') as IpcApi['conn']['delete'],
@@ -34,10 +35,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       parseUri: unused('conn.parseUri') as IpcApi['conn']['parseUri'],
       test: unused('conn.test') as IpcApi['conn']['test'],
       export: unused('conn.export') as IpcApi['conn']['export'],
-      importPreview: unused('conn.importPreview') as IpcApi['conn']['importPreview'],
+      importOpen: unused('conn.importOpen') as IpcApi['conn']['importOpen'],
+      importMap: unused('conn.importMap') as IpcApi['conn']['importMap'],
+      importUris: unused('conn.importUris') as IpcApi['conn']['importUris'],
       importCommit: unused('conn.importCommit') as IpcApi['conn']['importCommit'],
-      previewUris: unused('conn.previewUris') as IpcApi['conn']['previewUris'],
-      createFromUris: unused('conn.createFromUris') as IpcApi['conn']['createFromUris'],
     },
     app: {
       pickFile: async () => ({ path: null }),
@@ -48,7 +49,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),
-      restart: async () => ({ restarting: true as const }),
+      restart: async (): Promise<{ restarting: boolean }> => ({ restarting: true }),
       onState: () => () => {},
     },
     shell: {
@@ -67,6 +68,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     meta: {
       listDatabases: async () => [],
       listCollections: async () => [],
+      collectionDetails: unused('meta.collectionDetails') as IpcApi['meta']['collectionDetails'],
       sampleSchema: async () => ({ docs: [] }),
     },
     index: {
@@ -78,6 +80,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       create: unused('collection.create') as IpcApi['collection']['create'],
       drop: unused('collection.drop') as IpcApi['collection']['drop'],
       rename: unused('collection.rename') as IpcApi['collection']['rename'],
+      modify: unused('collection.modify') as IpcApi['collection']['modify'],
     },
     database: {
       drop: unused('database.drop') as IpcApi['database']['drop'],
@@ -106,7 +109,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
       count: async () => ({ count: 0 }),
       findOne: async () => ({ document: null, durationMs: 0 }),
-      explain: unused('query.explain') as IpcApi['query']['explain'],
+      // The query runner asks for a plan after every run (the plan badge). An
+      // empty plan is a successful explain with nothing to show, so no badge;
+      // tests that check the explain call install their own spy.
+      explain: (async () => ({ plan: {}, verbosity: 'queryPlanner' })) as IpcApi['query']['explain'],
       cancel: async () => undefined,
       export: unused('query.export') as IpcApi['query']['export'],
     },
@@ -349,6 +355,7 @@ function makePermissiveStub(): IpcApi {
     conn: {
       list: async () => [],
       get: noopAsync as IpcApi['conn']['get'],
+      getUri: noopAsync as IpcApi['conn']['getUri'],
       create: noopAsync as IpcApi['conn']['create'],
       update: noopAsync as IpcApi['conn']['update'],
       delete: async (id) => ({ id }),
@@ -356,10 +363,10 @@ function makePermissiveStub(): IpcApi {
       parseUri: noopAsync as IpcApi['conn']['parseUri'],
       test: okAsync({ ok: false }) as IpcApi['conn']['test'],
       export: okAsync({ cancelled: true as const }) as IpcApi['conn']['export'],
-      importPreview: okAsync({ cancelled: true as const }) as IpcApi['conn']['importPreview'],
+      importOpen: okAsync({ cancelled: true as const }) as IpcApi['conn']['importOpen'],
+      importMap: noopAsync as IpcApi['conn']['importMap'],
+      importUris: noopAsync as IpcApi['conn']['importUris'],
       importCommit: noopAsync as IpcApi['conn']['importCommit'],
-      previewUris: okAsync({ entries: [] }) as IpcApi['conn']['previewUris'],
-      createFromUris: noopAsync as IpcApi['conn']['createFromUris'],
     },
     app: {
       pickFile: async () => ({ path: null }),
@@ -370,7 +377,7 @@ function makePermissiveStub(): IpcApi {
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),
-      restart: async () => ({ restarting: true as const }),
+      restart: async (): Promise<{ restarting: boolean }> => ({ restarting: true }),
       onState: () => () => {},
     },
     shell: {
@@ -387,6 +394,7 @@ function makePermissiveStub(): IpcApi {
     meta: {
       listDatabases: async () => [],
       listCollections: async () => [],
+      collectionDetails: noopAsync as IpcApi['meta']['collectionDetails'],
       sampleSchema: async () => ({ docs: [] }),
     },
     index: {
@@ -398,6 +406,7 @@ function makePermissiveStub(): IpcApi {
       create: noopAsync as IpcApi['collection']['create'],
       drop: async () => ({ dropped: true }),
       rename: noopAsync as IpcApi['collection']['rename'],
+      modify: noopAsync as IpcApi['collection']['modify'],
     },
     database: {
       drop: async () => ({ dropped: true as const }),
@@ -426,7 +435,7 @@ function makePermissiveStub(): IpcApi {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
       count: async () => ({ count: 0 }),
       findOne: async () => ({ document: null, durationMs: 0 }),
-      explain: noopAsync as IpcApi['query']['explain'],
+      explain: (async () => ({ plan: {}, verbosity: 'queryPlanner' })) as IpcApi['query']['explain'],
       cancel: async () => undefined,
       export: noopAsync as IpcApi['query']['export'],
     },

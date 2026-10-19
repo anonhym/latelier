@@ -1,5 +1,7 @@
 # X03 — MQL operator autocomplete
 
+> **Status: Implemented.** Its follow-ups, signature hints and completion inside `$facet`, are not built.
+
 ## Purpose
 
 Extend the X02 suggestion system with a third kind — MQL operators —
@@ -21,8 +23,8 @@ the hand-curated `FIELD_OPS[valType]` subset.
   propagation through the grammar detector + textarea hook +
   `SuggestionContext`, ranking tweaks (strip leading `$`, downrank
   off-context), `SuggestionPopover` operator rendering, builder's op
-  autocomplete input + shape-bucketed `compileMql`, `describeCondProblem`
-  + invalid-row blocking.
+  autocomplete input + shape-bucketed `compileMql`, the condition-problem
+  check (W04 §2b) + invalid-row blocking.
 - **Out** (deferred): schema-validator-driven narrowing (e.g., hide geo
   ops when the collection has no geo index), operator signature hints,
   parameter typeaheads, AI-generated operator chains, update-expression
@@ -250,21 +252,19 @@ Every op the builder emits falls into one of:
 | size / bits  | `$size`, `$bitsAllClear/…AnySet/…AllSet/…AnyClear`           | `Number(value)`                                 |
 | needs-raw    | everything else (e.g., `$elemMatch`, `$text`, `$expr`, `$geo*`) | row flagged invalid; Run blocked             |
 
-`isCompilableOp(op)` names the buckets above; `isApplicableOp(op, valType)`
-checks `FIELD_OPS[valType]` membership.
+`isCompilableOp(op)` names the buckets above; applicability is
+`FIELD_OPS[valType]` membership (`FIELD_OPS` is the applicability table).
 
-### `describeCondProblem(cond) → string | null`
+### Condition problems
 
-Drives the red border + warning text on the row. Returns the first
-problem it finds, in order:
-
-1. Empty field → `null` (not yet a problem — row just doesn't compile).
-2. Op doesn't start with `$` → `'Operator must start with "$"'`.
-3. `!isCompilableOp(op)` → `'<op> needs raw JSON — open the query textarea'`.
-4. `!isApplicableOp(op, valType)` → `'<op> doesn\'t apply to <valType>'`.
-5. `$mod` specifically:
-   - value not a 2-element array → `'$mod value must be a 2-element array, e.g. [2, 1]'`
-   - divisor is 0 → `'$mod divisor cannot be 0'`
+`filterTree.ts`'s `condValueProblem(cond)` drives the warning text on the
+row; W04 §2b lists its rules and messages in order. In short: an op that
+doesn't start with `$` or isn't encodable (`'<op> is not encodable —
+convert to a raw clause'`), a value that isn't a value of its type, an empty
+or invalid `$in`/`$nin`/`$all` list, a malformed `{$oid}`/`{$date}`, and a
+malformed `$mod`. A condition with a blank field is pending and never
+checked. Applicability (`FIELD_OPS`) is not checked and no advisory is shown
+for it.
 
 ### `CompiledMql.invalidCondIds`
 
@@ -303,8 +303,8 @@ the lookup stays typed.
 - Operator row: same layout as field row. Left: monospace `$name`.
   Right: short class badge.
 - The builder op input shares the condition row's `inputStyle` with
-  `fontFamily: 'monospace'` and a warn-colored border when
-  `describeCondProblem` is non-null.
+  `fontFamily: 'monospace'` and an error state when the condition
+  problem is about the op (W04 §2b rules 1–2).
 - The error message under the row is 10px, `T.warn` colored, one line.
 
 ## 12. Persistence
@@ -316,43 +316,42 @@ lives in memory.
 
 - Catalog lookup misses (e.g., user-typed unknown op): the ranker
   returns no match, the popover just won't offer it. The row still
-  flags via `describeCondProblem`.
-- Malformed `$mod` / `$in` / `$all` values: `parseJsonArray` returns
-  `[]`; `describeCondProblem` traps the specific known-bad cases for
-  `$mod`. The remaining "parses to `[]`" cases are server-valid (just
-  match nothing) so we don't pre-block.
+  flags as not encodable (W04 §2b).
+- Malformed `$mod` / `$in` / `$nin` / `$all` values: a list that doesn't
+  parse reads as `[]` and blocks with `'<op> needs at least one value'`;
+  a malformed `$mod` blocks with its own `$mod` messages (W04 §2b).
 - `$facet` context resolution returns no tag; the full catalog shows.
   Documented limitation; refining it requires running the detector on
   each branch of the facet body.
 
 ## 14. Acceptance criteria
 
-- [x] Typing `eq` in any bare-key position ranks `$eq` #1 (no leading
+- Typing `eq` in any bare-key position ranks `$eq` #1 (no leading
   `$` required). Typing `$e` preserves prior behavior and still ranks
   `$eq` #1.
-- [x] Operator suggestions appear alongside fields at key positions in
+- Operator suggestions appear alongside fields at key positions in
   stage bodies and the query bar textarea.
-- [x] AddStagePill search accepts bare stage names (`sort` → `$sort`).
-- [x] Builder condition row's op field is an autocomplete input
+- AddStagePill search accepts bare stage names (`sort` → `$sort`).
+- Builder condition row's op field is an autocomplete input
   offering the full catalog, with `matchKey`-context ranking.
-- [x] Typing an op outside `FIELD_OPS[valType]` flags the row and
+- Typing an op outside `FIELD_OPS[valType]` flags the row and
   disables Run; the warning message names the mismatch.
-- [x] Typing an object-shape op (e.g. `$elemMatch`) flags the row as
+- Typing an object-shape op (e.g. `$elemMatch`) flags the row as
   "needs raw JSON" and disables Run.
-- [x] `$mod` with an empty, single-element, or divisor-0 value is
+- `$mod` with an empty, single-element, or divisor-0 value is
   caught pre-run.
-- [x] Inside `$match` at any depth, query ops rank first and
+- Inside `$match` at any depth, query ops rank first and
   accumulators/stage ops sink.
-- [x] Inside `$group` at depth ≥ 2, accumulators rank first.
-- [x] Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
+- Inside `$group` at depth ≥ 2, accumulators rank first.
+- Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
   expression ops rank first.
-- [x] Inside `$facet`, the full catalog is shown (no context filter).
-- [x] Off-context operators still appear — downranked, not hidden.
-- [ ] *(Follow-up)* Operator signature hints / parameter typeaheads.
-- [ ] *(Follow-up — Phase C)* Update-expression surface uses
+- Inside `$facet`, the full catalog is shown (no context filter).
+- Off-context operators still appear — downranked, not hidden.
+- *(Follow-up)* Operator signature hints / parameter typeaheads.
+- *(Follow-up — Phase C)* Update-expression surface uses
   `operatorContext: 'update'`. The catalog already carries the entries
   so this is purely additive.
-- [ ] *(Follow-up)* $facet inner-stage context resolution.
+- *(Follow-up)* $facet inner-stage context resolution.
 
 ## 15. Test cases
 
@@ -377,11 +376,11 @@ lives in memory.
     value shape.
   - Object-shape op (`$elemMatch`) populates `invalidCondIds`.
   - `$size` on a `string` valType populates `invalidCondIds`.
-  - `describeCondProblem` returns the expected message for: valid row,
-    needs-raw op, mismatched valType, malformed `$mod` (missing /
-    single-element / divisor 0).
-  - `isCompilableOp` / `isApplicableOp` exercise the trivial-shape
-    and object-shape boundaries.
+  - `isCompilableOp` exercises the trivial-shape and object-shape
+    boundaries; `FIELD_OPS` is asserted as the exact per-valType table.
+- **filter-tree.spec.ts** — `printFilter`'s problems carry the W04 §2b
+  message for: non-`$` op, bad number / long / decimal values, the list
+  rules, a malformed `{$oid}`/`{$date}`, malformed `$mod`.
 
 ### Component
 

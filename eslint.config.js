@@ -24,7 +24,7 @@ export default defineConfig([
   // `.stryker-tmp` is Stryker's sandbox — a full repo copy per mutation run,
   // same class of false red as `.claude/worktrees` above: a nested
   // tsconfig.json makes typescript-eslint unable to pick one tsconfigRootDir.
-  globalIgnores(['dist', 'dist-electron', 'node_modules', '.claude/workflows', '.claude/worktrees', '.remember', '.docket', '.stryker-tmp', 'reports']),
+  globalIgnores(['dist', 'dist-electron', 'node_modules', '.claude/workflows', '.claude/worktrees', '.remember', '.docket', '.stryker-tmp', 'reports', 'coverage']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -36,6 +36,26 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+      parserOptions: {
+        // Type information for the promise rules below. These configs sit in
+        // no tsconfig project, so the default project lints them.
+        projectService: {
+          allowDefaultProject: [
+            'vitest.config.ts',
+            'vitest.stryker.config.ts',
+            'playwright.config.ts',
+            '.claude/skills/crash-fuzz/harness.ts',
+          ],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // A floating rejection in main is fatal (unhandledRejection handler).
+      '@typescript-eslint/no-floating-promises': 'error',
+      // JSX attributes are off: a rejected renderer handler is not fatal and a
+      // `void` wrapper would only silence it.
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
     },
   },
   {

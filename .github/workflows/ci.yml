@@ -56,6 +56,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so SonarCloud can tell new code from old by blame.
+          fetch-depth: 0
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -115,7 +118,15 @@ jobs:
         run: node node_modules/mongodb-memory-server/postinstall.js
 
       - name: Unit + integration + component tests
-        run: npm test
+        run: npm test -- --coverage
+
+      # Sends the coverage above, with the code analysis, to SonarCloud. A fork's
+      # PR gets no secrets, so it is skipped there rather than failed.
+      - name: SonarCloud scan
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   # Runs on PRs targeting `main`, on pushes to `main`, and on manual dispatch.
   # It was `workflow_dispatch`-only while free runner minutes were the binding
@@ -202,7 +213,40 @@ jobs:
       - name: Install Playwright system deps
         run: ./node_modules/.bin/playwright install-deps
 
+      # The secrets-vault specs need a real OS keyring. A bare runner has no
+      # session D-Bus and no secret service, so Chromium falls back to its
+      # `basic_text` backend, which `isWeakBackend` rejects by design and the
+      # vault answers with SECRETS_UNAVAILABLE. Both vault specs used to skip
+      # on that, which left credential storage with no CI coverage at all.
+      - name: Install a session keyring
+        # `apt-get update` is explicit rather than inherited from the step
+        # above. `dbus-daemon` ships `dbus-run-session` and `dbus-bin` ships
+        # `dbus-send`, which the next step uses to check the keyring.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-daemon dbus-bin
+
       - name: Run E2E
+        env:
+          # Chromium picks its Linux password store from the desktop
+          # environment; without one it never tries libsecret.
+          XDG_CURRENT_DESKTOP: GNOME
+        # `dbus-run-session` gives the job its own session bus, and a keyring
+        # daemon is started and unlocked on it with a throwaway password that
+        # exists for this job alone. The daemon's own exit status and output
+        # are not a reliable sign it worked (it exits 0 on a bad flag), so the
+        # step waits for the secret service to own its bus name and fails
+        # unless the default keyring reads as unlocked. It waits with
+        # `NameHasOwner`, not by asking the service itself: a request to the
+        # service name starts a second, locked daemon that can win the name
+        # from the unlocked one. An Electron started in this session selects
+        # `gnome_libsecret` from `XDG_CURRENT_DESKTOP`. Playwright's own
+        # Electron launcher would defeat that: its loader
+        # (`playwright-core/lib/server/electron/loader.js`) appends
+        # `--password-store=basic` to the app it starts, which wins over a flag
+        # passed in `args`. So the two secrets-vault specs launch the app
+        # through an explicit `executablePath`, which skips that loader
+        # (`nativeCredentialStoreLaunch` in `tests/helpers/e2eApp.ts`), and fail
+        # rather than skip if no real keyring is selected.
+        #
         # Electron needs an X server on Linux even when launched
         # programmatically; xvfb-run stands one up for the test process.
         #
@@ -210,7 +254,18 @@ jobs:
         # builds its own bundle. That is deliberate: the build is seconds, and
         # sharing one through an artifact would trade it for an upload, a
         # download, and a way for a shard to test a bundle it did not make.
-        run: xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4
+        run: |
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            openssl rand -hex 16 | tr -d "\n" | gnome-keyring-daemon --unlock --components=secrets
+            for _ in $(seq 1 20); do
+              owned=$(dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.freedesktop.secrets 2>&1 || true)
+              case "$owned" in *"boolean true"*) break;; esac
+              sleep 0.5
+            done
+            state=$(dbus-send --session --print-reply --dest=org.freedesktop.secrets /org/freedesktop/secrets/collection/login org.freedesktop.DBus.Properties.Get string:org.freedesktop.Secret.Collection string:Locked 2>&1 || true)
+            case "$state" in *"boolean false"*) ;; *) echo "::error::the login keyring is missing or still locked: $state"; exit 1;; esac
+            exec xvfb-run --auto-servernum npm run test:e2e -- --shard=${{ matrix.shard }}/4'
 
       - name: Upload Playwright traces on failure
         if: failure()

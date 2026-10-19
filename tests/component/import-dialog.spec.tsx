@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { notifications } from '@mantine/notifications';
 import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ImportDialog } from '../../src/pages/Workspace/ImportDialog';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CsvPreview, DataImportInput, DataImportProgressEvent, ImportReport } from '@shared/types';
 import type { PickFilePurpose } from '@shared/ipc';
+
+// Mocked at the exact module the dialog imports; the rest stays real because
+// ResultBar's tree reaches the suggestion sources through their barrel.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 
 const REPORT: ImportReport = {
   fileName: 'people.jsonl',
@@ -43,6 +52,7 @@ function mockApi(opts: {
   onImport?: (input: DataImportInput) => void | Promise<void>;
   preview?: CsvPreview;
   previewFail?: unknown;
+  undo?: (input: { entryId: string }) => Promise<{ restored: number; skipped: number }>;
 } = {}) {
   const pickFile = vi.fn<(purpose: PickFilePurpose) => Promise<{ path: string | null }>>(
     async () => ({ path: opts.path === undefined ? '/home/me/people.jsonl' : opts.path }),
@@ -68,6 +78,7 @@ function mockApi(opts: {
   installAtelierMock({
     app: { pickFile } as never,
     data: { import: importFn, previewCsv, cancelImport, onImportProgress },
+    ...(opts.undo ? { audit: { undo: opts.undo } } : {}),
   });
   return { pickFile, importFn, previewCsv, cancelImport, onImportProgress, emitProgress };
 }
@@ -75,10 +86,19 @@ function mockApi(opts: {
 function renderDialog(props: Partial<React.ComponentProps<typeof ImportDialog>> = {}) {
   const onClose = vi.fn();
   const onImported = vi.fn();
+  const onPartialImport = vi.fn();
   render(
-    <ImportDialog connectionId="c1" dbName="shop" collection="people" onClose={onClose} onImported={onImported} {...props} />,
+    <ImportDialog
+      connectionId="c1"
+      dbName="shop"
+      collection="people"
+      onClose={onClose}
+      onImported={onImported}
+      onPartialImport={onPartialImport}
+      {...props}
+    />,
   );
-  return { onClose, onImported };
+  return { onClose, onImported, onPartialImport };
 }
 
 const choose = () => fireEvent.click(screen.getByRole('button', { name: 'Choose file…' }));
@@ -86,6 +106,7 @@ const choose = () => fireEvent.click(screen.getByRole('button', { name: 'Choose 
 afterEach(() => {
   uninstallAtelierMock();
   vi.restoreAllMocks();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
 });
 
 describe('ImportDialog', () => {
@@ -209,6 +230,131 @@ describe('ImportDialog', () => {
     expect(screen.queryByText('9 documents imported')).toBeNull();
     releaseImport();
     await screen.findByRole('status');
+  });
+});
+
+// The field-suggestion sample is cached per collection, so documents that
+// landed must drop it or the Update drawer's type warning and the builder's
+// suggestions keep describing the pre-import collection.
+describe('ImportDialog — field-suggestion sample', () => {
+  const invalidate = vi.mocked(invalidateSampleSchemaCache);
+
+  // The Undo toast outlives its test; a leftover alert would answer the next
+  // test's `findByRole('alert')`.
+  afterEach(() => notifications.clean());
+
+  it('is dropped for this collection once a JSON import has run', async () => {
+    mockApi();
+    renderDialog();
+    choose();
+    await screen.findByRole('status');
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'people');
+  });
+
+  it('is dropped once a CSV import has run', async () => {
+    mockApi({ path: '/p.csv', report: CSV_REPORT });
+    renderDialog();
+    choose();
+    await screen.findByRole('table');
+    expect(invalidate).not.toHaveBeenCalled(); // the mapping step wrote nothing
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    await screen.findByRole('status');
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'people');
+  });
+
+  it('is kept when the import is refused', async () => {
+    mockApi({ fail: { code: 'READ_ONLY', message: 'Connection "prod" is read-only.' } });
+    renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  // ImportService stops part-way on a read or write failure that is not a
+  // per-document error, and says how many documents had landed by then.
+  it('is dropped when the import fails after some batches landed', async () => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    renderDialog();
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'people');
+  });
+
+  it.each([
+    ['carries insertedCount: 0', { insertedCount: 0 }],
+    ['carries no details', undefined],
+    ['carries a non-numeric insertedCount', { insertedCount: '2400' }],
+  ])('is kept when a failed import %s', async (_name, details) => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 1 failed', details } });
+    renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('is kept when the picker is cancelled', async () => {
+    const { pickFile } = mockApi({ path: null });
+    renderDialog();
+    choose();
+    await vi.waitFor(() => expect(pickFile).toHaveBeenCalledTimes(1));
+    await screen.findByRole('button', { name: 'Choose file…' });
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('is dropped again when Undo removes the imported documents', async () => {
+    const undo = vi.fn(async () => ({ restored: 1200, skipped: 0 }));
+    mockApi({ report: { ...REPORT, auditId: 'a9' }, undo });
+    renderDialog();
+    choose();
+    await screen.findByRole('status');
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(undo).toHaveBeenCalledWith({ entryId: 'a9' });
+    expect(invalidate).toHaveBeenLastCalledWith('c1', 'shop', 'people');
+  });
+});
+
+// A failure that stops the import after some batches landed has no report to
+// show, but the collection did change: the host must re-list it, and the error
+// stays on screen so the user still learns the import did not finish.
+describe('ImportDialog — failure after some documents landed', () => {
+  afterEach(() => notifications.clean());
+
+  it('tells the host to refresh and keeps the error visible', async () => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    const { onPartialImport, onImported } = renderDialog();
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
+    expect(onPartialImport).toHaveBeenCalledTimes(1);
+    expect(onImported).not.toHaveBeenCalled();
+  });
+
+  it('does the same for a CSV import, and keeps the mapping step up', async () => {
+    mockApi({ path: '/p.csv', fail: { code: 'MONGO_OP', message: 'batch 2 failed', details: { insertedCount: 1000 } } });
+    const { onPartialImport } = renderDialog();
+    choose();
+    await screen.findByRole('table');
+    expect(onPartialImport).not.toHaveBeenCalled(); // the mapping step wrote nothing
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 2 failed/);
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(onPartialImport).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['carries insertedCount: 0', { insertedCount: 0 }],
+    ['carries no details', undefined],
+    ['carries a non-numeric insertedCount', { insertedCount: '2400' }],
+  ])('leaves the host alone when a failed import %s', async (_name, details) => {
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 1 failed', details } });
+    const { onPartialImport, onImported } = renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(onPartialImport).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
   });
 });
 
@@ -359,6 +505,29 @@ describe('ResultBar — Import documents', () => {
     expect(actions.run).not.toHaveBeenCalled();
     choose();
     await screen.findByRole('status');
+    expect(actions.run).toHaveBeenCalledTimes(1);
+  });
+
+  // The failure carries no report, so the result list is re-run from the
+  // partial-import callback instead of `onImported`.
+  it('re-runs the query when the import fails after some documents landed', async () => {
+    uninstallAtelierMock();
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    const actions = emptyWorkspaceActions();
+    render(
+      <CollectionWorkspaceProvider
+        state={{ view: 'Tree', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}', page: 0, pageSize: 50, activeBuilderTab: 'Builder' }}
+        actions={actions}
+        meta={emptyWorkspaceMeta({ collection: 'people' })}
+      >
+        <ResultBar />
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Import documents…/ }));
+    await screen.findByRole('dialog', { name: /Import into "people"/ });
+    choose();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
     expect(actions.run).toHaveBeenCalledTimes(1);
   });
 });

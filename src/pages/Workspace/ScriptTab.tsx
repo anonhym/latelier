@@ -7,6 +7,7 @@ import type {
   CollectionTabState,
 } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { themeVars } from '../../theme/themeVars';
 import { Button, Group, Select, TextInput, Tooltip } from '@mantine/core';
 import { ScriptEditor } from '../../components/ScriptEditor';
@@ -33,10 +34,13 @@ const DEFAULT_RESULT_HEIGHT = 240;
 
 interface ScriptTabProps {
   tab: ScriptTabModel;
+  /** The connection's default database: what a blank DB field runs on, so
+   *  completions follow the run. */
+  defaultDb?: string;
   onPatch: (patch: Partial<ScriptTabState>) => void;
 }
 
-function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
+function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
   const T = themeVars;
   const [running, setRunning] = React.useState(false);
   const [collections, setCollections] = React.useState<readonly string[]>([]);
@@ -46,6 +50,9 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
   const cancelTokenRef = React.useRef<string | null>(null);
 
   const state = tab.state;
+  // Mirrors main's resolveDbName for a run with a blank field; keep the
+  // `'test'` fallback in sync with MongoPool.resolveDbName.
+  const effectiveDb = state.dbName?.trim() || defaultDb || 'test';
   const hasFirstRun = !!(state.lastResult || state.lastError);
   const persistedHeight = state.resultPanelHeight ?? DEFAULT_RESULT_HEIGHT;
   const { resultPanelHeight, onResizeStart, onKeyDown: onResizeKeyDown } = useResizableSplit({
@@ -58,12 +65,11 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
 
   React.useEffect(() => {
     let cancelled = false;
-    const dbName = state.dbName?.trim() || 'test';
     void (async () => {
       try {
         const rows = await api.meta.listCollections({
           connectionId: tab.connectionId,
-          dbName,
+          dbName: effectiveDb,
         });
         if (!cancelled) setCollections(rows.map((r) => r.name));
       } catch (err) {
@@ -75,7 +81,7 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [tab.connectionId, state.dbName]);
+  }, [tab.connectionId, effectiveDb]);
 
   const runScript = React.useCallback(async () => {
     if (runningRef.current) return;
@@ -98,6 +104,11 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
         : { code: 'INTERNAL', message: String(err) };
       onPatch({ lastError: e, lastResult: undefined });
     } finally {
+      // A script can write to any collection of its Connection and the
+      // renderer can't tell which, so drop the whole Connection's
+      // field-suggestion samples — also when the run threw, since it may have
+      // written before that.
+      invalidateSampleSchemaCache(tab.connectionId);
       cancelTokenRef.current = null;
       runningRef.current = false;
       setRunning(false);
@@ -236,7 +247,7 @@ function ScriptTabInner({ tab, onPatch }: ScriptTabProps) {
           testId="script-editor"
           collections={collections}
           connectionId={tab.connectionId}
-          dbName={state.dbName}
+          dbName={effectiveDb}
         />
       </div>
 

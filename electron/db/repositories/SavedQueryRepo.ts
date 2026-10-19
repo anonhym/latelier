@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { SavedKind } from '@shared/types';
 import { ConflictError, NotFoundError } from '../../errors.ts';
-import { isUniqueConstraintError } from '../sqliteErrors.ts';
+import { isUniqueConstraintError, rethrowMissingConnection } from '../sqliteErrors.ts';
 
 export interface SavedQueryRow {
   id: string;
@@ -47,7 +47,7 @@ export class SavedQueryRepo {
       if (isUniqueConstraintError(err)) {
         throw new ConflictError(`saved query name '${row.name}' already exists`, { field: 'name' });
       }
-      throw err;
+      rethrowMissingConnection(err, row.connection_id);
     }
   }
 

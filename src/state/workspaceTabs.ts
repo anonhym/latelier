@@ -12,6 +12,7 @@ import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { IpcError } from '@shared/ipc';
 import { confirmDestructive } from '../utils/confirm';
 import { api, isIpcError } from '../api/atelier';
+import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 
 /**
@@ -49,13 +50,18 @@ export interface WorkspaceTabsState {
     collection: string;
     reuseExisting?: boolean;
   }) => Promise<CollectionTab>;
+  /**
+   * Opens the collection's Aggregation view. With a `savedId` or a `name`, main
+   * replaces the pipeline on the collection's open tab, so a tab with unsaved
+   * pipeline edits asks first; `null` when the user keeps them instead.
+   */
   openAggregation: (input: {
     connectionId: string;
     dbName: string;
     collection: string;
     savedId?: string;
     name?: string;
-  }) => Promise<CollectionTab>;
+  }) => Promise<CollectionTab | null>;
   openScript: (input: {
     connectionId: string;
     initialState?: Partial<ScriptTabState>;
@@ -238,6 +244,26 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const openAggregation: WorkspaceTabsState['openAggregation'] = useCallback(
     async (input) => {
+      // With a saved pipeline or a name, main replaces the aggregation on the
+      // collection's tab if one is open, so ask before losing its unsaved edits,
+      // as closing that tab does.
+      if (input.savedId || input.name) {
+        const open = tabsRef.current.find(
+          (t) =>
+            t.kind === 'collection' &&
+            t.connectionId === input.connectionId &&
+            t.dbName === input.dbName &&
+            t.collection === input.collection,
+        );
+        if (open?.kind === 'collection' && open.state.aggregation?.dirty) {
+          const proceed = await confirmDestructive({
+            title: 'Discard unsaved pipeline changes?',
+            body: `Opening ${input.name ? `"${input.name}"` : 'this pipeline'} replaces the pipeline on "${input.dbName}.${input.collection}", which has edits that have not been saved.`,
+            confirmLabel: 'Discard and open',
+          });
+          if (!proceed) return null;
+        }
+      }
       const tab = await api.tabs.openAggregation(input);
       // Main just overwrote these on the tab, so a patch still in the debounce
       // would otherwise be layered back over it (and later flushed over it).
@@ -398,6 +424,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     await api.tabs.setPinned({ id, pinned });
   }, []);
 
+  const saveFailureShown = useRef(false);
   const scheduleFlush = useCallback(() => {
     if (flushTimer.current) return;
     flushTimer.current = setTimeout(() => {
@@ -412,8 +439,15 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
           if (Object.keys(state).length === 0) return undefined;
           return api.tabs
             .update(id, { state })
+            .then(() => {
+              saveFailureShown.current = false;
+            })
             .catch(() => {
-              // best-effort; next refresh will reconcile
+              // The tab keeps working in memory; only its saved copy is
+              // behind, so tell the user once per outage, not on every flush.
+              if (saveFailureShown.current) return;
+              saveFailureShown.current = true;
+              notify.error('Tab changes could not be saved');
             });
         }),
       );

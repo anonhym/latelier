@@ -36,6 +36,8 @@ export interface RpcClient {
   makeDb(ctx: DbCtx): unknown;
   /** Whether `value` is a cursor this client made (what a script's last expression may be). */
   isCursor(value: unknown): value is RpcCursor;
+  /** Whether `value` is a collection (`db.items`) this client made. */
+  isCollection(value: unknown): boolean;
   /** Feed a message from main; true when it was an RPC reply (answered or stale). */
   handleReply(message: unknown): boolean;
 }
@@ -223,13 +225,16 @@ export function createRpcClient(send: (frame: RpcFrame) => void): RpcClient {
     return new FacadeCursor(dbName, label, open);
   }
 
+  // `util.inspect` looks through a Proxy to its target and never runs the
+  // `get` trap, so a collection's one-line hint has to live on the target.
+  const collections = new WeakSet<object>();
+
   function makeCollection(dbName: string, coll: string): unknown {
     const base: FrameBase = { target: 'collection', dbName, coll, method: '' };
-    return new Proxy(
-      {},
+    const proxy = new Proxy(
+      { [Symbol.for('nodejs.util.inspect.custom')]: () => `[Collection ${dbName}.${coll}]` },
       {
         get(_target, prop) {
-          if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => `Collection(${dbName}.${coll})`;
           if (typeof prop === 'symbol') return undefined;
           if (prop === 'collectionName') return coll;
           if (prop === 'dbName') return dbName;
@@ -245,6 +250,8 @@ export function createRpcClient(send: (frame: RpcFrame) => void): RpcClient {
         },
       },
     );
+    collections.add(proxy);
+    return proxy;
   }
 
   function makeAdmin(dbName: string): unknown {
@@ -269,7 +276,6 @@ export function createRpcClient(send: (frame: RpcFrame) => void): RpcClient {
           if (prop === 'getName' || prop === Symbol.toPrimitive || prop === 'toString') {
             return () => ctx.currentDb;
           }
-          if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => `Db(${ctx.currentDb})`;
           if (typeof prop === 'symbol' || prop === 'then') return undefined;
           // Read once, at access: `const c = db.items; use('x'); c.find()` stays on the old db.
           const dbName = ctx.currentDb;
@@ -294,6 +300,7 @@ export function createRpcClient(send: (frame: RpcFrame) => void): RpcClient {
   return {
     makeDb,
     isCursor: (value): value is RpcCursor => value instanceof FacadeCursor,
+    isCollection: (value) => typeof value === 'object' && value !== null && collections.has(value),
     handleReply(message) {
       if (typeof message !== 'object' || message === null) return false;
       const m = message as { type?: unknown; id?: unknown };

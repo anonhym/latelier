@@ -1,5 +1,7 @@
 # W05 — Query bar + bidirectional MQL sync
 
+> **Status: Implemented.** Its sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md).
+
 > **Partly superseded by [W13](./W13-filter-tree-editor.md).** W13 makes the
 > filter text canonical and the drawer a view of it, which removes the sync
 > problem rather than solving it: **§1** (the whole SYNCED/DIRTY machine) and
@@ -133,17 +135,17 @@ Each run generates a UUID `cancelToken`, stored in a ref. If a new Run starts, t
 
 ## 7. Acceptance criteria
 
-- [x] Edits in the builder pane update the query bar instantly in SYNCED.
-- [x] Typing in the bar flips to DIRTY and stops auto-recompile.
-- [ ] "Re-sync builder" successfully parses and updates the builder (W04 §3 contract).
-- [x] "Accept builder" overwrites the bar.
-- [x] ** Builder edits while DIRTY — including click-to-sort on a
+- Edits in the builder pane update the query bar instantly in SYNCED.
+- Typing in the bar flips to DIRTY and stops auto-recompile.
+- "Re-sync builder" successfully parses and updates the builder (W04 §3 contract).
+- "Accept builder" overwrites the bar.
+- ** Builder edits while DIRTY — including click-to-sort on a
   result column (`sortFieldPatch`) — leave `queryRaw` and `queryDirty`
   untouched.
-- [x] Run honors the current `queryRaw` regardless of sync state.
-- [ ] `⌘↵` runs; `Esc` cancels.
-- [ ] A failed run does not clobber a prior successful result (`documents` remain visible until the next success).
-- [ ] The result bar reflects `documents.length`, count (when available), duration, and error state correctly.
+- Run honors the current `queryRaw` regardless of sync state.
+- `⌘↵` runs; `Esc` cancels.
+- A failed run does not clobber a prior successful result (`documents` remain visible until the next success).
+- The result bar reflects `documents.length`, count (when available), duration, and error state correctly.
 
 ## 8. Test cases
 
