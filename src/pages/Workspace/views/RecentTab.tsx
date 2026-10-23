@@ -74,14 +74,19 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
     failure: string,
   ) => {
     setDeleting(true);
+    let failed: string | null = null;
     try {
       for (const filter of filters) await api.recent.clear(filter);
-      await load();
     } catch (e) {
-      setErr(getErrorMessage(e, failure));
+      failed = getErrorMessage(e, failure);
     } finally {
       setDeleting(false);
     }
+    // Reload even after a failure: the runs cleared before it are already
+    // gone, so the list on screen is stale. The error goes up after the
+    // reload because `load` resets it.
+    await load();
+    if (failed !== null) setErr(failed);
   };
 
   // A merged row stands for every run in its group, so deleting it removes

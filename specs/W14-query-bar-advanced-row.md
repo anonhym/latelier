@@ -436,6 +436,8 @@ collapsed badge counts set options and their problems (§2).
 - Changing an option changes the run key and asks for a new plan.
 - A Recent rerun and a saved query keep the options; a saved row with no
   builder clears the tab's. Recent stores the collation and hint trimmed.
+- Reset clears the options along with the sort, limit and projection, and its
+  confirm names whichever are set.
 - Delete all matching and Update all matching are refused while a collation
   or a hint is set, and a refused delete asks for no count; Open as pipeline
   is refused with a collation or a hint.

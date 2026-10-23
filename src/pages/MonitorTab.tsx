@@ -16,6 +16,7 @@ import type {
 } from '@shared/types';
 
 const POLL_MS = 5_000;
+const MIN_SECS_DEBOUNCE_MS = 300;
 const PROFILE_ROWS = 50;
 
 const tableStyles = {
@@ -88,7 +89,14 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   // server never has polls piling up behind each other.
   const pending = React.useRef(0);
 
-  const minSecsRunning = Number.parseInt(minSecs, 10);
+  // The text field feeds the request through a short delay, so typing "120"
+  // sends one $currentOp, not three overlapping ones.
+  const [appliedMinSecs, setAppliedMinSecs] = React.useState('');
+  React.useEffect(() => {
+    const handle = setTimeout(() => setAppliedMinSecs(minSecs), MIN_SECS_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [minSecs]);
+  const minSecsRunning = Number.parseInt(appliedMinSecs, 10);
   const loadOps = React.useCallback(async () => {
     const id = ++latest.current;
     pending.current++;
