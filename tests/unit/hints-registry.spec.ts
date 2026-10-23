@@ -10,6 +10,7 @@ describe('HINT_REGISTRY', () => {
     'tabs.pin',
     'saved.create',
     'palette.discover',
+    'suggestions.keyboard',
   ];
 
   it('contains every FeatureHintId exactly once', () => {

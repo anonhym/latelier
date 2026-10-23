@@ -1104,7 +1104,8 @@ export type FeatureHintId =
   | 'refs.configure'
   | 'tabs.pin'
   | 'saved.create'
-  | 'palette.discover';
+  | 'palette.discover'
+  | 'suggestions.keyboard';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];
