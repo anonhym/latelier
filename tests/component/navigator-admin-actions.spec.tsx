@@ -623,7 +623,7 @@ describe('DbCollectionNavigator — views and the connection string', () => {
       name: 'recent',
       type: 'view' as const,
       capped: false,
-      options: { viewOn: 'orders', pipeline },
+      options: { viewOn: 'orders', pipeline, collation: '{"locale":"fr"}' },
     }));
     const create = vi.fn(async (input: { collection: string }) => ({ name: input.collection }));
     baseMocks({
@@ -648,7 +648,7 @@ describe('DbCollectionNavigator — views and the connection string', () => {
         connectionId: 'c1',
         dbName: 'shop',
         collection: 'recent_copy',
-        options: { viewOn: 'orders', pipeline },
+        options: { viewOn: 'orders', pipeline, collation: '{"locale":"fr"}' },
       }),
     );
     await waitFor(() => expect(screen.queryByLabelText('View name')).toBeNull());
@@ -712,7 +712,7 @@ describe('DbCollectionNavigator — views and the connection string', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect((screen.getByLabelText('View name') as HTMLInputElement).value).toBe('second_copy');
     expect(screen.getByText(/A copy of second on shop\.second_src/)).toBeTruthy();
-    expect(screen.getByText(/collation set on the source view is not copied/)).toBeTruthy();
+    expect(screen.getByText(/same pipeline and collation/)).toBeTruthy();
     expect(screen.queryByText(/runs the enabled stages/)).toBeNull();
   });
 

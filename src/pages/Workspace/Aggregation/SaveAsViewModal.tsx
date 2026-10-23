@@ -17,6 +17,8 @@ interface Props {
   pipelineJson?: string;
   /** Seeds the name field; closing with the seed untouched needs no confirm. */
   initialName?: string;
+  /** EJSON collation sent with the create (Duplicate view keeps the source view's). */
+  collation?: string;
   title?: string;
   /** Replaces the help line under the title when the default wording does not fit. */
   description?: string;
@@ -35,6 +37,7 @@ export function SaveAsViewModal({
   stages,
   pipelineJson,
   initialName,
+  collation,
   title = 'Save pipeline as view',
   description,
   onClose,
@@ -88,7 +91,7 @@ export function SaveAsViewModal({
         connectionId,
         dbName,
         collection: trimmed,
-        options: { viewOn: collection, pipeline },
+        options: { viewOn: collection, pipeline, ...(collation ? { collation } : {}) },
       });
       onCreated(trimmed);
       onClose();

@@ -189,6 +189,8 @@ export interface CollectionDetails {
     validator?: string;
     validationLevel?: ValidationLevel;
     validationAction?: ValidationAction;
+    /** A view's or collection's collation; EJSON canonical string. */
+    collation?: string;
   };
 }
 

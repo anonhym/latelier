@@ -183,6 +183,33 @@ describe('SaveAsViewModal', () => {
       expect(onCreated).toHaveBeenCalledWith('open_orders_copy');
     });
 
+    it('sends the source view\'s collation with the create, and none when it has none', async () => {
+      const COLLATION = '{"locale":"fr","strength":{"$numberInt":"2"}}';
+      for (const collation of [COLLATION, undefined]) {
+        const create = vi.fn(async (input: CollectionCreateInput) => ({ name: input.collection }));
+        installAtelierMock({ collection: { create } });
+        const { unmount } = render(
+          <SaveAsViewModal
+            connectionId="c1"
+            dbName="shop"
+            collection="orders"
+            pipelineJson={PIPELINE}
+            initialName="v_copy"
+            collation={collation}
+            onClose={vi.fn()}
+            onCreated={vi.fn()}
+          />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Create view' }));
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+        const options = create.mock.calls[0]![0].options as Record<string, unknown>;
+        expect(options).toEqual({ viewOn: 'orders', pipeline: PIPELINE, ...(collation ? { collation } : {}) });
+        expect('collation' in options).toBe(collation !== undefined);
+        unmount();
+        uninstallAtelierMock();
+      }
+    });
+
     it('shows a name conflict inline and stays open', async () => {
       const create = vi.fn(async (): Promise<{ name: string }> => {
         throw { code: 'CONFLICT', message: 'a collection \'shop.open_orders_copy\' already exists' };

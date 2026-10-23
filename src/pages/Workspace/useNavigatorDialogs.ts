@@ -14,6 +14,8 @@ export interface DuplicateViewTarget {
   view: string;
   viewOn: string;
   pipelineJson: string;
+  /** The source view's collation (EJSON), when it has one. */
+  collation?: string;
 }
 
 export function useNavigatorDialogs(deps: {
@@ -131,7 +133,14 @@ export function useNavigatorDialogs(deps: {
         if (!viewOn || pipeline === undefined) {
           throw new Error(`${view} reports no source collection or pipeline`);
         }
-        setDuplicateViewTarget({ connectionId, dbName, view, viewOn, pipelineJson: pipeline });
+        setDuplicateViewTarget({
+          connectionId,
+          dbName,
+          view,
+          viewOn,
+          pipelineJson: pipeline,
+          collation: d.options.collation,
+        });
       })
       .catch((e: unknown) => {
         if (read === duplicateReadRef.current) notify.error(getErrorMessage(e, 'Could not read the view'));
