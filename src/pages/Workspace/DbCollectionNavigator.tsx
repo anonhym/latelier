@@ -1317,6 +1317,7 @@ export function DbCollectionNavigator({
           pipelineJson={duplicateViewTarget.pipelineJson}
           initialName={`${duplicateViewTarget.view}_copy`}
           title="Duplicate view"
+          description={`A copy of ${duplicateViewTarget.view} on ${duplicateViewTarget.dbName}.${duplicateViewTarget.viewOn} with the same pipeline. A collation set on the source view is not copied.`}
           onClose={cancelDuplicateView}
           onCreated={handleViewDuplicated}
         />

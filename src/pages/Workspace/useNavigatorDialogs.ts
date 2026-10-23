@@ -119,17 +119,23 @@ export function useNavigatorDialogs(deps: {
     notifyCollectionChanged({ connectionId: cid, dbName: db, collection });
   }, [modifyViewTarget]);
 
+  // Only the latest read may open the dialog: a slow one for an earlier view must not replace it.
+  const duplicateReadRef = React.useRef(0);
   const openDuplicateView = React.useCallback((connectionId: string, dbName: string, view: string) => {
+    const read = ++duplicateReadRef.current;
     api.meta
       .collectionDetails({ connectionId, dbName, collection: view })
       .then((d) => {
+        if (read !== duplicateReadRef.current) return;
         const { viewOn, pipeline } = d.options;
         if (!viewOn || pipeline === undefined) {
           throw new Error(`${view} reports no source collection or pipeline`);
         }
         setDuplicateViewTarget({ connectionId, dbName, view, viewOn, pipelineJson: pipeline });
       })
-      .catch((e: unknown) => notify.error(getErrorMessage(e, 'Could not read the view')));
+      .catch((e: unknown) => {
+        if (read === duplicateReadRef.current) notify.error(getErrorMessage(e, 'Could not read the view'));
+      });
   }, []);
   const cancelDuplicateView = React.useCallback(() => setDuplicateViewTarget(null), []);
   const handleViewDuplicated = React.useCallback(

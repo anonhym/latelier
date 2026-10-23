@@ -18,6 +18,8 @@ interface Props {
   /** Seeds the name field; closing with the seed untouched needs no confirm. */
   initialName?: string;
   title?: string;
+  /** Replaces the help line under the title when the default wording does not fit. */
+  description?: string;
   onClose: () => void;
   onCreated: (name: string) => void;
 }
@@ -34,6 +36,7 @@ export function SaveAsViewModal({
   pipelineJson,
   initialName,
   title = 'Save pipeline as view',
+  description,
   onClose,
   onCreated,
 }: Props) {
@@ -113,7 +116,7 @@ export function SaveAsViewModal({
       >
         <Stack gap="sm">
           <Text size="xs" c="dimmed">
-            A view on {dbName}.{collection} that runs the enabled stages each time it is read.
+            {description ?? `A view on ${dbName}.${collection} that runs the enabled stages each time it is read.`}
           </Text>
           <TextInput
             label="View name"

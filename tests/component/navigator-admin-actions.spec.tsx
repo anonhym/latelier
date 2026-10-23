@@ -675,6 +675,47 @@ describe('DbCollectionNavigator — views and the connection string', () => {
     expect(screen.queryByLabelText('View name')).toBeNull();
   });
 
+  it('"Duplicate view…" on two views in quick succession opens only the latest, whatever order the reads finish in', async () => {
+    const resolvers: Record<string, () => void> = {};
+    const details = (name: string) => ({
+      name,
+      type: 'view' as const,
+      capped: false,
+      options: { viewOn: `${name}_src`, pipeline: '[]' },
+    });
+    const collectionDetails = vi.fn(
+      ({ collection }: { collection: string }) =>
+        new Promise<ReturnType<typeof details>>((r) => (resolvers[collection] = () => r(details(collection)))),
+    );
+    baseMocks({
+      meta: {
+        listDatabases: async () => [{ name: 'shop', sizeOnDisk: 1, empty: false }],
+        listCollections: async () => [
+          { name: 'first', type: 'view' as const, capped: false },
+          { name: 'second', type: 'view' as const, capped: false },
+        ],
+        collectionDetails: collectionDetails as never,
+      },
+    });
+
+    mountNavigator();
+    await screen.findByText('first');
+    for (const name of ['first', 'second']) {
+      fireEvent.contextMenu(screen.getByTestId(`nav-coll-shop-${name}`));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate view…' }));
+    }
+    await waitFor(() => expect(collectionDetails).toHaveBeenCalledTimes(2));
+
+    resolvers.second!();
+    expect(((await screen.findByLabelText('View name')) as HTMLInputElement).value).toBe('second_copy');
+    resolvers.first!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect((screen.getByLabelText('View name') as HTMLInputElement).value).toBe('second_copy');
+    expect(screen.getByText(/A copy of second on shop\.second_src/)).toBeTruthy();
+    expect(screen.getByText(/collation set on the source view is not copied/)).toBeTruthy();
+    expect(screen.queryByText(/runs the enabled stages/)).toBeNull();
+  });
+
   it('"Duplicate view…" is offered on views only', async () => {
     baseMocks({
       meta: {
