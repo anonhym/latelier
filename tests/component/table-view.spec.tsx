@@ -958,6 +958,8 @@ describe('TableView — rendering and interaction', () => {
       // but leaves it unflushed, which is a false negative, not proof the
       // fix is missing (confirmed against a real probe: logging inside the
       // handler shows it firing either way; only the flushed DOM differs).
+      // A Table cell's trigger stays a Tab stop; only the Tree leaf's opts out.
+      expect(expandBtn.hasAttribute('tabindex')).toBe(false);
       fireEvent.focus(expandBtn);
 
       expect(expandBtn.style.opacity).toBe('1');

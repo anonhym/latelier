@@ -11,6 +11,9 @@ interface FullValuePopoverProps {
    * click-through until the host says it should show. */
   visible: boolean;
   ariaLabel?: string;
+  /** `-1` keeps the trigger out of Tab order where the host already opens
+   * the popover from the keyboard (Enter on the active Tree leaf). */
+  tabIndex?: number;
 }
 
 /**
@@ -27,6 +30,7 @@ export function FullValuePopover({
   onChange,
   visible,
   ariaLabel = 'Expand cell value',
+  tabIndex,
 }: FullValuePopoverProps) {
   return (
     <Popover
@@ -44,6 +48,7 @@ export function FullValuePopover({
       <Popover.Target>
         <button
           aria-label={ariaLabel}
+          tabIndex={tabIndex}
           onClick={(e) => {
             e.stopPropagation();
             onChange(true);

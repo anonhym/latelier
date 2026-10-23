@@ -144,8 +144,10 @@ function FieldNodeImpl({
   const isActive = path === activePath;
   const fullValueOpen = fullValuePath === path;
   const [hovered, setHovered] = React.useState(false);
-  // The trigger is a real Tab stop, so focus has to reveal it as hover
-  // does (WCAG 2.4.11) — same reasoning as the Table cell's `focused`.
+  // The trigger is out of Tab order (Enter on the active leaf is the
+  // keyboard path), but a click still focuses it and the popover returns
+  // focus to it on close, so focus has to reveal it as hover does
+  // (WCAG 2.4.11) — same reasoning as the Table cell's `focused`.
   const [focused, setFocused] = React.useState(false);
   const rule = refsByField?.get(fieldPath);
 
@@ -349,6 +351,8 @@ function FieldNodeImpl({
                   onChange={(opened) => onFullValueChange(path, opened)}
                   visible={hovered || focused || isActive || fullValueOpen}
                   ariaLabel="Expand field value"
+                  // Tab must not walk every leaf of a wide document.
+                  tabIndex={-1}
                 />
               )}
               {rule && (

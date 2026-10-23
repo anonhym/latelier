@@ -67,7 +67,7 @@ Row layout (matches existing mock):
 - Selection is consumed by W08 for `Edit document` / `Delete document(s)` actions.
 
 ### Full value of a leaf
-- The expanded field grid truncates a value to its column. A leaf (non-object, non-array) row carries the same `⤢` affordance as a Table cell (`FullValuePopover`): revealed on hover, on focus and while the row is the field tree's active row, it opens a read-only popover with the untruncated value (strings quoted).
+- The expanded field grid truncates a value to its column. A leaf (non-object, non-array) row carries the same `⤢` affordance as a Table cell (`FullValuePopover`): revealed on hover, on focus and while the row is the field tree's active row, it opens a read-only popover with the untruncated value (strings quoted). The trigger is out of Tab order (`tabIndex={-1}`), so Tab does not walk every leaf; the keyboard path is Enter below.
 - Keyboard: Enter or Space on an active leaf opens it (on an expandable row they still toggle). Escape closes it, does not bubble to the outer Table/Tree grid, and focus returns to where the open started — the field tree after Enter.
 - The same field grid is the Table view's expanded-row panel, so both get it.
 

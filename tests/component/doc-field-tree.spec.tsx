@@ -523,7 +523,14 @@ describe('DocFieldTree — full value of a leaf', () => {
     expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
   });
 
-  it('tabbing onto the affordance makes it visible, and blurring hides it again', () => {
+  it('the affordance is out of Tab order (Enter on the active leaf is the keyboard path)', () => {
+    const { container } = renderFieldTree({ a: LONG, b: LONG });
+    const triggers = container.querySelectorAll('[aria-label="Expand field value"]');
+    expect(triggers).toHaveLength(2);
+    for (const t of triggers) expect(t.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('focusing the affordance (a click, or focus returning on close) makes it visible, and blurring hides it again', () => {
     const { container } = renderFieldTree({ note: LONG });
     const row = container.querySelector('[role="treeitem"]') as HTMLElement;
     const trigger = within(row).getByRole('button', { name: 'Expand field value' });
