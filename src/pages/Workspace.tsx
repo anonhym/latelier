@@ -185,6 +185,16 @@ function WorkspaceInner() {
   // Reset only on unmount, not on every id change (which a bare cleanup would do).
   React.useEffect(() => () => publishFocusedConnectionId(null), []);
 
+  // Dirty pipelines, for the quit question. Keyed on the count, so an edit
+  // that leaves it unchanged sends nothing. No reset on unmount: the tabs
+  // outlive this page, and quitting from elsewhere still loses them when
+  // they are not restored at launch (main decides that).
+  const dirtyPipelineCount = tabs.tabs.filter(
+    (t) => t.kind === 'collection' && t.state.aggregation?.dirty,
+  ).length;
+  React.useEffect(() => {
+    api.app.setUnsavedWork({ source: 'pipelines', count: dirtyPipelineCount }).catch(console.warn);
+  }, [dirtyPipelineCount]);
 
   const referenceRules = useReferenceRules(
     activeCollection?.connectionId ?? null,

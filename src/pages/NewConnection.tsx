@@ -6,6 +6,7 @@ import { I } from '../icons';
 import { ConnectionForm } from '../features/connections/ConnectionForm';
 import { TitleBarBackLink } from '../components/TitleBarBackLink';
 import { confirmDestructive } from '../utils/confirm';
+import { reportConnectionFormDirty } from '../features/connections/reportUnsavedForm';
 
 export default function NewConnection() {
   const [dark, toggle] = useTheme();
@@ -18,16 +19,21 @@ export default function NewConnection() {
   const backTarget = isEdit ? returnTo ?? `/connections/${params.id}` : '/workspace';
   const backLabel = isEdit ? (returnTo === '/workspace' ? 'Data View' : 'Connection') : 'Data View';
   // Every in-app way off this page (back link, Cancel, the palette, a shortcut)
-  // is a router navigation, so one blocker covers them. It does not cover
-  // closing the window, quitting or reloading (#531); `beforeunload` is no fix,
-  // since Electron cancels it silently. Refs, not state: the blocker predicate
-  // must see the latest value without re-subscribing.
+  // is a router navigation, so one blocker covers them. Closing the window and
+  // quitting are not navigations: the form's dirty state is reported to main
+  // instead, and the quit question names it. Reloading is covered by neither;
+  // `beforeunload` is no fix, since Electron cancels it silently. Refs, not
+  // state: the blocker predicate must see the latest value without
+  // re-subscribing.
   const dirtyRef = React.useRef(false);
   const bypassRef = React.useRef(false);
   const promptingRef = React.useRef(false);
   const onDirtyChange = React.useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
+    // After a save the form can still read dirty; it is not unsaved work.
+    reportConnectionFormDirty(dirty && !bypassRef.current);
   }, []);
+  React.useEffect(() => () => reportConnectionFormDirty(false), []);
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
       dirtyRef.current && !bypassRef.current && nextLocation.pathname !== currentLocation.pathname,
@@ -50,6 +56,7 @@ export default function NewConnection() {
     onSaved: (id: string) => {
       // A saved form is not unsaved work, even if the form still reads dirty.
       bypassRef.current = true;
+      reportConnectionFormDirty(false);
       void navigate(backTarget, {
         replace: true,
         state: isEdit ? undefined : { openConnectionId: id },
