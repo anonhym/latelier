@@ -344,7 +344,7 @@ export function AggregationTab({
         // run threw part-way through a `$merge`.
         if (allowWrite) {
           invalidateSampleSchemaCache(connectionId);
-          // A `$out` replaces the target with the pipeline's collection options.
+          // A `$out` / `$merge` can create or replace its target collection.
           invalidateSchemaEnumCache(connectionId);
         }
         if (runTokenRef.current === token) {

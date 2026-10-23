@@ -369,14 +369,13 @@ break, since the caret is inside a quoted string.
     `SaveAsCollectionModal`, `AggregationTab`'s confirmed `$out` /
     `$merge`, `AuditLogModal` Revert, `ScriptTab` after every run, and
     the connection dialogs' delete;
-  - by collection rename (both names), collection drop, and database drop
+  - by collection rename (both names), collection drop, database drop
     (the whole connection, since the cache has no per-database scope),
-    which the sample cache does not hook (see below).
+    and a saved `ConnectionForm` edit (the same id can now reach another
+    server), none of which the sample cache hooks (see below).
   Data writes (`useDocumentDialogs`, `DeleteConfirm`, `UpdateConfirm`,
   Quick Edit, `ImportDialog`) leave it alone, since they cannot change
-  the validator. Editing a connection does not call it either: no sample
-  invalidation exists there to pair with, and the cache key is the
-  connection id, which an edit keeps.
+  the validator.
 - `sampleValuesSource` has no cache of its own; it reads the
   `sampleSchemaSource` entry, so every invalidation below covers it.
 - Every write the renderer completes, except those listed after this,
