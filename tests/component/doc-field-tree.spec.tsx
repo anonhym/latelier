@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent, within, expectActiveRowOutlineLifecycle } from '../helpers/render';
+import { render, fireEvent, within, waitFor, screen, expectActiveRowOutlineLifecycle } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
 import { flattenVisibleFieldRows } from '../../src/pages/Workspace/views/docFieldFlatten';
@@ -78,7 +78,7 @@ describe('DocFieldTree — roving focus (#20)', () => {
     expect(onToggle).toHaveBeenCalledWith('doc1::nested');
   });
 
-  it('Enter on the tree does nothing for a non-expandable active field', () => {
+  it('Enter on the tree does not toggle a non-expandable active field', () => {
     const onToggle = vi.fn();
     const { container } = renderFieldTree({ leaf: 'v' }, { onToggle });
     const tree = container.querySelector('[role="tree"]')!;
@@ -481,5 +481,142 @@ describe('DocFieldTree — flattenVisibleFieldRows matches the rendered rows (#8
     );
     const flatPaths = flattenVisibleFieldRows(doc, 'doc1', expandedPaths).map((r) => r.path);
     expect(renderedIds).toEqual(flatPaths);
+  });
+});
+
+// A leaf's value is truncated to its column; the full value is one hover-
+// revealed click away, or Enter on the active row from the keyboard.
+describe('DocFieldTree — full value of a leaf', () => {
+  const LONG = 'x'.repeat(120);
+
+  function renderWithParentSpy(doc: Record<string, unknown>) {
+    const parentKeyDown = vi.fn();
+    const utils = render(
+      <div onKeyDown={parentKeyDown}>
+        <DocFieldTree
+          doc={doc}
+          docId="doc1"
+          expandedPaths={new Set()}
+          onToggle={vi.fn()}
+          copiedPath={null}
+          onCopy={vi.fn()}
+          onOpenMenu={vi.fn()}
+        />
+      </div>,
+    );
+    const tree = utils.container.querySelector<HTMLElement>('[role="tree"]')!;
+    return { ...utils, tree, parentKeyDown };
+  }
+
+  it('hovering a leaf reveals the affordance, and clicking it shows the full value', () => {
+    const { container } = renderFieldTree({ note: LONG });
+    const row = container.querySelector('[role="treeitem"]')!;
+    const trigger = within(row as HTMLElement).getByRole('button', { name: 'Expand field value' });
+
+    expect(trigger.style.opacity).toBe('0');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.mouseEnter(row);
+    expect(trigger.style.opacity).toBe('1');
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+  });
+
+  it('tabbing onto the affordance makes it visible, and blurring hides it again', () => {
+    const { container } = renderFieldTree({ note: LONG });
+    const row = container.querySelector('[role="treeitem"]') as HTMLElement;
+    const trigger = within(row).getByRole('button', { name: 'Expand field value' });
+
+    fireEvent.focus(trigger);
+    expect(trigger.style.opacity).toBe('1');
+    expect(trigger.style.pointerEvents).toBe('auto');
+    fireEvent.blur(trigger);
+    expect(trigger.style.opacity).toBe('0');
+  });
+
+  it('the active row reveals its affordance while the tree has focus', () => {
+    const { container } = renderFieldTree({ note: LONG });
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    const trigger = within(tree).getByRole('button', { name: 'Expand field value' });
+    expect(trigger.style.opacity).toBe('0');
+    fireEvent.focus(tree);
+    expect(trigger.style.opacity).toBe('1');
+  });
+
+  it('an expandable row has no full-value affordance', () => {
+    const { container } = renderFieldTree({ nested: { x: 1 } });
+    const row = container.querySelector('[role="treeitem"]') as HTMLElement;
+    expect(within(row).queryByRole('button', { name: 'Expand field value' })).toBeNull();
+  });
+
+  it('Enter on an active leaf opens its full value', () => {
+    const { tree } = renderWithParentSpy({ a: 1, note: LONG });
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+
+    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+  });
+
+  it('Space opens it too', () => {
+    const { tree } = renderWithParentSpy({ n: 42 });
+    tree.focus();
+    fireEvent.keyDown(tree, { key: ' ' });
+    expect(screen.getByRole('dialog').textContent).toBe('42');
+  });
+
+  it('Escape closes it, returns focus to the tree and does not reach the parent', async () => {
+    const { tree, parentKeyDown } = renderWithParentSpy({ note: LONG });
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    parentKeyDown.mockClear();
+
+    fireEvent.keyDown(tree, { key: 'Escape' });
+
+    expect(parentKeyDown).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Past Mantine's 10ms focus-return timer, focus is still on the tree.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(tree);
+  });
+
+  it('Escape pressed inside the open dropdown also closes it without bubbling', async () => {
+    const { tree, parentKeyDown } = renderWithParentSpy({ note: LONG });
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+    parentKeyDown.mockClear();
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(parentKeyDown).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(tree);
+  });
+
+  it('Escape with no popover open is left for the parent', () => {
+    const { tree, parentKeyDown } = renderWithParentSpy({ note: LONG });
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Escape' });
+    expect(parentKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing a nested leaf\'s popover from its parent row\'s render still updates it', async () => {
+    const { container } = renderFieldTree(
+      { nested: { a: 1, b: LONG } },
+      { expandedPaths: new Set(['doc1::nested']) },
+    );
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'End' });
+    fireEvent.keyDown(tree, { key: 'Enter' });
+    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+
+    fireEvent.keyDown(tree, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });
