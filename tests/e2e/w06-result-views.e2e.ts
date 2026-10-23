@@ -108,8 +108,9 @@ test('result views: JSON active card moves with ArrowDown; Enter on a Tree leaf 
       await win.getByTitle('Click to expand · ⌘/Ctrl+click to select').first().click();
       await win.getByTitle(/^Drag to add "sku \$eq/).first().click();
       await win.keyboard.press('Enter');
-      const dialog = win.getByRole('dialog');
-      await expect(dialog).toHaveText(/^"unique-token-[xy]"$/);
+      const dialog = win.getByRole('dialog', { name: 'Full value' });
+      await expect(dialog).toBeFocused();
+      await expect(dialog.getByText(/^"unique-token-[xy]"$/)).toBeVisible();
       await win.keyboard.press('Escape');
       await expect(dialog).toBeHidden();
     });

@@ -1,4 +1,5 @@
-import { Popover } from '@mantine/core';
+import React from 'react';
+import { Popover, VisuallyHidden } from '@mantine/core';
 
 interface FullValuePopoverProps {
   /** The value's display text, untruncated. */
@@ -14,6 +15,9 @@ interface FullValuePopoverProps {
   /** `-1` keeps the trigger out of Tab order where the host already opens
    * the popover from the keyboard (Enter on the active Tree leaf). */
   tabIndex?: number;
+  /** Move focus into the dropdown when it mounts, so a keyboard user (and a
+   * screen reader) lands on the value. Escape handling stays the host's. */
+  focusOnOpen?: boolean;
 }
 
 /**
@@ -31,7 +35,17 @@ export function FullValuePopover({
   visible,
   ariaLabel = 'Expand cell value',
   tabIndex,
+  focusOnOpen = false,
 }: FullValuePopoverProps) {
+  const labelId = React.useId();
+  // A stable callback ref runs once per mount of the dropdown, which the
+  // popover's transition renders a commit or more after `opened` flips.
+  const focusDropdown = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el && focusOnOpen) el.focus();
+    },
+    [focusOnOpen],
+  );
   return (
     <Popover
       opened={opened}
@@ -75,7 +89,11 @@ export function FullValuePopover({
           ⤢
         </button>
       </Popover.Target>
-      <Popover.Dropdown>
+      {/* Named "Full value" rather than after its trigger: Mantine labels the
+          dialog by the trigger's id by default, and the trigger's name is an
+          action ("Expand cell value"), not what the dialog holds. */}
+      <Popover.Dropdown ref={focusDropdown} aria-labelledby={labelId}>
+        <VisuallyHidden id={labelId}>Full value</VisuallyHidden>
         <div
           style={{
             maxWidth: 320,

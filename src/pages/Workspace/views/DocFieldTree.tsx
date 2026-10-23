@@ -353,6 +353,7 @@ function FieldNodeImpl({
                   ariaLabel="Expand field value"
                   // Tab must not walk every leaf of a wide document.
                   tabIndex={-1}
+                  focusOnOpen
                 />
               )}
               {rule && (
@@ -588,6 +589,14 @@ export function DocFieldTree({
   );
 
   const [fullValuePath, setFullValuePath] = React.useState<string | null>(null);
+  // The popover belongs to the active leaf. Anything that makes another row
+  // active, or takes the leaf away (a collapse, a re-run, another document),
+  // closes it — otherwise the state outlives its unmounted popover, keeps
+  // eating Escape, and reopens when the user arrows back. Adjusted during
+  // render, not in an effect, so no frame paints the stale popover.
+  if (fullValuePath !== null && activeRow?.path !== fullValuePath) {
+    setFullValuePath(null);
+  }
   const handleFullValueChange = React.useCallback(
     (path: string, opened: boolean) => {
       // Only the open popover ever reports a close (Mantine's `onClose`
@@ -603,12 +612,14 @@ export function DocFieldTree({
       // First, and only while a full-value popover is open: Escape closes it
       // and stops there, whether it came from the tree, the popover's
       // trigger or (React bubbles through portals) the dropdown itself.
-      // The popover's `returnFocus` puts focus back where the open started:
-      // the tree after Enter, the trigger after a click.
+      // Focus comes back to the tree, which a keyboard open left for the
+      // dropdown; after a click open the popover's own `returnFocus` then
+      // puts it back on the trigger.
       if (e.key === 'Escape' && fullValuePath !== null) {
         e.preventDefault();
         e.stopPropagation();
         setFullValuePath(null);
+        containerRef.current?.focus();
         return;
       }
       roving.onKeyDown(e);

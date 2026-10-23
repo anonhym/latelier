@@ -520,7 +520,7 @@ describe('DocFieldTree — full value of a leaf', () => {
     expect(trigger.style.opacity).toBe('1');
     fireEvent.click(trigger);
 
-    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+    expect(within(screen.getByRole('dialog')).getByText(`"${LONG}"`)).toBeTruthy();
   });
 
   it('the affordance is out of Tab order (Enter on the active leaf is the keyboard path)', () => {
@@ -565,14 +565,14 @@ describe('DocFieldTree — full value of a leaf', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.keyDown(tree, { key: 'Enter' });
 
-    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+    expect(within(screen.getByRole('dialog')).getByText(`"${LONG}"`)).toBeTruthy();
   });
 
   it('Space opens it too', () => {
     const { tree } = renderWithParentSpy({ n: 42 });
     tree.focus();
     fireEvent.keyDown(tree, { key: ' ' });
-    expect(screen.getByRole('dialog').textContent).toBe('42');
+    expect(within(screen.getByRole('dialog')).getByText('42')).toBeTruthy();
   });
 
   it('Escape closes it, returns focus to the tree and does not reach the parent', async () => {
@@ -621,9 +621,127 @@ describe('DocFieldTree — full value of a leaf', () => {
     tree.focus();
     fireEvent.keyDown(tree, { key: 'End' });
     fireEvent.keyDown(tree, { key: 'Enter' });
-    expect(screen.getByRole('dialog').textContent).toBe(`"${LONG}"`);
+    expect(within(screen.getByRole('dialog')).getByText(`"${LONG}"`)).toBeTruthy();
 
     fireEvent.keyDown(tree, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+// The open popover belongs to the active leaf: anything that takes that leaf
+// away (arrowing off it, collapsing its parent, a new document) closes it,
+// and a popover that is no longer there must not keep eating Escape.
+describe('DocFieldTree — full value popover follows the active leaf', () => {
+  const LONG = 'y'.repeat(120);
+
+  function setup(doc: Record<string, unknown>, opts: { expandedPaths?: Set<string> } = {}) {
+    const parentKeyDown = vi.fn();
+    const ui = (o: { docId?: string; expandedPaths?: Set<string> }) => (
+      <div onKeyDown={parentKeyDown}>
+        <DocFieldTree
+          doc={doc}
+          docId={o.docId ?? 'doc1'}
+          expandedPaths={o.expandedPaths ?? new Set()}
+          onToggle={vi.fn()}
+          copiedPath={null}
+          onCopy={vi.fn()}
+          onOpenMenu={vi.fn()}
+        />
+      </div>
+    );
+    const utils = render(ui(opts));
+    const tree = () => utils.container.querySelector<HTMLElement>('[role="tree"]')!;
+    return { tree, parentKeyDown, rerender: (o: { docId?: string; expandedPaths?: Set<string> }) => utils.rerender(ui(o)) };
+  }
+
+  it('arrowing off the leaf closes it, and arrowing back does not reopen it', async () => {
+    const { tree } = setup({ a: LONG, b: 2 });
+    tree().focus();
+    fireEvent.keyDown(tree(), { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    fireEvent.keyDown(tree(), { key: 'ArrowDown' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.keyDown(tree(), { key: 'ArrowUp' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('collapsing the leaf\'s parent closes it, and the next Escape reaches the parent handler', async () => {
+    const expanded = new Set(['doc1::nested']);
+    const { tree, parentKeyDown, rerender } = setup({ nested: { a: LONG } }, { expandedPaths: expanded });
+    tree().focus();
+    fireEvent.keyDown(tree(), { key: 'End' });
+    fireEvent.keyDown(tree(), { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    rerender({ expandedPaths: new Set() });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    parentKeyDown.mockClear();
+    fireEvent.keyDown(tree(), { key: 'Escape' });
+    expect(parentKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('a different document closes it, and the next Escape reaches the parent handler', async () => {
+    const { tree, parentKeyDown, rerender } = setup({ a: LONG });
+    tree().focus();
+    fireEvent.keyDown(tree(), { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    rerender({ docId: 'doc2' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    parentKeyDown.mockClear();
+    fireEvent.keyDown(tree(), { key: 'Escape' });
+    expect(parentKeyDown).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A keyboard open has to land somewhere a screen reader announces: focus
+// moves into the dropdown, which is named, and Escape brings it back.
+describe('DocFieldTree — keyboard-opened full value takes focus', () => {
+  const LONG = 'z'.repeat(120);
+
+  it('Enter moves focus into a dropdown named "Full value"', async () => {
+    const { container } = renderFieldTree({ a: LONG });
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Full value' });
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    expect(dialog.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('Escape in the dropdown returns focus to the tree, and the arrow keys keep driving aria-activedescendant', async () => {
+    const { container } = renderFieldTree({ a: LONG, b: 2 });
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    const rows = container.querySelectorAll('[role="treeitem"]');
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+    const dialog = await screen.findByRole('dialog', { name: 'Full value' });
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(tree);
+
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[0].id);
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[1].id);
+  });
+
+  it('arrow keys inside the dropdown stay there (they scroll a long value) instead of moving the tree', async () => {
+    const { container } = renderFieldTree({ a: LONG, b: 2 });
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    const rows = container.querySelectorAll('[role="treeitem"]');
+    tree.focus();
+    fireEvent.keyDown(tree, { key: 'Enter' });
+    const dialog = await screen.findByRole('dialog', { name: 'Full value' });
+
+    fireEvent.keyDown(dialog, { key: 'ArrowDown' });
+
+    expect(tree.getAttribute('aria-activedescendant')).toBe(rows[0].id);
+    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 });
