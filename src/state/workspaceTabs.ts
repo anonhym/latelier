@@ -10,7 +10,7 @@ import type {
   WorkspaceTab,
 } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
-import type { IpcError } from '@shared/ipc';
+import type { AggregationSeed, IpcError } from '@shared/ipc';
 import { confirmDestructive } from '../utils/confirm';
 import { api, isIpcError } from '../api/atelier';
 import { notify } from '../theme/notifications';
@@ -69,7 +69,7 @@ export interface WorkspaceTabsState {
     collection: string;
     savedId?: string;
     name?: string;
-    initialState?: Partial<AggregationTabState>;
+    initialState?: AggregationSeed;
   }) => Promise<CollectionTab | null>;
   openScript: (input: {
     connectionId: string;

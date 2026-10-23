@@ -4,7 +4,7 @@ import { createRouter } from '../../electron/ipc/router';
 import { registerTabsChannels } from '../../electron/ipc/handlers/tabs';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { WorkspaceStateService } from '../../electron/services/WorkspaceStateService';
-import type { Envelope } from '../../shared/ipc';
+import type { AggregationSeed, Envelope } from '../../shared/ipc';
 import type { CollectionTab } from '../../shared/types';
 import { WorkspaceStateService as RealWorkspaceStateService } from '../../electron/services/WorkspaceStateService';
 import { WorkspaceTabRepo } from '../../electron/db/repositories/WorkspaceTabRepo';
@@ -339,6 +339,15 @@ describe('tabs:openAggregation — initialState, via router and SQLite', () => {
     if (!first.ok || !second.ok) return;
     expect(second.data.id).toBe(first.data.id);
     expect(second.data.state.aggregation?.stages).toEqual(STAGES);
+  });
+
+  it('types the seed exactly as the schema takes it', () => {
+    const ok: AggregationSeed = { stages: STAGES, activeStageId: null, dirty: true };
+    // @ts-expect-error -- `stages` is required: main refuses a seed without it.
+    const missing: AggregationSeed = { dirty: true };
+    // @ts-expect-error -- the schema takes no other AggregationTabState key.
+    const extra: AggregationSeed = { stages: [], name: 'x' };
+    expect([ok, missing, extra]).toHaveLength(3);
   });
 
   it('refuses a malformed stage list', async () => {

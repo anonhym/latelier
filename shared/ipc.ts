@@ -203,6 +203,14 @@ export interface CollectionDetails {
  * Every method returns a resolved `T` (errors thrown as IpcError), never an
  * Envelope — the preload unwraps it.
  */
+/**
+ * Stages a `tabs.openAggregation` call seeds the Aggregation view with, in
+ * exactly the shape main's zod schema accepts: `stages` required, nothing
+ * else of `AggregationTabState`.
+ */
+export type AggregationSeed = Pick<AggregationTabState, 'stages'> &
+  Partial<Pick<AggregationTabState, 'activeStageId' | 'dirty'>>;
+
 export interface IpcApi {
   conn: {
     list: () => Promise<ConnectionSummary[]>;
@@ -478,7 +486,7 @@ export interface IpcApi {
       collection: string;
       savedId?: string;
       name?: string;
-      initialState?: Partial<AggregationTabState>;
+      initialState?: AggregationSeed;
     }) => Promise<CollectionTab>;
     openDefault: (input: {
       connectionId: string;
