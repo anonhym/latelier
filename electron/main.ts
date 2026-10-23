@@ -84,7 +84,7 @@ import { ImportService } from './mongo/ImportService.ts';
 import { DEFAULT_EXPORT_CAP, QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
-import { createQuitGate, runTeardown, type RunningWork, type UnsavedWorkStore } from './quitGuard.ts';
+import { createQuitGate, describeQuitDetail, runTeardown, type RunningWork, type UnsavedWorkStore } from './quitGuard.ts';
 import { PrivateModeError } from './utils/privateFs.ts';
 import { createRouter } from './ipc/router.ts';
 import { senderCheck } from './ipc/senderGuard.ts';
@@ -493,7 +493,7 @@ async function askToQuit(message: string): Promise<boolean> {
     cancelId: 0,
     title: "Quit L'Atelier?",
     message,
-    detail: 'Work in progress is cancelled and its results are lost.',
+    detail: describeQuitDetail(runningWork()),
   };
   const result = await (win && !win.isDestroyed()
     ? dialog.showMessageBox(win, options)

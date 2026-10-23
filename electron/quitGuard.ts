@@ -53,6 +53,18 @@ export function describeRunningWork({
 }
 
 /**
+ * The quit dialog's detail line, matched to what the question is about:
+ * running work is cancelled, unsaved changes are gone for good.
+ */
+export function describeQuitDetail({ scripts, shellCommands, imports, aggregations, unsavedForms, unsavedPipelines }: RunningWork): string {
+  const running = [scripts, shellCommands, imports, aggregations].some((n) => n > 0);
+  const unsaved = unsavedForms > 0 || unsavedPipelines > 0;
+  if (running && unsaved) return 'Work in progress is cancelled, and its results and your unsaved changes are lost.';
+  if (unsaved) return 'Changes you have not saved cannot be recovered.';
+  return 'Work in progress is cancelled and its results are lost.';
+}
+
+/**
  * Whether the app may quit now: yes without asking when nothing is running,
  * otherwise whatever `confirm` answers for the sentence naming what stops.
  */

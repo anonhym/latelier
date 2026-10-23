@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { confirmQuit, createQuitGate, describeRunningWork, runTeardown, type RunningWork } from '../../electron/quitGuard';
+import { confirmQuit, createQuitGate, describeQuitDetail, describeRunningWork, runTeardown, type RunningWork } from '../../electron/quitGuard';
 
 describe('describeRunningWork', () => {
   it('is null when nothing is running', () => {
@@ -76,6 +76,32 @@ describe('describeRunningWork unsaved work', () => {
     expect(describeRunningWork({ ...none, scripts: 1, unsavedForms: 1, unsavedPipelines: 2 })).toBe(
       'This will stop 1 running script. Unsaved changes in the connection form and 2 pipelines will be lost.',
     );
+  });
+});
+
+describe('describeQuitDetail', () => {
+  const none: RunningWork = { scripts: 0, shellCommands: 0, imports: 0, aggregations: 0, unsavedForms: 0, unsavedPipelines: 0 };
+  const RUNNING = 'Work in progress is cancelled and its results are lost.';
+  const UNSAVED = 'Changes you have not saved cannot be recovered.';
+  const BOTH = 'Work in progress is cancelled, and its results and your unsaved changes are lost.';
+
+  it.each([
+    ['a script', { scripts: 1 }],
+    ['a shell command', { shellCommands: 1 }],
+    ['an import', { imports: 1 }],
+    ['an aggregation', { aggregations: 1 }],
+  ])('speaks of cancelled work when only %s is running', (_label, work) => {
+    expect(describeQuitDetail({ ...none, ...work })).toBe(RUNNING);
+  });
+
+  it('speaks only of unsaved changes when nothing is running', () => {
+    expect(describeQuitDetail({ ...none, unsavedForms: 1 })).toBe(UNSAVED);
+    expect(describeQuitDetail({ ...none, unsavedPipelines: 2 })).toBe(UNSAVED);
+  });
+
+  it('names both when work runs and changes are unsaved', () => {
+    expect(describeQuitDetail({ ...none, scripts: 1, unsavedForms: 1 })).toBe(BOTH);
+    expect(describeQuitDetail({ ...none, aggregations: 2, unsavedPipelines: 1 })).toBe(BOTH);
   });
 });
 
