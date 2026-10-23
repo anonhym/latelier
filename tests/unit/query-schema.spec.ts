@@ -5,6 +5,7 @@ import {
   ExportInputSchema,
   FindInputSchema,
 } from '../../electron/ipc/handlers/query';
+import type { CountInput } from '@shared/types';
 
 // Phase 2B (#2.12) — `skip` is bounded so deep pagination can't trigger an
 // unbounded O(n) server-side scan with no time ceiling.
@@ -66,5 +67,13 @@ describe('find options on the query schemas', () => {
     expect(find(0)).toBe(false);
     expect(find(1.5)).toBe(false);
     expect(find('100')).toBe(false);
+  });
+
+  it('count drops maxTimeMS, and the renderer-facing CountInput type has none either', () => {
+    // The count runs on its own probe timeout; a type that allowed the field
+    // would let a caller believe it was sent.
+    // @ts-expect-error maxTimeMS is not a count input
+    const input: CountInput = { ...target, maxTimeMS: 5 };
+    expect(CountInputSchema.parse(input)).not.toHaveProperty('maxTimeMS');
   });
 });

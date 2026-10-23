@@ -457,6 +457,10 @@ export interface FindResultWire {
   hasMore: boolean;
 }
 
+/** `query:count` input. No `maxTimeMS`: the count runs on its own probe
+ *  timeout, and the channel's zod schema drops the field. */
+export type CountInput = Omit<FindInput, 'limit' | 'skip' | 'projection' | 'sort' | 'cancelToken' | 'maxTimeMS'>;
+
 export interface ExplainInput extends Omit<FindInput, 'limit' | 'skip' | 'cancelToken' | 'maxTimeMS'> {
   verbosity: 'queryPlanner' | 'executionStats' | 'allPlansExecution';
 }

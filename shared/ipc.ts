@@ -33,6 +33,7 @@ import type {
   ConnectionUpdate,
   CsvPreview,
   CurrentOpInput,
+  CountInput,
   CurrentOpSummary,
   DataImportInput,
   DataImportProgressEvent,
@@ -371,7 +372,7 @@ export interface IpcApi {
 
   query: {
     find: (input: FindInput) => Promise<FindResult>;
-    count: (input: Omit<FindInput, 'limit' | 'skip' | 'projection' | 'sort' | 'cancelToken'>) => Promise<{ count: number }>;
+    count: (input: CountInput) => Promise<{ count: number }>;
     findOne: (input: Pick<FindInput, 'connectionId' | 'dbName' | 'collection' | 'filter' | 'projection' | 'sort'>) => Promise<{ document: unknown | null; durationMs: number }>;
     explain: (input: ExplainInput) => Promise<{ plan: unknown; verbosity: string }>;
     cancel: (input: { token: string }) => Promise<void>;

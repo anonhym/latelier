@@ -3,6 +3,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { openPrivateFile } from '../utils/privateFs.ts';
 import type { CollationOptions, Hint, Sort } from 'mongodb';
 import type {
+  CountInput,
   FindInput,
   FindMatchOptions,
   FindResultWire,
@@ -212,7 +213,7 @@ export class QueryService {
   }
 
   async count(
-    input: Omit<FindInput, 'limit' | 'skip' | 'projection' | 'sort' | 'cancelToken' | 'maxTimeMS'>,
+    input: CountInput,
   ): Promise<{ count: number }> {
     const filter = parseEjsonDocument<Record<string, unknown>>(input.filter, 'filter');
     const options = matchOptions(input);
