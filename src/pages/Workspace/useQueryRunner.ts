@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CollectionTabState, LastRun, ValType } from '@shared/types';
+import type { CollectionTabState, LastRun } from '@shared/types';
 import { api, getErrorMessage } from '../../api/atelier';
 import { invalidateRecentValuesCache } from '../../features/fieldSuggestions/sources';
-import { toDisplayValue } from '../../utils/displayValue';
+import { fieldValueEntriesFromFilter } from '../../features/fieldSuggestions/fieldValueEntries';
 import { queryRunKey } from '../../utils/queryRunKey';
 import { repairOnCommit } from '../../utils/shellSyntax';
 import {
@@ -11,63 +11,7 @@ import {
   effectivePageLimit,
   projectionProblem,
   sortProblem,
-  valTypeFromDisplayType,
 } from './builder';
-import { parseFilter, parseJsonArrayLenient, type CondNode, type FilterNode } from './filterTree';
-
-/**
- * The only ops both suggested and recorded — mirrors
- * `VALUE_SUGGESTION_OPS` in `CondValueEditor.tsx` and `RECORDABLE_OPS` in
- * `RecentFieldValueService`. Kept as its own copy rather than a shared
- * import: it's a two-line set literal, and the three call sites (popover
- * gating, this write path, and main's authoritative filter) each want to
- * fail independently rather than share a module that could silently drift
- * out of a process boundary.
- */
-const RECORDABLE_OPS = new Set(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
-
-function collectCondNodes(node: FilterNode, out: CondNode[]): void {
-  if (node.kind === 'cond') {
-    out.push(node);
-  } else if (node.kind === 'group') {
-    for (const child of node.children) collectCondNodes(child, out);
-  }
-}
-
-interface FieldValueEntry {
-  field: string;
-  value: string;
-  valType: ValType;
-  op: string;
-}
-
-/**
- * Walks a successful run's filter for the conditions worth remembering.
- * `$in`/`$nin` are element-wise: each array element becomes
- * its own entry, typed from its own EJSON shape rather than the cond's
- * `array` valType, since that's what the value popover suggests against.
- */
-function fieldValueEntriesFromFilter(filterJson: string): FieldValueEntry[] {
-  const parsed = parseFilter(filterJson);
-  if (!parsed.ok) return [];
-  const conds: CondNode[] = [];
-  collectCondNodes(parsed.root, conds);
-  const entries: FieldValueEntry[] = [];
-  for (const cond of conds) {
-    if (cond.field.trim() === '' || !RECORDABLE_OPS.has(cond.op)) continue;
-    if (cond.op === '$in' || cond.op === '$nin') {
-      for (const el of parseJsonArrayLenient(cond.value)) {
-        const dv = toDisplayValue(el);
-        if (dv.type === 'object' || dv.type === 'array' || dv.type === 'undefined') continue;
-        if (dv.display.trim() === '') continue;
-        entries.push({ field: cond.field, value: dv.display, valType: valTypeFromDisplayType(dv.type), op: cond.op });
-      }
-    } else if (cond.value.trim() !== '') {
-      entries.push({ field: cond.field, value: cond.value, valType: cond.valType, op: cond.op });
-    }
-  }
-  return entries;
-}
 
 /** Minimum tab slice the runner needs, decoupled from `CollectionTab` for synthetic consumers. */
 export interface RunnerTarget {
