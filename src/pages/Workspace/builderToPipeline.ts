@@ -25,21 +25,35 @@ function stageSort(sort: string): string {
 const isEmptyDoc = (text: string): boolean => Object.keys(JSON.parse(text) as object).length === 0;
 
 /**
- * The first find-only projection operator, which `$project` refuses:
- * `$slice` (and a find's `$slice` also keeps every other field, unlike the
- * aggregation expression), `$elemMatch`, or a positional `field.$`.
+ * The first key anywhere in `node` that `name` recognises, as `name` words
+ * it. An array walks like an object: its index keys never match.
  */
-function findOnlyOperator(node: unknown): string | null {
-  // An array walks like an object: its index keys never match.
+function firstKey(node: unknown, name: (k: string) => string | null): string | null {
   if (node === null || typeof node !== 'object') return null;
   for (const [k, v] of Object.entries(node)) {
-    if (k === '$slice' || k === '$elemMatch') return k;
-    if (k.endsWith('.$')) return `the positional "${k}"`;
-    const inner = findOnlyOperator(v);
-    if (inner) return inner;
+    const found = name(k) ?? firstKey(v, name);
+    if (found) return found;
   }
   return null;
 }
+
+/**
+ * Find-only projection operators, which `$project` refuses: `$slice` (and a
+ * find's `$slice` also keeps every other field, unlike the aggregation
+ * expression), `$elemMatch`, or a positional `field.$`.
+ */
+function findOnlyProjection(k: string): string | null {
+  if (k === '$slice' || k === '$elemMatch') return k;
+  return k.endsWith('.$') ? `the positional "${k}"` : null;
+}
+
+/**
+ * Filter operators a find runs but `$match` refuses ("not allowed in this
+ * context"): `$where`, and `$near`/`$nearSphere`, which need `$geoNear` as
+ * the first stage. Searched everywhere, `$and`/`$or`/`$nor` arrays included.
+ */
+const MATCH_FORBIDDEN = new Set(['$where', '$near', '$nearSphere']);
+const matchForbidden = (k: string): string | null => (MATCH_FORBIDDEN.has(k) ? k : null);
 
 export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; problem: string };
 
@@ -51,8 +65,8 @@ export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; problem:
  * Bodies are the builder's own text, never re-serialized, so a Long or an
  * ObjectId reaches the pipeline byte-for-byte; only a sort's direction words
  * are rewritten (`stageSort`). An empty sort or projection is omitted, like
- * an empty filter, and a find-only projection operator refuses the
- * conversion rather than open a pipeline that cannot run. The limit is the user's cap
+ * an empty filter, and a find-only filter or projection operator refuses
+ * the conversion rather than open a pipeline that cannot run. The limit is the user's cap
  * (`builder.limit`), not the page's: the page skip/limit is how the table
  * pages the result, not part of the query.
  */
@@ -68,7 +82,14 @@ export function builderToStages(state: CollectionTabState): StagesResult {
       problem: `Open as pipeline does not carry the ${opts.collation ? 'collation' : 'hint'}. Clear it to open this query as a pipeline.`,
     };
   }
-  const findOnly = opts.projection ? findOnlyOperator(JSON.parse(opts.projection)) : null;
+  const forbidden = firstKey(JSON.parse(state.queryRaw), matchForbidden);
+  if (forbidden) {
+    return {
+      ok: false,
+      problem: `The filter uses ${forbidden}, which a pipeline's $match does not allow. Remove it to open this query as a pipeline.`,
+    };
+  }
+  const findOnly = opts.projection ? firstKey(JSON.parse(opts.projection), findOnlyProjection) : null;
   if (findOnly) {
     return {
       ok: false,

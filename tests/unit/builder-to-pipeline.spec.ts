@@ -66,6 +66,33 @@ describe('builderToStages (#156)', () => {
     expect(opsOf(tab('{}', { sort: '{ "a" : -1 }' }))).toEqual(['$sort { "a" : -1 }']);
   });
 
+  it('refuses a filter operator that $match does not allow, wherever it sits', () => {
+    const pt = '{"$geometry":{"type":"Point","coordinates":[0,0]}}';
+    for (const [filter, op] of [
+      ['{"$where":"true"}', '$where'],
+      [`{"loc":{"$near":${pt}}}`, '$near'],
+      [`{"loc":{"$nearSphere":${pt}}}`, '$nearSphere'],
+      ['{"a":1,"$or":[{"b":2},{"$and":[{"$where":"this.a > 1"}]}]}', '$where'],
+      [`{"$nor":[{"loc":{"$near":${pt}}}]}`, '$near'],
+    ] as const) {
+      expect(builderToStages(tab(filter))).toEqual({
+        ok: false,
+        problem: `The filter uses ${op}, which a pipeline's $match does not allow. Remove it to open this query as a pipeline.`,
+      });
+    }
+  });
+
+  it('keeps $text, $geoWithin and $expr, which $match allows', () => {
+    for (const filter of [
+      '{"$text":{"$search":"hello"}}',
+      '{"loc":{"$geoWithin":{"$centerSphere":[[0,0],1]}}}',
+      '{"$expr":{"$eq":["$a",1]}}',
+      '{"s":"$where","n":null}',
+    ]) {
+      expect(opsOf(tab(filter))).toEqual([`$match ${filter}`]);
+    }
+  });
+
   it('refuses a find-only projection operator, which $project rejects', () => {
     for (const projectionRaw of [
       '{"items":{"$slice":2}}',
