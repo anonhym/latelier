@@ -186,15 +186,19 @@ function WorkspaceInner() {
   React.useEffect(() => () => publishFocusedConnectionId(null), []);
 
   // Dirty pipelines, for the quit question. Keyed on the count, so an edit
-  // that leaves it unchanged sends nothing. No reset on unmount: the tabs
-  // outlive this page, and quitting from elsewhere still loses them when
+  // that leaves it unchanged sends nothing. Nothing is sent before the tabs
+  // have loaded, or when they failed to: the empty list then is not a count,
+  // and a 0 would overwrite the last real report. No reset on unmount: the
+  // tabs outlive this page, and quitting from elsewhere still loses them when
   // they are not restored at launch (main decides that).
+  const tabsKnown = !tabs.loading && tabs.error === null;
   const dirtyPipelineCount = tabs.tabs.filter(
     (t) => t.kind === 'collection' && t.state.aggregation?.dirty,
   ).length;
   React.useEffect(() => {
+    if (!tabsKnown) return;
     api.app.setUnsavedWork({ source: 'pipelines', count: dirtyPipelineCount }).catch(console.warn);
-  }, [dirtyPipelineCount]);
+  }, [tabsKnown, dirtyPipelineCount]);
 
   const referenceRules = useReferenceRules(
     activeCollection?.connectionId ?? null,

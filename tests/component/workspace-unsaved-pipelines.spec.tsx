@@ -2,7 +2,7 @@
 // question can name them (#531). Main decides whether they count, from the
 // "Reopen tabs on launch" pref; the renderer only reports.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, waitFor } from '../helpers/render';
+import { render, waitFor, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
@@ -60,5 +60,59 @@ describe('Workspace — unsaved pipelines report', () => {
       expect(setUnsavedWork).toHaveBeenLastCalledWith({ source: 'pipelines', count: 2 }),
     );
     expect(setUnsavedWork.mock.calls.every(([input]) => input.source === 'pipelines')).toBe(true);
+  });
+
+  it('reports nothing until the tabs have loaded, so a mount cannot overwrite an earlier count with 0', async () => {
+    const setUnsavedWork = vi.fn<IpcApi['app']['setUnsavedWork']>(async () => {});
+    let release: (tabs: CollectionTab[]) => void = () => {};
+    const listed = new Promise<CollectionTab[]>((resolve) => {
+      release = resolve;
+    });
+    installAtelierMock({
+      tabs: { list: () => listed },
+      conn: { list: async () => [connectionFixture({ id: 'c1' })] },
+      app: { setUnsavedWork },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    // Let the mount effects and the connection fetch settle.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(setUnsavedWork).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release([tab('t1', 0, true)]);
+    });
+    await waitFor(() =>
+      expect(setUnsavedWork).toHaveBeenCalledExactlyOnceWith({ source: 'pipelines', count: 1 }),
+    );
+  });
+
+  it('reports nothing when the tabs fail to load', async () => {
+    const setUnsavedWork = vi.fn<IpcApi['app']['setUnsavedWork']>(async () => {});
+    const list = vi.fn(async () => {
+      throw { code: 'INTERNAL', message: 'db closed' };
+    });
+    installAtelierMock({
+      tabs: { list },
+      conn: { list: async () => [connectionFixture({ id: 'c1' })] },
+      app: { setUnsavedWork },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(setUnsavedWork).not.toHaveBeenCalled();
   });
 });
