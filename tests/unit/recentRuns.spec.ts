@@ -28,9 +28,9 @@ describe('mergeConsecutive', () => {
     expect(mergeConsecutive([])).toEqual([]);
   });
 
-  it('keeps a lone run with a run count of 1', () => {
+  it('keeps a lone run as a group of one', () => {
     const a = run();
-    expect(mergeConsecutive([a])).toEqual([{ ...a, runCount: 1 }]);
+    expect(mergeConsecutive([a])).toEqual([{ ...a, ids: [a.id] }]);
   });
 
   it('collapses adjacent identical runs into the newest (first) one', () => {
@@ -38,7 +38,7 @@ describe('mergeConsecutive', () => {
     const middle = run();
     const oldest = run();
     const merged = mergeConsecutive([newest, middle, oldest]);
-    expect(merged).toEqual([{ ...newest, runCount: 3 }]);
+    expect(merged).toEqual([{ ...newest, ids: [newest.id, middle.id, oldest.id] }]);
   });
 
   it('does not merge identical runs that are not adjacent', () => {
@@ -46,11 +46,7 @@ describe('mergeConsecutive', () => {
     const b = run({ collection: 'users' });
     const c = run();
     const merged = mergeConsecutive([a, b, c]);
-    expect(merged.map((m) => [m.id, m.runCount])).toEqual([
-      [a.id, 1],
-      [b.id, 1],
-      [c.id, 1],
-    ]);
+    expect(merged.map((m) => m.ids)).toEqual([[a.id], [b.id], [c.id]]);
   });
 
   it('merges each group separately', () => {
@@ -60,9 +56,9 @@ describe('mergeConsecutive', () => {
     const b2 = run({ dbName: 'other' });
     const b3 = run({ dbName: 'other' });
     const merged = mergeConsecutive([a1, a2, b1, b2, b3]);
-    expect(merged.map((m) => [m.id, m.runCount])).toEqual([
-      [a1.id, 2],
-      [b1.id, 3],
+    expect(merged.map((m) => [m.id, m.ids])).toEqual([
+      [a1.id, [a1.id, a2.id]],
+      [b1.id, [b1.id, b2.id, b3.id]],
     ]);
   });
 
@@ -70,8 +66,8 @@ describe('mergeConsecutive', () => {
     const a = run();
     const b = run();
     mergeConsecutive([a, b]);
-    expect(a).not.toHaveProperty('runCount');
-    expect(b).not.toHaveProperty('runCount');
+    expect(a).not.toHaveProperty('ids');
+    expect(b).not.toHaveProperty('ids');
   });
 
   // One field differs at a time, so each half of the identity check is pinned.
@@ -93,6 +89,6 @@ describe('mergeConsecutive', () => {
   ])('does not merge adjacent runs whose %s differs', (_field, diff) => {
     const a = run();
     const b = run(diff);
-    expect(mergeConsecutive([a, b]).map((m) => m.runCount)).toEqual([1, 1]);
+    expect(mergeConsecutive([a, b]).map((m) => m.ids)).toEqual([[a.id], [b.id]]);
   });
 });

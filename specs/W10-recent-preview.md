@@ -78,10 +78,10 @@ Storage does not de-duplicate: each run is a distinct row in `recent_queries` (u
 
 The Recent tab collapses them at display time (`mergeConsecutive` in `views/recentRuns.ts`):
 - Adjacent rows in list order with the same `connectionId`, `dbName`, `collection`, `kind` and an identical payload (`JSON.stringify`) merge into one.
-- The row kept is the newest of the group (the first, since the list is `ran_at DESC`): its `id`, timestamp, duration and result count describe the latest run.
-- The merged row shows `×N` (accessible name "Ran N times") when N > 1.
+- The row kept is the newest of the group (the first, since the list is `ran_at DESC`): its `id`, timestamp, duration and result count describe the latest run. It also carries `ids`, every run in the group, newest first.
+- The merged row shows `×N` when N > 1. The visible `×N` is `aria-hidden`; a visually hidden "Ran N times" is what assistive tech reads.
 - Only neighbours merge. The same query separated by a different one stays two rows, because that order is part of the history.
-- Delete on a merged row removes only the kept row's id; the older identical rows then show (merged) in its place.
+- Delete on a merged row removes every run in the group (one `recent:clear` per id, each bounded by the tab's scope). The confirm says how many: "Delete these N runs?" … "(N runs)".
 
 ## 2. Preview field preferences
 
@@ -126,7 +126,7 @@ A tiny `MaintenanceService` registered at startup runs every 24 hours (and once 
 - The per-connection cap (200) evicts the oldest rows on insert.
 - Retention cleanup removes rows older than 30 days at startup.
 - Recent tab lists rows in `ran_at DESC` order; "Run here" re-runs with the exact payload.
-- Consecutive identical runs show as one row with a `×N` run count; non-adjacent repeats stay separate rows.
+- Consecutive identical runs show as one row with a `×N` run count; non-adjacent repeats stay separate rows. Deleting that row deletes all N runs.
 - `prefs:getPreviewFields` returns `null` for an unknown collection; the default-derivation logic then fires.
 - Changes to preview fields via the picker persist across relaunches.
 

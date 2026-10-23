@@ -86,31 +86,56 @@ function renderSaved(overrides: { onRunHere?: () => void; onOpenInTab?: (s: Save
   );
 }
 
-// ─── §13.4 Recent rows ───────────────────────────────────────────────────────
-
 describe('W10 — consecutive identical runs show as one row with a run count', () => {
+  const PREVIEW = '{"status":{"$eq":"paid"}}';
+  const threeRuns = () => [recent({ id: 'a' }), recent({ id: 'b' }), recent({ id: 'c' })];
+
   it('collapses three adjacent identical runs into one row badged ×3', async () => {
-    installAtelierMock({
-      recent: {
-        list: async () => [recent({ id: 'a' }), recent({ id: 'b' }), recent({ id: 'c' })],
-      },
-    });
+    installAtelierMock({ recent: { list: async () => threeRuns() } });
     renderRecent();
 
-    const badge = await screen.findByRole('img', { name: 'Ran 3 times' });
-    expect(badge.textContent).toBe('×3');
-    expect(screen.getAllByText('{"status":{"$eq":"paid"}}')).toHaveLength(1);
+    // The visible "×3" is hidden from assistive tech; the spoken form is text.
+    const spoken = await screen.findByText('Ran 3 times');
+    const visible = screen.getByText('×3');
+    expect(visible.getAttribute('aria-hidden')).toBe('true');
+    expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
+    expect(screen.getAllByText(PREVIEW)).toHaveLength(1);
   });
 
   it('shows no badge on a run that happened once', async () => {
     installAtelierMock({ recent: { list: async () => [recent()] } });
     renderRecent();
 
-    await screen.findByText('{"status":{"$eq":"paid"}}');
-    expect(screen.queryByRole('img', { name: /^Ran \d+ times$/ })).toBeNull();
+    await screen.findByText(PREVIEW);
+    expect(screen.queryByText(/^Ran \d+ times$/)).toBeNull();
+    expect(screen.queryByText(/^×\d+$/)).toBeNull();
+  });
+
+  it('deleting a merged row deletes every run in it, and the confirm says how many', async () => {
+    const clear = vi.fn(async () => ({ deleted: 1 }));
+    installAtelierMock({ recent: { list: async () => threeRuns(), clear } });
+    renderRecent();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: `Delete ${PREVIEW} from recent history` }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Delete these 3 runs?');
+    expect(dialog.textContent).toContain('(3 runs)');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(3));
+    const scope = { connectionId: 'c1', dbName: 'shop', collection: 'orders', kind: 'find' };
+    expect(clear.mock.calls.map((c) => (c as unknown[])[0])).toEqual([
+      { id: 'a', ...scope },
+      { id: 'b', ...scope },
+      { id: 'c', ...scope },
+    ]);
   });
 });
 
+// ─── §13.4 Recent rows ───────────────────────────────────────────────────────
 
 describe('W15 §13.4 — a Recent row shows what was queried', () => {
   it('renders the filter and a timestamp that disambiguates days', async () => {
