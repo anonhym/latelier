@@ -136,6 +136,14 @@ const api: IpcApi = {
     drop: (input) => call(IPC_CHANNELS.roleDrop, input),
   },
 
+  admin: {
+    currentOp: (input) => call(IPC_CHANNELS.adminCurrentOp, input),
+    killOp: (input) => call(IPC_CHANNELS.adminKillOp, input),
+    profileStatus: (input) => call(IPC_CHANNELS.adminProfileStatus, input),
+    setProfileLevel: (input) => call(IPC_CHANNELS.adminSetProfileLevel, input),
+    profileTail: (input) => call(IPC_CHANNELS.adminProfileTail, input),
+  },
+
   prefs: {
     get: (key) => call(IPC_CHANNELS.prefsGet, { key }),
     set: (key, value) => call(IPC_CHANNELS.prefsSet, { key, value }),

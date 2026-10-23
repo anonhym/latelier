@@ -32,6 +32,8 @@ import type {
   ConnectionSummary,
   ConnectionUpdate,
   CsvPreview,
+  CurrentOpInput,
+  CurrentOpSummary,
   DataImportInput,
   DataImportProgressEvent,
   DatabaseDropInput,
@@ -45,6 +47,8 @@ import type {
   ParsedUri,
   PreviewInput,
   ProbeResult,
+  ProfileLevel,
+  ProfileStatus,
   QueryExportInput,
   QueryExportResult,
   RoleCreateInput,
@@ -311,6 +315,25 @@ export interface IpcApi {
     create: (input: RoleCreateInput) => Promise<{ ok: true }>;
     update: (input: RoleUpdateInput) => Promise<{ ok: true }>;
     drop: (input: RoleDropInput) => Promise<{ dropped: true }>;
+  };
+
+  /** Monitor tab (C06 §9): running ops, killOp and the database profiler. */
+  admin: {
+    currentOp: (input: CurrentOpInput) => Promise<{ ops: CurrentOpSummary[] }>;
+    killOp: (input: { connectionId: string; opid: string }) => Promise<{ ok: true }>;
+    profileStatus: (input: { connectionId: string; dbName: string }) => Promise<ProfileStatus>;
+    setProfileLevel: (input: {
+      connectionId: string;
+      dbName: string;
+      level: ProfileLevel;
+      slowms?: number;
+    }) => Promise<{ ok: true }>;
+    /** Latest `system.profile` rows, newest first, as canonical EJSON documents. */
+    profileTail: (input: {
+      connectionId: string;
+      dbName: string;
+      limit?: number;
+    }) => Promise<{ docs: unknown[] }>;
   };
 
   meta: {
@@ -585,6 +608,13 @@ export const IPC_CHANNELS = {
   roleCreate: 'role:create',
   roleUpdate: 'role:update',
   roleDrop:   'role:drop',
+
+  // Monitor (C06 §9) -------------------------------------
+  adminCurrentOp:       'admin:currentOp',
+  adminKillOp:          'admin:killOp',
+  adminProfileStatus:   'admin:profileStatus',
+  adminSetProfileLevel: 'admin:setProfileLevel',
+  adminProfileTail:     'admin:profileTail',
 
   // App state preferences ----------------------------------------
   prefsGet: 'prefs:get',
