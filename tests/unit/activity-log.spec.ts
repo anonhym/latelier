@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTIVITY_LIMIT,
+  ACTIVITY_MESSAGE_LIMIT,
   clearActivity,
   getActivity,
   recordActivity,
@@ -76,5 +77,21 @@ describe('activity log', () => {
     clearActivity();
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a message of exactly 500 characters whole', () => {
+    expect(ACTIVITY_MESSAGE_LIMIT).toBe(500);
+    const message = 'x'.repeat(500);
+    recordActivity({ ...entry(1), message });
+    expect(getActivity()[0]!.message).toBe(message);
+  });
+
+  it('cuts a longer message to 500 characters, ending in an ellipsis, and leaves the rest of the entry alone', () => {
+    const message = 'a'.repeat(499) + 'bcdef';
+    recordActivity({ ...entry(1), title: 'Big', message });
+    const [stored] = getActivity();
+    expect(stored!.message).toBe('a'.repeat(499) + '…');
+    expect(stored!.message).toHaveLength(500);
+    expect(stored).toEqual({ ...entry(1), title: 'Big', message: 'a'.repeat(499) + '…' });
   });
 });
