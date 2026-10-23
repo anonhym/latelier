@@ -125,8 +125,11 @@ test('autocomplete: a string value in a $match stage body offers values from the
       await win.keyboard.type('{ status: "pe');
 
       const completions = win.locator('.cm-tooltip-autocomplete');
-      await expect(completions.getByRole('option', { name: /pending/ })).toBeVisible({ timeout: 5000 });
-      await win.keyboard.press('Enter');
+      const pending = completions.getByRole('option', { name: /pending/ });
+      await expect(pending).toBeVisible({ timeout: 5000 });
+      // A click, not Enter: CodeMirror ignores Enter for its `interactionDelay`
+      // after the list opens, and Enter in that window inserts a line break.
+      await pending.click();
       await expect(
         win.locator('[data-testid="stage-body-editor-1"] .cm-content'),
       ).toHaveText('{ status: "pending"}');
