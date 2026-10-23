@@ -371,6 +371,30 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
     );
   });
 
+  // W14 §9 — a collation changes which documents match, so the copied find
+  // carries it (and the hint); maxTimeMS and the read preference do not
+  // change the result and are left out.
+  it('carries the collation and hint, not maxTimeMS or the read preference', async () => {
+    mountWith(
+      makeState({
+        builder: {
+          projection: [],
+          sort: '',
+          limit: '',
+          collation: '{"locale":"en","strength":2}',
+          hint: '_id_',
+          maxTimeMS: '500',
+          readPreference: 'nearest',
+        },
+      }),
+    );
+
+    await copyAs('mongosh');
+    expect(copiedText()).toBe(
+      'db.getCollection("users").find({}).collation({"locale":"en","strength":2}).hint("_id_").limit(50)',
+    );
+  });
+
   it('the page before the cap still copies, with its real limit', async () => {
     // The guard must be the past-the-cap case only, not "any page > 0".
     // userLimit 60, pageSize 50, page 1 → skip 50, limit 10.

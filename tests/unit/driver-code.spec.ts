@@ -19,6 +19,8 @@ function runJs(code: string): { method: string; args: unknown[] } {
       calls.push({ method: 'find', args });
       const cursor = {
         sort: (...a: unknown[]) => (calls.push({ method: 'sort', args: a }), cursor),
+        collation: (...a: unknown[]) => (calls.push({ method: 'collation', args: a }), cursor),
+        hint: (...a: unknown[]) => (calls.push({ method: 'hint', args: a }), cursor),
         skip: (...a: unknown[]) => (calls.push({ method: 'skip', args: a }), cursor),
         limit: (...a: unknown[]) => (calls.push({ method: 'limit', args: a }), cursor),
       };
@@ -166,6 +168,73 @@ describe('findCode', () => {
     expect(args[0]).toEqual({ 'k"1': 'a"b\\c' });
     expect(findCode('python', { ...base, collection: 'we"ird', filter })).toContain('db["we\\"ird"]');
     expect(findCode('mongosh', { ...base, collection: 'my-coll' })).toContain('db.getCollection("my-coll")');
+  });
+
+  // W14 §9 — a collation changes which documents match, so the copied
+  // command carries it, and the hint with it. maxTimeMS and the read
+  // preference change neither the documents nor their order, so they stay out.
+  describe('collation and hint', () => {
+    const CI = '{"locale":"en","strength":2}';
+
+    it('mongosh chains .collation() and .hint(), an index name as a string', () => {
+      const code = findCode('mongosh', { ...base, sort: '{"a":1}', collation: CI, hint: '_id_' });
+      expect(code).toBe(
+        'db.getCollection("users").find({"status":"active"}).sort({"a":1})' +
+          `.collation(${CI}).hint("_id_").limit(20)`,
+      );
+      expect(runJs(code).args).toEqual([
+        [{ status: 'active' }],
+        ['sort', { a: 1 }],
+        ['collation', { locale: 'en', strength: 2 }],
+        ['hint', '_id_'],
+        ['limit', 20],
+      ]);
+    });
+
+    it('a hint opening with a brace is a key pattern, in every language', () => {
+      expect(findCode('mongosh', { ...base, hint: '{"a":1,"b":-1}' })).toContain('.hint({"a":1,"b":-1})');
+      const [args] = runJs(findCode('node', { ...base, hint: '{"a":1}' })).args as [unknown[]];
+      expect(args[1]).toEqual({ hint: { a: 1 }, limit: 20 });
+      expect(findCode('python', { ...base, hint: '{"a":1,"b":-1}' })).toContain(
+        'hint = list({"a":1,"b":-1}.items())',
+      );
+    });
+
+    it('node passes both as find options', () => {
+      const code = findCode('node', { ...base, projection: '{"n":1}', collation: CI, hint: 'name_1', skip: 5 });
+      expect(code.split('\n').slice(-3)).toEqual([
+        `const collation = ${CI};`,
+        'const hint = "name_1";',
+        'const cursor = db.collection("users").find(filter, { projection, collation, hint, skip: 5, limit: 20 });',
+      ]);
+      const [args] = runJs(code).args as [unknown[]];
+      expect(args[1]).toEqual({ projection: { n: 1 }, collation: { locale: 'en', strength: 2 }, hint: 'name_1', skip: 5, limit: 20 });
+    });
+
+    it('python passes both as keyword arguments', () => {
+      expect(findCode('python', { ...base, collation: CI, hint: 'name_1' })).toBe(
+        [
+          'from bson import json_util',
+          '',
+          'query = {"status":"active"}',
+          `collation = ${CI}`,
+          'hint = "name_1"',
+          'cursor = db["users"].find(query, collation=collation, hint=hint, limit=20)',
+        ].join('\n'),
+      );
+    });
+
+    it('a sentinel in the collation keeps its type', () => {
+      const code = findCode('node', { ...base, collation: '{"locale":"en","strength":{"$numberLong":"2"}}' });
+      const [args] = runJs(code).args as [unknown[]];
+      expect((args[1] as { collation: { strength: unknown } }).collation.strength).toBeInstanceOf(Long);
+    });
+
+    it('emits neither when they are absent', () => {
+      for (const lang of ['mongosh', 'node', 'python'] as const) {
+        expect([lang, /collation|hint/.test(findCode(lang, base))]).toEqual([lang, false]);
+      }
+    });
   });
 
   it('refuses a limit that the driver would read as unlimited', () => {

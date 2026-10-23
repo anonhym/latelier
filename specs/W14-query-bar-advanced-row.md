@@ -393,6 +393,9 @@ collapsed badge counts set options and their problems (§2).
   the four doc channels is a follow-up, only if asked.
 - **Open as pipeline refuses a collation or a hint**: the aggregate channel
   carries neither.
+- **Copy code carries the collation and the hint** in all three languages
+  (W04 §Footer); `maxTimeMS` and the read preference are left out, since
+  neither changes the documents or their order.
 
 ### Acceptance criteria
 
@@ -411,6 +414,8 @@ collapsed badge counts set options and their problems (§2).
 - A Recent rerun and a saved query keep the options.
 - Delete all matching and Update all matching are refused while a collation
   is set; Open as pipeline is refused with a collation or a hint.
+- Copy code emits the collation and the hint, and neither `maxTimeMS` nor the
+  read preference.
 - The delete confirm's type-to-confirm input is named "Type <collection> to
   confirm" (N5.2).
 
@@ -421,9 +426,12 @@ collapsed badge counts set options and their problems (§2).
   key, an unknown hint, the maxTimeMS clamp and message, readPreference on
   every op (driver spies).
 - Unit `query-schema.spec.ts`, `builder-find-options.spec.ts`,
-  `queryRunKey.spec.ts`, `builder-to-pipeline.spec.ts`; integration
+  `queryRunKey.spec.ts`, `builder-to-pipeline.spec.ts`, `driver-code.spec.ts`;
+  integration
   `recent-query-service.spec.ts`.
 - Component `query-bar-find-options.spec.tsx`, plus the delete, update,
-  live count, export, explain and runner specs.
+  live count, export, explain and runner specs, `workspace-delete-modes`,
+  `saved-legacy-payload`, `workspace-run-hint` and the Copy code case in
+  `query-composition-truthfulness`.
 - E2E `w14-find-options.e2e.ts`: set a case-insensitive collation, Run, and the
   mixed-case row shows with the count matching.

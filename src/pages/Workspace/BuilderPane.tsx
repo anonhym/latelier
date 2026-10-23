@@ -1850,6 +1850,8 @@ function BuilderPaneInner({
       filter: state.queryRaw,
       projection: opts.projection,
       sort: opts.sort,
+      collation: opts.collation,
+      hint: opts.hint,
       skip,
       limit,
     });

@@ -24,11 +24,20 @@ export const CODE_LANGS: readonly { lang: CodeLang; label: string }[] = [
   { lang: 'python', label: 'Python' },
 ];
 
+/**
+ * The find as run. Of the find options (W14 §9) only the collation and the
+ * hint are carried: a collation changes which documents match, and the hint
+ * goes with it as the plan the screen was produced by. `maxTimeMS` and the
+ * read preference change neither the documents nor their order, and a pasted
+ * snippet runs in a session with its own, so they are left out.
+ */
 export interface FindCodeInput {
   collection: string;
   filter: string;
   projection?: string;
   sort?: string;
+  collation?: string;
+  hint?: string;
   skip: number;
   limit: number;
 }
@@ -120,8 +129,11 @@ function pySort(text: string): string {
   return literal(Object.fromEntries(dirs), PY);
 }
 
+/** A hint opening with `{` is a key pattern, any other text an index name (`findOptionProblems`). */
+const isKeyPattern = (hint: string): boolean => hint.startsWith('{');
+
 export function findCode(lang: CodeLang, input: FindCodeInput): string {
-  const { collection, filter, projection, sort, skip, limit } = input;
+  const { collection, filter, projection, sort, collation, hint, skip, limit } = input;
   // The driver reads limit 0 as "no limit": emitting one would paste an
   // unbounded cursor for a page the app shows as empty.
   if (limit <= 0) throw new Error(`findCode: limit must be positive, got ${limit}`);
@@ -131,6 +143,8 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
     if (projection) code += `, ${jsArg(projection)}`;
     code += ')';
     if (sort) code += `.sort(${jsArg(sort)})`;
+    if (collation) code += `.collation(${jsArg(collation)})`;
+    if (hint) code += `.hint(${isKeyPattern(hint) ? jsArg(hint) : str(hint)})`;
     if (skip > 0) code += `.skip(${skip})`;
     return `${code}.limit(${limit})`;
   }
@@ -145,6 +159,14 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
     if (sort) {
       lines.push(`const sort = ${jsArg(sort)};`);
       opts.push('sort');
+    }
+    if (collation) {
+      lines.push(`const collation = ${jsArg(collation)};`);
+      opts.push('collation');
+    }
+    if (hint) {
+      lines.push(`const hint = ${isKeyPattern(hint) ? jsArg(hint) : str(hint)};`);
+      opts.push('hint');
     }
     if (skip > 0) opts.push(`skip: ${skip}`);
     opts.push(`limit: ${limit}`);
@@ -161,6 +183,15 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   if (sort) {
     lines.push(`sort = list(${pySort(sort)}.items())`);
     args.push('sort=sort');
+  }
+  if (collation) {
+    lines.push(`collation = ${pyArg(collation)}`);
+    args.push('collation=collation');
+  }
+  if (hint) {
+    // PyMongo refuses a dict as an index specifier, as it does for sort.
+    lines.push(`hint = ${isKeyPattern(hint) ? `list(${pyArg(hint)}.items())` : str(hint)}`);
+    args.push('hint=hint');
   }
   if (skip > 0) args.push(`skip=${skip}`);
   args.push(`limit=${limit}`);
