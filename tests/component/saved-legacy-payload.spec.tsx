@@ -147,7 +147,7 @@ describe(' legacy saved-find payload hydrates through the shim', () => {
   it('a pre-queryRaw saved find compiles its filter, not {}, on Run here', async () => {
     mountWith(makeState());
 
-    const runHere = await screen.findByTitle('Run here');
+    const runHere = await screen.findByRole('button', { name: /in this tab$/ });
     fireEvent.click(runHere);
 
     const textarea = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
@@ -168,7 +168,7 @@ describe(' legacy saved-find payload hydrates through the shim', () => {
     // real output of the hydrated builder, not a hand-constructed stand-in.
     const { findSpy } = mountWith(makeState());
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
@@ -188,7 +188,7 @@ describe(' a saved raw projection survives Run here', () => {
   it('sends the saved `projectionRaw` verbatim, not the empty inclusion list', async () => {
     const { findSpy } = mountWith(makeState(), RAW_PROJECTION_SAVED);
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     expect(findSpy.mock.calls[0]?.[0]?.projection).toBe('{"_id":0}');
@@ -204,7 +204,7 @@ describe(' a saved raw projection survives Run here', () => {
       }),
     );
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const sent = findSpy.mock.calls[0]?.[0]?.projection;
@@ -238,7 +238,7 @@ describe('saved find options survive Run here', () => {
   it('sends the saved collation, hint, maxTimeMS and read preference', async () => {
     const { findSpy } = mountWith(makeState(), OPTIONS_SAVED);
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     expect(findSpy.mock.calls[0]?.[0]).toMatchObject({
@@ -258,7 +258,7 @@ describe('saved find options survive Run here', () => {
       RAW_PROJECTION_SAVED,
     );
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
@@ -289,7 +289,7 @@ describe('saved find options survive Run here', () => {
       NO_BUILDER_SAVED,
     );
 
-    fireEvent.click(await screen.findByTitle('Run here'));
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
