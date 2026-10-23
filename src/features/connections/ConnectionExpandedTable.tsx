@@ -451,7 +451,9 @@ export function ConnectionExpandedTable({
                   Connect
                 </Button>
                 <RowActionIcon
-                  label={`${pinnedIds.has(c.id) ? 'Unpin' : 'Pin'} ${c.name}`}
+                  // One name, with the state in aria-pressed: a flipping name would read as a double negative.
+                  label={`Pin ${c.name}`}
+                  tooltip={`${pinnedIds.has(c.id) ? 'Unpin' : 'Pin'} ${c.name}`}
                   pressed={pinnedIds.has(c.id)}
                   onClick={() => {
                     followPinRef.current = c.id;

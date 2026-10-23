@@ -233,7 +233,7 @@ That row is the Focused Tab, and its `connectionId` is the answer to "where am I
   reason. Connections can be pinned: pinned rows sort first (the rest keep their order), carry a
   pin glyph, and the pins persist in the `ui.connections.pinned` pref, an array of Connection ids
   that drops ids of deleted Connections when read. The pin toggle lives on the Connections
-  table's open row (`Pin {name}` / `Unpin {name}`, a toggle button); the Switcher only shows the
+  table's open row (a toggle button named `Pin {name}` whose pressed state is `aria-pressed`; only the hover text flips to Unpin); the Switcher only shows the
   glyph. Grouping connections is not built.
 
 ### 4.7 Launch restore

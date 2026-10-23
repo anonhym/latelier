@@ -22,16 +22,24 @@ export function usePinnedConnections(connections: readonly { id: string }[]): {
     storedRef.current = ids;
     setStored(ids);
   }, []);
-  const ready = React.useRef<Promise<void>>(Promise.resolve());
+  // Every pref operation chains onto this: the first read, then each toggle in
+  // call order. It never rejects.
+  const queue = React.useRef<Promise<void>>(Promise.resolve());
+  // With the saved pins unread, `stored` is a guess; writing from it would
+  // overwrite them.
+  const loadFailed = React.useRef(false);
 
   React.useEffect(() => {
     let active = true;
-    ready.current = api.prefs
+    loadFailed.current = false;
+    queue.current = api.prefs
       .get<unknown>(PINNED_PREF_KEY)
       .then((value) => {
         if (active) apply(parsePinned(value));
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        loadFailed.current = true;
+        console.warn('[pins] could not load the pinned connections', err);
         notify.error('Could not load pinned connections', { id: 'pins-load-failed' });
       });
     listeners.add(apply);
@@ -48,19 +56,26 @@ export function usePinnedConnections(connections: readonly { id: string }[]): {
   );
 
   const togglePin = React.useCallback(
-    async (id: string) => {
-      // A toggle before the first read lands would overwrite what is stored.
-      await ready.current;
-      const before = storedRef.current;
-      const next = togglePinned(before, id, liveIds);
-      const publish = (ids: string[]) => listeners.forEach((fn) => fn(ids));
-      publish(next);
-      try {
-        await api.prefs.set(PINNED_PREF_KEY, next);
-      } catch {
-        publish(before);
-        notify.error('Could not save pinned connections', { id: 'pins-save-failed' });
-      }
+    (id: string): Promise<void> => {
+      const run = queue.current.then(async () => {
+        if (loadFailed.current) {
+          notify.error('Pins are unavailable because they could not be loaded', { id: 'pins-load-failed' });
+          return;
+        }
+        const before = storedRef.current;
+        const next = togglePinned(before, id, liveIds);
+        const publish = (ids: string[]) => listeners.forEach((fn) => fn(ids));
+        publish(next);
+        try {
+          await api.prefs.set(PINNED_PREF_KEY, next);
+        } catch (err) {
+          console.warn('[pins] could not save the pinned connections', err);
+          publish(before);
+          notify.error('Could not save pinned connections', { id: 'pins-save-failed' });
+        }
+      });
+      queue.current = run;
+      return run;
     },
     [liveIds],
   );

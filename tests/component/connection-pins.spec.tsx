@@ -79,7 +79,7 @@ describe('pinned connections', () => {
     await waitFor(() => expect(tableNames()).toEqual(['Charlie', 'Alpha', 'Bravo']));
   });
 
-  it('Pin on the open row moves it to the top and saves the pin list; Unpin undoes it', async () => {
+  it('Pin on the open row moves it to the top and saves the pin list; pressing it again unpins', async () => {
     const set = vi.fn(async (_k: string, v: unknown) => v);
     installAtelierMock({ prefs: { get: async () => null, set: set as never } });
     renderTable(CONNS);
@@ -91,8 +91,10 @@ describe('pinned connections', () => {
 
     await waitFor(() => expect(tableNames()).toEqual(['Bravo', 'Alpha', 'Charlie']));
     expect(set).toHaveBeenCalledWith('ui.connections.pinned', ['c2']);
-    const unpin = screen.getByRole('button', { name: 'Unpin Bravo' });
+    // Same accessible name, flipped state: the label never negates itself.
+    const unpin = screen.getByRole('button', { name: 'Pin Bravo' });
     expect(unpin.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Unpin Bravo' })).toBeNull();
 
     fireEvent.click(unpin);
     await waitFor(() => expect(tableNames()).toEqual(['Alpha', 'Bravo', 'Charlie']));
@@ -115,6 +117,56 @@ describe('pinned connections', () => {
 
     await screen.findByText('Could not save pinned connections');
     await waitFor(() => expect(tableNames()).toEqual(['Alpha', 'Bravo', 'Charlie']));
+  });
+
+  it('when the saved pins could not be read, pinning is refused and nothing is written', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const set = vi.fn(async (_k: string, v: unknown) => v);
+    installAtelierMock({
+      prefs: {
+        get: (async () => {
+          throw { code: 'SYSTEM', message: 'db locked' };
+        }) as never,
+        set: set as never,
+      },
+    });
+    renderTable(CONNS);
+
+    await screen.findByText('Could not load pinned connections');
+    fireEvent.click(await screen.findByText('Bravo'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin Bravo' }));
+
+    await screen.findByText('Pins are unavailable because they could not be loaded');
+    expect(set).not.toHaveBeenCalled();
+    expect(tableNames()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+    // The cause is kept, not dropped.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[pins]'), expect.objectContaining({ message: 'db locked' }));
+  });
+
+  it('overlapping toggles run in order: a failed first save cannot roll back the second pin', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let failFirst!: () => void;
+    const set = vi
+      .fn<(k: string, v: unknown) => Promise<unknown>>()
+      .mockImplementationOnce(() => new Promise((_, reject) => (failFirst = () => reject({ message: 'disk full' }))))
+      .mockImplementation(async (_k, v) => v);
+    installAtelierMock({ prefs: { get: async () => null, set: set as never } });
+    renderTable(CONNS);
+
+    fireEvent.click(await screen.findByText('Bravo'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin Bravo' }));
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('Charlie'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin Charlie' }));
+    // The second toggle waits for the first save to settle.
+    expect(set).toHaveBeenCalledTimes(1);
+
+    failFirst();
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(2));
+    // Built from the rolled-back list, so Bravo's failed pin is not in it.
+    expect(set).toHaveBeenLastCalledWith('ui.connections.pinned', ['c3']);
+    await waitFor(() => expect(tableNames()).toEqual(['Charlie', 'Alpha', 'Bravo']));
   });
 
   it('the switcher lists a pinned connection first', async () => {
