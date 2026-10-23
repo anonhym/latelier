@@ -174,8 +174,75 @@ describe('RolesTab', () => {
     await waitFor(() => expect(calls.length).toBe(1));
     expect(calls[0].role).toBe('appAdmin');
     expect(calls[0].dbName).toBe('myapp');
-    expect(calls[0].patch.roles).toEqual([]);
-    expect(JSON.parse(calls[0].patch.privileges!)).toEqual(JSON.parse(CUSTOM.privileges!));
+    // Only the field that changed goes in the patch.
+    expect(calls[0].patch).toEqual({ roles: [] });
+  });
+
+  it('sends only changed privileges, and never a defaulted [] for a role listed without them', async () => {
+    const calls: RoleUpdateInput[] = [];
+    const bare: RoleInfo = { ...CUSTOM, role: 'bare', privileges: undefined };
+    setup({
+      list: async () => [CUSTOM, bare],
+      update: async (input) => {
+        calls.push(input);
+        return { ok: true as const };
+      },
+    });
+    await waitFor(() => expect(screen.getByText('bare')).toBeTruthy());
+
+    await userEvent.click(screen.getByLabelText('Edit role bare'));
+    await userEvent.click(screen.getByLabelText('Remove role 1'));
+    await userEvent.click(screen.getByText('Save role'));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].patch).toEqual({ roles: [] });
+
+    await waitFor(() => expect(screen.queryByText(/Edit role — bare/)).toBeNull());
+    await userEvent.click(screen.getByLabelText('Edit role appAdmin'));
+    fireEvent.change(screen.getByLabelText('Privileges'), { target: { value: '[]' } });
+    await userEvent.click(screen.getByText('Save role'));
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[1].patch).toEqual({ privileges: '[]' });
+  });
+
+  it('trims inherited role names and dbs before sending', async () => {
+    const calls: RoleCreateInput[] = [];
+    setup({
+      create: async (input) => {
+        calls.push(input);
+        return { ok: true as const };
+      },
+    });
+    await waitFor(() => expect(screen.getByText('appAdmin')).toBeTruthy());
+
+    await userEvent.click(screen.getByText('+ New role'));
+    await userEvent.type(screen.getByLabelText('Role name'), 'auditor');
+    await userEvent.click(screen.getByText('+ Add role'));
+    fireEvent.change(screen.getByLabelText('Role name 1', { selector: 'input' }), {
+      target: { value: ' appWriter ' },
+    });
+    fireEvent.change(screen.getByLabelText('Role db 1'), { target: { value: ' myapp ' } });
+    await userEvent.click(screen.getByText('Create role'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].roles).toEqual([{ role: 'appWriter', db: 'myapp' }]);
+  });
+
+  it('closes a clean edit drawer on Cancel without prompting, and prompts once dirty', async () => {
+    setup();
+    await waitFor(() => expect(screen.getByText('appAdmin')).toBeTruthy());
+
+    await userEvent.click(screen.getByLabelText('Edit role appAdmin'));
+    await waitFor(() => expect(screen.getByText(/Edit role — appAdmin/)).toBeTruthy());
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByText(/Edit role — appAdmin/)).toBeNull());
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+
+    await userEvent.click(screen.getByLabelText('Edit role appAdmin'));
+    await waitFor(() => expect(screen.getByText(/Edit role — appAdmin/)).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Privileges'), { target: { value: '[]' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.getByText('Discard changes?')).toBeTruthy());
+    expect(screen.getByText(/Edit role — appAdmin/)).toBeTruthy();
   });
 
   it('drops a role only after its name is typed, then focuses the list', async () => {
@@ -193,6 +260,8 @@ describe('RolesTab', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Drop role "appAdmin" on myapp?')).toBeNull());
     expect(drops).toEqual([]);
+    // Cancel returns focus to the Drop button that opened the dialog.
+    expect(document.activeElement).toBe(screen.getByLabelText('Drop role appAdmin'));
 
     await userEvent.click(screen.getByLabelText('Drop role appAdmin'));
     const drop = await screen.findByRole('button', { name: 'Drop' });

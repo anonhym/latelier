@@ -27,6 +27,7 @@ import type {
   ConnectionRuntime,
   ConnectionSummary,
   RoleInfo,
+  RoleUpdateInput,
   UserRoleRef,
 } from '@shared/types';
 
@@ -422,17 +423,25 @@ function RoleDrawer({
       setError('Each inherited role needs a name and a database.');
       return;
     }
+    // Trimmed here so what the server gets matches the checks above and
+    // the row editor's unknown-role warning, which both compare trimmed.
+    const trimmed = roles.map((r) => ({ role: r.role.trim(), db: r.db.trim() }));
     setSubmitting(true);
     try {
       if (edited) {
-        await api.role.update({
-          connectionId,
-          dbName: edited.db,
-          role: edited.role,
-          patch: { privileges, roles },
-        });
+        // Each field goes only when it changed: a role listed without
+        // privileges seeds the box with '[]', and sending that back would wipe
+        // the server's list.
+        const patch: RoleUpdateInput['patch'] = {};
+        if (privileges !== initial.privileges) patch.privileges = privileges;
+        if (JSON.stringify(trimmed) !== JSON.stringify(initial.roles)) patch.roles = trimmed;
+        if (Object.keys(patch).length === 0) {
+          close();
+          return;
+        }
+        await api.role.update({ connectionId, dbName: edited.db, role: edited.role, patch });
       } else {
-        await api.role.create({ connectionId, dbName, role: name.trim(), privileges, roles });
+        await api.role.create({ connectionId, dbName, role: name.trim(), privileges, roles: trimmed });
       }
       onSaved();
     } catch (err) {
