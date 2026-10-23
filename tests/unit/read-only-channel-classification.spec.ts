@@ -96,6 +96,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.appOpenExternal,
   IPC_CHANNELS.appSaveFile,
   IPC_CHANNELS.appDiagnosticBundle,
+  IPC_CHANNELS.appSetUnsavedWork,
   IPC_CHANNELS.shellOpenExternal,
   IPC_CHANNELS.prefsGet,
   IPC_CHANNELS.prefsSet,

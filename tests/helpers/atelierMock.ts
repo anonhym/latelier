@@ -45,6 +45,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       openExternal: async () => ({ opened: false }),
       saveFile: async () => ({ path: null }),
       diagnosticBundle: async () => ({ path: null }),
+      setUnsavedWork: async () => {},
       onMenuCommand: () => () => {},
     },
     updates: {
@@ -373,6 +374,7 @@ function makePermissiveStub(): IpcApi {
       openExternal: async () => ({ opened: false }),
       saveFile: async () => ({ path: null }),
       diagnosticBundle: async () => ({ path: null }),
+      setUnsavedWork: async () => {},
       onMenuCommand: () => () => {},
     },
     updates: {

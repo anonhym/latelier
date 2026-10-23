@@ -230,6 +230,12 @@ export interface IpcApi {
      * location. Returns the chosen path, or `null` on user cancel.
      */
     diagnosticBundle: () => Promise<{ path: string | null }>;
+    /**
+     * Reports how much unsaved work one source holds, replacing its last
+     * report, so quitting can name it (F06). Main forgets every report when
+     * the page reloads, crashes or its window closes.
+     */
+    setUnsavedWork: (input: { source: UnsavedWorkSource; count: number }) => Promise<void>;
     /** Native File-menu commands pushed from main; returns the unsubscribe. */
     onMenuCommand: (cb: (command: MenuCommand) => void) => () => void;
   };
@@ -517,6 +523,7 @@ export const IPC_CHANNELS = {
   appOpenExternal: 'app:openExternal',
   appSaveFile:     'app:saveFile',
   appDiagnosticBundle: 'app:diagnosticBundle',
+  appSetUnsavedWork: 'app:setUnsavedWork',
 
   // Auto-update -----------------------------------------
   updatesGetState:   'updates:getState',
@@ -657,3 +664,6 @@ export const IPC_CHANNELS = {
 
 /** Allowed purposes for app:pickFile — restricts the file dialog filter. */
 export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key' | 'data-import';
+
+/** Who reports unsaved work for the quit question: the connection form, or the workspace's dirty pipelines. */
+export type UnsavedWorkSource = 'connectionForm' | 'pipelines';
