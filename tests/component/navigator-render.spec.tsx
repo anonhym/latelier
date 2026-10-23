@@ -76,6 +76,31 @@ describe('DbCollectionNavigator — render', () => {
     expect(screen.getByText('config')).toBeTruthy();
   });
 
+  it('badges a capped collection CAPPED, a view VIEW and a time-series TS, and a plain collection not at all', async () => {
+    const base = { documentCount: 0, sizeBytes: 0, indexCount: 0 };
+    installAtelierMock({
+      meta: {
+        listDatabases: async () => [{ name: 'downlink', sizeOnDisk: 1, empty: false }],
+        listCollections: async () => [
+          { ...base, name: 'plain', type: 'collection', capped: false },
+          { ...base, name: 'log', type: 'collection', capped: true },
+          { ...base, name: 'recent', type: 'view', capped: false },
+          { ...base, name: 'metrics', type: 'timeseries', capped: false },
+        ],
+      },
+    });
+
+    mountNavigator();
+    await screen.findByText('plain');
+
+    const badgeOf = (name: string) => screen.getByTestId(`nav-coll-downlink-${name}`).textContent;
+    expect(badgeOf('plain')).toBe('plain');
+    expect(badgeOf('log')).toBe('logCAPPED');
+    expect(screen.getByTestId('nav-coll-downlink-log').getAttribute('title')).toBe('Capped collection');
+    expect(badgeOf('recent')).toBe('recentVIEW');
+    expect(badgeOf('metrics')).toBe('metricsTS');
+  });
+
   it('filter narrows collections and hides DBs with no match', async () => {
     installAtelierMock({
       meta: {

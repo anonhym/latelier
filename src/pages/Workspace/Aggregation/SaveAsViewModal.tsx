@@ -11,7 +11,13 @@ interface Props {
   connectionId: string;
   dbName: string;
   collection: string;
-  stages: Stage[];
+  /** The builder's stages; required unless `pipelineJson` is given. */
+  stages?: Stage[];
+  /** A ready EJSON pipeline used verbatim (Duplicate view); skips the stage checks. */
+  pipelineJson?: string;
+  /** Seeds the name field; closing with the seed untouched needs no confirm. */
+  initialName?: string;
+  title?: string;
   onClose: () => void;
   onCreated: (name: string) => void;
 }
@@ -20,8 +26,21 @@ interface Props {
  * Saves the builder's enabled stages as a view on the open collection. A view
  * must live in its source's database, so the only field is the name.
  */
-export function SaveAsViewModal({ connectionId, dbName, collection, stages, onClose, onCreated }: Props) {
-  const [name, setName] = React.useState('');
+export function SaveAsViewModal({
+  connectionId,
+  dbName,
+  collection,
+  stages,
+  pipelineJson,
+  initialName,
+  title = 'Save pipeline as view',
+  onClose,
+  onCreated,
+}: Props) {
+  if (stages === undefined && pipelineJson === undefined) {
+    throw new Error('SaveAsViewModal needs either stages or pipelineJson');
+  }
+  const [name, setName] = React.useState(initialName ?? '');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const close = useDialogFocusReturn(onClose);
@@ -31,7 +50,7 @@ export function SaveAsViewModal({ connectionId, dbName, collection, stages, onCl
     // A close mid-create lets the dialog be reopened with a new draft, which
     // the create's completion would then close.
     if (submitting) return;
-    if (name === '') return close();
+    if (name === (initialName ?? '')) return close();
     const discard = await confirmDestructive({
       title: 'Discard changes?',
       body: 'This closes the dialog and loses what you typed.',
@@ -42,18 +61,22 @@ export function SaveAsViewModal({ connectionId, dbName, collection, stages, onCl
 
   const submit = async () => {
     if (!trimmed || submitting) return;
-    // A view only reads, so a write stage is refused here rather than by the server.
-    const writer = stages.find((s) => s.enabled && isWriteStage(s.op));
-    if (writer) {
-      setError(`A view cannot contain ${writer.op}. Disable or remove that stage first.`);
-      return;
-    }
     let pipeline: string;
-    try {
-      pipeline = stagesToPipelineJson(stages);
-    } catch (e) {
-      setError(getErrorMessage(e, String(e)));
-      return;
+    if (pipelineJson !== undefined) {
+      pipeline = pipelineJson;
+    } else {
+      // A view only reads, so a write stage is refused here rather than by the server.
+      const writer = (stages ?? []).find((s) => s.enabled && isWriteStage(s.op));
+      if (writer) {
+        setError(`A view cannot contain ${writer.op}. Disable or remove that stage first.`);
+        return;
+      }
+      try {
+        pipeline = stagesToPipelineJson(stages ?? []);
+      } catch (e) {
+        setError(getErrorMessage(e, String(e)));
+        return;
+      }
     }
     setSubmitting(true);
     setError(null);
@@ -77,7 +100,7 @@ export function SaveAsViewModal({ connectionId, dbName, collection, stages, onCl
     <Modal
       opened
       onClose={() => void requestClose()}
-      title="Save pipeline as view"
+      title={title}
       centered
       size="md"
       closeOnClickOutside={false}

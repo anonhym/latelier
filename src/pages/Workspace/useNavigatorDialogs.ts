@@ -1,9 +1,20 @@
 import React from 'react';
 import type { ContextMenuState } from '../../components/ContextMenu';
 import { notifyCollectionChanged } from '../../state/collectionChanges';
+import { api, getErrorMessage } from '../../api/atelier';
+import { notify } from '../../theme/notifications';
 import type { LoadOptions } from './useNavigatorData';
 
 type MenuState = ContextMenuState;
+
+/** A view being duplicated: its source and pipeline are read before the dialog opens. */
+export interface DuplicateViewTarget {
+  connectionId: string;
+  dbName: string;
+  view: string;
+  viewOn: string;
+  pipelineJson: string;
+}
 
 export function useNavigatorDialogs(deps: {
   refreshDb: (connectionId: string, dbName: string, opts?: LoadOptions) => void;
@@ -21,6 +32,7 @@ export function useNavigatorDialogs(deps: {
   createCollDb: { connectionId: string; dbName: string } | null;
   renameTarget: { connectionId: string; dbName: string; collection: string } | null;
   modifyViewTarget: { connectionId: string; dbName: string; collection: string } | null;
+  duplicateViewTarget: DuplicateViewTarget | null;
   dropCollTarget: { connectionId: string; dbName: string; collection: string } | null;
   importTarget: { connectionId: string; dbName: string; collection: string } | null;
   dropDbTarget: { connectionId: string; dbName: string } | null;
@@ -52,6 +64,9 @@ export function useNavigatorDialogs(deps: {
   handleCollectionRenamed: (newName: string) => void;
   cancelModifyView: () => void;
   handleViewModified: () => void;
+  openDuplicateView: (connectionId: string, dbName: string, view: string) => void;
+  cancelDuplicateView: () => void;
+  handleViewDuplicated: (name: string) => void;
   cancelDropColl: () => void;
   handleCollectionDropped: () => void;
   cancelDropDb: () => void;
@@ -67,6 +82,7 @@ export function useNavigatorDialogs(deps: {
   const [createCollDb, setCreateCollDb] = React.useState<{ connectionId: string; dbName: string } | null>(null);
   const [renameTarget, setRenameTarget] = React.useState<{ connectionId: string; dbName: string; collection: string } | null>(null);
   const [modifyViewTarget, setModifyViewTarget] = React.useState<{ connectionId: string; dbName: string; collection: string } | null>(null);
+  const [duplicateViewTarget, setDuplicateViewTarget] = React.useState<DuplicateViewTarget | null>(null);
   const [dropCollTarget, setDropCollTarget] = React.useState<{ connectionId: string; dbName: string; collection: string } | null>(null);
   const [dropDbTarget, setDropDbTarget] = React.useState<{ connectionId: string; dbName: string } | null>(null);
   const [importTarget, setImportTarget] = React.useState<{ connectionId: string; dbName: string; collection: string } | null>(null);
@@ -103,6 +119,30 @@ export function useNavigatorDialogs(deps: {
     notifyCollectionChanged({ connectionId: cid, dbName: db, collection });
   }, [modifyViewTarget]);
 
+  const openDuplicateView = React.useCallback((connectionId: string, dbName: string, view: string) => {
+    api.meta
+      .collectionDetails({ connectionId, dbName, collection: view })
+      .then((d) => {
+        const { viewOn, pipeline } = d.options;
+        if (!viewOn || pipeline === undefined) {
+          throw new Error(`${view} reports no source collection or pipeline`);
+        }
+        setDuplicateViewTarget({ connectionId, dbName, view, viewOn, pipelineJson: pipeline });
+      })
+      .catch((e: unknown) => notify.error(getErrorMessage(e, 'Could not read the view')));
+  }, []);
+  const cancelDuplicateView = React.useCallback(() => setDuplicateViewTarget(null), []);
+  const handleViewDuplicated = React.useCallback(
+    (name: string) => {
+      if (!duplicateViewTarget) return;
+      const { connectionId: cid, dbName: db } = duplicateViewTarget;
+      setDuplicateViewTarget(null);
+      // The new view is a collection the navigator has not listed yet.
+      notifyCollectionChanged({ connectionId: cid, dbName: db, collection: name });
+    },
+    [duplicateViewTarget],
+  );
+
   const cancelDropColl = React.useCallback(() => setDropCollTarget(null), []);
   const handleCollectionDropped = React.useCallback(() => {
     if (!dropCollTarget) return;
@@ -132,6 +172,7 @@ export function useNavigatorDialogs(deps: {
     createCollDb,
     renameTarget,
     modifyViewTarget,
+    duplicateViewTarget,
     dropCollTarget,
     dropDbTarget,
     importTarget,
@@ -151,6 +192,9 @@ export function useNavigatorDialogs(deps: {
     handleCollectionRenamed,
     cancelModifyView,
     handleViewModified,
+    openDuplicateView,
+    cancelDuplicateView,
+    handleViewDuplicated,
     cancelDropColl,
     handleCollectionDropped,
     cancelDropDb,
