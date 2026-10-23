@@ -8,6 +8,20 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
+// Every gate in front of `findCode` exists so it never throws; making it throw
+// on demand is the only way to reach the copy handler's last-resort catch.
+const findCodeFault = vi.hoisted(() => ({ error: undefined as Error | undefined }));
+vi.mock('../../src/utils/driverCode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/driverCode')>();
+  return {
+    ...actual,
+    findCode: (...args: Parameters<typeof actual.findCode>) => {
+      if (findCodeFault.error) throw findCodeFault.error;
+      return actual.findCode(...args);
+    },
+  };
+});
+
 /**
  * W15 Tier 1 — every statement the composition surface makes about the
  * query it runs is either true or absent.
@@ -483,6 +497,31 @@ describe('W15 §1.1 — Copy code refuses a query that will not run', () => {
     // the clause alone would pass without the toast existing at all.
     expect(await screen.findByText(/Nothing copied — Can't parse this sort/)).toBeTruthy();
     expect(screen.queryByText(/Could not copy to the clipboard/)).toBeNull();
+  });
+
+  it('a quoted hint opening with a brace copies as the index name it quotes', async () => {
+    // `"{x"` names the index `{x`, as main runs it; read as a key pattern it
+    // used to throw out of the menu click and copy nothing.
+    mountWith(makeState({ builder: { projection: [], sort: '', limit: '', hint: '"{x"' } }));
+
+    await clickCopy();
+
+    await waitFor(() => expect(writeTextMock().mock.calls).toHaveLength(1));
+    expect(copiedText()).toContain('.hint("{x")');
+  });
+
+  it('a snippet the generator cannot write says why, and copies nothing', async () => {
+    findCodeFault.error = new Error('findCode: cannot write this clause');
+    try {
+      mountWith(makeState({ queryRaw: '{"status":"active"}' }));
+
+      await clickCopy();
+
+      expect(await screen.findByText('Nothing copied — findCode: cannot write this clause')).toBeTruthy();
+      expect(writeTextMock().mock.calls).toHaveLength(0);
+    } finally {
+      findCodeFault.error = undefined;
+    }
   });
 
   it('still copies a runnable query — the guard is not a blanket refusal', async () => {

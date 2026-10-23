@@ -1831,16 +1831,26 @@ function BuilderPaneInner({
     // there is no Shell Syntax left to repair here. Canonical EJSON is still
     // not shell syntax (`{"$oid": …}` pasted into mongosh is an unknown
     // operator): `findCode` routes such a document through EJSON.parse.
-    const code = findCode(lang, {
-      collection,
-      filter: state.queryRaw,
-      projection: opts.projection,
-      sort: opts.sort,
-      collation: opts.collation,
-      hint: opts.hint,
-      skip,
-      limit,
-    });
+    //
+    // A clause the gates above let through but `findCode` cannot write is a
+    // bug in one of the two; from a menu click it would otherwise surface as
+    // an uncaught page error with nothing copied and nothing said.
+    let code: string;
+    try {
+      code = findCode(lang, {
+        collection,
+        filter: state.queryRaw,
+        projection: opts.projection,
+        sort: opts.sort,
+        collation: opts.collation,
+        hint: opts.hint,
+        skip,
+        limit,
+      });
+    } catch (err) {
+      notify.error(`Nothing copied — ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     void copyToClipboard(code, 'Command copied to the clipboard');
   };
 

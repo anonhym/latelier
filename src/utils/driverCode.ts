@@ -1,4 +1,4 @@
-import { isExactSentinel } from './ejson';
+import { isEjsonDocument, isExactSentinel } from './ejson';
 import { parseJsonKeepingBigInts } from './bigIntJson';
 
 /**
@@ -58,6 +58,8 @@ type Syntax = {
   yes: string;
   no: string;
   negZero: string;
+  inf: string;
+  negInf: string;
   key: (k: string) => string;
   sentinel: (json: string) => string;
 };
@@ -67,6 +69,8 @@ const JS: Syntax = {
   yes: 'true',
   no: 'false',
   negZero: '-0',
+  inf: 'Infinity',
+  negInf: '-Infinity',
   // `"__proto__": v` in an object literal sets the prototype instead of adding
   // the field; a computed key adds it.
   key: (k) => (k === '__proto__' ? `[${str(k)}]` : str(k)),
@@ -77,6 +81,10 @@ const PY: Syntax = {
   yes: 'True',
   no: 'False',
   negZero: '-0.0',
+  // A JSON number past the double range parses to ±Infinity; Python has no
+  // `Infinity` name, so the bare spelling would raise NameError.
+  inf: "float('inf')",
+  negInf: "float('-inf')",
   key: str,
   sentinel: (json) => `json_util.loads(${str(json)})`,
 };
@@ -85,7 +93,12 @@ const PY: Syntax = {
 function literal(node: unknown, syn: Syntax): string {
   if (node === null) return syn.nul;
   if (typeof node === 'boolean') return node ? syn.yes : syn.no;
-  if (typeof node === 'number') return Object.is(node, -0) ? syn.negZero : String(node);
+  if (typeof node === 'number') {
+    if (Object.is(node, -0)) return syn.negZero;
+    if (node === Infinity) return syn.inf;
+    if (node === -Infinity) return syn.negInf;
+    return String(node);
+  }
   if (typeof node === 'string') return str(node);
   if (Array.isArray(node)) return `[${node.map((v) => literal(v, syn)).join(',')}]`;
   const obj = node as Record<string, unknown>;
@@ -129,8 +142,14 @@ function pySort(text: string): string {
   return literal(Object.fromEntries(dirs), PY);
 }
 
-/** A hint opening with `{` is a key pattern, any other text an index name (`findOptionProblems`). */
-const isKeyPattern = (hint: string): boolean => hint.startsWith('{');
+/**
+ * A hint that parses to a plain document is a key pattern, any other text an
+ * index name — the rule main's `parseHint` runs the query by, so the snippet
+ * names the index the screen used. Not "opens with `{`": a quoted `"{x"`
+ * arrives here as the index name `{x`, and a sentinel such as `{"$oid":…}`
+ * is no plain document.
+ */
+const isKeyPattern = isEjsonDocument;
 
 export function findCode(lang: CodeLang, input: FindCodeInput): string {
   const { collection, filter, projection, sort, collation, hint, skip, limit } = input;
