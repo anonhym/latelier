@@ -42,7 +42,7 @@ describe('recentValuesSource', () => {
     const { recentValuesSource } = await loadModule();
     const out = await recentValuesSource(ctx('status'));
     expect(out).toEqual([
-      { kind: 'value', value: 'shipped', display: 'shipped', source: 'recent', frequency: 3 },
+      { kind: 'value', value: 'shipped', display: 'shipped', type: 'string', source: 'recent', frequency: 3 },
     ]);
   });
 

@@ -61,6 +61,8 @@ async function loadEntry(
           kind: 'value',
           value: v.value,
           display: v.value,
+          // Every ValType is also a DisplayType name.
+          type: v.valType,
           source: 'recent',
           frequency: v.frequency,
         })),

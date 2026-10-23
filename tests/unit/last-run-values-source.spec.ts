@@ -97,4 +97,14 @@ describe('lastRunValuesSource', () => {
     expect(out).toHaveLength(50);
     expect(out.map((s) => s.display)).not.toContain('s59');
   });
+
+  it('tags each value with its source, display type and count', () => {
+    const out = sync(
+      lastRunValuesSource(ctx(' n ', { recentDocs: [{ n: 1 }, { n: 1 }, { n: 'a' }] })),
+    );
+    expect(out).toEqual([
+      { kind: 'value', value: '1', display: '1', type: 'number', source: 'lastRun', frequency: 2 },
+      { kind: 'value', value: 'a', display: 'a', type: 'string', source: 'lastRun', frequency: 1 },
+    ]);
+  });
 });
