@@ -8,7 +8,6 @@ import {
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { isContextMenuKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
-import { Popover } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import { ownGet, ownSet } from '../../../utils/ownProperty';
@@ -28,6 +27,7 @@ import { DocFieldTree, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId, isInlineEditableKind, reviveTableValue } from './docId';
 import { kindOf, parseAs, textOf, type FieldKind } from '../documentFieldTypes';
 import { SelectToggle } from './SelectToggle';
+import { FullValuePopover } from './FullValuePopover';
 import { RowActionsMenu } from './RowActionsMenu';
 import { FieldActionsMenu } from './FieldActionsMenu';
 import { useAddToFilter } from './useAddToFilter';
@@ -613,64 +613,13 @@ function TableCell({
           row-select / drag / dblclick-copy / contextmenu (own
           stopPropagation, and pointer-events are off until hovered). */}
       {draggable && !editing && (
-        <Popover
+        <FullValuePopover
+          display={String(display)}
+          isString={dv.type === 'string'}
           opened={expandOpen}
           onChange={setExpandOpen}
-          position="bottom-start"
-          withinPortal
-          shadow="md"
-          // #79 — without this, closing on a click outside a focusable
-          // element drops focus to <body>. Safe here because this dropdown
-          // has no focusable content to autofocus (see `FieldsControl`'s
-          // comment for why an autofocus would break this).
-          returnFocus
-        >
-          <Popover.Target>
-            <button
-              aria-label="Expand cell value"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpandOpen(true);
-              }}
-              style={{
-                position: 'absolute',
-                right: 2,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                opacity: affordanceVisible ? 1 : 0,
-                pointerEvents: affordanceVisible ? 'auto' : 'none',
-                width: 16,
-                height: 16,
-                padding: 0,
-                border: 'none',
-                borderRadius: 3,
-                background: 'var(--atelier-surface-raised)',
-                color: 'var(--atelier-text-ghost)',
-                cursor: 'pointer',
-                fontSize: 10,
-                lineHeight: '16px',
-              }}
-            >
-              ⤢
-            </button>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <div
-              style={{
-                maxWidth: 320,
-                maxHeight: 240,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: 11,
-                color: 'var(--atelier-text)',
-              }}
-            >
-              {dv.type === 'string' ? `"${display}"` : display}
-            </div>
-          </Popover.Dropdown>
-        </Popover>
+          visible={affordanceVisible}
+        />
       )}
     </div>
   );
