@@ -28,6 +28,7 @@
     "src/hooks/useRovingFocus.ts",
     "src/hooks/useMenuFocus.ts",
     "src/utils/contextMenuKey.ts",
+    "src/state/connectionPins.ts",
     "src/pages/Workspace/views/docFieldFlatten.ts",
     "src/pages/Workspace/views/fieldPathKey.ts",
     "src/pages/Workspace/builder.ts",

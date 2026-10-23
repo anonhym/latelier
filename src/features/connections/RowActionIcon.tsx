@@ -17,11 +17,14 @@ import { ActionIcon, Tooltip } from '@mantine/core';
 export function RowActionIcon({
   label,
   color = 'gray',
+  pressed,
   onClick,
   children,
 }: {
   label: string;
   color?: 'gray' | 'red';
+  /** Makes this a toggle button; omitted for a plain action. */
+  pressed?: boolean;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }) {
@@ -32,6 +35,7 @@ export function RowActionIcon({
         color={color}
         size="sm"
         aria-label={label}
+        aria-pressed={pressed}
         onClick={(e) => {
           e.stopPropagation();
           onClick(e);

@@ -18,6 +18,7 @@ const VALID: Record<string, unknown> = {
   'ui.workspace.restoreTabs': false,
   'ui.workspace.documentEditorSize': { width: 600, height: 400 },
   'ui.commandPalette.mru': ['tab.new', 'query.run'],
+  'ui.connections.pinned': [UUID],
   [CONN_KEY]: true,
 };
 
@@ -76,11 +77,20 @@ describe('prefKeys', () => {
     ['ui.commandPalette.mru', [1]],
     ['ui.commandPalette.mru', Array.from({ length: 17 }, () => 'a')],
     ['ui.commandPalette.mru', ['x'.repeat(513)]],
+    ['ui.connections.pinned', UUID],
+    ['ui.connections.pinned', ['not-a-uuid']],
+    ['ui.connections.pinned', [1]],
+    ['ui.connections.pinned', [UUID.slice(1)]],
+    ['ui.connections.pinned', Array.from({ length: 501 }, () => UUID)],
   ])('%s rejects %j', (key, value) => {
     expect(prefSetSchema(key)?.safeParse(value).success).toBe(false);
   });
 
   it('bounds hold at the limit', () => {
+    expect(
+      prefSetSchema('ui.connections.pinned')?.safeParse(Array.from({ length: 500 }, () => UUID)).success,
+    ).toBe(true);
+    expect(prefSetSchema('ui.connections.pinned')?.safeParse([]).success).toBe(true);
     expect(
       prefSetSchema('ui.users.lastDb')?.safeParse('x'.repeat(1024)).success,
     ).toBe(true);

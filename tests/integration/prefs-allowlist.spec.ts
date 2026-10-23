@@ -28,6 +28,7 @@ const ROUND_TRIPS: Array<[string, unknown]> = [
   ['ui.workspace.restoreTabs', false],
   ['ui.workspace.documentEditorSize', { width: 600, height: 400 }],
   ['ui.commandPalette.mru', ['tab.new', 'tab.open:shop:orders']],
+  ['ui.connections.pinned', [UUID]],
   [`ui.workspace.navigator.connExpanded:${UUID}`, true],
 ];
 
@@ -134,6 +135,19 @@ describe('prefs key allowlist and the main-confirmed plaintext switch', () => {
       await invoke(IPC_CHANNELS.prefsSet, { key, value: Array.from({ length: 17 }, () => 'a') }),
     );
     expect(appState.get(key)).toBeNull();
+  });
+
+  it('bounds the pinned connections: UUID strings only, at most 500 of them', async () => {
+    const { appState, invoke } = setup();
+    const key = 'ui.connections.pinned';
+    expectValidation(await invoke(IPC_CHANNELS.prefsSet, { key, value: [UUID, 'not-a-uuid'] }));
+    expectValidation(
+      await invoke(IPC_CHANNELS.prefsSet, { key, value: Array.from({ length: 501 }, () => UUID) }),
+    );
+    expect(appState.get(key)).toBeNull();
+    expect(
+      (await invoke(IPC_CHANNELS.prefsSet, { key, value: Array.from({ length: 500 }, () => UUID) })).ok,
+    ).toBe(true);
   });
 
   describe('secrets:set-plaintext-fallback', () => {
