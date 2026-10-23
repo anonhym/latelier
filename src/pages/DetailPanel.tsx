@@ -13,13 +13,14 @@ import type {
 import type { ConnectionRuntime, ConnectionSummary } from '@shared/types';
 import { UsersTab } from './UsersTab';
 import { RolesTab } from './RolesTab';
+import { MonitorTab } from './MonitorTab';
 import { CreateCollectionDrawer } from './Workspace/CreateCollectionDrawer';
 import { useTroubleshooting } from '../troubleshooting/TroubleshootingContext';
 import { relativeTime } from '../utils/relativeTime';
 import { ownGet } from '../utils/ownProperty';
 import { humanBytes } from '../utils/humanBytes';
 
-const TABS = ['Overview', 'Collections', 'Users', 'Roles'] as const;
+const TABS = ['Overview', 'Monitor', 'Collections', 'Users', 'Roles'] as const;
 type Tab = typeof TABS[number];
 
 function humanDuration(s: number): string {
@@ -695,6 +696,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
 
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'Overview' && <OverviewTab conn={selected} runtime={effective} />}
+        {activeTab === 'Monitor' && <MonitorTab conn={selected} runtime={effective} />}
         {activeTab === 'Collections' && <CollectionsTab conn={selected} runtime={effective} />}
         {activeTab === 'Users' && <UsersTab conn={selected} runtime={effective} />}
         {activeTab === 'Roles' && <RolesTab conn={selected} runtime={effective} />}

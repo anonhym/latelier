@@ -330,3 +330,26 @@ describe('DetailPanel Collections', () => {
     await screen.findByText('widgets');
   });
 });
+
+describe('DetailPanel Monitor tab', () => {
+  it('sits right after Overview and opens the monitor', async () => {
+    const currentOp = vi.fn(async () => ({ ops: [] }));
+    installAtelierMock({
+      mongo: {
+        status: async (id) => ({ id, status: 'connected', serverVersion: '7.0.0' }),
+        onStatus: () => () => { /* ok */ },
+      },
+      admin: { currentOp },
+    });
+    renderDetail(baseConn);
+    const tabs = ['Overview', 'Monitor', 'Collections'].map((name) =>
+      screen.getByRole('button', { name }),
+    );
+    expect(tabs[0]!.compareDocumentPosition(tabs[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tabs[1]!.compareDocumentPosition(tabs[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await userEvent.click(tabs[1]!);
+    expect(await screen.findByRole('region', { name: 'Current operations' })).toBeTruthy();
+    await waitFor(() => expect(currentOp).toHaveBeenCalled());
+  });
+});
