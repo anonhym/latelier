@@ -100,6 +100,13 @@
   --atelier-shadow-lg:      0 8px 32px rgba(0,0,0,0.55);
   /* Number syntax color */
   --atelier-color-number:   #90caf9;
+  /* Editor syntax (editorTheme.ts). Each is held to 4.5:1 on --atelier-surface by
+     tests/unit/editor-theme-contrast.spec.ts; comments only need 3:1. */
+  --atelier-syn-keyword:    #c4a7ff;
+  --atelier-syn-string:     #8fd5a0;
+  --atelier-syn-property:   #7dd3c8;
+  --atelier-syn-comment:    #8b98a5;
+  --atelier-syn-punct:      #a9b4c0;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
