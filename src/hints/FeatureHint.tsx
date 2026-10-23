@@ -68,10 +68,10 @@ export function FeatureHint({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [shown]);
 
-  // Dismiss, handing focus back to where F6 found it, but only if it was in the hint.
+  // Dismiss, handing focus back to where F6 found it. The blur handler forgets that
+  // spot once focus leaves the hint, so a hint focus never reached restores nothing.
   const leave = () => {
-    const back = paperRef.current?.contains(document.activeElement) ? returnFocusRef.current : null;
-    returnFocusRef.current = null;
+    const back = returnFocusRef.current;
     onDismiss();
     if (back?.isConnected) back.focus();
   };

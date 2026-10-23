@@ -106,6 +106,7 @@ describe('<FeatureHint> focus', () => {
     );
   }
 
+  // fireEvent returns false when the event was default-prevented.
   const pressF6 = () => fireEvent.keyDown(window, { key: 'F6' });
 
   it('leaves focus where it is when the hint appears, and announces the title', async () => {
@@ -126,7 +127,7 @@ describe('<FeatureHint> focus', () => {
     render(<Harness onDismiss={() => {}} />);
     await screen.findByRole('dialog');
     screen.getByLabelText('Filter').focus();
-    pressF6();
+    expect(pressF6()).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Got it' }));
   });
 
@@ -140,7 +141,7 @@ describe('<FeatureHint> focus', () => {
     await screen.findByRole('dialog', { name: 'Link this field to another doc?' });
     const input = screen.getByLabelText('Filter');
     input.focus();
-    pressF6();
+    expect(pressF6()).toBe(true);
     expect(document.activeElement).toBe(input);
   });
 
@@ -211,6 +212,21 @@ describe('<FeatureHint> focus', () => {
     fireEvent.keyDown(gotIt, { key: 'Tab' });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Dismiss hint' }));
     fireEvent.keyDown(screen.getByRole('button', { name: 'Dismiss hint' }), { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(gotIt);
+  });
+
+  it('a later visit that did not start with F6 does not jump back to the earlier spot', async () => {
+    render(<Harness onDismiss={() => {}} />);
+    await screen.findByRole('dialog');
+    const input = screen.getByLabelText('Filter');
+    input.focus();
+    pressF6();
+    const gotIt = screen.getByRole('button', { name: 'Got it' });
+    fireEvent.click(gotIt);
+    expect(document.activeElement).toBe(input);
+    // Tabbed in this time: the hint (still mounted, as the parent ignores onDismiss) has no spot to go back to.
+    act(() => gotIt.focus());
+    fireEvent.click(gotIt);
     expect(document.activeElement).toBe(gotIt);
   });
 
