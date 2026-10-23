@@ -244,4 +244,43 @@ describe('RecentQueryService', () => {
     // After 205 inserts the count must not exceed 200
     expect(list.length).toBeLessThanOrEqual(200);
   });
+
+  // Runs recorded in the same millisecond share `ran_at`. Without a
+  // tiebreaker their order is whatever the query plan yields, which can swap
+  // identical runs apart and break the Recent tab's adjacency merge. The
+  // later insert counts as newer.
+  describe('same-millisecond runs order deterministically, newest insert first', () => {
+    const SAME = '2026-10-22T10:00:00.000Z';
+    function row(id: string, collection = 'orders') {
+      return {
+        id,
+        connection_id: CONNECTION_ID,
+        db_name: 'shop',
+        collection,
+        kind: 'find' as const,
+        payload_json: '{}',
+        ran_at: SAME,
+        duration_ms: 1,
+        result_count: null,
+        error_code: null,
+      };
+    }
+
+    it('list returns ties in reverse insertion order, with and without filters and limits', () => {
+      // Ids chosen so neither id nor insertion order alone sorts them DESC.
+      for (const id of ['m', 'z', 'a']) repo.insert(row(id));
+      expect(repo.list().map((r) => r.id)).toEqual(['a', 'z', 'm']);
+      expect(repo.list({ connectionId: CONNECTION_ID }).map((r) => r.id)).toEqual(['a', 'z', 'm']);
+      expect(
+        repo.list({ connectionId: CONNECTION_ID, dbName: 'shop', collection: 'orders', kind: 'find', limit: 2 })
+          .map((r) => r.id),
+      ).toEqual(['a', 'z']);
+    });
+
+    it('eviction among ties drops the earliest inserts', () => {
+      for (const id of ['m', 'z', 'a']) repo.insert(row(id));
+      repo.deleteOldestByConnection(CONNECTION_ID, 2);
+      expect(repo.list().map((r) => r.id)).toEqual(['a', 'z']);
+    });
+  });
 });
