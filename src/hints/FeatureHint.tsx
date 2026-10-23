@@ -1,5 +1,15 @@
 import React from 'react';
-import { ActionIcon, Button, Group, Paper, Portal, Stack, Text } from '@mantine/core';
+import {
+  ActionIcon,
+  Button,
+  FocusTrap,
+  Group,
+  Paper,
+  Portal,
+  Stack,
+  Text,
+  VisuallyHidden,
+} from '@mantine/core';
 import { I } from '../icons';
 import { HINT_REGISTRY } from './registry';
 import type { FeatureHintId } from '@shared/types';
@@ -15,6 +25,11 @@ interface FeatureHintProps {
   anchorSelector?: string;
 }
 
+// A hint appears while the user is typing, so it never takes focus on its own:
+// it is announced through a polite live region instead. F6 is the deliberate
+// way in; focus is then trapped inside until the hint is dismissed, and goes
+// back to where it was.
+//
 // Discovers an anchor element via [data-hint-anchor="<id>"] (or override),
 // then renders a positioned Paper popover centered below it. Mantine handles
 // theming + dark mode via CSS variables; positioning stays manual because
@@ -30,6 +45,36 @@ export function FeatureHint({
   const copy = HINT_REGISTRY[id];
   const selector = anchorSelector ?? `[data-hint-anchor="${id}"]`;
   const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  const paperRef = React.useRef<HTMLDivElement | null>(null);
+  const gotItRef = React.useRef<HTMLButtonElement | null>(null);
+  // Where focus was when F6 pulled it into the hint; null when it got there another way.
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const [focusInside, setFocusInside] = React.useState(false);
+  const bodyId = React.useId();
+  const shown = visible && pos !== null;
+
+  React.useEffect(() => {
+    if (!shown) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'F6') return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const active = document.activeElement;
+      e.preventDefault();
+      if (paperRef.current?.contains(active)) return;
+      returnFocusRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      gotItRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [shown]);
+
+  // Dismiss, handing focus back to where F6 found it, but only if it was in the hint.
+  const leave = () => {
+    const back = paperRef.current?.contains(document.activeElement) ? returnFocusRef.current : null;
+    returnFocusRef.current = null;
+    onDismiss();
+    if (back?.isConnected) back.focus();
+  };
 
   React.useEffect(() => {
     if (!visible) return;
@@ -61,9 +106,27 @@ export function FeatureHint({
 
   return (
     <Portal>
-      <Paper
+      <VisuallyHidden role="status" aria-live="polite">
+        {copy.title}
+      </VisuallyHidden>
+      <FocusTrap active={focusInside} innerRef={paperRef}>
+        <Paper
         role="dialog"
+        aria-modal="false"
         aria-label={copy.title}
+        aria-describedby={bodyId}
+        onFocus={() => setFocusInside(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) {
+            setFocusInside(false);
+            returnFocusRef.current = null;
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Escape') return;
+          e.stopPropagation();
+          leave();
+        }}
         data-feature-hint={id}
         shadow="lg"
         withBorder
@@ -82,14 +145,14 @@ export function FeatureHint({
             <Text size="sm" fw={600}>
               {copy.title}
             </Text>
-            <Text size="xs" c="dimmed" lh={1.45}>
+            <Text id={bodyId} size="xs" c="dimmed" lh={1.45}>
               {copy.body}
             </Text>
           </Stack>
           <ActionIcon
             variant="subtle"
             size="sm"
-            onClick={onDismiss}
+            onClick={leave}
             aria-label="Dismiss hint"
           >
             {I.close}
@@ -102,17 +165,18 @@ export function FeatureHint({
               variant="light"
               onClick={() => {
                 onCta();
-                onDismiss();
+                leave();
               }}
             >
               {copy.ctaLabel}
             </Button>
           )}
-          <Button size="compact-xs" variant="subtle" onClick={onDismiss}>
+          <Button ref={gotItRef} data-autofocus size="compact-xs" variant="subtle" onClick={leave}>
             Got it
           </Button>
         </Group>
-      </Paper>
+        </Paper>
+      </FocusTrap>
     </Portal>
   );
 }
