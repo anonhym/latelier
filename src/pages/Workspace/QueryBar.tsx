@@ -629,6 +629,8 @@ function QueryBarInner({
             onFocus={autocomplete.probe}
             onBlur={handleBlur}
             spellCheck={false}
+            // No visible label cell names this one, unlike sort and limit.
+            aria-label="Query filter"
             data-testid="query-bar-input"
             // X14 §5 — the textarea had neither, so the one control that
             // most often refuses input was the only one whose complaint never
