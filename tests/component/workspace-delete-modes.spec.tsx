@@ -172,6 +172,51 @@ describe('workspace delete modes (T1)', () => {
     expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  // W14 §9 — a hint naming a sparse index can show fewer documents than the
+  // filter matches, so the tab's hint has to reach the dialogs too.
+  it('"Delete all matching…" and "Update all matching…" refuse while the tab has a hint', async () => {
+    const hinted = tab({
+      queryRaw: '{"status":"pending"}',
+      builder: { projection: [], sort: '', limit: '', hint: 'status_1_sparse' },
+    });
+    installAtelierMock({
+      tabs: { list: async () => [hinted] },
+      conn: { list: async () => [connectionFixture({ id: 'c1' })] },
+      doc: { confirmDeleteMany: async () => ({ count: 2, confirmToken: 'tok-1' }) },
+    });
+    mountWorkspace();
+
+    await screen.findByText(/widget/);
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
+    fireEvent.click(screen.getByText('Delete all matching…'));
+    const del = await screen.findByRole('dialog', { name: 'Delete 2 matching documents?' });
+    expect(within(del).getByText(/^Clear the hint to delete by filter/)).toBeTruthy();
+    expect((within(del).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
+    fireEvent.click(screen.getByText('Update all matching…'));
+    const upd = await screen.findByRole('dialog', { name: 'Update all matching documents' });
+    expect(within(upd).getByText(/^Clear the hint to update by filter/)).toBeTruthy();
+  });
+
+  it('a row "Delete" is not refused by the tab hint: it deletes by _id', async () => {
+    installAtelierMock({
+      tabs: {
+        list: async () => [tab({ builder: { projection: [], sort: '', limit: '', hint: 'status_1_sparse' } })],
+      },
+      conn: { list: async () => [connectionFixture({ id: 'c1' })] },
+    });
+    mountWorkspace();
+
+    await screen.findByText(/widget/);
+    fireEvent.click(screen.getByTitle('Delete document'));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    expect(within(dialog).queryByText(/Clear the hint/)).toBeNull();
+    expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   // falling through to DeleteConfirm's `filter ?? '{}'` default here
   // would count/delete the *entire* collection. `openDeleteAllModal` must
   // refuse to open the dialog at all when the tab's filter text is blank or

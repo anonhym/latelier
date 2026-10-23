@@ -21,6 +21,9 @@ interface UpdateConfirmProps {
    *  the filter, so with a collation set they would update a different set
    *  of documents than the one on screen: the update is refused instead. */
   collation?: string;
+  /** The tab's hint (W14 §9), refused the same way: a hinted sparse index
+   *  can show fewer documents than the filter matches. */
+  hint?: string;
   readOnly?: boolean;
   onClose: () => void;
   /** `auditId` is set when the update can be undone — within X13's bulk
@@ -52,6 +55,7 @@ export function UpdateConfirm({
   collection,
   filter,
   collation,
+  hint,
   readOnly = false,
   onClose,
   onUpdated,
@@ -194,8 +198,10 @@ export function UpdateConfirm({
 
   const matchesCollectionName = confirm === collection;
   const collationSet = !!collation?.trim();
-  const reviewDisabled = readOnly || collationSet || reviewing || !isValid;
-  const updateDisabled = readOnly || collationSet || running || reviewed === null || !matchesCollectionName;
+  const hintSet = !!hint?.trim();
+  const optionBlocks = collationSet || hintSet;
+  const reviewDisabled = readOnly || optionBlocks || reviewing || !isValid;
+  const updateDisabled = readOnly || optionBlocks || running || reviewed === null || !matchesCollectionName;
 
   // States a fact about this specific action (ADR 0013); no line until
   // Review runs `confirmUpdateMany`, since the count isn't known before
@@ -228,6 +234,12 @@ export function UpdateConfirm({
         {collationSet && (
           <Alert color="yellow" variant="light" role="alert">
             Clear the collation to update by filter: it would change which documents match.
+          </Alert>
+        )}
+
+        {hintSet && (
+          <Alert color="yellow" variant="light" role="alert">
+            Clear the hint to update by filter: a hinted sparse index can show fewer documents than the filter matches.
           </Alert>
         )}
 

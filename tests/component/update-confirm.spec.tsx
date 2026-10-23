@@ -325,6 +325,49 @@ describe('UpdateConfirm', () => {
     expect(screen.queryByText(/Clear the collation/)).toBeNull();
   });
 
+  // W14 §9 — a hint can name a sparse index, so the documents on screen can
+  // be fewer than the filter matches, and `updateMany` sends only the filter.
+  it('disables Review and says why when the tab has a hint; a blank hint does not', () => {
+    const confirmUpdateMany = vi.fn();
+    installAtelierMock({ doc: { confirmUpdateMany } });
+    const { unmount } = render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"name":"a"}'
+        hint='{"name":1}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    expect(reviewBtn().disabled).toBe(true);
+    fireEvent.click(reviewBtn());
+    expect(confirmUpdateMany).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        'Clear the hint to update by filter: a hinted sparse index can show fewer documents than the filter matches.',
+      ),
+    ).toBeTruthy();
+    unmount();
+
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"name":"a"}'
+        hint=" "
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    expect(reviewBtn().disabled).toBe(false);
+    expect(screen.queryByText(/Clear the hint/)).toBeNull();
+  });
+
   it('a VALIDATION refusal from confirmUpdateMany surfaces via the alert, with no Update button', async () => {
     installAtelierMock({
       doc: {

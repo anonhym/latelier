@@ -383,14 +383,17 @@ collapsed badge counts set options and their problems (§2).
 
 ### Writes and pipelines
 
-- **Delete and update by filter refuse while a collation is set.**
+- **Delete and update by filter refuse while a collation or a hint is set.**
   `doc:confirmDeleteMany`/`deleteMany` and `doc:confirmUpdateMany`/`updateMany`
   send only `filterJson`, so with a collation they would act on a different set
-  than the one on screen. `DeleteConfirm` (delete by the tab's filter) and
-  `UpdateConfirm` say "Clear the collation to delete/update by filter: it would
-  change which documents match" and disable the confirm. A delete of selected
-  documents or of one document is unaffected. Carrying the collation through
-  the four doc channels is a follow-up, only if asked.
+  than the one on screen, and with a hint naming a sparse index the screen can
+  show fewer documents than the filter matches. `DeleteConfirm` (delete by the
+  tab's filter) and `UpdateConfirm` say "Clear the collation to delete/update by
+  filter: it would change which documents match" or "Clear the hint to
+  delete/update by filter: a hinted sparse index can show fewer documents than
+  the filter matches", and disable the confirm. A delete of selected documents
+  (by `_id`) or of one document is unaffected. Carrying the options through the
+  four doc channels is a follow-up, only if asked.
 - **Open as pipeline refuses a collation or a hint**: the aggregate channel
   carries neither.
 - **Copy code carries the collation and the hint** in all three languages
@@ -413,7 +416,7 @@ collapsed badge counts set options and their problems (§2).
 - Changing an option changes the run key and asks for a new plan.
 - A Recent rerun and a saved query keep the options.
 - Delete all matching and Update all matching are refused while a collation
-  is set; Open as pipeline is refused with a collation or a hint.
+  or a hint is set; Open as pipeline is refused with a collation or a hint.
 - Copy code emits the collation and the hint, and neither `maxTimeMS` nor the
   read preference.
 - The delete confirm's type-to-confirm input is named "Type <collection> to

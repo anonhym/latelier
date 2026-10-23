@@ -418,6 +418,77 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
   });
 });
 
+// W14 §9 — a hint can name a sparse index, so the documents on screen can be
+// fewer than the filter matches, and `deleteMany` sends only the filter.
+describe('DeleteConfirm — a hint refuses a delete by filter', () => {
+  const HINT_TEXT = 'Clear the hint to delete by filter: a hinted sparse index can show fewer documents than the filter matches.';
+
+  it('disables Delete and says why, even once the name is typed and the count resolved', async () => {
+    const deleteMany = vi.fn();
+    installAtelierMock({
+      doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }), deleteMany },
+    });
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"name":"a"}'
+        hint="name_1_sparse"
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(HINT_TEXT)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
+      target: { value: 'orders' },
+    });
+    const del = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    fireEvent.click(del);
+    expect(deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('a blank hint, or a single-document delete, is not refused', async () => {
+    installAtelierMock({ doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }) } });
+    const { unmount } = render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"name":"a"}'
+        hint="  "
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
+      target: { value: 'orders' },
+    });
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+    unmount();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1' }]}
+        hint="name_1_sparse"
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+    expect(screen.queryByText(/Clear the hint/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe('DeleteConfirm — Undo hand-off', () => {
   it('passes the Reversible entry id of a single-document delete to onDeleted', async () => {
     installAtelierMock({ doc: { deleteOne: async () => ({ deletedCount: 1, auditId: 'a1' }) } });

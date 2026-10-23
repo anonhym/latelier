@@ -18,6 +18,9 @@ interface DeleteConfirmProps {
    *  collation set they would delete a different set of documents than the
    *  one on screen: a filter-wide delete is refused instead. */
   collation?: string;
+  /** The tab's hint (W14 §9), refused the same way: a hinted sparse index
+   *  can show fewer documents than the filter matches. */
+  hint?: string;
   /** Disables the confirm button outright rather than letting the
    * user complete the confirmation flow only to hit a server-side rejection. */
   readOnly?: boolean;
@@ -48,6 +51,7 @@ export function DeleteConfirm({
   docs,
   filter,
   collation,
+  hint,
   readOnly = false,
   onClose,
   onDeleted,
@@ -74,6 +78,7 @@ export function DeleteConfirm({
 
   const isMulti = docs.length > 1 || !!filter;
   const collationBlocks = isMulti && !!collation?.trim();
+  const hintBlocks = isMulti && !!hint?.trim();
   const matchesCollectionName = confirm === collection;
   // The filter this delete is scoped to — same string for the count fetch
   // and the eventual `deleteMany` so the token (bound server-side to this
@@ -186,6 +191,7 @@ export function DeleteConfirm({
   const deleteDisabled =
     readOnly ||
     collationBlocks ||
+    hintBlocks ||
     (isMulti &&
       (!matchesCollectionName ||
         countState.status !== 'ready' ||
@@ -224,6 +230,12 @@ export function DeleteConfirm({
         {collationBlocks && (
           <Alert color="yellow" variant="light" role="alert">
             Clear the collation to delete by filter: it would change which documents match.
+          </Alert>
+        )}
+
+        {hintBlocks && (
+          <Alert color="yellow" variant="light" role="alert">
+            Clear the hint to delete by filter: a hinted sparse index can show fewer documents than the filter matches.
           </Alert>
         )}
 
