@@ -18,6 +18,12 @@ const entry = (n: number, level: ActivityEntry['level'] = 'error'): ActivityEntr
 beforeEach(() => clearActivity());
 
 describe('activity log', () => {
+  it('is empty when the module first loads, as after a restart', async () => {
+    vi.resetModules();
+    const fresh = await import('../../src/theme/activityLog');
+    expect(fresh.getActivity()).toEqual([]);
+  });
+
   it('starts empty and lists entries newest first', () => {
     expect(getActivity()).toEqual([]);
     recordActivity(entry(1));
