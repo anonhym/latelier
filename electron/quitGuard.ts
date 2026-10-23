@@ -44,8 +44,7 @@ export function describeRunningWork({
   if (imports > 0) running.push(plural(imports, 'import'));
   if (aggregations > 0) running.push(plural(aggregations, 'aggregation'));
   const unsaved: string[] = [];
-  if (unsavedForms === 1) unsaved.push('the connection form');
-  else if (unsavedForms > 1) unsaved.push(`${unsavedForms} connection forms`);
+  if (unsavedForms > 0) unsaved.push(unsavedForms === 1 ? 'the connection form' : `${unsavedForms} connection forms`);
   if (unsavedPipelines > 0) unsaved.push(`${unsavedPipelines} pipeline${unsavedPipelines === 1 ? '' : 's'}`);
   const sentences: string[] = [];
   if (running.length > 0) sentences.push(`This will stop ${list(running)}.`);
