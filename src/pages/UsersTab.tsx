@@ -624,8 +624,6 @@ function UserDrawer({
   const [username, setUsername] = React.useState(initial.username);
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [showConfirm, setShowConfirm] = React.useState(false);
   const [roles, setRoles] = React.useState<UserRoleRef[]>(initial.roles);
   const [scram256, setScram256] = React.useState(initial.scram256);
   const [scram1, setScram1] = React.useState(initial.scram1);
@@ -795,7 +793,9 @@ function UserDrawer({
           <DrawerSection title="Password">
             {/* Mantine's reveal toggle is out of the tab order by default;
                 `visibilityToggleFocusable` puts it back so the keyboard can
-                reach it, and the label follows the state it switches to. */}
+                reach it. It is a toggle button: the name stays fixed and
+                Mantine's aria-pressed carries the state — a name that flipped
+                to "Hide" would announce as "Hide password, pressed". */}
             <PasswordInput
               aria-label="Password"
               size="xs"
@@ -803,12 +803,8 @@ function UserDrawer({
               value={password}
               onChange={(e) => setPassword(e.currentTarget.value)}
               placeholder={editing ? 'Leave blank to keep current password' : ''}
-              visible={showPassword}
-              onVisibilityChange={setShowPassword}
               visibilityToggleFocusable
-              visibilityToggleButtonProps={{
-                'aria-label': showPassword ? 'Hide password' : 'Show password',
-              }}
+              visibilityToggleButtonProps={{ 'aria-label': 'Show password' }}
             />
             <PasswordInput
               aria-label="Confirm password"
@@ -818,12 +814,8 @@ function UserDrawer({
               value={confirm}
               onChange={(e) => setConfirm(e.currentTarget.value)}
               placeholder="Confirm"
-              visible={showConfirm}
-              onVisibilityChange={setShowConfirm}
               visibilityToggleFocusable
-              visibilityToggleButtonProps={{
-                'aria-label': showConfirm ? 'Hide confirm password' : 'Show confirm password',
-              }}
+              visibilityToggleButtonProps={{ 'aria-label': 'Show confirm password' }}
             />
           </DrawerSection>
         )}
