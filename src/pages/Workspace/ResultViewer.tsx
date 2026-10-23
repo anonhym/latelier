@@ -4,7 +4,8 @@
 // file, but co-locating the slots is the whole point — and they're not
 // addressed as top-level exports, only via the namespace.
 import { useState, type ReactNode } from 'react';
-import { Skeleton, Stack } from '@mantine/core';
+import { Button, Skeleton, Stack } from '@mantine/core';
+import { themeVars } from '../../theme/themeVars';
 import { TreeView } from './views/TreeView';
 import { JsonView } from './views/JsonView';
 import { TableView } from './views/TableView';
@@ -174,15 +175,6 @@ function Body({
   );
 }
 
-const LINK_BUTTON_STYLE = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: 'var(--atelier-accent)',
-  fontSize: 12,
-  textDecoration: 'underline',
-} as const;
-
 function EmptyState({ onClearFilter, onImport }: { onClearFilter: () => void; onImport: () => void }) {
   const { state, meta } = useCollectionWorkspace();
   // No filter, first page, no error: the collection itself is empty, not
@@ -211,17 +203,17 @@ function EmptyState({ onClearFilter, onImport }: { onClearFilter: () => void; on
         <>
           <span>This collection is empty</span>
           {!meta.isReadOnly && (
-            <button onClick={onImport} style={LINK_BUTTON_STYLE}>
+            <Button variant="subtle" size="compact-xs" c={themeVars.accent} onClick={onImport}>
               Import documents…
-            </button>
+            </Button>
           )}
         </>
       ) : (
         <>
           <span>No matching documents</span>
-          <button onClick={onClearFilter} style={LINK_BUTTON_STYLE}>
+          <Button variant="subtle" size="compact-xs" c={themeVars.accent} onClick={onClearFilter}>
             Clear filter
-          </button>
+          </Button>
         </>
       )}
     </div>

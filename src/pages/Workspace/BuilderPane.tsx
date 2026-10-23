@@ -759,31 +759,17 @@ function CondRow({
           />
           {showOpDocs && (
             <OperatorTooltip name={node.op} prefClass="query" placement="below">
-              <button
+              <ActionIcon
                 type="button"
+                variant="default"
+                radius="xl"
+                size={18}
+                c={T.textGhost}
                 aria-label={`Documentation for ${node.op}`}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 18,
-                  height: 18,
-                  borderRadius: '50%',
-                  border: `1px solid ${T.border}`,
-                  background: 'none',
-                  padding: 0,
-                  margin: 0,
-                  font: 'inherit',
-                  color: T.textGhost,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: 'help',
-                  flexShrink: 0,
-                  userSelect: 'none',
-                }}
+                style={{ fontSize: 10, fontWeight: 600, cursor: 'help', flexShrink: 0 }}
               >
                 ?
-              </button>
+              </ActionIcon>
             </OperatorTooltip>
           )}
           <RowMenu
