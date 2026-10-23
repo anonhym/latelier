@@ -9,6 +9,7 @@ import {
   Drawer,
   Group,
   Modal,
+  PasswordInput,
   Stack,
   Table,
   Text,
@@ -19,6 +20,7 @@ import { confirmDestructive } from '../utils/confirm';
 import { DisclosureToggle } from '../components/DisclosureToggle';
 import { SubmitButton } from '../components/SubmitButton';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
+import { RoleRowsEditor } from './RoleRowsEditor';
 import type { DbInfo } from '@shared/ipc';
 import type {
   AuthMechanism,
@@ -580,18 +582,6 @@ function roleLabel(r: UserRoleRef): string {
   return `${r.role}@${r.db}`;
 }
 
-function iconBtnStyle(T: typeof themeVars): React.CSSProperties {
-  return {
-    background: 'transparent',
-    border: 'none',
-    color: T.textGhost,
-    cursor: 'pointer',
-    padding: 4,
-    fontSize: 13,
-    lineHeight: 1,
-  };
-}
-
 // ─── Create / Edit drawer ──────────────────────────────────────────────────
 
 function UserDrawer({
@@ -634,6 +624,8 @@ function UserDrawer({
   const [username, setUsername] = React.useState(initial.username);
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirm, setShowConfirm] = React.useState(false);
   const [roles, setRoles] = React.useState<UserRoleRef[]>(initial.roles);
   const [scram256, setScram256] = React.useState(initial.scram256);
   const [scram1, setScram1] = React.useState(initial.scram1);
@@ -665,16 +657,6 @@ function UserDrawer({
       confirmLabel: 'Discard',
     });
     if (discard) close();
-  };
-
-  const addRole = () => {
-    setRoles((r) => [...r, { role: 'read', db: dbName }]);
-  };
-  const updateRole = (i: number, patch: Partial<UserRoleRef>) => {
-    setRoles((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
-  };
-  const removeRole = (i: number) => {
-    setRoles((r) => r.filter((_, idx) => idx !== i));
   };
 
   const submit = async () => {
@@ -809,64 +791,48 @@ function UserDrawer({
 
         {!isExternal && (
           <DrawerSection title="Password">
-            <input
+            {/* Mantine's reveal toggle is out of the tab order by default;
+                `visibilityToggleFocusable` puts it back so the keyboard can
+                reach it, and the label follows the state it switches to. */}
+            <PasswordInput
               aria-label="Password"
-              type="password"
+              size="xs"
+              spellCheck={false}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.currentTarget.value)}
               placeholder={editing ? 'Leave blank to keep current password' : ''}
-              style={drawerInputStyle(T)}
+              visible={showPassword}
+              onVisibilityChange={setShowPassword}
+              visibilityToggleFocusable
+              visibilityToggleButtonProps={{
+                'aria-label': showPassword ? 'Hide password' : 'Show password',
+              }}
             />
-            <input
+            <PasswordInput
               aria-label="Confirm password"
-              type="password"
+              size="xs"
+              mt={6}
+              spellCheck={false}
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e) => setConfirm(e.currentTarget.value)}
               placeholder="Confirm"
-              style={{ ...drawerInputStyle(T), marginTop: 6 }}
+              visible={showConfirm}
+              onVisibilityChange={setShowConfirm}
+              visibilityToggleFocusable
+              visibilityToggleButtonProps={{
+                'aria-label': showConfirm ? 'Hide confirm password' : 'Show confirm password',
+              }}
             />
           </DrawerSection>
         )}
 
         <DrawerSection title="Roles">
-          {roles.map((r, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <input
-                aria-label={`Role name ${i + 1}`}
-                value={r.role}
-                onChange={(e) => updateRole(i, { role: e.target.value })}
-                style={drawerInputStyle(T)}
-              />
-              <span style={{ fontSize: 12, color: T.textMuted, alignSelf: 'center' }}>@</span>
-              <input
-                aria-label={`Role db ${i + 1}`}
-                value={r.db}
-                onChange={(e) => updateRole(i, { db: e.target.value })}
-                style={{ ...drawerInputStyle(T), maxWidth: 130 }}
-              />
-              <button
-                onClick={() => removeRole(i)}
-                aria-label={`Remove role ${i + 1}`}
-                style={iconBtnStyle(T)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={addRole}
-            style={{
-              background: 'transparent',
-              border: `1px dashed ${T.border}`,
-              borderRadius: T.rs,
-              padding: '4px 8px',
-              fontSize: 11,
-              color: T.textMuted,
-              cursor: 'pointer',
-            }}
-          >
-            + Add role
-          </button>
+          <RoleRowsEditor
+            connectionId={connectionId}
+            defaultDb={dbName}
+            rows={roles}
+            onChange={setRoles}
+          />
         </DrawerSection>
 
         {!isExternal && (
