@@ -1,4 +1,5 @@
 import React from 'react';
+import { UnstyledButton } from '@mantine/core';
 import {
   SpotlightRoot,
   SpotlightSearch,
@@ -97,7 +98,7 @@ interface ActionItemProps {
 
 function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionItemProps) {
   return (
-    <button
+    <UnstyledButton
       id={id}
       type="button"
       role="option"
@@ -114,8 +115,6 @@ function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionIte
         padding: '9px 16px',
         width: '100%',
         background: 'transparent',
-        border: 'none',
-        cursor: 'pointer',
         textAlign: 'left',
         fontFamily: 'inherit',
         fontSize: 13,
@@ -151,7 +150,7 @@ function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionIte
           {formatShortcut(cmd.shortcut, isMacRenderer())}
         </span>
       )}
-    </button>
+    </UnstyledButton>
   );
 }
 
