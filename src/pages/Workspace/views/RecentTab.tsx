@@ -4,7 +4,9 @@ import { api, getErrorMessage } from '../../../api/atelier';
 import { relativeTime } from '../../../utils/relativeTime';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { confirmDestructive } from '../../../utils/confirm';
+import { VisuallyHidden } from '@mantine/core';
 import type { RecentQuery } from '@shared/types';
+import { mergeConsecutive, type MergedRecentQuery } from './recentRuns';
 
 interface RecentTabProps {
   connectionId: string;
@@ -32,6 +34,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const rows = React.useMemo(() => mergeConsecutive(items), [items]);
 
   // A reviewer flagged that this instance is reused when the active collection
   // changes, and two `recent.list` calls can be in flight at once. If the older
@@ -62,14 +65,15 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
   }, [load]);
 
   // both paths go through `recent:clear`; a per-row delete is just the
-  // same filter narrowed to one `id`. Same confirm as Saved's.
+  // same filter narrowed to one `id` per run the row stands for. Same
+  // confirm as Saved's.
   const runDelete = async (
-    filter: Parameters<typeof api.recent.clear>[0],
+    filters: Array<Parameters<typeof api.recent.clear>[0]>,
     failure: string,
   ) => {
     setDeleting(true);
     try {
-      await api.recent.clear(filter);
+      for (const filter of filters) await api.recent.clear(filter);
       await load();
     } catch (e) {
       setErr(getErrorMessage(e, failure));
@@ -78,10 +82,14 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
     }
   };
 
-  const requestDelete = async (item: RecentQuery, preview: string | null) => {
+  // A merged row stands for every run in its group, so deleting it removes
+  // all of them — otherwise the next-older identical run would just take its
+  // place and the row would look undeleted.
+  const requestDelete = async (item: MergedRecentQuery, preview: string | null) => {
+    const n = item.ids.length;
     const proceed = await confirmDestructive({
-      title: 'Delete this run?',
-      body: `Removes ${preview ?? 'this run'} from the recent history. This action cannot be undone.`,
+      title: n > 1 ? `Delete these ${n} runs?` : 'Delete this run?',
+      body: `Removes ${preview ?? 'this run'}${n > 1 ? ` (${n} runs)` : ''} from the recent history. This action cannot be undone.`,
       confirmLabel: 'Delete',
     });
     if (!proceed) return;
@@ -91,7 +99,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
     // take history from another collection with it. The `AND` of id + scope
     // matches nothing rather than the wrong thing.
     await runDelete(
-      { id: item.id, connectionId, dbName, collection, kind: 'find' },
+      item.ids.map((id) => ({ id, connectionId, dbName, collection, kind: 'find' as const })),
       'Failed to delete recent query',
     );
   };
@@ -107,7 +115,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
     });
     if (!proceed) return;
     await runDelete(
-      { connectionId, dbName, collection, kind: 'find' },
+      [{ connectionId, dbName, collection, kind: 'find' }],
       'Failed to clear recent queries',
     );
   };
@@ -189,7 +197,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </div>
       )}
 
-      {!loading && !err && items.map((item) => {
+      {!loading && !err && rows.map((item) => {
         const preview = previewOf(item);
         return (
           <div
@@ -222,6 +230,12 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
                 {/* `toLocaleTimeString` alone made a run from last Tuesday read
                     `14:32`, indistinguishable from one an hour ago. */}
                 {relativeTime(item.ranAt, item.ranAt)} — {item.durationMs}ms
+                {item.ids.length > 1 && (
+                  <span style={{ marginLeft: 6 }}>
+                    <span aria-hidden="true">×{item.ids.length}</span>
+                    <VisuallyHidden>Ran {item.ids.length} times</VisuallyHidden>
+                  </span>
+                )}
                 {item.resultCount !== undefined && (
                   <span style={{ marginLeft: 6 }}>{item.resultCount} docs</span>
                 )}

@@ -136,7 +136,7 @@ describe('JsonView — hidden fields', () => {
   it('E with focus inside a card opens the editor on that card', () => {
     const docs = [{ _id: 1, name: 'alpha' }, { _id: 2, name: 'beta' }];
     const { actions } = renderJson(docs);
-    const card = screen.getByRole('group', { name: 'Document 2' });
+    const card = screen.getByRole('treeitem', { name: 'Document 2' });
 
     fireEvent.keyDown(within(card).getByRole('button', { name: 'Copy JSON' }), { key: 'e', ctrlKey: true });
     expect(actions.openEdit).not.toHaveBeenCalled();
