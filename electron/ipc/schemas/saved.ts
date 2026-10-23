@@ -27,6 +27,12 @@ export const SavedFindPayloadSchema = z.looseObject({
     projectionRaw: z.string().optional(),
     sort: z.string(),
     limit: z.string(),
+    // Text as the query bar holds it, not the wire enum/number, so a row
+    // saved with an option the builder flags as a problem still loads.
+    collation: z.string().optional(),
+    hint: z.string().optional(),
+    maxTimeMS: z.string().optional(),
+    readPreference: z.string().optional(),
   }),
   queryRaw: z.string().optional(),
   description: z.string().optional(),
