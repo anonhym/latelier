@@ -1371,15 +1371,21 @@ export interface UserDropInput {
 
 /** One row of `$currentOp`, trimmed to what the Monitor table shows. */
 export interface CurrentOpSummary {
-  /** `String()` of the server's opid: a number on mongod, `"shard:id"` on mongos. */
-  opid: string;
+  /**
+   * `String()` of the server's opid: a number on mongod, `"shard:id"` on mongos.
+   * Absent on a row the server gives no opid; such a row cannot be killed.
+   */
+  opid?: string;
   op: string;
   ns?: string;
   secsRunning?: number;
   client?: string;
   desc?: string;
   planSummary?: string;
-  /** Canonical EJSON of the op's command, cut to 2000 characters (so possibly not valid JSON). */
+  /**
+   * Canonical EJSON of the op's command, secret-named fields masked. Past 2000
+   * code points it is cut and ends in "… (truncated)", so it is not always valid JSON.
+   */
   command: string;
 }
 

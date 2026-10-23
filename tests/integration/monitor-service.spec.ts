@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
-import { MonitorService, opidForKill } from '../../electron/mongo/MonitorService';
+import { MonitorService, opidForKill, toOpSummary } from '../../electron/mongo/MonitorService';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb } from '../helpers/db';
@@ -41,6 +41,10 @@ describe('MonitorService', () => {
       repo: makeReader([
         makeConnection('rw', hp, { defaultDb: DB }),
         makeConnection('ro', hp, { defaultDb: DB, readOnly }),
+        makeConnection('one', hp, {
+          defaultDb: DB,
+          advanced: { ...makeConnection('x', hp).advanced, maxPoolSize: 1 },
+        }),
       ]),
       vault,
     });
@@ -101,6 +105,47 @@ describe('MonitorService', () => {
     }
   });
 
+  it('at maxPoolSize 1, currentOp sees and killOp stops the op holding the only pooled connection', async () => {
+    setup();
+    await pool.connect('one');
+    const pooled = await pool.readClient('one');
+    await pooled.db(DB).collection('hog').insertOne({ a: 1 });
+    // Holds the pool's one connection for 4s. On the pooled client, currentOp
+    // would wait it out and then miss it, and killOp would kill nothing.
+    const running = pooled
+      .db(DB)
+      .collection('hog')
+      .find({ $where: 'sleep(4000) || true' })
+      .toArray();
+    let target: string | undefined;
+    for (let i = 0; i < 20 && !target; i++) {
+      const { ops } = await svc.currentOp({ connectionId: 'one', activeOnly: true });
+      target = ops.find((o) => o.ns === `${DB}.hog`)?.opid;
+      if (!target) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(target).toBeDefined();
+    await svc.killOp({ connectionId: 'one', opid: target! });
+    await expect(running).rejects.toMatchObject({ codeName: 'Interrupted' });
+  }, 20_000);
+
+  it('asks $currentOp to leave idle sessions out, which carry no opid', async () => {
+    let pipeline: unknown[] = [];
+    const fakeClient = {
+      db: () => ({
+        aggregate: (p: unknown[]) => {
+          pipeline = p;
+          return { toArray: async () => [] };
+        },
+      }),
+      close: async () => {},
+    };
+    const fakePool = { openControlClient: async () => fakeClient } as unknown as MongoPool;
+    await new MonitorService(fakePool).currentOp({ connectionId: 'x' });
+    expect(pipeline[0]).toEqual({
+      $currentOp: { allUsers: true, idleConnections: false, idleSessions: false },
+    });
+  });
+
   it('a read-only connection refuses killOp and setProfileLevel but still reads', async () => {
     setup(true);
     await pool.connect('ro');
@@ -148,6 +193,40 @@ describe('MonitorService', () => {
     } finally {
       await svc.setProfileLevel({ connectionId: 'rw', dbName: DB, level: 0, slowms: 100 });
     }
+  });
+});
+
+describe('toOpSummary', () => {
+  it('leaves opid out when the server gives none, never the string "undefined"', () => {
+    const row = toOpSummary({ op: 'none', desc: 'idle session' });
+    expect(row).not.toHaveProperty('opid');
+    expect(toOpSummary({ opid: 7, op: 'query' }).opid).toBe('7');
+  });
+
+  it('masks secret-named fields of the command, nested ones included', () => {
+    const row = toOpSummary({
+      opid: 1,
+      op: 'command',
+      command: { createUser: 'alice', pwd: 'hunter2', roles: [], $db: 'admin', nested: { Password: 'x' } },
+    });
+    expect(row.command).not.toContain('hunter2');
+    expect(JSON.parse(row.command)).toMatchObject({
+      createUser: 'alice',
+      pwd: '<redacted>',
+      nested: { Password: '<redacted>' },
+    });
+  });
+
+  it('cuts a long command on a code-point boundary and marks it', () => {
+    // Each emoji is two UTF-16 units; a unit-based cut could split one in half.
+    const row = toOpSummary({ opid: 1, op: 'query', command: { find: 'c', filter: { s: '😀'.repeat(3000) } } });
+    expect(row.command.endsWith('… (truncated)')).toBe(true);
+    const body = row.command.slice(0, -'… (truncated)'.length);
+    expect(Array.from(body)).toHaveLength(2000);
+    expect(/[\uD800-\uDBFF]$/.test(body)).toBe(false);
+    expect(toOpSummary({ opid: 1, op: 'query', command: { find: 'c' } }).command).toBe(
+      '{"find":"c"}',
+    );
   });
 });
 

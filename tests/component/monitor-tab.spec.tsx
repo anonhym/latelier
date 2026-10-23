@@ -40,6 +40,21 @@ afterEach(() => {
   setVisibility('visible');
 });
 
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const twoDbs = async () => [
+  { name: 'shop', sizeOnDisk: 0, empty: false },
+  { name: 'logs', sizeOnDisk: 0, empty: false },
+];
+
 describe('MonitorTab', () => {
   it('shows the Not connected text when disconnected and calls nothing', () => {
     const currentOp = vi.fn(async () => ({ ops: [] }));
@@ -71,6 +86,7 @@ describe('MonitorTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Kill operation 4242' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog.textContent).toContain('Kill operation 4242?');
+    expect(dialog.textContent).toContain('query on shop.orders, running 12s');
     expect(killOp).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Kill' }));
@@ -89,13 +105,82 @@ describe('MonitorTab', () => {
     expect(killOp).not.toHaveBeenCalled();
   });
 
-  it('a read-only connection disables Kill and the profiler controls', async () => {
+  it('a read-only connection disables Kill and every profiler control, and says why', async () => {
     installAtelierMock({ admin: { currentOp: async () => ({ ops: [op] }) } });
     render(<MonitorTab conn={{ ...conn, readOnly: true }} runtime={connected} />);
     const kill = await screen.findByRole('button', { name: 'Kill operation 4242' });
-    expect((kill as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText('slowms') as HTMLInputElement).disabled).toBe(true);
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    const slowms = screen.getByLabelText('slowms');
+    const levels = within(screen.getByRole('region', { name: 'Profiler' })).getAllByRole('radio');
+    expect(levels).toHaveLength(3);
+    for (const el of [kill, apply, slowms, ...levels]) {
+      expect((el as HTMLButtonElement | HTMLInputElement).disabled).toBe(true);
+    }
+    // The reason is visible text the disabled controls point at.
+    const note = screen.getByText(/Read-only connection: killing operations and changing the profiler are disabled/);
+    for (const el of [kill, apply, slowms]) {
+      expect(el.getAttribute('aria-describedby')).toBe(note.id);
+    }
+  });
+
+  it('a writable connection enables the level control and shows no read-only note', async () => {
+    installAtelierMock({ admin: { currentOp: async () => ({ ops: [op] }) } });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    await screen.findByRole('button', { name: 'Kill operation 4242' });
+    const levels = within(screen.getByRole('region', { name: 'Profiler' })).getAllByRole('radio');
+    for (const el of levels) expect((el as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText(/Read-only connection/)).toBeNull();
+  });
+
+  it('clicking Kill neither toggles the row nor reaches a parent click handler', async () => {
+    const parentClick = vi.fn();
+    installAtelierMock({ admin: { currentOp: async () => ({ ops: [op] }) } });
+    render(
+      <div onClick={parentClick}>
+        <MonitorTab conn={conn} runtime={connected} />
+      </div>,
+    );
+    const ops = screen.getByRole('region', { name: 'Current operations' });
+    fireEvent.click(await within(ops).findByRole('button', { name: 'Kill operation 4242' }));
+    expect(within(ops).getByRole('button', { expanded: false })).toBeTruthy();
+    expect(parentClick).not.toHaveBeenCalled();
+  });
+
+  it('a row without an opid shows no Kill and keys without warnings', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const noOpid: CurrentOpSummary = { op: 'none', desc: 'idle', command: '{}' };
+    installAtelierMock({ admin: { currentOp: async () => ({ ops: [noOpid, { ...noOpid, desc: 'idle2' }, op] }) } });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    const table = await screen.findByRole('table', { name: 'Running operations' });
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
+    expect(within(table).getAllByRole('button', { name: /^Kill/ })).toHaveLength(1);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toContain('Actions');
+    expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/key/i);
+    // Expanding one opid-less row expands that row only.
+    fireEvent.click(within(table).getAllByRole('button', { expanded: false })[0]!);
+    expect(within(table).getAllByRole('button', { expanded: true })).toHaveLength(1);
+  });
+
+  it('skips an interval tick while the previous request is still pending', async () => {
+    vi.useFakeTimers();
+    setVisibility('visible');
+    let release: () => void = () => {};
+    const currentOp = vi.fn(
+      () => new Promise<{ ops: CurrentOpSummary[] }>((resolve) => {
+        release = () => resolve({ ops: [] });
+      }),
+    );
+    installAtelierMock({ admin: { currentOp } });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    await act(async () => {});
+    expect(currentOp).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(currentOp).toHaveBeenCalledTimes(1);
+
+    await act(async () => { release(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(currentOp).toHaveBeenCalledTimes(2);
   });
 
   it('polls every 5s while visible, skips while hidden, and stops on Pause', async () => {
@@ -175,5 +260,46 @@ describe('MonitorTab', () => {
     await waitFor(() =>
       expect(setProfileLevel).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop', level: 2, slowms: 20 }),
     );
+  });
+
+  it('profiler: a late reply for a database no longer picked does not land', async () => {
+    const shop = deferred<{ level: 0 | 1 | 2; slowms: number }>();
+    installAtelierMock({
+      meta: { listDatabases: twoDbs },
+      admin: {
+        profileStatus: ({ dbName }) =>
+          dbName === 'shop' ? shop.promise : Promise.resolve({ level: 2 as const, slowms: 7 }),
+      },
+    });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    const prof = screen.getByRole('region', { name: 'Profiler' });
+    await within(prof).findByRole('option', { name: 'logs' });
+    fireEvent.change(within(prof).getByLabelText('Profiler database'), { target: { value: 'logs' } });
+    expect(await within(prof).findByText('Current: All, slowms 7')).toBeTruthy();
+
+    await act(async () => { shop.resolve({ level: 0, slowms: 100 }); });
+    expect(within(prof).getByText('Current: All, slowms 7')).toBeTruthy();
+    expect(within(prof).queryByText(/slowms 100/)).toBeNull();
+  });
+
+  it('profiler: a failed load clears the status and keeps Apply off', async () => {
+    const setProfileLevel = vi.fn(async () => ({ ok: true as const }));
+    installAtelierMock({
+      meta: { listDatabases: twoDbs },
+      admin: {
+        profileStatus: async () => {
+          throw { code: 'UNAUTHORIZED', message: 'not authorized on shop' };
+        },
+        setProfileLevel,
+      },
+    });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    const prof = screen.getByRole('region', { name: 'Profiler' });
+    expect((await within(prof).findByRole('alert')).textContent).toContain('not authorized on shop');
+    const apply = within(prof).getByRole('button', { name: 'Apply' }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    fireEvent.click(apply);
+    expect(setProfileLevel).not.toHaveBeenCalled();
+    expect(within(prof).queryByText(/^Current:/)).toBeNull();
   });
 });

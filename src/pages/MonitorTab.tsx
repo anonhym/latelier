@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Checkbox, SegmentedControl, Table } from '@mantine/core';
+import { Button, Checkbox, SegmentedControl, Table, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
 import { api, isIpcError } from '../api/atelier';
@@ -68,7 +68,11 @@ function profileRow(doc: unknown): { ts: string; op: string; ns: string; millis:
 export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime: ConnectionRuntime }) {
   const T = themeVars;
   const connected = runtime.status === 'connected';
-  const readOnlyTitle = conn.readOnly ? 'Read-only connection' : undefined;
+  const readOnlyNoteId = React.useId();
+  // Every disabled write control points at the visible read-only note.
+  const readOnlyProps = conn.readOnly
+    ? { disabled: true, 'aria-describedby': readOnlyNoteId }
+    : {};
 
   // ─── Current operations ───────────────────────────────────────────────
   const [ops, setOps] = React.useState<CurrentOpSummary[] | null>(null);
@@ -80,10 +84,14 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   const [updatedAt, setUpdatedAt] = React.useState<number | null>(null);
   // Only the latest poll may write state: a slow reply must not overwrite a newer one.
   const latest = React.useRef(0);
+  // Requests still pending. An interval tick is skipped while one is, so a slow
+  // server never has polls piling up behind each other.
+  const pending = React.useRef(0);
 
   const minSecsRunning = Number.parseInt(minSecs, 10);
   const loadOps = React.useCallback(async () => {
     const id = ++latest.current;
+    pending.current++;
     try {
       const res = await api.admin.currentOp({
         connectionId: conn.id,
@@ -96,31 +104,35 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
       setUpdatedAt(Date.now());
     } catch (err) {
       if (id === latest.current) setOpsError(errText(err));
+    } finally {
+      pending.current--;
     }
   }, [conn.id, activeOnly, minSecsRunning]);
 
   // Same cadence pattern as the Overview tab: poll on an interval, skip while
-  // the window is hidden. Pause stops the interval altogether.
+  // the window is hidden or the last request is still out. Pause stops the
+  // interval altogether.
   React.useEffect(() => {
     if (!connected || paused) return;
     // A fetch: its setState lands after the await, as in RolesTab.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadOps();
     const handle = setInterval(() => {
-      if (document.visibilityState === 'visible') void loadOps();
+      if (document.visibilityState === 'visible' && pending.current === 0) void loadOps();
     }, POLL_MS);
     return () => clearInterval(handle);
   }, [loadOps, connected, paused]);
 
-  const kill = async (opid: string) => {
+  const kill = async (o: CurrentOpSummary & { opid: string }) => {
+    const where = o.ns || o.desc || 'no namespace';
     const ok = await confirmDestructive({
-      title: `Kill operation ${opid}?`,
-      body: 'The server stops the operation; whatever it already wrote stays written.',
+      title: `Kill operation ${o.opid}?`,
+      body: `${o.op} on ${where}, running ${o.secsRunning ?? 0}s. The server stops it; whatever it already wrote stays written.`,
       confirmLabel: 'Kill',
     });
     if (!ok) return;
     try {
-      await api.admin.killOp({ connectionId: conn.id, opid });
+      await api.admin.killOp({ connectionId: conn.id, opid: o.opid });
       await loadOps();
     } catch (err) {
       setOpsError(errText(err));
@@ -135,6 +147,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   const [slowms, setSlowms] = React.useState('100');
   const [profile, setProfile] = React.useState<unknown[] | null>(null);
   const [profError, setProfError] = React.useState<string | null>(null);
+  const latestProfile = React.useRef(0);
 
   React.useEffect(() => {
     if (!connected) return;
@@ -149,20 +162,34 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
 
   const loadProfile = React.useCallback(async () => {
     if (!dbName) return;
+    // A reply for a database no longer picked must not land.
+    const id = ++latestProfile.current;
     try {
       const [st, tail] = await Promise.all([
         api.admin.profileStatus({ connectionId: conn.id, dbName }),
         api.admin.profileTail({ connectionId: conn.id, dbName, limit: PROFILE_ROWS }),
       ]);
+      if (id !== latestProfile.current) return;
       setStatus(st);
       setLevel(st.level);
       setSlowms(String(st.slowms));
       setProfile(tail.docs);
       setProfError(null);
     } catch (err) {
+      if (id !== latestProfile.current) return;
+      // Without a status there is nothing to apply against: Apply stays off
+      // rather than sending the defaults.
+      setStatus(null);
+      setProfile(null);
       setProfError(errText(err));
     }
   }, [conn.id, dbName]);
+
+  const pickDb = (next: string) => {
+    setDbName(next);
+    setStatus(null);
+    setProfile(null);
+  };
 
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a fetch, as above
@@ -197,6 +224,11 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {conn.readOnly && (
+        <div id={readOnlyNoteId} style={{ fontSize: 12, color: T.textMuted }}>
+          Read-only connection: killing operations and changing the profiler are disabled.
+        </div>
+      )}
       <section aria-label="Current operations" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={sectionTitle}>Current operations</span>
@@ -238,7 +270,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
           <div style={{ color: T.textMuted, fontSize: 12, padding: '8px 0' }}>No operations match.</div>
         )}
         {ops && ops.length > 0 && (
-          <Table striped highlightOnHover withTableBorder styles={tableStyles}>
+          <Table striped highlightOnHover withTableBorder styles={tableStyles} aria-label="Running operations">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Opid</Table.Th>
@@ -247,18 +279,22 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
                 <Table.Th>Secs</Table.Th>
                 <Table.Th>Client</Table.Th>
                 <Table.Th>Plan</Table.Th>
-                <Table.Th style={{ width: 64 }} />
+                <Table.Th style={{ width: 64 }}><VisuallyHidden>Actions</VisuallyHidden></Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {ops.map((o) => {
-                const open = expanded === o.opid;
+              {ops.map((o, i) => {
+                // A row without an opid (the server gives none to some) is keyed by
+                // position and offers no Kill.
+                const key = o.opid ?? `no-opid-${i}`;
+                const open = expanded === key;
+                const opid = o.opid;
                 return (
-                  <React.Fragment key={o.opid}>
-                    <Table.Tr onClick={() => setExpanded(open ? null : o.opid)} style={{ cursor: 'pointer' }}>
+                  <React.Fragment key={key}>
+                    <Table.Tr onClick={() => setExpanded(open ? null : key)} style={{ cursor: 'pointer' }}>
                       <Table.Td>
                         <DisclosureToggle open={open}>
-                          <span style={{ fontFamily: 'monospace' }}>{o.opid}</span>
+                          <span style={{ fontFamily: 'monospace' }}>{opid ?? '—'}</span>
                         </DisclosureToggle>
                       </Table.Td>
                       <Table.Td>{o.op}</Table.Td>
@@ -267,20 +303,21 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
                       <Table.Td>{o.client ?? '—'}</Table.Td>
                       <Table.Td>{o.planSummary ?? '—'}</Table.Td>
                       <Table.Td>
-                        <Button
-                          size="compact-xs"
-                          variant="subtle"
-                          color="red"
-                          aria-label={`Kill operation ${o.opid}`}
-                          disabled={conn.readOnly}
-                          title={readOnlyTitle}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void kill(o.opid);
-                          }}
-                        >
-                          Kill
-                        </Button>
+                        {opid !== undefined && (
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="red"
+                            aria-label={`Kill operation ${opid}`}
+                            {...readOnlyProps}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void kill({ ...o, opid });
+                            }}
+                          >
+                            Kill
+                          </Button>
+                        )}
                       </Table.Td>
                     </Table.Tr>
                     {open && (
@@ -307,7 +344,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
           <select
             aria-label="Profiler database"
             value={dbName}
-            onChange={(e) => setDbName(e.target.value)}
+            onChange={(e) => pickDb(e.target.value)}
             style={{ ...inputStyle, minWidth: 140 }}
           >
             {dbNames.map((n) => (
@@ -322,7 +359,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
             aria-label="Profiling level"
             value={String(level)}
             onChange={(v) => setLevel(Number(v) as ProfileLevel)}
-            disabled={conn.readOnly}
+            {...readOnlyProps}
             data={[
               { value: '0', label: 'Off' },
               { value: '1', label: 'Slow' },
@@ -336,16 +373,17 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
               min={0}
               value={slowms}
               onChange={(e) => setSlowms(e.target.value)}
-              disabled={conn.readOnly}
+              {...readOnlyProps}
               aria-label="slowms"
               style={{ ...inputStyle, width: 70 }}
             />
+            <span style={{ fontSize: 11 }}>(server-wide, not just this database)</span>
           </label>
           <Button
             size="compact-xs"
             variant="filled"
-            disabled={conn.readOnly || !dbName}
-            title={readOnlyTitle}
+            {...readOnlyProps}
+            disabled={conn.readOnly || !status}
             onClick={() => void applyLevel()}
           >
             Apply
@@ -362,7 +400,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
           </div>
         )}
         {profile && profile.length > 0 && (
-          <Table striped withTableBorder styles={tableStyles}>
+          <Table striped withTableBorder styles={tableStyles} aria-label="Profiled operations">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Time</Table.Th>
