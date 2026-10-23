@@ -361,9 +361,12 @@ and parse them main-side (`parseEjsonDocument`), like `filter` and `sort`;
 
 `findOptionProblems(builder)` names each option that cannot run:
 
-- a collation must be an EJSON document;
-- a hint that starts with `{` must be an EJSON document (any other text is an
-  index name, which only the server can check);
+- a collation must be a document, as EJSON or Shell Syntax (X14); it is sent
+  repaired to EJSON, so `{locale: 'en'}` runs as typed;
+- a hint that starts with `{` must be a document the same way; a quoted hint
+  (`"_id_"`, `'_id_'`) is the index name it quotes, sent without the quotes,
+  and must be one closed string; any other text is an index name, which only
+  the server can check;
 - maxTimeMS must be digits only, an integer of at least 1 (`5xyz` and `1.5`
   are refused, not coerced as `limit` is);
 - a read preference must be one of the five modes.

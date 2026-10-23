@@ -34,6 +34,25 @@ describe('compileFindOptions: find options', () => {
     expect(c).toMatchObject({ collation: '{"locale":"en"}', hint: '_id_', maxTimeMS: 40000, readPreference: 'nearest' });
   });
 
+  // X14 — the collation and a key-pattern hint take Shell Syntax like the
+  // filter and sort do, and go out repaired to EJSON.
+  it('repairs a Shell Syntax collation and key-pattern hint to EJSON', () => {
+    const c = compileFindOptions(b({ collation: "{locale: 'en', strength: 2}", hint: '{a: 1, b: -1}' }));
+    expect(c.collation).toBe('{"locale": "en", "strength": 2}');
+    expect(c.hint).toBe('{"a": 1, "b": -1}');
+    expect(findOptionProblems(b({ collation: "{locale: 'en'}", hint: '{a: 1}' }))).toEqual({});
+  });
+
+  // A quoted index name is the name it quotes: sent with its quotes, it names
+  // no index and the server refuses it.
+  it('sends a quoted hint as the index name inside the quotes', () => {
+    expect(compileFindOptions(b({ hint: '"_id_"' })).hint).toBe('_id_');
+    expect(compileFindOptions(b({ hint: " 'name_1' " })).hint).toBe('name_1');
+    expect(compileFindOptions(b({ hint: '"a\\"b"' })).hint).toBe('a"b');
+    expect(compileFindOptions(b({ hint: 'name_1' })).hint).toBe('name_1');
+    expect(findOptionProblems(b({ hint: "'_id_'" }))).toEqual({});
+  });
+
   it('sends no maxTimeMS or readPreference that would not run', () => {
     for (const maxTimeMS of ['0', '-5', '1.5', '5xyz', 'abc', '9'.repeat(20)]) {
       expect([maxTimeMS, compileFindOptions(b({ maxTimeMS })).maxTimeMS]).toEqual([maxTimeMS, undefined]);
@@ -66,6 +85,15 @@ describe('findOptionProblems / optionsProblem', () => {
       ),
     ).toEqual({});
     expect(optionsProblem(b({ hint: '_id_' }))).toBeNull();
+  });
+
+  it('refuses a collation or hint that is not a document even as Shell Syntax, and a quoted name left open', () => {
+    const problems = findOptionProblems(b({ collation: '{locale:', hint: '{a: 1} x' }));
+    expect(Object.keys(problems)).toEqual(['collation', 'hint']);
+    expect(findOptionProblems(b({ collation: "'en'" })).collation).toBeDefined();
+    expect(findOptionProblems(b({ collation: '[1]' })).collation).toBeDefined();
+    expect(findOptionProblems(b({ hint: '"_id_' })).hint).toBeDefined();
+    expect(findOptionProblems(b({ hint: "'_id_" })).hint).toBeDefined();
   });
 
   it('names each option that cannot run', () => {

@@ -161,13 +161,7 @@ describe('QueryBar options reach the query channels', () => {
     vi.restoreAllMocks();
   });
 
-  it('find gets all four options; count and explain get the ones that decide the match', async () => {
-    const builder = b({
-      collation: '{"locale":"en","strength":2}',
-      hint: '_id_',
-      maxTimeMS: '500',
-      readPreference: 'secondaryPreferred',
-    });
+  async function runWith(builder: BuilderState) {
     const find = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 1, hasMore: false }));
     const count = vi.fn<IpcApi['query']['count']>(async () => ({ count: 0 }));
     const explain = vi.fn<IpcApi['query']['explain']>(async () => ({ plan: {}, verbosity: 'queryPlanner' }));
@@ -201,11 +195,32 @@ describe('QueryBar options reach the query channels', () => {
 
     fireEvent.click(await screen.findByTestId('query-run-btn'));
     await waitFor(() => expect(count).toHaveBeenCalled());
+    return { find, count, explain };
+  }
+
+  it('find gets all four options; count and explain get the ones that decide the match', async () => {
+    const { find, count, explain } = await runWith(
+      b({
+        collation: '{"locale":"en","strength":2}',
+        hint: '_id_',
+        maxTimeMS: '500',
+        readPreference: 'secondaryPreferred',
+      }),
+    );
     const match = { collation: '{"locale":"en","strength":2}', hint: '_id_', readPreference: 'secondaryPreferred' };
     expect(find.mock.calls[0]![0]).toMatchObject({ ...match, maxTimeMS: 500 });
     expect(count.mock.calls[0]![0]).toMatchObject(match);
     expect(count.mock.calls[0]![0]).not.toHaveProperty('maxTimeMS');
     await waitFor(() => expect(explain).toHaveBeenCalled());
     expect(explain.mock.calls[0]![0]).toMatchObject(match);
+  });
+
+  // X14 — Shell Syntax runs as typed, and a quoted index name runs as the name.
+  it('a Shell Syntax collation and a quoted hint run, sent as EJSON and the bare name', async () => {
+    const { find, count } = await runWith(b({ collation: "{locale: 'en', strength: 2}", hint: '"_id_"' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    const match = { collation: '{"locale": "en", "strength": 2}', hint: '_id_' };
+    expect(find.mock.calls[0]![0]).toMatchObject(match);
+    expect(count.mock.calls[0]![0]).toMatchObject(match);
   });
 });

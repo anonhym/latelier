@@ -10,6 +10,7 @@ import {
 } from './filterTree';
 import { isRawProjection } from './projection';
 import { ownGet, ownSet } from '../../utils/ownProperty';
+import { repairToCanonicalEjson } from '../../utils/shellSyntax';
 
 export const FIELD_OPS: Record<ValType, MqlOp[]> = {
   string:   ['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$regex', '$exists', '$type'],
@@ -161,6 +162,35 @@ function parseMaxTimeMS(raw: string | undefined): number | undefined {
   return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
+/** The text as EJSON: Shell Syntax repaired (X14), strict text as is; undefined when it cannot be read. */
+function repairedText(text: string): string | undefined {
+  const outcome = repairToCanonicalEjson(text);
+  if (outcome.kind === 'failed') return undefined;
+  return outcome.kind === 'repaired' ? outcome.text : text;
+}
+
+/** A collation or key-pattern hint as sent, or undefined when it is not a document. */
+function documentOption(text: string): string | undefined {
+  const json = repairedText(text);
+  return json !== undefined && isEjsonDocument(json) ? json : undefined;
+}
+
+/**
+ * A hint as sent. `{` starts a key pattern, which must be a document. A
+ * quoted name (`"_id_"`, `'_id_'`) is the name it quotes: sent with its
+ * quotes it would name no index. Any other text is an index name, which only
+ * the server can check. Undefined when a key pattern or quoted name cannot be
+ * read.
+ */
+function hintOption(text: string): string | undefined {
+  if (text.startsWith('{')) return documentOption(text);
+  if (!/^["']/.test(text)) return text;
+  const json = repairedText(text);
+  // A read text that opens with a quote is one JSON string: the repair
+  // refuses anything after the closing quote.
+  return json === undefined ? undefined : (JSON.parse(json) as string);
+}
+
 export function compileFindOptions(state: BuilderState): CompiledFindOptions {
   let sort: string | undefined;
   if (state.sort.trim()) {
@@ -197,14 +227,17 @@ export function compileFindOptions(state: BuilderState): CompiledFindOptions {
       ? parsedLimit
       : null;
 
-  // Collation and hint are sent verbatim like `projectionRaw`, and
-  // `optionsProblem` is the gate. A blank one is unset.
+  // Collation and hint go out as EJSON, so Shell Syntax runs as typed;
+  // `optionsProblem` is the gate, and text it refuses is passed through
+  // unchanged. A blank one is unset.
+  const collation = state.collation?.trim();
+  const hint = state.hint?.trim();
   return {
     sort,
     projection,
     limit,
-    collation: state.collation?.trim() || undefined,
-    hint: state.hint?.trim() || undefined,
+    collation: collation ? (documentOption(collation) ?? collation) : undefined,
+    hint: hint ? (hintOption(hint) ?? hint) : undefined,
     maxTimeMS: parseMaxTimeMS(state.maxTimeMS),
     readPreference: isReadPreference(state.readPreference) ? state.readPreference : undefined,
   };
@@ -214,18 +247,19 @@ export type FindOptionKey = 'collation' | 'hint' | 'maxTimeMS' | 'readPreference
 
 /**
  * Each find option that cannot run, by option, for the options row's own
- * notices. A blank option is unset, never a problem. A hint is an index name
- * unless it starts with `{`, which makes it a key pattern: that one has to be
- * a document, the rule `QueryService` applies main-side.
+ * notices. A blank option is unset, never a problem. A collation, and a hint
+ * that starts with `{` (a key pattern, the rule `QueryService` applies
+ * main-side), must be a document, Shell Syntax allowed; a quoted hint must be
+ * one closed string.
  */
 export function findOptionProblems(state: BuilderState): Partial<Record<FindOptionKey, string>> {
   const problems: Partial<Record<FindOptionKey, string>> = {};
   const collation = state.collation?.trim();
-  if (collation && !isEjsonDocument(collation)) {
+  if (collation && documentOption(collation) === undefined) {
     problems.collation = 'Can\'t parse this collation. Expected EJSON like { "locale": "en", "strength": 2 }.';
   }
   const hint = state.hint?.trim();
-  if (hint?.startsWith('{') && !isEjsonDocument(hint)) {
+  if (hint && hintOption(hint) === undefined) {
     problems.hint = 'Can\'t parse this hint. Expected an index name like _id_ or a key pattern like { "a": 1 }.';
   }
   if (state.maxTimeMS?.trim() && parseMaxTimeMS(state.maxTimeMS) === undefined) {
