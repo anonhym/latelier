@@ -122,6 +122,14 @@ function matchOptions(input: FindMatchOptions): {
   };
 }
 
+/** Filter operators `countDocuments` (an aggregation `$match`) refuses. */
+const MATCH_FORBIDDEN = new Set(['$where', '$near', '$nearSphere']);
+
+function usesMatchForbidden(node: unknown): boolean {
+  if (node === null || typeof node !== 'object') return false;
+  return Object.entries(node).some(([k, v]) => MATCH_FORBIDDEN.has(k) || usesMatchForbidden(v));
+}
+
 export class QueryService {
   private pool: MongoPool;
   private recent: RecentQueryService;
@@ -239,6 +247,22 @@ export class QueryService {
     const options = matchOptions(input);
     const db = await this.pool.readDb(input.connectionId, input.dbName);
     try {
+      if (usesMatchForbidden(filter)) {
+        // The legacy `count` command runs a find-style match, so it takes
+        // $where/$near/$nearSphere, which countDocuments' $match rejects.
+        const { collation, hint, readPreference } = options;
+        const res = await db.command(
+          {
+            count: input.collection,
+            query: filter,
+            maxTimeMS: PROBE_TIMEOUT_MS,
+            ...(collation ? { collation } : {}),
+            ...(hint ? { hint } : {}),
+          },
+          readPreference ? { readPreference } : undefined,
+        );
+        return { count: res.n as number };
+      }
       const count = await db
         .collection(input.collection)
         .countDocuments(filter, { ...options, maxTimeMS: PROBE_TIMEOUT_MS });
