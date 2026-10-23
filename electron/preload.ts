@@ -131,6 +131,9 @@ const api: IpcApi = {
 
   role: {
     list: (input) => call(IPC_CHANNELS.roleList, input),
+    create: (input) => call(IPC_CHANNELS.roleCreate, input),
+    update: (input) => call(IPC_CHANNELS.roleUpdate, input),
+    drop: (input) => call(IPC_CHANNELS.roleDrop, input),
   },
 
   prefs: {

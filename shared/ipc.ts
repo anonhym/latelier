@@ -46,7 +46,10 @@ import type {
   ProbeResult,
   QueryExportInput,
   QueryExportResult,
+  RoleCreateInput,
+  RoleDropInput,
   RoleInfo,
+  RoleUpdateInput,
   UserCreateInput,
   UserDropInput,
   UserInfo,
@@ -296,6 +299,9 @@ export interface IpcApi {
 
   role: {
     list: (input: { connectionId: string; dbName: string }) => Promise<RoleInfo[]>;
+    create: (input: RoleCreateInput) => Promise<{ ok: true }>;
+    update: (input: RoleUpdateInput) => Promise<{ ok: true }>;
+    drop: (input: RoleDropInput) => Promise<{ dropped: true }>;
   };
 
   meta: {
@@ -566,6 +572,9 @@ export const IPC_CHANNELS = {
   userUpdate: 'user:update', // SECRET_INPUT
   userDrop:   'user:drop',
   roleList:   'role:list',
+  roleCreate: 'role:create',
+  roleUpdate: 'role:update',
+  roleDrop:   'role:drop',
 
   // App state preferences ----------------------------------------
   prefsGet: 'prefs:get',

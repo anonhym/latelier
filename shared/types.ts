@@ -1288,7 +1288,40 @@ export interface RoleInfo {
   role: string;
   db: string;
   isBuiltin: boolean;
+  /** Direct parents only — what `createRole`/`updateRole` take as `roles`. */
+  roles: UserRoleRef[];
+  /** Transitive closure of `roles`; display only, never sent back on save. */
   inheritedRoles: UserRoleRef[];
+  /** EJSON canonical array of the role's own (non-inherited) privileges. */
+  privileges?: string;
+}
+
+export interface RoleCreateInput {
+  connectionId: string;
+  dbName: string;
+  role: string;
+  /** EJSON canonical array of privilege documents; may be `[]`. */
+  privileges: string;
+  /** Inherited roles; may be empty. */
+  roles: UserRoleRef[];
+}
+
+export interface RoleUpdateInput {
+  connectionId: string;
+  dbName: string;
+  role: string;
+  patch: {
+    /** EJSON canonical array. Replaces the privilege list if present. */
+    privileges?: string;
+    /** Replaces the inherited-role list if present. */
+    roles?: UserRoleRef[];
+  };
+}
+
+export interface RoleDropInput {
+  connectionId: string;
+  dbName: string;
+  role: string;
 }
 
 export interface UserCreateInput {
