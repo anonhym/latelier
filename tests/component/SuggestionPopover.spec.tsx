@@ -301,7 +301,7 @@ describe('SuggestionPopover — keyboard hint footer', () => {
   it('shows the keys under the list, outside the listbox', () => {
     renderWithHints(hintsStub());
     const note = footer();
-    expect(note?.textContent).toBe('↑↓ to move, Enter or Tab to insert, Esc to close');
+    expect(note?.textContent).toBe('Tab inserts the highlighted item. ↑↓ to pick another, then Enter or Tab. Esc to close.');
     expect(screen.getByRole('listbox').contains(note)).toBe(false);
   });
 

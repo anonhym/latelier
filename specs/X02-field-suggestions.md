@@ -214,7 +214,8 @@ Behavior:
   around it, so clicking an item or the footer doesn't blur the
   underlying input.
 - Keyboard hint (`suggestions.keyboard`, X06): while undismissed, one
-  footer line under the list, outside the listbox, names the keys. The
+  footer line under the list, outside the listbox, names the keys: Tab
+  inserts the highlighted item, Enter only once the user has arrowed to one. The
   popover reads `useHints()` directly rather than `useFeatureHint`, so it
   never takes the floating-hint slot. The first pick dismisses it; Reset
   hints brings it back.
