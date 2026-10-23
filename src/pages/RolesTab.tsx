@@ -553,7 +553,17 @@ function DropRoleDialog({
   };
 
   return (
-    <Modal opened onClose={close} title={`Drop role "${role.role}" on ${role.db}?`} centered size="md">
+    <Modal
+      opened
+      onClose={close}
+      title={`Drop role "${role.role}" on ${role.db}?`}
+      centered
+      size="md"
+      // The request is already out; dismissing now would hide a drop that still completes.
+      closeOnEscape={!submitting}
+      closeOnClickOutside={!submitting}
+      withCloseButton={!submitting}
+    >
       <Stack gap="sm">
         <Text size="xs" c="dimmed" lh={1.5}>
           This is permanent. Every user and role that holds it loses its privileges.
