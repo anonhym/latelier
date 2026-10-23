@@ -151,6 +151,22 @@ describe('RecentQueryService', () => {
     }
   });
 
+  // QueryService trims the collation and hint before sending them, so a
+  // blank one was never part of the run and a padded one reruns trimmed.
+  it('recordFind trims the collation and hint, and omits blank ones', async () => {
+    await svc.recordFind(makeFindInput({ collation: '  {"locale":"en"} ', hint: ' _id_ ' }), 5, 1);
+    await svc.recordFind(makeFindInput({ collation: '   ', hint: '\t' }), 5, 1);
+
+    const [padded, blank] = svc.list({ connectionId: CONNECTION_ID }).reverse();
+    expect((padded!.payload as { builder: object }).builder).toMatchObject({
+      collation: '{"locale":"en"}',
+      hint: '_id_',
+    });
+    const bare = (blank!.payload as { builder: object }).builder;
+    expect(bare).not.toHaveProperty('collation');
+    expect(bare).not.toHaveProperty('hint');
+  });
+
   it('recordFind stores errorCode when provided', async () => {
     await svc.recordFind(makeFindInput(), 0, 0, 'TIMEOUT');
 

@@ -80,6 +80,9 @@ export class RecentQueryService {
     resultCount: number,
     errorCode?: string,
   ): Promise<void> {
+    // Trimmed as QueryService.matchOptions sends them, so the rerun is the run.
+    const collation = input.collation?.trim();
+    const hint = input.hint?.trim();
     const payload: SavedFindPayload = {
       kind: 'find',
       builder: {
@@ -87,8 +90,8 @@ export class RecentQueryService {
         ...(input.projection ? { projectionRaw: input.projection } : {}),
         sort: input.sort ?? '',
         limit: '',
-        ...(input.collation ? { collation: input.collation } : {}),
-        ...(input.hint ? { hint: input.hint } : {}),
+        ...(collation ? { collation } : {}),
+        ...(hint ? { hint } : {}),
         ...(input.maxTimeMS !== undefined ? { maxTimeMS: String(input.maxTimeMS) } : {}),
         ...(input.readPreference ? { readPreference: input.readPreference } : {}),
       },
