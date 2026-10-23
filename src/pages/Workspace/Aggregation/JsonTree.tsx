@@ -94,6 +94,7 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
           <button
             onClick={() => onToggle(path)}
             aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-expanded={isExpanded}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -134,6 +135,7 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
             whiteSpace: 'nowrap',
             minWidth: 0,
           }}
+          title={formatLeaf(dv)}
         >
           {formatLeaf(dv)}
         </span>
