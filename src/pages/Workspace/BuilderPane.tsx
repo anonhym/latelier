@@ -1943,10 +1943,12 @@ function BuilderPaneInner({
     const projectionRaw = payload.builder
       ? (payload.builder as { projectionRaw?: string }).projectionRaw
       : state.builder.projectionRaw;
-    // W14 §9's find options, for the same reason and in the same way: a
-    // collation changes which documents match, so dropping it reruns a
-    // different query, and a payload without them clears the tab's.
-    const options = (payload.builder ?? state.builder) as Pick<
+    // W14 §9's find options, for the same reason: a collation changes which
+    // documents match, so dropping it reruns a different query. A payload
+    // without them clears the tab's, and so does a row with no builder at
+    // all, unlike the raw projection above: such a row predates the options,
+    // so the query it saved never had any.
+    const options = (payload.builder ?? {}) as Pick<
       BuilderState,
       'collation' | 'hint' | 'maxTimeMS' | 'readPreference'
     >;

@@ -265,4 +265,38 @@ describe('saved find options survive Run here', () => {
     expect(call?.collation).toBeUndefined();
     expect(call?.hint).toBeUndefined();
   });
+
+  // A row written before the builder carried options never had any: keeping
+  // the tab's would rerun the saved filter under a collation it never had.
+  it('a legacy row with no builder at all clears the options on the tab too', async () => {
+    const NO_BUILDER_SAVED = {
+      ...SAVED_SUMMARY,
+      createdAt: now,
+      payload: { kind: 'find', queryRaw: '{"name":"a"}' },
+    } as unknown as SavedQuery;
+    const { findSpy } = mountWith(
+      makeState({
+        builder: {
+          projection: [],
+          sort: '',
+          limit: '',
+          collation: '{"locale":"fr"}',
+          hint: 'x_1',
+          maxTimeMS: '500',
+          readPreference: 'nearest',
+        },
+      }),
+      NO_BUILDER_SAVED,
+    );
+
+    fireEvent.click(await screen.findByTitle('Run here'));
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    const call = findSpy.mock.calls[0]?.[0];
+    expect(call?.filter).toBe('{"name":"a"}');
+    expect(call?.collation).toBeUndefined();
+    expect(call?.hint).toBeUndefined();
+    expect(call?.maxTimeMS).toBeUndefined();
+    expect(call?.readPreference).toBeUndefined();
+  });
 });
