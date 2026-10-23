@@ -6,7 +6,7 @@
 
 Replace the C08 `StubTab` for the Users tab in `DetailPanel.tsx` with a real database-user manager. Lists users defined on the server (per database, plus `admin`), shows their roles, and supports create / update / delete with the same safety posture as C03 connections — passwords go through `safeStorage`-encrypted *transport* (the same `SECRET_INPUT` allowlist mechanism used by `conn:create`) and never persist on disk client-side.
 
-This is intentionally limited: MongoDB exposes a rich auth model (custom roles, role inheritance, X.509 user mapping, awsiam, OIDC, Kerberos). Iteration 1 covers the common case — SCRAM users with built-in roles — and surfaces the rest as read-only when present.
+This is intentionally limited: MongoDB exposes a rich auth model (custom roles, role inheritance, X.509 user mapping, awsiam, OIDC, Kerberos). Iteration 1 covered the common case — SCRAM users with built-in roles — and surfaces the rest as read-only when present. Custom roles have since moved in scope: the Roles tab (§4a) creates, edits and drops them.
 
 ## Scope
 
@@ -419,7 +419,7 @@ Type the username to confirm:
 - **Database picker.** Same `<select>` as the Users tab, sharing the `ui.users.lastDb` pref so both tabs follow the last database picked in either. `rolesInfo` has no all-databases form, so the Users tab's "All databases" value opens Roles on `admin`, and Roles offers no such option.
 - **List.** One row per role: name, direct inherited roles (`role@db`), privilege count. Built-in roles are hidden behind a "Show built-in" checkbox (default off), carry a "built-in" badge, and are read-only — no Edit or Drop.
 - **Create / Edit drawer.** Name (create only); inherited roles through the same role-row editor and Autocomplete as the user drawer (an empty list is allowed); privileges in a plain `Textarea` holding an EJSON array. The client refuses invalid EJSON or a non-array before calling. Edit seeds the inherited roles from `roles` (direct parents), never `inheritedRoles`, so a save does not flatten the hierarchy. The drawer carries the X15 §2 unsaved-changes guard.
-- **Drop** goes through `confirmDestructive`; on confirm `role:drop`, then refetch.
+- **Drop** is type-to-confirm, the same tier as dropping a user (ADR 0013): the role name must be typed back before Drop enables. On success `role:drop`, refetch, and focus returns to the list region (the dropped row's button is gone).
 - **Main.** `createRole` / `updateRole` / `dropRole` take `pool.write(connectionId)` before anything else (ADR 0005), send `maxTimeMS: STATS_TIMEOUT_MS`, parse `privileges` as EJSON and refuse a non-array with `VALIDATION`, and classify errors through `classifyMongoOpError`.
 
 ## 5. State & persistence
@@ -459,7 +459,7 @@ Type the username to confirm:
 - The Roles tab lists a database's custom roles; built-ins appear only with "Show built-in" and have no Edit / Drop.
 - Creating a role with privileges and inherited roles succeeds and the new row appears after refetch.
 - Editing a role replaces its privileges and direct inherited roles; inherited-only (transitive) roles are never written back.
-- Dropping a role happens only after the confirm.
+- Dropping a role happens only after its name is typed back; focus then lands on the list.
 - `role:create`, `role:update` and `role:drop` are refused on a read-only connection with the ADR 0005 error, and non-array privileges give `VALIDATION`.
 
 ## 8. Test cases
@@ -486,7 +486,7 @@ Type the username to confirm:
 - **users-external.spec.tsx** — for an `$external` user, password fields hidden, mechanism toggles disabled.
 - **users-drop-confirm.spec.tsx** — Drop button opens dialog; typing the wrong username keeps Drop disabled; typing the right one + Drop → `api.user.drop` called.
 - **users-tab-role-picker.spec.tsx** — the Autocomplete lists roles from a mocked `role.list`; the unknown-role warning; the db-typed fetch is debounced; a failed list shows no warning; the password reveal toggle works by keyboard.
-- **roles-tab.spec.tsx** — list with the built-in toggle; create; non-array privileges refused; edit seeded from direct parents; drop with confirm.
+- **roles-tab.spec.tsx** — list with the built-in toggle; create; non-array privileges refused; edit seeded from direct parents; type-to-confirm drop and focus return.
 
 ### E2E
 - **users-create-and-drop.e2e.ts** — open Users tab → All databases → New user → fill (`ci`, password, `read@app`) → Create → row appears → Drop → confirm → row gone.
@@ -506,7 +506,7 @@ Three commits, each independently mergeable:
 - **Plaintext password crossing IPC.** Mitigated by (a) `SECRET_INPUT` allowlist + audit script, (b) redacted logging, (c) error envelopes that strip `pwd` before serialisation. Same posture as `conn:create`. Reviewed by tests.
 - **User drops themselves.** Mitigated by UI hiding the action on the matching row. Power users who want to anyway can open another connection authenticated as a sufficiently privileged user — that's a feature, not a bug.
 - **Atlas managed users.** `usersInfo` against an Atlas cluster only returns server-side users, not Atlas-API-managed users. The empty-state copy nudges the user toward the Atlas console; we deliberately do not try to detect Atlas (out of scope per F05).
-- **Custom-role inheritance display.** Custom roles can inherit from other custom roles arbitrarily deep. v1 displays only the immediate role array on a user; the role picker shows `inheritedRoles` as a tooltip. Not perfect, but sufficient for the common case.
+- **Custom-role inheritance display.** Custom roles can inherit from other custom roles arbitrarily deep. The Users tab displays only the immediate role array on a user, and the Roles tab shows each role's direct parents; the transitive `inheritedRoles` is carried on `RoleInfo` but not displayed. Not perfect, but sufficient for the common case.
 - **`$external` mechanism mix.** A user can be configured for both SCRAM and X.509. `external: true` only when *all* mechanisms are non-password. This is a deliberate, documented heuristic; the alternative (allowing password edits when at least one SCRAM mech is present) is correct but harder to explain in copy. Re-evaluate after first user feedback.
 
 ## 11. Future work — call-outs
