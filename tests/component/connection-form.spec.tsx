@@ -4,8 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { ConnectionForm } from '../../src/features/connections/ConnectionForm';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
+import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 
-// Spied so an edit can be checked for dropping the cached enum suggestions.
+// Spied so an edit can be checked for dropping the cached enum and sample suggestions.
+vi.mock('../../src/features/fieldSuggestions/sources/sampleSchemaSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/sampleSchemaSource')>()),
+  invalidateSampleSchemaCache: vi.fn(),
+}));
 vi.mock('../../src/features/fieldSuggestions/sources/schemaEnumSource', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/schemaEnumSource')>()),
   invalidateSchemaEnumCache: vi.fn(),
@@ -41,6 +46,7 @@ const CANNED_CONNECTION: Connection = {
 
 afterEach(() => {
   vi.mocked(invalidateSchemaEnumCache).mockClear();
+  vi.mocked(invalidateSampleSchemaCache).mockClear();
   uninstallAtelierMock();
   vi.restoreAllMocks();
 });
@@ -64,6 +70,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('new-id'));
     expect(invalidateSchemaEnumCache).not.toHaveBeenCalled();
+    expect(invalidateSampleSchemaCache).not.toHaveBeenCalled();
   });
 
   it('edit mode: connectionId hydrates from conn.get and saving calls conn.update with that id, then onSaved', async () => {
@@ -86,8 +93,9 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith('c1', expect.anything()));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('c1'));
-    // An edit can point the same id at another server, with other validators.
+    // An edit can point the same id at another server, with other validators and fields.
     expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1');
+    expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c1');
   });
 
   it('edit mode: a legacy row stored with ssh.enabled loads as off and saves an explicit ssh.enabled=false', async () => {

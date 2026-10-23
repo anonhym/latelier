@@ -405,6 +405,9 @@ break, since the caret is inside a quoted string.
     write to any collection and the renderer cannot tell which.
   - The connection dialogs (`ConnectionManager`, `useConnectionDialogs`)
     for connection changes.
+  - A saved `ConnectionForm` edit, for the whole connection: the same id
+    can now reach another server, so the old server's sample must not
+    serve for the rest of the TTL.
 - Writes that can fail part-way invalidate on failure too, since an
   earlier part may already have landed and an extra resample costs
   nothing: a rejected delete-many, update-many, `$merge` or Revert, a
