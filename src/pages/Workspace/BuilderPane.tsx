@@ -1941,8 +1941,24 @@ function BuilderPaneInner({
     const projectionRaw = payload.builder
       ? (payload.builder as { projectionRaw?: string }).projectionRaw
       : state.builder.projectionRaw;
+    // W14 §9's find options, for the same reason and in the same way: a
+    // collation changes which documents match, so dropping it reruns a
+    // different query, and a payload without them clears the tab's.
+    const options = (payload.builder ?? state.builder) as Pick<
+      BuilderState,
+      'collation' | 'hint' | 'maxTimeMS' | 'readPreference'
+    >;
     return {
-      builder: { sort, limit, projection, projectionRaw },
+      builder: {
+        sort,
+        limit,
+        projection,
+        projectionRaw,
+        collation: options.collation,
+        hint: options.hint,
+        maxTimeMS: options.maxTimeMS,
+        readPreference: options.readPreference,
+      },
       queryRaw: payload.queryRaw ?? legacyCompileFilter(legacyBuilder),
     };
   };
