@@ -703,10 +703,10 @@ describe('query channels carry the find options through the router', () => {
       testSenderCheck,
     );
     const svc = {
-      find: vi.fn(async () => ({ documentsJson: '[]', durationMs: 0, hasMore: false })),
-      count: vi.fn(async () => ({ count: 0 })),
-      explain: vi.fn(async () => ({})),
-      exportToFile: vi.fn(async () => ({ written: 0, truncated: false })),
+      find: vi.fn<(input: unknown) => Promise<unknown>>(async () => ({ documentsJson: '[]', durationMs: 0, hasMore: false })),
+      count: vi.fn<(input: unknown) => Promise<unknown>>(async () => ({ count: 0 })),
+      explain: vi.fn<(input: unknown) => Promise<unknown>>(async () => ({})),
+      exportToFile: vi.fn<(input: unknown, path: string) => Promise<unknown>>(async () => ({ written: 0, truncated: false })),
     };
     registerQueryChannels(router, svc as unknown as QueryService, async () => '/tmp/out.json');
     return { handlers, svc };
