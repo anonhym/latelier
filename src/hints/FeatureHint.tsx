@@ -79,9 +79,11 @@ export function FeatureHint({
   return (
     <>
       {/* Always mounted: a live region is only spoken when its text changes, not
-          when the region itself appears. */}
+          when the region itself appears. No role="status": every hint call site
+          mounts one, and screen-reader queries for the page's real status
+          regions (the builder's "N not applied" banner) must stay unambiguous. */}
       <Portal>
-        <VisuallyHidden role="status" aria-live="polite">
+        <VisuallyHidden aria-live="polite">
           {shown ? copy.title : ''}
         </VisuallyHidden>
       </Portal>

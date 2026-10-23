@@ -246,13 +246,15 @@ describe('<FeatureHint> focus', () => {
 
   it('keeps its live region mounted while hidden and fills it when shown', async () => {
     const { rerender } = render(<Harness onDismiss={() => {}} visible={false} />);
-    const region = document.querySelector('[role="status"]');
+    const region = document.querySelector('[aria-live="polite"]');
     expect(region).not.toBeNull();
     expect(region?.textContent).toBe('');
     rerender(<Harness onDismiss={() => {}} />);
     await screen.findByRole('dialog');
-    expect(document.querySelector('[role="status"]')).toBe(region);
+    expect(document.querySelector('[aria-live="polite"]')).toBe(region);
     expect(region?.textContent).toBe('Link this field to another doc?');
+    // Every hint call site mounts a region; none may claim the page's status role.
+    expect(screen.queryAllByRole('status')).toHaveLength(0);
   });
 
   it('the call to action also hands focus back', async () => {
