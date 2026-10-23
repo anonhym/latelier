@@ -86,6 +86,18 @@ function renderSaved(overrides: { onRunHere?: () => void; onOpenInTab?: (s: Save
   );
 }
 
+describe('Recent rows — icon buttons carry a tooltip', () => {
+  it('shows the Delete tooltip when keyboard focus lands on a Recent row delete button', async () => {
+    installAtelierMock({ recent: { list: async () => [recent()] } });
+    renderRecent();
+
+    fireEvent.focus(await screen.findByRole('button', { name: /^Delete .* from recent history$/ }));
+
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toBe('Delete');
+  });
+});
+
 describe('W10 — consecutive identical runs show as one row with a run count', () => {
   const PREVIEW = '{"status":{"$eq":"paid"}}';
   const threeRuns = () => [recent({ id: 'a' }), recent({ id: 'b' }), recent({ id: 'c' })];
@@ -207,6 +219,19 @@ describe('W15 §13.7 — Recent\'s Copy MQL reports, and never silently no-ops',
     const copy = await screen.findByRole('button', { name: /Copy MQL — this run has no stored query/ });
     expect(copy).toHaveProperty('disabled', true);
   });
+
+  it('states the reason in its tooltip on a row with no stored query, even though the button is disabled', async () => {
+    installAtelierMock({ recent: { list: async () => [recent({ payload: LEGACY_PAYLOAD })] } });
+    renderRecent();
+
+    const copy = await screen.findByRole('button', { name: /Copy MQL — this run has no stored query/ });
+    // The disabled button receives no pointer events; its wrapper is the tooltip target.
+    fireEvent.mouseEnter(copy.parentElement!);
+
+    expect((await screen.findByRole('tooltip')).textContent).toBe(
+      'This run has no stored query to copy',
+    );
+  });
 });
 
 // ─── §13.5 chrome survives loading / error, and icon buttons have names ──────
@@ -255,8 +280,9 @@ describe('W15 §13.5 — Saved and Recent keep their chrome through loading and 
     renderSaved();
 
     const del = await screen.findByRole('button', { name: 'Delete "Unpaid orders"' });
-    // `title` is kept for the hover tooltip; it is not what names the button.
-    expect(del.getAttribute('title')).toBe('Delete');
+    // The tooltip is the hover/focus hint; it is not what names the button.
+    fireEvent.focus(del);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Delete');
     // Row actions are distinguishable from one another, per row.
     expect(screen.getByRole('button', { name: 'Run "Unpaid orders" in this tab' })).toBeTruthy();
   });

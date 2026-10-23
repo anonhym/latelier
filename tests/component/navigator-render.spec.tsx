@@ -76,6 +76,22 @@ describe('DbCollectionNavigator — render', () => {
     expect(screen.getByText('config')).toBeTruthy();
   });
 
+  it('shows the Refresh connection tooltip when keyboard focus lands on the refresh icon button', async () => {
+    installAtelierMock({
+      meta: {
+        listDatabases: async () => [{ name: 'downlink', sizeOnDisk: 1, empty: false }],
+        listCollections: async () => [],
+      },
+    });
+    mountNavigator();
+    await screen.findByText('downlink');
+
+    fireEvent.focus(screen.getByRole('button', { name: 'Refresh' }));
+
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toBe('Refresh connection');
+  });
+
   it('badges a capped collection CAPPED, a view VIEW and a time-series TS, and a plain collection not at all', async () => {
     const base = { documentCount: 0, sizeBytes: 0, indexCount: 0 };
     installAtelierMock({

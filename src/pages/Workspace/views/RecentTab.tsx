@@ -4,7 +4,8 @@ import { api, getErrorMessage } from '../../../api/atelier';
 import { relativeTime } from '../../../utils/relativeTime';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { confirmDestructive } from '../../../utils/confirm';
-import { VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Text, Tooltip, VisuallyHidden } from '@mantine/core';
+import { themeVars } from '../../../theme/themeVars';
 import type { RecentQuery } from '@shared/types';
 import { mergeConsecutive, type MergedRecentQuery } from './recentRuns';
 
@@ -30,6 +31,7 @@ function previewOf(item: RecentQuery): string | null {
 }
 
 export function RecentTab({ connectionId, dbName, collection, onRunHere }: RecentTabProps) {
+  const T = themeVars;
   const [items, setItems] = React.useState<RecentQuery[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -125,108 +127,93 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
       {/* W15 §13.5 — the header survives loading, error and empty.
           This view used to early-return a bare centered message, so anyone
           switching here while it loaded got an unlabelled blank panel. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '10px 10px 6px',
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.6,
-          textTransform: 'uppercase',
-          color: 'var(--atelier-text-muted)',
-        }}
+      <Group
+        gap={6}
+        wrap="nowrap"
+        px={10}
+        pt={10}
+        pb={6}
+        fz={10}
+        fw={700}
+        c={T.textMuted}
+        style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}
       >
         <span style={{ flex: 1 }}>Recent · {collection}</span>
-        <button
+        <Button
+          variant="default"
+          size="compact-xs"
+          h={18}
+          px={6}
+          fz={10}
+          c={loading ? undefined : T.textMuted}
           onClick={() => void load()}
           disabled={loading}
           aria-label="Refresh recent queries"
-          title="Refresh"
-          style={{
-            fontSize: 10,
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            background: 'none',
-            color: 'var(--atelier-text-muted)',
-            cursor: loading ? 'default' : 'pointer',
-            padding: '1px 6px',
-          }}
         >
           Refresh
-        </button>
+        </Button>
         {/* The accessible name deliberately differs from the confirm's
             "Clear history" label — otherwise both match the same role+name
             query and the dialog is unreachable by keyboard *and* by test. */}
-        <button
-          onClick={() => void requestClear()}
-          disabled={loading || deleting || items.length === 0}
-          aria-label={`Clear recent find history for ${collection}`}
-          title="Clear history"
-          style={{
-            fontSize: 10,
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            background: 'none',
-            color: 'var(--atelier-red)',
-            cursor: loading || deleting || items.length === 0 ? 'default' : 'pointer',
-            opacity: items.length === 0 ? 0.5 : 1,
-            padding: '1px 6px',
-          }}
-        >
-          Clear
-        </button>
-      </div>
+        <Tooltip label="Clear history" withArrow openDelay={400}>
+          <Button
+            variant="default"
+            size="compact-xs"
+            h={18}
+            px={6}
+            fz={10}
+            c={loading || deleting || items.length === 0 ? undefined : T.red}
+            onClick={() => void requestClear()}
+            disabled={loading || deleting || items.length === 0}
+            aria-label={`Clear recent find history for ${collection}`}
+          >
+            Clear
+          </Button>
+        </Tooltip>
+      </Group>
 
       {loading && (
-        <div style={{ padding: '4px 10px 10px', fontSize: 12, color: 'var(--atelier-text-muted)' }}>
+        <Text fz={12} c={T.textMuted} px={10} pt={4} pb={10}>
           Loading…
-        </div>
+        </Text>
       )}
 
       {!loading && err && (
-        <div style={{ padding: '4px 10px 10px', fontSize: 12, color: 'var(--atelier-warn)' }}>
+        <Text fz={12} c={T.warn} px={10} pt={4} pb={10}>
           {err}
-        </div>
+        </Text>
       )}
 
       {!loading && !err && items.length === 0 && (
-        <div style={{ padding: '4px 10px 10px', fontSize: 12, color: 'var(--atelier-text-muted)' }}>
+        <Text fz={12} c={T.textMuted} px={10} pt={4} pb={10}>
           No recent queries yet. Anything you run in this collection shows up here.
-        </div>
+        </Text>
       )}
 
       {!loading && !err && rows.map((item) => {
         const preview = previewOf(item);
         return (
-          <div
+          <Group
             key={item.id}
-            style={{
-              padding: '7px 10px',
-              borderBottom: '1px solid var(--atelier-border)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 12,
-            }}
+            gap={6}
+            wrap="nowrap"
+            px={10}
+            py={7}
+            fz={12}
+            style={{ borderBottom: `1px solid ${T.border}` }}
           >
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <Box style={{ flex: 1, overflow: 'hidden' }}>
               {/* The row's identity: what was queried, not just when. */}
-              <div
+              <Text
                 title={preview ?? undefined}
-                style={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: 11,
-                  color: preview ? 'var(--atelier-text)' : 'var(--atelier-text-ghost)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
+                fz={11}
+                c={preview ? T.text : T.textGhost}
+                truncate="end"
+                style={{ fontFamily: '"JetBrains Mono", monospace' }}
               >
                 {preview ?? 'no stored query'}
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--atelier-text-ghost)', marginTop: 1 }}>
+              </Text>
+              <Text fz={10} c={T.textGhost} mt={1}>
                 {/* `toLocaleTimeString` alone made a run from last Tuesday read
                     `14:32`, indistinguishable from one an hour ago. */}
                 {relativeTime(item.ranAt, item.ranAt)} — {item.durationMs}ms
@@ -240,75 +227,64 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
                   <span style={{ marginLeft: 6 }}>{item.resultCount} docs</span>
                 )}
                 {item.errorCode && (
-                  <span style={{ marginLeft: 6, color: 'var(--atelier-warn)' }}>{item.errorCode}</span>
+                  <span style={{ marginLeft: 6, color: T.warn }}>{item.errorCode}</span>
                 )}
-              </div>
-            </div>
-            <button
-              onClick={() => onRunHere(item)}
-              title="Run here"
-              aria-label={`Run ${preview ?? 'this recent query'} in this tab`}
-              style={{
-                padding: '2px 7px',
-                fontSize: 10,
-                border: '1px solid var(--atelier-accent-border)',
-                borderRadius: 'var(--atelier-radius-xs)',
-                background: 'var(--atelier-accent-soft)',
-                color: 'var(--atelier-accent)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 3,
-              }}
-            >
-              {I.play} Run
-            </button>
+              </Text>
+            </Box>
+            <Tooltip label="Run here" withArrow openDelay={400}>
+              <Button
+                variant="light"
+                size="compact-xs"
+                h={20}
+                px={7}
+                fz={10}
+                leftSection={I.play}
+                onClick={() => onRunHere(item)}
+                aria-label={`Run ${preview ?? 'this recent query'} in this tab`}
+              >
+                Run
+              </Button>
+            </Tooltip>
             {/* W15 §13.7 — this used to early-return on a row with no
                 stored `queryRaw`: the click did nothing and said nothing. It
-                is now unavailable, and says why, next to a row that already
-                shows there is no query to copy. */}
-            <button
-              onClick={() => { if (preview) void copyToClipboard(preview, 'Query copied to the clipboard'); }}
-              disabled={!preview}
-              title={preview ? 'Copy MQL' : 'This run has no stored query to copy'}
-              aria-label={preview ? 'Copy MQL to the clipboard' : 'Copy MQL — this run has no stored query'}
-              style={{
-                padding: '2px 5px',
-                fontSize: 10,
-                border: '1px solid var(--atelier-border)',
-                borderRadius: 'var(--atelier-radius-xs)',
-                background: 'none',
-                color: 'var(--atelier-text-muted)',
-                cursor: preview ? 'pointer' : 'not-allowed',
-                opacity: preview ? 1 : 0.5,
-                display: 'flex',
-                alignItems: 'center',
-              }}
+                is now unavailable, and says why through its accessible name,
+                next to a row that already shows there is no query to copy. */}
+            {/* The span is the Tooltip's target: a disabled button swallows the
+                pointer events the tooltip listens for, and a row with no
+                stored query is exactly when the explanation is wanted. */}
+            <Tooltip
+              label={preview ? 'Copy MQL' : 'This run has no stored query to copy'}
+              withArrow
+              openDelay={400}
             >
-              {I.copy}
-            </button>
-            {/* Icon-only, so `title` is not the accessible name; the
+              <span style={{ display: 'inline-flex' }}>
+                <ActionIcon
+                  variant="default"
+                  size={22}
+                  c={preview ? T.textMuted : undefined}
+                  onClick={() => { if (preview) void copyToClipboard(preview, 'Query copied to the clipboard'); }}
+                  disabled={!preview}
+                  aria-label={preview ? 'Copy MQL to the clipboard' : 'Copy MQL — this run has no stored query'}
+                >
+                  {I.copy}
+                </ActionIcon>
+              </span>
+            </Tooltip>
+            {/* Icon-only, so the tooltip is not the accessible name; the
                 real name says which run goes. */}
-            <button
-              onClick={() => void requestDelete(item, preview)}
-              disabled={deleting}
-              title="Delete"
-              aria-label={`Delete ${preview ?? 'this recent query'} from recent history`}
-              style={{
-                padding: '2px 5px',
-                fontSize: 10,
-                border: '1px solid var(--atelier-border)',
-                borderRadius: 'var(--atelier-radius-xs)',
-                background: 'none',
-                color: 'var(--atelier-red)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              {I.trash}
-            </button>
-          </div>
+            <Tooltip label="Delete" withArrow openDelay={400}>
+              <ActionIcon
+                variant="default"
+                size={22}
+                c={deleting ? undefined : T.red}
+                onClick={() => void requestDelete(item, preview)}
+                disabled={deleting}
+                aria-label={`Delete ${preview ?? 'this recent query'} from recent history`}
+              >
+                {I.trash}
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         );
       })}
     </div>

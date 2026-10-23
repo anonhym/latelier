@@ -1,5 +1,5 @@
 import React from 'react';
-import { Popover, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Popover, VisuallyHidden } from '@mantine/core';
 
 interface FullValuePopoverProps {
   /** The value's display text, untruncated. */
@@ -60,7 +60,11 @@ export function FullValuePopover({
       returnFocus
     >
       <Popover.Target>
-        <button
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size={16}
+          c="var(--atelier-text-ghost)"
           aria-label={ariaLabel}
           tabIndex={tabIndex}
           onClick={(e) => {
@@ -74,20 +78,14 @@ export function FullValuePopover({
             transform: 'translateY(-50%)',
             opacity: visible ? 1 : 0,
             pointerEvents: visible ? 'auto' : 'none',
-            width: 16,
-            height: 16,
-            padding: 0,
-            border: 'none',
             borderRadius: 3,
             background: 'var(--atelier-surface-raised)',
-            color: 'var(--atelier-text-ghost)',
-            cursor: 'pointer',
             fontSize: 10,
             lineHeight: '16px',
           }}
         >
           ⤢
-        </button>
+        </ActionIcon>
       </Popover.Target>
       {/* Named "Full value" rather than after its trigger: Mantine labels the
           dialog by the trigger's id by default, and the trigger's name is an

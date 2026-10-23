@@ -270,21 +270,17 @@ export function OutputPanel({
               {err.code}
             </div>
             <div style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{err.message}</div>
-            <button
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              fz={11}
+              td="underline"
+              c={T.accent}
+              mt={8}
               onClick={() => setErrDetails((d) => !d)}
-              style={{
-                marginTop: 8,
-                fontSize: 11,
-                background: 'none',
-                border: 'none',
-                color: T.accent,
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                padding: 0,
-              }}
             >
               {errDetails ? 'Hide details' : 'Show details'}
-            </button>
+            </Button>
             {errDetails && (
               <pre
                 style={{

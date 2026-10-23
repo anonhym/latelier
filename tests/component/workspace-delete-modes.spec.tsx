@@ -79,7 +79,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     // Single-doc mode carries no "type the collection name" confirmation —
@@ -168,7 +168,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     expect(within(dialog).queryByText(/Clear the collation/)).toBeNull();
     expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
@@ -215,7 +215,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     expect(within(dialog).queryByText(/Clear the hint/)).toBeNull();
     expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
@@ -300,7 +300,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
     const rowDialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     fireEvent.click(within(rowDialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -335,7 +335,7 @@ describe('workspace delete modes (T1)', () => {
     fireEvent.click(within(allDialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     // A leaked `deleteAllOpen` would render the filter-scoped dialog instead,
@@ -355,7 +355,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
@@ -386,7 +386,7 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Delete document'));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
     expect(

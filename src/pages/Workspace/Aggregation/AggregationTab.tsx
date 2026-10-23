@@ -862,35 +862,12 @@ export function WriteStageConfirm({
           <code style={{ color: T.text }}>{op}</code>. Proceed?
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={cancel}
-            style={{
-              padding: '6px 14px',
-              fontSize: 12,
-              border: `1px solid ${T.border}`,
-              borderRadius: T.rs,
-              background: 'none',
-              color: T.textMuted,
-              cursor: 'pointer',
-            }}
-          >
+          <Button variant="default" size="xs" c={T.textMuted} onClick={cancel}>
             Cancel
-          </button>
-          <button
-            onClick={onProceed}
-            style={{
-              padding: '6px 14px',
-              fontSize: 12,
-              fontWeight: 600,
-              border: 'none',
-              borderRadius: T.rs,
-              background: T.red,
-              color: '#fff',
-              cursor: 'pointer',
-            }}
-          >
+          </Button>
+          <Button color="red" size="xs" onClick={onProceed}>
             Proceed
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
