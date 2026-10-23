@@ -186,7 +186,7 @@ export function SavePipelineModal({
         </label>
 
         {err && (
-          <div role="alert" style={{ fontSize: 12, color: T.warn }}>
+          <div role="alert" style={{ fontSize: 12, color: T.red }}>
             {err}
           </div>
         )}
