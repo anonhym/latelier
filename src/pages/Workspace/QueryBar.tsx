@@ -881,7 +881,9 @@ function QueryBarInner({
             aria-labelledby="query-bar-readpref-label"
             aria-invalid={optionErrors.readPreference !== undefined}
             aria-describedby={optionErrors.readPreference ? 'query-bar-readpref-error' : undefined}
-            style={{ ...cellInputStyle, cursor: 'pointer' }}
+            // Opaque, like the app's other native selects: Chromium paints the
+            // option list from the select's own background.
+            style={{ ...cellInputStyle, background: T.surface, cursor: 'pointer' }}
           >
             <option value="">connection default</option>
             {READ_PREFERENCE_MODES.map((mode) => (
