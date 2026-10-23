@@ -127,9 +127,46 @@ describe('detectAggGrammar', () => {
       expect(r).toMatchObject({ kind: 'valueFor', field: 'status', operator: '$ne' });
     });
 
-    it('takes the nearest enclosing field, not an outer one', () => {
-      const r = hit('{ outer: { inner: { $eq: "x|" } } }');
-      expect(r).toMatchObject({ kind: 'valueFor', field: 'inner', operator: '$eq' });
+    it('joins nested field keys into a dotted path', () => {
+      expect(hit('{ address: { city: "x|" } }')).toEqual({
+        kind: 'valueFor',
+        field: 'address.city',
+        token: 'x',
+        replaceStart: '{ address: { city: "'.length,
+        replaceEnd: '{ address: { city: "x'.length,
+      });
+      expect(hit('{ outer: { inner: { $eq: "x|" } } }')).toMatchObject({
+        kind: 'valueFor',
+        field: 'outer.inner',
+        operator: '$eq',
+      });
+    });
+
+    it('joins through $elemMatch, which names no field of its own', () => {
+      expect(hit('{ items: { $elemMatch: { sku: "x|" } } }')).toMatchObject({
+        kind: 'valueFor',
+        field: 'items.sku',
+      });
+      expect(hit('{ items: { $elemMatch: { qty: { $gt: "x|" } } } }')).toMatchObject({
+        kind: 'valueFor',
+        field: 'items.qty',
+        operator: '$gt',
+      });
+    });
+
+    it('joins through a logical operator clause list', () => {
+      expect(hit('{ $and: [{ a: { b: "x|" } }] }')).toMatchObject({ kind: 'valueFor', field: 'a.b' });
+      expect(hit('{ $nor: [{ a: "x|" }] }')).toMatchObject({ kind: 'valueFor', field: 'a' });
+    });
+
+    it('gives null when the path cannot be read reliably', () => {
+      // An array that is not a logical clause list (an exact array match).
+      expect(hit('{ a: [{ b: "x|" }] }')).toBeNull();
+      // An operator that does not pass a field path through.
+      expect(hit('{ loc: { $geoWithin: { c: "x|" } } }')).toBeNull();
+      expect(hit('{ $expr: { a: "x|" } }')).toBeNull();
+      // A logical operator whose value is not a clause list.
+      expect(hit('{ $or: { a: "x|" } }')).toBeNull();
     });
 
     it('a scope of operators only gives null', () => {
