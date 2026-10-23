@@ -426,10 +426,20 @@ collapsed badge counts set options and their problems (§2).
   `maxTimeMS` reaches only the find.
 - Each invalid option shows its own notice and disables Run; ⌘↵ is refused
   with "Invalid find option"; the runner refuses one that reaches it.
+- A Shell Syntax collation `{locale: 'en'}` and key pattern `{a: 1}` run, sent
+  as EJSON; a quoted hint `"_id_"` or `'_id_'` runs as `_id_`, and one left
+  open is refused.
+- While an option cannot run, the drawer's live count asks nothing and the
+  plan badge's Explain refuses with the option's own message.
+- A read preference no server can serve is named in the error, as
+  `MONGO_ERROR`, never `TIMEOUT`.
 - Changing an option changes the run key and asks for a new plan.
-- A Recent rerun and a saved query keep the options.
+- A Recent rerun and a saved query keep the options; a saved row with no
+  builder clears the tab's. Recent stores the collation and hint trimmed.
 - Delete all matching and Update all matching are refused while a collation
-  or a hint is set; Open as pipeline is refused with a collation or a hint.
+  or a hint is set, and a refused delete asks for no count; Open as pipeline
+  is refused with a collation or a hint.
+- The renderer's `CountInput` type has no `maxTimeMS`, matching the schema.
 - Copy code emits the collation and the hint, and neither `maxTimeMS` nor the
   read preference.
 - The delete confirm's type-to-confirm input is named "Type <collection> to
@@ -440,14 +450,15 @@ collapsed badge counts set options and their problems (§2).
 - Integration `query-service.spec.ts` (memory-server): collation in find and
   count, a `Long` past 2^53 in the filter beside a collation, hint by name and
   key, an unknown hint, the maxTimeMS clamp and message, readPreference on
-  every op (driver spies).
+  every op (driver spies), an unservable read preference named on every op
+  (injected selection error), and find, count, explain and export driven
+  through the router with every option.
 - Unit `query-schema.spec.ts`, `builder-find-options.spec.ts`,
-  `queryRunKey.spec.ts`, `builder-to-pipeline.spec.ts`, `driver-code.spec.ts`;
-  integration
-  `recent-query-service.spec.ts`.
+  `queryRunKey.spec.ts`, `builder-to-pipeline.spec.ts`, `driver-code.spec.ts`,
+  `mongo-errors.spec.ts`; integration `recent-query-service.spec.ts`.
 - Component `query-bar-find-options.spec.tsx`, plus the delete, update,
-  live count, export, explain and runner specs, `workspace-delete-modes`,
-  `saved-legacy-payload`, `workspace-run-hint` and the Copy code case in
-  `query-composition-truthfulness`.
+  live count, export, explain and runner specs, `result-bar-plan-badge`,
+  `workspace-delete-modes`, `saved-legacy-payload`, `workspace-run-hint` and
+  the Copy code case in `query-composition-truthfulness`.
 - E2E `w14-find-options.e2e.ts`: set a case-insensitive collation, Run, and the
   mixed-case row shows with the count matching.
