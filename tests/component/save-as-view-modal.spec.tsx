@@ -4,7 +4,7 @@ import { act, render, screen, fireEvent, waitFor } from '../helpers/render';
 import { SaveAsViewModal } from '../../src/pages/Workspace/Aggregation/SaveAsViewModal';
 import { stagesToPipelineJson } from '../../src/pages/Workspace/Aggregation/pipeline';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { Stage } from '@shared/types';
+import type { CollectionCreateInput, Stage } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
