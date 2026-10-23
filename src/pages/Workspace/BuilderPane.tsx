@@ -67,6 +67,7 @@ import type {
   RecentQuery,
   SavedQuery,
   SavedQuerySummary,
+  Stage,
   ValType,
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
@@ -75,12 +76,15 @@ import { CondValueEditor } from './CondValueEditor';
 import { useStructureEntries } from './useStructureEntries';
 import { condTypeWarning } from './condValue';
 import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
+import { builderToStages } from './builderToPipeline';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
   savedRefreshKey: number;
   /** Opens an aggregation or script saved item as its own top-level tab. */
   onOpenInTab: (saved: SavedQuerySummary) => void;
+  /** Opens this query, as stages, in the collection's Aggregation view. */
+  onOpenAsPipeline: (stages: Stage[]) => void;
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
@@ -1766,6 +1770,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
 function BuilderPaneInner({
   savedRefreshKey,
   onOpenInTab,
+  onOpenAsPipeline,
 }: BuilderPaneProps) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -1839,6 +1844,15 @@ function BuilderPaneInner({
     if (skip > 0) parts.push(`.skip(${skip})`);
     parts.push(`.limit(${limit})`);
     void copyToClipboard(parts.join(''), 'Command copied to the clipboard');
+  };
+
+  const handleOpenAsPipeline = () => {
+    const result = builderToStages(state);
+    if (!result.ok) {
+      notify.error(`Nothing opened — ${result.problem}`);
+      return;
+    }
+    onOpenAsPipeline(result.stages);
   };
 
   // Reset sits in the footer beside Save and can discard a tree that
@@ -2033,6 +2047,9 @@ function BuilderPaneInner({
               onClick={handleCopyCode}
             >
               Copy code
+            </Button>
+            <Button variant="default" size="compact-xs" onClick={handleOpenAsPipeline}>
+              Open as pipeline
             </Button>
           </div>
         </Tabs.Panel>

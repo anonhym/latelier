@@ -60,7 +60,7 @@ const CONNECTION = {
   status: 'connected' as const,
 };
 
-function mountWith(state: CollectionTabState) {
+function mountWith(state: CollectionTabState, tabsOverrides: Partial<IpcApi['tabs']> = {}) {
   const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
     documents: [],
     durationMs: 3,
@@ -73,6 +73,7 @@ function mountWith(state: CollectionTabState) {
       list: async () => [makeCollectionTab(state)],
       setActive: async (id) => ({ id }),
       update: (async () => makeCollectionTab(state)) as unknown as IpcApi['tabs']['update'],
+      ...tabsOverrides,
     },
     conn: { list: async () => [CONNECTION] },
     prefs: {
@@ -466,5 +467,49 @@ describe('W15 §7.1 — "Set default" is gone', () => {
     expect(
       prefsSetSpy.mock.calls.filter((c) => String(c[0]).startsWith('query.default.')),
     ).toEqual([]);
+  });
+});
+
+/**
+ * #156 — "Open as pipeline" hands the builder's query to the Aggregation view
+ * as stages, through the same gate as Run and Copy code.
+ */
+describe('Open as pipeline', () => {
+  it('opens the collection with the query as stages, dirty and unselected', async () => {
+    const state = makeState({
+      queryRaw: '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}',
+      builder: { projection: [], sort: '{"age":-1}', limit: '120' },
+      page: 2,
+    });
+    const openSpy = vi.fn<IpcApi['tabs']['openAggregation']>(async () => makeCollectionTab(state) as never);
+    mountWith(state, { openAggregation: openSpy });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open as pipeline' }));
+
+    await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
+    expect(openSpy).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'mydb',
+      collection: 'users',
+      initialState: {
+        stages: [
+          { id: 1, op: '$match', body: '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}', enabled: true },
+          { id: 2, op: '$sort', body: '{"age":-1}', enabled: true },
+          { id: 3, op: '$limit', body: '120', enabled: true },
+        ],
+        activeStageId: null,
+        dirty: true,
+      },
+    });
+  });
+
+  it('opens nothing for a query that will not run, and says why', async () => {
+    const openSpy = vi.fn<IpcApi['tabs']['openAggregation']>();
+    mountWith(makeState({ queryRaw: '{"status":' }), { openAggregation: openSpy });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open as pipeline' }));
+
+    expect(await screen.findByText(/Nothing opened — Can't parse this filter/)).toBeTruthy();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });

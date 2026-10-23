@@ -7,6 +7,7 @@ import type {
   AggRunAndSaveInput,
   AggSaveCounts,
   AggStagePreview,
+  AggregationTabState,
   AuditEntry,
   AuditListInput,
   UndoResult,
@@ -477,6 +478,7 @@ export interface IpcApi {
       collection: string;
       savedId?: string;
       name?: string;
+      initialState?: Partial<AggregationTabState>;
     }) => Promise<CollectionTab>;
     openDefault: (input: {
       connectionId: string;

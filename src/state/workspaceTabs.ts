@@ -58,9 +58,10 @@ export interface WorkspaceTabsState {
     reuseExisting?: boolean;
   }) => Promise<CollectionTab>;
   /**
-   * Opens the collection's Aggregation view. With a `savedId` or a `name`, main
-   * replaces the pipeline on the collection's open tab, so a tab with unsaved
-   * pipeline edits asks first; `null` when the user keeps them instead.
+   * Opens the collection's Aggregation view. With a `savedId`, a `name` or an
+   * `initialState`, main replaces the pipeline on the collection's open tab, so
+   * a tab with unsaved pipeline edits asks first; `null` when the user keeps
+   * them instead.
    */
   openAggregation: (input: {
     connectionId: string;
@@ -68,6 +69,7 @@ export interface WorkspaceTabsState {
     collection: string;
     savedId?: string;
     name?: string;
+    initialState?: Partial<AggregationTabState>;
   }) => Promise<CollectionTab | null>;
   openScript: (input: {
     connectionId: string;
@@ -261,10 +263,11 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const openAggregation: WorkspaceTabsState['openAggregation'] = useCallback(
     async (input) => {
-      // With a saved pipeline or a name, main replaces the aggregation on the
-      // collection's tab if one is open, so ask before losing its unsaved edits,
-      // as closing that tab does.
-      if (input.savedId || input.name) {
+      // With a saved pipeline, a name or seeded stages, main replaces the
+      // aggregation on the collection's tab if one is open, so ask before
+      // losing its unsaved edits, as closing that tab does.
+      const replaces = Boolean(input.savedId || input.name || input.initialState);
+      if (replaces) {
         const open = tabsRef.current.find(
           (t) =>
             t.kind === 'collection' &&
@@ -284,12 +287,12 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       const tab = await api.tabs.openAggregation(input);
       // Main just overwrote these on the tab, so a patch still in the debounce
       // would otherwise be layered back over it (and later flushed over it).
-      // Without a saved pipeline or name main keeps the persisted aggregation,
-      // so the pending one is newer and stays.
+      // Without a saved pipeline, name or seeded stages main keeps the
+      // persisted aggregation, so the pending one is newer and stays.
       const pending = pendingPatches.current.get(tab.id);
       if (pending) {
         delete pending.activeView;
-        if (input.savedId || input.name) delete pending.aggregation;
+        if (replaces) delete pending.aggregation;
       }
       await refresh();
       return tab;
