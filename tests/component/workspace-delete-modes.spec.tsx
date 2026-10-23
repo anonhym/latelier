@@ -130,17 +130,19 @@ describe('workspace delete modes (T1)', () => {
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', collation: '{"locale":"en","strength":2}' },
     });
+    const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-1' }));
     installAtelierMock({
       tabs: { list: async () => [collated] },
       conn: { list: async () => [connectionFixture({ id: 'c1' })] },
-      doc: { confirmDeleteMany: async () => ({ count: 2, confirmToken: 'tok-1' }) },
+      doc: { confirmDeleteMany },
     });
     mountWorkspace();
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
     fireEvent.click(screen.getByText('Delete all matching…'));
-    const del = await screen.findByRole('dialog', { name: 'Delete 2 matching documents?' });
+    const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(
       within(del).getByText('Clear the collation to delete by filter: it would change which documents match.'),
     ).toBeTruthy();
@@ -179,17 +181,19 @@ describe('workspace delete modes (T1)', () => {
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', hint: 'status_1_sparse' },
     });
+    const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-1' }));
     installAtelierMock({
       tabs: { list: async () => [hinted] },
       conn: { list: async () => [connectionFixture({ id: 'c1' })] },
-      doc: { confirmDeleteMany: async () => ({ count: 2, confirmToken: 'tok-1' }) },
+      doc: { confirmDeleteMany },
     });
     mountWorkspace();
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
     fireEvent.click(screen.getByText('Delete all matching…'));
-    const del = await screen.findByRole('dialog', { name: 'Delete 2 matching documents?' });
+    const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(within(del).getByText(/^Clear the hint to delete by filter/)).toBeTruthy();
     expect((within(del).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));

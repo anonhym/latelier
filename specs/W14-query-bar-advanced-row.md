@@ -394,8 +394,9 @@ collapsed badge counts set options and their problems (§2).
   tab's filter) and `UpdateConfirm` say "Clear the collation to delete/update by
   filter: it would change which documents match" or "Clear the hint to
   delete/update by filter: a hinted sparse index can show fewer documents than
-  the filter matches", and disable the confirm. A delete of selected documents
-  (by `_id`) or of one document is unaffected. Carrying the options through the
+  the filter matches", and disable the confirm. A refused delete asks for no
+  count, so its title names no number the filter alone would give. A delete of
+  selected documents (by `_id`) or of one document is unaffected. Carrying the options through the
   four doc channels is a follow-up, only if asked.
 - **Open as pipeline refuses a collation or a hint**: the aggregate channel
   carries neither.

@@ -79,6 +79,10 @@ export function DeleteConfirm({
   const isMulti = docs.length > 1 || !!filter;
   const collationBlocks = isMulti && !!collation?.trim();
   const hintBlocks = isMulti && !!hint?.trim();
+  // A refused delete asks for no count either: the count is by the filter
+  // alone, so a title saying "Delete 3 matching documents?" would name a set
+  // that is not the one on screen.
+  const optionBlocks = collationBlocks || hintBlocks;
   const matchesCollectionName = confirm === collection;
   // The filter this delete is scoped to — same string for the count fetch
   // and the eventual `deleteMany` so the token (bound server-side to this
@@ -99,7 +103,7 @@ export function DeleteConfirm({
   // component is always remounted with a fresh `key` rather than patched in
   // place, so this only matters as a defensive guarantee.
   React.useEffect(() => {
-    if (!isMulti) return;
+    if (!isMulti || optionBlocks) return;
     let ignore = false;
     void (async () => {
       try {
@@ -122,7 +126,7 @@ export function DeleteConfirm({
     return () => {
       ignore = true;
     };
-  }, [isMulti, connectionId, dbName, collection, matchFilterJson]);
+  }, [isMulti, optionBlocks, connectionId, dbName, collection, matchFilterJson]);
 
   const handleDelete = async () => {
     if (loading) return; // #91 — see SubmitButton.tsx
@@ -179,7 +183,7 @@ export function DeleteConfirm({
     }
   };
 
-  const isCounting = isMulti && countState.status === 'pending';
+  const isCounting = isMulti && !optionBlocks && countState.status === 'pending';
   const countErr = countState.status === 'error' ? countState.message : null;
 
   const title = isMulti
@@ -190,8 +194,7 @@ export function DeleteConfirm({
 
   const deleteDisabled =
     readOnly ||
-    collationBlocks ||
-    hintBlocks ||
+    optionBlocks ||
     (isMulti &&
       (!matchesCollectionName ||
         countState.status !== 'ready' ||

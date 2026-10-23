@@ -349,11 +349,10 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
 // W14 §9 — `deleteMany` sends only the filter, so with a collation on the tab
 // it would delete a different set than the one on screen.
 describe('DeleteConfirm — a collation refuses a delete by filter', () => {
-  it('disables Delete and says why, even once the name is typed and the count resolved', async () => {
+  it('disables Delete, says why, and asks for no count: a count by the filter alone would mislead', async () => {
     const deleteMany = vi.fn();
-    installAtelierMock({
-      doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }), deleteMany },
-    });
+    const confirmDeleteMany = vi.fn(async () => ({ count: 3, confirmToken: 'tok-1' }));
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
 
     render(
       <DeleteConfirm
@@ -371,7 +370,10 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
     expect(
       screen.getByText('Clear the collation to delete by filter: it would change which documents match.'),
     ).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    expect(screen.getByRole('dialog', { name: 'Delete matching documents?' })).toBeTruthy();
+    expect(screen.queryByText('Counting matching documents…')).toBeNull();
+    await Promise.resolve();
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
       target: { value: 'orders' },
     });
@@ -423,11 +425,10 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
 describe('DeleteConfirm — a hint refuses a delete by filter', () => {
   const HINT_TEXT = 'Clear the hint to delete by filter: a hinted sparse index can show fewer documents than the filter matches.';
 
-  it('disables Delete and says why, even once the name is typed and the count resolved', async () => {
+  it('disables Delete, says why, and asks for no count', async () => {
     const deleteMany = vi.fn();
-    installAtelierMock({
-      doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }), deleteMany },
-    });
+    const confirmDeleteMany = vi.fn(async () => ({ count: 3, confirmToken: 'tok-1' }));
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
     render(
       <DeleteConfirm
         connectionId="c1"
@@ -442,7 +443,10 @@ describe('DeleteConfirm — a hint refuses a delete by filter', () => {
     );
 
     expect(screen.getByText(HINT_TEXT)).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    expect(screen.getByRole('dialog', { name: 'Delete matching documents?' })).toBeTruthy();
+    expect(screen.queryByText('Counting matching documents…')).toBeNull();
+    await Promise.resolve();
+    expect(confirmDeleteMany).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
       target: { value: 'orders' },
     });
