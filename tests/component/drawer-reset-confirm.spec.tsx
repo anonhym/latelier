@@ -115,6 +115,7 @@ describe('W15 §13.7 — Copy code reports success', () => {
     mountWith(makeState());
 
     fireEvent.click(await screen.findByRole('button', { name: /Copy code/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Node.js' }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     await screen.findByText(/Command copied to the clipboard/);

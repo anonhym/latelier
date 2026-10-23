@@ -60,7 +60,7 @@ const CONNECTION = {
   status: 'connected' as const,
 };
 
-function mountWith(state: CollectionTabState) {
+function mountWith(state: CollectionTabState, tabsOverrides: Partial<IpcApi['tabs']> = {}) {
   const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
     documents: [],
     durationMs: 3,
@@ -73,6 +73,7 @@ function mountWith(state: CollectionTabState) {
       list: async () => [makeCollectionTab(state)],
       setActive: async (id) => ({ id }),
       update: (async () => makeCollectionTab(state)) as unknown as IpcApi['tabs']['update'],
+      ...tabsOverrides,
     },
     conn: { list: async () => [CONNECTION] },
     prefs: {
@@ -117,6 +118,12 @@ afterEach(() => {
   notifications.clean();
   vi.restoreAllMocks();
 });
+
+// Copy code is a menu of languages (#23): open it, pick one.
+const copyAs = async (label: string) => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: label }));
+};
 
 const copiedText = (): string => {
   const mock = navigator.clipboard.writeText as unknown as { mock: { calls: string[][] } };
@@ -302,10 +309,10 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     expect(copiedText()).toBe(
-      'db.users.find({"status":"active"}, {"_id":1,"name":1})' +
+      'db.getCollection("users").find({"status":"active"}, {"_id":1,"name":1})' +
         '.sort({"createdAt":-1}).skip(100).limit(20)',
     );
 
@@ -338,13 +345,30 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       makeState({ builder: { projection: [], sort: '', limit: '10' }, page: 1 }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     const writeText = navigator.clipboard.writeText as unknown as {
       mock: { calls: string[][] };
     };
     expect(writeText.mock.calls).toHaveLength(0);
     expect(await screen.findByText(/Nothing copied — this page is past the limit/)).toBeTruthy();
+  });
+
+  it('an ObjectId filter copies as code that keeps the ObjectId (#23)', async () => {
+    // Canonical EJSON pasted raw into mongosh reads `$oid` as an unknown
+    // query operator, so the sentinel goes through EJSON.parse instead.
+    const oid = '{"$oid":"64b7f0c2a1b2c3d4e5f60718"}';
+    mountWith(makeState({ queryRaw: `{"_id":${oid}}` }));
+
+    await copyAs('mongosh');
+    expect(copiedText()).toBe(
+      `db.getCollection("users").find({"_id":EJSON.parse(${JSON.stringify(oid)}, { relaxed: false })}).limit(50)`,
+    );
+
+    await copyAs('Python');
+    expect(copiedText()).toBe(
+      ['from bson import json_util', '', `query = {"_id":json_util.loads(${JSON.stringify(oid)})}`, 'cursor = db["users"].find(query, limit=50)'].join('\n'),
+    );
   });
 
   it('the page before the cap still copies, with its real limit', async () => {
@@ -354,7 +378,7 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       makeState({ builder: { projection: [], sort: '', limit: '60' }, page: 1 }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     expect(copiedText()).toContain('.skip(50)');
     expect(copiedText()).toContain('.limit(10)');
@@ -378,8 +402,7 @@ describe('W15 §1.1 — Copy code refuses a query that will not run', () => {
   const writeTextMock = () =>
     navigator.clipboard.writeText as unknown as { mock: { calls: string[][] } };
 
-  const clickCopy = async () =>
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+  const clickCopy = () => copyAs('mongosh');
 
   it('an unparseable sort is refused, and nothing reaches the clipboard', async () => {
     mountWith(makeState({ builder: { projection: [], sort: '{"a":1', limit: '' } }));
@@ -466,5 +489,49 @@ describe('W15 §7.1 — "Set default" is gone', () => {
     expect(
       prefsSetSpy.mock.calls.filter((c) => String(c[0]).startsWith('query.default.')),
     ).toEqual([]);
+  });
+});
+
+/**
+ * #156 — "Open as pipeline" hands the builder's query to the Aggregation view
+ * as stages, through the same gate as Run and Copy code.
+ */
+describe('Open as pipeline', () => {
+  it('opens the collection with the query as stages, dirty and unselected', async () => {
+    const state = makeState({
+      queryRaw: '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}',
+      builder: { projection: [], sort: '{"age":-1}', limit: '120' },
+      page: 2,
+    });
+    const openSpy = vi.fn<IpcApi['tabs']['openAggregation']>(async () => makeCollectionTab(state) as never);
+    mountWith(state, { openAggregation: openSpy });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open as pipeline' }));
+
+    await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
+    expect(openSpy).toHaveBeenCalledWith({
+      connectionId: 'c1',
+      dbName: 'mydb',
+      collection: 'users',
+      initialState: {
+        stages: [
+          { id: 1, op: '$match', body: '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}', enabled: true },
+          { id: 2, op: '$sort', body: '{"age":-1}', enabled: true },
+          { id: 3, op: '$limit', body: '120', enabled: true },
+        ],
+        activeStageId: null,
+        dirty: true,
+      },
+    });
+  });
+
+  it('opens nothing for a query that will not run, and says why', async () => {
+    const openSpy = vi.fn<IpcApi['tabs']['openAggregation']>();
+    mountWith(makeState({ queryRaw: '{"status":' }), { openAggregation: openSpy });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open as pipeline' }));
+
+    expect(await screen.findByText(/Nothing opened — Can't parse this filter/)).toBeTruthy();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });

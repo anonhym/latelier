@@ -12,7 +12,7 @@ import type { SavedAggregationPayload, SavedFindPayload, SavedKind } from '@shar
  * the legacy filter shim compiles a pre-`queryRaw` filter from. `queryRaw` is
  * optional because W09 §1 types it so and rows saved before it existed lack it.
  */
-const StageSchema = z.looseObject({
+export const StageSchema = z.looseObject({
   id: z.number().int(),
   op: z.string(),
   body: z.string(),

@@ -1,7 +1,7 @@
 import React from 'react';
 import { themeVars } from '../../../theme/themeVars';
 import { I } from '../../../icons';
-import { Button, Group, Modal, Tooltip } from '@mantine/core';
+import { Button, Group, Menu, Modal, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api, getErrorMessage, isIpcError } from '../../../api/atelier';
 import { notify } from '../../../theme/notifications';
@@ -44,6 +44,9 @@ import { notifyCollectionChanged } from '../../../state/collectionChanges';
 import { SaveAsViewModal } from './SaveAsViewModal';
 import { saveResultMessage } from './saveResultMessage';
 import { SavePipelineModal } from './SavePipelineModal';
+import { pipelineJsonForCopy } from '../builderToPipeline';
+import { aggregateCode, CODE_LANGS, type CodeLang } from '../../../utils/driverCode';
+import { copyToClipboard } from '../../../utils/clipboard';
 
 interface Props {
   connectionId: string;
@@ -498,6 +501,20 @@ export function AggregationTab({
     void api.agg.cancel({ token: cancelToken }).catch(() => {});
   }, []);
 
+  // ── Copy ─────────────────────────────────────────────────────────
+
+  // Repairs a copy of the bodies, not the tab's: copying changes nothing.
+  // `lang` null copies the bare EJSON array.
+  const onCopy = (lang: CodeLang | null) => {
+    const result = pipelineJsonForCopy(stages);
+    if (!result.ok) {
+      notify.error(`Nothing copied — ${result.problem}`);
+      return;
+    }
+    const text = lang ? aggregateCode(lang, { collection, pipelineJson: result.json }) : result.json;
+    void copyToClipboard(text, lang ? 'Command copied to the clipboard' : 'Pipeline copied to the clipboard');
+  };
+
   // ── Save as collection ───────────────────────────────────────────
 
   const onSaveAsCollection = () => {
@@ -662,6 +679,28 @@ export function AggregationTab({
         <Button size="compact-xs" variant="default" leftSection={I.eye} disabled={running || !validation.ok} onClick={onExplain}>
           Explain
         </Button>
+        <Menu position="bottom-end" shadow="md">
+          <Menu.Target>
+            {/* The output panel has its own "Copy"; the name says which. */}
+            <Button
+              size="compact-xs"
+              variant="default"
+              leftSection={I.copy}
+              disabled={!validation.ok}
+              aria-label="Copy pipeline"
+            >
+              Copy
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item onClick={() => onCopy(null)}>Pipeline (EJSON array)</Menu.Item>
+            {CODE_LANGS.map(({ lang, label }) => (
+              <Menu.Item key={lang} onClick={() => onCopy(lang)}>
+                {label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
       </Group>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>

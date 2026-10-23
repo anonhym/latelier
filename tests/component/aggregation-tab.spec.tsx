@@ -883,3 +883,52 @@ describe('AggregationTab — value recording', () => {
     expect(recordFieldValues).not.toHaveBeenCalled();
   });
 });
+
+describe('AggregationTab — Copy menu (#23)', () => {
+  let writeText: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+  afterEach(() => {
+    delete (navigator as { clipboard?: Clipboard }).clipboard;
+    notifications.clean();
+  });
+
+  const pipelineState = (body: string): AggregationTabState => ({
+    ...DEFAULT_AGGREGATION_TAB_STATE,
+    stages: [
+      { id: 1, op: '$match', body, enabled: true },
+      { id: 2, op: '$limit', body: '5', enabled: false },
+    ],
+  });
+
+  const copyAs = async (label: string) => {
+    fireEvent.click(screen.getByRole('button', { name: 'Copy pipeline' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: label }));
+  };
+
+  it('copies the enabled stages as a Canonical EJSON array, repairing Shell Syntax', async () => {
+    const { onPatch } = renderTab(pipelineState('{ status: "open" }'));
+    await copyAs('Pipeline (EJSON array)');
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('[{"$match":{"status":"open"}}]'));
+    // Copying repairs a copy of the bodies, never the tab's own.
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it('copies a driver snippet that keeps an ObjectId through EJSON.parse', async () => {
+    renderTab(pipelineState('{ _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") }'));
+    await copyAs('mongosh');
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0]![0]).toBe(
+      'db.getCollection("orders").aggregate([{"$match":{"_id":EJSON.parse(' +
+        JSON.stringify('{"$oid":"64b7f0c2a1b2c3d4e5f60718"}') +
+        ', { relaxed: false })}}])',
+    );
+  });
+
+  it('is disabled while the pipeline does not validate', () => {
+    renderTab(pipelineState('{ a: '));
+    expect((screen.getByRole('button', { name: 'Copy pipeline' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
