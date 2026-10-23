@@ -394,6 +394,7 @@ export function DialogStack({
             collection={activeCollection.collection}
             readOnly={focusedConnectionReadOnly}
             filter={filterJson}
+            collation={activeCollection.state.builder.collation}
             onClose={closeUpdateAllModal}
             onUpdated={(auditId, message) => handleUpdatedAll(auditId, message, target)}
           />
@@ -418,6 +419,10 @@ export function DialogStack({
             readOnly={focusedConnectionReadOnly}
             docs={dialog.docs}
             filter={dialog.filter}
+            // Only for a delete by the tab's filter. A selection deletes the
+            // selected documents by `_id`, the same set with or without the
+            // collation, and DeleteConfirm refuses any multi delete given one.
+            collation={deleteAllOpen && !deleteSelected ? activeCollection.state.builder.collation : undefined}
             onClose={closeDeleteDialogs}
             onDeleted={(auditId, message) => handleDeleted(auditId, message, target)}
           />
