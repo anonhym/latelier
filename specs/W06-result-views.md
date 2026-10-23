@@ -96,8 +96,8 @@ Row layout (matches existing mock):
 
 ### Loading & empty
 - Loading (between Run click and response):
-  - first load, no rows yet: eight skeleton rows stand in for the body, inside a `role="status"` region labelled "Loading results";
-  - re-run with rows on screen: keep previous docs visible ("stale but readable") under a "Loading…" strip, itself `role="status"`, so the layout does not jump. Only one of the two status regions shows at a time.
+  - first load (no run has landed in the tab yet): eight skeleton rows stand in for the body, inside a `role="status"` region labelled "Loading results";
+  - any re-run, including one after an empty or errored result: keep the body (previous docs, if any) visible ("stale but readable") under a "Loading…" strip, itself `role="status"`, so the layout does not jump. Only one of the two status regions shows at a time.
 - Empty (`documents.length === 0`): centered placeholder "No matching documents" with a helpful link "Clear filter" (resets builder).
 - Errored: the error pill in W05 conveys the state; the result area keeps the previous docs visible with a small amber "stale" badge.
 

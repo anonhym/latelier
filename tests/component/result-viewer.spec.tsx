@@ -323,6 +323,20 @@ describe('ResultViewer compound', () => {
     expect(container.textContent).not.toContain('Loading…');
   });
 
+  it.each([
+    ['an empty result', { documents: [] as unknown[] }],
+    ['an errored result', { documents: [] as unknown[], error: { code: 'MONGO_ERROR', message: 'boom' } }],
+  ])('a re-run after %s shows the Loading strip, not the first-load skeleton', (_label, run) => {
+    renderLoadingBody(
+      makeState({
+        view: 'Tree',
+        lastRun: { ...run, durationMs: 0, ranAt: new Date().toISOString() } as CollectionTabState['lastRun'],
+      }),
+    );
+    expect(screen.getByRole('status').textContent).toBe('Loading…');
+    expect(screen.queryByRole('status', { name: 'Loading results' })).toBeNull();
+  });
+
   it('a re-run keeps the existing rows under the Loading strip, with no skeleton', () => {
     const { container } = renderLoadingBody(
       makeState({

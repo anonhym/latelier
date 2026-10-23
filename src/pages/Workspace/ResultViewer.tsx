@@ -82,10 +82,11 @@ function Body({
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const hasError = !!state.lastRun?.error;
   const isEmpty = documents.length === 0 && !isLoading && !hasError;
-  // A first load has no rows to keep on screen, so placeholder rows stand in
-  // for the body. A re-run keeps the old rows under the "Loading…" strip
-  // instead, so the layout doesn't jump. One live region at a time.
-  const showSkeleton = isLoading && documents.length === 0;
+  // Only a first load (no run has ever landed in this tab's state) gets
+  // placeholder rows in place of the body. Any re-run, including one after an
+  // empty or errored result, keeps the body under the "Loading…" strip, so
+  // the layout doesn't jump. One live region at a time.
+  const showSkeleton = isLoading && !state.lastRun;
   // X14 §5 — dimmed, not hidden or inert, while the query above cannot
   // run: these rows still describe a real earlier query, and a user editing a
   // filter is often reading them to decide what to type next. Same rule as the
