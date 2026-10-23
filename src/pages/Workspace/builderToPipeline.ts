@@ -60,6 +60,14 @@ export function builderToStages(state: CollectionTabState): StagesResult {
   const problem = findProblem(state);
   if (problem) return { ok: false, problem };
   const opts = compileFindOptions(state.builder);
+  // The aggregate channel takes no collation or hint, and a pipeline that
+  // dropped the collation would match a different set of documents.
+  if (opts.collation || opts.hint) {
+    return {
+      ok: false,
+      problem: `Open as pipeline does not carry the ${opts.collation ? 'collation' : 'hint'}. Clear it to open this query as a pipeline.`,
+    };
+  }
   const findOnly = opts.projection ? findOnlyOperator(JSON.parse(opts.projection)) : null;
   if (findOnly) {
     return {

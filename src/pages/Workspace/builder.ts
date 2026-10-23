@@ -1,4 +1,4 @@
-import type { BuilderState, CollectionTabState, MqlOp, ValType } from '@shared/types';
+import type { BuilderState, CollectionTabState, MqlOp, ReadPreferenceMode, ValType } from '@shared/types';
 import { toDisplayValue, type DisplayType } from '../../utils/displayValue';
 import { ejsonParse, isEjsonDocument, isPlainDocument, isValidEjson } from '../../utils/ejson';
 import {
@@ -126,6 +126,39 @@ export interface CompiledFindOptions {
   sort?: string;
   projection?: string;
   limit: number | null;
+  collation?: string;
+  hint?: string;
+  maxTimeMS?: number;
+  readPreference?: ReadPreferenceMode;
+}
+
+/** The driver's read preference modes, in the order the query bar lists them. */
+export const READ_PREFERENCE_MODES: readonly ReadPreferenceMode[] = [
+  'primary',
+  'primaryPreferred',
+  'secondary',
+  'secondaryPreferred',
+  'nearest',
+];
+
+/**
+ * The find's own server-side cap, `QUERY_TIMEOUT_MS` in
+ * `electron/mongo/timeouts.ts` (the renderer cannot import it). A larger
+ * maxTimeMS is clamped to it there: a user value can only lower the cap.
+ */
+export const MAX_TIME_MS_CAP = 30_000;
+
+function isReadPreference(raw: string | undefined): raw is ReadPreferenceMode {
+  return (READ_PREFERENCE_MODES as readonly (string | undefined)[]).includes(raw);
+}
+
+/** Digits only, unlike `limit`: `5xyz` or `1.5` is refused rather than coerced. */
+function parseMaxTimeMS(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const text = raw.trim();
+  if (!/^\d+$/.test(text)) return undefined;
+  const n = Number.parseInt(text, 10);
+  return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
 export function compileFindOptions(state: BuilderState): CompiledFindOptions {
@@ -164,7 +197,56 @@ export function compileFindOptions(state: BuilderState): CompiledFindOptions {
       ? parsedLimit
       : null;
 
-  return { sort, projection, limit };
+  // Collation and hint are sent verbatim like `projectionRaw`, and
+  // `optionsProblem` is the gate. A blank one is unset.
+  return {
+    sort,
+    projection,
+    limit,
+    collation: state.collation?.trim() || undefined,
+    hint: state.hint?.trim() || undefined,
+    maxTimeMS: parseMaxTimeMS(state.maxTimeMS),
+    readPreference: isReadPreference(state.readPreference) ? state.readPreference : undefined,
+  };
+}
+
+export type FindOptionKey = 'collation' | 'hint' | 'maxTimeMS' | 'readPreference';
+
+/**
+ * Each find option that cannot run, by option, for the options row's own
+ * notices. A blank option is unset, never a problem. A hint is an index name
+ * unless it starts with `{`, which makes it a key pattern: that one has to be
+ * a document, the rule `QueryService` applies main-side.
+ */
+export function findOptionProblems(state: BuilderState): Partial<Record<FindOptionKey, string>> {
+  const problems: Partial<Record<FindOptionKey, string>> = {};
+  const collation = state.collation?.trim();
+  if (collation && !isEjsonDocument(collation)) {
+    problems.collation = 'Can\'t parse this collation. Expected EJSON like { "locale": "en", "strength": 2 }.';
+  }
+  const hint = state.hint?.trim();
+  if (hint?.startsWith('{') && !isEjsonDocument(hint)) {
+    problems.hint = 'Can\'t parse this hint. Expected an index name like _id_ or a key pattern like { "a": 1 }.';
+  }
+  if (state.maxTimeMS?.trim() && parseMaxTimeMS(state.maxTimeMS) === undefined) {
+    problems.maxTimeMS = 'maxTimeMS must be a whole number of milliseconds, at least 1.';
+  }
+  if (state.readPreference && !isReadPreference(state.readPreference)) {
+    problems.readPreference = `"${state.readPreference}" is not a read preference. Expected one of ${READ_PREFERENCE_MODES.join(', ')}.`;
+  }
+  return problems;
+}
+
+/** The first find option that cannot run, or null. */
+export function optionsProblem(state: BuilderState): string | null {
+  return Object.values(findOptionProblems(state))[0] ?? null;
+}
+
+/** A runnable maxTimeMS over the cap still runs, at the cap: say so rather than clamp silently. */
+export function maxTimeMSWarning(raw: string | undefined): string | null {
+  const n = parseMaxTimeMS(raw);
+  if (n === undefined || n <= MAX_TIME_MS_CAP) return null;
+  return `Running with maxTimeMS ${MAX_TIME_MS_CAP}, the most a query may run.`;
 }
 
 /** Shared by the Run button and useQueryRunner so sort-validity can't drift between them. */
@@ -245,7 +327,8 @@ export function findProblem(state: CollectionTabState): string | null {
   return (
     filterProblem(state.queryRaw) ??
     sortProblem(state.builder.sort) ??
-    projectionProblem(state.builder)
+    projectionProblem(state.builder) ??
+    optionsProblem(state.builder)
   );
 }
 
