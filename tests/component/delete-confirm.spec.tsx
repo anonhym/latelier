@@ -346,6 +346,78 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
     );
   });
 
+// W14 §9 — `deleteMany` sends only the filter, so with a collation on the tab
+// it would delete a different set than the one on screen.
+describe('DeleteConfirm — a collation refuses a delete by filter', () => {
+  it('disables Delete and says why, even once the name is typed and the count resolved', async () => {
+    const deleteMany = vi.fn();
+    installAtelierMock({
+      doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }), deleteMany },
+    });
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"name":"a"}'
+        collation='{"locale":"en","strength":2}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText('Clear the collation to delete by filter: it would change which documents match.'),
+    ).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
+      target: { value: 'orders' },
+    });
+    const del = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    fireEvent.click(del);
+    expect(deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('a blank collation, or a single-document delete, is not refused', async () => {
+    installAtelierMock({ doc: { confirmDeleteMany: async () => ({ count: 3, confirmToken: 'tok-1' }) } });
+    const { unmount } = render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[]}
+        filter='{"name":"a"}'
+        collation="  "
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText(/3 matching documents/)).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type orders to confirm' }), {
+      target: { value: 'orders' },
+    });
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+    unmount();
+
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        docs={[{ _id: '1' }]}
+        collation='{"locale":"en"}'
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+    expect(screen.queryByText(/Clear the collation/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe('DeleteConfirm — Undo hand-off', () => {
   it('passes the Reversible entry id of a single-document delete to onDeleted', async () => {
     installAtelierMock({ doc: { deleteOne: async () => ({ deletedCount: 1, auditId: 'a1' }) } });

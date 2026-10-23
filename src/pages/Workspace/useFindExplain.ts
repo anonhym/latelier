@@ -47,10 +47,13 @@ export function useFindExplain(readFilterText: () => string): {
         filter: text,
         sort: findOptions.sort,
         projection: findOptions.projection,
+        collation: findOptions.collation,
+        hint: findOptions.hint,
+        readPreference: findOptions.readPreference,
         verbosity,
       });
     },
-    [connectionId, dbName, collection, findOptions.sort, findOptions.projection, readFilterText],
+    [connectionId, dbName, collection, findOptions, readFilterText],
   );
 
   // Same inputs `runExplain` reads — the button only appears on the explain

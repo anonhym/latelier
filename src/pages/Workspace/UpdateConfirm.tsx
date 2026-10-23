@@ -17,6 +17,10 @@ interface UpdateConfirmProps {
    *  this dialog is open (`useDocumentDialogs.openUpdateAllModal` refuses to
    *  open it otherwise, same guard as delete-all). */
   filter: string;
+  /** The tab's collation (W14 §9). `confirmUpdateMany`/`updateMany` send only
+   *  the filter, so with a collation set they would update a different set
+   *  of documents than the one on screen: the update is refused instead. */
+  collation?: string;
   readOnly?: boolean;
   onClose: () => void;
   /** `auditId` is set when the update can be undone — within X13's bulk
@@ -47,6 +51,7 @@ export function UpdateConfirm({
   dbName,
   collection,
   filter,
+  collation,
   readOnly = false,
   onClose,
   onUpdated,
@@ -188,8 +193,9 @@ export function UpdateConfirm({
   };
 
   const matchesCollectionName = confirm === collection;
-  const reviewDisabled = readOnly || reviewing || !isValid;
-  const updateDisabled = readOnly || running || reviewed === null || !matchesCollectionName;
+  const collationSet = !!collation?.trim();
+  const reviewDisabled = readOnly || collationSet || reviewing || !isValid;
+  const updateDisabled = readOnly || collationSet || running || reviewed === null || !matchesCollectionName;
 
   // States a fact about this specific action (ADR 0013); no line until
   // Review runs `confirmUpdateMany`, since the count isn't known before
@@ -216,6 +222,12 @@ export function UpdateConfirm({
         {readOnly && (
           <Alert color="yellow" variant="light" role="alert">
             This connection is read-only. Updating is disabled.
+          </Alert>
+        )}
+
+        {collationSet && (
+          <Alert color="yellow" variant="light" role="alert">
+            Clear the collation to update by filter: it would change which documents match.
           </Alert>
         )}
 

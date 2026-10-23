@@ -280,6 +280,51 @@ describe('UpdateConfirm', () => {
     expect(screen.getByText('This connection is read-only. Updating is disabled.')).toBeTruthy();
   });
 
+  // W14 §9 — `updateMany` sends only the filter, so with a collation on the
+  // tab it would update a different set than the one on screen.
+  it('disables Review and says why when the tab has a collation', () => {
+    const confirmUpdateMany = vi.fn();
+    installAtelierMock({ doc: { confirmUpdateMany } });
+
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"name":"a"}'
+        collation='{"locale":"en","strength":2}'
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    expect(reviewBtn().disabled).toBe(true);
+    fireEvent.click(reviewBtn());
+    expect(confirmUpdateMany).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Clear the collation to update by filter: it would change which documents match.'),
+    ).toBeTruthy();
+  });
+
+  it('a blank collation leaves Review available', () => {
+    installAtelierMock({ doc: { confirmUpdateMany: vi.fn() } });
+    render(
+      <UpdateConfirm
+        connectionId="c1"
+        dbName="app"
+        collection="orders"
+        filter='{"name":"a"}'
+        collation=" "
+        onClose={() => undefined}
+        onUpdated={() => undefined}
+      />,
+    );
+    fireEvent.change(updateJsonInput(), { target: { value: '{"$set":{"status":"active"}}' } });
+    expect(reviewBtn().disabled).toBe(false);
+    expect(screen.queryByText(/Clear the collation/)).toBeNull();
+  });
+
   it('a VALIDATION refusal from confirmUpdateMany surfaces via the alert, with no Update button', async () => {
     installAtelierMock({
       doc: {

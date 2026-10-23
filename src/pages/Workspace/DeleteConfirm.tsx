@@ -13,6 +13,11 @@ interface DeleteConfirmProps {
   collection: string;
   docs: unknown[];
   filter?: string;
+  /** The tab's collation (W14 §9), for a delete by the tab's filter.
+   *  `confirmDeleteMany`/`deleteMany` send only the filter, so with a
+   *  collation set they would delete a different set of documents than the
+   *  one on screen: a filter-wide delete is refused instead. */
+  collation?: string;
   /** Disables the confirm button outright rather than letting the
    * user complete the confirmation flow only to hit a server-side rejection. */
   readOnly?: boolean;
@@ -42,6 +47,7 @@ export function DeleteConfirm({
   collection,
   docs,
   filter,
+  collation,
   readOnly = false,
   onClose,
   onDeleted,
@@ -67,6 +73,7 @@ export function DeleteConfirm({
   }, []);
 
   const isMulti = docs.length > 1 || !!filter;
+  const collationBlocks = isMulti && !!collation?.trim();
   const matchesCollectionName = confirm === collection;
   // The filter this delete is scoped to — same string for the count fetch
   // and the eventual `deleteMany` so the token (bound server-side to this
@@ -178,6 +185,7 @@ export function DeleteConfirm({
 
   const deleteDisabled =
     readOnly ||
+    collationBlocks ||
     (isMulti &&
       (!matchesCollectionName ||
         countState.status !== 'ready' ||
@@ -213,6 +221,12 @@ export function DeleteConfirm({
           </Alert>
         )}
 
+        {collationBlocks && (
+          <Alert color="yellow" variant="light" role="alert">
+            Clear the collation to delete by filter: it would change which documents match.
+          </Alert>
+        )}
+
         {isCounting && (
           <Text size="xs" c="dimmed">
             Counting matching documents…
@@ -228,6 +242,7 @@ export function DeleteConfirm({
               value={confirm}
               onChange={(e) => setConfirm(e.currentTarget.value)}
               placeholder={collection}
+              aria-label={`Type ${collection} to confirm`}
               size="xs"
             />
           </Stack>
