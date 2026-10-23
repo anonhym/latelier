@@ -19,8 +19,8 @@ const { fakeFieldSource, valuesA, valuesB } = vi.hoisted(() => ({
   ),
   // Two value sources, one sync and one async, so the merge across sources
   // and the mix of both kinds are exercised.
-  valuesA: vi.fn((_ctx: unknown): ValueSuggestion[] => []),
-  valuesB: vi.fn(async (_ctx: unknown): Promise<ValueSuggestion[]> => []),
+  valuesA: vi.fn<(ctx: unknown) => ValueSuggestion[]>(() => []),
+  valuesB: vi.fn<(ctx: unknown) => Promise<ValueSuggestion[]>>(async () => []),
 }));
 
 vi.mock('../../src/features/fieldSuggestions/sources', async (importOriginal) => {
