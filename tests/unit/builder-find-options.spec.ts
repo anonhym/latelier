@@ -51,6 +51,9 @@ describe('compileFindOptions: find options', () => {
     expect(compileFindOptions(b({ hint: '"a\\"b"' })).hint).toBe('a"b');
     expect(compileFindOptions(b({ hint: 'name_1' })).hint).toBe('name_1');
     expect(findOptionProblems(b({ hint: "'_id_'" }))).toEqual({});
+    // Only a quote that opens the text quotes it: one inside is part of a name.
+    expect(compileFindOptions(b({ hint: "o'brien_1" })).hint).toBe("o'brien_1");
+    expect(findOptionProblems(b({ hint: "o'brien_1" }))).toEqual({});
   });
 
   it('sends no maxTimeMS or readPreference that would not run', () => {
