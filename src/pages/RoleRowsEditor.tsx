@@ -2,6 +2,7 @@ import React from 'react';
 import { Autocomplete } from '@mantine/core';
 import { themeVars } from '../theme/themeVars';
 import { api } from '../api/atelier';
+import { ownGet } from '../utils/ownProperty';
 import type { UserRoleRef } from '@shared/types';
 
 const FETCH_DEBOUNCE_MS = 300;
@@ -80,7 +81,9 @@ export function RoleRowsEditor({
   return (
     <>
       {rows.map((r, i) => {
-        const known = catalog[r.db.trim()];
+        // A db name is user text: `constructor` or `__proto__` must not read
+        // an Object.prototype member as if it were a catalog.
+        const known = ownGet(catalog, r.db.trim());
         const name = r.role.trim();
         const unknown = Array.isArray(known) && name !== '' && !known.includes(name);
         return (
