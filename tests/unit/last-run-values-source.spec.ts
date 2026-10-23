@@ -121,4 +121,9 @@ describe('lastRunValuesSource', () => {
     const out = sync(lastRunValuesSource(ctx('constructor', { recentDocs: [doc] })));
     expect(out.map((s) => s.display)).toEqual(['own']);
   });
+
+  it.each(['token', 'auth.Secret'])('never offers values of the secret-named field %s', (field) => {
+    const docs = [{ token: 't1', auth: { Secret: 's1' } }];
+    expect(sync(lastRunValuesSource(ctx(field, { recentDocs: docs })))).toEqual([]);
+  });
 });

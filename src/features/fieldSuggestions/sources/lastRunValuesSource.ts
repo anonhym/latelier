@@ -1,4 +1,5 @@
 import { toDisplayValue, type DisplayType } from '../../../utils/displayValue';
+import { isSecretFieldPath } from '../../../utils/secretFieldPath';
 import type { ValueSource, ValueSuggestion } from '../types';
 
 const MAX_DOCS = 50;
@@ -63,6 +64,7 @@ export function distinctValuesAt(
 export const lastRunValuesSource: ValueSource = (ctx) => {
   const docs = ctx.recentDocs;
   const field = ctx.target.field.trim();
-  if (!docs || docs.length === 0 || !field) return [];
+  // A secret-named field never offers its values, here or in any source.
+  if (!docs || docs.length === 0 || !field || isSecretFieldPath(field)) return [];
   return distinctValuesAt(docs, field, MAX_DOCS).map((s) => ({ ...s, source: 'lastRun' }));
 };
