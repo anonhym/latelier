@@ -91,7 +91,7 @@ Wire the existing Aggregation mock as an in-workspace tab type rather than a sta
 ### Copy
 - A menu, disabled while the pipeline does not validate. "Pipeline (EJSON array)" copies the enabled stages as one Canonical EJSON array; mongosh, Node.js and Python copy an `aggregate` call for that driver.
 - Each enabled body is repaired from Shell Syntax first, on a copy: the tab's own bodies are not rewritten. A body that cannot be repaired copies nothing and names the stage by its 1-based position.
-- Every document reaches the snippet through the driver's own EJSON parser (`EJSON.parse(…, { relaxed: false })`, `json_util.loads`), so an ObjectId or a Long keeps its type. mongosh takes a document verbatim when it holds no EJSON sentinel.
+- Each stage is a plain literal; each exact EJSON sentinel in it goes through the driver's own EJSON parser (`EJSON.parse(…, { relaxed: false })`, `json_util.loads`), so an ObjectId or a Long keeps its type. Only the sentinel: the drivers' parsers revive looser shapes than the app, such as `{ $regex, $ne }` as a regex. An Int32 or a fractional Double is written as a bare number, which every driver sends as that type.
 
 ### Dark toggle
 - Reuses the global `DarkToggleCtx` (X01). No special behavior.

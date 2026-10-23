@@ -7,9 +7,14 @@ import { parseJsonKeepingBigInts } from './bigIntJson';
  *
  * Inputs are Canonical EJSON text. That is not shell syntax: pasted into
  * mongosh, `{"$oid": "…"}` reads as an unknown query operator, and a bare
- * `9007199254740993` rounds. So every document travels as a string literal
- * through the language's own EJSON parser, which keeps every BSON type; only
- * mongosh takes a document verbatim, and only when it holds neither.
+ * `9007199254740993` rounds. So each exact sentinel travels as a string
+ * literal through the language's own EJSON parser, which keeps its BSON type,
+ * and everything else is a plain literal.
+ *
+ * Only the sentinel, never the whole document: the drivers' parsers revive
+ * looser shapes than the app does — bson's EJSON.parse turns
+ * `{"$regex": "^A", "$ne": "x"}` into a regex and drops `$ne`, where the app's
+ * `ejsonParse` keeps that operator document.
  */
 export type CodeLang = 'mongosh' | 'node' | 'python';
 
@@ -33,40 +38,88 @@ export interface AggregateCodeInput {
   pipelineJson: string;
 }
 
-/** Arrays walk like objects: an array's keys are never a sentinel's. */
-function hasSentinel(node: unknown): boolean {
-  if (node === null || typeof node !== 'object') return false;
-  const obj = node as Record<string, unknown>;
-  return isExactSentinel(obj) || Object.values(obj).some(hasSentinel);
-}
-
-/**
- * `text` with any bare integer beyond 2^53 rewritten as `$numberLong` (the
- * Long the app itself runs it as), and whether it now holds a sentinel.
- * Text without such an integer is kept as the user spelled it.
- */
-function lossless(text: string): { text: string; sentinel: boolean } {
-  const kept = parseJsonKeepingBigInts(text);
-  const rewritten = JSON.stringify(kept);
-  return {
-    text: rewritten === JSON.stringify(JSON.parse(text)) ? text : rewritten,
-    sentinel: hasSentinel(kept),
-  };
-}
-
 /**
  * A JSON string literal: also a valid JavaScript and Python string literal,
  * since JSON.stringify escapes quotes, backslashes and control characters.
  */
 const str = (s: string): string => JSON.stringify(s);
 
-function mongoshArg(text: string): string {
-  const doc = lossless(text);
-  return doc.sentinel ? `EJSON.parse(${str(doc.text)}, { relaxed: false })` : doc.text;
+type Syntax = {
+  nul: string;
+  yes: string;
+  no: string;
+  negZero: string;
+  key: (k: string) => string;
+  sentinel: (json: string) => string;
+};
+
+const JS: Syntax = {
+  nul: 'null',
+  yes: 'true',
+  no: 'false',
+  negZero: '-0',
+  // `"__proto__": v` in an object literal sets the prototype instead of adding
+  // the field; a computed key adds it.
+  key: (k) => (k === '__proto__' ? `[${str(k)}]` : str(k)),
+  sentinel: (json) => `EJSON.parse(${str(json)}, { relaxed: false })`,
+};
+const PY: Syntax = {
+  nul: 'None',
+  yes: 'True',
+  no: 'False',
+  negZero: '-0.0',
+  key: str,
+  sentinel: (json) => `json_util.loads(${str(json)})`,
+};
+
+/** A JSON value as a literal, every exact sentinel through the driver's parser. */
+function literal(node: unknown, syn: Syntax): string {
+  if (node === null) return syn.nul;
+  if (typeof node === 'boolean') return node ? syn.yes : syn.no;
+  if (typeof node === 'number') return Object.is(node, -0) ? syn.negZero : String(node);
+  if (typeof node === 'string') return str(node);
+  if (Array.isArray(node)) return `[${node.map((v) => literal(v, syn)).join(',')}]`;
+  const obj = node as Record<string, unknown>;
+  if (isExactSentinel(obj)) return plainNumber(obj) ?? syn.sentinel(JSON.stringify(obj));
+  return `{${Object.entries(obj).map(([k, v]) => `${syn.key(k)}:${literal(v, syn)}`).join(',')}}`;
 }
 
-const nodeParse = (text: string): string => `EJSON.parse(${str(lossless(text).text)}, { relaxed: false })`;
-const pyParse = (text: string): string => `json_util.loads(${str(lossless(text).text)})`;
+/**
+ * A number sentinel both languages already send as that type, as a bare
+ * number: every driver encodes an int32-range integer as Int32 and a
+ * fractional number as Double. An integral `$numberDouble` stays a sentinel,
+ * since a bare `1` would go out as an Int32.
+ */
+function plainNumber(obj: Record<string, unknown>): string | null {
+  const int = obj.$numberInt;
+  if (typeof int === 'string' && /^-?\d+$/.test(int)) return int;
+  const dbl = obj.$numberDouble;
+  if (typeof dbl === 'string' && !Number.isInteger(Number(dbl)) && Number.isFinite(Number(dbl))) return dbl;
+  return null;
+}
+
+/**
+ * The parsed text, with any bare integer beyond 2^53 already a `$numberLong`
+ * sentinel — the Long the app itself runs it as.
+ */
+const parse = (text: string): unknown => parseJsonKeepingBigInts(text);
+
+const jsArg = (text: string): string => literal(parse(text), JS);
+const pyArg = (text: string): string => literal(parse(text), PY);
+
+/** The direction words a find sort accepts (`builder.ts`'s SORT_DIRECTIONS). */
+const SORT_WORDS: Record<string, number> = { '1': 1, asc: 1, ascending: 1, '-1': -1, desc: -1, descending: -1 };
+
+/**
+ * PyMongo sends a string direction as is and the server refuses it, where the
+ * Node driver maps "desc" to -1 itself. Only runs past `sortProblem`, so
+ * every string is one of these words.
+ */
+function pySort(text: string): string {
+  const doc = parse(text) as Record<string, unknown>;
+  const dirs = Object.entries(doc).map(([k, v]) => [k, typeof v === 'string' ? SORT_WORDS[v.toLowerCase()] : v]);
+  return literal(Object.fromEntries(dirs), PY);
+}
 
 export function findCode(lang: CodeLang, input: FindCodeInput): string {
   const { collection, filter, projection, sort, skip, limit } = input;
@@ -75,23 +128,23 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   if (limit <= 0) throw new Error(`findCode: limit must be positive, got ${limit}`);
 
   if (lang === 'mongosh') {
-    let code = `db.getCollection(${str(collection)}).find(${mongoshArg(filter)}`;
-    if (projection) code += `, ${mongoshArg(projection)}`;
+    let code = `db.getCollection(${str(collection)}).find(${jsArg(filter)}`;
+    if (projection) code += `, ${jsArg(projection)}`;
     code += ')';
-    if (sort) code += `.sort(${mongoshArg(sort)})`;
+    if (sort) code += `.sort(${jsArg(sort)})`;
     if (skip > 0) code += `.skip(${skip})`;
     return `${code}.limit(${limit})`;
   }
 
   if (lang === 'node') {
-    const lines = ["const { EJSON } = require('bson');", '', `const filter = ${nodeParse(filter)};`];
+    const lines = ["const { EJSON } = require('bson');", '', `const filter = ${jsArg(filter)};`];
     const opts: string[] = [];
     if (projection) {
-      lines.push(`const projection = ${nodeParse(projection)};`);
+      lines.push(`const projection = ${jsArg(projection)};`);
       opts.push('projection');
     }
     if (sort) {
-      lines.push(`const sort = ${nodeParse(sort)};`);
+      lines.push(`const sort = ${jsArg(sort)};`);
       opts.push('sort');
     }
     if (skip > 0) opts.push(`skip: ${skip}`);
@@ -100,14 +153,14 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
     return lines.join('\n');
   }
 
-  const lines = ['from bson import json_util', '', `query = ${pyParse(filter)}`];
+  const lines = ['from bson import json_util', '', `query = ${pyArg(filter)}`];
   const args = ['query'];
   if (projection) {
-    lines.push(`projection = ${pyParse(projection)}`);
+    lines.push(`projection = ${pyArg(projection)}`);
     args.push('projection');
   }
   if (sort) {
-    lines.push(`sort = list(${pyParse(sort)}.items())`);
+    lines.push(`sort = list(${pySort(sort)}.items())`);
     args.push('sort=sort');
   }
   if (skip > 0) args.push(`skip=${skip}`);
@@ -119,20 +172,20 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
 export function aggregateCode(lang: CodeLang, input: AggregateCodeInput): string {
   const { collection, pipelineJson } = input;
   if (lang === 'mongosh') {
-    return `db.getCollection(${str(collection)}).aggregate(${mongoshArg(pipelineJson)})`;
+    return `db.getCollection(${str(collection)}).aggregate(${jsArg(pipelineJson)})`;
   }
   if (lang === 'node') {
     return [
       "const { EJSON } = require('bson');",
       '',
-      `const pipeline = ${nodeParse(pipelineJson)};`,
+      `const pipeline = ${jsArg(pipelineJson)};`,
       `const cursor = db.collection(${str(collection)}).aggregate(pipeline);`,
     ].join('\n');
   }
   return [
     'from bson import json_util',
     '',
-    `pipeline = ${pyParse(pipelineJson)}`,
+    `pipeline = ${pyArg(pipelineJson)}`,
     `cursor = db[${str(collection)}].aggregate(pipeline)`,
   ].join('\n');
 }
