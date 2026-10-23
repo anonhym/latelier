@@ -1,5 +1,5 @@
 import React from 'react';
-import { Autocomplete } from '@mantine/core';
+import { ActionIcon, Autocomplete, Button, Tooltip } from '@mantine/core';
 import { themeVars } from '../theme/themeVars';
 import { api } from '../api/atelier';
 import { ownGet } from '../utils/ownProperty';
@@ -105,21 +105,17 @@ export function RoleRowsEditor({
                 onChange={(e) => update(i, { db: e.target.value })}
                 style={inputStyle}
               />
-              <button
-                onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
-                aria-label={`Remove role ${i + 1}`}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: T.textGhost,
-                  cursor: 'pointer',
-                  padding: 4,
-                  fontSize: 13,
-                  lineHeight: 1,
-                }}
-              >
-                ×
-              </button>
+              <Tooltip label={`Remove role ${i + 1}`} withArrow openDelay={400}>
+                <ActionIcon
+                  onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
+                  aria-label={`Remove role ${i + 1}`}
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                >
+                  ×
+                </ActionIcon>
+              </Tooltip>
             </div>
             {unknown && (
               <div style={{ fontSize: 11, color: T.warn, marginTop: 2 }}>
@@ -129,20 +125,15 @@ export function RoleRowsEditor({
           </div>
         );
       })}
-      <button
+      <Button
+        variant="default"
+        size="compact-xs"
+        c={T.textMuted}
+        style={{ borderStyle: 'dashed' }}
         onClick={() => onChange([...rows, { role: 'read', db: defaultDb }])}
-        style={{
-          background: 'transparent',
-          border: `1px dashed ${T.border}`,
-          borderRadius: T.rs,
-          padding: '4px 8px',
-          fontSize: 11,
-          color: T.textMuted,
-          cursor: 'pointer',
-        }}
       >
         + Add role
-      </button>
+      </Button>
     </>
   );
 }

@@ -690,6 +690,14 @@ describe('ConnectionForm fields are named by their visible label', () => {
     expect(hide.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('shows the Show password tooltip when keyboard focus lands on the toggle', async () => {
+    await mount();
+    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    fireEvent.focus(screen.getByRole('button', { name: 'Show password' }));
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toBe('Show password');
+  });
+
   it('text fields and the (revealed) password field opt out of spell checking', async () => {
     await mount();
     expect(byLabel('Hostname').getAttribute('spellcheck')).toBe('false');

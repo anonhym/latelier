@@ -137,12 +137,9 @@ export function RolesTab({
     return (
       <div style={{ padding: 20, color: T.warn }}>
         {dbError}
-        <button
-          onClick={() => void loadDatabases()}
-          style={{ marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer' }}
-        >
+        <Button variant="subtle" size="compact-xs" c={T.accent} ml={8} onClick={() => void loadDatabases()}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }

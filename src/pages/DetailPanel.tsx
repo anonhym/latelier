@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
-import { Button, Table, VisuallyHidden } from '@mantine/core';
+import { Button, Table, UnstyledButton, VisuallyHidden } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { disconnectConnection } from '../features/connections/disconnectConnection';
 import type {
@@ -151,26 +151,19 @@ function OverviewTab({ conn, runtime }: {
               {hasError ? 'Retry' : 'Connect'}
             </Button>
             {hasError && (
-              <button
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                c={T.accent}
                 onClick={() =>
                   help.open({
                     errorCode: runtime.errorCode,
                     message: runtime.errorMessage,
                   })
                 }
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: T.accent,
-                  fontSize: 12,
-                  fontFamily: 'inherit',
-                  padding: '6px 4px',
-                  textDecoration: 'underline',
-                }}
               >
                 Help me fix this →
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -181,9 +174,10 @@ function OverviewTab({ conn, runtime }: {
   if (!info && error) {
     return (
       <div style={{ padding: 20, color: T.warn, fontSize: 13 }}>
-        {error} <button onClick={() => void load()} style={{
-          marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer',
-        }}>Retry</button>
+        {error}{' '}
+        <Button variant="subtle" size="compact-xs" c={T.accent} ml={8} onClick={() => void load()}>
+          Retry
+        </Button>
       </div>
     );
   }
@@ -362,9 +356,9 @@ function CollectionsTab({ conn, runtime }: {
     return (
       <div style={{ padding: 20, color: T.warn }}>
         {error}
-        <button onClick={() => void loadDatabases()} style={{
-          marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer',
-        }}>Retry</button>
+        <Button variant="subtle" size="compact-xs" c={T.accent} ml={8} onClick={() => void loadDatabases()}>
+          Retry
+        </Button>
       </div>
     );
   }
@@ -427,14 +421,14 @@ function CollectionsTab({ conn, runtime }: {
             : null;
           return (
             <div key={db.name}>
-              <button
+              <UnstyledButton
                 type="button"
                 onClick={() => toggleDb(db.name)}
                 aria-expanded={open}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8,
                   padding: '9px 16px', borderBottom: `1px solid ${T.border}`,
-                  background: T.surface, border: 'none', margin: 0, width: '100%',
+                  background: T.surface, width: '100%',
                   font: 'inherit', color: 'inherit', textAlign: 'left',
                 }}
               >
@@ -444,7 +438,7 @@ function CollectionsTab({ conn, runtime }: {
                 <span style={{ fontSize: 11, color: T.textMuted }}>
                   {db.sizeOnDisk === undefined ? '—' : humanBytes(db.sizeOnDisk)}
                 </span>
-              </button>
+              </UnstyledButton>
               {open && (
                 <div style={{ borderBottom: `1px solid ${T.border}` }}>
                   {!entry && (

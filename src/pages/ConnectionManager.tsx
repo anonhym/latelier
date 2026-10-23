@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { DarkCtx, useTheme } from '../ThemeContext';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
-import { AppShell } from '@mantine/core';
+import { ActionIcon, AppShell, Button, Tooltip } from '@mantine/core';
 import { useConnections } from '../state/connections';
 import { api, isIpcError } from '../api/atelier';
 import { notify } from '../theme/notifications';
@@ -50,23 +50,27 @@ function TitleBar({ dark, toggle, onCmdK, connectionName }: {
         <span style={{ fontSize: 13, color: T.textMuted }}>{connectionName ?? '(unresolved connection)'}</span>
       </div>
       <div style={{ flex: 1 }} />
-      <button onClick={onCmdK} data-hint-anchor="palette.discover" style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5,
-        padding: '4px 9px', border: `1px solid ${T.border}`, borderRadius: T.rs,
-        background: T.surfaceRaised, color: T.textMuted, cursor: 'pointer',
-        fontSize: 11, fontWeight: 500, WebkitAppRegion: 'no-drag',
-      } as React.CSSProperties}>
-        <span style={{ display: 'flex', alignItems: 'center' }}>{I.cmd}</span>
+      <Button
+        variant="default"
+        size="compact-xs"
+        onClick={onCmdK}
+        data-hint-anchor="palette.discover"
+        leftSection={I.cmd}
+        style={{ color: T.textMuted, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
         K
-      </button>
-      <button onClick={toggle} style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: 28, height: 28, border: `1px solid ${T.border}`, borderRadius: T.rs,
-        background: T.surfaceRaised, color: T.textMuted, cursor: 'pointer',
-        WebkitAppRegion: 'no-drag',
-      } as React.CSSProperties}>
-        {dark ? I.sun : I.moon}
-      </button>
+      </Button>
+      <Tooltip label={dark ? 'Switch to light theme' : 'Switch to dark theme'} withArrow openDelay={400}>
+        <ActionIcon
+          variant="default"
+          size={28}
+          aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+          onClick={toggle}
+          style={{ color: T.textMuted, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {dark ? I.sun : I.moon}
+        </ActionIcon>
+      </Tooltip>
     </div>
   );
 }
