@@ -247,6 +247,7 @@ export function ExplainDrawer({
           <Button
             variant="default"
             size="compact-xs"
+            fz={11}
             c={T.textMuted}
             onClick={() => setViewMode((m) => (m === 'tree' ? 'raw' : 'tree'))}
             aria-label={viewMode === 'tree' ? 'Switch to raw view' : 'Switch to tree view'}
@@ -321,6 +322,9 @@ export function ExplainDrawer({
                         data-testid="explain-create-index"
                         variant="default"
                         size="compact-xs"
+                        h={20}
+                        px={8}
+                        fz={10}
                         c={T.text}
                         onClick={() => {
                           close();
@@ -394,13 +398,21 @@ export function ExplainDrawer({
             justifyContent: 'flex-end',
           }}
         >
-          <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onCopy} disabled={!json}>
+          <Button
+            variant="default"
+            size="compact-xs"
+            fz={11}
+            c={json ? T.textMuted : undefined}
+            onClick={onCopy}
+            disabled={!json}
+          >
             Copy
           </Button>
           <Button
             variant="default"
             size="compact-xs"
-            c={T.textMuted}
+            fz={11}
+            c={json ? T.textMuted : undefined}
             onClick={() => void onDownload()}
             disabled={!json}
           >

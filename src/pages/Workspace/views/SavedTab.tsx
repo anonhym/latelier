@@ -113,7 +113,10 @@ export function SavedTab({
         <Button
           variant="default"
           size="compact-xs"
-          c={T.textMuted}
+          h={18}
+          px={6}
+          fz={10}
+          c={loading ? undefined : T.textMuted}
           onClick={() => void load()}
           disabled={loading}
           aria-label="Refresh saved queries"
@@ -176,6 +179,9 @@ export function SavedTab({
             <Button
               variant="light"
               size="compact-xs"
+              h={20}
+              px={7}
+              fz={10}
               leftSection={item.kind === 'find' ? I.play : undefined}
               onClick={() => void handlePrimary(item)}
               aria-label={
@@ -192,8 +198,8 @@ export function SavedTab({
           <Tooltip label="Delete" withArrow openDelay={400}>
             <ActionIcon
               variant="default"
-              size="sm"
-              c={T.red}
+              size={22}
+              c={deleting ? undefined : T.red}
               onClick={() => void requestDelete(item)}
               disabled={deleting}
               aria-label={`Delete "${item.name}"`}

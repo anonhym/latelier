@@ -308,7 +308,7 @@ function DocCard({
               e.stopPropagation();
               onCopy(doc, idx);
             }}
-            aria-label="Copy JSON"
+            aria-label={`Copy JSON for document ${getDocId(doc)}`}
           >
             {isCopied ? I.check : I.copy}
           </ActionIcon>
@@ -322,7 +322,7 @@ function DocCard({
               e.stopPropagation();
               onEdit(doc);
             }}
-            aria-label="Edit"
+            aria-label={`Edit document ${getDocId(doc)}`}
           >
             {I.edit}
           </ActionIcon>
@@ -336,7 +336,7 @@ function DocCard({
               e.stopPropagation();
               onDelete(doc);
             }}
-            aria-label="Delete"
+            aria-label={`Delete document ${getDocId(doc)}`}
           >
             {I.trash}
           </ActionIcon>

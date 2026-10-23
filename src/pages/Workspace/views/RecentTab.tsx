@@ -142,7 +142,10 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         <Button
           variant="default"
           size="compact-xs"
-          c={T.textMuted}
+          h={18}
+          px={6}
+          fz={10}
+          c={loading ? undefined : T.textMuted}
           onClick={() => void load()}
           disabled={loading}
           aria-label="Refresh recent queries"
@@ -156,7 +159,10 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
           <Button
             variant="default"
             size="compact-xs"
-            c={T.red}
+            h={18}
+            px={6}
+            fz={10}
+            c={loading || deleting || items.length === 0 ? undefined : T.red}
             onClick={() => void requestClear()}
             disabled={loading || deleting || items.length === 0}
             aria-label={`Clear recent find history for ${collection}`}
@@ -229,6 +235,9 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
               <Button
                 variant="light"
                 size="compact-xs"
+                h={20}
+                px={7}
+                fz={10}
                 leftSection={I.play}
                 onClick={() => onRunHere(item)}
                 aria-label={`Run ${preview ?? 'this recent query'} in this tab`}
@@ -240,25 +249,34 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
                 stored `queryRaw`: the click did nothing and said nothing. It
                 is now unavailable, and says why through its accessible name,
                 next to a row that already shows there is no query to copy. */}
-            <Tooltip label="Copy MQL" withArrow openDelay={400}>
-              <ActionIcon
-                variant="default"
-                size="sm"
-                c={T.textMuted}
-                onClick={() => { if (preview) void copyToClipboard(preview, 'Query copied to the clipboard'); }}
-                disabled={!preview}
-                aria-label={preview ? 'Copy MQL to the clipboard' : 'Copy MQL — this run has no stored query'}
-              >
-                {I.copy}
-              </ActionIcon>
+            {/* The span is the Tooltip's target: a disabled button swallows the
+                pointer events the tooltip listens for, and a row with no
+                stored query is exactly when the explanation is wanted. */}
+            <Tooltip
+              label={preview ? 'Copy MQL' : 'This run has no stored query to copy'}
+              withArrow
+              openDelay={400}
+            >
+              <span style={{ display: 'inline-flex' }}>
+                <ActionIcon
+                  variant="default"
+                  size={22}
+                  c={preview ? T.textMuted : undefined}
+                  onClick={() => { if (preview) void copyToClipboard(preview, 'Query copied to the clipboard'); }}
+                  disabled={!preview}
+                  aria-label={preview ? 'Copy MQL to the clipboard' : 'Copy MQL — this run has no stored query'}
+                >
+                  {I.copy}
+                </ActionIcon>
+              </span>
             </Tooltip>
             {/* Icon-only, so the tooltip is not the accessible name; the
                 real name says which run goes. */}
             <Tooltip label="Delete" withArrow openDelay={400}>
               <ActionIcon
                 variant="default"
-                size="sm"
-                c={T.red}
+                size={22}
+                c={deleting ? undefined : T.red}
                 onClick={() => void requestDelete(item, preview)}
                 disabled={deleting}
                 aria-label={`Delete ${preview ?? 'this recent query'} from recent history`}

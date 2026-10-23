@@ -219,6 +219,19 @@ describe('W15 §13.7 — Recent\'s Copy MQL reports, and never silently no-ops',
     const copy = await screen.findByRole('button', { name: /Copy MQL — this run has no stored query/ });
     expect(copy).toHaveProperty('disabled', true);
   });
+
+  it('states the reason in its tooltip on a row with no stored query, even though the button is disabled', async () => {
+    installAtelierMock({ recent: { list: async () => [recent({ payload: LEGACY_PAYLOAD })] } });
+    renderRecent();
+
+    const copy = await screen.findByRole('button', { name: /Copy MQL — this run has no stored query/ });
+    // The disabled button receives no pointer events; its wrapper is the tooltip target.
+    fireEvent.mouseEnter(copy.parentElement!);
+
+    expect((await screen.findByRole('tooltip')).textContent).toBe(
+      'This run has no stored query to copy',
+    );
+  });
 });
 
 // ─── §13.5 chrome survives loading / error, and icon buttons have names ──────

@@ -273,6 +273,8 @@ export function OutputPanel({
             <Button
               variant="subtle"
               size="compact-xs"
+              fz={11}
+              td="underline"
               c={T.accent}
               mt={8}
               onClick={() => setErrDetails((d) => !d)}

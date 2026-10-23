@@ -343,6 +343,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                 <Button
                   variant="light"
                   size="compact-xs"
+                  fz={11}
                   onClick={submitCustom}
                   aria-label="Add custom stage"
                   disabled={!cleanCustomName}
@@ -779,13 +780,16 @@ function StageRow({
             <Button
               variant={stage.enabled ? 'light' : 'default'}
               size="compact-xs"
+              h={18}
+              px={5}
+              fz={9}
+              fw={700}
               c={stage.enabled ? undefined : T.textGhost}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleEnabled();
               }}
               aria-label={stage.enabled ? 'Disable stage' : 'Enable stage'}
-              style={{ fontSize: 9, fontWeight: 700 }}
             >
               {stage.enabled ? 'ON' : 'OFF'}
             </Button>
@@ -887,12 +891,12 @@ function StageRow({
             )}
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <Tooltip label="Copy body" withArrow>
-                <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onCopy}>
+                <Button variant="default" size="compact-xs" fz={11} c={T.textMuted} onClick={onCopy}>
                   Copy
                 </Button>
               </Tooltip>
               <Tooltip label="Pretty-print" withArrow>
-                <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onFormat}>
+                <Button variant="default" size="compact-xs" fz={11} c={T.textMuted} onClick={onFormat}>
                   Format
                 </Button>
               </Tooltip>
@@ -900,6 +904,7 @@ function StageRow({
                 <Button
                   variant="light"
                   size="compact-xs"
+                  fz={11}
                   onClick={onRunToStage}
                   disabled={previewLoading}
                 >
@@ -937,7 +942,10 @@ function StageRow({
                 <Button
                   variant="default"
                   size="compact-xs"
-                  c={T.textMuted}
+                  h={18}
+                  px={6}
+                  fz={10}
+                  c={previewLoading ? undefined : T.textMuted}
                   onClick={onRefreshPreview}
                   disabled={previewLoading}
                 >

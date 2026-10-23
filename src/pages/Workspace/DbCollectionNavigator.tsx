@@ -1219,7 +1219,8 @@ export function DbCollectionNavigator({
         <Tooltip label="Refresh connection" withArrow openDelay={400}>
           <ActionIcon
             variant="default"
-            c={T.textMuted}
+            size={24}
+            c={connectionId && isConnected ? T.textMuted : undefined}
             onClick={() => {
               if (connectionId) void refreshAll(connectionId);
             }}
@@ -1610,6 +1611,7 @@ function ConnErrorRow({
           type="button"
           variant="default"
           size="compact-xs"
+          fz={11}
           c={T.text}
           aria-label={row.retryLabel}
           onClick={(e) => {
@@ -1625,6 +1627,7 @@ function ConnErrorRow({
           type="button"
           variant="default"
           size="compact-xs"
+          fz={11}
           c={T.text}
           ml={6}
           aria-label={`Re-enter password for ${row.conn.name}`}
@@ -1767,6 +1770,9 @@ function ConnectionRow({
           type="button"
           variant="default"
           size="compact-xs"
+          h={18}
+          px={6}
+          fz={10}
           c={T.text}
           aria-label={`Cancel connecting to ${conn.name}`}
           onClick={(e) => {
@@ -1930,8 +1936,14 @@ function HoverBarButton({
       <ActionIcon
         variant="subtle"
         color="gray"
-        size="sm"
-        c={T.textMuted}
+        size={20}
+        // The CSS variables (not an inline `c`) so the hover brightening the
+        // old onMouseEnter handler did stays a stylesheet :hover rule.
+        style={{
+          '--ai-color': T.textMuted,
+          '--ai-hover-color': T.text,
+          '--ai-hover': T.surface,
+        } as React.CSSProperties}
         aria-label={label}
         onClick={onClick}
       >

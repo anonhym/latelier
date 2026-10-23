@@ -326,7 +326,7 @@ function DocRowImpl({
                 e.stopPropagation();
                 onEditDoc(doc);
               }}
-              aria-label="Edit document"
+              aria-label={`Edit document ${shortId}`}
             >
               {I.edit}
             </ActionIcon>
@@ -339,7 +339,7 @@ function DocRowImpl({
                 e.stopPropagation();
                 onDeleteDoc(doc);
               }}
-              aria-label="Delete document"
+              aria-label={`Delete document ${shortId}`}
             >
               {I.trash}
             </ActionIcon>
