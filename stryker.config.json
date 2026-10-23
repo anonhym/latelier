@@ -48,6 +48,7 @@
     "src/pages/Workspace/filterTemplates.ts",
     "src/pages/Workspace/legacyBuilder.ts",
     "src/pages/Workspace/views/tableColumns.ts",
+    "src/pages/Workspace/views/recentRuns.ts",
     "src/pages/Workspace/exportFormat.ts",
     "src/utils/displayValue.ts",
     "src/utils/shellSyntax.ts",

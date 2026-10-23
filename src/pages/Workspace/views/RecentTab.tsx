@@ -5,6 +5,7 @@ import { relativeTime } from '../../../utils/relativeTime';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { confirmDestructive } from '../../../utils/confirm';
 import type { RecentQuery } from '@shared/types';
+import { mergeConsecutive } from './recentRuns';
 
 interface RecentTabProps {
   connectionId: string;
@@ -32,6 +33,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const rows = React.useMemo(() => mergeConsecutive(items), [items]);
 
   // A reviewer flagged that this instance is reused when the active collection
   // changes, and two `recent.list` calls can be in flight at once. If the older
@@ -189,7 +191,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </div>
       )}
 
-      {!loading && !err && items.map((item) => {
+      {!loading && !err && rows.map((item) => {
         const preview = previewOf(item);
         return (
           <div
@@ -222,6 +224,11 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
                 {/* `toLocaleTimeString` alone made a run from last Tuesday read
                     `14:32`, indistinguishable from one an hour ago. */}
                 {relativeTime(item.ranAt, item.ranAt)} — {item.durationMs}ms
+                {item.runCount > 1 && (
+                  <span role="img" aria-label={`Ran ${item.runCount} times`} style={{ marginLeft: 6 }}>
+                    ×{item.runCount}
+                  </span>
+                )}
                 {item.resultCount !== undefined && (
                   <span style={{ marginLeft: 6 }}>{item.resultCount} docs</span>
                 )}

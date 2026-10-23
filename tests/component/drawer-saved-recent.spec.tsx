@@ -88,6 +88,30 @@ function renderSaved(overrides: { onRunHere?: () => void; onOpenInTab?: (s: Save
 
 // ─── §13.4 Recent rows ───────────────────────────────────────────────────────
 
+describe('W10 — consecutive identical runs show as one row with a run count', () => {
+  it('collapses three adjacent identical runs into one row badged ×3', async () => {
+    installAtelierMock({
+      recent: {
+        list: async () => [recent({ id: 'a' }), recent({ id: 'b' }), recent({ id: 'c' })],
+      },
+    });
+    renderRecent();
+
+    const badge = await screen.findByRole('img', { name: 'Ran 3 times' });
+    expect(badge.textContent).toBe('×3');
+    expect(screen.getAllByText('{"status":{"$eq":"paid"}}')).toHaveLength(1);
+  });
+
+  it('shows no badge on a run that happened once', async () => {
+    installAtelierMock({ recent: { list: async () => [recent()] } });
+    renderRecent();
+
+    await screen.findByText('{"status":{"$eq":"paid"}}');
+    expect(screen.queryByRole('img', { name: /^Ran \d+ times$/ })).toBeNull();
+  });
+});
+
+
 describe('W15 §13.4 — a Recent row shows what was queried', () => {
   it('renders the filter and a timestamp that disambiguates days', async () => {
     installAtelierMock({ recent: { list: async () => [recent()] } });
