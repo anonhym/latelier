@@ -3,11 +3,16 @@ import type { ValueSource, ValueSuggestion } from '../types';
 
 const MAX_DOCS = 50;
 
-/** Dotted-path lookup that only descends through plain objects, mirroring `lastRunSource`'s walk. */
+/**
+ * Dotted-path lookup that only descends through plain objects, mirroring
+ * `lastRunSource`'s walk. Own properties only: `{constructor: "…"}` must not
+ * read `Object.prototype.constructor` and suggest its source text.
+ */
 function readPath(doc: unknown, segments: string[]): unknown {
   let cur: unknown = doc;
   for (const seg of segments) {
     if (typeof cur !== 'object' || cur === null || Array.isArray(cur)) return undefined;
+    if (!Object.hasOwn(cur, seg)) return undefined;
     cur = (cur as Record<string, unknown>)[seg];
   }
   return cur;

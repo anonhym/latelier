@@ -107,4 +107,18 @@ describe('lastRunValuesSource', () => {
       { kind: 'value', value: 'a', display: 'a', type: 'string', source: 'lastRun', frequency: 1 },
     ]);
   });
+
+  it.each(['constructor', 'toString', '__proto__', 'a.constructor'])(
+    'never reads the inherited property %s',
+    (field) => {
+      const out = sync(lastRunValuesSource(ctx(field, { recentDocs: [{ a: { b: 1 } }] })));
+      expect(out).toEqual([]);
+    },
+  );
+
+  it('reads an own property literally named constructor', () => {
+    const doc = JSON.parse('{"constructor":"own"}') as unknown;
+    const out = sync(lastRunValuesSource(ctx('constructor', { recentDocs: [doc] })));
+    expect(out.map((s) => s.display)).toEqual(['own']);
+  });
 });
