@@ -121,6 +121,22 @@ describe('RolesTab', () => {
     await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(before));
   });
 
+  it('keeps the drawer open with the CONFLICT message inline', async () => {
+    setup({
+      create: async () => {
+        throw { code: 'CONFLICT', message: 'Role "appAdmin@myapp" already exists' };
+      },
+    });
+    await waitFor(() => expect(screen.getByText('appAdmin')).toBeTruthy());
+
+    await userEvent.click(screen.getByText('+ New role'));
+    await userEvent.type(screen.getByLabelText('Role name'), 'appAdmin');
+    await userEvent.click(screen.getByText('Create role'));
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/already exists/));
+    expect(screen.getByLabelText('Role name')).toBeTruthy();
+  });
+
   it('refuses privileges that are not an EJSON array without calling the API', async () => {
     const create = vi.fn(async () => ({ ok: true as const }));
     setup({ create });

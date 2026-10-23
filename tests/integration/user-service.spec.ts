@@ -236,6 +236,13 @@ describe('UserService', () => {
       ).rejects.toMatchObject({ code: 'VALIDATION' });
     });
 
+    it('createRole on an existing role name gives CONFLICT', async () => {
+      setup();
+      const input = { connectionId: connId, dbName: roleDb, role: 'dup_role', privileges: '[]', roles: [] };
+      await svc.createRole(input);
+      await expect(svc.createRole(input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    });
+
     it('updateRole with an empty patch gives VALIDATION', async () => {
       setup();
       await expect(
