@@ -122,6 +122,15 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(onToggleEnabled).toHaveBeenCalledWith(7);
   });
 
+  it('shows the Disable tooltip when keyboard focus lands on the ON/OFF toggle', async () => {
+    renderAccordion([stage({ id: 1, enabled: true })]);
+
+    fireEvent.focus(screen.getByRole('button', { name: 'Disable stage' }));
+
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toBe('Disable');
+  });
+
   it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', async () => {
     const onToggleActive = vi.fn<NonNullable<AccordionProps['onToggleActive']>>();
     const { container } = renderAccordion([stage({ id: 7, op: '$match', enabled: true })], {

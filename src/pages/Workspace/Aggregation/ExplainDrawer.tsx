@@ -1,5 +1,5 @@
 import React from 'react';
-import { Drawer } from '@mantine/core';
+import { Button, Drawer } from '@mantine/core';
 import { themeVars } from '../../../theme/themeVars';
 import { api, getErrorMessage } from '../../../api/atelier';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
@@ -244,21 +244,15 @@ export function ExplainDrawer({
             <option value="executionStats">executionStats</option>
             <option value="allPlansExecution">allPlansExecution</option>
           </select>
-          <button
+          <Button
+            variant="default"
+            size="compact-xs"
+            c={T.textMuted}
             onClick={() => setViewMode((m) => (m === 'tree' ? 'raw' : 'tree'))}
             aria-label={viewMode === 'tree' ? 'Switch to raw view' : 'Switch to tree view'}
-            style={{
-              fontSize: 11,
-              padding: '4px 8px',
-              border: `1px solid ${T.border}`,
-              borderRadius: T.rs,
-              background: T.surfaceRaised,
-              color: T.textMuted,
-              cursor: 'pointer',
-            }}
           >
             {viewMode === 'tree' ? 'Raw' : 'Tree'}
-          </button>
+          </Button>
         </div>
 
         {writeOmitted && (
@@ -323,24 +317,18 @@ export function ExplainDrawer({
                       </span>
                     ) : null}
                     {summary.collscan && onCreateIndex && (
-                      <button
+                      <Button
                         data-testid="explain-create-index"
+                        variant="default"
+                        size="compact-xs"
+                        c={T.text}
                         onClick={() => {
                           close();
                           onCreateIndex();
                         }}
-                        style={{
-                          fontSize: 10,
-                          padding: '2px 8px',
-                          borderRadius: T.rs,
-                          background: T.surfaceRaised,
-                          color: T.text,
-                          border: `1px solid ${T.border}`,
-                          cursor: 'pointer',
-                        }}
                       >
                         Create an index for this query
-                      </button>
+                      </Button>
                     )}
                     {!summary.collscan && summary.usesIndex ? (
                       <span
@@ -406,38 +394,18 @@ export function ExplainDrawer({
             justifyContent: 'flex-end',
           }}
         >
-          <button
-            onClick={onCopy}
-            disabled={!json}
-            style={{
-              fontSize: 11,
-              padding: '4px 10px',
-              border: `1px solid ${T.border}`,
-              borderRadius: T.rs,
-              background: T.surfaceRaised,
-              color: T.textMuted,
-              cursor: json ? 'pointer' : 'not-allowed',
-              opacity: json ? 1 : 0.5,
-            }}
-          >
+          <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onCopy} disabled={!json}>
             Copy
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="default"
+            size="compact-xs"
+            c={T.textMuted}
             onClick={() => void onDownload()}
             disabled={!json}
-            style={{
-              fontSize: 11,
-              padding: '4px 10px',
-              border: `1px solid ${T.border}`,
-              borderRadius: T.rs,
-              background: T.surfaceRaised,
-              color: T.textMuted,
-              cursor: json ? 'pointer' : 'not-allowed',
-              opacity: json ? 1 : 0.5,
-            }}
           >
             Download
-          </button>
+          </Button>
         </div>
       </div>
     </Drawer>
