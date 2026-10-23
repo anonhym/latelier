@@ -84,7 +84,7 @@ import { ImportService } from './mongo/ImportService.ts';
 import { DEFAULT_EXPORT_CAP, QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
-import { createQuitGate, runTeardown, type RunningWork } from './quitGuard.ts';
+import { createQuitGate, runTeardown, type RunningWork, type UnsavedWorkStore } from './quitGuard.ts';
 import { PrivateModeError } from './utils/privateFs.ts';
 import { createRouter } from './ipc/router.ts';
 import { senderCheck } from './ipc/senderGuard.ts';
@@ -180,6 +180,14 @@ let log: Logger | null = null;
 let connExportSvc: ConnectionExportService | null = null;
 let importWizardSvc: ImportWizardService | null = null;
 let renderCrashesInWindow = 0;
+// What the renderer last reported as unsaved (`app:setUnsavedWork`). Zeroed
+// whenever the page that reported it goes (reload, crash, window closed), so
+// a stale report cannot make every later quit ask.
+const unsaved: UnsavedWorkStore = { connectionForm: 0, pipelines: 0 };
+function clearUnsavedWork(): void {
+  unsaved.connectionForm = 0;
+  unsaved.pipelines = 0;
+}
 let firstCrashAt = 0;
 
 function resolveUserDataDir(): string {
@@ -383,6 +391,8 @@ function createWindow(): void {
   // became an uncaughtException, an error dialog, and `app.exit(1)`.
   win.on('closed', () => {
     win = null;
+    // On macOS the app outlives its window, and the page that reported is gone.
+    clearUnsavedWork();
     // An import token does not outlive the window that asked for it.
     importWizardSvc?.clearPending();
   });
@@ -411,7 +421,14 @@ function createWindow(): void {
   win.on('maximize', persistBoundsNow);
   win.on('unmaximize', persistBoundsNow);
 
+  // A reload (or any full page load) starts a fresh renderer state. The app's
+  // own route changes are hash navigations, which are same-document and keep
+  // their reports.
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) clearUnsavedWork();
+  });
   win.webContents.on('render-process-gone', (_evt, details) => {
+    clearUnsavedWork();
     const now = Date.now();
     log?.error('window', 'render-process-gone', { reason: details.reason });
     if (firstCrashAt === 0 || now - firstCrashAt > 10_000) {
@@ -461,6 +478,10 @@ function runningWork(): RunningWork {
     shellCommands: mshellSvc?.busyCount() ?? 0,
     imports: importSvc?.runningCount() ?? 0,
     aggregations: aggSvc?.runningCount() ?? 0,
+    unsavedForms: unsaved.connectionForm,
+    // With "Reopen tabs on launch" on, tabs persist and nothing is lost; only
+    // an explicit `false` clears them at the next launch (`applyRestoreTabsPref`).
+    unsavedPipelines: appState?.get<boolean>('ui.workspace.restoreTabs') === false ? unsaved.pipelines : 0,
   };
 }
 
@@ -759,7 +780,7 @@ app.whenReady().then(() => {
   // Filled by the open dialog, read by the data channels: the only files an
   // import may read are ones the user picked in main's own dialog.
   const pickedImports = new Set<string>();
-  registerAppChannels(router, () => win, pickedImports, pickedCredentialPaths, diagnostic);
+  registerAppChannels(router, () => win, pickedImports, pickedCredentialPaths, diagnostic, unsaved);
   registerMongoChannels(router, pool, () => win?.webContents ?? null);
   registerMetaChannels(router, metaSvc);
   registerIndexChannels(router, indexSvc);

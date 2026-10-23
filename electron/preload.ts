@@ -61,6 +61,7 @@ const api: IpcApi = {
     openExternal: (url) => call(IPC_CHANNELS.appOpenExternal, url),
     saveFile: (input) => call(IPC_CHANNELS.appSaveFile, input),
     diagnosticBundle: () => call(IPC_CHANNELS.appDiagnosticBundle, {}),
+    setUnsavedWork: (input) => call(IPC_CHANNELS.appSetUnsavedWork, input),
     onMenuCommand: (cb) => {
       const listener = (_evt: unknown, command: unknown) => cb(command as MenuCommand);
       ipcRenderer.on(IPC_CHANNELS.appMenuCommandEvent, listener);
