@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
-import { Button } from '@mantine/core';
+import { Button, Table, VisuallyHidden } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { disconnectConnection } from '../features/connections/disconnectConnection';
 import type {
@@ -463,63 +463,62 @@ function CollectionsTab({ conn, runtime }: {
                     </div>
                   )}
                   {rows && rows.length > 0 && (
-                    <div
-                      role="row"
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '2fr 1fr 1fr 0.7fr 1fr 90px',
-                        padding: '6px 16px',
-                        background: T.surfaceRaised,
-                        borderBottom: `1px solid ${T.border}`,
-                        fontSize: 10, fontWeight: 700, letterSpacing: 0.6,
-                        textTransform: 'uppercase', color: T.textMuted,
+                    <Table
+                      highlightOnHover
+                      aria-label={`Collections in ${db.name}`}
+                      styles={{
+                        table: { fontSize: 11 },
+                        th: {
+                          fontSize: 10, fontWeight: 700, letterSpacing: 0.6,
+                          textTransform: 'uppercase', color: T.textMuted,
+                          background: T.surfaceRaised, padding: '6px 16px',
+                        },
+                        td: { padding: '6px 16px', color: T.textMuted, verticalAlign: 'middle' },
                       }}
                     >
-                      <span>Collection</span>
-                      <span>Documents</span>
-                      <span>Size</span>
-                      <span>Indexes</span>
-                      <span>Modified</span>
-                      <span />
-                    </div>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Collection</Table.Th>
+                          <Table.Th>Documents</Table.Th>
+                          <Table.Th>Size</Table.Th>
+                          <Table.Th>Indexes</Table.Th>
+                          <Table.Th>Modified</Table.Th>
+                          <Table.Th style={{ width: 90 }}><VisuallyHidden>Actions</VisuallyHidden></Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {rows.map((c) => (
+                          <Table.Tr key={c.name}>
+                            <Table.Td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ color: T.textGhost, display: 'flex' }}>{I.doc}</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{c.name}</span>
+                              </div>
+                            </Table.Td>
+                            <Table.Td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {c.documentCount?.toLocaleString() ?? '—'}
+                            </Table.Td>
+                            <Table.Td>{c.sizeBytes === undefined ? '—' : humanBytes(c.sizeBytes)}</Table.Td>
+                            <Table.Td>{c.indexCount ?? '—'}</Table.Td>
+                            <Table.Td>{relativeTime(c.lastModified, '—')}</Table.Td>
+                            <Table.Td>
+                              <Button size="compact-xs" variant="subtle" leftSection={I.open} onClick={() => {
+                                void api.conn.touchUsed(conn.id);
+                                void navigate('/workspace', {
+                                  state: {
+                                    openConnectionId: conn.id,
+                                    openCollection: { dbName: db.name, collection: c.name },
+                                  },
+                                });
+                              }}>
+                                Open
+                              </Button>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
                   )}
-                  {rows?.map((c) => (
-                    <div
-                      key={c.name}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '2fr 1fr 1fr 0.7fr 1fr 90px',
-                        padding: '9px 16px', borderBottom: `1px solid ${T.border}`,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ color: T.textGhost, display: 'flex' }}>{I.doc}</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{c.name}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textMuted, fontVariantNumeric: 'tabular-nums' }}>
-                        {c.documentCount?.toLocaleString() ?? '—'}
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{c.sizeBytes === undefined ? '—' : humanBytes(c.sizeBytes)}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{c.indexCount ?? '—'}</div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>
-                        {relativeTime(c.lastModified, '—')}
-                      </div>
-                      <div style={{ padding: '6px 0' }}>
-                        <Button size="compact-xs" variant="subtle" leftSection={I.open} onClick={() => {
-                          void api.conn.touchUsed(conn.id);
-                          void navigate('/workspace', {
-                            state: {
-                              openConnectionId: conn.id,
-                              openCollection: { dbName: db.name, collection: c.name },
-                            },
-                          });
-                        }}>
-                          Open
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
