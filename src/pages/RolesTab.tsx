@@ -7,6 +7,8 @@ import {
   Checkbox,
   Drawer,
   Group,
+  Modal,
+  Stack,
   Table,
   Text,
   Textarea,
@@ -59,6 +61,11 @@ export function RolesTab({
   const [drawer, setDrawer] = React.useState<
     { kind: 'create' } | { kind: 'edit'; role: RoleInfo } | null
   >(null);
+  const [dropTarget, setDropTarget] = React.useState<RoleInfo | null>(null);
+  // Focus target after a successful drop: the dropped row and its Drop button
+  // are gone, and Refresh is disabled while the list reloads (see UsersTab).
+  const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
+  const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     void api.prefs
@@ -115,21 +122,6 @@ export function RolesTab({
   const onPickDb = (next: string) => {
     setPicked(next);
     void api.prefs.set(LAST_DB_KEY, next).catch(() => { /* ok */ });
-  };
-
-  const dropRole = async (r: RoleInfo) => {
-    const ok = await confirmDestructive({
-      title: `Drop role "${r.role}" on ${r.db}?`,
-      body: 'Every user and role that holds it loses its privileges. This cannot be undone.',
-      confirmLabel: 'Drop',
-    });
-    if (!ok) return;
-    try {
-      await api.role.drop({ connectionId: conn.id, dbName: r.db, role: r.role });
-      void loadRoles();
-    } catch (err) {
-      setError(isIpcError(err) ? { message: err.message, code: err.code } : { message: String(err) });
-    }
   };
 
   if (runtime.status !== 'connected') {
@@ -211,7 +203,13 @@ export function RolesTab({
         </Button>
       </div>
 
-      <div role="region" aria-label="Roles" style={{ flex: 1, overflowY: 'auto' }}>
+      <div
+        ref={scrollRegionRef}
+        tabIndex={-1}
+        role="region"
+        aria-label="Roles"
+        style={{ flex: 1, overflowY: 'auto' }}
+      >
         {loading && !roles && (
           <div style={{ padding: 20, color: T.textMuted, fontSize: 13 }}>Loading roles…</div>
         )}
@@ -301,7 +299,10 @@ export function RolesTab({
                             variant="subtle"
                             color="red"
                             size="sm"
-                            onClick={() => void dropRole(r)}
+                            onClick={() => {
+                              setDropTarget(r);
+                              setDropReturnFocus(scrollRegionRef.current);
+                            }}
                             title="Drop"
                           >
                             {I.trash}
@@ -327,6 +328,19 @@ export function RolesTab({
             setDrawer(null);
             void loadRoles();
           }}
+        />
+      )}
+
+      {dropTarget && (
+        <DropRoleDialog
+          role={dropTarget}
+          connectionId={conn.id}
+          onCancel={() => setDropTarget(null)}
+          onDropped={() => {
+            setDropTarget(null);
+            void loadRoles();
+          }}
+          returnFocusTo={dropReturnFocus}
         />
       )}
     </div>
@@ -489,5 +503,85 @@ function RoleDrawer({
         </SubmitButton>
       </Group>
     </Drawer>
+  );
+}
+
+// ─── Drop confirm dialog ───────────────────────────────────────────────────
+
+// ADR 0013: dropping a role destroys server data the way dropping a user
+// does, so it takes the same type-the-name step as `DropUserDialog`.
+function DropRoleDialog({
+  role,
+  connectionId,
+  onCancel,
+  onDropped,
+  returnFocusTo,
+}: {
+  role: RoleInfo;
+  connectionId: string;
+  onCancel: () => void;
+  onDropped: () => void;
+  returnFocusTo: HTMLElement | null;
+}) {
+  // Two calls on purpose, as in DropUserDialog: Cancel returns to the Drop
+  // button, which still exists; a successful drop returns to the list region.
+  const close = useDialogFocusReturn(onCancel);
+  const finish = useDialogFocusReturn(onDropped, returnFocusTo);
+  const [typed, setTyped] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const matches = typed === role.role;
+
+  const submit = async () => {
+    if (!matches || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.role.drop({ connectionId, dbName: role.db, role: role.role });
+      finish();
+    } catch (err) {
+      setError(isIpcError(err) ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal opened onClose={close} title={`Drop role "${role.role}" on ${role.db}?`} centered size="md">
+      <Stack gap="sm">
+        <Text size="xs" c="dimmed" lh={1.5}>
+          This is permanent. Every user and role that holds it loses its privileges.
+        </Text>
+        <TextInput
+          label="Type the role name to confirm:"
+          aria-label="Confirm role name"
+          autoFocus
+          size="xs"
+          value={typed}
+          onChange={(e) => setTyped(e.currentTarget.value)}
+          styles={{ input: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' } }}
+        />
+        {error && (
+          <Alert color="red" variant="light" role="alert">
+            {error}
+          </Alert>
+        )}
+        <Group justify="flex-end" gap="xs">
+          <Button variant="subtle" size="compact-xs" onClick={close} disabled={submitting}>
+            Cancel
+          </Button>
+          <SubmitButton
+            variant="filled"
+            color="red"
+            size="compact-xs"
+            onClick={() => void submit()}
+            disabled={!matches}
+            submitting={submitting}
+          >
+            {submitting ? 'Dropping…' : 'Drop'}
+          </SubmitButton>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }

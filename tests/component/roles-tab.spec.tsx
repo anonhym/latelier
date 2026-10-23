@@ -162,7 +162,7 @@ describe('RolesTab', () => {
     expect(JSON.parse(calls[0].patch.privileges!)).toEqual(JSON.parse(CUSTOM.privileges!));
   });
 
-  it('drops a role only after the confirm', async () => {
+  it('drops a role only after its name is typed, then focuses the list', async () => {
     const drops: RoleDropInput[] = [];
     const { list } = setup({
       drop: async (input) => {
@@ -179,9 +179,17 @@ describe('RolesTab', () => {
     expect(drops).toEqual([]);
 
     await userEvent.click(screen.getByLabelText('Drop role appAdmin'));
+    const drop = await screen.findByRole('button', { name: 'Drop' });
+    await userEvent.type(screen.getByLabelText('Confirm role name'), 'appAdmi');
+    expect((drop as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(screen.getByLabelText('Confirm role name'), 'n');
     const before = list.mock.calls.length;
-    await userEvent.click(await screen.findByRole('button', { name: 'Drop' }));
-    await waitFor(() => expect(drops).toEqual([{ connectionId: 'c1', dbName: 'myapp', role: 'appAdmin' }]));
+    await userEvent.click(drop);
+
+    await waitFor(() =>
+      expect(drops).toEqual([{ connectionId: 'c1', dbName: 'myapp', role: 'appAdmin' }]),
+    );
     await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(before));
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Roles' }));
   });
 });
