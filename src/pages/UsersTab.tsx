@@ -695,11 +695,13 @@ function UserDrawer({
     const mechanisms: AuthMechanism[] = [];
     if (scram256) mechanisms.push('SCRAM-SHA-256');
     if (scram1) mechanisms.push('SCRAM-SHA-1');
+    // The role rows warn on trimmed names; send what they checked.
+    const trimmedRoles = roles.map((r) => ({ role: r.role.trim(), db: r.db.trim() }));
 
     setSubmitting(true);
     try {
       if (editing && editedUser) {
-        const patch: UserUpdateInput['patch'] = { roles };
+        const patch: UserUpdateInput['patch'] = { roles: trimmedRoles };
         if (!isExternal && password.length > 0) patch.password = password;
         if (!isExternal && mechanisms.length > 0) patch.mechanisms = mechanisms;
         if (customDataEnabled) patch.customData = customData || '{}';
@@ -715,7 +717,7 @@ function UserDrawer({
           dbName,
           username: username.trim(),
           password,
-          roles,
+          roles: trimmedRoles,
           mechanisms: mechanisms.length > 0 ? mechanisms : ['SCRAM-SHA-256'],
         };
         if (customDataEnabled && customData.trim()) create.customData = customData;
