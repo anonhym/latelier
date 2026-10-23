@@ -813,3 +813,58 @@ describe('AggregationTab — cancelling a run', () => {
     expect(screen.queryByText(/ran to completion/)).toBeNull();
   });
 });
+
+// A successful run records the values its leading `$match` stages carried,
+// so the builder's value popover can offer them later.
+describe('AggregationTab — value recording', () => {
+  const ranOk = { rows: [], durationMs: 1, stageCounts: {}, stageSamples: {}, hasMore: false };
+
+  it('records the leading $match values after a successful run', async () => {
+    const run = vi.fn(async () => ranOk);
+    const recordFieldValues = vi.fn(async () => ({ recorded: 1 }));
+    installAtelierMock({
+      agg: { run: run as never, cancel: async () => undefined },
+      recent: { recordFieldValues: recordFieldValues as never } as never,
+    });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [
+        { id: 1, op: '$match', body: '{ status: "x" }', enabled: true },
+        { id: 2, op: '$group', body: '{ _id: "$kind" }', enabled: true },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    await waitFor(() =>
+      expect(recordFieldValues).toHaveBeenCalledExactlyOnceWith({
+        connectionId: 'c1',
+        dbName: 'app',
+        collection: 'orders',
+        entries: [{ field: 'status', value: 'x', valType: 'string', op: '$eq' }],
+      }),
+    );
+  });
+
+  it('records nothing for a pipeline without a leading $match', async () => {
+    const run = vi.fn(async () => ranOk);
+    const recordFieldValues = vi.fn(async () => ({ recorded: 0 }));
+    installAtelierMock({
+      agg: { run: run as never, cancel: async () => undefined },
+      recent: { recordFieldValues: recordFieldValues as never } as never,
+    });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$limit', body: '10', enabled: true }],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    // Let the resolved run settle before asserting the absence.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(recordFieldValues).not.toHaveBeenCalled();
+  });
+});

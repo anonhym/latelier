@@ -35,6 +35,8 @@ import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateRecentValuesCache } from '../../../features/fieldSuggestions/sources/recentValuesSource';
+import { fieldValueEntriesFromStages } from '../../../features/fieldSuggestions/fieldValueEntries';
 import { ExplainDrawer } from './ExplainDrawer';
 import { SaveAsCollectionModal } from './SaveAsCollectionModal';
 import { notifyCollectionChanged } from '../../../state/collectionChanges';
@@ -270,6 +272,16 @@ export function AggregationTab({
         };
         onPatch({ lastRun });
         setLastRunSig(new Map(runStages.map((s) => [s.id, stageSig(s)])));
+        // Fire-and-forget, as after a find: the values the leading `$match`
+        // stages carried feed the value-suggestion popover. Never blocks or
+        // fails the run; main re-filters by op and secret field path.
+        const entries = fieldValueEntriesFromStages(runStages);
+        if (entries.length > 0) {
+          api.recent
+            .recordFieldValues({ connectionId, dbName, collection, entries })
+            .then(() => invalidateRecentValuesCache(connectionId, dbName, collection))
+            .catch((err: unknown) => console.warn('[recent] recordFieldValues failed', err));
+        }
         if (stoppingRef.current) {
           notify.info("The write couldn't be stopped, so it ran to completion.");
         }
