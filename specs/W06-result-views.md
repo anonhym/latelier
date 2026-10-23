@@ -66,12 +66,20 @@ Row layout (matches existing mock):
 - Single-select: clicking the collapsed row header selects the doc (blue left border). Cmd/Ctrl-click toggles selection for multi-select.
 - Selection is consumed by W08 for `Edit document` / `Delete document(s)` actions.
 
+### Full value of a leaf
+- The expanded field grid truncates a value to its column. A leaf (non-object, non-array) row carries the same `⤢` affordance as a Table cell (`FullValuePopover`): revealed on hover, on focus and while the row is the field tree's active row, it opens a read-only popover with the untruncated value (strings quoted).
+- Keyboard: Enter or Space on an active leaf opens it (on an expandable row they still toggle). Escape closes it, does not bubble to the outer Table/Tree grid, and focus returns to where the open started — the field tree after Enter.
+- The same field grid is the Table view's expanded-row panel, so both get it.
+
 ## 3. JSON view
 
 - Each doc in its own card (matches mock).
 - Uses `JSON.stringify(EJSON.parse(...), null, 2)` output with light syntax highlighting (keys bold; strings green; numbers blue; booleans orange; null grey — colors from tokens).
 - Syntax highlighting is computed at render time by a tiny tokenizer in `utils/jsonHighlight.ts` — do NOT bring in `prismjs` or `highlight.js` for iteration 1.
-- The "card" is selectable (click toggles selection).
+- Active card: the card list is one tab stop (`role="tree"`, cards are `treeitem`s) with `aria-activedescendant` naming the active card, outlined while the list has focus — the same model as Tree and Table rows.
+  - A plain click makes the card active; Cmd/Ctrl-click toggles it into the multi-selection; the per-card select toggle is the other way in.
+  - Arrows, Home and End move the active card. `E` edits it (on the list, or on one of the card's own buttons). Shift+F10 or the ContextMenu key opens its document menu.
+  - Enter and Space only keep the active card: a card has nothing to expand.
 
 ## 4. Table view
 
@@ -80,12 +88,16 @@ Row layout (matches existing mock):
   - Ensure `_id` is first, then the current preview fields in order, then the remaining keys alphabetically.
 - Column widths: default auto with `max-width: 200px` + ellipsis overflow. User can drag column separators to resize (persisted in tab state as `state.columns.{field}.width`).
 - Nested objects/arrays show as `{N}` / `[N]` badges that expand into a small popover showing the nested JSON.
+- Any cell with a value has a hover/focus-revealed `⤢` that opens the full, untruncated value in a popover (`FullValuePopover`, shared with Tree leaves).
+- Double-click copies a cell's value. A tooltip "Double-click to copy" on the cell's value says so (500ms delay); the native title keeps only the drag hint.
 - Right-click on a row → context menu: `Edit`, `Delete`, `Copy`, `Copy as JSON`.
 
 ## 5. Common
 
 ### Loading & empty
-- Loading (between Run click and response): overlay with subtle spinner, keep previous docs visible ("stale but readable").
+- Loading (between Run click and response):
+  - first load, no rows yet: eight skeleton rows stand in for the body, inside a `role="status"` region labelled "Loading results";
+  - re-run with rows on screen: keep previous docs visible ("stale but readable") under a "Loading…" strip, itself `role="status"`, so the layout does not jump. Only one of the two status regions shows at a time.
 - Empty (`documents.length === 0`): centered placeholder "No matching documents" with a helpful link "Clear filter" (resets builder).
 - Errored: the error pill in W05 conveys the state; the result area keeps the previous docs visible with a small amber "stale" badge.
 
@@ -108,6 +120,9 @@ Row layout (matches existing mock):
 - EJSON values (ObjectId, Date, Long, Decimal) render with correct type badges.
 - Column resize in Table persists across relaunches.
 - Switching view modes is instant (no extra fetch).
+- A truncated leaf value in Tree or an expanded Table row can be read in full by mouse (`⤢`) and keyboard (Enter on the active leaf); Escape closes it without bubbling.
+- The JSON view has an active card driven by click and arrow keys, and `E` edits it.
+- A first load shows skeleton rows; a re-run keeps the previous rows.
 
 ## 7. Test cases
 
