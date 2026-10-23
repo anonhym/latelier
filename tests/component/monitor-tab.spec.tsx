@@ -302,4 +302,18 @@ describe('MonitorTab', () => {
     expect(setProfileLevel).not.toHaveBeenCalled();
     expect(within(prof).queryByText(/^Current:/)).toBeNull();
   });
+
+  it('profiler: re-picking the database already shown keeps its status and Apply', async () => {
+    installAtelierMock({
+      meta: { listDatabases: twoDbs },
+      admin: { profileStatus: async () => ({ level: 0 as const, slowms: 100 }) },
+    });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    const prof = screen.getByRole('region', { name: 'Profiler' });
+    expect(await within(prof).findByText('Current: Off, slowms 100')).toBeTruthy();
+    // A select fires change even for the value it already holds (Playwright's selectOption does).
+    fireEvent.change(within(prof).getByLabelText('Profiler database'), { target: { value: 'shop' } });
+    expect(within(prof).getByText('Current: Off, slowms 100')).toBeTruthy();
+    expect((within(prof).getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(false);
+  });
 });

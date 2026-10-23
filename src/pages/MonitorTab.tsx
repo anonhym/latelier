@@ -186,6 +186,9 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   }, [conn.id, dbName]);
 
   const pickDb = (next: string) => {
+    // A select fires change for the value it already holds too; clearing then
+    // would leave nothing to reload it.
+    if (next === dbName) return;
     setDbName(next);
     setStatus(null);
     setProfile(null);
