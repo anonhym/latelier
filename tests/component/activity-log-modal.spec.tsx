@@ -90,4 +90,27 @@ describe('ActivityLogModal', () => {
     });
     expect(within(dialog).getByText('late warning')).toBeTruthy();
   });
+
+  it('names its table', () => {
+    act(() => {
+      notify.error('boom');
+    });
+    render(<ActivityLogModal onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: 'Activity log' });
+    expect(within(within(dialog).getByRole('table', { name: 'Errors and warnings' })).getByText('boom')).toBeTruthy();
+  });
+
+  it('moves focus to Close after Clear, since Clear disables itself', () => {
+    act(() => {
+      notify.error('boom');
+    });
+    render(<ActivityLogModal onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog', { name: 'Activity log' });
+    const clear = within(dialog).getByRole('button', { name: 'Clear' });
+    clear.focus();
+    fireEvent.click(clear);
+    // The footer's Close, not the header's X (which is also named Close).
+    expect(document.activeElement).toBe(within(dialog).getByText('Close', { selector: 'button *' }).closest('button'));
+    expect(clear).not.toBe(document.activeElement);
+  });
 });

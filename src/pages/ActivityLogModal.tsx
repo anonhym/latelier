@@ -16,6 +16,13 @@ const LEVEL_LABEL = { error: 'Error', warning: 'Warning' } as const;
 export function ActivityLogModal({ onClose }: ActivityLogModalProps) {
   const close = useDialogFocusReturn(onClose);
   const entries = React.useSyncExternalStore(subscribeActivity, getActivity);
+  const closeRef = React.useRef<HTMLButtonElement>(null);
+  // Clear disables itself, which would drop focus to <body>; Close is the
+  // control left to use.
+  const clear = () => {
+    clearActivity();
+    closeRef.current?.focus();
+  };
 
   return (
     <Modal opened onClose={close} title="Activity log" centered size="xl">
@@ -25,7 +32,7 @@ export function ActivityLogModal({ onClose }: ActivityLogModalProps) {
             No errors or warnings in this session.
           </Text>
         ) : (
-          <Table striped>
+          <Table striped aria-label="Errors and warnings">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Time</Table.Th>
@@ -52,10 +59,10 @@ export function ActivityLogModal({ onClose }: ActivityLogModalProps) {
         )}
 
         <Group justify="flex-end">
-          <Button variant="subtle" size="compact-xs" onClick={clearActivity} disabled={entries.length === 0}>
+          <Button variant="subtle" size="compact-xs" onClick={clear} disabled={entries.length === 0}>
             Clear
           </Button>
-          <Button variant="subtle" size="compact-xs" onClick={close}>
+          <Button ref={closeRef} variant="subtle" size="compact-xs" onClick={close}>
             Close
           </Button>
         </Group>
