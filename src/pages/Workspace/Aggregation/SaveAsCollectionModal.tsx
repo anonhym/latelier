@@ -4,6 +4,7 @@ import { themeVars } from '../../../theme/themeVars';
 import { api, isIpcError } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateSchemaEnumCache } from '../../../features/fieldSuggestions/sources/schemaEnumSource';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import { submittingProps } from '../../../components/SubmitButton';
 import type { AggMergeOptions, AggSaveMode, Stage } from '@shared/types';
@@ -116,6 +117,7 @@ export function SaveAsCollectionModal({
       // taken earlier describes the old ones — also when a `$merge` failed
       // part-way. Harmless if nothing was written.
       invalidateSampleSchemaCache(connectionId, targetDb.trim(), targetColl.trim());
+      invalidateSchemaEnumCache(connectionId, targetDb.trim(), targetColl.trim());
       setSaving(false);
     }
   };

@@ -35,6 +35,7 @@ import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateSchemaEnumCache } from '../../../features/fieldSuggestions/sources/schemaEnumSource';
 import { invalidateRecentValuesCache } from '../../../features/fieldSuggestions/sources/recentValuesSource';
 import { fieldValueEntriesFromStages } from '../../../features/fieldSuggestions/fieldValueEntries';
 import { ExplainDrawer } from './ExplainDrawer';
@@ -341,7 +342,11 @@ export function AggregationTab({
         // main parses out of the stage body, so the renderer can't name the
         // collection it wrote: drop the connection's samples, even when the
         // run threw part-way through a `$merge`.
-        if (allowWrite) invalidateSampleSchemaCache(connectionId);
+        if (allowWrite) {
+          invalidateSampleSchemaCache(connectionId);
+          // A `$out` replaces the target with the pipeline's collection options.
+          invalidateSchemaEnumCache(connectionId);
+        }
         if (runTokenRef.current === token) {
           runTokenRef.current = null;
           stoppingRef.current = false;

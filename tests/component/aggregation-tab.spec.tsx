@@ -7,8 +7,15 @@ import { AggregationTab } from '../../src/pages/Workspace/Aggregation/Aggregatio
 import { notifications } from '@mantine/notifications';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationTabState, AggStagePreview } from '@shared/types';
+
+// Spied so each write path can be checked for dropping the cached enum suggestions.
+vi.mock('../../src/features/fieldSuggestions/sources/schemaEnumSource', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/schemaEnumSource')>()),
+  invalidateSchemaEnumCache: vi.fn(),
+}));
 
 // Mocked at the exact module AggregationTab imports; the rest stays real
 // because the tab reaches the suggestion sources through their barrel.
@@ -574,7 +581,10 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
   };
   const ranOk = { rows: [], durationMs: 1, stageCounts: {}, stageSamples: {}, hasMore: false };
 
-  beforeEach(() => invalidate.mockClear());
+  beforeEach(() => {
+    invalidate.mockClear();
+    vi.mocked(invalidateSchemaEnumCache).mockClear();
+  });
 
   it('is dropped for the connection once the confirmed write run settles', async () => {
     const run = vi.fn(async (input: { allowWrite?: boolean }) => {
@@ -590,6 +600,7 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
     await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     expect(run.mock.calls[1]![0]).toMatchObject({ allowWrite: true });
     await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+    await waitFor(() => expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1'));
   });
 
   it('is dropped even when the confirmed write run fails part-way', async () => {
@@ -603,6 +614,7 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
 
     await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
+    await waitFor(() => expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1'));
   });
 
   it('is kept while the write is still unconfirmed, and after a cancelled confirmation', async () => {
@@ -617,11 +629,13 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
     // own run button also reads "Cancel".
     await screen.findByRole('button', { name: 'Proceed' });
     expect(invalidate).not.toHaveBeenCalled(); // blocked, nothing written yet
+    expect(invalidateSchemaEnumCache).not.toHaveBeenCalled(); // blocked, nothing written yet
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await act(async () => {});
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(invalidate).not.toHaveBeenCalled();
+    expect(invalidateSchemaEnumCache).not.toHaveBeenCalled();
   });
 
   it('is kept by a run with no write stage', async () => {
@@ -636,6 +650,7 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
 
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(invalidate).not.toHaveBeenCalled();
+    expect(invalidateSchemaEnumCache).not.toHaveBeenCalled();
   });
 });
 

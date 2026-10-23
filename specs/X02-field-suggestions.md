@@ -336,7 +336,8 @@ break, since the caret is inside a quoted string.
 3. `useSuggestions` runs sync sources, schedules async sources, returns
    a ranked list.
 4. Popover opens below the input or at the caret rect.
-5. User navigates with arrows, accepts with Enter/Tab (or mouse click).
+5. User navigates with arrows and accepts with Tab, or with Enter once
+   an item has been arrowed to (or with a mouse click).
 6. On accept, consumer splices the path into its value and moves the
    caret past it.
 7. On Escape or blur, popover closes.
@@ -354,11 +355,28 @@ break, since the caret is inside a quoted string.
   every fetch in flight skip its cache write (its caller still gets the
   answer); that errs toward a refetch, never toward a stale entry.
 - `schemaEnumSource` caches the parsed `$jsonSchema` per `(connId, db,
-  coll)` with a 5-minute TTL and the same generation guard.
-  `invalidateSchemaEnumCache` takes the same arguments as
-  `invalidateSampleSchemaCache`; Structure's Edit rules calls it for the
-  collection once `collection:modify` succeeds. Data writes leave it
-  alone, since they cannot change the validator.
+  coll)` with a 5-minute TTL and the same generation guard. A failed
+  `meta:collectionDetails` read (timeout, permissions, a missing
+  collection) is logged with `console.warn` and cached as "no schema" for
+  15 seconds only, so the enum appears once the read works. A validator
+  that is not JSON is a bug, not a passing state: it is logged too and
+  cached for the full TTL. `invalidateSchemaEnumCache` takes the same
+  arguments as `invalidateSampleSchemaCache` and is called:
+  - by Structure's Edit rules, for the collection, once
+    `collection:modify` succeeds;
+  - next to every `invalidateSampleSchemaCache` call that can change or
+    replace a collection's options, with the same scope:
+    `SaveAsCollectionModal`, `AggregationTab`'s confirmed `$out` /
+    `$merge`, `AuditLogModal` Revert, `ScriptTab` after every run, and
+    the connection dialogs' delete;
+  - by collection rename (both names), collection drop, and database drop
+    (the whole connection, since the cache has no per-database scope),
+    which the sample cache does not hook (see below).
+  Data writes (`useDocumentDialogs`, `DeleteConfirm`, `UpdateConfirm`,
+  Quick Edit, `ImportDialog`) leave it alone, since they cannot change
+  the validator. Editing a connection does not call it either: no sample
+  invalidation exists there to pair with, and the cache key is the
+  connection id, which an edit keeps.
 - `sampleValuesSource` has no cache of its own; it reads the
   `sampleSchemaSource` entry, so every invalidation below covers it.
 - Every write the renderer completes, except those listed after this,
