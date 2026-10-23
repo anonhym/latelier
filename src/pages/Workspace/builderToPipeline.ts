@@ -1,6 +1,8 @@
 import type { CollectionTabState, Stage } from '@shared/types';
 import { compileFindOptions, findProblem, parseSortString } from './builder';
 import { ejsonParse } from '../../utils/ejson';
+import { refusalMessage, repairToCanonicalEjson } from '../../utils/shellSyntax';
+import { stagesToPipelineJson } from './Aggregation/pipeline';
 
 /**
  * `$sort` takes only 1, -1 or `{ $meta }`, where a find sort also takes
@@ -43,4 +45,33 @@ export function builderToStages(state: CollectionTabState): StagesResult {
     ok: true,
     stages: bodies.map(([op, body], i) => ({ id: i + 1, op, body, enabled: true })),
   };
+}
+
+export type PipelineJsonResult = { ok: true; json: string } | { ok: false; problem: string };
+
+/**
+ * The enabled stages as one Canonical EJSON array, for copying. A stage body
+ * may be Shell Syntax (`{ status: "open" }`), so each enabled one is repaired
+ * first; the first that cannot be is refused by its 1-based stage number, the
+ * numbering `stagesToPipelineJson` uses for a body that repairs but does not
+ * parse.
+ */
+export function pipelineJsonForCopy(stages: Stage[]): PipelineJsonResult {
+  const repaired: Stage[] = [];
+  for (const [i, s] of stages.entries()) {
+    if (!s.enabled) {
+      repaired.push(s);
+      continue;
+    }
+    const outcome = repairToCanonicalEjson(s.body);
+    if (outcome.kind === 'failed') {
+      return { ok: false, problem: `stage ${i + 1} (${s.op}): ${refusalMessage(s.body, outcome) ?? outcome.reason}` };
+    }
+    repaired.push(outcome.kind === 'repaired' ? { ...s, body: outcome.text } : s);
+  }
+  try {
+    return { ok: true, json: stagesToPipelineJson(repaired) };
+  } catch (e) {
+    return { ok: false, problem: (e as Error).message };
+  }
 }

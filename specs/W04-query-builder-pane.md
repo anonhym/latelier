@@ -203,7 +203,9 @@ The existing Workspace's right pane is the home for this. Structure:
   - "Saved for {collection}" section (optional, W09): renders if there are any saved queries targeting this collection.
 - **Saved tab content**: list from `api.saved.list({ connectionId, dbName, collection? })` (W09). Each row has `Run here` + `Open in new tab`.
 - **Recent tab content**: list from `api.recent.list(...)` (W10). Each row has `Run here` + `Copy MQL`.
-- **Footer**: `Reset`, `Copy code`, `Run`. Matches mock.
+- **Footer**: `Reset`, `Copy code`, `Open as pipeline`.
+  - `Copy code` is a menu: mongosh, Node.js, Python. It copies the find as run (the page's skip and limit), refused when the query will not run. A document holding an EJSON sentinel goes through the driver's EJSON parser, so an ObjectId filter pastes as working code.
+  - `Open as pipeline` opens the collection's Aggregation view with the query as `$match` (omitted for `{}`), `$sort`, `$limit` (the user's limit, not the page's) and `$project`, bodies verbatim. A dirty pipeline asks before it is replaced.
 
 ### Condition row layout
 

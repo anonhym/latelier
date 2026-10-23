@@ -53,6 +53,7 @@
     "src/pages/Workspace/exportFormat.ts",
     "src/utils/displayValue.ts",
     "src/utils/shellSyntax.ts",
+    "src/utils/driverCode.ts",
     "src/utils/indexSuggestion.ts",
     "electron/log.ts",
     "src/theme/activityLog.ts",

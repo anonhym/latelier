@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 import type { BuilderState, CollectionTabState } from '@shared/types';
-import { builderToStages } from '../../src/pages/Workspace/builderToPipeline';
+import { builderToStages, pipelineJsonForCopy } from '../../src/pages/Workspace/builderToPipeline';
 
 function tab(queryRaw: string, builder: Partial<BuilderState> = {}, rest: Partial<CollectionTabState> = {}): CollectionTabState {
   return {
@@ -74,5 +74,43 @@ describe('builderToStages (#156)', () => {
     const r = builderToStages(tab('{}', { sort: '{"a":2}' }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.problem).toMatch(/Sort direction for "a"/);
+  });
+});
+
+describe('pipelineJsonForCopy (#23)', () => {
+  const st = (id: number, op: string, body: string, enabled = true) => ({ id, op, body, enabled });
+
+  it('repairs Shell Syntax bodies and returns the enabled stages as Canonical EJSON', () => {
+    expect(
+      pipelineJsonForCopy([
+        st(1, '$match', '{ status: "open" }'),
+        st(2, '$limit', '9', false),
+        st(3, '$sort', '{"n":-1}'),
+      ]),
+    ).toEqual({
+      ok: true,
+      json: '[{"$match":{"status":"open"}},{"$sort":{"n":{"$numberInt":"-1"}}}]',
+    });
+  });
+
+  it('keeps a Long exact', () => {
+    const r = pipelineJsonForCopy([st(1, '$match', '{"n":9007199254740993}')]);
+    expect(r).toEqual({ ok: true, json: '[{"$match":{"n":{"$numberLong":"9007199254740993"}}}]' });
+  });
+
+  it('refuses the first body that cannot be repaired, by its position among all stages', () => {
+    const r = pipelineJsonForCopy([st(1, '$limit', 'oops(', false), st(2, '$match', '{}'), st(3, '$match', '{ a: }')]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problem).toMatch(/^stage 3 \(\$match\): Line 1, column 6: /);
+    expect(pipelineJsonForCopy([st(1, '$match', '  ')])).toEqual({
+      ok: false,
+      problem: 'stage 1 ($match): The input is empty.',
+    });
+  });
+
+  it('refuses a body that repairs but does not parse as EJSON', () => {
+    const r = pipelineJsonForCopy([st(1, '$skip', '1', false), st(2, '$match', '{"_id":{"$oid":"nope"}}')]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problem).toMatch(/^stage 2 \(\$match\): invalid EJSON/);
   });
 });

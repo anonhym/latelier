@@ -119,6 +119,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Copy code is a menu of languages (#23): open it, pick one.
+const copyAs = async (label: string) => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: label }));
+};
+
 const copiedText = (): string => {
   const mock = navigator.clipboard.writeText as unknown as { mock: { calls: string[][] } };
   return mock.mock.calls.at(-1)?.[0] ?? '';
@@ -303,10 +309,10 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     expect(copiedText()).toBe(
-      'db.users.find({"status":"active"}, {"_id":1,"name":1})' +
+      'db.getCollection("users").find({"status":"active"}, {"_id":1,"name":1})' +
         '.sort({"createdAt":-1}).skip(100).limit(20)',
     );
 
@@ -339,13 +345,30 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       makeState({ builder: { projection: [], sort: '', limit: '10' }, page: 1 }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     const writeText = navigator.clipboard.writeText as unknown as {
       mock: { calls: string[][] };
     };
     expect(writeText.mock.calls).toHaveLength(0);
     expect(await screen.findByText(/Nothing copied — this page is past the limit/)).toBeTruthy();
+  });
+
+  it('an ObjectId filter copies as code that keeps the ObjectId (#23)', async () => {
+    // Canonical EJSON pasted raw into mongosh reads `$oid` as an unknown
+    // query operator, so the sentinel goes through EJSON.parse instead.
+    const filter = '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}';
+    mountWith(makeState({ queryRaw: filter }));
+
+    await copyAs('mongosh');
+    expect(copiedText()).toBe(
+      `db.getCollection("users").find(EJSON.parse(${JSON.stringify(filter)}, { relaxed: false })).limit(50)`,
+    );
+
+    await copyAs('Python');
+    expect(copiedText()).toBe(
+      ['from bson import json_util', '', `query = json_util.loads(${JSON.stringify(filter)})`, 'cursor = db["users"].find(query, limit=50)'].join('\n'),
+    );
   });
 
   it('the page before the cap still copies, with its real limit', async () => {
@@ -355,7 +378,7 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
       makeState({ builder: { projection: [], sort: '', limit: '60' }, page: 1 }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await copyAs('mongosh');
 
     expect(copiedText()).toContain('.skip(50)');
     expect(copiedText()).toContain('.limit(10)');
@@ -379,8 +402,7 @@ describe('W15 §1.1 — Copy code refuses a query that will not run', () => {
   const writeTextMock = () =>
     navigator.clipboard.writeText as unknown as { mock: { calls: string[][] } };
 
-  const clickCopy = async () =>
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+  const clickCopy = () => copyAs('mongosh');
 
   it('an unparseable sort is refused, and nothing reaches the clipboard', async () => {
     mountWith(makeState({ builder: { projection: [], sort: '{"a":1', limit: '' } }));

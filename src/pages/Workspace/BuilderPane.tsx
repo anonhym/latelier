@@ -77,6 +77,7 @@ import { useStructureEntries } from './useStructureEntries';
 import { condTypeWarning } from './condValue';
 import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 import { builderToStages } from './builderToPipeline';
+import { CODE_LANGS, findCode, type CodeLang } from '../../utils/driverCode';
 
 interface BuilderPaneProps {
   /** Bumped externally after a save so SavedTab re-fetches. */
@@ -1806,7 +1807,7 @@ function BuilderPaneInner({
   // skip/limit split `useQueryRunner` computes from the page
   // (`effectivePageLimit`), same projection and sort it hands to
   // `api.query.find` — so the copied command matches the page on screen.
-  const handleCopyCode = () => {
+  const handleCopyCode = (lang: CodeLang) => {
     // Refused through the same `findProblem` the Run button gates on: one
     // rule for "is this query runnable", not a copy-path opinion beside it.
     // An unparseable filter, sort, or raw projection copies nothing rather
@@ -1837,13 +1838,19 @@ function BuilderPaneInner({
       );
       return;
     }
-    const parts = [`db.${collection}.find(${state.queryRaw}`];
-    if (opts.projection) parts[0] += `, ${opts.projection}`;
-    parts[0] += ')';
-    if (opts.sort) parts.push(`.sort(${opts.sort})`);
-    if (skip > 0) parts.push(`.skip(${skip})`);
-    parts.push(`.limit(${limit})`);
-    void copyToClipboard(parts.join(''), 'Command copied to the clipboard');
+    // `findProblem` passing means every clause is already strict JSON, so
+    // there is no Shell Syntax left to repair here. Canonical EJSON is still
+    // not shell syntax (`{"$oid": …}` pasted into mongosh is an unknown
+    // operator): `findCode` routes such a document through EJSON.parse.
+    const code = findCode(lang, {
+      collection,
+      filter: state.queryRaw,
+      projection: opts.projection,
+      sort: opts.sort,
+      skip,
+      limit,
+    });
+    void copyToClipboard(code, 'Command copied to the clipboard');
   };
 
   const handleOpenAsPipeline = () => {
@@ -2040,14 +2047,20 @@ function BuilderPaneInner({
             <Button variant="default" size="compact-xs" onClick={handleReset}>
               Reset
             </Button>
-            <Button
-              variant="default"
-              size="compact-xs"
-              leftSection={I.copy}
-              onClick={handleCopyCode}
-            >
-              Copy code
-            </Button>
+            <Menu position="top-start" shadow="md">
+              <Menu.Target>
+                <Button variant="default" size="compact-xs" leftSection={I.copy}>
+                  Copy code
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {CODE_LANGS.map(({ lang, label }) => (
+                  <Menu.Item key={lang} onClick={() => handleCopyCode(lang)}>
+                    {label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
             <Button variant="default" size="compact-xs" onClick={handleOpenAsPipeline}>
               Open as pipeline
             </Button>
