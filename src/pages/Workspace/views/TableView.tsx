@@ -8,6 +8,7 @@ import {
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
 import { isContextMenuKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
+import { Tooltip } from '@mantine/core';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import { ownGet, ownSet } from '../../../utils/ownProperty';
@@ -400,11 +401,7 @@ function TableCell({
         fontWeight: isCopied ? 600 : 400,
         boxSizing: 'border-box',
       }}
-      title={
-        draggable
-          ? `Drag to add "${fieldPath} $eq …" to builder · double-click to copy`
-          : undefined
-      }
+      title={draggable ? `Drag to add "${fieldPath} $eq …" to builder` : undefined}
     >
       {canInlineEdit && kind === 'boolean' ? (
         // W18 §8 — booleans are always live, not gated behind a pencil-click
@@ -529,6 +526,17 @@ function TableCell({
             onClick={() => onRefOpen?.(rule, fieldPath, value)}
           />
         </span>
+      ) : draggable ? (
+        // Double-click-to-copy has no visible cue of its own. The delay
+        // keeps a pointer sweeping across the grid from flashing one
+        // tooltip per cell.
+        <Tooltip
+          label="Double-click to copy"
+          events={{ hover: true, focus: true, touch: false }}
+          openDelay={500}
+        >
+          <span>{String(display)}</span>
+        </Tooltip>
       ) : (
         String(display)
       )}
