@@ -237,35 +237,11 @@ describe('TableView — rendering and interaction', () => {
     expect(getByText(`"${longValue}"`)).toBeTruthy();
   });
 
-  // Double-click-to-copy used to be advertised only in the native title.
-  describe('double-click-to-copy hint', () => {
-    it('shows a "Double-click to copy" tooltip on the cell value on hover and on focus', async () => {
-      const { getByTitle } = renderTable([{ _id: 1, note: 'hello' }]);
-      const cell = getByTitle(/Drag to add "note/);
-      const value = within(cell).getByText('hello');
-
-      expect(screen.queryByRole('tooltip')).toBeNull();
-      fireEvent.mouseEnter(value);
-      expect((await screen.findByRole('tooltip')).textContent).toBe('Double-click to copy');
-      fireEvent.mouseLeave(value);
-      await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
-
-      fireEvent.focus(value);
-      expect((await screen.findByRole('tooltip')).textContent).toBe('Double-click to copy');
-    });
-
-    it('a cell with no value (nothing to copy) has no tooltip', async () => {
-      const { container } = renderTable([{ _id: 1, note: 'x' }, { _id: 2 }]);
-      // A missing field renders as bare text, with no drag title.
-      const empty = [...container.querySelectorAll<HTMLElement>('[role="gridcell"]')].find(
-        (c) => !c.getAttribute('title') && c.textContent === 'undefined',
-      );
-      expect(empty).toBeTruthy();
-      expect(empty!.querySelector('span')).toBeNull();
-      fireEvent.mouseEnter(empty!);
-      await new Promise((r) => setTimeout(r, 600));
-      expect(screen.queryByRole('tooltip')).toBeNull();
-    });
+  it('a cell with a value advertises both drag-to-filter and double-click-to-copy in its title', () => {
+    const { getByTitle } = renderTable([{ _id: 1, note: 'hello' }]);
+    expect(getByTitle(/Drag to add "note/).getAttribute('title')).toBe(
+      'Drag to add "note $eq …" to builder · double-click to copy',
+    );
   });
 
   // AC6 regressions — behaviour that must survive the memo/gutter/dynamic-

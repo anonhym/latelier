@@ -89,7 +89,7 @@ Row layout (matches existing mock):
 - Column widths: default auto with `max-width: 200px` + ellipsis overflow. User can drag column separators to resize (persisted in tab state as `state.columns.{field}.width`).
 - Nested objects/arrays show as `{N}` / `[N]` badges that expand into a small popover showing the nested JSON.
 - Any cell with a value has a hover/focus-revealed `⤢` that opens the full, untruncated value in a popover (`FullValuePopover`, shared with Tree leaves).
-- Double-click copies a cell's value. A tooltip "Double-click to copy" on the cell's value says so (500ms delay); the native title keeps only the drag hint.
+- Double-click copies a cell's value. The cell's native title says so next to the drag hint ("Drag to add … to builder · double-click to copy"); no per-cell tooltip component, which would mount one floating instance per cell of a virtualized grid.
 - Right-click on a row → context menu: `Edit`, `Delete`, `Copy`, `Copy as JSON`.
 
 ## 5. Common
