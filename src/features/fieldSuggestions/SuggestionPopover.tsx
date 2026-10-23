@@ -218,7 +218,9 @@ export function SuggestionPopover({
         // footer sits outside the listbox (only options belong in one) and
         // outside its scroll area, so a long list never scrolls it away.
         // Same mousedown guard as the listbox: a press here must not blur
-        // the input and close the popover.
+        // the input and close the popover. Presentational: the handler only
+        // suppresses focus movement, this box is not itself a control.
+        role="presentation"
         onMouseDown={(e) => e.preventDefault()}
         style={{
           position: 'fixed',
