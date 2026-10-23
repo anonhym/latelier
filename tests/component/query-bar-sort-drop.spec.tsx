@@ -121,17 +121,29 @@ describe('#323 — drop a field onto Sort', () => {
   });
 
   it('ignores a drag that is not a field, or a malformed one', async () => {
+    // A handler that throws does not fail `fireEvent`; React reports it on
+    // window instead, so collect those reports.
+    const thrown: unknown[] = [];
+    const onError = (e: ErrorEvent) => {
+      thrown.push(e.error);
+      e.preventDefault();
+    };
+    window.addEventListener('error', onError);
     mount();
     const input = (await screen.findByTestId('query-bar-sort')) as HTMLInputElement;
     const cell = screen.getByTestId('query-bar-sort-drop');
     for (const dataTransfer of [
       transfer(['text/plain'], JSON.stringify({ field: 'age' })),
       transfer([DRAGGED_FIELD_MIME], '{not json'),
+      transfer([DRAGGED_FIELD_MIME], 'null'),
+      transfer([DRAGGED_FIELD_MIME], '"age"'),
       fieldDrag(''),
       fieldDrag(3),
     ]) {
       fireEvent.drop(cell, { dataTransfer });
     }
+    window.removeEventListener('error', onError);
+    expect(thrown).toEqual([]);
     expect(input.value).toBe('{"name":1}');
   });
 

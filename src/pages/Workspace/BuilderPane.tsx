@@ -448,7 +448,8 @@ function useRowDropHandlers(
       setActiveDropPath(null);
       const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
       if (!raw) return;
-      let dragged: DraggedField;
+      // `null` and bare scalars parse too; the field check below refuses them.
+      let dragged: DraggedField | null;
       try {
         dragged = JSON.parse(raw) as DraggedField;
       } catch {
@@ -458,7 +459,7 @@ function useRowDropHandlers(
       // type) — `DocFieldTree`'s drag source now guards against starting
       // such a drag at all, but this is defense in depth for any other
       // payload source, since `condFromDragged` crashes downstream on one.
-      if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+      if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
       // A raw row can hold a hand-typed clause a dropped field would
       // silently overwrite (`mergeOrReplaceDragged` only merges onto an
       // existing `cond`, so a `raw` target always falls to replace). An
@@ -1054,7 +1055,8 @@ function GroupView({
     setActiveDropPath(null);
     const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
     if (!raw) return;
-    let dragged: DraggedField;
+    // `null` and bare scalars parse too; the field check below refuses them.
+    let dragged: DraggedField | null;
     try {
       dragged = JSON.parse(raw) as DraggedField;
     } catch {
@@ -1064,7 +1066,7 @@ function GroupView({
     // type) — `DocFieldTree`'s drag source now guards against starting
     // such a drag at all, but this is defense in depth for any other
     // payload source, since `condFromDragged` crashes downstream on one.
-    if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+    if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
     applyEdit(insertAt(root, path, condFromDragged(dragged)));
   };
 
@@ -1689,7 +1691,8 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         setActiveDropPath(null);
         const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
         if (!raw) return;
-        let dragged: DraggedField;
+        // `null` and bare scalars parse too; the field check below refuses them.
+        let dragged: DraggedField | null;
         try {
           dragged = JSON.parse(raw) as DraggedField;
         } catch {
@@ -1699,7 +1702,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         // type) — `DocFieldTree`'s drag source now guards against starting
         // such a drag at all, but this is defense in depth for any other
         // payload source, since `condFromDragged` crashes downstream on one.
-        if (typeof dragged.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+        if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
         applyEdit(insertAt(root, [], condFromDragged(dragged)));
       }}
       style={{

@@ -259,13 +259,14 @@ function QueryBarInner({
     if (!acceptsField(e)) return;
     e.preventDefault();
     setSortDropActive(false);
-    let dragged: DraggedField;
+    // `null` and bare scalars parse too; the field check below refuses them.
+    let dragged: DraggedField | null;
     try {
       dragged = JSON.parse(e.dataTransfer.getData(DRAGGED_FIELD_MIME)) as DraggedField;
     } catch {
       return;
     }
-    if (typeof dragged.field !== 'string' || !dragged.field) return;
+    if (typeof dragged?.field !== 'string' || !dragged.field) return;
     handleSortChange(JSON.stringify({ [dragged.field]: 1 }));
   };
   const handleLimitChange = (v: string) => {
