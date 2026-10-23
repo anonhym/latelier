@@ -1,5 +1,6 @@
 import { api } from '../../../api/atelier';
 import { isRecord, toDisplayValue } from '../../../utils/displayValue';
+import { isSecretFieldPath } from '../../../utils/secretFieldPath';
 import type { ValueSource, ValueSuggestion } from '../types';
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
@@ -119,7 +120,8 @@ function enumAt(schema: Record<string, unknown> | null, field: string): unknown[
  */
 export const schemaEnumSource: ValueSource = async (ctx) => {
   const field = ctx.target.field.trim();
-  if (!field) return [];
+  // Same rule as the sample: a secret-named field suggests nothing.
+  if (!field || isSecretFieldPath(field)) return [];
   const { schema } = await loadEntry(ctx.connectionId, ctx.dbName, ctx.collection);
   const out: ValueSuggestion[] = [];
   for (const v of enumAt(schema, field)) {

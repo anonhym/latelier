@@ -165,6 +165,24 @@ describe('schemaEnumSource', () => {
     expect(collectionDetails).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['token', 'Password', 'creds.secret'])(
+    'never suggests enum values of the secret-named field %s',
+    async (field) => {
+      collectionDetails.mockResolvedValue(
+        details({
+          $jsonSchema: {
+            properties: {
+              token: { enum: ['t1'] },
+              Password: { enum: ['p1'] },
+              creds: { properties: { secret: { enum: ['s1'] } } },
+            },
+          },
+        }),
+      );
+      expect(await displays(field)).toEqual([]);
+    },
+  );
+
   it('suggests nothing for a blank field, without a call', async () => {
     expect(await ask('  ')).toEqual([]);
     expect(collectionDetails).not.toHaveBeenCalled();

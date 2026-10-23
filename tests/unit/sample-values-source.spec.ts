@@ -68,6 +68,16 @@ describe('sampleValuesSource', () => {
     expect(sampleSchema).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['token', 'password', 'secret', 'auth.ApiKey'])(
+    'never suggests sampled values of the secret-named field %s',
+    async (field) => {
+      sampleSchema.mockResolvedValue({
+        docs: [{ token: 't1', password: 'p1', secret: 's1', auth: { ApiKey: 'k1' } }],
+      });
+      expect(await ask(field)).toEqual([]);
+    },
+  );
+
   it('fails open to [] when the sample fetch rejects', async () => {
     sampleSchema.mockRejectedValue(new Error('down'));
     expect(await ask('status')).toEqual([]);

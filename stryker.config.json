@@ -87,6 +87,7 @@
     "src/features/fieldSuggestions/fieldValueEntries.ts",
     "src/features/fieldSuggestions/sources/sampleValuesSource.ts",
     "src/features/fieldSuggestions/sources/schemaEnumSource.ts",
+    "src/utils/secretFieldPath.ts",
     "src/features/fieldSuggestions/placement.ts",
     "src/pages/Workspace/schemaSummary.ts",
     "src/utils/humanBytes.ts",
