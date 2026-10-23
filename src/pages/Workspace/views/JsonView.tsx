@@ -281,10 +281,17 @@ function DocCard({
       // that role is "children presentational" in ARIA, and this card holds
       // real <button>s (the corner actions, and the JSON body's collapse
       // toggles), which axe's nested-interactive forbids inside one. No
-      // `tabIndex`: a click's focus walks up to the list, which owns the
-      // single tab stop and `aria-activedescendant`.
+      // Tab stop: `tabIndex={-1}` keeps the card out of the tab order (the
+      // list owns the single stop and `aria-activedescendant`) but lets a
+      // click focus it, so `onFocus` hands that focus straight to the list;
+      // otherwise the next Arrow key would target the card and the list's
+      // own-target guard would swallow it.
       id={rowId}
       role="treeitem"
+      tabIndex={-1}
+      onFocus={(e) => {
+        if (e.target === e.currentTarget) e.currentTarget.closest<HTMLElement>('[role="tree"]')?.focus();
+      }}
       aria-label={`Document ${idx + 1}`}
       style={{
         border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,

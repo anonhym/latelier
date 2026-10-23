@@ -40,6 +40,7 @@ describe('JsonView — active row', () => {
     expect(tree.getAttribute('tabindex')).toBe('0');
     expect(tree.getAttribute('aria-activedescendant')).toBe(card(1).id);
     expect(card(1).id).toBe('json-row-0');
+    for (const n of [1, 2, 3]) expect(card(n).getAttribute('tabindex')).toBe('-1');
   });
 
   it('each card is a treeitem whose nearest role-bearing ancestor is the tree', () => {
