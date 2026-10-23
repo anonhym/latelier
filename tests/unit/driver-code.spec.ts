@@ -130,6 +130,13 @@ describe('findCode', () => {
     expect(args[1]).toMatchObject({ skip: 50, limit: 10 });
   });
 
+  it('node: a filter with no sentinel emits no bson import', () => {
+    const code = findCode('node', { ...base, filter: '{"a":1}' });
+    expect(code).not.toContain('require');
+    expect(code.startsWith('const filter = {"a":1};')).toBe(true);
+    expect(runJs(code).method).toBe('find');
+  });
+
   it('node and mongosh spell null, true, false and -0 as JavaScript', () => {
     const filter = '{"a":null,"b":true,"c":[false,-0]}';
     for (const lang of ['node', 'mongosh'] as const) {
@@ -375,6 +382,16 @@ describe('aggregateCode', () => {
     expect(run.method).toBe('aggregate');
     const [args] = run.args as [unknown[]];
     expect((args[0] as [{ $match: { _id: unknown } }])[0].$match._id).toBeInstanceOf(ObjectId);
+  });
+
+  it('node: a pipeline with no sentinel emits no bson import', () => {
+    const code = aggregateCode('node', { collection: 'orders', pipelineJson: '[{"$limit":5}]' });
+    expect(code).toBe(
+      [
+        'const pipeline = [{"$limit":5}];',
+        'const cursor = db.collection("orders").aggregate(pipeline);',
+      ].join('\n'),
+    );
   });
 
   it('python', () => {

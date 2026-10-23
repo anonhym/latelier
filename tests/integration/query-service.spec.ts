@@ -164,6 +164,19 @@ describe('QueryService', () => {
     expect(result.count).toBe(10);
   });
 
+  it('count takes $where, which countDocuments refuses, and a plain filter keeps the fast path', async () => {
+    const target = { connectionId: connId, dbName, collection: collName };
+    const spy = vi.spyOn(Collection.prototype, 'countDocuments');
+    const plain = await svc.count({ ...target, filter: '{}' });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockClear();
+    const where = await svc.count({ ...target, filter: '{"$and":[{"$where":"this.n >= 0"}]}' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(where.count).toBe(plain.count);
+    const none = await svc.count({ ...target, filter: '{"$where":"this.n < -1"}' });
+    expect(none.count).toBe(0);
+  });
+
   it('count with selective filter', async () => {
     const result = await svc.count({
       connectionId: connId,

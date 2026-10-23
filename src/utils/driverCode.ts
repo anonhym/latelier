@@ -169,7 +169,7 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   }
 
   if (lang === 'node') {
-    const lines = ["const { EJSON } = require('bson');", '', `const filter = ${jsArg(filter)};`];
+    const lines = [`const filter = ${jsArg(filter)};`];
     const opts: string[] = [];
     if (projection) {
       lines.push(`const projection = ${jsArg(projection)};`);
@@ -190,7 +190,7 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
     if (skip > 0) opts.push(`skip: ${skip}`);
     opts.push(`limit: ${limit}`);
     lines.push(`const cursor = db.collection(${str(collection)}).find(filter, { ${opts.join(', ')} });`);
-    return lines.join('\n');
+    return withEjsonImport(lines);
   }
 
   const lines = ['from bson import json_util', '', `query = ${pyArg(filter)}`];
@@ -218,18 +218,22 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   return lines.join('\n');
 }
 
+/** Prefixes the bson import only when the snippet actually calls `EJSON.`. */
+function withEjsonImport(lines: string[]): string {
+  const body = lines.join('\n');
+  return body.includes('EJSON.') ? `const { EJSON } = require('bson');\n\n${body}` : body;
+}
+
 export function aggregateCode(lang: CodeLang, input: AggregateCodeInput): string {
   const { collection, pipelineJson } = input;
   if (lang === 'mongosh') {
     return `db.getCollection(${str(collection)}).aggregate(${jsArg(pipelineJson)})`;
   }
   if (lang === 'node') {
-    return [
-      "const { EJSON } = require('bson');",
-      '',
+    return withEjsonImport([
       `const pipeline = ${jsArg(pipelineJson)};`,
       `const cursor = db.collection(${str(collection)}).aggregate(pipeline);`,
-    ].join('\n');
+    ]);
   }
   return [
     'from bson import json_util',
