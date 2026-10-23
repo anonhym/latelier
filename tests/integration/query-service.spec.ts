@@ -11,6 +11,11 @@ import { ValidationError } from '../../electron/errors';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { getSharedMongoUri, makeConnection, makeReader } from '../helpers/mongo';
 import { repairToCanonicalEjson } from '../../src/utils/shellSyntax';
+import type { IpcMainInvokeEvent } from 'electron';
+import { registerQueryChannels } from '../../electron/ipc/handlers/query';
+import { createRouter } from '../../electron/ipc/router';
+import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
+import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
 
 describe('QueryService', () => {
   let pool: MongoPool;
@@ -680,5 +685,44 @@ describe('QueryService', () => {
       expect(blank).not.toHaveProperty('hint');
       expect(blank).not.toHaveProperty('readPreference');
     });
+  });
+});
+
+// W14 §9 — zod strips unknown keys silently, so an option missing from a
+// channel's schema would vanish between the renderer and the service. Drive
+// each channel through the router, the path the preload bridge takes.
+describe('query channels carry the find options through the router', () => {
+  type Handler = (evt: IpcMainInvokeEvent, payload: unknown) => Promise<Envelope<unknown>>;
+  const options = { collation: '{"locale":"en","strength":2}', hint: 'name_1', readPreference: 'secondaryPreferred' };
+  const target = { connectionId: 'c', dbName: 'd', collection: 'coll', filter: '{}' };
+
+  function wire() {
+    const handlers = new Map<string, Handler>();
+    const router = createRouter(
+      { handle: (channel: string, fn: Handler) => handlers.set(channel, fn) } as never,
+      testSenderCheck,
+    );
+    const svc = {
+      find: vi.fn(async () => ({ documentsJson: '[]', durationMs: 0, hasMore: false })),
+      count: vi.fn(async () => ({ count: 0 })),
+      explain: vi.fn(async () => ({})),
+      exportToFile: vi.fn(async () => ({ written: 0, truncated: false })),
+    };
+    registerQueryChannels(router, svc as unknown as QueryService, async () => '/tmp/out.json');
+    return { handlers, svc };
+  }
+
+  it.each([
+    [IPC_CHANNELS.queryFind, 'find', { limit: 50, skip: 0, maxTimeMS: 2000 }],
+    [IPC_CHANNELS.queryCount, 'count', {}],
+    [IPC_CHANNELS.queryExplain, 'explain', { verbosity: 'queryPlanner' }],
+    [IPC_CHANNELS.queryExport, 'exportToFile', { format: 'json' }],
+  ] as const)('%s hands collation, hint and readPreference to QueryService.%s', async (channel, method, rest) => {
+    const { handlers, svc } = wire();
+    const envelope = await handlers.get(channel)!(invokeEvent, { ...target, ...rest, ...options });
+
+    expect(envelope.ok).toBe(true);
+    expect(svc[method]).toHaveBeenCalledTimes(1);
+    expect(svc[method].mock.calls[0]![0]).toMatchObject({ ...target, ...rest, ...options });
   });
 });
