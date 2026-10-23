@@ -775,6 +775,8 @@ function CreateIndexDrawer({
           <Button
             variant="default"
             size="compact-xs"
+            c={T.textMuted}
+            style={{ borderStyle: 'dashed' }}
             onClick={() => setFields((rows) => [...rows, { field: '', direction: 1 }])}
           >
             + Add field

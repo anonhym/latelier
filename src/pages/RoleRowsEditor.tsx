@@ -128,6 +128,8 @@ export function RoleRowsEditor({
       <Button
         variant="default"
         size="compact-xs"
+        c={T.textMuted}
+        style={{ borderStyle: 'dashed' }}
         onClick={() => onChange([...rows, { role: 'read', db: defaultDb }])}
       >
         + Add role

@@ -422,8 +422,8 @@ export function ReferenceRulesEditor({
                         <ActionIcon
                           onClick={() => openForm(ruleToForm(r))}
                           aria-label="Edit rule"
-                          variant="subtle"
-                          color="gray"
+                          variant="default"
+                          c={T.textMuted}
                           size="sm"
                         >
                           {I.edit}
@@ -433,8 +433,8 @@ export function ReferenceRulesEditor({
                         <ActionIcon
                           onClick={() => setConfirmDeleteId(r.id)}
                           aria-label="Delete rule"
-                          variant="subtle"
-                          color="red"
+                          variant="default"
+                          c={T.red}
                           size="sm"
                         >
                           {I.trash}

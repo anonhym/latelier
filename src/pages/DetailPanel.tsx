@@ -154,6 +154,7 @@ function OverviewTab({ conn, runtime }: {
               <Button
                 variant="subtle"
                 size="compact-xs"
+                c={T.accent}
                 onClick={() =>
                   help.open({
                     errorCode: runtime.errorCode,
@@ -174,7 +175,7 @@ function OverviewTab({ conn, runtime }: {
     return (
       <div style={{ padding: 20, color: T.warn, fontSize: 13 }}>
         {error}{' '}
-        <Button variant="subtle" size="compact-xs" ml={8} onClick={() => void load()}>
+        <Button variant="subtle" size="compact-xs" c={T.accent} ml={8} onClick={() => void load()}>
           Retry
         </Button>
       </div>
@@ -355,7 +356,7 @@ function CollectionsTab({ conn, runtime }: {
     return (
       <div style={{ padding: 20, color: T.warn }}>
         {error}
-        <Button variant="subtle" size="compact-xs" ml={8} onClick={() => void loadDatabases()}>
+        <Button variant="subtle" size="compact-xs" c={T.accent} ml={8} onClick={() => void loadDatabases()}>
           Retry
         </Button>
       </div>

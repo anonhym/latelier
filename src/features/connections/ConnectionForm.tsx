@@ -388,7 +388,7 @@ function FilePathRow({ purpose, label, value, onChange, placeholder }: {
         <Button
           type="button"
           variant="default"
-          size="compact-xs"
+          size="xs"
           onClick={() => void pick()}
           aria-label={`Browse for ${label}`}
         >
@@ -399,7 +399,7 @@ function FilePathRow({ purpose, label, value, onChange, placeholder }: {
         <Button
           type="button"
           variant="default"
-          size="compact-xs"
+          size="xs"
           onClick={() => onChange('')}
           aria-label={`Clear ${label}`}
         >
@@ -1344,6 +1344,7 @@ function ConnectionFormImpl({
               <Button
                 variant="subtle"
                 size="compact-xs"
+                c={T.accent}
                 onClick={() =>
                   help.open(testFailure, {
                     retryWithoutTls: async () => {
