@@ -245,7 +245,7 @@ describe('workspace doc dialogs (T2)', () => {
     mount({ doc: { updateOne }, query: { find } });
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Edit document'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Edit document' });
     const sku = within(dialog).getByRole('textbox', { name: 'sku' }) as HTMLTextAreaElement;
@@ -273,7 +273,7 @@ describe('workspace doc dialogs (T2)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByTitle('Edit document'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document' }));
 
     expect(await screen.findByText('Read-only connection')).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: 'Edit document' })).toBeNull();

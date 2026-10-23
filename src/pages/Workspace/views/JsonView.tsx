@@ -1,4 +1,5 @@
 import React from 'react';
+import { ActionIcon, Tooltip } from '@mantine/core';
 import {
   List,
   useDynamicRowHeight,
@@ -298,89 +299,66 @@ function DocCard({
     >
       <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
         <SelectToggle selected={isSelected} docLabel={getDocId(doc)} onToggle={() => onToggle(idx)} />
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopy(doc, idx);
-          }}
-          title="Copy JSON"
-          style={{
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            padding: '2px 5px',
-            cursor: 'pointer',
-            color: isCopied ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 3,
-            fontSize: 10,
-          }}
-        >
-          {isCopied ? I.check : I.copy}
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(doc);
-          }}
-          title="Edit"
-          style={{
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            padding: '2px 5px',
-            cursor: 'pointer',
-            color: 'var(--atelier-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          {I.edit}
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(doc);
-          }}
-          title="Delete"
-          style={{
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            padding: '2px 5px',
-            cursor: 'pointer',
-            color: 'var(--atelier-red)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          {I.trash}
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const viaKeyboard = e.detail === 0;
-            onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
-              returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-              focusMenuOnOpen: viaKeyboard,
-            });
-          }}
-          title="More actions"
-          aria-label={`More actions for document ${getDocId(doc)}`}
-          style={{
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border)',
-            borderRadius: 'var(--atelier-radius-xs)',
-            padding: '2px 5px',
-            cursor: 'pointer',
-            color: 'var(--atelier-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          {I.more}
-        </button>
+        <Tooltip label="Copy JSON" withArrow openDelay={400}>
+          <ActionIcon
+            variant="default"
+            size="sm"
+            c={isCopied ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopy(doc, idx);
+            }}
+            aria-label="Copy JSON"
+          >
+            {isCopied ? I.check : I.copy}
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Edit" withArrow openDelay={400}>
+          <ActionIcon
+            variant="default"
+            size="sm"
+            c="var(--atelier-text-muted)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(doc);
+            }}
+            aria-label="Edit"
+          >
+            {I.edit}
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="Delete" withArrow openDelay={400}>
+          <ActionIcon
+            variant="default"
+            size="sm"
+            c="var(--atelier-red)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(doc);
+            }}
+            aria-label="Delete"
+          >
+            {I.trash}
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label="More actions" withArrow openDelay={400}>
+          <ActionIcon
+            variant="default"
+            size="sm"
+            c="var(--atelier-text-muted)"
+            onClick={(e) => {
+              e.stopPropagation();
+              const viaKeyboard = e.detail === 0;
+              onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
+                returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
+                focusMenuOnOpen: viaKeyboard,
+              });
+            }}
+            aria-label={`More actions for document ${getDocId(doc)}`}
+          >
+            {I.more}
+          </ActionIcon>
+        </Tooltip>
       </div>
       <HighlightedJson
         json={json}

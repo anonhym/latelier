@@ -1004,6 +1004,15 @@ describe('TableView — rendering and interaction', () => {
       expect(openDelete).toHaveBeenCalledWith(docs[0]);
     });
 
+    it('shows the Delete document tooltip when keyboard focus lands on the icon button', async () => {
+      const { getByRole } = renderTable([{ _id: 1, sku: 'a' }]);
+
+      fireEvent.focus(getByRole('button', { name: 'Delete document 1' }));
+
+      const tip = await screen.findByRole('tooltip');
+      expect(tip.textContent).toBe('Delete document');
+    });
+
     it('is not a data column: FieldsControl lists no "Actions" entry', () => {
       const { getByRole, queryByRole } = renderStatefulTable(
         emptyState({

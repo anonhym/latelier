@@ -87,6 +87,15 @@ describe('JsonView — rendering', () => {
     expect(container.textContent).toContain('$date');
   });
 
+  it('shows the Copy JSON tooltip when keyboard focus lands on the icon button', async () => {
+    renderJson([{ _id: 1, sku: 'a' }]);
+
+    fireEvent.focus(screen.getByRole('button', { name: 'Copy JSON' }));
+
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toBe('Copy JSON');
+  });
+
   it('the Select button carries no nested interactive controls (nested-interactive / S6852)', () => {
     const docs = [{ _id: 1, name: 'alpha' }];
     renderJson(docs);
