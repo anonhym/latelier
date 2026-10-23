@@ -9,6 +9,7 @@ import { api, isIpcError } from '../api/atelier';
 import { notify } from '../theme/notifications';
 import type { ConnectionSummary } from '@shared/types';
 import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateSchemaEnumCache } from '../features/fieldSuggestions/sources/schemaEnumSource';
 import { ConnectionDeleteDialog } from '../features/connections/ConnectionDeleteDialog';
 import { ConnectionDisconnectDialog } from '../features/connections/ConnectionDisconnectDialog';
 import { disconnectConnection } from '../features/connections/disconnectConnection';
@@ -197,6 +198,7 @@ export default function ConnectionManager() {
       // suggestions don't keep returning paths from a collection that no
       // longer exists in the renderer's worldview.
       invalidateSampleSchemaCache(id);
+      invalidateSchemaEnumCache(id);
       setDeleteTarget(null);
       // No sibling row to fall back to — this screen only ever shows one
       // Connection, so a delete always sends the user back to the Data View.

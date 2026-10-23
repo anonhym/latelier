@@ -48,4 +48,10 @@ export const HINT_REGISTRY: Record<FeatureHintId, FeatureHintCopy> = {
     ctaLabel: 'Try it',
     priority: 40,
   },
+  'suggestions.keyboard': {
+    id: 'suggestions.keyboard',
+    title: 'Navigate suggestions',
+    body: 'Tab inserts the highlighted item. ↑↓ to pick another, then Enter or Tab. Esc to close.',
+    priority: 50,
+  },
 };

@@ -35,6 +35,9 @@ import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { invalidateSchemaEnumCache } from '../../../features/fieldSuggestions/sources/schemaEnumSource';
+import { invalidateRecentValuesCache } from '../../../features/fieldSuggestions/sources/recentValuesSource';
+import { fieldValueEntriesFromStages } from '../../../features/fieldSuggestions/fieldValueEntries';
 import { ExplainDrawer } from './ExplainDrawer';
 import { SaveAsCollectionModal } from './SaveAsCollectionModal';
 import { notifyCollectionChanged } from '../../../state/collectionChanges';
@@ -270,6 +273,16 @@ export function AggregationTab({
         };
         onPatch({ lastRun });
         setLastRunSig(new Map(runStages.map((s) => [s.id, stageSig(s)])));
+        // Fire-and-forget, as after a find: the values the leading `$match`
+        // stages carried feed the value-suggestion popover. Never blocks or
+        // fails the run; main re-filters by op and secret field path.
+        const entries = fieldValueEntriesFromStages(runStages);
+        if (entries.length > 0) {
+          api.recent
+            .recordFieldValues({ connectionId, dbName, collection, entries })
+            .then(() => invalidateRecentValuesCache(connectionId, dbName, collection))
+            .catch((err: unknown) => console.warn('[recent] recordFieldValues failed', err));
+        }
         if (stoppingRef.current) {
           notify.info("The write couldn't be stopped, so it ran to completion.");
         }
@@ -329,7 +342,11 @@ export function AggregationTab({
         // main parses out of the stage body, so the renderer can't name the
         // collection it wrote: drop the connection's samples, even when the
         // run threw part-way through a `$merge`.
-        if (allowWrite) invalidateSampleSchemaCache(connectionId);
+        if (allowWrite) {
+          invalidateSampleSchemaCache(connectionId);
+          // A `$out` / `$merge` can create or replace its target collection.
+          invalidateSchemaEnumCache(connectionId);
+        }
         if (runTokenRef.current === token) {
           runTokenRef.current = null;
           stoppingRef.current = false;
