@@ -1,4 +1,5 @@
 import React from 'react';
+import { ActionIcon, Button, Tooltip } from '@mantine/core';
 import {
   List,
   useDynamicRowHeight,
@@ -1215,26 +1216,19 @@ export function DbCollectionNavigator({
             }}
           />
         </div>
-        <button
-          onClick={() => {
-            if (connectionId) void refreshAll(connectionId);
-          }}
-          aria-label="Refresh"
-          title="Refresh connection"
-          disabled={!connectionId || !isConnected}
-          style={{
-            background: 'none',
-            border: `1px solid ${T.border}`,
-            borderRadius: T.rs,
-            padding: '4px 6px',
-            cursor: connectionId && isConnected ? 'pointer' : 'not-allowed',
-            color: T.textMuted,
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          {I.sync}
-        </button>
+        <Tooltip label="Refresh connection" withArrow openDelay={400}>
+          <ActionIcon
+            variant="default"
+            c={T.textMuted}
+            onClick={() => {
+              if (connectionId) void refreshAll(connectionId);
+            }}
+            aria-label="Refresh"
+            disabled={!connectionId || !isConnected}
+          >
+            {I.sync}
+          </ActionIcon>
+        </Tooltip>
       </div>
 
       {/* Tree (connection → DB → collection). The container owns ARIA + keyboard
@@ -1589,15 +1583,6 @@ function ConnErrorRow({
   onRetry: () => void;
   onReenterPassword?: (trigger: HTMLElement) => void;
 }) {
-  const buttonStyle: React.CSSProperties = {
-    padding: '3px 10px',
-    fontSize: 11,
-    border: `1px solid ${T.border}`,
-    borderRadius: T.rs,
-    background: T.surface,
-    color: T.text,
-    cursor: 'pointer',
-  };
   return (
     <div
       id={navigatorRowDomId(row.id)}
@@ -1621,30 +1606,35 @@ function ConnErrorRow({
       </div>
       {/* A denied macOS keychain stays denied until relaunch, so Retry cannot succeed. */}
       {row.code !== 'KEYCHAIN_BLOCKED' && (
-        <button
+        <Button
           type="button"
+          variant="default"
+          size="compact-xs"
+          c={T.text}
           aria-label={row.retryLabel}
           onClick={(e) => {
             e.stopPropagation();
             onRetry();
           }}
-          style={buttonStyle}
         >
           Retry
-        </button>
+        </Button>
       )}
       {row.code === 'SECRET_UNREADABLE' && onReenterPassword && (
-        <button
+        <Button
           type="button"
+          variant="default"
+          size="compact-xs"
+          c={T.text}
+          ml={6}
           aria-label={`Re-enter password for ${row.conn.name}`}
           onClick={(e) => {
             e.stopPropagation();
             onReenterPassword(e.currentTarget);
           }}
-          style={{ ...buttonStyle, marginLeft: 6 }}
         >
           Re-enter password
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -1773,26 +1763,20 @@ function ConnectionRow({
           question. `stopPropagation` keeps the click off the row's own
           expand/collapse. */}
       {conn.status === 'connecting' && (
-        <button
+        <Button
           type="button"
+          variant="default"
+          size="compact-xs"
+          c={T.text}
           aria-label={`Cancel connecting to ${conn.name}`}
           onClick={(e) => {
             e.stopPropagation();
             onCancel();
           }}
-          style={{
-            fontSize: 10,
-            padding: '1px 6px',
-            border: `1px solid ${T.border}`,
-            borderRadius: T.rx,
-            background: T.surface,
-            color: T.text,
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
+          style={{ flexShrink: 0 }}
         >
           Cancel
-        </button>
+        </Button>
       )}
       {dbCount !== null && (
         <span style={{ fontSize: 10, color: T.textGhost }}>{dbCount}</span>
@@ -1935,52 +1919,25 @@ function HoverBarButton({
   label,
   icon,
   onClick,
-  disabled,
-  disabledTitle,
 }: {
   T: Theme;
   label: string;
   icon: React.ReactNode;
   onClick: (e: React.MouseEvent) => void;
-  disabled?: boolean;
-  disabledTitle?: string;
 }) {
   return (
-    <button
-      aria-label={label}
-      title={disabled ? (disabledTitle ?? label) : label}
-      disabled={disabled}
-      onClick={(e) => {
-        if (disabled) {
-          e.stopPropagation();
-          return;
-        }
-        onClick(e);
-      }}
-      style={{
-        background: 'none',
-        border: 'none',
-        padding: 2,
-        borderRadius: T.rx,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        color: disabled ? T.textGhost : T.textMuted,
-        display: 'inline-flex',
-        alignItems: 'center',
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        (e.currentTarget as HTMLButtonElement).style.background = T.surface;
-        (e.currentTarget as HTMLButtonElement).style.color = T.text;
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.background = 'none';
-        (e.currentTarget as HTMLButtonElement).style.color = disabled
-          ? T.textGhost
-          : T.textMuted;
-      }}
-    >
-      {icon}
-    </button>
+    <Tooltip label={label} withArrow openDelay={400}>
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="sm"
+        c={T.textMuted}
+        aria-label={label}
+        onClick={onClick}
+      >
+        {icon}
+      </ActionIcon>
+    </Tooltip>
   );
 }
 
