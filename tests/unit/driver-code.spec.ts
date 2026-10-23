@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EJSON, Long, ObjectId } from 'bson';
 import { aggregateCode, CODE_LANGS, findCode, type FindCodeInput } from '../../src/utils/driverCode';
+import { compileFindOptions, emptyBuilder } from '../../src/pages/Workspace/builder';
 
 const OID = '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}';
 
@@ -200,6 +201,37 @@ describe('findCode', () => {
       );
     });
 
+    // A hint is a key pattern exactly when main's `parseHint` runs it as one:
+    // when it parses to a plain document. Any other text names an index, even
+    // one opening with a brace — a quoted `"{x"` names the index `{x`.
+    describe('the hint as main runs it', () => {
+      const hintAs = (typed: string) => compileFindOptions({ ...emptyBuilder(), hint: typed }).hint;
+
+      it.each(['"{x"', "'{x'"])('a quoted name opening with a brace, %s, is an index name', (typed) => {
+        const hint = hintAs(typed);
+        expect(hint).toBe('{x');
+        expect(findCode('mongosh', { ...base, hint })).toContain('.hint("{x")');
+        const [args] = runJs(findCode('node', { ...base, hint })).args as [unknown[]];
+        expect(args[1]).toEqual({ hint: '{x', limit: 20 });
+        expect(findCode('python', { ...base, hint })).toContain('hint = "{x"');
+      });
+
+      it.each(['{"a":1}', `'{"a":1}'`, '"{\\"a\\":1}"'])('%s is the key pattern {a: 1}', (typed) => {
+        const hint = hintAs(typed);
+        expect(hint).toBe('{"a":1}');
+        expect(findCode('mongosh', { ...base, hint })).toContain('.hint({"a":1})');
+        const [args] = runJs(findCode('node', { ...base, hint })).args as [unknown[]];
+        expect(args[1]).toEqual({ hint: { a: 1 }, limit: 20 });
+        expect(findCode('python', { ...base, hint })).toContain('hint = list({"a":1}.items())');
+      });
+
+      it('a sentinel is no plain document, so it names an index', () => {
+        const hint = OID_SENTINEL;
+        expect(findCode('mongosh', { ...base, hint })).toContain(`.hint(${JSON.stringify(OID_SENTINEL)})`);
+        expect(findCode('python', { ...base, hint })).toContain(`hint = ${JSON.stringify(OID_SENTINEL)}`);
+      });
+    });
+
     it('node passes both as find options', () => {
       const code = findCode('node', { ...base, projection: '{"n":1}', collation: CI, hint: 'name_1', skip: 5 });
       expect(code.split('\n').slice(-3)).toEqual([
@@ -283,6 +315,27 @@ describe('only exact sentinels are revived', () => {
     expect(findCode('python', { ...base, filter: '{"a":null,"b":true,"c":[false,1.5,-0]}' }).split('\n')[2]).toBe(
       'query = {"a":None,"b":True,"c":[False,1.5,-0.0]}',
     );
+  });
+
+  // A number literal past the double range parses to ±Infinity, which the app
+  // sends as that Double. `Infinity` is a JavaScript name but not a Python
+  // one: pasted as is it raises NameError.
+  const OVERFLOW = '{"a":1e400,"b":[-1e400]}';
+
+  it('python spells an overflowing number as a float, in a find and an aggregate', () => {
+    expect(findCode('python', { ...base, filter: OVERFLOW }).split('\n')[2]).toBe(
+      `query = {"a":float('inf'),"b":[float('-inf')]}`,
+    );
+    expect(aggregateCode('python', { collection: 'c', pipelineJson: `[{"$match":${OVERFLOW}}]` }).split('\n')[2]).toBe(
+      `pipeline = [{"$match":{"a":float('inf'),"b":[float('-inf')]}}]`,
+    );
+  });
+
+  it('mongosh and node keep Infinity, which JavaScript reads as the Double', () => {
+    for (const lang of ['mongosh', 'node'] as const) {
+      const [args] = runJs(findCode(lang, { ...base, filter: OVERFLOW })).args as [unknown[]];
+      expect(args[0]).toEqual({ a: Infinity, b: [-Infinity] });
+    }
   });
 });
 
