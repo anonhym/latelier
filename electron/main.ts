@@ -38,6 +38,7 @@ import { registerMetaChannels } from './ipc/handlers/meta.ts';
 import { registerIndexChannels } from './ipc/handlers/indexes.ts';
 import { registerCollectionAdminChannels } from './ipc/handlers/collectionAdmin.ts';
 import { registerUserChannels } from './ipc/handlers/users.ts';
+import { registerAdminChannels } from './ipc/handlers/admin.ts';
 import { registerPrefsChannels } from './ipc/handlers/prefs.ts';
 import { registerUpdatesChannels } from './ipc/handlers/updates.ts';
 import { UpdateService, shouldCheckForUpdates } from './services/UpdateService.ts';
@@ -66,6 +67,7 @@ import { MetaService } from './mongo/MetaService.ts';
 import { IndexService } from './mongo/IndexService.ts';
 import { CollectionAdminService } from './mongo/CollectionAdminService.ts';
 import { UserService } from './mongo/UserService.ts';
+import { MonitorService } from './mongo/MonitorService.ts';
 import { WorkspaceTabRepo } from './db/repositories/WorkspaceTabRepo.ts';
 import { WorkspaceStateService, applyRestoreTabsPref } from './services/WorkspaceStateService.ts';
 import { SavedQueryRepo } from './db/repositories/SavedQueryRepo.ts';
@@ -752,6 +754,7 @@ app.whenReady().then(() => {
   const indexSvc = new IndexService(pool);
   const collectionAdminSvc = new CollectionAdminService(pool);
   const userSvc = new UserService(pool);
+  const monitorSvc = new MonitorService(pool, log);
   const checkpointDb = db;
   const checkpointLog = log;
   const maintenance = new MaintenanceService({
@@ -786,6 +789,7 @@ app.whenReady().then(() => {
   registerIndexChannels(router, indexSvc);
   registerCollectionAdminChannels(router, collectionAdminSvc);
   registerUserChannels(router, userSvc);
+  registerAdminChannels(router, monitorSvc);
   registerPrefsChannels(router, appState, () => win?.webContents ?? null);
   // The renderer cannot write this switch through prefs:set; this dialog is
   // the only way to turn it on, and a compromised renderer cannot answer it.
