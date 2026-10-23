@@ -192,6 +192,7 @@ export function PipelineOutline({
                       color: T.textGhost,
                       flexShrink: 0,
                       textDecoration: stage.enabled ? 'none' : 'line-through',
+                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
                     {fmt(count)}

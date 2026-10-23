@@ -477,6 +477,32 @@ describe('SavePipelineModal — dialog shell + guard (X15 T6)', () => {
       expect(create).toHaveBeenCalledTimes(1);
       resolve({});
     });
+
+    it('renders a failed save as a red alert, not the warning colour', async () => {
+      installAtelierMock({
+        saved: {
+          create: (async () => {
+            throw { code: 'INTERNAL', message: 'disk full' };
+          }) as never,
+        },
+      });
+      render(
+        <SavePipelineModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onSaved={() => undefined}
+        />,
+      );
+      fireEvent.change(nameInput(), { target: { value: 'Top skus' } });
+      fireEvent.click(saveButton());
+
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toBe('disk full');
+      expect(alert.getAttribute('style')).toContain('color: var(--atelier-red)');
+    });
   });
 });
 

@@ -184,7 +184,9 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
       const op = filtered[focusEffective];
       if (op) pick(op);
     } else if (e.key === 'Escape') {
-      setOpen(false);
+      e.preventDefault();
+      e.stopPropagation();
+      close();
     }
   };
 
@@ -754,6 +756,7 @@ function StageRow({
             same shape as the sortable column header in TableView.tsx. */}
         <button
           type="button"
+          data-stage-summary={stage.id}
           aria-expanded={active}
           onClick={(e) => {
             e.stopPropagation();
@@ -788,6 +791,7 @@ function StageRow({
               borderRadius: T.rx,
               padding: '1px 5px',
               flexShrink: 0,
+              fontVariantNumeric: 'tabular-nums',
             }}
             title={stale ? 'Stale (edited since last run)' : undefined}
           >
@@ -986,7 +990,10 @@ function StageRow({
                 justifyContent: 'space-between',
               }}
             >
-              <span>Stage preview {typeof count === 'number' && `· ${fmt(count)} docs`}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                Stage preview {typeof count === 'number' && `· ${fmt(count)} docs`}
+                {stale && <span title="Stage edited after last run"> · ⚠ stale</span>}
+              </span>
               <Tooltip label="Refresh preview" withArrow>
                 <button
                   onClick={onRefreshPreview}
@@ -1087,6 +1094,38 @@ export function StageAccordion(props: AccordionProps) {
     onRefreshPreview,
   } = props;
 
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const prevIdsRef = React.useRef<number[]>(stages.map((s) => s.id));
+
+  // Keep keyboard focus anchored when a stage appears or disappears: the
+  // button that held it (a picker option, the stage's own delete button) is
+  // gone, and focus would otherwise drop to <body>. Only a single add or a
+  // single removal moves focus, and only when focus is already lost or inside
+  // the accordion, so loading a pipeline or an edit elsewhere never steals it.
+  React.useLayoutEffect(() => {
+    const prev = prevIdsRef.current;
+    const ids = stages.map((s) => s.id);
+    prevIdsRef.current = ids;
+    const added = ids.filter((id) => !prev.includes(id));
+    const removed = prev.filter((id) => !ids.includes(id));
+    const root = rootRef.current;
+    if (!root || added.length + removed.length !== 1) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && !root.contains(focused)) return;
+    const summary = (id: number | undefined) =>
+      id === undefined ? null : root.querySelector<HTMLElement>(`[data-stage-summary="${id}"]`);
+    if (added.length === 1) {
+      summary(added[0])?.focus();
+      return;
+    }
+    const at = prev.indexOf(removed[0]);
+    (
+      summary(ids[at]) ??
+      summary(ids[at - 1]) ??
+      root.querySelector<HTMLElement>('[data-add-stage-tail] button')
+    )?.focus();
+  }, [stages]);
+
   const [dragStageId, setDragStageId] = React.useState<number | null>(null);
   const [dragOverStageId, setDragOverStageId] = React.useState<number | null>(null);
 
@@ -1106,7 +1145,7 @@ export function StageAccordion(props: AccordionProps) {
   };
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+    <div ref={rootRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
       <div
         style={{
           display: 'flex',
@@ -1163,7 +1202,9 @@ export function StageAccordion(props: AccordionProps) {
         </div>
       ))}
 
-      <AddStagePill onAdd={(op) => onAdd(op)} />
+      <div data-add-stage-tail>
+        <AddStagePill onAdd={(op) => onAdd(op)} />
+      </div>
 
       <div
         style={{
