@@ -88,6 +88,14 @@ describe('NewConnection (create mode)', () => {
     expect(await screen.findByPlaceholderText(/My MongoDB Server/i)).toBeTruthy();
   });
 
+  it('shows the theme toggle tooltip when keyboard focus lands on it', async () => {
+    installAtelierMock({});
+    renderNew();
+    fireEvent.focus(await screen.findByRole('button', { name: /Switch to (light|dark) theme/ }));
+    const tip = await screen.findByRole('tooltip');
+    expect(tip.textContent).toMatch(/^Switch to (light|dark) theme$/);
+  });
+
   it('pasting a URI applies parsed fields', async () => {
     installAtelierMock({
       conn: {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ActionIcon, Tooltip } from '@mantine/core';
 import { DarkCtx, useTheme } from '../ThemeContext';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
@@ -89,14 +90,17 @@ export default function NewConnection() {
             </span>
           </div>
           <div style={{ flex: 1 }} />
-          <button onClick={toggle} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, border: `1px solid ${T.border}`, borderRadius: T.rs,
-            background: T.surfaceRaised, color: T.textMuted, cursor: 'pointer',
-            WebkitAppRegion: 'no-drag',
-          } as React.CSSProperties}>
-            {dark ? I.sun : I.moon}
-          </button>
+          <Tooltip label={dark ? 'Switch to light theme' : 'Switch to dark theme'} withArrow openDelay={400}>
+            <ActionIcon
+              variant="default"
+              size={28}
+              aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={toggle}
+              style={{ color: T.textMuted, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              {dark ? I.sun : I.moon}
+            </ActionIcon>
+          </Tooltip>
         </div>
 
         {/* `key` forces a remount per target — without it, switching create↔edit at the same route reconciles and keeps stale form values. */}

@@ -13,6 +13,7 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
 } from '@mantine/core';
 import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
@@ -757,36 +758,27 @@ function CreateIndexDrawer({
                   </option>
                 ))}
               </select>
-              <button
-                onClick={() => removeField(i)}
-                disabled={fields.length === 1}
-                aria-label={`Remove field ${i + 1}`}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: fields.length === 1 ? T.textGhost : T.textMuted,
-                  cursor: fields.length === 1 ? 'not-allowed' : 'pointer',
-                  fontSize: 14,
-                }}
-              >
-                ×
-              </button>
+              <Tooltip label={`Remove field ${i + 1}`} withArrow openDelay={400}>
+                <ActionIcon
+                  onClick={() => removeField(i)}
+                  disabled={fields.length === 1}
+                  aria-label={`Remove field ${i + 1}`}
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                >
+                  ×
+                </ActionIcon>
+              </Tooltip>
             </div>
           ))}
-          <button
+          <Button
+            variant="default"
+            size="compact-xs"
             onClick={() => setFields((rows) => [...rows, { field: '', direction: 1 }])}
-            style={{
-              background: 'transparent',
-              border: `1px dashed ${T.border}`,
-              borderRadius: T.rs,
-              padding: '4px 8px',
-              fontSize: 11,
-              color: T.textMuted,
-              cursor: 'pointer',
-            }}
           >
             + Add field
-          </button>
+          </Button>
         </Section>
 
         <Section title="Options">

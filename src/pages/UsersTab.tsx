@@ -199,12 +199,9 @@ export function UsersTab({
     return (
       <div style={{ padding: 20, color: T.warn }}>
         {dbError}
-        <button
-          onClick={() => void loadDatabases()}
-          style={{ marginLeft: 8, background: 'none', border: 'none', color: T.accent, cursor: 'pointer' }}
-        >
+        <Button variant="subtle" size="compact-xs" ml={8} onClick={() => void loadDatabases()}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
