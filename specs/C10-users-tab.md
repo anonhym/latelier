@@ -381,7 +381,7 @@ Right-side drawer (400 px), reuses W08 drawer styling.
 
 - Each role row is a role-name `Autocomplete` and a db field. The suggestions come from `role:list({ connectionId, dbName })` for that row's db: fetched once per distinct db (the drawer's own db at open, a db typed into a row after a 300 ms debounce) and cached for the drawer's lifetime.
 - A role name the loaded list lacks shows "Unknown role on {db}" under the row. It warns and never blocks the save. When `role:list` fails (usually a missing privilege) no warning is shown for that db.
-- Password and Confirm are Mantine `PasswordInput`s. Each reveal toggle is in the tab order (`visibilityToggleFocusable`) and is named "Show password" / "Hide password" (and "… confirm password") after the state it switches to.
+- Password and Confirm are Mantine `PasswordInput`s. Each reveal toggle is in the tab order (`visibilityToggleFocusable`) and is a toggle button with a fixed name ("Show password", "Show confirm password") whose state is carried by `aria-pressed`.
 - Edit mode: drawer reads "Edit user — `{username}` (auth db `{db}`)". Username and auth db are immutable. Password fields read "Leave blank to keep current password."
 - External (X.509 / awsiam / OIDC) users → drawer reads "External users are managed via your auth provider. MongoLab only supports editing roles." Password fields hidden; mechanism toggles disabled.
 - Validation:
@@ -418,7 +418,7 @@ Type the username to confirm:
 
 - **Database picker.** Same `<select>` as the Users tab, sharing the `ui.users.lastDb` pref so both tabs follow the last database picked in either. `rolesInfo` has no all-databases form, so the Users tab's "All databases" value opens Roles on `admin`, and Roles offers no such option.
 - **List.** One row per role: name, direct inherited roles (`role@db`), privilege count. Built-in roles are hidden behind a "Show built-in" checkbox (default off), carry a "built-in" badge, and are read-only — no Edit or Drop.
-- **Create / Edit drawer.** Name (create only); inherited roles through the same role-row editor and Autocomplete as the user drawer (an empty list is allowed); privileges in a plain `Textarea` holding an EJSON array. The client refuses invalid EJSON or a non-array before calling. Edit seeds the inherited roles from `roles` (direct parents), never `inheritedRoles`, so a save does not flatten the hierarchy. The drawer carries the X15 §2 unsaved-changes guard.
+- **Create / Edit drawer.** Name (create only); inherited roles through the same role-row editor and Autocomplete as the user drawer (an empty list is allowed); privileges in a plain `Textarea` holding an EJSON array. The client refuses invalid EJSON or a non-array before calling. Edit seeds the inherited roles from `roles` (direct parents), never `inheritedRoles`, so a save does not flatten the hierarchy, and the `role:update` patch carries only the fields that differ from the seed. Role names and dbs are trimmed before sending, in both drawers. The drawer carries the X15 §2 unsaved-changes guard.
 - **Drop** is type-to-confirm, the same tier as dropping a user (ADR 0013): the role name must be typed back before Drop enables. On success `role:drop`, refetch, and focus returns to the list region (the dropped row's button is gone).
 - **Main.** `createRole` / `updateRole` / `dropRole` take `pool.write(connectionId)` before anything else (ADR 0005), send `maxTimeMS: STATS_TIMEOUT_MS`, parse `privileges` as EJSON and refuse a non-array with `VALIDATION`, and classify errors through `classifyMongoOpError`.
 
