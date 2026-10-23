@@ -95,6 +95,9 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     role: {
       list: async () => [],
+      create: unused('role.create') as IpcApi['role']['create'],
+      update: unused('role.update') as IpcApi['role']['update'],
+      drop: unused('role.drop') as IpcApi['role']['drop'],
     },
     prefs: {
       get: async () => null,
@@ -422,6 +425,9 @@ function makePermissiveStub(): IpcApi {
     },
     role: {
       list: async () => [],
+      create: noopAsync as IpcApi['role']['create'],
+      update: noopAsync as IpcApi['role']['update'],
+      drop: async () => ({ dropped: true as const }),
     },
     prefs: {
       get: async () => null,
