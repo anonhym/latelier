@@ -108,6 +108,16 @@ Anchored popover (use existing popover primitive from X05's `ReferenceHoverPopov
 
 Click-outside does **not** dismiss — only explicit "Got it", CTA, or `×` does. This avoids accidentally clearing a hint the user didn't read.
 
+#### Focus and keyboard
+
+A hint appears on conditions such as `run.execute` while the user is typing, so it never takes focus by itself — moving focus on appear would swallow keystrokes.
+
+- **Announcement.** When a hint appears, focus stays where it is and the title is written into a visually hidden `aria-live="polite"` region (no `role="status"`, so the page's real status regions stay the only ones) that stays mounted whether or not the hint shows (a live region is only spoken when its text changes). The popover itself mounts fresh on every show, so a hint that hid without a blur never keeps a stale trap or return spot.
+- **F6.** The deliberate way in. While a hint is visible, F6 (a window `keydown` listener that exists only while the hint is visible) calls `preventDefault` and moves focus to the hint's "Got it" button. It is ignored while a modal is open (`[role="dialog"][aria-modal="true"]`). The element that had focus is remembered.
+- **Trap.** While focus is inside the hint, Tab wraps within it (Mantine `FocusTrap`, active only while focus is inside the popover). The popover is `role="dialog"` with `aria-modal="false"` and `aria-describedby` pointing at the body text.
+- **Escape.** Escape inside the hint dismisses it and calls `stopPropagation`, so an ancestor's Escape handler (closing a drawer, say) does not also run.
+- **Return.** On dismiss (Escape, `×`, "Got it") or CTA, focus goes back to the element F6 took it from. A hint that focus never entered, or that focus has since left, restores nothing.
+
 ### Settings panel
 
 Add a single row to the existing Settings UI: **Hints** — `[Reset hints]` button. Clicking it calls `api.prefs.resetHints()` and shows a 2-second toast "Hints reset — you'll see them again as you use the app."
@@ -132,7 +142,7 @@ The session-scoped counters (`tabs.pin`, `saved.create`, `palette.discover`) liv
 
 - Hints that the user has dismissed never re-render until **Reset hints**.
 - Only one hint visible at a time — first one to satisfy its trigger wins; the others wait silently.
-- Hints are passive: showing one never blocks input, never moves focus, and never animates the underlying UI.
+- Hints are passive: showing one never blocks input, never moves focus on its own (F6 is the user's own request to move it), and never animates the underlying UI.
 - A hint must not appear within the first 1.5 s of a renderer mount — gives the layout time to settle so the popover doesn't visibly jump.
 - All copy lives in the registry constant. No translation layer in v1.
 
@@ -153,6 +163,9 @@ The session-scoped counters (`tabs.pin`, `saved.create`, `palette.discover`) liv
 - If two trigger conditions become true simultaneously, only one hint is rendered; the other waits.
 - Settings → Reset hints clears the dismissed list and the next eligible trigger reshows its hint.
 - No hint appears within 1.5 s of cold renderer mount.
+- A hint appearing leaves focus where it was and is announced through a polite live region.
+- F6 moves focus to the visible hint's "Got it" button, and does nothing while a modal dialog is open.
+- Escape inside a hint dismisses it without reaching ancestor handlers; focus returns to where F6 found it.
 
 ## 8. Test cases
 
@@ -163,7 +176,7 @@ The session-scoped counters (`tabs.pin`, `saved.create`, `palette.discover`) liv
 - `hints-prefs-roundtrip.spec.ts` — `prefs.dismissHint('refs.configure')` then `prefs.getDismissedHints()` returns `{ dismissedIds: ['refs.configure'] }`; `prefs.resetHints()` clears it and bumps `resetAt`.
 
 ### Component
-- `feature-hint.spec.tsx` — `<FeatureHint visible>` renders title/body/CTA; "Got it" calls `dismiss`; `×` calls `dismiss`; click-outside does **not** call `dismiss`.
+- `feature-hint.spec.tsx` — `<FeatureHint visible>` renders title/body/CTA; "Got it" calls `dismiss`; `×` calls `dismiss`; click-outside does **not** call `dismiss`; focus does not move on appear; F6 focuses "Got it" (and is ignored over a modal); Tab wraps inside; Escape dismisses, restores focus and is not seen by a parent.
 - `hints-provider.spec.tsx` — when two hooks request visibility at once, only the first renders; dismissing it lets the second appear.
 - `refs-configure-hint.spec.tsx` — mocked workspace tab with ObjectId-bearing rows and no rules → hint visible; with rules present → hint hidden; after dismiss → hint hidden on re-render.
 

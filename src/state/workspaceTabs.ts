@@ -4,6 +4,7 @@ import type {
   CollectionTab,
   CollectionTabState,
   CollectionView,
+  ResultViewMode,
   ScriptTab,
   ScriptTabState,
   WorkspaceTab,
@@ -37,6 +38,12 @@ export const DEFAULT_PAGE_SIZE_PREF_KEY = 'ui.workspace.defaultPageSize';
  * can't seed a tab with an unbounded page size.
  */
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500] as const;
+
+/** Settings' "default result view": seeds a brand-new collection tab's `view`. */
+export const DEFAULT_VIEW_PREF_KEY = 'ui.workspace.defaultView';
+
+/** Result views, in the order Settings lists them. */
+export const RESULT_VIEW_OPTIONS = ['Table', 'Tree', 'JSON'] as const satisfies readonly ResultViewMode[];
 
 export interface WorkspaceTabsState {
   tabs: WorkspaceTab[];
@@ -219,7 +226,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       // value can't seed a tab (and its find query's `limit`) with an
       // unbounded page size. An out-of-set value is treated the same as a
       // never-set pref: omit `initialState` and let the server default apply.
-      let initialState: { pageSize: number } | undefined;
+      const seed: Partial<Pick<CollectionTabState, 'pageSize' | 'view'>> = {};
       try {
         const pageSize = await api.prefs.get<number>(DEFAULT_PAGE_SIZE_PREF_KEY);
         if (
@@ -227,11 +234,21 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
           Number.isFinite(pageSize) &&
           (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSize)
         ) {
-          initialState = { pageSize };
+          seed.pageSize = pageSize;
         }
       } catch {
         // best-effort; fall back to the server-side default.
       }
+      try {
+        // Same rule as the page size: a value outside the enum is a never-set pref.
+        const view = await api.prefs.get<string>(DEFAULT_VIEW_PREF_KEY);
+        if ((RESULT_VIEW_OPTIONS as readonly unknown[]).includes(view)) {
+          seed.view = view as ResultViewMode;
+        }
+      } catch {
+        // best-effort; fall back to the server-side default.
+      }
+      const initialState = Object.keys(seed).length > 0 ? seed : undefined;
       const tab = await api.tabs.openCollection({
         ...input,
         ...(initialState ? { initialState } : {}),

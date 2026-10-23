@@ -9,6 +9,8 @@ const VALID: Record<string, unknown> = {
   'ui.users.lastDb': 'admin',
   'ui.hints.dismissed': { dismissedIds: ['run.execute'], resetAt: '2026-01-01T00:00:00.000Z' },
   'ui.workspace.defaultPageSize': 50,
+  'ui.workspace.defaultView': 'JSON',
+  'ui.editor.fontSize': 14,
   'ui.workspace.leftWidth': 240,
   'ui.workspace.refDrawerWidth': 320,
   'ui.workspace.innerHSplit': 60,
@@ -60,6 +62,13 @@ describe('prefKeys', () => {
     ['ui.showSystemDbs', null],
     ['ui.users.lastDb', 5],
     ['ui.users.lastDb', 'x'.repeat(1025)],
+    ['ui.workspace.defaultView', 'Grid'],
+    ['ui.workspace.defaultView', 'table'],
+    ['ui.workspace.defaultView', null],
+    ['ui.editor.fontSize', 9],
+    ['ui.editor.fontSize', 21],
+    ['ui.editor.fontSize', 13.5],
+    ['ui.editor.fontSize', '14'],
     ['ui.workspace.leftWidth', Number.NaN],
     ['ui.workspace.leftWidth', Number.POSITIVE_INFINITY],
     ['ui.workspace.leftWidth', '240'],
@@ -84,6 +93,17 @@ describe('prefKeys', () => {
     ['ui.connections.pinned', Array.from({ length: 501 }, () => UUID)],
   ])('%s rejects %j', (key, value) => {
     expect(prefSetSchema(key)?.safeParse(value).success).toBe(false);
+  });
+
+  it('the editor font size accepts both ends of its range', () => {
+    expect(prefSetSchema('ui.editor.fontSize')?.safeParse(10).success).toBe(true);
+    expect(prefSetSchema('ui.editor.fontSize')?.safeParse(20).success).toBe(true);
+  });
+
+  it('the default result view accepts each view the tab can show', () => {
+    for (const v of ['Table', 'Tree', 'JSON']) {
+      expect(prefSetSchema('ui.workspace.defaultView')?.safeParse(v).success).toBe(true);
+    }
   });
 
   it('bounds hold at the limit', () => {

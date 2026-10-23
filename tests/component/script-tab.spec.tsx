@@ -68,6 +68,24 @@ describe('ScriptTab', () => {
     expect(screen.getByText(/No output yet/i)).toBeTruthy();
   });
 
+  it('names the editor region for screen readers', () => {
+    installAtelierMock();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    const content = screen.getByTestId('script-editor').querySelector('.cm-content');
+    expect(content?.getAttribute('aria-label')).toBe('Script editor');
+  });
+
+  it('sizes the editor text from the --atelier-editor-font-size variable, 13px when unset', () => {
+    installAtelierMock();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    const rules = Array.from(document.styleSheets).flatMap((sheet) =>
+      Array.from(sheet.cssRules).map((r) => r.cssText),
+    );
+    expect(rules.some((r) => r.includes('font-size: var(--atelier-editor-font-size, 13px)'))).toBe(
+      true,
+    );
+  });
+
   it('Run button calls api.script.run with the tab source and patches lastResult', async () => {
     const runSpy = vi.fn<IpcApi['script']['run']>(async () => ({
       valueJson: '"hello"',

@@ -247,6 +247,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           onRun={runScript}
           readOnly={running}
           testId="script-editor"
+          ariaLabel="Script editor"
           collections={collections}
           connectionId={tab.connectionId}
           dbName={effectiveDb}
