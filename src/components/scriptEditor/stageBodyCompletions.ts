@@ -149,6 +149,24 @@ async function collectValueOptions(
 }
 
 /**
+ * Where the contents of the string literal holding `from` end: the offset of
+ * its closing `quote`, skipping escaped characters, or of the line end when
+ * the string is not closed on its line, or of the text's end.
+ */
+function stringContentEnd(doc: string, from: number, quote: string | undefined): number {
+  let i = from;
+  // Stryker disable next-line EqualityOperator: one more pass at
+  // `i === doc.length` reads `undefined`, matches nothing and steps past the
+  // end, which the `Math.min` below clamps back to `doc.length`.
+  while (i < doc.length) {
+    const c = doc[i];
+    if (c === quote || c === '\n' || c === '\r') return i;
+    i += c === '\\' ? 2 : 1;
+  }
+  return Math.min(i, doc.length);
+}
+
+/**
  * CodeMirror completion source for aggregation stage bodies (T2.4). Stage
  * bodies are top-level `{ … }` objects, not `db.<coll>.<method>(…)` calls, so
  * `mongoCompletions`'s tree-based `detectFieldPosition` never fires there —
@@ -177,10 +195,13 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
       // pattern, not one of a's values.
       if (hit.operator !== undefined && !VALUE_SUGGESTION_OPS.has(hit.operator)) return null;
       const target = { field: hit.field, operator: hit.operator };
+      // A pick replaces the whole value, not just what precedes the caret:
+      // `"p|ending"` + `paid` must give `"paid"`, never `"paidending"`.
+      const to = stringContentEnd(doc, hit.replaceEnd, doc[hit.replaceStart - 1]);
       return collectValueOptions({ ...suggestionCtx, target }).then((options) =>
         options.length === 0
           ? null
-          : { from: hit.replaceStart, to: hit.replaceEnd, options, validFor: QUOTED_VALID_FOR },
+          : { from: hit.replaceStart, to, options, validFor: QUOTED_VALID_FOR },
       );
     }
     if (!hit || hit.kind !== 'fieldName') return null;

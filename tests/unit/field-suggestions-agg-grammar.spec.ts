@@ -167,6 +167,8 @@ describe('detectAggGrammar', () => {
       expect(hit('{ $expr: { a: "x|" } }')).toBeNull();
       // A logical operator whose value is not a clause list.
       expect(hit('{ $or: { a: "x|" } }')).toBeNull();
+      // An object with no key of its own around the value's object.
+      expect(hit('{ { a: "x|" } }')).toBeNull();
     });
 
     it('a scope of operators only gives null', () => {

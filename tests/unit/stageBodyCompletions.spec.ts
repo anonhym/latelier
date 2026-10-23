@@ -200,6 +200,43 @@ describe('stageBodyCompletionSource — values in a $match body', () => {
     });
   });
 
+  it('replaces the whole value when the caret is in the middle of it', async () => {
+    valuesA.mockReturnValue([value('paid')]);
+    const doc = '{ status: "p█ending" }';
+    const result = (await ctxFor('$match')(fakeCtx(doc))) as CompletionResult | null;
+    expect(result?.from).toBe('{ status: "'.length);
+    expect(result?.to).toBe('{ status: "pending'.length);
+  });
+
+  it('runs the replacement past escaped quotes to the closing one', async () => {
+    valuesA.mockReturnValue([value('paid')]);
+    const result = (await ctxFor('$match')(fakeCtx('{ s: "a█b\\"c\\\\" }'))) as CompletionResult | null;
+    // a b \" c \\ then the closing quote
+    expect(result?.to).toBe('{ s: "ab\\"c\\\\'.length);
+  });
+
+  it('stops the replacement at the line end when the string is not closed', async () => {
+    valuesA.mockReturnValue([value('paid')]);
+    const result = (await ctxFor('$match')(fakeCtx('{ s: "ab█cd\n, t: 1 }'))) as CompletionResult | null;
+    expect(result?.to).toBe('{ s: "abcd'.length);
+    const crlf = (await ctxFor('$match')(fakeCtx('{ s: "ab█cd\r\n}'))) as CompletionResult | null;
+    expect(crlf?.to).toBe('{ s: "abcd'.length);
+  });
+
+  it('stops the replacement at the end of the text when nothing closes the string', async () => {
+    valuesA.mockReturnValue([value('paid')]);
+    const result = (await ctxFor('$match')(fakeCtx('{ s: "ab█cd'))) as CompletionResult | null;
+    expect(result?.to).toBe('{ s: "abcd'.length);
+    const trailing = (await ctxFor('$match')(fakeCtx('{ s: "ab█c\\'))) as CompletionResult | null;
+    expect(trailing?.to).toBe('{ s: "abc\\'.length);
+  });
+
+  it("closes a single-quoted value at its own quote, not at a double quote", async () => {
+    valuesA.mockReturnValue([value('paid')]);
+    const result = (await ctxFor('$match')(fakeCtx("{ s: 'a█b\"c' }"))) as CompletionResult | null;
+    expect(result?.to).toBe("{ s: 'ab\"c".length);
+  });
+
   it('asks for the parent field, with the operator, inside an operator object', async () => {
     valuesA.mockReturnValue([value('x')]);
     await ctxFor('$match')(fakeCtx('{ status: { $ne: "█" } }'));
