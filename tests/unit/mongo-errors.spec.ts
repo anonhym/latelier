@@ -47,6 +47,12 @@ describe('classifyMongoOpError', () => {
     { what: 'MongoNetworkError', err: { name: 'MongoNetworkError' }, code: 'NETWORK' },
     { what: 'MongoNetworkTimeoutError', err: { name: 'MongoNetworkTimeoutError' }, code: 'NETWORK' },
 
+    // An operation that found no server to run on (a read preference no
+    // member can serve) is not a query that ran too long: TIMEOUT would get
+    // QueryService's "stopped after N s, add an index" wording, and would
+    // stop the drawer's live count asking that collection again.
+    { what: 'MongoServerSelectionError', err: { name: 'MongoServerSelectionError' }, code: 'MONGO_ERROR' },
+
     { what: 'anything unrecognized', err: { code: 999999 }, code: 'MONGO_ERROR' },
   ];
 

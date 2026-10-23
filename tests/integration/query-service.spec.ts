@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { Collection, Long } from 'mongodb';
+import { AbstractCursor, Collection, FindCursor, Long, MongoServerSelectionError } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
 import { RecentQueryService } from '../../electron/services/RecentQueryService';
@@ -684,6 +684,50 @@ describe('QueryService', () => {
       expect(blank).not.toHaveProperty('collation');
       expect(blank).not.toHaveProperty('hint');
       expect(blank).not.toHaveProperty('readPreference');
+    });
+
+    // The shared server is a standalone, which ignores read preference, so
+    // the driver's failure is injected: the error a replica set with no
+    // secondary throws for `secondary` (probed against a real one).
+    it('a read preference no server can serve is named, in find, count, explain and export', async () => {
+      const selection = () =>
+        new MongoServerSelectionError('Server selection timed out after 30000 ms', { servers: new Map() } as never);
+      vi.spyOn(AbstractCursor.prototype, 'next').mockImplementation(async () => {
+        throw selection();
+      });
+      vi.spyOn(FindCursor.prototype, 'toArray').mockImplementation(async () => {
+        throw selection();
+      });
+      vi.spyOn(FindCursor.prototype, 'explain').mockImplementation(async () => {
+        throw selection();
+      });
+      vi.spyOn(Collection.prototype, 'countDocuments').mockImplementation(async () => {
+        throw selection();
+      });
+      const rp = { readPreference: 'secondary' } as const;
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'find-opts-'));
+      try {
+        const errors = await Promise.all([
+          svc.find({ ...target, filter: '{}', ...rp, limit: 50, skip: 0 }).catch((e: unknown) => e),
+          svc.count({ ...target, filter: '{}', ...rp }).catch((e: unknown) => e),
+          svc.explain({ ...target, filter: '{}', ...rp, verbosity: 'queryPlanner' }).catch((e: unknown) => e),
+          svc
+            .exportToFile({ ...target, filter: '{}', ...rp, format: 'jsonl' }, path.join(dir, 'o.jsonl'))
+            .catch((e: unknown) => e),
+        ]);
+        for (const err of errors) {
+          expect(err).toMatchObject({
+            code: 'MONGO_ERROR',
+            message: 'No server can serve the read preference secondary: server selection timed out. Choose another read preference, or clear it.',
+            details: { mongoMessage: 'Server selection timed out after 30000 ms' },
+          });
+        }
+        // With no read preference chosen, the driver's own words stand.
+        const plain = await svc.count({ ...target, filter: '{}' }).catch((e: unknown) => e);
+        expect(plain).toMatchObject({ code: 'MONGO_ERROR', message: 'Server selection timed out after 30000 ms' });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
   });
 });

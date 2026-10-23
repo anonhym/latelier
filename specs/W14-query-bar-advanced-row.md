@@ -349,13 +349,19 @@ and parse them main-side (`parseEjsonDocument`), like `filter` and `sort`;
   `QUERY_TIMEOUT_MS` cap. A user value can only lower the cap; a larger one
   is clamped, and the row says it runs at 30000. A find stopped by the user's
   limit names that limit, not 30 s.
+- **A read preference no server can serve** fails server selection after
+  `serverSelectionTimeoutMS`. Find, count, explain and export name it ("No
+  server can serve the read preference secondary: …") as `MONGO_ERROR`, with
+  the driver's message in `details`; never `TIMEOUT`, which would say the
+  query ran too long and stop the live count asking that collection again.
 - **Which ops carry what.** A collation decides which documents match, so
   every op that must see the on-screen set carries collation, hint and
   readPreference: `query:count` (the result bar's total and the drawer's live
   count), `query:explain` (the plan badge and the Explain menu) and
   `query:export`. `query:find` carries all four; `maxTimeMS` is find-only.
 - **History.** `recordFind` stores the four options in the recorded builder,
-  as it stores `projectionRaw`, so a Recent rerun is the run in the list.
+  as it stores `projectionRaw` (collation and hint trimmed as sent, a blank
+  one not at all), so a Recent rerun is the run in the list.
 
 ### Gates
 

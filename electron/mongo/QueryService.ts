@@ -88,6 +88,26 @@ function parseHint(text: string): Hint {
  * documents match, so a count or an export without it would describe a
  * different set. Blank is unset, and an unset option is left out entirely.
  */
+/**
+ * A driver error as an AppError, for the four operations that take a read
+ * preference. One no member can serve fails server selection after
+ * `serverSelectionTimeoutMS` with the driver's "Server selection timed out",
+ * which leaves the cause to guess: it is named instead. Still MONGO_ERROR,
+ * as `classifyMongoOpError` has it: TIMEOUT would say the query itself ran
+ * too long.
+ */
+function classifyReadError(err: unknown, readPreference: ReadPreferenceMode | undefined): AppError {
+  const classified = classifyMongoOpError(err);
+  if (readPreference === undefined || (err as { name?: unknown } | null)?.name !== 'MongoServerSelectionError') {
+    return classified;
+  }
+  return new SystemError(
+    classified.code,
+    `No server can serve the read preference ${readPreference}: server selection timed out. Choose another read preference, or clear it.`,
+    { mongoMessage: classified.message },
+  );
+}
+
 function matchOptions(input: FindMatchOptions): {
   collation?: CollationOptions;
   hint?: Hint;
@@ -180,7 +200,7 @@ export class QueryService {
       return { documentsJson, durationMs, hasMore: docs.length === limit };
     } catch (err) {
       const durationMs = Date.now() - t0;
-      const classified = this.explainFindCap(classifyMongoOpError(err), maxTimeMS);
+      const classified = this.explainFindCap(classifyReadError(err, input.readPreference), maxTimeMS);
       void this.recent
         .recordFind(input, durationMs, 0, classified.code)
         .catch((e: unknown) => logRecentWriteFailure(this.log, e));
@@ -224,7 +244,7 @@ export class QueryService {
         .countDocuments(filter, { ...options, maxTimeMS: PROBE_TIMEOUT_MS });
       return { count };
     } catch (err) {
-      throw classifyMongoOpError(err);
+      throw classifyReadError(err, input.readPreference);
     }
   }
 
@@ -269,7 +289,7 @@ export class QueryService {
       const plan = await cursor.explain(input.verbosity);
       return { plan, verbosity: input.verbosity };
     } catch (err) {
-      throw classifyMongoOpError(err);
+      throw classifyReadError(err, input.readPreference);
     } finally {
       // explain() leaves the underlying cursor open server-side until the
       // driver session times out; close eagerly so an explain spike can't
@@ -412,7 +432,7 @@ export class QueryService {
       if (opened) {
         await fs.unlink(filePath).catch((e: unknown) => this.logCleanup('removing the partial export file', e));
       }
-      throw classifyMongoOpError(err);
+      throw classifyReadError(err, input.readPreference);
     } finally {
       await cursor.close().catch((e: unknown) => this.logCleanup('closing the export cursor', e));
     }
