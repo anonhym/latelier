@@ -438,7 +438,7 @@ export function CreateCollectionDrawer({
           </Text>
         )}
 
-        {error && (
+        {error && errorField === null && (
           <Alert color="red" variant="light" role="alert">
             {error}
           </Alert>
