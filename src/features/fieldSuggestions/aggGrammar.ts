@@ -16,7 +16,16 @@ export type GrammarHit =
       operatorContext?: OperatorContext;
     }
   | { kind: 'fieldRef'; token: string; replaceStart: number; replaceEnd: number }
-  | { kind: 'valueFor'; field: string; token: string; replaceStart: number; replaceEnd: number };
+  | {
+      kind: 'valueFor';
+      /** The source field the value is compared with. */
+      field: string;
+      /** The `$` operator between the field and the value, as in `{age: {$gt: "…"}}`. */
+      operator?: string;
+      token: string;
+      replaceStart: number;
+      replaceEnd: number;
+    };
 
 interface Scope {
   type: 'obj' | 'arr';
@@ -191,9 +200,19 @@ export function detectAggGrammar(
       // this true, can't add any case beyond what 'value' already covers.
       // Verified against the full test suite.
       if (prevModeAtStringStart === 'value' && prevKeyAtStringStart) {
+        if (!prevKeyAtStringStart.startsWith('$')) {
+          return { kind: 'valueFor', field: prevKeyAtStringStart, token: inner, replaceStart, replaceEnd };
+        }
+        // `{age: {$gt: "x"}}`: the innermost key is the operator. The field is
+        // the nearest enclosing key that is not one. Nothing inside a string
+        // touches `scopes`, so it is still the stack at the opening quote.
+        // Array scopes never carry a key and are walked past.
+        const owner = scopes.findLast((sc) => sc.lastKey !== null && !sc.lastKey.startsWith('$'));
+        if (!owner?.lastKey) return null;
         return {
           kind: 'valueFor',
-          field: prevKeyAtStringStart,
+          field: owner.lastKey,
+          operator: prevKeyAtStringStart,
           token: inner,
           replaceStart,
           replaceEnd,

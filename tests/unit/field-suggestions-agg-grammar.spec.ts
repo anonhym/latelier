@@ -95,6 +95,53 @@ describe('detectAggGrammar', () => {
       expect(r?.kind).toBe('valueFor');
       if (r?.kind === 'valueFor') expect(r.field).toBe('status');
     });
+
+    it('a plain key carries no operator', () => {
+      expect(hit('{ status: "act|" }')).toEqual({
+        kind: 'valueFor',
+        field: 'status',
+        token: 'act',
+        replaceStart: '{ status: "'.length,
+        replaceEnd: '{ status: "act'.length,
+      });
+    });
+
+    it('an operator-nested value resolves the parent field and keeps the operator', () => {
+      expect(hit('{ age: { $gt: "4|" } }')).toEqual({
+        kind: 'valueFor',
+        field: 'age',
+        operator: '$gt',
+        token: '4',
+        replaceStart: '{ age: { $gt: "'.length,
+        replaceEnd: '{ age: { $gt: "4'.length,
+      });
+    });
+
+    it('walks past several operator scopes to the field, keeping the innermost operator', () => {
+      const r = hit('{ age: { $not: { $eq: "x|" } } }');
+      expect(r).toMatchObject({ kind: 'valueFor', field: 'age', operator: '$eq' });
+    });
+
+    it('walks past an array scope inside $or to the field', () => {
+      const r = hit('{ $or: [{ status: { $ne: "x|" } }] }');
+      expect(r).toMatchObject({ kind: 'valueFor', field: 'status', operator: '$ne' });
+    });
+
+    it('takes the nearest enclosing field, not an outer one', () => {
+      const r = hit('{ outer: { inner: { $eq: "x|" } } }');
+      expect(r).toMatchObject({ kind: 'valueFor', field: 'inner', operator: '$eq' });
+    });
+
+    it('a scope of operators only gives null', () => {
+      expect(hit('{ $expr: { $eq: "x|" } }')).toBeNull();
+      expect(hit('{ $comment: "x|" }')).toBeNull();
+      // The walk crosses the array scope, which carries no key, and finds none.
+      expect(hit('{ $or: [{ $eq: "x|" }] }')).toBeNull();
+    });
+
+    it('an element of an $in array is not a valueFor position', () => {
+      expect(hit('{ status: { $in: ["x|"] } }')).toBeNull();
+    });
   });
 
   describe('null / hide', () => {
@@ -151,11 +198,9 @@ describe('detectAggGrammar', () => {
       expect(hit('{ age: { $gt: 1|')).toBeNull();
     });
 
-    it('string value inside operator object routes to valueFor-for-op-key', () => {
+    it('string value inside operator object resolves to the field it compares', () => {
       const r = hit('{ status: { $eq: "act|" } }');
-      // Inner object has lastKey = $eq, so this is valueFor { field: "$eq" }.
-      // Phase 2 popover doesn't fire for valueFor yet, but the grammar hit is recorded.
-      expect(r?.kind).toBe('valueFor');
+      expect(r).toMatchObject({ kind: 'valueFor', field: 'status', operator: '$eq' });
     });
   });
 
