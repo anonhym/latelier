@@ -6,6 +6,7 @@ import { I } from '../../icons';
 import { Button, Modal, Tabs } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { api, isIpcError } from '../../api/atelier';
+import { invalidateSampleSchemaCache } from '../fieldSuggestions/sources/sampleSchemaSource';
 import { invalidateSchemaEnumCache } from '../fieldSuggestions/sources/schemaEnumSource';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
@@ -1136,7 +1137,9 @@ function ConnectionFormImpl({
       formApi.clearErrors();
       if (isEdit && connectionId) {
         const updated = await api.conn.update(connectionId, toUpdate(form));
-        // The same id may now reach another server, with other validators.
+        // The same id may now reach another server, with other validators
+        // and other fields.
+        invalidateSampleSchemaCache(updated.id);
         invalidateSchemaEnumCache(updated.id);
         onSaved(updated.id);
       } else {
