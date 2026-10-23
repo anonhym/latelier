@@ -91,11 +91,10 @@ function literal(node: unknown, syn: Syntax): string {
  * since a bare `1` would go out as an Int32.
  */
 function plainNumber(obj: Record<string, unknown>): string | null {
-  const int = obj.$numberInt;
-  if (typeof int === 'string' && /^-?\d+$/.test(int)) return int;
-  const dbl = obj.$numberDouble;
-  if (typeof dbl === 'string' && !Number.isInteger(Number(dbl)) && Number.isFinite(Number(dbl))) return dbl;
-  return null;
+  const int = String(obj.$numberInt);
+  if (/^-?\d+$/.test(int)) return int;
+  const dbl = Number(obj.$numberDouble);
+  return Number.isFinite(dbl) && !Number.isInteger(dbl) ? String(dbl) : null;
 }
 
 /**

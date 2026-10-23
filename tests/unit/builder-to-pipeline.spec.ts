@@ -73,13 +73,15 @@ describe('builderToStages (#156)', () => {
       '{"items":{"$elemMatch":{"q":{"$gt":1}}}}',
       '{"items.$":1}',
       '{"a":{"b":{"$slice":1}}}',
+      '{"a":1,"items":{"$slice":2}}',
+      '{"a":[1],"b":{"c":1},"items.$":1}',
     ]) {
       const r = builderToStages(tab('{}', { projectionRaw }));
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.problem).toMatch(/^The projection uses .+, which only a find supports/);
     }
-    expect(opsOf(tab('{}', { projectionRaw: '{"s":{"$meta":"textScore"},"a.b":1}' }))).toEqual([
-      '$project {"s":{"$meta":"textScore"},"a.b":1}',
+    expect(opsOf(tab('{}', { projectionRaw: '{"s":{"$meta":"textScore"},"a.b":1,"n":null}' }))).toEqual([
+      '$project {"s":{"$meta":"textScore"},"a.b":1,"n":null}',
     ]);
   });
 

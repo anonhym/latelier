@@ -75,9 +75,9 @@ describe('findCode', () => {
 
   it('writes an int32 and a fractional double bare, which every driver sends as that type', () => {
     const filter =
-      '{"i":{"$numberInt":"-7"},"f":{"$numberDouble":"1.5"},"d":{"$numberDouble":"2.0"},"n":{"$numberDouble":"NaN"},"x":{"$numberInt":"1e3"}}';
+      '{"i":{"$numberInt":"-12"},"f":{"$numberDouble":"1.5"},"d":{"$numberDouble":"2.0"},"n":{"$numberDouble":"NaN"},"x":{"$numberInt":"1e3"}}';
     expect(findCode('node', { ...base, filter }).split('\n')[2]).toBe(
-      `const filter = {"i":-7,"f":1.5,"d":${ej('{"$numberDouble":"2.0"}')},"n":${ej('{"$numberDouble":"NaN"}')},"x":${ej('{"$numberInt":"1e3"}')}};`,
+      `const filter = {"i":-12,"f":1.5,"d":${ej('{"$numberDouble":"2.0"}')},"n":${ej('{"$numberDouble":"NaN"}')},"x":${ej('{"$numberInt":"1e3"}')}};`,
     );
     expect(findCode('node', { ...base, filter: '{"y":{"$numberDouble":"Infinity"}}' })).toContain(ej('{"$numberDouble":"Infinity"}'));
   });
@@ -125,6 +125,15 @@ describe('findCode', () => {
     const [args] = runJs(code).args as [unknown[]];
     expect((args[0] as { age: unknown }).age).toBeInstanceOf(Long);
     expect(args[1]).toMatchObject({ skip: 50, limit: 10 });
+  });
+
+  it('node and mongosh spell null, true, false and -0 as JavaScript', () => {
+    const filter = '{"a":null,"b":true,"c":[false,-0]}';
+    for (const lang of ['node', 'mongosh'] as const) {
+      const [args] = runJs(findCode(lang, { ...base, filter })).args as [unknown[]];
+      expect(args[0]).toEqual({ a: null, b: true, c: [false, -0] });
+      expect(Object.is((args[0] as { c: number[] }).c[1], -0)).toBe(true);
+    }
   });
 
   it('node: omits absent options', () => {
@@ -214,9 +223,9 @@ describe('python sort directions', () => {
   it('maps the direction words the app accepts to 1/-1 and keeps $meta', () => {
     const code = findCode('python', {
       ...base,
-      sort: '{"a":"desc","b":"ASC","c":{"$meta":"textScore"},"d":-1,"e":"descending","f":"ascending"}',
+      sort: '{"a":"desc","b":"ASC","c":{"$meta":"textScore"},"d":-1,"e":"descending","f":"ascending","g":"-1","h":"1"}',
     });
-    expect(code).toContain('sort = list({"a":-1,"b":1,"c":{"$meta":"textScore"},"d":-1,"e":-1,"f":1}.items())');
+    expect(code).toContain('sort = list({"a":-1,"b":1,"c":{"$meta":"textScore"},"d":-1,"e":-1,"f":1,"g":-1,"h":1}.items())');
   });
 });
 

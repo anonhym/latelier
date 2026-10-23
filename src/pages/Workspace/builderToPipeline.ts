@@ -30,7 +30,8 @@ const isEmptyDoc = (text: string): boolean => Object.keys(JSON.parse(text) as ob
  * aggregation expression), `$elemMatch`, or a positional `field.$`.
  */
 function findOnlyOperator(node: unknown): string | null {
-  if (node === null || typeof node !== 'object' || Array.isArray(node)) return null;
+  // An array walks like an object: its index keys never match.
+  if (node === null || typeof node !== 'object') return null;
   for (const [k, v] of Object.entries(node)) {
     if (k === '$slice' || k === '$elemMatch') return k;
     if (k.endsWith('.$')) return `the positional "${k}"`;
