@@ -228,6 +228,27 @@ describe('MonitorTab', () => {
     );
   });
 
+  it('typing the minimum seconds sends one request after a pause, not one per keystroke', async () => {
+    vi.useFakeTimers();
+    setVisibility('visible');
+    const currentOp = vi.fn(async () => ({ ops: [] }));
+    installAtelierMock({ admin: { currentOp } });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    await act(async () => {});
+    expect(currentOp).toHaveBeenCalledTimes(1);
+
+    const field = screen.getByLabelText('Minimum seconds running');
+    for (const value of ['1', '12', '120']) {
+      fireEvent.change(field, { target: { value } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    }
+    expect(currentOp).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(currentOp).toHaveBeenCalledTimes(2);
+    expect(currentOp).toHaveBeenLastCalledWith({ connectionId: 'c1', activeOnly: true, minSecsRunning: 120 });
+  });
+
   it('profiler: shows the level, reads canonical EJSON rows, and applies a new level', async () => {
     const setProfileLevel = vi.fn(async () => ({ ok: true as const }));
     installAtelierMock({

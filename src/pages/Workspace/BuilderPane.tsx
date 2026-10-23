@@ -1871,12 +1871,18 @@ function BuilderPaneInner({
   // `confirmDestructive` is the one confirm the app has, not a fourth
   // hand-rolled dialog.
   const handleReset = () => {
+    // Reset empties the find options too, so a tab carrying a collation
+    // doesn't silently lose it: name whichever are set.
+    const setOptions = (['collation', 'hint', 'maxTimeMS', 'readPreference'] as const).filter(
+      (k) => (state.builder[k] ?? '').trim() !== '',
+    );
     void confirmDestructive({
       title: 'Reset this query?',
       body: (
         <span style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
           This clears the filter — every condition, group and raw clause — back
-          to <code>{'{}'}</code>, along with the sort, limit and projection.
+          to <code>{'{}'}</code>, along with the sort, limit and projection
+          {setOptions.length > 0 && <>, and the {setOptions.join(', ')} you set</>}.
           It cannot be undone.
         </span>
       ),

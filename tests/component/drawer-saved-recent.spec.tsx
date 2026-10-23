@@ -147,6 +147,27 @@ describe('W10 — consecutive identical runs show as one row with a run count', 
   });
 });
 
+describe('a failed delete of a merged row still reloads the list', () => {
+  it('reloads after the second clear rejects and shows the error', async () => {
+    const clear = vi
+      .fn()
+      .mockResolvedValueOnce({ deleted: 1 })
+      .mockRejectedValueOnce(new Error('disk full'));
+    const list = vi.fn(async () => [recent({ id: 'a' }), recent({ id: 'b' }), recent({ id: 'c' })]);
+    installAtelierMock({ recent: { list, clear } });
+    renderRecent();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete {"status":{"$eq":"paid"}} from recent history' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(clear).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText(/disk full/)).toBeTruthy();
+  });
+});
+
 // ─── §13.4 Recent rows ───────────────────────────────────────────────────────
 
 describe('W15 §13.4 — a Recent row shows what was queried', () => {
