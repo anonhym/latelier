@@ -498,7 +498,7 @@ The following channels are **prerequisites** for the matching §5 actions. Each 
 | `mongo:dropCollection`    | `{ connectionId; dbName; collection }`                              | `{ dropped: boolean }`  | no            | W02a           |
 | `mongo:dropDatabase`      | `{ connectionId; dbName }`                                          | `{ dropped: boolean }`  | no            | W02b           |
 | `mongo:renameCollection`  | `{ connectionId; dbName; collection; newName; dropTarget?: boolean }` | `{ newNamespace: string }` | no         | W02c           |
-| `mongo:createCollection`  | `{ connectionId; dbName; name; options? }` (options covers capped, timeseries, viewOn+pipeline) | `{ namespace: string }` | no | W02d, hover bar |
+| `mongo:createCollection`  | `{ connectionId; dbName; name; options? }` (options covers capped, timeseries, clustered, viewOn+pipeline) | `{ namespace: string }` | no | W02d, hover bar |
 | `collection:modify`       | `{ connectionId; dbName; collection; options }`: either `validator`/`validationLevel`/`validationAction`, or `viewOn` + `pipeline` together | `{ ok: true }` | no | Modify view, W16 §15 |
 | `conn:getUri`             | `{ id }`                                                            | `{ uri: string }`, never with the password | no | Copy connection string |
 
@@ -518,7 +518,7 @@ The destructive and creation flows each need their own spec before shipping:
 | W02a   | Drop collection confirmation modal | `mongo:dropCollection` |
 | W02b   | Drop database confirmation modal (type-to-confirm) | `mongo:dropDatabase` |
 | W02c   | Rename collection modal + tab-namespace migration | `mongo:renameCollection` |
-| W02d   | Create collection modal (name + capped/timeseries/view options) | `mongo:createCollection` |
+| W02d   | Create collection modal (name + capped/timeseries/clustered/view options) | `mongo:createCollection` |
 
 Each sub-spec must follow the destructive-action convention in §5c. They can be authored in parallel; none of them block W02's context-menu skeleton from shipping (an item whose backing IPC + modal had not landed rendered disabled with a tooltip; all four have landed).
 

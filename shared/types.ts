@@ -1205,6 +1205,10 @@ export interface CollectionCreateOptions {
   viewOn?: string;
   /** EJSON canonical array of stages; write stages are refused. */
   pipeline?: string;
+  /** Clustered collection keyed on `_id` (MongoDB 5.3+); excludes capped, timeseries and views. */
+  clustered?: boolean;
+  /** Optional name of the clustered index. */
+  clusteredIndexName?: string;
 }
 
 export interface CollectionCreateInput {
