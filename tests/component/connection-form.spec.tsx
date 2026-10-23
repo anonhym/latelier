@@ -670,4 +670,14 @@ describe('ConnectionForm fields are named by their visible label', () => {
     const hide = screen.getByRole('button', { name: 'Hide password' });
     expect(hide.getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('text fields and the (revealed) password field opt out of spell checking', async () => {
+    await mount();
+    expect(byLabel('Hostname').getAttribute('spellcheck')).toBe('false');
+    expect(byLabel('Name').getAttribute('spellcheck')).toBe('false');
+    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    expect(byLabel('Username').getAttribute('spellcheck')).toBe('false');
+    await userEvent.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(byLabel('Password').getAttribute('spellcheck')).toBe('false');
+  });
 });

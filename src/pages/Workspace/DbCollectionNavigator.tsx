@@ -22,6 +22,7 @@ import {
 import { CreateCollectionDrawer } from './CreateCollectionDrawer';
 import { RenameCollectionModal } from './RenameCollectionModal';
 import { ModifyViewModal } from './ModifyViewModal';
+import { SaveAsViewModal } from './Aggregation/SaveAsViewModal';
 import { ImportDialog } from './ImportDialog';
 import { DropCollectionConfirm } from './DropCollectionConfirm';
 import { DropDatabaseConfirm } from './DropDatabaseConfirm';
@@ -458,6 +459,7 @@ export function DbCollectionNavigator({
     createCollDb,
     renameTarget,
     modifyViewTarget,
+    duplicateViewTarget,
     dropCollTarget,
     dropDbTarget,
     importTarget,
@@ -477,6 +479,9 @@ export function DbCollectionNavigator({
     handleCollectionRenamed,
     cancelModifyView,
     handleViewModified,
+    openDuplicateView,
+    cancelDuplicateView,
+    handleViewDuplicated,
     cancelDropColl,
     handleCollectionDropped,
     cancelDropDb,
@@ -912,20 +917,28 @@ export function DbCollectionNavigator({
               collection: row.coll.name,
             }),
         }]),
-    row.coll.type === 'view'
-      ? {
-          kind: 'item',
-          label: 'Modify view',
-          icon: I.edit,
-          onClick: () =>
-            setModifyViewTarget({
-              connectionId: row.connectionId,
-              dbName: row.dbName,
-              collection: row.coll.name,
-            }),
-        }
-      : {
-          kind: 'item',
+    ...(row.coll.type === 'view'
+      ? [
+          {
+            kind: 'item' as const,
+            label: 'Modify view',
+            icon: I.edit,
+            onClick: () =>
+              setModifyViewTarget({
+                connectionId: row.connectionId,
+                dbName: row.dbName,
+                collection: row.coll.name,
+              }),
+          },
+          {
+            kind: 'item' as const,
+            label: 'Duplicate view…',
+            icon: I.copy,
+            onClick: () => openDuplicateView(row.connectionId, row.dbName, row.coll.name),
+          },
+        ]
+      : [{
+          kind: 'item' as const,
           label: 'Rename collection',
           icon: I.edit,
           onClick: () =>
@@ -934,7 +947,7 @@ export function DbCollectionNavigator({
               dbName: row.dbName,
               collection: row.coll.name,
             }),
-        },
+        }]),
     {
       kind: 'item',
       label: row.coll.type === 'view' ? 'Drop view' : 'Drop collection',
@@ -947,7 +960,7 @@ export function DbCollectionNavigator({
         }),
       destructive: true,
     },
-  ], [openFromRow, setRenameTarget, setModifyViewTarget, setDropCollTarget, setImportTarget, onOpenReferences]);
+  ], [openFromRow, setRenameTarget, setModifyViewTarget, openDuplicateView, setDropCollTarget, setImportTarget, onOpenReferences]);
 
   const buildDbMenu = React.useCallback((row: Extract<TreeRow, { kind: 'db' }>): MenuItem[] => [
     {
@@ -1293,6 +1306,21 @@ export function DbCollectionNavigator({
           returnFocusTo={menuTrigger}
           onClose={cancelModifyView}
           onSaved={handleViewModified}
+        />
+      )}
+
+      {duplicateViewTarget && (
+        <SaveAsViewModal
+          connectionId={duplicateViewTarget.connectionId}
+          dbName={duplicateViewTarget.dbName}
+          collection={duplicateViewTarget.viewOn}
+          pipelineJson={duplicateViewTarget.pipelineJson}
+          collation={duplicateViewTarget.collation}
+          initialName={`${duplicateViewTarget.view}_copy`}
+          title="Duplicate view"
+          description={`A copy of ${duplicateViewTarget.view} on ${duplicateViewTarget.dbName}.${duplicateViewTarget.viewOn} with the same pipeline and collation.`}
+          onClose={cancelDuplicateView}
+          onCreated={handleViewDuplicated}
         />
       )}
 
@@ -1989,7 +2017,15 @@ function CollRow({
       // on the container, this row is only named via `aria-activedescendant`.
       onClick={onClick}
       onContextMenu={onContextMenu}
-      title={coll.type === 'view' ? 'View' : coll.type === 'timeseries' ? 'Time-series' : undefined}
+      title={
+        coll.type === 'view'
+          ? 'View'
+          : coll.type === 'timeseries'
+            ? 'Time-series'
+            : coll.capped
+              ? 'Capped collection'
+              : undefined
+      }
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -2028,7 +2064,7 @@ function CollRow({
       >
         {coll.name}
       </span>
-      {coll.type !== 'collection' && (
+      {(coll.type !== 'collection' || coll.capped) && (
         <span
           style={{
             fontSize: 9,
@@ -2041,7 +2077,7 @@ function CollRow({
             background: T.surface,
           }}
         >
-          {coll.type === 'view' ? 'VIEW' : 'TS'}
+          {coll.type === 'view' ? 'VIEW' : coll.type === 'timeseries' ? 'TS' : 'CAPPED'}
         </span>
       )}
       {isActive && (

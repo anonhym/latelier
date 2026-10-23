@@ -209,6 +209,8 @@ function Input({ value, onChange, placeholder, type = 'text', style: sx, readOnl
     <input
       {...fieldProps}
       type={type}
+      // Hosts, usernames and URIs are not prose; the squiggle only misleads.
+      spellCheck={false}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -325,6 +327,8 @@ function PasswordInput({ value, onChange, placeholder, autoFocus }: {
         data-autofocus={autoFocus ? true : undefined}
         autoFocus={autoFocus}
         type={showPwd ? 'text' : 'password'}
+        // Revealed, the password is plain text a spell checker would otherwise see.
+        spellCheck={false}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? '••••••••'}
