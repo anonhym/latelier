@@ -1,16 +1,17 @@
 import type { CollectionTabState, Stage } from '@shared/types';
 import { compileFindOptions, findProblem, parseSortString } from './builder';
-import { ejsonParse } from '../../utils/ejson';
 import { refusalMessage, repairToCanonicalEjson } from '../../utils/shellSyntax';
 import { stagesToPipelineJson } from './Aggregation/pipeline';
 
 /**
  * `$sort` takes only 1, -1 or `{ $meta }`, where a find sort also takes
  * "asc"/"desc"; those are rewritten to their number. A sort without one is
- * kept verbatim. Only runs past `sortProblem`, so every string is a direction.
+ * kept verbatim, and so is every other direction: the rewrite parses plain
+ * JSON, so a `{"$numberLong": "-1"}` stays that text. Only runs past
+ * `sortProblem`, so every string is a direction.
  */
 function stageSort(sort: string): string {
-  const parsed = ejsonParse<Record<string, unknown>>(sort);
+  const parsed = JSON.parse(sort) as Record<string, unknown>;
   if (!Object.values(parsed).some((v) => typeof v === 'string')) return sort;
   const dirs = parseSortString(sort);
   return JSON.stringify(
@@ -18,6 +19,25 @@ function stageSort(sort: string): string {
       Object.entries(parsed).map(([k, v]) => [k, typeof v === 'string' ? dirs[k] : v]),
     ),
   );
+}
+
+/** `{}` sorts nothing and projects everything in a find; `$sort` and `$project` refuse it. */
+const isEmptyDoc = (text: string): boolean => Object.keys(JSON.parse(text) as object).length === 0;
+
+/**
+ * The first find-only projection operator, which `$project` refuses:
+ * `$slice` (and a find's `$slice` also keeps every other field, unlike the
+ * aggregation expression), `$elemMatch`, or a positional `field.$`.
+ */
+function findOnlyOperator(node: unknown): string | null {
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) return null;
+  for (const [k, v] of Object.entries(node)) {
+    if (k === '$slice' || k === '$elemMatch') return k;
+    if (k.endsWith('.$')) return `the positional "${k}"`;
+    const inner = findOnlyOperator(v);
+    if (inner) return inner;
+  }
+  return null;
 }
 
 export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; problem: string };
@@ -28,7 +48,10 @@ export type StagesResult = { ok: true; stages: Stage[] } | { ok: false; problem:
  * `findProblem` gate as Run and Copy code.
  *
  * Bodies are the builder's own text, never re-serialized, so a Long or an
- * ObjectId reaches the pipeline byte-for-byte. The limit is the user's cap
+ * ObjectId reaches the pipeline byte-for-byte; only a sort's direction words
+ * are rewritten (`stageSort`). An empty sort or projection is omitted, like
+ * an empty filter, and a find-only projection operator refuses the
+ * conversion rather than open a pipeline that cannot run. The limit is the user's cap
  * (`builder.limit`), not the page's: the page skip/limit is how the table
  * pages the result, not part of the query.
  */
@@ -36,11 +59,18 @@ export function builderToStages(state: CollectionTabState): StagesResult {
   const problem = findProblem(state);
   if (problem) return { ok: false, problem };
   const opts = compileFindOptions(state.builder);
+  const findOnly = opts.projection ? findOnlyOperator(JSON.parse(opts.projection)) : null;
+  if (findOnly) {
+    return {
+      ok: false,
+      problem: `The projection uses ${findOnly}, which only a find supports. Remove it to open this query as a pipeline.`,
+    };
+  }
   const bodies: [string, string][] = [];
   if (state.queryRaw.trim() !== '{}') bodies.push(['$match', state.queryRaw]);
-  if (opts.sort) bodies.push(['$sort', stageSort(opts.sort)]);
+  if (opts.sort && !isEmptyDoc(opts.sort)) bodies.push(['$sort', stageSort(opts.sort)]);
   if (opts.limit !== null) bodies.push(['$limit', String(opts.limit)]);
-  if (opts.projection) bodies.push(['$project', opts.projection]);
+  if (opts.projection && !isEmptyDoc(opts.projection)) bodies.push(['$project', opts.projection]);
   return {
     ok: true,
     stages: bodies.map(([op, body], i) => ({ id: i + 1, op, body, enabled: true })),

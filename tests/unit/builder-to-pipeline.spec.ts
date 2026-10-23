@@ -66,6 +66,36 @@ describe('builderToStages (#156)', () => {
     expect(opsOf(tab('{}', { sort: '{ "a" : -1 }' }))).toEqual(['$sort { "a" : -1 }']);
   });
 
+  it('refuses a find-only projection operator, which $project rejects', () => {
+    for (const projectionRaw of [
+      '{"items":{"$slice":2}}',
+      '{"items":{"$slice":[1,2]}}',
+      '{"items":{"$elemMatch":{"q":{"$gt":1}}}}',
+      '{"items.$":1}',
+      '{"a":{"b":{"$slice":1}}}',
+    ]) {
+      const r = builderToStages(tab('{}', { projectionRaw }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.problem).toMatch(/^The projection uses .+, which only a find supports/);
+    }
+    expect(opsOf(tab('{}', { projectionRaw: '{"s":{"$meta":"textScore"},"a.b":1}' }))).toEqual([
+      '$project {"s":{"$meta":"textScore"},"a.b":1}',
+    ]);
+  });
+
+  it('keeps a non-string sort direction verbatim while rewriting the words', () => {
+    // Re-serialising the parsed Long wrote its internals: {"high":-1,"low":-1,"unsigned":false}.
+    expect(opsOf(tab('{}', { sort: '{"a":"desc","b":{"$numberLong":"-1"},"c":{"$numberInt":"1"}}' }))).toEqual([
+      '$sort {"a":-1,"b":{"$numberLong":"-1"},"c":{"$numberInt":"1"}}',
+    ]);
+  });
+
+  it('omits an empty sort or projection, which $sort and $project refuse', () => {
+    expect(opsOf(tab('{}', { sort: '{}' }))).toEqual([]);
+    expect(opsOf(tab('{}', { sort: ' { } ' }))).toEqual([]);
+    expect(opsOf(tab('{}', { projectionRaw: '{}' }))).toEqual([]);
+  });
+
   it('refuses an unrunnable query with the same reason Run gives', () => {
     expect(builderToStages(tab('{bad'))).toEqual({
       ok: false,
