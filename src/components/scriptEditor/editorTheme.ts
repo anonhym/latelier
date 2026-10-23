@@ -16,8 +16,10 @@ export const atelierDark: Extension = [
       },
       '.cm-content': { caretColor: 'var(--atelier-accent)' },
       '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--atelier-accent)' },
-      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
-        { backgroundColor: 'var(--atelier-accent-soft)' },
+      // The editor uses the browser's own selection (no drawSelection), so ::selection is
+      // what paints; .cm-selectionBackground covers it if drawSelection is ever added.
+      '.cm-content ::selection, .cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground':
+        { backgroundColor: 'var(--atelier-editor-selection)' },
       '.cm-activeLine': { backgroundColor: 'var(--atelier-surface-active)' },
       '.cm-gutters': {
         backgroundColor: 'var(--atelier-surface-raised)',

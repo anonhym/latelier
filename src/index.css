@@ -107,6 +107,9 @@
   --atelier-syn-property:   #7dd3c8;
   --atelier-syn-comment:    #8b98a5;
   --atelier-syn-punct:      #a9b4c0;
+  /* Selected editor text: opaque, because the translucent accent-soft left it at ~1.2:1
+     on the surface. Text on it is held to 3:1 by the same test. */
+  --atelier-editor-selection: #403a85;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

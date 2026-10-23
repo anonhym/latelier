@@ -29,4 +29,12 @@ describe('TitleBar drag region', () => {
     expect(region(button.parentElement as HTMLElement)).toBe('no-drag');
     expect(region(button.parentElement!.parentElement as HTMLElement)).toBe('drag');
   });
+
+  it('the slot wrapper stays a shrinkable flex box so the switcher can still ellipsize', () => {
+    render(<TitleBar {...baseProps} connectionSlot={<button type="button">Switch</button>} />);
+    const wrapper = screen.getByRole('button', { name: 'Switch' }).parentElement as HTMLElement;
+    expect(wrapper.style.display).toBe('flex');
+    expect(wrapper.style.flexGrow).toBe('1');
+    expect(wrapper.style.minWidth).toBe('0px');
+  });
 });

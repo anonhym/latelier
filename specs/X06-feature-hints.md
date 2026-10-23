@@ -112,7 +112,7 @@ Click-outside does **not** dismiss — only explicit "Got it", CTA, or `×` does
 
 A hint appears on conditions such as `run.execute` while the user is typing, so it never takes focus by itself — moving focus on appear would swallow keystrokes.
 
-- **Announcement.** When a hint appears, focus stays where it is and the title goes to a visually hidden `role="status"` / `aria-live="polite"` region.
+- **Announcement.** When a hint appears, focus stays where it is and the title is written into a visually hidden `role="status"` / `aria-live="polite"` region that stays mounted whether or not the hint shows (a live region is only spoken when its text changes). The popover itself mounts fresh on every show, so a hint that hid without a blur never keeps a stale trap or return spot.
 - **F6.** The deliberate way in. While a hint is visible, F6 (a window `keydown` listener that exists only while the hint is visible) calls `preventDefault` and moves focus to the hint's "Got it" button. It is ignored while a modal is open (`[role="dialog"][aria-modal="true"]`). The element that had focus is remembered.
 - **Trap.** While focus is inside the hint, Tab wraps within it (Mantine `FocusTrap`, active only while focus is inside the popover). The popover is `role="dialog"` with `aria-modal="false"` and `aria-describedby` pointing at the body text.
 - **Escape.** Escape inside the hint dismisses it and calls `stopPropagation`, so an ancestor's Escape handler (closing a drawer, say) does not also run.

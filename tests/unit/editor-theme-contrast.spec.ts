@@ -32,6 +32,34 @@ describe('dark editor syntax palette', () => {
     expect(ratio(token)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each([
+    '--atelier-text',
+    '--atelier-syn-keyword',
+    '--atelier-syn-string',
+    '--atelier-syn-property',
+    '--atelier-syn-comment',
+    '--atelier-syn-punct',
+    '--atelier-color-number',
+  ])('selected %s text reaches 3:1 on the selection background', (token) => {
+    const selection = parseColor(darkToken('--atelier-editor-selection'));
+    expect(selection.a).toBe(1);
+    const sel = blend(selection, surface);
+    expect(contrastRatio(blend(parseColor(darkToken(token)), sel), sel)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('the selection background stands out from the surface', () => {
+    const sel = blend(parseColor(darkToken('--atelier-editor-selection')), surface);
+    expect(contrastRatio(sel, surface)).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it('the editor theme paints the native selection with that token', () => {
+    const theme = readFileSync(
+      resolve(__dirname, '../../src/components/scriptEditor/editorTheme.ts'),
+      'utf8',
+    );
+    expect(theme).toMatch(/'\.cm-content ::selection[^']*':\s*\{\s*backgroundColor: 'var\(--atelier-editor-selection\)'/);
+  });
+
   it('comments reach 3:1 on the dark surface', () => {
     expect(ratio('--atelier-syn-comment')).toBeGreaterThanOrEqual(3);
   });

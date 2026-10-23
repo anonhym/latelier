@@ -45,36 +45,6 @@ export function FeatureHint({
   const copy = HINT_REGISTRY[id];
   const selector = anchorSelector ?? `[data-hint-anchor="${id}"]`;
   const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
-  const paperRef = React.useRef<HTMLDivElement | null>(null);
-  const gotItRef = React.useRef<HTMLButtonElement | null>(null);
-  // Where focus was when F6 pulled it into the hint; null when it got there another way.
-  const returnFocusRef = React.useRef<HTMLElement | null>(null);
-  const [focusInside, setFocusInside] = React.useState(false);
-  const bodyId = React.useId();
-  const shown = visible && pos !== null;
-
-  React.useEffect(() => {
-    if (!shown) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'F6') return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      const active = document.activeElement;
-      e.preventDefault();
-      if (paperRef.current?.contains(active)) return;
-      returnFocusRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
-      gotItRef.current?.focus();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [shown]);
-
-  // Dismiss, handing focus back to where F6 found it. The blur handler forgets that
-  // spot once focus leaves the hint, so a hint focus never reached restores nothing.
-  const leave = () => {
-    const back = returnFocusRef.current;
-    onDismiss();
-    if (back?.isConnected) back.focus();
-  };
 
   React.useEffect(() => {
     if (!visible) return;
@@ -97,18 +67,74 @@ export function FeatureHint({
     window.addEventListener('scroll', update, true);
     return () => {
       cancelAnimationFrame(raf);
+      // A hint that hides and comes back must not flash at the old spot.
+      setPos(null);
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
   }, [visible, selector]);
 
-  if (!visible || !pos) return null;
+  const shown = visible && pos !== null;
+
+  return (
+    <>
+      {/* Always mounted: a live region is only spoken when its text changes, not
+          when the region itself appears. */}
+      <Portal>
+        <VisuallyHidden role="status" aria-live="polite">
+          {shown ? copy.title : ''}
+        </VisuallyHidden>
+      </Portal>
+      {shown && <HintPopover id={id} pos={pos} onDismiss={onDismiss} onCta={onCta} />}
+    </>
+  );
+}
+
+// Mounted only while the hint shows, so the focus trap, the remembered focus
+// spot and the F6 listener all start fresh every time it comes back.
+function HintPopover({
+  id,
+  pos,
+  onDismiss,
+  onCta,
+}: {
+  id: FeatureHintId;
+  pos: { top: number; left: number };
+  onDismiss: () => void;
+  onCta?: () => void;
+}) {
+  const copy = HINT_REGISTRY[id];
+  const paperRef = React.useRef<HTMLDivElement | null>(null);
+  const gotItRef = React.useRef<HTMLButtonElement | null>(null);
+  // Where focus was when F6 pulled it into the hint; null when it got there another way.
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const [focusInside, setFocusInside] = React.useState(false);
+  const bodyId = React.useId();
+
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'F6') return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const active = document.activeElement;
+      e.preventDefault();
+      if (paperRef.current?.contains(active)) return;
+      returnFocusRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      gotItRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Dismiss, handing focus back to where F6 found it. The blur handler forgets that
+  // spot once focus leaves the hint, so a hint focus never reached restores nothing.
+  const leave = () => {
+    const back = returnFocusRef.current;
+    onDismiss();
+    if (back?.isConnected) back.focus();
+  };
 
   return (
     <Portal>
-      <VisuallyHidden role="status" aria-live="polite">
-        {copy.title}
-      </VisuallyHidden>
       <FocusTrap active={focusInside} innerRef={paperRef}>
         <Paper
         role="dialog"

@@ -252,7 +252,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               Editor font size
             </Text>
             <Text size="xs" c="dimmed">
-              Script, filter and stage editors, in pixels.
+              Script tab, aggregation stage bodies and the document editor, in pixels.
             </Text>
           </Stack>
           <Select

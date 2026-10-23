@@ -230,6 +230,31 @@ describe('<FeatureHint> focus', () => {
     expect(document.activeElement).toBe(gotIt);
   });
 
+  it('a hint that hid without a blur and comes back does not steal focus', async () => {
+    const { rerender } = render(<Harness onDismiss={() => {}} />);
+    await screen.findByRole('dialog');
+    const input = screen.getByLabelText('Filter');
+    input.focus();
+    pressF6();
+    // The parent hides it (a mouse "Got it", a trigger flipping) with focus still inside.
+    rerender(<Harness onDismiss={() => {}} visible={false} />);
+    act(() => screen.getByLabelText('Filter').focus());
+    rerender(<Harness onDismiss={() => {}} />);
+    await screen.findByRole('dialog');
+    expect(document.activeElement).toBe(screen.getByLabelText('Filter'));
+  });
+
+  it('keeps its live region mounted while hidden and fills it when shown', async () => {
+    const { rerender } = render(<Harness onDismiss={() => {}} visible={false} />);
+    const region = document.querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region?.textContent).toBe('');
+    rerender(<Harness onDismiss={() => {}} />);
+    await screen.findByRole('dialog');
+    expect(document.querySelector('[role="status"]')).toBe(region);
+    expect(region?.textContent).toBe('Link this field to another doc?');
+  });
+
   it('the call to action also hands focus back', async () => {
     const onCta = vi.fn();
     render(<Harness onDismiss={() => {}} onCta={onCta} />);
