@@ -6,11 +6,13 @@ import { isEjsonDocument } from '../../utils/ejson';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { useFindExplain } from './useFindExplain';
 import {
+  DRAGGED_FIELD_MIME,
   filterProblem,
   findProblem,
   limitWarning,
   projectionProblem,
   sortProblem,
+  type DraggedField,
 } from './builder';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
@@ -239,6 +241,32 @@ function QueryBarInner({
   };
   const handleSortBlur = () => {
     sortField.onBlur();
+  };
+
+  // A field dropped on the sort cell (ADR 0007 item 4) always sorts it
+  // ascending and replaces any sort there: ascending is the first step of the
+  // header's cycle, and a drop that flipped or cleared would let re-dropping
+  // the same field silently remove the sort.
+  const [sortDropActive, setSortDropActive] = React.useState(false);
+  const acceptsField = (e: React.DragEvent) => e.dataTransfer.types.includes(DRAGGED_FIELD_MIME);
+  const handleSortDragOver = (e: React.DragEvent) => {
+    if (!acceptsField(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!sortDropActive) setSortDropActive(true);
+  };
+  const handleSortDrop = (e: React.DragEvent) => {
+    if (!acceptsField(e)) return;
+    e.preventDefault();
+    setSortDropActive(false);
+    let dragged: DraggedField;
+    try {
+      dragged = JSON.parse(e.dataTransfer.getData(DRAGGED_FIELD_MIME)) as DraggedField;
+    } catch {
+      return;
+    }
+    if (typeof dragged.field !== 'string' || !dragged.field) return;
+    handleSortChange(JSON.stringify({ [dragged.field]: 1 }));
   };
   const handleLimitChange = (v: string) => {
     onPatch({ builder: { ...state.builder, limit: v } });
@@ -659,7 +687,16 @@ function QueryBarInner({
             screen; an `aria-label` duplicate would be a second copy to keep
             in sync. */}
         <div id="query-bar-sort-label" style={labelCellStyle}>sort</div>
-        <div style={valueCellLast}>
+        <div
+          data-testid="query-bar-sort-drop"
+          onDragOver={handleSortDragOver}
+          onDragLeave={() => setSortDropActive(false)}
+          onDrop={handleSortDrop}
+          style={{
+            ...valueCellLast,
+            ...(sortDropActive ? { background: T.accentSoft, outline: `1.5px dashed ${T.accent}` } : null),
+          }}
+        >
           <FieldAutocompleteInput
             value={state.builder.sort}
             onChange={handleSortChange}
