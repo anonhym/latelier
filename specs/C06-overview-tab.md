@@ -184,10 +184,10 @@ All non-secret, served by `MonitorService` and registered by `registerAdminChann
 
 ### Test cases
 
-- **`tests/integration/monitor-service.spec.ts`** (own mongod, since slowms is server-wide): currentOp lists its own aggregate with and without Active only, and Running ≥ 3600 s drops it; killOp of a missing opid resolves; killOp stops a running `$where: sleep` find; a read-only connection refuses kill and set-level but reads status; status → set level 1 / slowms 0 → find → profile tail lists it as canonical EJSON; opid conversion.
+- **`tests/integration/monitor-service.spec.ts`** (own mongod, since slowms is server-wide): currentOp lists its own aggregate with and without Active only, and Running ≥ 3600 s drops it; killOp of a missing opid resolves; killOp stops a running `$where: sleep` find; a read-only connection refuses kill and set-level but reads status; status → set level 1 / slowms 0 → find → profile tail lists it as canonical EJSON; at `maxPoolSize: 1` currentOp lists and killOp stops the op holding the only pooled connection; the stage asks for `idleSessions: false`; opid-less rows, command redaction and code-point truncation; opid conversion.
 - **`tests/integration/admin-handlers.spec.ts`**: zod bounds for every channel.
 - **`tests/integration/ipc-channel-registration.spec.ts`**: includes `registerAdminChannels`.
-- **`tests/component/monitor-tab.spec.tsx`**: renders ops and expands a command; kill confirm and cancel; read-only disables controls; fake-timer polling, hidden and paused; filters; profiler reads canonical rows and applies a level.
+- **`tests/component/monitor-tab.spec.tsx`**: renders ops and expands a command; kill confirm and cancel; read-only disables controls; fake-timer polling, hidden and paused; filters; profiler reads canonical rows and applies a level; in-flight tick skip; Kill does not toggle the row or reach a parent handler; opid-less rows have no Kill; a stale profiler reply is dropped; a failed load keeps Apply off; read-only disables the level radios and points at the note.
 - **`tests/component/detail-panel.spec.tsx`**: tab order and opening the monitor.
 - **`tests/e2e/conn-monitor.e2e.ts`**: open Monitor, set the profiler to All, run a query in the workspace, and see it in the profile tail.
 
