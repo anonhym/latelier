@@ -123,6 +123,50 @@ describe('RecentQueryService', () => {
     expect(payload.builder.projectionRaw).toBeUndefined();
   });
 
+  // W14 §9 — a collation changes which documents match, so a Recent rerun
+  // that dropped it would silently not be the run in the list.
+  it('recordFind records the find options as the builder text, and omits unset ones', async () => {
+    await svc.recordFind(
+      makeFindInput({
+        collation: '{"locale":"en","strength":2}',
+        hint: '_id_',
+        maxTimeMS: 40000,
+        readPreference: 'secondaryPreferred',
+      }),
+      5,
+      1,
+    );
+    await svc.recordFind(makeFindInput(), 5, 1);
+
+    const [withOptions, without] = svc.list({ connectionId: CONNECTION_ID }).reverse();
+    expect((withOptions!.payload as { builder: object }).builder).toMatchObject({
+      collation: '{"locale":"en","strength":2}',
+      hint: '_id_',
+      maxTimeMS: '40000',
+      readPreference: 'secondaryPreferred',
+    });
+    const bare = (without!.payload as { builder: object }).builder;
+    for (const key of ['collation', 'hint', 'maxTimeMS', 'readPreference']) {
+      expect(bare).not.toHaveProperty(key);
+    }
+  });
+
+  // QueryService trims the collation and hint before sending them, so a
+  // blank one was never part of the run and a padded one reruns trimmed.
+  it('recordFind trims the collation and hint, and omits blank ones', async () => {
+    await svc.recordFind(makeFindInput({ collation: '  {"locale":"en"} ', hint: ' _id_ ' }), 5, 1);
+    await svc.recordFind(makeFindInput({ collation: '   ', hint: '\t' }), 5, 1);
+
+    const [padded, blank] = svc.list({ connectionId: CONNECTION_ID }).reverse();
+    expect((padded!.payload as { builder: object }).builder).toMatchObject({
+      collation: '{"locale":"en"}',
+      hint: '_id_',
+    });
+    const bare = (blank!.payload as { builder: object }).builder;
+    expect(bare).not.toHaveProperty('collation');
+    expect(bare).not.toHaveProperty('hint');
+  });
+
   it('recordFind stores errorCode when provided', async () => {
     await svc.recordFind(makeFindInput(), 0, 0, 'TIMEOUT');
 

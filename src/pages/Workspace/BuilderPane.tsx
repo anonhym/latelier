@@ -1850,6 +1850,8 @@ function BuilderPaneInner({
       filter: state.queryRaw,
       projection: opts.projection,
       sort: opts.sort,
+      collation: opts.collation,
+      hint: opts.hint,
       skip,
       limit,
     });
@@ -1941,8 +1943,26 @@ function BuilderPaneInner({
     const projectionRaw = payload.builder
       ? (payload.builder as { projectionRaw?: string }).projectionRaw
       : state.builder.projectionRaw;
+    // W14 §9's find options, for the same reason: a collation changes which
+    // documents match, so dropping it reruns a different query. A payload
+    // without them clears the tab's, and so does a row with no builder at
+    // all, unlike the raw projection above: such a row predates the options,
+    // so the query it saved never had any.
+    const options = (payload.builder ?? {}) as Pick<
+      BuilderState,
+      'collation' | 'hint' | 'maxTimeMS' | 'readPreference'
+    >;
     return {
-      builder: { sort, limit, projection, projectionRaw },
+      builder: {
+        sort,
+        limit,
+        projection,
+        projectionRaw,
+        collation: options.collation,
+        hint: options.hint,
+        maxTimeMS: options.maxTimeMS,
+        readPreference: options.readPreference,
+      },
       queryRaw: payload.queryRaw ?? legacyCompileFilter(legacyBuilder),
     };
   };

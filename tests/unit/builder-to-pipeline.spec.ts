@@ -109,6 +109,27 @@ describe('builderToStages (#156)', () => {
   });
 });
 
+// W14 §9 — the aggregate channel takes no collation or hint, and dropping a
+// collation would open a pipeline that matches a different set of documents.
+describe('builderToStages with find options', () => {
+  it('refuses a collation or a hint, naming which', () => {
+    expect(builderToStages(tab('{}', { collation: '{"locale":"en"}' }))).toEqual({
+      ok: false,
+      problem: 'Open as pipeline does not carry the collation. Clear it to open this query as a pipeline.',
+    });
+    expect(builderToStages(tab('{}', { hint: '_id_' }))).toEqual({
+      ok: false,
+      problem: 'Open as pipeline does not carry the hint. Clear it to open this query as a pipeline.',
+    });
+  });
+
+  it('opens a query whose only options are maxTimeMS and readPreference, or blank ones', () => {
+    expect(opsOf(tab('{"a":1}', { maxTimeMS: '500', readPreference: 'nearest', collation: ' ', hint: '' }))).toEqual([
+      '$match {"a":1}',
+    ]);
+  });
+});
+
 describe('pipelineJsonForCopy (#23)', () => {
   const st = (id: number, op: string, body: string, enabled = true) => ({ id, op, body, enabled });
 

@@ -391,11 +391,40 @@ export interface BuilderState {
   projectionRaw?: string;
   sort: string;
   limit: string;
+  /**
+   * W14 §9 find options, each the text the query bar's options row holds
+   * (blank = unset), gated by `optionsProblem`. Optional and additive like
+   * `projectionRaw`: a tab or saved row from before them restores unchanged.
+   */
+  collation?: string;
+  hint?: string;
+  maxTimeMS?: string;
+  readPreference?: string;
 }
 
 // ─── Query runner types (W03) ────────────────────────────────────────────────
 
-export interface FindInput {
+export type ReadPreferenceMode =
+  | 'primary'
+  | 'primaryPreferred'
+  | 'secondary'
+  | 'secondaryPreferred'
+  | 'nearest';
+
+/**
+ * The find options that decide which documents match (collation) or how the
+ * server reads them (hint, readPreference), so every op that must see the
+ * on-screen set — count, explain, export — carries them too (W14 §9).
+ */
+export interface FindMatchOptions {
+  /** Canonical EJSON document, e.g. `{"locale":"en","strength":2}`. */
+  collation?: string;
+  /** An EJSON document is a key pattern; any other text is an index name. */
+  hint?: string;
+  readPreference?: ReadPreferenceMode;
+}
+
+export interface FindInput extends FindMatchOptions {
   connectionId: string;
   dbName: string;
   collection: string;
@@ -406,6 +435,8 @@ export interface FindInput {
   skip: number;
   ejsonRelaxed?: boolean;
   cancelToken?: string;
+  /** Lowers the find's 30 s server-side cap; a larger value is clamped to it. */
+  maxTimeMS?: number;
 }
 
 export interface FindResult {
@@ -426,7 +457,11 @@ export interface FindResultWire {
   hasMore: boolean;
 }
 
-export interface ExplainInput extends Omit<FindInput, 'limit' | 'skip' | 'cancelToken'> {
+/** `query:count` input. No `maxTimeMS`: the count runs on its own probe
+ *  timeout, and the channel's zod schema drops the field. */
+export type CountInput = Omit<FindInput, 'limit' | 'skip' | 'projection' | 'sort' | 'cancelToken' | 'maxTimeMS'>;
+
+export interface ExplainInput extends Omit<FindInput, 'limit' | 'skip' | 'cancelToken' | 'maxTimeMS'> {
   verbosity: 'queryPlanner' | 'executionStats' | 'allPlansExecution';
 }
 
@@ -440,7 +475,7 @@ export interface QueryExportColumn {
   path: string;
 }
 
-export interface QueryExportInput {
+export interface QueryExportInput extends FindMatchOptions {
   connectionId: string;
   dbName: string;
   collection: string;

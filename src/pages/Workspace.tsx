@@ -273,6 +273,11 @@ function WorkspaceInner() {
       projectionRaw: activeCollection.state.builder.projectionRaw,
       limit,
       skip,
+      // The same options `useQueryRunner` records its key with (W14 §9).
+      collation: compiled.collation,
+      hint: compiled.hint,
+      maxTimeMS: compiled.maxTimeMS,
+      readPreference: compiled.readPreference,
     });
   }, [activeCollection]);
   const savedCreateCount = hints.getSessionEventCount('queryRun', currentQueryKey);

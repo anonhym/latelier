@@ -123,17 +123,24 @@ describe('queryRunKey', () => {
       limit: 10,
       skip: 5,
       projection: ['b', 'a'],
+      collation: '{"locale":"en"}',
+      hint: '_id_',
+      maxTimeMS: 500,
+      readPreference: 'nearest',
     });
     const SEP = '\x1f';
     expect(key).toBe(
-      ['c1', 'db', 'orders', '{"x":1}', `m${SEP}a${SEP}b`, '{"x":1}', 10, 5].join(SEP),
+      [
+        'c1', 'db', 'orders', '{"x":1}', `m${SEP}a${SEP}b`, '{"x":1}', 10, 5,
+        '{"locale":"en"}', '_id_', 500, 'nearest',
+      ].join(SEP),
     );
   });
 
   it('joins every field into an exact key when the optional fields are all absent', () => {
     const key = queryRunKey({ ...base });
     const SEP = '\x1f';
-    expect(key).toBe(['c1', 'db', 'orders', '', `m${SEP}`, '', '', 0].join(SEP));
+    expect(key).toBe(['c1', 'db', 'orders', '', `m${SEP}`, '', '', 0, '', '', '', ''].join(SEP));
   });
 
   it('sorts three distinct fields into exact code-unit order', () => {
@@ -143,7 +150,7 @@ describe('queryRunKey', () => {
     const key = queryRunKey({ ...base, projection: ['cherry', 'Apple', 'banana'] });
     const SEP = '\x1f';
     expect(key).toBe(
-      ['c1', 'db', 'orders', '', `m${SEP}Apple${SEP}banana${SEP}cherry`, '', '', 0].join(SEP),
+      ['c1', 'db', 'orders', '', `m${SEP}Apple${SEP}banana${SEP}cherry`, '', '', 0, '', '', '', ''].join(SEP),
     );
   });
 });

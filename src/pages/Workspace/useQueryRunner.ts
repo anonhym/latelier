@@ -9,6 +9,7 @@ import {
   compileFindOptions,
   currentFilterJson,
   effectivePageLimit,
+  optionsProblem,
   projectionProblem,
   sortProblem,
 } from './builder';
@@ -233,18 +234,25 @@ export function useQueryRunner({
           });
           return;
         }
-        const projError = projectionProblem(state.builder);
-        if (projError !== null) {
+        const builderError = projectionProblem(state.builder) ?? optionsProblem(state.builder);
+        if (builderError !== null) {
           patchState(target.id, {
             lastRun: {
               documents: target.state.lastRun?.documents ?? [],
               durationMs: 0,
               ranAt: new Date().toISOString(),
-              error: { code: 'VALIDATION', message: projError },
+              error: { code: 'VALIDATION', message: builderError },
             },
           });
           return;
         }
+        // W14 §9: what decides which documents match, so the count and the
+        // plan describe the same set as the find.
+        const match = {
+          collation: compiled.collation,
+          hint: compiled.hint,
+          readPreference: compiled.readPreference,
+        };
         const userLimit = compiled.limit;
         const { skip, limit } = effectivePageLimit(userLimit, state.page, state.pageSize);
 
@@ -269,6 +277,8 @@ export function useQueryRunner({
           filter,
           sort: compiled.sort,
           projection: compiled.projection,
+          ...match,
+          maxTimeMS: compiled.maxTimeMS,
           limit,
           skip,
           cancelToken,
@@ -291,6 +301,7 @@ export function useQueryRunner({
           compiled.sort,
           compiled.projection,
           userLimit,
+          match,
         ]);
         const pageOnly =
           override !== undefined &&
@@ -316,6 +327,7 @@ export function useQueryRunner({
               filter,
               sort: compiled.sort,
               projection: compiled.projection,
+              ...match,
               verbosity: 'queryPlanner',
             })
             .then((res) => {
@@ -357,6 +369,8 @@ export function useQueryRunner({
             projectionRaw: state.builder.projectionRaw,
             limit,
             skip,
+            ...match,
+            maxTimeMS: compiled.maxTimeMS,
           }),
         );
         // Background count, capped at userLimit so the pager matches what's reachable.
@@ -366,6 +380,7 @@ export function useQueryRunner({
             dbName: target.dbName,
             collection: target.collection,
             filter,
+            ...match,
           })
           .then(({ count }) => {
             if (runToken !== runTokenRef.current.get(target.id)) return;
