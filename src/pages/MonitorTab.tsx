@@ -148,6 +148,8 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   const [profile, setProfile] = React.useState<unknown[] | null>(null);
   const [profError, setProfError] = React.useState<string | null>(null);
   const latestProfile = React.useRef(0);
+  // The database picked right now, readable from a closure captured earlier.
+  const dbNameRef = React.useRef(dbName);
 
   React.useEffect(() => {
     if (!connected) return;
@@ -155,13 +157,19 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
       .listDatabases({ connectionId: conn.id })
       .then((rows) => {
         setDbs(rows);
-        setDbName((cur) => cur || rows[0]?.name || 'admin');
+        if (!dbNameRef.current) {
+          dbNameRef.current = rows[0]?.name || 'admin';
+          setDbName(dbNameRef.current);
+        }
       })
       .catch((err: unknown) => setProfError(errText(err)));
   }, [conn.id, connected]);
 
   const loadProfile = React.useCallback(async () => {
-    if (!dbName) return;
+    // A stale closure (an Apply that finished after another database was
+    // picked) must not start a load: bumping the counter would also discard
+    // the reply of the load that belongs to the picked database.
+    if (!dbName || dbName !== dbNameRef.current) return;
     // A reply for a database no longer picked must not land.
     const id = ++latestProfile.current;
     try {
@@ -189,6 +197,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
     // A select fires change for the value it already holds too; clearing then
     // would leave nothing to reload it.
     if (next === dbName) return;
+    dbNameRef.current = next;
     setDbName(next);
     setStatus(null);
     setProfile(null);

@@ -316,4 +316,34 @@ describe('MonitorTab', () => {
     expect(within(prof).getByText('Current: Off, slowms 100')).toBeTruthy();
     expect((within(prof).getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(false);
   });
+  it('profiler: Apply on one database, then picking another, never shows or sends the first one\'s values', async () => {
+    const applyShop = deferred<{ ok: true }>();
+    const setProfileLevel = vi.fn(({ dbName }: { dbName: string }) =>
+      dbName === 'shop' ? applyShop.promise : Promise.resolve({ ok: true as const }),
+    );
+    installAtelierMock({
+      meta: { listDatabases: twoDbs },
+      admin: {
+        profileStatus: async ({ dbName }) =>
+          dbName === 'shop' ? { level: 1 as const, slowms: 100 } : { level: 2 as const, slowms: 7 },
+        setProfileLevel,
+      },
+    });
+    render(<MonitorTab conn={conn} runtime={connected} />);
+    const prof = screen.getByRole('region', { name: 'Profiler' });
+    expect(await within(prof).findByText('Current: Slow, slowms 100')).toBeTruthy();
+    fireEvent.click(within(prof).getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(setProfileLevel).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(within(prof).getByLabelText('Profiler database'), { target: { value: 'logs' } });
+    expect(await within(prof).findByText('Current: All, slowms 7')).toBeTruthy();
+
+    await act(async () => { applyShop.resolve({ ok: true }); });
+    expect(within(prof).getByText('Current: All, slowms 7')).toBeTruthy();
+    expect((within(prof).getByLabelText('slowms') as HTMLInputElement).value).toBe('7');
+
+    fireEvent.click(within(prof).getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(setProfileLevel).toHaveBeenCalledTimes(2));
+    expect(setProfileLevel).toHaveBeenLastCalledWith({ connectionId: 'c1', dbName: 'logs', level: 2, slowms: 7 });
+  });
 });

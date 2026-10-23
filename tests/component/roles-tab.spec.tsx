@@ -277,4 +277,29 @@ describe('RolesTab', () => {
     await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(before));
     expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Roles' }));
   });
+  it('Escape while a drop is in flight leaves the dialog open and then shows the result', async () => {
+    let finishDrop!: () => void;
+    const dropGate = new Promise<void>((res) => {
+      finishDrop = res;
+    });
+    const drops: RoleDropInput[] = [];
+    setup({
+      drop: async (input) => {
+        drops.push(input);
+        await dropGate;
+        return { dropped: true as const };
+      },
+    });
+    await waitFor(() => expect(screen.getByText('appAdmin')).toBeTruthy());
+    await userEvent.click(screen.getByLabelText('Drop role appAdmin'));
+    await userEvent.type(await screen.findByLabelText('Confirm role name'), 'appAdmin');
+    await userEvent.click(screen.getByRole('button', { name: 'Drop' }));
+    await waitFor(() => expect(drops).toHaveLength(1));
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByText('Drop role "appAdmin" on myapp?')).toBeTruthy();
+
+    finishDrop();
+    await waitFor(() => expect(screen.queryByText('Drop role "appAdmin" on myapp?')).toBeNull());
+  });
 });
