@@ -371,6 +371,9 @@ and parse them main-side (`parseEjsonDocument`), like `filter` and `sort`;
 `optionsProblem` is the first of them, and `findProblem` includes it, so Run,
 ⌘↵, Copy code, Open as pipeline, Export all matching and the runner's own
 guard all refuse the same states. `queryRunKey` includes the four options.
+The drawer's live count idles while `optionsProblem` holds, and the plan
+badge's Explain refuses with its message, so a half-typed collation shows no
+server refusal.
 
 ### UI
 

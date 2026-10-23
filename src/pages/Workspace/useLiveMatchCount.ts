@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { api, isIpcError } from '../../api/atelier';
-import { compileFindOptions } from './builder';
+import { compileFindOptions, optionsProblem } from './builder';
 import { CollectionWorkspaceContext } from './context';
 
 /** How long the filter has to sit still before it is counted. */
@@ -52,7 +52,9 @@ export function useLiveMatchCount({
   // The tab's collation, hint and read preference (W14 §9): a collation
   // changes which documents match, so the count has to carry it to agree with
   // Run. Read from the workspace when there is one, since nothing in the
-  // drawer edits them; outside a provider the count has none.
+  // drawer edits them; outside a provider the count has none. An option that
+  // cannot run (a half-typed collation) idles the count like `paused`: asked,
+  // it would come back refused for a filter that is fine.
   const builder = React.use(CollectionWorkspaceContext)?.state.builder;
   const { collation, hint, readPreference } = builder ? compileFindOptions(builder) : {};
   const collectionKey = `${connectionId}\0${dbName}\0${collection}`;
@@ -62,7 +64,12 @@ export function useLiveMatchCount({
   // Mirrors the module set for this collection, so a timeout re-renders.
   const [, setTimeouts] = React.useState(0);
   const timedOut = timedOutCollections.has(collectionKey);
-  const idle = paused || queryRaw.trim() === '{}' || !connectionId || !collection;
+  const idle =
+    paused ||
+    queryRaw.trim() === '{}' ||
+    !connectionId ||
+    !collection ||
+    (builder !== undefined && optionsProblem(builder) !== null);
 
   React.useEffect(() => {
     if (idle || timedOut || failedKey === key) return;

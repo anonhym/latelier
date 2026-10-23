@@ -444,4 +444,42 @@ describe('Live match count — find options', () => {
     expect(count).toHaveBeenCalledTimes(2);
     expect(count.mock.calls[1]![0].collation).toBe('{"locale":"fr"}');
   });
+
+  // A half-typed collation would come back as a server refusal, shown as
+  // "unavailable" for a filter that is fine: say nothing until it runs.
+  it('asks nothing while a find option cannot run, and counts once it can', async () => {
+    const count = vi.fn<CountFn>(async () => ({ count: 2 }));
+    installAtelierMock({ query: { count } });
+    let collation = '{"locale":';
+    const hook = renderHook(
+      () => useLiveMatchCount({ connectionId: 'c1', dbName: 'mydb', collection: 'half', queryRaw: '{"name":"a"}', paused: false }),
+      {
+        wrapper: ({ children }) => (
+          <CollectionWorkspaceProvider
+            state={{
+              view: 'Tree',
+              builder: { projection: [], sort: '', limit: '', collation },
+              queryRaw: '{"name":"a"}',
+              page: 0,
+              pageSize: 50,
+              activeBuilderTab: 'Builder',
+            }}
+            actions={emptyWorkspaceActions()}
+            meta={emptyWorkspaceMeta()}
+          >
+            {children}
+          </CollectionWorkspaceProvider>
+        ),
+      },
+    );
+    await advance(500);
+    expect(hook.result.current).toEqual({ state: 'idle' });
+    expect(count).not.toHaveBeenCalled();
+
+    collation = '{"locale":"en"}';
+    hook.rerender();
+    await advance(500);
+    expect(hook.result.current).toEqual({ state: 'ok', count: 2 });
+    expect(count.mock.calls[0]![0].collation).toBe('{"locale":"en"}');
+  });
 });
