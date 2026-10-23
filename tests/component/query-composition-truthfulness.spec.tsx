@@ -357,17 +357,17 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
   it('an ObjectId filter copies as code that keeps the ObjectId (#23)', async () => {
     // Canonical EJSON pasted raw into mongosh reads `$oid` as an unknown
     // query operator, so the sentinel goes through EJSON.parse instead.
-    const filter = '{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}';
-    mountWith(makeState({ queryRaw: filter }));
+    const oid = '{"$oid":"64b7f0c2a1b2c3d4e5f60718"}';
+    mountWith(makeState({ queryRaw: `{"_id":${oid}}` }));
 
     await copyAs('mongosh');
     expect(copiedText()).toBe(
-      `db.getCollection("users").find(EJSON.parse(${JSON.stringify(filter)}, { relaxed: false })).limit(50)`,
+      `db.getCollection("users").find({"_id":EJSON.parse(${JSON.stringify(oid)}, { relaxed: false })}).limit(50)`,
     );
 
     await copyAs('Python');
     expect(copiedText()).toBe(
-      ['from bson import json_util', '', `query = json_util.loads(${JSON.stringify(filter)})`, 'cursor = db["users"].find(query, limit=50)'].join('\n'),
+      ['from bson import json_util', '', `query = {"_id":json_util.loads(${JSON.stringify(oid)})}`, 'cursor = db["users"].find(query, limit=50)'].join('\n'),
     );
   });
 

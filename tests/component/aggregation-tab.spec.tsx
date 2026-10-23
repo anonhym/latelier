@@ -921,9 +921,9 @@ describe('AggregationTab — Copy menu (#23)', () => {
     await copyAs('mongosh');
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toBe(
-      'db.getCollection("orders").aggregate(EJSON.parse(' +
-        JSON.stringify('[{"$match":{"_id":{"$oid":"64b7f0c2a1b2c3d4e5f60718"}}}]') +
-        ', { relaxed: false }))',
+      'db.getCollection("orders").aggregate([{"$match":{"_id":EJSON.parse(' +
+        JSON.stringify('{"$oid":"64b7f0c2a1b2c3d4e5f60718"}') +
+        ', { relaxed: false })}}])',
     );
   });
 
