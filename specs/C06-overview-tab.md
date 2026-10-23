@@ -155,8 +155,8 @@ All non-secret, served by `MonitorService` and registered by `registerAdminChann
 | `admin:setProfileLevel` | `{connectionId, dbName, level: 0\|1\|2, slowms?}` | `{ ok: true }` | write |
 | `admin:profileTail` | `{connectionId, dbName, limit? ≤ 100}` | `{ docs }`, canonical EJSON | read |
 
-- `currentOp` runs `[{ $currentOp: { allUsers: true, idleConnections: false } }, { $match }, { $sort: { secs_running: -1 } }, { $limit: 200 }]` on `admin` with `maxTimeMS: STATS_TIMEOUT_MS`. "Active only" matches `active: true`; "Running ≥ N s" matches `secs_running ≥ N`.
-- `CurrentOpSummary` is `{ opid, op, ns?, secsRunning?, client?, desc?, planSummary?, command }`. `opid` is `String()` of the server's opid: a number on mongod, `"shard:id"` on mongos. `client` falls back to `client_s` (mongos). `command` is the op's command as canonical EJSON, cut to 2000 characters, so the UI shows it as text and never parses it.
+- `currentOp` runs `[{ $currentOp: { allUsers: true, idleConnections: false, idleSessions: false } }, { $match }, { $sort: { secs_running: -1 } }, { $limit: 200 }]` on `admin` with `maxTimeMS: STATS_TIMEOUT_MS`, over a control client opened and closed per call (see `killOp`), so it lists an op that holds the pool's last connection. Idle sessions are left out because they carry no opid. "Active only" matches `active: true`; "Running ≥ N s" matches `secs_running ≥ N`.
+- `CurrentOpSummary` is `{ opid?, op, ns?, secsRunning?, client?, desc?, planSummary?, command }`. `opid` is `String()` of the server's opid: a number on mongod, `"shard:id"` on mongos. It is absent on a row the server gives none, and such a row offers no Kill. `client` falls back to `client_s` (mongos). `command` is the op's command as canonical EJSON with secret-named fields (`pwd`, `password`, …, the `log.ts` list) masked, since a `createUser` in flight carries its password. Past 2000 code points it is cut on a code-point boundary and ends in `… (truncated)`, so the UI shows it as text and never parses it.
 - `killOp` sends a numeric opid as a number and anything else as the string. It goes through `pool.write`, so a read-only connection refuses it (ADR 0005). The kill runs on a control client of its own, so it never queues behind the op it targets when that op holds the pool's last connection.
 - `profileStatus` is `profile: -1`; the server reports the current level as `was`.
 - `setProfileLevel` goes through `pool.write`, so a read-only connection refuses it. `slowms` is server-wide, not per database.
@@ -165,18 +165,21 @@ All non-secret, served by `MonitorService` and registered by `registerAdminChann
 ### UI
 
 - Disconnected: the same "Not connected. Open the Overview tab to connect." text as the other tabs, and no calls.
-- **Current operations.** Polls `admin:currentOp` every 5 seconds while the window is visible (the Overview pattern, at 5s instead of 15s). A Pause button stops polling until Resume. Filters: "Active only" (on by default) and "Running ≥ N s". The table shows opid, op, namespace, secs, client and plan; each row expands to show its command. Kill asks first through `confirmDestructive` ("Kill operation <opid>?", confirm label "Kill").
-- **Profiler.** A database select (the connection's default database, else the first listed), the current level and slowms, an Off/Slow/All `SegmentedControl` with a slowms field and Apply, and the latest 50 `system.profile` rows (time, op, namespace, millis, plan) with Refresh.
-- On a read-only connection Kill, the level control, slowms and Apply are disabled.
+- **Current operations.** Fetches `admin:currentOp` on open, then polls every 5 seconds (the Overview pattern, at 5s instead of 15s). A tick is skipped while the window is hidden or while the previous request is still pending. A Pause button stops polling until Resume. Filters: "Active only" (on by default) and "Running ≥ N s". The table shows opid, op, namespace, secs, client and plan; each row expands to show its command. Kill asks first through `confirmDestructive` ("Kill operation <opid>?", with the op, namespace and running time in the body, confirm label "Kill").
+- **Profiler.** A database select (the connection's default database, else the first listed), the current level and slowms, an Off/Slow/All `SegmentedControl` with a slowms field (marked server-wide) and Apply, and the latest 50 `system.profile` rows (time, op, namespace, millis, plan) with Refresh.
+- A reply for a database no longer picked is dropped. A failed profiler load clears the shown status and keeps Apply disabled, so the defaults are never sent; Apply is enabled only once a status has loaded.
+- On a read-only connection Kill, the level control, slowms and Apply are disabled and point (`aria-describedby`) at a visible note saying why.
 
 ### Acceptance criteria
 
 - The Monitor tab sits right after Overview and shows the Not connected text when disconnected.
-- While connected and visible, `admin:currentOp` is called on open and every 5 seconds; nothing is called while the window is hidden or the tab is paused.
+- While connected, `admin:currentOp` is called on open and then every 5 seconds; an interval tick is skipped while the window is hidden or a request is still pending, and none fires while paused.
 - The Active only and Running ≥ N s filters reach the `$match`.
 - Kill opens a confirm and calls `admin:killOp` only once confirmed; cancelling kills nothing.
 - A read-only connection refuses `admin:killOp` and `admin:setProfileLevel` in main, and the UI disables those controls.
 - Killing an opid that does not exist succeeds (the server answers ok).
+- At `maxPoolSize: 1`, an op holding the only pooled connection is listed and can be killed.
+- The command never carries a secret-named field's value.
 - Setting level 1 with slowms 0, then running a find, lists that find in the profile tail.
 
 ### Test cases
