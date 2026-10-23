@@ -31,7 +31,8 @@ export type FeatureHintId =
   | 'refs.configure'
   | 'tabs.pin'
   | 'saved.create'
-  | 'palette.discover';
+  | 'palette.discover'
+  | 'suggestions.keyboard';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];
@@ -119,8 +120,11 @@ Add a single row to the existing Settings UI: **Hints** — `[Reset hints]` butt
 | `tabs.pin`        | Pin this tab                       | Pinned tabs survive app relaunch and stay out of the LRU. Right-click any tab to pin it.               | Session tab-switch counter ≥ 3 and the user has zero pinned tabs.                                                  | The active tab in the tab strip         | none (close-only)                  |
 | `saved.create`    | Save this query                    | Run something useful? Save it for one-click reuse — `Cmd+S` works here.                                | Same `(connectionId, dbName, collection, queryHash)` was just executed for the 3rd time in this session.           | The "Save" button on the query toolbar  | "Save now" → opens save dialog     |
 | `palette.discover`| Find any action with ⌘K            | Press ⌘K (Ctrl+K on Windows/Linux) to search every action — switch connections, run queries, configure references, and more. | The user has not opened the palette this session (`getSessionEventCount('palette', 'opened') === 0`).               | The `⌘K` button in the title bar         | "Try it" → opens the palette       |
+| `suggestions.keyboard` | Navigate suggestions          | ↑↓ to move, Enter or Tab to insert, Esc to close                                                       | Any suggestion popover is open (X02 §5) and the hint state has loaded.                                             | A footer line under the popover's list, not a floating hint | none; the first pick dismisses it |
 
 `queryHash` is a stable hash over `(filter, projection, sort, limit, skip)` — already computed for the recents feature; reuse.
+
+`suggestions.keyboard` is the one inline hint: `SuggestionPopover` reads `useHints()` directly instead of `useFeatureHint`, so it never takes the floating slot and is not subject to the one-hint-at-a-time rule. It is dismissed through the same `dismiss(id)` and comes back with **Reset hints**.
 
 The session-scoped counters (`tabs.pin`, `saved.create`, `palette.discover`) live in `HintsProvider` memory and reset on app start. They are **not** persisted — once you dismiss, the counter is moot.
 
