@@ -184,7 +184,9 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
       const op = filtered[focusEffective];
       if (op) pick(op);
     } else if (e.key === 'Escape') {
-      setOpen(false);
+      e.preventDefault();
+      e.stopPropagation();
+      close();
     }
   };
 

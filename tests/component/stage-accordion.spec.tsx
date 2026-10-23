@@ -334,6 +334,31 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
     expect(onParentKeyDown).not.toHaveBeenCalled();
   });
 
+  it('Escape in the search box closes the picker and clears the search for the next open', () => {
+    renderAccordion([stage({ id: 3, op: '$match' })]);
+
+    fireEvent.click(opTrigger());
+    fireEvent.change(screen.getByLabelText('Search stages'), { target: { value: 'sort' } });
+    fireEvent.keyDown(screen.getByLabelText('Search stages'), { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+
+    fireEvent.click(opTrigger());
+    expect((screen.getByLabelText('Search stages') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByLabelText('Custom stage operator')).toBeNull();
+  });
+
+  it('stops propagation of the Escape keydown that closes the picker from the search box', () => {
+    const onParentKeyDown = vi.fn();
+    renderWithParentHandlers([stage({ id: 3, op: '$match' })], { onParentKeyDown });
+
+    fireEvent.click(opTrigger());
+    onParentKeyDown.mockClear();
+    fireEvent.keyDown(screen.getByLabelText('Search stages'), { key: 'Escape' });
+
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(onParentKeyDown).not.toHaveBeenCalled();
+  });
+
   it('stops propagation of the backdrop click that closes the picker', () => {
     const onParentClick = vi.fn();
     const { container } = renderWithParentHandlers(
