@@ -5,6 +5,12 @@ import type { ValueSource, ValueSuggestion } from '../types';
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 let ttlMs = DEFAULT_TTL_MS;
+/**
+ * A failed read (timeout, permissions, a dropped connection) is likely to
+ * pass, so its empty answer is kept only briefly: long enough not to retry
+ * on every keystroke, short enough that the enum shows up once it works.
+ */
+const FAILURE_TTL_MS = 15 * 1000;
 
 /** Override the per-entry cache lifetime. Returns the previous value so tests can stash and restore. */
 export function setSchemaEnumCacheTtl(nextMs?: number): number {
@@ -14,7 +20,7 @@ export function setSchemaEnumCacheTtl(nextMs?: number): number {
 }
 
 interface CacheEntry {
-  fetchedAt: number;
+  expiresAt: number;
   /** The validator's `$jsonSchema`, or null when there is none to read. */
   schema: Record<string, unknown> | null;
 }
@@ -39,19 +45,42 @@ function keyFor(connectionId: string, dbName: string, collection: string): strin
  * too.
  */
 function jsonSchemaOf(validator: string | undefined): Record<string, unknown> | null {
-  // Stryker disable next-line ConditionalExpression: without this guard
-  // `JSON.parse(undefined)` throws and `loadEntry`'s catch caches the same
-  // null. Kept so a collection with no rules isn't read as a failure.
   if (!validator) return null;
-  const parsed = JSON.parse(validator) as { $jsonSchema?: unknown } | null;
+  let parsed: { $jsonSchema?: unknown } | null;
+  try {
+    parsed = JSON.parse(validator) as { $jsonSchema?: unknown } | null;
+  } catch (err) {
+    // Main sends canonical EJSON, so this is a bug, not a transient state:
+    // reported, and cached for the full TTL like any other answer.
+    console.warn('[suggestions] collection validator is not JSON', err);
+    return null;
+  }
   const schema = parsed?.$jsonSchema;
   return isRecord(schema) ? schema : null;
+}
+
+/** One read of the validator, as a cache entry with its own lifetime. */
+async function fetchEntry(
+  connectionId: string,
+  dbName: string,
+  collection: string,
+): Promise<CacheEntry> {
+  let validator: string | undefined;
+  try {
+    const details = await api.meta.collectionDetails({ connectionId, dbName, collection });
+    validator = details.options.validator;
+  } catch (err) {
+    console.warn('[suggestions] reading the collection validator failed', err);
+    return { expiresAt: Date.now() + FAILURE_TTL_MS, schema: null };
+  }
+  return { expiresAt: Date.now() + ttlMs, schema: jsonSchemaOf(validator) };
 }
 
 /**
  * One `meta:collectionDetails` per collection and TTL, shared by every field.
  * That call throws on a missing collection and also reads storage stats, so a
- * failure caches "no schema" for the TTL: the popover fails open, emptier.
+ * failure is reported and caches "no schema" for `FAILURE_TTL_MS`: the
+ * popover fails open, emptier, and tries again shortly.
  */
 async function loadEntry(
   connectionId: string,
@@ -60,7 +89,7 @@ async function loadEntry(
 ): Promise<CacheEntry> {
   const key = keyFor(connectionId, dbName, collection);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.fetchedAt < ttlMs) return hit;
+  if (hit && Date.now() < hit.expiresAt) return hit;
 
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -71,10 +100,7 @@ async function loadEntry(
   self.promise = (async () => {
     let entry: CacheEntry;
     try {
-      const details = await api.meta.collectionDetails({ connectionId, dbName, collection });
-      entry = { fetchedAt: Date.now(), schema: jsonSchemaOf(details.options.validator) };
-    } catch {
-      entry = { fetchedAt: Date.now(), schema: null };
+      entry = await fetchEntry(connectionId, dbName, collection);
     } finally {
       if (inflight.get(key) === self.promise) inflight.delete(key);
     }

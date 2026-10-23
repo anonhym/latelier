@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { CollectionDetails } from '@shared/ipc';
 
 const { collectionDetails } = vi.hoisted(() => ({
@@ -96,10 +96,13 @@ describe('schemaEnumSource', () => {
     ]);
   });
 
-  it('suggests nothing without a validator', async () => {
+  it('suggests nothing without a validator, and reports nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     collectionDetails.mockResolvedValue(details());
     expect(await ask('status')).toEqual([]);
     expect(collectionDetails).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('suggests nothing for a query-operator validator without $jsonSchema', async () => {
@@ -158,11 +161,55 @@ describe('schemaEnumSource', () => {
     expect(await displays('toString')).toEqual([]);
   });
 
-  it('fails open to [] when the details call rejects, and caches that', async () => {
-    collectionDetails.mockRejectedValue(new Error('NOT_FOUND'));
-    expect(await ask('status')).toEqual([]);
-    expect(await ask('status')).toEqual([]);
-    expect(collectionDetails).toHaveBeenCalledTimes(1);
+  describe('failures', () => {
+    let now = 1_000_000;
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      now = 1_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('fails open to [] when the details call rejects, and reports the error', async () => {
+      const err = new Error('NOT_FOUND');
+      collectionDetails.mockRejectedValue(err);
+      expect(await ask('status')).toEqual([]);
+      expect(await ask('status')).toEqual([]);
+      expect(collectionDetails).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/validator failed/), err);
+    });
+
+    it('retries a failed read after 15 seconds, not after the full TTL', async () => {
+      collectionDetails.mockRejectedValueOnce(new Error('timeout'));
+      collectionDetails.mockResolvedValue(
+        details({ $jsonSchema: { properties: { status: { enum: ['back'] } } } }),
+      );
+      expect(await displays('status')).toEqual([]);
+      now += 14_999;
+      expect(await displays('status')).toEqual([]);
+      expect(collectionDetails).toHaveBeenCalledTimes(1);
+      now += 1;
+      expect(await displays('status')).toEqual(['back']);
+      expect(collectionDetails).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches a validator that is not JSON for the full TTL, and reports it', async () => {
+      collectionDetails.mockResolvedValue({ ...details(), options: { validator: '{not json' } });
+      expect(await displays('status')).toEqual([]);
+      now += 4 * 60 * 1000;
+      expect(await displays('status')).toEqual([]);
+      expect(collectionDetails).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not JSON/), expect.any(SyntaxError));
+    });
+
+    it('treats a reply without options as a failed read', async () => {
+      collectionDetails.mockResolvedValue(undefined as unknown as CollectionDetails);
+      expect(await displays('status')).toEqual([]);
+      now += 15_000;
+      await displays('status');
+      expect(collectionDetails).toHaveBeenCalledTimes(2);
+    });
   });
 
   it.each(['token', 'Password', 'creds.secret'])(
