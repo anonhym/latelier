@@ -260,6 +260,22 @@ describe('stageBodyCompletionSource — values in a $match body', () => {
     expect(valuesA).not.toHaveBeenCalled();
   });
 
+  it.each([
+    '{ a: { $regex: "█" } }',
+    '{ a: { $type: "█" } }',
+    '{ a: { $regex: "^x", $options: "█" } }',
+  ])('offers no values after an operator the builder does not suggest for: %s', async (doc) => {
+    valuesA.mockReturnValue([value('paid')]);
+    expect(await ctxFor('$match')(fakeCtx(doc))).toBeNull();
+    expect(valuesA).not.toHaveBeenCalled();
+  });
+
+  it.each(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'])('offers values after %s', async (op) => {
+    valuesA.mockReturnValue([value('paid')]);
+    const result = (await ctxFor('$match')(fakeCtx(`{ a: { ${op}: "█" } }`))) as CompletionResult | null;
+    expect(result?.options.map((o) => o.label)).toEqual(['paid']);
+  });
+
   it('offers no values for a string under operator keys only', async () => {
     valuesA.mockReturnValue([value('paid')]);
     expect(await ctxFor('$match')(fakeCtx('{ $expr: { $eq: "█" } }'))).toBeNull();

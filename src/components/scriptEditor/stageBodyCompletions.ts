@@ -5,6 +5,7 @@ import type {
   CompletionSource,
 } from '@codemirror/autocomplete';
 import { detectAggGrammar } from '../../features/fieldSuggestions/aggGrammar';
+import { VALUE_SUGGESTION_OPS } from '../../features/fieldSuggestions/operators';
 import {
   DEFAULT_FIELD_SOURCES,
   DEFAULT_VALUE_SOURCES,
@@ -172,6 +173,9 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
     const hit = detectAggGrammar(doc, ctx.pos, stageOp);
     if (hit?.kind === 'valueFor') {
       if (stageOp !== '$match') return null;
+      // Same gate as the builder's value box: `{a: {$regex: "…"}}` takes a
+      // pattern, not one of a's values.
+      if (hit.operator !== undefined && !VALUE_SUGGESTION_OPS.has(hit.operator)) return null;
       const target = { field: hit.field, operator: hit.operator };
       return collectValueOptions({ ...suggestionCtx, target }).then((options) =>
         options.length === 0
