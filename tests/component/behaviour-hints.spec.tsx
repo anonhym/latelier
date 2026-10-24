@@ -203,10 +203,11 @@ function mountMonitor(
   runtime: ConnectionRuntime,
   prefs: ReturnType<typeof memoryPrefs>,
   admin: Record<string, unknown> = {},
+  dbNames: string[] = ['shop'],
 ) {
   installAtelierMock({
     prefs,
-    meta: { listDatabases: async () => [{ name: 'shop', sizeOnDisk: 0, empty: false }] },
+    meta: { listDatabases: async () => dbNames.map((name) => ({ name, sizeOnDisk: 0, empty: false })) },
     admin: {
       currentOp: async () => ({ ops: [] }),
       profileStatus: async () => ({ level: 0 as const, slowms: 100 }),
@@ -248,7 +249,7 @@ describe('monitor.live hint', () => {
 });
 
 describe('monitor.profiler hint', () => {
-  it('shows after Apply succeeds with a level other than Off, anchored on the profiler section', async () => {
+  it('shows after Apply succeeds with a level other than Off, anchored on the profiler toolbar', async () => {
     mountMonitor(connectedRuntime, memoryPrefs(['monitor.live']));
     const prof = screen.getByRole('region', { name: 'Profiler' });
     await waitFor(() => expect((within(prof).getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(false));
@@ -258,7 +259,29 @@ describe('monitor.profiler hint', () => {
     fireEvent.click(within(prof).getByText('All'));
     fireEvent.click(within(prof).getByRole('button', { name: 'Apply' }));
     await waitFor(() => expect(hintDialog('monitor.profiler')).not.toBeNull(), { timeout: 3000 });
-    expect(document.querySelector('[data-hint-anchor="monitor.profiler"]')).toBe(prof);
+    // The toolbar, not the section: the profile table below can run off-screen.
+    const anchor = document.querySelector('[data-hint-anchor="monitor.profiler"]');
+    expect(anchor).not.toBe(prof);
+    expect(prof.contains(anchor)).toBe(true);
+    expect(within(prof).getByRole('button', { name: 'Apply' }).closest('[data-hint-anchor]')).toBe(anchor);
+  });
+
+  it('ignores an Apply that finishes after another database was picked', async () => {
+    let release!: () => void;
+    const setProfileLevel = vi.fn(
+      () => new Promise<{ ok: true }>((resolve) => (release = () => resolve({ ok: true }))),
+    );
+    mountMonitor(connectedRuntime, memoryPrefs(['monitor.live']), { setProfileLevel }, ['shop', 'other']);
+    const prof = screen.getByRole('region', { name: 'Profiler' });
+    await waitFor(() => expect((within(prof).getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(prof).getByText('All'));
+    fireEvent.click(within(prof).getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(setProfileLevel).toHaveBeenCalled());
+
+    fireEvent.change(within(prof).getByRole('combobox', { name: 'Profiler database' }), { target: { value: 'other' } });
+    release();
+    await settle();
+    expect(hintDialog('monitor.profiler')).toBeNull();
   });
 
   it('stays hidden when Apply sets the level to Off', async () => {

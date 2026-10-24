@@ -230,7 +230,9 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
         level,
         ...(ms >= 0 ? { slowms: ms } : {}),
       });
-      setAppliedLevel(level);
+      // The user may have picked another database while this was in flight; the
+      // level just applied says nothing about the one now selected.
+      if (dbNameRef.current === dbName) setAppliedLevel(level);
       await loadProfile();
     } catch (err) {
       setProfError(errText(err));
@@ -372,8 +374,10 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
         )}
       </section>
 
-      <section aria-label="Profiler" data-hint-anchor="monitor.profiler" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <section aria-label="Profiler" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Anchored on the toolbar, not the section: the profile table below can run
+            past the viewport and the hint would land off-screen. */}
+        <div data-hint-anchor="monitor.profiler" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={sectionTitle}>Profiler</span>
           <select
             aria-label="Profiler database"
