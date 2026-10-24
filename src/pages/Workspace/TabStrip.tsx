@@ -185,6 +185,7 @@ export function TabStrip({
       ref={stripRef}
       role="tablist"
       aria-label="Open tabs"
+      data-hint-anchor="startup.restore"
       // -1: a keyboard-menu close (see the `returnFocusTo` comment below)
       // needs this container to be a valid `.focus()` target, but it is not
       // itself a roving-tabindex stop — the tabs are.

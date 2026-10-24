@@ -1140,7 +1140,12 @@ export type FeatureHintId =
   | 'tabs.pin'
   | 'saved.create'
   | 'palette.discover'
-  | 'suggestions.keyboard';
+  | 'suggestions.keyboard'
+  | 'startup.restore'
+  | 'monitor.live'
+  | 'monitor.profiler'
+  | 'indexes.usage'
+  | 'find.options';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];

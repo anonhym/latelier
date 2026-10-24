@@ -43,6 +43,8 @@ import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
 import { useFeatureHint } from '../hints/useFeatureHint';
 import { useHints } from '../hints/HintsContext';
+import { FeatureHint } from '../hints/FeatureHint';
+import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
 import {
@@ -253,6 +255,26 @@ function WorkspaceInner() {
     'tabs.pin',
     tabSwitchCount >= 3 && !anyPinned && tabs.activeId !== null,
   );
+
+  // Tabs the previous session left behind, as main restored them at launch.
+  const [restoredAtLaunch, setRestoredAtLaunch] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    void readLaunchTabCount().then((n) => {
+      if (!cancelled && n > 0 && !isLaunchRestoreConsumed()) setRestoredAtLaunch(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const startupRestoreHint = useFeatureHint(
+    'startup.restore',
+    restoredAtLaunch && tabs.tabs.length > 0,
+  );
+  const startupRestoreVisible = startupRestoreHint.visible;
+  React.useEffect(() => {
+    if (startupRestoreVisible) consumeLaunchRestore();
+  }, [startupRestoreVisible]);
 
   const currentQueryKey = React.useMemo(() => {
     if (!activeCollection) return '';
@@ -1195,6 +1217,13 @@ function WorkspaceInner() {
           createIndexRequest?.tabId === activeCollection?.id ? createIndexRequest : null
         }
         onStructureInitialCreateConsumed={onCreateIndexConsumed}
+      />
+
+      <FeatureHint
+        id="startup.restore"
+        visible={startupRestoreHint.visible}
+        onDismiss={startupRestoreHint.dismiss}
+        onCta={settings.open}
       />
 
       <DialogStack
