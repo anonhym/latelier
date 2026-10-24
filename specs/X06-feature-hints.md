@@ -8,7 +8,7 @@ Make non-obvious features discoverable at the moment a user would want them. The
 
 ## Scope
 
-- **In**: hint registry, `<FeatureHint>` popover component, `useFeatureHint(id, when)` hook, dismissal persistence in `app_state`, a catalog of hints (Run, configure references, pin a tab, save a query, palette, suggestion keys; see §4), and a "Reset hints" action in Settings.
+- **In**: hint registry, `<FeatureHint>` popover component, `useFeatureHint(id, when)` hook, dismissal persistence in `app_state`, a catalog of hints (Run, configure references, pin a tab, save a query, palette, suggestion keys, and the behaviour-triggered startup restore, Monitor, Indexes and find-options hints; see §4), and a "Reset hints" action in Settings.
 - **Out** (deferred):
   - Full command palette / Cmd-K — specified in [X07](./X07-command-palette.md); since shipped.
   - Multi-step tours (next / back / skip).
@@ -33,7 +33,12 @@ export type FeatureHintId =
   | 'tabs.pin'
   | 'saved.create'
   | 'palette.discover'
-  | 'suggestions.keyboard';
+  | 'suggestions.keyboard'
+  | 'startup.restore'
+  | 'monitor.live'
+  | 'monitor.profiler'
+  | 'indexes.usage'
+  | 'find.options';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];
@@ -133,8 +138,13 @@ Add a single row to the existing Settings UI: **Hints** — `[Reset hints]` butt
 | `saved.create`    | Save this query                    | Run something useful? Save it for one-click reuse from the Saved tab.                                | Same `(connectionId, dbName, collection, queryHash)` was just executed for the 3rd time in this session.           | The "Save" button on the query toolbar  | "Save now" → opens save dialog     |
 | `palette.discover`| Find any action with ⌘K            | Press ⌘K (Ctrl+K on Windows/Linux) to search every action — switch connections, run queries, configure references, and more. | The user has not opened the palette this session (`getSessionEventCount('palette', 'opened') === 0`).               | The `⌘K` button in the title bar         | "Try it" → opens the palette       |
 | `suggestions.keyboard` | Navigate suggestions          | Tab inserts the highlighted item. ↑↓ to pick another, then Enter or Tab. Esc to close.                                                       | Any suggestion popover is open (X02 §5) and the hint state has loaded.                                             | A footer line under the popover's list, not a floating hint | none; the first pick dismisses it |
+| `startup.restore` | Your tabs were reopened | Tabs from last time came back. You can turn this off in Settings → Reopen tabs on launch. | At least one tab was in the first tab list the renderer read after launch (main has already restored, or cleared when the pref is off, by then). A tab opened later in the session never qualifies, and the hint does not repeat after a Workspace remount once shown. | The workspace tab strip | "Open settings" → opens the Settings modal |
+| `monitor.live` | This list refreshes on its own | It refreshes every 5 s while the window is visible; Pause stops it. Kill asks first, and whatever the operation already wrote stays written. | The Monitor tab is shown for a connected connection. The interval in the copy is built from `MONITOR_POLL_MS`, the constant the tab polls on. | The Pause button | none (close-only) |
+| `monitor.profiler` | Profiling stays on until you turn it off | The level is a server-side setting for this database, so it keeps running until you set it back to Off. Profiling can add write load. | The profiler's Apply succeeded with Slow or All; a failed Apply, an Apply to Off, or picking another database does not qualify. | The Profiler section | none (close-only) |
+| `indexes.usage` | What the Use column counts | Use counts how often queries used an index since the date in its tooltip (server restart or index creation). Near zero over a long window: a drop candidate. | The Indexes list holds at least one index with usage data (`$indexStats`). The UI has no hide/unhide control, so the copy does not suggest one. | The "Use" column header | none (close-only) |
+| `find.options` | Collation and hint apply to the whole query | They apply to Run, the count, export and Copy code. Delete by filter and bulk update refuse while one is set: clear it first. | The query bar's options row is open and the collation or the hint is non-blank. | The collation/hint row of the query bar | none (close-only) |
 
-Priority order (lowest wins): `run.execute` 0, `refs.configure` 10, `tabs.pin` 20, `saved.create` 30, `palette.discover` 40, `suggestions.keyboard` 50 (inline, so never competes). The primary path, Run, always beats a secondary hint.
+Priority order (lowest wins): `run.execute` 0, `refs.configure` 10, `tabs.pin` 20, `saved.create` 30, `palette.discover` 40, `suggestions.keyboard` 50 (inline, so never competes), `startup.restore` 60, `monitor.live` 70, `monitor.profiler` 80, `indexes.usage` 90, `find.options` 100. The behaviour hints rank below every original one, so they never pre-empt the primary path. The primary path, Run, always beats a secondary hint.
 
 `queryHash` is a stable hash over `(filter, projection, sort, limit, skip)` — already computed for the recents feature; reuse.
 

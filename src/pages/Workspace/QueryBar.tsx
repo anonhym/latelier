@@ -28,6 +28,8 @@ import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import { QueryExpandModal } from './QueryExpandModal';
 import { LIMIT_EXPLANATION } from './queryCaps';
 import type { BuilderState, CollectionTabState, ExplainVerbosity } from '@shared/types';
+import { FeatureHint } from '../../hints/FeatureHint';
+import { useFeatureHint } from '../../hints/useFeatureHint';
 
 interface QueryBarProps {
   suggestionContext: SuggestionContext | null;
@@ -393,6 +395,11 @@ function QueryBarInner({
     if (hasAdvanced) setAdvancedOpen(true);
   }
   const toggleAdvanced = () => setAdvancedOpen((o) => !o);
+  // Needs the options row open: that row holds the hint's anchor.
+  const findOptionsHint = useFeatureHint(
+    'find.options',
+    advancedOpen && (!!state.builder.collation?.trim() || !!state.builder.hint?.trim()),
+  );
 
   // Shared cell styles for the 4-column grid below the toolbar. The label
   // cells are a slightly raised background to read as "row headers" the way
@@ -810,7 +817,10 @@ function QueryBarInner({
 
       {/* OPTIONS rows (W14 §9): what the find carries besides its clauses.
           Labelled off the visible cells like sort and limit (W15 §5). */}
-      <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}>
+      <div
+        data-hint-anchor="find.options"
+        style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}
+      >
         <div id="query-bar-collation-label" style={labelCellStyle}>collation</div>
         <div style={valueCellStyle}>
           <input
@@ -958,6 +968,12 @@ function QueryBarInner({
           onCreateIndex={onCreateIndex}
         />
       )}
+
+      <FeatureHint
+        id="find.options"
+        visible={findOptionsHint.visible}
+        onDismiss={findOptionsHint.dismiss}
+      />
     </div>
   );
 }

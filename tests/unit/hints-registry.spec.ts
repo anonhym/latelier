@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HINT_REGISTRY } from '../../src/hints/registry';
 import type { FeatureHintId } from '../../shared/types';
+import { MONITOR_POLL_MS } from '../../src/utils/monitorPoll';
 import { queryRunKey } from '../../src/utils/queryRunKey';
 
 describe('HINT_REGISTRY', () => {
@@ -11,6 +12,11 @@ describe('HINT_REGISTRY', () => {
     'saved.create',
     'palette.discover',
     'suggestions.keyboard',
+    'startup.restore',
+    'monitor.live',
+    'monitor.profiler',
+    'indexes.usage',
+    'find.options',
   ];
 
   it('contains every FeatureHintId exactly once', () => {
@@ -27,6 +33,15 @@ describe('HINT_REGISTRY', () => {
       expect(c.body.length).toBeLessThanOrEqual(200);
       expect(c.title.trim()).toBe(c.title);
     }
+  });
+
+  it('orders the behaviour hints after the original catalog', () => {
+    const order: FeatureHintId[] = ['startup.restore', 'monitor.live', 'monitor.profiler', 'indexes.usage', 'find.options'];
+    expect(order.map((id) => HINT_REGISTRY[id].priority)).toEqual([60, 70, 80, 90, 100]);
+  });
+
+  it('derives the monitor poll interval from the constant the tab polls on', () => {
+    expect(HINT_REGISTRY['monitor.live'].body).toContain(`every ${MONITOR_POLL_MS / 1000} s`);
   });
 
   it('gives the primary-path Run hint the lowest priority number', () => {

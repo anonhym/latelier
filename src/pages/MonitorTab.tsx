@@ -6,6 +6,9 @@ import { api, isIpcError } from '../api/atelier';
 import { confirmDestructive } from '../utils/confirm';
 import { ejsonParse } from '../utils/ejson';
 import { DisclosureToggle } from '../components/DisclosureToggle';
+import { FeatureHint } from '../hints/FeatureHint';
+import { useFeatureHint } from '../hints/useFeatureHint';
+import { MONITOR_POLL_MS } from '../utils/monitorPoll';
 import type { DbInfo } from '@shared/ipc';
 import type {
   ConnectionRuntime,
@@ -15,7 +18,6 @@ import type {
   ProfileStatus,
 } from '@shared/types';
 
-const POLL_MS = 5_000;
 const MIN_SECS_DEBOUNCE_MS = 300;
 const PROFILE_ROWS = 50;
 
@@ -127,7 +129,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
     void loadOps();
     const handle = setInterval(() => {
       if (document.visibilityState === 'visible' && pending.current === 0) void loadOps();
-    }, POLL_MS);
+    }, MONITOR_POLL_MS);
     return () => clearInterval(handle);
   }, [loadOps, connected, paused]);
 
@@ -155,6 +157,8 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   const [slowms, setSlowms] = React.useState('100');
   const [profile, setProfile] = React.useState<unknown[] | null>(null);
   const [profError, setProfError] = React.useState<string | null>(null);
+  // The level the last successful Apply set, for the profiler hint; 0 = nothing on.
+  const [appliedLevel, setAppliedLevel] = React.useState<ProfileLevel>(0);
   const latestProfile = React.useRef(0);
   // The database picked right now, readable from a closure captured earlier.
   const dbNameRef = React.useRef(dbName);
@@ -209,6 +213,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
     setDbName(next);
     setStatus(null);
     setProfile(null);
+    setAppliedLevel(0);
   };
 
   React.useEffect(() => {
@@ -225,11 +230,15 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
         level,
         ...(ms >= 0 ? { slowms: ms } : {}),
       });
+      setAppliedLevel(level);
       await loadProfile();
     } catch (err) {
       setProfError(errText(err));
     }
   };
+
+  const liveHint = useFeatureHint('monitor.live', connected);
+  const profilerHint = useFeatureHint('monitor.profiler', connected && appliedLevel !== 0);
 
   if (!connected) {
     return (
@@ -278,7 +287,12 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
                 ? `Updated ${new Date(updatedAt).toLocaleTimeString()}`
                 : 'Loading…'}
           </span>
-          <Button size="compact-xs" variant="subtle" onClick={() => setPaused((p) => !p)}>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            data-hint-anchor="monitor.live"
+            onClick={() => setPaused((p) => !p)}
+          >
             {paused ? 'Resume' : 'Pause'}
           </Button>
           <Button size="compact-xs" variant="subtle" leftSection={I.sync} onClick={() => void loadOps()}>
@@ -358,7 +372,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
         )}
       </section>
 
-      <section aria-label="Profiler" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <section aria-label="Profiler" data-hint-anchor="monitor.profiler" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={sectionTitle}>Profiler</span>
           <select
@@ -448,6 +462,12 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
           </Table>
         )}
       </section>
+      <FeatureHint id="monitor.live" visible={liveHint.visible} onDismiss={liveHint.dismiss} />
+      <FeatureHint
+        id="monitor.profiler"
+        visible={profilerHint.visible}
+        onDismiss={profilerHint.dismiss}
+      />
     </div>
   );
 }

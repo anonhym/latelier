@@ -27,6 +27,8 @@ import type {
 } from '@shared/types';
 import type { IndexSuggestion } from '../utils/indexSuggestion';
 import { humanBytes } from '../utils/humanBytes';
+import { FeatureHint } from '../hints/FeatureHint';
+import { useFeatureHint } from '../hints/useFeatureHint';
 
 /**
  * A one-shot request from `ExplainDrawer`'s "Create an index for this
@@ -244,6 +246,8 @@ export function IndexesTab({
   // plain scrolling block instead — one scroller for the whole pane — so
   // this lays out at its natural content height and lets the page provide
   // the only scrollbar.
+  const usageHint = useFeatureHint('indexes.usage', !!indexes?.some((i) => i.usage));
+
   if (viewOn !== undefined) {
     return (
       <div style={{ padding: '10px 16px', fontSize: 12, color: T.textMuted, borderBottom: `1px solid ${T.border}` }}>
@@ -388,7 +392,7 @@ export function IndexesTab({
                 <Table.Th>Key</Table.Th>
                 <Table.Th>Options</Table.Th>
                 <Table.Th>Size</Table.Th>
-                <Table.Th>Use</Table.Th>
+                <Table.Th data-hint-anchor="indexes.usage">Use</Table.Th>
                 <Table.Th style={{ width: 36 }} />
               </Table.Tr>
             </Table.Thead>
@@ -539,6 +543,7 @@ export function IndexesTab({
         )}
       </div>
 
+      <FeatureHint id="indexes.usage" visible={usageHint.visible} onDismiss={usageHint.dismiss} />
     </div>
   );
 }
