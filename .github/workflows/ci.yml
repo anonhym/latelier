@@ -213,7 +213,7 @@ jobs:
           pw=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")
           prefix="apt-v1-${ImageOS}-pw${pw}-${KEYRING_PKGS// /+}-"
           echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${ImageVersion}-fallbacktest" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${ImageVersion}" >> "$GITHUB_OUTPUT"
 
       - name: Restore apt package cache
         id: apt-cache
