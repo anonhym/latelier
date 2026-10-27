@@ -295,7 +295,6 @@ jobs:
       - name: Collect downloaded .deb files
         if: steps.apt-cache.outputs.cache-hit != 'true'
         run: |
-          ls /etc/apt/apt.conf.d
           mkdir -p ~/apt-debs
           cp /var/cache/apt/archives/*.deb ~/apt-debs/
           echo "collected $(find ~/apt-debs -name '*.deb' | wc -l) .deb files, $(du -sh ~/apt-debs | cut -f1)"
