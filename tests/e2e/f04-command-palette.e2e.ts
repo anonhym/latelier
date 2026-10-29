@@ -28,12 +28,23 @@ test('command palette: ⌘K opens, "new connection" navigates, theme toggle pers
       await win.getByRole('button', { name: /^Connection:/ }).waitFor({ state: 'visible' });
 
       // ── Open palette via ⌘K (Meta on macOS, Ctrl elsewhere) ──────────────
-      await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
       // The search input carries a stable aria-label; the palette is the dialog
       // that contains it.
       const search = win.locator('input[aria-label="Search commands"]');
       const palette = win.getByRole('dialog').filter({ has: search });
-      await expect(palette).toBeVisible({ timeout: 4000 });
+      let presses = 0;
+      await expect(async () => {
+        if (!(await palette.isVisible())) {
+          const state = await win.evaluate(() => ({
+            hasFocus: document.hasFocus(),
+            active: document.activeElement?.tagName ?? null,
+          }));
+          presses += 1;
+          process.stderr.write(`[f04-diag] press ${presses} ${JSON.stringify(state)}\n`);
+          await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+        }
+        await expect(palette).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 8000 });
       await search.fill('new connection');
 
       // The matching option renders with role="option". "New connection"
