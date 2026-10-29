@@ -32,15 +32,12 @@ test('command palette: ⌘K opens, "new connection" navigates, theme toggle pers
       // that contains it.
       const search = win.locator('input[aria-label="Search commands"]');
       const palette = win.getByRole('dialog').filter({ has: search });
-      let presses = 0;
+      // On CI this first ⌘K after a cold launch is sometimes lost: the app is
+      // fully rendered, the window is focused on <body>, and no palette opens.
+      // The cause is not known. Press again while the palette is still closed
+      // (never while open, which would toggle it shut).
       await expect(async () => {
         if (!(await palette.isVisible())) {
-          const state = await win.evaluate(() => ({
-            hasFocus: document.hasFocus(),
-            active: document.activeElement?.tagName ?? null,
-          }));
-          presses += 1;
-          process.stderr.write(`[f04-diag] press ${presses} ${JSON.stringify(state)}\n`);
           await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
         }
         await expect(palette).toBeVisible({ timeout: 1000 });
