@@ -265,6 +265,12 @@ export interface IpcApi {
     onFlushRequest: (cb: () => void) => () => void;
     /** The answer to a flush request: the pending tab edits have been sent. */
     flushDone: () => Promise<void>;
+    /**
+     * Writes a renderer error to main's log file under the `renderer` tag
+     * (F06 §8). Main caps how many lines it takes per minute and drops the
+     * rest silently, still answering ok.
+     */
+    log: (input: RendererLogInput) => Promise<void>;
   };
 
   /** Auto-update: one state, one action. See specs/X20-auto-update.md. */
@@ -576,6 +582,7 @@ export const IPC_CHANNELS = {
   appSetUnsavedWork: 'app:setUnsavedWork',
   appFlushRequestEvent: 'app:flush-request-event',
   appFlushDone: 'app:flushDone',
+  appLog: 'app:log',
 
   // Auto-update -----------------------------------------
   updatesGetState:   'updates:getState',
@@ -729,3 +736,14 @@ export type PickFilePurpose = 'tls-ca' | 'tls-client-cert' | 'ssh-key' | 'data-i
 
 /** Who reports unsaved work for the quit question: the connection form, or the workspace's dirty pipelines. */
 export type UnsavedWorkSource = 'connectionForm' | 'pipelines';
+
+/** Where a renderer log line came from: a global handler, the error boundary, or a component's own catch. */
+export type RendererLogSource = 'window.error' | 'unhandledrejection' | 'errorBoundary' | 'component';
+
+/** One renderer line for `app:log`. Main refuses a message over 2000 or a stack over 8000 characters. */
+export interface RendererLogInput {
+  level: 'warn' | 'error';
+  message: string;
+  source: RendererLogSource;
+  stack?: string;
+}

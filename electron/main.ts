@@ -32,7 +32,7 @@ import { registerConnImportChannels } from './ipc/handlers/connImport.ts';
 import { ConnectionExportService, type ConnectionExportDialogs } from './services/ConnectionExportService.ts';
 import { ImportWizardService } from './services/ImportWizardService.ts';
 import { createPickedCredentialPaths } from './security/credentialPaths.ts';
-import { registerAppChannels, saveFilters } from './ipc/handlers/app.ts';
+import { registerAppChannels, resetGateOnFreshPage, saveFilters } from './ipc/handlers/app.ts';
 import { registerMongoChannels } from './ipc/handlers/mongo.ts';
 import { registerMetaChannels } from './ipc/handlers/meta.ts';
 import { registerIndexChannels } from './ipc/handlers/indexes.ts';
@@ -85,7 +85,7 @@ import { registerDataChannels, makeDataEmitter } from './ipc/handlers/data.ts';
 import { ImportService } from './mongo/ImportService.ts';
 import { DEFAULT_EXPORT_CAP, QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
-import { createLogger, type Logger } from './log.ts';
+import { createLogger, createRateGate, type Logger } from './log.ts';
 import {
   awaitRendererFlush,
   createBeforeQuitHandler,
@@ -205,6 +205,9 @@ function clearUnsavedWork(): void {
 // The pending flush request's ack while a quit waits on the renderer, so
 // `app:flushDone` has somewhere to land; a stray answer outside a quit does nothing.
 let flushAck: (() => void) | null = null;
+// Caps `app:log` at 50 renderer lines a minute. A fresh page starts with a
+// fresh allowance, so the errors of a reload after a render loop still land.
+const rendererLogGate = createRateGate(50, 60_000);
 let firstCrashAt = 0;
 
 function resolveUserDataDir(): string {
@@ -444,6 +447,7 @@ function createWindow(): void {
   win.webContents.on('did-start-navigation', (details) => {
     if (details.isMainFrame && !details.isSameDocument) clearUnsavedWork();
   });
+  resetGateOnFreshPage(win.webContents, rendererLogGate);
   win.webContents.on('render-process-gone', (_evt, details) => {
     clearUnsavedWork();
     const now = Date.now();
@@ -821,7 +825,10 @@ app.whenReady().then(() => {
   // Filled by the open dialog, read by the data channels: the only files an
   // import may read are ones the user picked in main's own dialog.
   const pickedImports = new Set<string>();
-  registerAppChannels(router, () => win, pickedImports, pickedCredentialPaths, diagnostic, unsaved, () => flushAck?.());
+  registerAppChannels(
+    router, () => win, pickedImports, pickedCredentialPaths, diagnostic, unsaved, () => flushAck?.(),
+    { log, gate: rendererLogGate },
+  );
   registerMongoChannels(router, pool, () => win?.webContents ?? null);
   registerMetaChannels(router, metaSvc);
   registerIndexChannels(router, indexSvc);

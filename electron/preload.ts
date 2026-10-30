@@ -73,6 +73,7 @@ const api: IpcApi = {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.appFlushRequestEvent, listener);
     },
     flushDone: () => call(IPC_CHANNELS.appFlushDone, {}),
+    log: (input) => call(IPC_CHANNELS.appLog, input),
   },
 
   updates: {

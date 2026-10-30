@@ -49,6 +49,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       onMenuCommand: () => () => {},
       onFlushRequest: () => () => {},
       flushDone: async () => {},
+      log: async () => {},
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),
@@ -391,6 +392,7 @@ function makePermissiveStub(): IpcApi {
       onMenuCommand: () => () => {},
       onFlushRequest: () => () => {},
       flushDone: async () => {},
+      log: async () => {},
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),

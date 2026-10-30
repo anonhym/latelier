@@ -151,10 +151,16 @@ Before the sequence above starts, `before-quit` checks for work that quitting wo
 ## 8. Logs
 
 - Rotating file at `userData/logs/latelier.<date>.log`. Daily rotation, 7-day retention.
+- Each file is capped at 10 MiB. A day that outgrows it continues in `latelier.<date>.1.log`, then `.2`, and so on; a line bigger than the cap still goes whole into an empty part. The logger counts bytes in memory and reads a size from disk only when it opens a day, where it resumes that day's highest part. Parts age out like any other log file. The diagnostic bundle keeps the newest files by date, then part number counted as a number, then the pre-rename `mongolab.` file before the `latelier.` one of the same day.
 - On POSIX the `logs/` dir is `0700` and log files are `0600`; existing files are tightened at startup, and a dir or file that cannot be is reported as a `warn` line. No-op on Windows.
 - Log levels: `debug` (dev only), `info`, `warn`, `error`.
 - `log.info(tag, msg, data?)` — `tag` is a short namespace (`'boot'`, `'mongo'`, `'db'`, `'ipc'`).
-- Renderer never writes to this log directly; it calls `app:log` IPC which the main side filters and forwards.
+- Renderer never writes to this log directly; it calls `app:log`, which main validates, rate-limits and writes under the `renderer` tag, with `{ source, stack }` as data. The usual scrubbing applies.
+  - Payload: `level` is `warn` or `error`; `message` is at most 2000 characters; `source` is `window.error`, `unhandledrejection`, `errorBoundary` or `component`; the optional `stack` is at most 8000 characters. Anything else is refused as `VALIDATION`. The renderer cuts the message and stack to those lengths itself, so a long error is shortened, never refused whole.
+  - Rate limit: 50 lines per 60 s window. The first line dropped in a window writes one `warn`, "renderer log rate limit reached; dropping until <ISO time>", and the rest are dropped silently. A dropped line still answers ok. A full page load (a reload, or the page after a crash) starts a fresh window.
+  - The channel is registered quiet: the router writes no `ipc.req` or `ipc.ok` line for it, so a loop adds nothing per call around the gate, and the `ipc.err` line of a refused call carries no request summary.
+  - Senders: the window's `error` and `unhandledrejection` listeners, installed before the first render; the error boundary, which sends the error's message, and its stack joined with the component stack; and component catches that have no UI to report to, such as the Mongo shell's stop during cleanup.
+  - When `app:log` itself fails, the renderer says so once with `console.warn` and never through `app:log`, so a broken bridge cannot loop.
 
 ## 9. Acceptance criteria
 
@@ -166,6 +172,8 @@ Before the sequence above starts, `before-quit` checks for work that quitting wo
 - A tab edit made just before quitting or closing the window is there after a relaunch.
 - A DB file that fails to open (corrupt) produces an error dialog naming the file path and tells the user how to reset.
 - `app:log` IPC entries appear in the log file with the correct process tag.
+- A renderer that logs in a loop writes at most 50 lines and one rate-limit notice per minute.
+- No log file grows past 10 MiB, except for a single line that is larger than the cap.
 
 ## 10. Test cases
 
@@ -173,12 +181,19 @@ Before the sequence above starts, `before-quit` checks for work that quitting wo
 - **boot-order.spec.ts** (with stubbed Electron `app`/`BrowserWindow`): assert registration order is DB → services → IPC → window.
 - **single-instance.spec.ts**: second `app.requestSingleInstanceLock` returns false → the test harness observes a quit call and a `second-instance` event emission on the first.
 - **app-unsaved-work.spec.ts**: `app:setUnsavedWork` sets its source in the store; zod rejects an unknown source and a count that is negative, fractional or over 1000. `app:flushDone` reaches the ack sink, and zod rejects a payload that is not an object.
+- **app-log-channel.spec.ts**: `app:log` writes the line at its level under the `renderer` tag with source and stack, scrubbed; accepts a message and stack exactly at their caps; refuses an unknown level or source, a message over 2000, a stack over 8000, a missing message and a non-object; writes 50 lines, one notice and then nothing, answering ok; a flood of 200 calls leaves exactly 50 lines and the notice in the file, none from the router; takes lines again after a reset; `resetGateOnFreshPage` resets the gate on a main-frame, cross-document navigation only.
+- **diagnostic-service.spec.ts**: the bundle keeps the newest parts of a day, with `.10` after `.2`.
+- **log.spec.ts** (unit): a line that lands exactly on the cap stays and the next rolls to `.1`; bytes are counted, not characters; an oversized line goes into an empty part; startup resumes the day's highest part and counts its bytes; a new day starts at part 0; a failed append is not counted. `compareLogFiles` and `createRateGate` (cap, first refusal, window boundary, a clock that moves back, reset) are covered here and by property tests.
+- **router-dispatch.spec.ts**: a quiet channel writes no `ipc.req` or `ipc.ok` line and its `ipc.err` line no payload, while a normal channel keeps all three.
 - **workspace-state-dirty-count.spec.ts**: `dirtyPipelineCount` counts collection tabs with a truthy `aggregation.dirty`, ignores clean, plain and script tabs, and counts an unparseable row as 0 with one warning.
 - **shutdown-budget.spec.ts**: stub `pool.disconnectAll` to hang; total shutdown time is ≤ 8s.
 - **quit-guard.spec.ts** (unit): the sentence for each mix of running scripts and shell commands, the unsaved-work sentence alone and after the running-work one, none when idle, a hold on unsaved work alone, and the gate: asked once per close, a request while the question is open, the shutdown bypass, and Cancel followed by a later quit asking again. `resetUnsavedWork` drops the form and takes the recount; `awaitRendererFlush` answers `no-window`, `flushed` and `timeout`, and an ack after the timeout changes nothing. `createBeforeQuitHandler` holds every quit, starts the teardown once, holds a second quit during it, and asks over held work.
 
 ### Component
 - **workspace-tabs-flush.spec.tsx**: an edit followed by unmount, `pagehide` or `flushAll` inside the debounce is sent; `flushAll` resolves after the save settles, also when it fails.
+- **renderer-log.spec.ts**: `logToMain` cuts the message and stack, coerces an Error's non-string message and stack, warns once when main refuses or the bridge is missing, and never throws or rejects; the global listeners forward an uncaught error and an unhandled rejection.
+- **error-boundary.spec.tsx**: the caught error goes to `app:log` with its stack and the component stack, cut to 8000 characters.
+- **mongo-shell-pane.spec.tsx**: a refused Stop prints why in the pane and logs it; a stop that fails during cleanup is logged.
 - **flush-on-quit.spec.tsx**: `FlushOnQuit` answers a flush request after every flusher has finished, answers with none registered, logs a refused answer to the console instead of leaving it unhandled, and unsubscribes on unmount.
 
 ### E2E
