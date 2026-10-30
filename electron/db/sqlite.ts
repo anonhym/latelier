@@ -159,9 +159,17 @@ export function openDatabase(opts: OpenDatabaseOptions): Database {
 
   const migrations = opts.migrations ?? loadMigrations();
   // An upgrade's migrations may scrub data, so the file is rebuilt after them.
-  // A failed VACUUM leaves the marker, so the post-open step retries it.
+  // A failed VACUUM leaves the marker, so the post-open step retries it. With
+  // a logger, neither failure fails the boot: the migrations have committed.
   if (runMigrations(db, migrations) > 0) {
-    if (!vacuumAndTruncateWal(db, 'after migrations', opts.log)) markVacuumPending(db);
+    if (!vacuumAndTruncateWal(db, 'after migrations', opts.log)) {
+      try {
+        markVacuumPending(db);
+      } catch (err) {
+        if (!opts.log) throw err;
+        opts.log.warn('db', 'could not record the owed vacuum', { message: String(err) });
+      }
+    }
   } else if (!truncateWal(db)) {
     opts.log?.warn('db', 'wal checkpoint after migrations was blocked');
   }

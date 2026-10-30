@@ -145,6 +145,30 @@ describe('secure_delete and WAL truncation', () => {
       }
     });
 
+    it('still opens, warning twice, when recording the owed VACUUM fails too', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-vacuum-fail-'));
+      const warnings: string[] = [];
+      const vacuum = failVacuum();
+      const realPrepare = BetterSqlite3.prototype.prepare;
+      const marker = vi.spyOn(BetterSqlite3.prototype, 'prepare').mockImplementation(function (this: BetterSqlite3.Database, sql: string) {
+        if (sql.includes('INSERT INTO app_state')) throw new Error('disk I/O error');
+        return realPrepare.call(this, sql);
+      });
+      try {
+        const db = openDatabase({
+          userDataDir: dir,
+          migrations: loadMigrationsFromDisk(),
+          log: { warn: (_scope: string, msg: string) => void warnings.push(msg) },
+        });
+        closeDatabase(db);
+        expect(warnings).toEqual(['vacuum after migrations failed', 'could not record the owed vacuum']);
+      } finally {
+        marker.mockRestore();
+        vacuum.mockRestore();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('throws when there is no logger to report it to', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-vacuum-fail-'));
       const spy = failVacuum();
