@@ -4,10 +4,13 @@ import type { SafeStorageLike } from '../../electron/secrets/SecretsVault';
 import { createTempDb, insertConnectionRow, type TempDb } from '../helpers/db';
 
 /** A reversible stand-in for safeStorage whose availability and failure the test controls. */
-function fakeKeychain(state: { available: boolean; failDecrypt?: boolean }): SafeStorageLike {
+function fakeKeychain(state: { available: boolean; failDecrypt?: boolean; failEncrypt?: boolean }): SafeStorageLike {
   return {
     isEncryptionAvailable: () => state.available,
-    encryptString: (s) => Buffer.from(`wrapped:${s}`, 'utf8'),
+    encryptString: (s) => {
+      if (state.failEncrypt) throw new Error('User denied keychain access');
+      return Buffer.from(`wrapped:${s}`, 'utf8');
+    },
     decryptString: (b) => {
       if (state.failDecrypt) throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.');
       const s = b.toString('utf8');
@@ -108,6 +111,20 @@ describe('column key store', () => {
 
     const later = loadOrCreateColumnKeys(tmp.db, fakeKeychain({ available: true }), log());
     expect(later.keys.enc.equals(plain.keys.enc)).toBe(true);
+  });
+
+  it('falls back to an unprotected key when the keychain refuses to wrap, on create and on re-wrap', () => {
+    const refusing = fakeKeychain({ available: true, failEncrypt: true });
+    const l = log();
+    const created = loadOrCreateColumnKeys(tmp.db, refusing, l);
+    expect(created.protected).toBe(false);
+    expect(keyRow(tmp)[0]!.is_plaintext).toBe(1);
+    expect(l.lines).toContain('keychain refused to wrap the column key');
+
+    const again = loadOrCreateColumnKeys(tmp.db, refusing, log());
+    expect(again.protected).toBe(false);
+    expect(again.keys.enc.equals(created.keys.enc)).toBe(true);
+    expect(keyRow(tmp)[0]!.is_plaintext).toBe(1);
   });
 
   it('reset deletes every protected row and the key, keeps connections, and a fresh key follows', () => {

@@ -53,8 +53,18 @@ function split(raw: Buffer, safeStorage: SafeStorageLike): ColumnKeys {
   };
 }
 
-function wrap(keys: ColumnKeys, safeStorage: SafeStorageLike): Buffer {
-  return safeStorage.encryptString(Buffer.concat([keys.enc, keys.mac]).toString('base64'));
+/**
+ * Null when the keychain refuses: on macOS the first encryptString is what
+ * shows the Keychain prompt, and Deny makes it throw. That is handled like a
+ * missing keychain, because columns must keep persisting either way.
+ */
+function tryWrap(keys: ColumnKeys, safeStorage: SafeStorageLike, log: Pick<Logger, 'warn'>): Buffer | null {
+  try {
+    return safeStorage.encryptString(Buffer.concat([keys.enc, keys.mac]).toString('base64'));
+  } catch (err) {
+    log.warn('db', 'keychain refused to wrap the column key', { message: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
 }
 
 /**
@@ -75,14 +85,14 @@ export function loadOrCreateColumnKeys(
 
   if (!row) {
     const keys = ColumnCipher.generate();
-    const wrapped = available ? wrap(keys, safeStorage) : Buffer.concat([keys.enc, keys.mac]);
+    const wrapped = available ? tryWrap(keys, safeStorage, log) : null;
     db.prepare('INSERT INTO column_keys (id, wrapped, is_plaintext, created_at) VALUES (1, ?, ?, ?)').run(
-      wrapped,
-      available ? 0 : 1,
+      wrapped ?? Buffer.concat([keys.enc, keys.mac]),
+      wrapped ? 0 : 1,
       new Date().toISOString(),
     );
-    if (!available) log.warn('db', 'no usable keychain, column key stored unprotected');
-    return { keys, protected: available };
+    if (!wrapped) log.warn('db', 'no usable keychain, column key stored unprotected');
+    return { keys, protected: wrapped !== null };
   }
 
   if (row.is_plaintext !== 1) {
@@ -96,11 +106,12 @@ export function loadOrCreateColumnKeys(
   }
 
   const keys = split(row.wrapped, safeStorage);
-  if (!available) {
+  const wrapped = available ? tryWrap(keys, safeStorage, log) : null;
+  if (!wrapped) {
     log.warn('db', 'no usable keychain, column key stays unprotected');
     return { keys, protected: false };
   }
-  db.prepare('UPDATE column_keys SET wrapped = ?, is_plaintext = 0 WHERE id = 1').run(wrap(keys, safeStorage));
+  db.prepare('UPDATE column_keys SET wrapped = ?, is_plaintext = 0 WHERE id = 1').run(wrapped);
   // The raw key's page image is still in the WAL until it is folded in.
   truncateWal(db);
   log.info('db', 'column key wrapped by the keychain');

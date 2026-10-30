@@ -114,6 +114,8 @@ Modelled on `SecretsVault.set`/`get`:
 | row, `is_plaintext = 1`, keychain unavailable | raw bytes |
 | no row | `ColumnCipher.generate()`; wrap if the keychain is available, else store raw with `is_plaintext = 1` (§5) |
 
+A keychain that reports available but throws on `encryptString` (macOS Deny at the first prompt) is treated as unavailable in both wrap paths: the key is stored or kept raw with `is_plaintext = 1` and a `warn`, never a failed boot.
+
 ## 4. Wiring
 
 - `main.ts`, right after the vault is built: load the keys, build the `ColumnCipher`, run `encryptLegacyRows` (§7), then construct the five repos with the cipher injected.
