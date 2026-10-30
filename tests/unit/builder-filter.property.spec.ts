@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { currentFilterJson, filterProblem } from '../../src/pages/Workspace/builder';
+import { repairToCanonicalEjson } from '../../src/utils/shellSyntax';
 import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 
 // Every UTF-16 code unit `String.prototype.trim` strips, derived from the
@@ -33,6 +34,18 @@ describe('filterProblem and currentFilterJson are one rule', () => {
         const state = { ...DEFAULT_COLLECTION_TAB_STATE, queryRaw };
         expect(filterProblem(queryRaw)).toBeNull();
         expect(currentFilterJson(state)).toBe(doc);
+      }),
+    );
+  });
+
+  // The query bar's blur and Explain read through the repair: it must hand
+  // back the same text the runner sends, or Explain asks about another filter.
+  it('repairs a padded valid document to exactly the text currentFilterJson sends', () => {
+    fc.assert(
+      fc.property(padding, document, padding, (before, doc, after) => {
+        const outcome = repairToCanonicalEjson(before + doc + after);
+        const text = outcome.kind === 'repaired' ? outcome.text : outcome.kind === 'unchanged' ? before + doc + after : null;
+        expect(text?.trim()).toBe(doc);
       }),
     );
   });

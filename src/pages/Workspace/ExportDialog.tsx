@@ -56,8 +56,8 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const [saving, setSaving] = React.useState(false);
 
   // Same gate as the Run button (W03) — an "All matching" export sends the
-  // committed `queryRaw` straight to the driver, so it must be at least as
-  // runnable as a Run click.
+  // committed filter (trimmed, as `find` sends it) to the driver, so it must
+  // be at least as runnable as a Run click.
   const canRunAll = findProblem(state) === null;
   const canExport = scope === 'page' ? documents.length > 0 : canRunAll;
 

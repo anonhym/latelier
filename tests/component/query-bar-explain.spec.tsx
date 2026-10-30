@@ -417,12 +417,11 @@ describe('QueryBar — Explain reads through the X14 repair', () => {
       plan: { ok: 1 },
       verbosity: 'queryPlanner',
     }));
-    // This is the invariant that makes the repair inside Explain a no-op
-    // today, and it is worth pinning: the gate refuses everything
-    // `isEjsonDocument` refuses, and the transform returns `unchanged` for
-    // everything `JSON.parse` accepts, so the two sets never overlap. If a
-    // future change lets the gate open on repairable text, this test fails
-    // rather than Explain quietly reformatting a filter the user arranged.
+    // The gate opens on strict text and on strict text padded with Unicode
+    // spaces; the repair Explain reads through trims only that padding (the
+    // test above). Strict text with ordinary spacing comes back `unchanged`,
+    // so a reformatting repair fails here rather than Explain quietly
+    // rewriting a filter the user arranged.
     const hand = '{ "b" : 1,   "a" : 2 }';
     mountWith(tabWith(hand, true), explainSpy);
 

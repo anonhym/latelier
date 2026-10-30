@@ -98,6 +98,12 @@ export function repairToCanonicalEjson(text: string): RepairOutcome {
   } catch {
     // Not Canonical EJSON yet — try to repair it.
   }
+  // Strict JSON padded with Unicode spaces `JSON.parse` refuses (NBSP, BOM,
+  // em space) repairs to the trimmed text byte for byte — the text the
+  // filter's Run gate accepts and `currentFilterJson` sends — rather than to
+  // `walk`'s re-rendering of it, which rewrites escapes like `\u00e9`.
+  const trimmed = text.trim();
+  if (parsesAsJson(trimmed)) return { kind: 'repaired', text: trimmed };
 
   let root: Expression;
   try {
@@ -132,11 +138,9 @@ export function repairToCanonicalEjson(text: string): RepairOutcome {
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
     out = out.slice(0, edit.start) + edit.replacement + out.slice(edit.end);
   }
-  // Acorn skips Unicode spaces at either end (NBSP, BOM, em space) that
-  // `JSON.parse` refuses, so text padded with them — strict JSON included —
-  // repairs to its trimmed self rather than failing the check below. The
-  // filter's Run gate trims the same way, so the two agree on such a paste.
-  // Only then: ASCII whitespace `JSON.parse` accepts stays as typed.
+  // Acorn skips the same Unicode spaces around Shell Syntax, so `{a: 1}`
+  // padded with them repairs to trimmed text rather than failing the check
+  // below. Only then: ASCII whitespace `JSON.parse` accepts stays as typed.
   if (!parsesAsJson(out)) out = out.trim();
 
   // Last line of defence: never hand back text the rest of the app cannot read.

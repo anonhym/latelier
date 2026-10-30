@@ -1836,8 +1836,10 @@ function BuilderPaneInner({
       );
       return;
     }
-    // `findProblem` passing means every clause is already strict JSON, so
-    // there is no Shell Syntax left to repair here. Canonical EJSON is still
+    // `findProblem` passing means every clause is already strict JSON — the
+    // filter once trimmed of the Unicode spaces the gate allows around it,
+    // which `requireFilterJson` does — so there is no Shell Syntax left to
+    // repair here. Canonical EJSON is still
     // not shell syntax (`{"$oid": …}` pasted into mongosh is an unknown
     // operator): `findCode` routes such a document through EJSON.parse.
     //

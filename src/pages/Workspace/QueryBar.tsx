@@ -2,7 +2,6 @@ import React, { memo } from 'react';
 import { Badge, Button, Group, Menu, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { isEjsonDocument } from '../../utils/ejson';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { useFindExplain } from './useFindExplain';
 import {
@@ -117,9 +116,9 @@ function QueryBarInner({
   // filter to reconcile against, so the bar only needs to know whether the
   // current text is runnable.
   // A filter must be a *document*, not merely parseable EJSON — `[1,2]` and
-  // `null` parse, and main refuses them. One rule with
-  // `currentFilterJson` and `findProblem`.
-  const isValid = React.useMemo(() => isEjsonDocument(queryRaw), [queryRaw]);
+  // `null` parse, and main refuses them. The same rule `currentFilterJson`
+  // and `findProblem` use.
+  const isValid = React.useMemo(() => filterProblem(queryRaw) === null, [queryRaw]);
 
   // W15 §3.1 — sort used to reach `QueryService.find` unvalidated and
   // come back as a `VALIDATION` pill after a round trip, one row below a
@@ -131,7 +130,7 @@ function QueryBarInner({
     [state.builder.limit],
   );
 
-  // W13 §7 — Run's enabled rule collapses to `isEjsonDocument(queryRaw)`. The
+  // W13 §7 — Run's enabled rule collapses to the filter's document rule. The
   // fail-open hazard can't recur through this button: `queryRaw` is the single
   // source of truth for the filter, and any op the old builder couldn't
   // compile (`$elemMatch`, `$text`, ...) is now a raw node the filter-tree
@@ -203,14 +202,12 @@ function QueryBarInner({
   // they call it, and a hook argument is evaluated during render — naming it
   // earlier is a temporal-dead-zone throw, not a lint nit.
   //
-  // **The repair cannot fire here today, and that is the point.** `canExplain`
-  // is `canRun`, which refuses anything `isEjsonDocument` refuses, and the
-  // transform returns `unchanged` for everything `JSON.parse` already accepts.
-  // So the two sets do not overlap: by the time Explain is reachable, the text
-  // is strict and the repair is a no-op. What this buys is that Explain no
-  // longer *depends* on that being true — the aggregation side repairs on its
-  // Run and Explain paths, and the one read surface that did not was
-  // the odd one out waiting for the gate to change under it.
+  // `canExplain` is `canRun`, which refuses Shell Syntax, so by the time
+  // Explain is reachable the text is strict JSON — save for padding with
+  // Unicode spaces (NBSP, BOM, em space) that the gate trims and `JSON.parse`
+  // refuses. The repair trims exactly that padding, so Explain sends the text
+  // `currentFilterJson` would; strict text with ordinary spacing comes back
+  // `unchanged` and is sent as typed.
   const onExplain = (verbosity: ExplainVerbosity) => {
     const { text, outcome } = filterField.commitNow();
     if (outcome.kind === 'failed') return;
