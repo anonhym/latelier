@@ -32,6 +32,24 @@ export function truncateWal(db: Database): boolean {
 }
 
 /**
+ * Rebuilds the file so bytes freed before `secure_delete` was on (older
+ * installs) or left in page slack by an in-place rewrite do not linger, then
+ * folds and truncates the WAL that the rebuild wrote. VACUUM needs free disk
+ * about the size of the database and the work before it has committed, so
+ * with a logger a failure is reported rather than thrown. `when` names the
+ * step in the log line.
+ */
+export function vacuumAndTruncateWal(db: Database, when: string, log?: Pick<Logger, 'warn'>): void {
+  try {
+    db.exec('VACUUM');
+  } catch (err) {
+    if (!log) throw err;
+    log.warn('db', `vacuum ${when} failed`, { message: String(err) });
+  }
+  if (!truncateWal(db)) log?.warn('db', `wal checkpoint ${when} was blocked`);
+}
+
+/**
  * Moves a database left under the pre-rename name to DB_FILENAME and returns
  * the filename to open. Must run before openDatabase: ensurePrivateFile creates
  * an empty DB_FILENAME, after which the legacy file would never be adopted.
@@ -102,21 +120,17 @@ export function openDatabase(opts: OpenDatabaseOptions): Database {
   // Per-connection, and on before migrations so a migration that scrubs data
   // zeroes the bytes it frees instead of leaving them in a free page.
   db.pragma('secure_delete = ON');
+  // VACUUM builds its copy in a temp database; on disk that copy would hold
+  // every still-plaintext row of an upgrade in a file nothing scrubs.
+  db.pragma('temp_store = MEMORY');
 
   const migrations = opts.migrations ?? loadMigrations();
-  // An upgrade's migrations may scrub data; VACUUM rebuilds the file so bytes
-  // freed before secure_delete was on (older installs) don't linger in free pages.
-  // It needs free disk about the size of the database, and the migrations have
-  // already committed, so a failure is reported rather than failing the boot.
+  // An upgrade's migrations may scrub data, so the file is rebuilt after them.
   if (runMigrations(db, migrations) > 0) {
-    try {
-      db.exec('VACUUM');
-    } catch (err) {
-      if (!opts.log) throw err;
-      opts.log.warn('db', 'vacuum after migrations failed', { message: String(err) });
-    }
+    vacuumAndTruncateWal(db, 'after migrations', opts.log);
+  } else if (!truncateWal(db)) {
+    opts.log?.warn('db', 'wal checkpoint after migrations was blocked');
   }
-  if (!truncateWal(db)) opts.log?.warn('db', 'wal checkpoint after migrations was blocked');
 
   return db;
 }

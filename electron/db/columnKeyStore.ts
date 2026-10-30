@@ -1,0 +1,149 @@
+import type { Database } from 'better-sqlite3';
+import { SystemError } from '../errors.ts';
+import type { Logger } from '../log.ts';
+import type { SafeStorageLike } from '../secrets/SecretsVault.ts';
+import { COLUMN_KEY_BYTES, ColumnCipher, type ColumnKeys } from './columnCipher.ts';
+import { truncateWal, vacuumAndTruncateWal } from './sqlite.ts';
+
+export interface LoadedColumnKeys {
+  keys: ColumnKeys;
+  /** False when the key sits in the database unwrapped because no usable keychain exists. */
+  protected: boolean;
+}
+
+interface KeyRow {
+  wrapped: Buffer;
+  is_plaintext: number;
+}
+
+/** The four tables whose encrypted column can still hold plaintext from before the upgrade. */
+const LEGACY_COLUMNS = [
+  ['recent_queries', 'payload_json'],
+  ['audit_log', 'summary_json'],
+  ['saved_queries', 'payload_json'],
+  ['workspace_tabs', 'state_json'],
+] as const;
+
+/** Every table "Reset protected data" empties; the key goes with the cells it sealed. */
+const PROTECTED_TABLES = [
+  'recent_queries',
+  'recent_field_values',
+  'audit_log',
+  'workspace_tabs',
+  'saved_queries',
+  'column_keys',
+] as const;
+
+function unreadable(message: string, safeStorage: SafeStorageLike, cause?: unknown): SystemError {
+  return new SystemError('COLUMN_KEY_UNREADABLE', message, {
+    ...(cause === undefined ? {} : { cause: cause instanceof Error ? cause.message : String(cause) }),
+    // Lets the boot dialog tell a denied macOS keychain from a key that is gone.
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+  });
+}
+
+/** A key of the wrong length is never truncated or padded: it would seal with a different key. */
+function split(raw: Buffer, safeStorage: SafeStorageLike): ColumnKeys {
+  if (raw.length !== 2 * COLUMN_KEY_BYTES) {
+    throw unreadable('The stored column key has the wrong length.', safeStorage);
+  }
+  return {
+    enc: Buffer.from(raw.subarray(0, COLUMN_KEY_BYTES)),
+    mac: Buffer.from(raw.subarray(COLUMN_KEY_BYTES)),
+  };
+}
+
+function wrap(keys: ColumnKeys, safeStorage: SafeStorageLike): Buffer {
+  return safeStorage.encryptString(Buffer.concat([keys.enc, keys.mac]).toString('base64'));
+}
+
+/**
+ * Loads the column key, creating it on first run. Modelled on the secrets
+ * vault: wrapped by the keychain when one is usable, stored raw with
+ * `is_plaintext = 1` when not — columns cannot refuse to persist the way the
+ * vault refuses a password, because tabs and saved queries must survive. A
+ * wrapped key that no longer decrypts throws `COLUMN_KEY_UNREADABLE` and is
+ * left untouched: regenerating it would orphan every sealed cell silently.
+ */
+export function loadOrCreateColumnKeys(
+  db: Database,
+  safeStorage: SafeStorageLike,
+  log: Pick<Logger, 'info' | 'warn'>,
+): LoadedColumnKeys {
+  const row = db.prepare('SELECT wrapped, is_plaintext FROM column_keys WHERE id = 1').get() as KeyRow | undefined;
+  const available = safeStorage.isEncryptionAvailable();
+
+  if (!row) {
+    const keys = ColumnCipher.generate();
+    const wrapped = available ? wrap(keys, safeStorage) : Buffer.concat([keys.enc, keys.mac]);
+    db.prepare('INSERT INTO column_keys (id, wrapped, is_plaintext, created_at) VALUES (1, ?, ?, ?)').run(
+      wrapped,
+      available ? 0 : 1,
+      new Date().toISOString(),
+    );
+    if (!available) log.warn('db', 'no usable keychain, column key stored unprotected');
+    return { keys, protected: available };
+  }
+
+  if (row.is_plaintext !== 1) {
+    let encoded: string;
+    try {
+      encoded = safeStorage.decryptString(row.wrapped);
+    } catch (err) {
+      throw unreadable('The column key could not be decrypted by the OS keychain.', safeStorage, err);
+    }
+    return { keys: split(Buffer.from(encoded, 'base64'), safeStorage), protected: true };
+  }
+
+  const keys = split(row.wrapped, safeStorage);
+  if (!available) {
+    log.warn('db', 'no usable keychain, column key stays unprotected');
+    return { keys, protected: false };
+  }
+  db.prepare('UPDATE column_keys SET wrapped = ?, is_plaintext = 0 WHERE id = 1').run(wrap(keys, safeStorage));
+  // The raw key's page image is still in the WAL until it is folded in.
+  truncateWal(db);
+  log.info('db', 'column key wrapped by the keychain');
+  return { keys, protected: true };
+}
+
+/**
+ * Seals every cell still holding plaintext from before the upgrade. Safe to
+ * run on every boot: a converted cell is a BLOB and no longer matches.
+ *
+ * The VACUUM is what actually erases the old plaintext. Rows written before
+ * `secure_delete` existed leave stale copies in page slack and on freelist
+ * pages that an UPDATE plus checkpoint never touch, and the VACUUM inside
+ * `openDatabase` ran before this step, while the rows were still plaintext.
+ */
+export function encryptLegacyRows(db: Database, cipher: ColumnCipher, log: Pick<Logger, 'info' | 'warn'>): number {
+  const converted = db.transaction(() => {
+    let count = 0;
+    for (const [table, column] of LEGACY_COLUMNS) {
+      const rows = db
+        .prepare(`SELECT id, ${column} AS cell FROM ${table} WHERE typeof(${column}) = 'text'`)
+        .all() as Array<{ id: string; cell: string }>;
+      const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE id = ?`);
+      for (const { id, cell } of rows) update.run(cipher.seal(table, column, id, cell), id);
+      count += rows.length;
+    }
+    return count;
+  })();
+  if (converted > 0) {
+    log.info('db', 'encrypted legacy rows', { converted });
+    vacuumAndTruncateWal(db, 'after encrypting legacy rows', log);
+  }
+  return converted;
+}
+
+/**
+ * The "Reset protected data" answer to an unreadable key at boot: every sealed
+ * cell and the key itself go in one transaction, then the file is rebuilt so
+ * nothing of them stays on disk. Connections and their passwords are kept.
+ */
+export function resetProtectedData(db: Database, log: Pick<Logger, 'warn'>): void {
+  db.transaction(() => {
+    for (const table of PROTECTED_TABLES) db.prepare(`DELETE FROM ${table}`).run();
+  })();
+  vacuumAndTruncateWal(db, 'after resetting protected data', log);
+}
