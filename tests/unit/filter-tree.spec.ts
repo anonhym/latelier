@@ -757,6 +757,25 @@ describe('parseFilter — exact failure reasons (§2)', () => {
     const r = parseFilter('[1,2,3]');
     expect(r).toEqual({ ok: false, reason: 'Root must be an object' });
   });
+
+  it('blank or whitespace-only text is still invalid JSON', () => {
+    for (const blank of ['', '   ', '\u00a0\ufeff']) {
+      expect(parseFilter(blank)).toEqual({ ok: false, reason: 'Invalid JSON' });
+    }
+  });
+});
+
+// The Run gate accepts a filter padded with the Unicode spaces `trim` strips
+// and `JSON.parse` refuses; the drawer and add-to-filter read the same text.
+describe('parseFilter — Unicode-space padding', () => {
+  it('parses NBSP/BOM/em-space-padded text to the same tree as the trimmed text', () => {
+    const text = '{"status":"active","age":{"$gt":3}}';
+    const trimmed = parseFilter(text);
+    expect(trimmed.ok).toBe(true);
+    for (const padded of [`\u00a0${text}\u00a0`, `\ufeff${text}`, `\u2003${text}\u2003\n`]) {
+      expect(parseFilter(padded)).toEqual(trimmed);
+    }
+  });
 });
 
 // ─── Exported wire-encoding helpers (also used by builder.ts) ──────────────
