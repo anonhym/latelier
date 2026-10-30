@@ -1,4 +1,4 @@
-import { api } from '../api/atelier';
+import { api, getErrorMessage } from '../api/atelier';
 import type { RendererLogInput, RendererLogSource } from '@shared/ipc';
 
 // Main refuses a longer message or stack outright, so both are cut here
@@ -39,6 +39,21 @@ function fallBack(err: unknown): void {
   if (fallbackUsed) return;
   fallbackUsed = true;
   console.warn('[rendererLog] could not send a log line to main; later failures are not reported', err);
+}
+
+/**
+ * Logs a failed call at the site that would otherwise swallow it:
+ * `.catch((err) => logFailure('script cancel', err))`. The message names the
+ * action and carries the error's own message; the stack goes along only for a
+ * thrown Error, because main rejects with a plain `{ code, message }`.
+ */
+export function logFailure(what: string, err: unknown): void {
+  logToMain(
+    'warn',
+    `${what} failed: ${getErrorMessage(err, 'unknown error')}`,
+    'component',
+    err instanceof Error ? err.stack : undefined,
+  );
 }
 
 /**

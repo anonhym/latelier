@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { api } from '../../api/atelier';
+import { logFailure } from '../../utils/rendererLog';
 import { flushAll } from '../../state/pendingFlush';
 
 /**
@@ -14,10 +15,10 @@ export function FlushOnQuit() {
   useEffect(
     () =>
       api.app.onFlushRequest(() => {
-        // A refused answer only costs main its timeout wait; say so in the console.
+        // A refused answer only costs main its timeout wait; the log says why.
         flushAll()
           .finally(() => api.app.flushDone())
-          .catch(console.warn);
+          .catch((err) => logFailure('flushing tabs on quit', err));
       }),
     [],
   );

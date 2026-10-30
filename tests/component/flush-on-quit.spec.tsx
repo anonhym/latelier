@@ -11,7 +11,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount(flushDone = vi.fn(async () => {})) {
+function mount(flushDone = vi.fn(async () => {}), log = vi.fn(async () => {})) {
   let request: (() => void) | null = null;
   const unsubscribe = vi.fn();
   installAtelierMock({
@@ -21,12 +21,14 @@ function mount(flushDone = vi.fn(async () => {})) {
         return unsubscribe;
       },
       flushDone,
+      log,
     },
   });
   const view = render(<FlushOnQuit />);
   return {
     view,
     flushDone,
+    log,
     unsubscribe,
     fire: () => {
       if (!request) throw new Error('FlushOnQuit did not subscribe');
@@ -60,14 +62,19 @@ describe('FlushOnQuit', () => {
     await vi.waitFor(() => expect(flushDone).toHaveBeenCalledTimes(1));
   });
 
-  it('logs a refused answer instead of leaving the rejection unhandled', async () => {
+  it('sends a refused answer to the main log instead of leaving the rejection unhandled', async () => {
     const refused = { code: 'INTERNAL', message: 'flush acknowledgement sink not available' };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { fire } = mount(vi.fn(async () => {
+    const { fire, log } = mount(vi.fn(async () => {
       throw refused;
     }));
     fire();
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(refused));
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith({
+        level: 'warn',
+        message: 'flushing tabs on quit failed: flush acknowledgement sink not available',
+        source: 'component',
+      }),
+    );
   });
 
   it('unsubscribes when it unmounts', () => {
