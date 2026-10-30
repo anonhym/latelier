@@ -11,6 +11,7 @@ import type { DiagnosticService } from '../../services/DiagnosticService.ts';
 import { parseAllowedExternalUrl } from '../../security/externalUrl.ts';
 import type { PickedCredentialPaths } from '../../security/credentialPaths.ts';
 import type { UnsavedWorkStore } from '../../quitGuard.ts';
+import type { Logger, RateGate } from '../../log.ts';
 
 const PickFileInput = z.enum(['tls-ca', 'tls-client-cert', 'ssh-key', 'data-import']);
 const OpenExternalInput = z.string().url();
@@ -27,6 +28,12 @@ const NoInput = z.undefined().or(z.null()).or(z.object({}));
 const SetUnsavedWorkInput = z.object({
   source: z.enum(['connectionForm', 'pipelines']),
   count: z.number().int().min(0).max(1000),
+});
+const LogInput = z.object({
+  level: z.enum(['warn', 'error']),
+  message: z.string().max(2000),
+  source: z.enum(['window.error', 'unhandledrejection', 'errorBoundary', 'component']),
+  stack: z.string().max(8000).optional(),
 });
 
 const PURPOSE_FILTERS: Record<PickFilePurpose, Electron.FileFilter[]> = {
@@ -75,6 +82,8 @@ export function saveFilters(defaultName: string): FileFilter[] {
  * it. Optional like `diagnostic`, and the channel fails the same way without it.
  * `onFlushDone` receives the renderer's answer to a flush request (see
  * `awaitRendererFlush`); optional and failing the same way.
+ * `rendererLog` is where `app:log` lines go, through a rate gate main resets
+ * on each fresh page; optional and failing the same way.
  */
 export function registerAppChannels(
   router: Router,
@@ -84,6 +93,7 @@ export function registerAppChannels(
   diagnostic?: DiagnosticService,
   unsaved?: UnsavedWorkStore,
   onFlushDone?: () => void,
+  rendererLog?: { log: Logger; gate: RateGate },
 ): void {
   router.register(
     IPC_CHANNELS.appPickFile,
@@ -191,6 +201,28 @@ export function registerAppChannels(
     async () => {
       if (!onFlushDone) throw new SystemError('INTERNAL', 'flush acknowledgement sink not available');
       onFlushDone();
+    },
+  );
+
+  // A render loop can throw on every frame, so the renderer gets a fixed
+  // number of lines per window and the disk does not fill. A dropped line
+  // still answers ok: the renderer has nothing useful to do with a refusal,
+  // and must not log the refusal itself. The notice of the first drop is
+  // written past the gate, or it would be dropped with the rest.
+  router.register(
+    IPC_CHANNELS.appLog,
+    zodValidator(LogInput),
+    async ({ level, message, source, stack }) => {
+      if (!rendererLog) throw new SystemError('INTERNAL', 'renderer log sink not available');
+      const verdict = rendererLog.gate.take();
+      if (verdict.allow) {
+        rendererLog.log[level]('renderer', message, { source, stack });
+      } else if (verdict.firstDrop) {
+        rendererLog.log.warn(
+          'renderer',
+          `renderer log rate limit reached; dropping until ${new Date(verdict.until).toISOString()}`,
+        );
+      }
     },
   );
 }
