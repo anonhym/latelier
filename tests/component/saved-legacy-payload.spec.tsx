@@ -300,3 +300,23 @@ describe('saved find options survive Run here', () => {
     expect(call?.readPreference).toBeUndefined();
   });
 });
+
+// A Saved load into a tab whose advanced row already held a sort and was
+// collapsed leaves "has advanced values" true → true; only the load count
+// BuilderPane bumps tells QueryBar a different query arrived. Driven through
+// the real Workspace so dropping the bump from Run here fails here, not only
+// in QueryBar's own harness.
+describe('Run here shows the loaded advanced values', () => {
+  it('opens a row the user had collapsed over a sort of its own', async () => {
+    mountWith(makeState({ builder: { projection: [], sort: '{"name":1}', limit: '' } }));
+
+    await screen.findByTestId('query-bar-sort');
+    fireEvent.click(document.querySelector('[aria-controls="query-bar-advanced"]')!);
+    expect(document.getElementById('query-bar-advanced')).toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+
+    await waitFor(() => expect(document.getElementById('query-bar-advanced')).not.toBeNull());
+    expect((screen.getByTestId('query-bar-sort') as HTMLInputElement).value).toBe('{"age":1}');
+  });
+});

@@ -40,6 +40,11 @@ interface QueryBarProps {
    * what it does lives here, beside the drafts it has to flush first.
    */
   runShortcutRef?: React.Ref<() => void>;
+  /**
+   * Counts the loads that replaced the query wholesale (Reset, Saved and
+   * Recent run-here). A change re-derives the advanced row like a tab switch.
+   */
+  loadGen: number;
 }
 
 /**
@@ -89,6 +94,7 @@ function Notice({ id, children }: { id?: string; children: React.ReactNode }) {
 function QueryBarInner({
   suggestionContext,
   runShortcutRef,
+  loadGen,
 }: QueryBarProps) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -367,9 +373,13 @@ function QueryBarInner({
   // the first tab looked like: QueryBar has no `key` at its mount site and
   // never remounts. Resync during render (React's "adjust state when a prop
   // changes"), deliberately asymmetric:
-  //   - tab switch (`tabId` changes)  → re-derive in both directions;
-  //   - same tab, hasAdvanced false→true (a Saved/Recent load, a quick-sort
-  //     from the table header) → open;
+  //   - tab switch (`tabId` changes), or a load that replaced the query
+  //     (`loadGen` changes) → re-derive in both directions. A Saved or Recent
+  //     load into a tab whose row already held values and was collapsed
+  //     never changes `hasAdvanced`, so only the load count can open it;
+  //     Reset empties the values, so it collapses the row;
+  //   - same tab, hasAdvanced false→true (a quick-sort from the table
+  //     header) → open;
   //   - same tab, true→false → leave it alone.
   // The last rule is the point: a symmetric resync would yank the row shut
   // under a user who just deleted the last character of `sort`, and a bare
@@ -379,19 +389,21 @@ function QueryBarInner({
   const [advancedSync, setAdvancedSync] = React.useState({
     tabId: meta.tabId,
     hasAdvanced,
+    loadGen,
   });
-  if (advancedSync.tabId !== meta.tabId) {
-    setAdvancedSync({ tabId: meta.tabId, hasAdvanced });
+  if (advancedSync.tabId !== meta.tabId || advancedSync.loadGen !== loadGen) {
+    setAdvancedSync({ tabId: meta.tabId, hasAdvanced, loadGen });
     setAdvancedOpen(hasAdvanced);
     // X14 §5 — the held messages are QueryBar-local and QueryBar never
-    // remounts, so tab A's complaint would
-    // otherwise sit under tab B's query. `onChange`'s argument is unused by
-    // the hook — this leans on it purely for the clear.
+    // remounts, so tab A's complaint would otherwise sit under tab B's
+    // query, and a replaced query's complaint under the one that replaced
+    // it. `onChange`'s argument is unused by the hook — this leans on it
+    // purely for the clear.
     filterField.onChange('');
     sortField.onChange('');
     setRunBlocked(null);
   } else if (advancedSync.hasAdvanced !== hasAdvanced) {
-    setAdvancedSync({ tabId: meta.tabId, hasAdvanced });
+    setAdvancedSync({ tabId: meta.tabId, hasAdvanced, loadGen });
     if (hasAdvanced) setAdvancedOpen(true);
   }
   const toggleAdvanced = () => setAdvancedOpen((o) => !o);

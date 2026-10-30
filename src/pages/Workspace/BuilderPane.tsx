@@ -87,6 +87,13 @@ interface BuilderPaneProps {
   onOpenInTab: (saved: SavedQuerySummary) => void;
   /** Opens this query, as stages, in the collection's Aggregation view. */
   onOpenAsPipeline: (stages: Stage[]) => void;
+  /**
+   * Counts the loads that replaced the query wholesale — Reset, Saved and
+   * Recent run-here. Owned by the parent so QueryBar sees the same count.
+   */
+  loadGen: number;
+  /** Called after each of those loads, alongside its patch. */
+  onLoaded: () => void;
 }
 
 const VAL_TYPES: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
@@ -1762,6 +1769,8 @@ function BuilderPaneInner({
   savedRefreshKey,
   onOpenInTab,
   onOpenAsPipeline,
+  loadGen,
+  onLoaded,
 }: BuilderPaneProps) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -1769,13 +1778,12 @@ function BuilderPaneInner({
   const onPatch = actions.patch;
   const onRun = actions.run;
 
-  // Bumped on Reset / Saved-run / Recent-run — the external-edit triggers of
-  // §5.3 that may (coincidentally) write the same `queryRaw` text the drawer
-  // already holds, which the drawer's own text-diff reconcile can't detect.
-  // Folded into FilterDrawer's `key` (with the tab id, §5.6) so these always
-  // force a fresh seed + drop any pending rows, the same as a genuine text
-  // change would.
-  const [loadGen, setLoadGen] = React.useState(0);
+  // `loadGen` is bumped on Reset / Saved-run / Recent-run — the external-edit
+  // triggers of §5.3 that may (coincidentally) write the same `queryRaw` text
+  // the drawer already holds, which the drawer's own text-diff reconcile
+  // can't detect. Folded into FilterDrawer's `key` (with the tab id, §5.6) so
+  // these always force a fresh seed + drop any pending rows, the same as a
+  // genuine text change would.
 
   const activeTab = state.activeBuilderTab;
 
@@ -1893,7 +1901,7 @@ function BuilderPaneInner({
       if (!proceed) return;
       const empty: BuilderState = emptyBuilder();
       onPatch({ builder: empty, queryRaw: '{}', filterDraft: undefined });
-      setLoadGen((g) => g + 1);
+      onLoaded();
     });
   };
 
@@ -1977,7 +1985,7 @@ function BuilderPaneInner({
       // The draft belongs to the filter being replaced: drop it with it.
       onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
-      setLoadGen((g) => g + 1);
+      onLoaded();
     }
   };
 
@@ -1986,7 +1994,7 @@ function BuilderPaneInner({
       const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload);
       onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
-      setLoadGen((g) => g + 1);
+      onLoaded();
     }
   };
 
