@@ -266,6 +266,41 @@ describe('parseFilter — value representability (§2b)', () => {
   });
 });
 
+describe('parseFilter — canonical EJSON date ({$date:{$numberLong}}) stays raw (§2b)', () => {
+  const canonical = '{"$date":{"$numberLong":"1700000000000"}}';
+
+  it('a field holding the canonical date is one raw node whose JSON is the input', () => {
+    const src = `{"d":${canonical}}`;
+    const root = mustParse(src);
+    expect(root.children).toEqual([raw(src)]);
+    const printed = printFilter(root);
+    expect(printed).toEqual({ ok: true, json: src });
+  });
+
+  it('the same date under $gt stays raw', () => {
+    const src = `{"d":{"$gt":${canonical}}}`;
+    expect(mustParse(src).children).toEqual([raw(src)]);
+  });
+
+  it('the same date inside $in stays raw', () => {
+    const src = `{"d":{"$in":[${canonical}]}}`;
+    expect(mustParse(src).children).toEqual([raw(src)]);
+  });
+
+  it('a nested canonical date next to a sibling field keeps the sibling a cond', () => {
+    const root = mustParse(`{"d":${canonical},"n":1}`);
+    expect(root.children).toEqual([
+      raw(`{"d":${canonical}}`),
+      cond({ field: 'n', op: '$eq', valType: 'number', value: '1' }),
+    ]);
+  });
+
+  it('the string form still becomes a date cond', () => {
+    const root = mustParse('{"d":{"$date":"2026-01-01T00:00:00Z"}}');
+    expect(root.children).toEqual([cond({ field: 'd', op: '$eq', valType: 'date', value: '2026-01-01T00:00:00Z' })]);
+  });
+});
+
 // ─── Split allowlist (§2a, §11) ──────────────────────────────────────────────
 
 describe('parseFilter — split allowlist (§2a)', () => {
@@ -567,7 +602,7 @@ describe('condValueProblem — big-integer guard on the cond path', () => {
 // path.
 
 describe('guessSentinelOnly — exact key AND string-typed value required (§2b)', () => {
-  it.each(['$oid', '$date', '$numberLong', '$numberDecimal'] as const)(
+  it.each(['$oid', '$numberLong', '$numberDecimal'] as const)(
     '%s with a non-string value is NOT a sentinel — falls to the operator map',
     (key) => {
       // A number-typed value under the sentinel key: guessSentinelOnly must
@@ -577,6 +612,11 @@ describe('guessSentinelOnly — exact key AND string-typed value required (§2b)
       expect(root.children).toEqual([cond({ field: 'a', op: key, valType: 'number', value: '123' })]);
     },
   );
+
+  it('$date with a non-string value is one raw node, never an operator named $date', () => {
+    const root = mustParse('{"a":{"$date":123}}');
+    expect(root.children).toEqual([raw('{"a":{"$date":123}}')]);
+  });
 
   it.each(['$oid', '$date', '$numberLong', '$numberDecimal'])(
     'a similarly-named but wrong key (%sx) with a string value is NOT a sentinel',

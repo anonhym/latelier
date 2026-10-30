@@ -688,7 +688,7 @@ function CondRow({
               window.setTimeout(() => setFieldPopoverOpen(false), 100);
             }}
             size="xs"
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: 96 }}
           />
           <SuggestionPopover
             open={fieldPopoverOpen}
