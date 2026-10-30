@@ -3,9 +3,10 @@ import { api } from '../../api/atelier';
 import { flushAll } from '../../state/pendingFlush';
 
 /**
- * Renders nothing: answers main's flush request before it quits or closes the
- * window. Main ends the app with `app.exit`, which skips the page's unload
- * events, so the held-back tab edits go out here instead. It answers even with
+ * Renders nothing: answers main's flush request before it quits. Main ends
+ * the app with `app.exit`, which skips the page's unload events, so the
+ * held-back tab edits go out here instead (a window close or a reload does
+ * fire `pagehide`, which the tab state listens for itself). It answers even with
  * nothing registered (no Workspace mounted), so main does not wait out its
  * timeout for nothing.
  */

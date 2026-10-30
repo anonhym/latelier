@@ -257,9 +257,10 @@ export interface IpcApi {
     /** Native File-menu commands pushed from main; returns the unsubscribe. */
     onMenuCommand: (cb: (command: MenuCommand) => void) => () => void;
     /**
-     * Main is about to quit or close the window and asks the renderer to save
-     * its pending tab edits first (F06 §4); returns the unsubscribe. The
-     * renderer answers with `flushDone` once those saves have settled.
+     * Main is about to quit and asks the renderer to save its pending tab
+     * edits first (F06 §4); returns the unsubscribe. The renderer answers with
+     * `flushDone` once those saves have settled. A window close or a reload is
+     * not asked about: the page saves on its own `pagehide`.
      */
     onFlushRequest: (cb: () => void) => () => void;
     /** The answer to a flush request: the pending tab edits have been sent. */
