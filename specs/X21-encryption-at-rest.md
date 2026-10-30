@@ -82,6 +82,8 @@ export class ColumnCipher {
 
 `open` throws `SystemError('COLUMN_DECRYPT_FAILED')` on an unknown version byte or a failed tag, never returns partial plaintext.
 
+A list read must not fail because one cell does not open, so the repositories catch `COLUMN_DECRYPT_FAILED` per row, log a `warn` naming only the table, column and id (never the cell), and hand the services something they already handle. Recent queries, the audit log and value suggestions skip the row: their services parse every cell and have no fallback, and an empty suggestion would be offered as a real value. Saved queries list the row with an empty payload, which the service already reads as "no payload". Workspace tabs read an unreadable state as `''` on every read, single-row ones included, so the tab opens with its default state and stays closable, pinnable and updatable; the next update re-seals the cell and heals it. Every other single-row read still throws `COLUMN_DECRYPT_FAILED`.
+
 ## 3. Key storage
 
 ### 3.1 Migration 016
@@ -122,7 +124,7 @@ A keychain that reports available but throws on `encryptString` (macOS Deny at t
 - Repos seal on write and open on read. Row types keep `string` fields, so services, handlers and IPC are unchanged; no channel is added.
 - `RecentFieldValueRepo.upsert` writes `value_mac = cipher.blind([connectionId, dbName, collection, field], value)`.
 - `DiagnosticService.secretsStatus` gains `columnKeyProtected: boolean`, which goes into the exported diagnostic bundle. Settings had no keychain line and no channel that reported one, so a read-only, input-free `secrets:status` channel (`{ columnKeyProtected }`) feeds a new "Local data protection" row in Settings. The `ipc-channel-auditor` agent runs for it.
-- The dev database-reset path in `main.ts` empties the live database instead of deleting its files (`resetDatabaseInPlace`: one transaction deleting `connections`, which cascades to every per-connection table, and `app_state`; then the owed VACUUM), keeps `column_keys` so the live cipher stays valid, clears `AppStateService`'s cache and reloads the window. Reopening the file had left every service, the vault and the cipher on a closed handle, and a relaunch cannot come back under the Vite dev server.
+- The dev database-reset path in `main.ts` empties the live database instead of deleting its files (`resetDatabaseInPlace`: one transaction deleting `connections`, which cascades to every per-connection table, and `app_state`; then the owed VACUUM), keeps `column_keys` so the live cipher stays valid, clears `AppStateService`'s cache, disposes the mongosh shell sessions of the deleted connections (`ShellService.disposeAll`), disconnects the pool and reloads the window. Reopening the file had left every service, the vault and the cipher on a closed handle, and a relaunch cannot come back under the Vite dev server.
 - `tests/helpers/db.ts` gains `createTempCipher()` with fixed keys; integration specs construct repos with it.
 
 ## 5. Linux without a keychain
@@ -154,7 +156,7 @@ Migration 016 drops and recreates `recent_field_values` with `value BLOB` and `v
 
 The step's own VACUUM is required. Rows written before `secure_delete` was turned on leave stale plaintext copies in page slack and on freelist pages that an UPDATE plus checkpoint does not reach; only VACUUM removes them. The VACUUM in `openDatabase` runs during migration 016, before this step, so it does not help.
 
-A VACUUM can fail (it needs free disk about the size of the database) after the work it cleans up has committed. So the conversion, "Reset protected data" and a failed post-migration VACUUM all leave an `app_state` marker (`db.vacuumPending`), written in the same transaction as the conversion or reset; the step runs the VACUUM whenever rows were converted or the marker is set, and clears the marker only after a VACUUM succeeds. `app_state` holds it because main keeps its own maintenance state there, it survives the reset (which empties `column_keys`), and the renderer cannot read or write it.
+A VACUUM can fail (it needs free disk about the size of the database) after the work it cleans up has committed. So an `app_state` marker (`db.vacuumPending`) is written by the conversion, by "Reset protected data" and by the in-place dev reset, each in the same transaction as its work, and by `openDatabase` when its post-migration VACUUM fails (with a logger, a failure to write that marker is itself only a warning, so the boot still goes on); the step runs the VACUUM whenever rows were converted or the marker is set, and clears the marker only after a VACUUM succeeds. `app_state` holds it because main keeps its own maintenance state there, it survives the reset (which empties `column_keys`), and the renderer cannot read or write it.
 
 `sqlite.ts` sets `PRAGMA temp_store = MEMORY` before any VACUUM. Otherwise the post-migration VACUUM copies the still-plaintext tables into a temp file on disk.
 
