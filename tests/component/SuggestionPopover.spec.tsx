@@ -366,12 +366,8 @@ describe('SuggestionPopover — grouped operators', () => {
     uninstallAtelierMock();
   });
 
-  // The builder's real list, minus the trailing expression-class rows that
-  // share names with the query ones, so option names stay unique to look up.
-  const fieldOps = async () =>
-    ((await fieldOperatorSource({} as never)) as Suggestion[]).filter(
-      (s) => s.kind === 'operator' && s.class !== 'expression',
-    );
+  // The builder's real list.
+  const fieldOps = async () => (await fieldOperatorSource({} as never)) as Suggestion[];
 
   // `getByText('$nin')` also matches the `$nin` that a description spells out.
   const optionNamed = (name: string) =>

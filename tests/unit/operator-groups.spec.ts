@@ -37,6 +37,18 @@ describe('groupOperatorRows', () => {
     expect(groups[groups.length - 1]!.end).toBe(items.length);
   });
 
+  it('leaves no trailing Other group on the real field-position list', async () => {
+    const items = (await fieldOperatorSource({} as never)) as Suggestion[];
+    expect(groupOperatorRows(items).map((g) => g.label)).toEqual([
+      'Comparison',
+      'Logical',
+      'Element',
+      'Evaluation',
+      'Array',
+      'Geospatial',
+    ]);
+  });
+
   it('names a class without a dedicated label "Other"', () => {
     const groups = groupOperatorRows([op('$sum', 'accumulator'), op('$sum2', 'accumulator')]);
     expect(groups).toEqual([{ label: 'Other', start: 0, end: 2 }]);

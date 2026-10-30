@@ -212,6 +212,9 @@ list's own order, so grouping never reorders anything.
   header, inside the one listbox. The highlight, `aria-selected` and Enter
   walk the options as a single flat list across groups; headers are never
   highlightable.
+- The builder's list offers each operator once: the `$expr`-only twins of
+  `$eq`, `$size` and the like (expression class) are left out, so no
+  Other group appears.
 - Only the builder opts in. Stage bodies, the query bar and the
   aggregation editor keep the flat list.
 - Known limitation: focusing a row's op box puts the committed operator
