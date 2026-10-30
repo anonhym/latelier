@@ -67,6 +67,13 @@ const api: IpcApi = {
       ipcRenderer.on(IPC_CHANNELS.appMenuCommandEvent, listener);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.appMenuCommandEvent, listener);
     },
+    onFlushRequest: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on(IPC_CHANNELS.appFlushRequestEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.appFlushRequestEvent, listener);
+    },
+    flushDone: () => call(IPC_CHANNELS.appFlushDone, {}),
+    log: (input) => call(IPC_CHANNELS.appLog, input),
   },
 
   updates: {
@@ -159,6 +166,7 @@ const api: IpcApi = {
   secrets: {
     setPlaintextFallback: (enabled) =>
       call(IPC_CHANNELS.secretsSetPlaintextFallback, { enabled }),
+    status: () => call(IPC_CHANNELS.secretsStatus),
   },
 
   query: {
