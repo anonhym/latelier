@@ -9,7 +9,7 @@ import { MaintenanceService } from '../../electron/services/MaintenanceService';
 import os from 'node:os';
 import { openDatabase, closeDatabase, truncateWal } from '../../electron/db/sqlite';
 import { runMigrations } from '../../electron/db/migrationRunner';
-import { createTempDb, loadMigrationsFromDisk, type TempDb } from '../helpers/db';
+import { createTempDb, loadMigrationsFromDisk, type TempDb, createTempCipher } from '../helpers/db';
 
 const MARKER = 'SECRET-MARKER-7f3a9c1e-do-not-keep';
 
@@ -42,9 +42,9 @@ describe('secure_delete and WAL truncation', () => {
 
     const store = new Map<string, unknown>();
     new MaintenanceService({
-      recentRepo: new RecentQueryRepo(tmp.db),
-      recentFieldValueRepo: new RecentFieldValueRepo(tmp.db),
-      auditRepo: new AuditRepo(tmp.db),
+      recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()),
+      recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()),
+      auditRepo: new AuditRepo(tmp.db, createTempCipher()),
       checkpoint: () => void truncateWal(tmp.db),
     }).runIfNeeded({
       get: <T>(key: string) => (store.get(key) ?? null) as T | null,

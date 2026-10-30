@@ -69,7 +69,7 @@ export class ColumnCipher {
     const nonce = crypto.randomBytes(NONCE_BYTES);
     const cipher = crypto.createCipheriv('aes-256-gcm', this.enc, nonce);
     cipher.setAAD(aad(table, column, id));
-    let body = Buffer.from(plaintext);
+    let body: Buffer = Buffer.from(plaintext);
     if (PADDED_COLUMNS.has(`${table}.${column}`)) body = pad(body);
     const ciphertext = Buffer.concat([cipher.update(body), cipher.final()]);
     return Buffer.concat([Buffer.of(FORMAT_VERSION), nonce, ciphertext, cipher.getAuthTag()]);

@@ -1,6 +1,7 @@
 import type { Database, Statement } from 'better-sqlite3';
 import { withTransaction } from '../sqlite.ts';
 import { rethrowMissingConnection } from '../sqliteErrors.ts';
+import type { ColumnCipher } from '../columnCipher.ts';
 
 // SQLite still allows the legacy 'aggregation' literal for rows that haven't
 // been migrated yet. Runtime inserts use 'collection' or 'script' (W12).
@@ -24,10 +25,14 @@ export interface WorkspaceTabRow {
   pinned: number;
 }
 
+/** `state_json` as SQLite returns it: a sealed BLOB, or text from before encryption. */
+type StoredRow = Omit<WorkspaceTabRow, 'state_json'> & { state_json: string | Buffer };
+
 export class WorkspaceTabRepo {
   private db: Database;
+  private cipher: ColumnCipher;
   private insertStmt: Statement;
-  private updateStateStmt: Statement<[string, string]>;
+  private updateStateStmt: Statement<[Buffer, string]>;
   private deleteStmt: Statement<[string]>;
   private deleteAllStmt: Statement<[]>;
   private findByIdStmt: Statement<[string]>;
@@ -40,8 +45,9 @@ export class WorkspaceTabRepo {
   private setPinnedStmt: Statement<[number, string]>;
   private retargetCollectionStmt: Statement<[string, string]>;
 
-  constructor(db: Database) {
+  constructor(db: Database, cipher: ColumnCipher) {
     this.db = db;
+    this.cipher = cipher;
     this.insertStmt = db.prepare(`
       INSERT INTO workspace_tabs (
         id, connection_id, kind, db_name, collection,
@@ -100,14 +106,17 @@ export class WorkspaceTabRepo {
 
   insert(row: WorkspaceTabRow): void {
     try {
-      this.insertStmt.run(row);
+      this.insertStmt.run({
+        ...row,
+        state_json: this.cipher.seal('workspace_tabs', 'state_json', row.id, row.state_json),
+      });
     } catch (err) {
       rethrowMissingConnection(err, row.connection_id);
     }
   }
 
   updateState(id: string, stateJson: string): void {
-    this.updateStateStmt.run(stateJson, id);
+    this.updateStateStmt.run(this.cipher.seal('workspace_tabs', 'state_json', id, stateJson), id);
   }
 
   deleteById(id: string): number {
@@ -120,11 +129,16 @@ export class WorkspaceTabRepo {
   }
 
   findById(id: string): WorkspaceTabRow | null {
-    return (this.findByIdStmt.get(id) as WorkspaceTabRow | undefined) ?? null;
+    const row = this.findByIdStmt.get(id) as StoredRow | undefined;
+    return row ? this.opened(row) : null;
   }
 
   list(): WorkspaceTabRow[] {
-    return this.listStmt.all() as WorkspaceTabRow[];
+    return (this.listStmt.all() as StoredRow[]).map((r) => this.opened(r));
+  }
+
+  private opened(row: StoredRow): WorkspaceTabRow {
+    return { ...row, state_json: this.cipher.open('workspace_tabs', 'state_json', row.id, row.state_json) };
   }
 
   findMatching(
@@ -133,11 +147,8 @@ export class WorkspaceTabRepo {
     dbName: string,
     collection: string,
   ): WorkspaceTabRow | null {
-    return (
-      (this.findMatchingStmt.get(connectionId, kind, dbName, collection) as
-        | WorkspaceTabRow
-        | undefined) ?? null
-    );
+    const row = this.findMatchingStmt.get(connectionId, kind, dbName, collection) as StoredRow | undefined;
+    return row ? this.opened(row) : null;
   }
 
   nextPosition(): number {
