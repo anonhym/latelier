@@ -375,7 +375,11 @@ function parseRoot(obj: Record<string, unknown>): GroupNode {
 export function parseFilter(ejson: string): ParseOutcome {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(ejson);
+    // Trimmed like the Run gate (`filterProblem`) trims: `JSON.parse` refuses
+    // the Unicode spaces `String.prototype.trim` strips (NBSP, BOM, em space),
+    // so a padded filter Run accepts would otherwise read as invalid here.
+    // Blank text still fails, as the empty string `JSON.parse` refuses.
+    parsed = JSON.parse(ejson.trim());
   } catch {
     return { ok: false, reason: 'Invalid JSON' };
   }
