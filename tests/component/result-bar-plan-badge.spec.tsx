@@ -187,6 +187,24 @@ describe('useFindExplain — the filter it sends', () => {
     expect((explain.mock.calls[0] as unknown[])[0]).toMatchObject({ filter: '{"status":"a"}' });
   });
 
+  it('prefills the index suggestion from a filter padded with Unicode spaces', async () => {
+    installAtelierMock({ query: { explain: vi.fn(async () => ({ plan: collscanPlan, verbosity: 'queryPlanner' })) } });
+    const openCreateIndex = vi.fn();
+    const state = makeState(collscanPlan, '\u00a0{"status":"a"}\u00a0');
+    const { result } = renderHook(() => useFindExplain(() => state.queryRaw), {
+      wrapper: ({ children }) => (
+        <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions({ openCreateIndex })} meta={emptyWorkspaceMeta()}>
+          {children}
+        </CollectionWorkspaceProvider>
+      ),
+    });
+
+    result.current.onCreateIndex!();
+    expect(openCreateIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ keys: [{ field: 'status', direction: 1 }] }),
+    );
+  });
+
   it('refuses an unrunnable filter with the Run gate\'s reason and asks the server nothing', async () => {
     const explain = vi.fn(async () => ({ plan: collscanPlan, verbosity: 'queryPlanner' }));
     installAtelierMock({ query: { explain } });

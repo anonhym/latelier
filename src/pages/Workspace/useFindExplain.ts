@@ -10,7 +10,9 @@ import type { ExplainVerbosity } from '@shared/types';
 /** `suggestIndex`'s filter argument — an unparseable or non-document filter is treated as empty rather than thrown. */
 function parseFilterDoc(raw: string): Record<string, unknown> {
   try {
-    const parsed = ejsonParse(raw);
+    // Trimmed like the text `runExplain` sends: padding with Unicode spaces
+    // `JSON.parse` refuses would otherwise prefill an empty index.
+    const parsed = ejsonParse(raw.trim());
     return isPlainDocument(parsed) ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};
