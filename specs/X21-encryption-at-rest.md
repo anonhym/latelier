@@ -122,7 +122,7 @@ A keychain that reports available but throws on `encryptString` (macOS Deny at t
 - Repos seal on write and open on read. Row types keep `string` fields, so services, handlers and IPC are unchanged; no channel is added.
 - `RecentFieldValueRepo.upsert` writes `value_mac = cipher.blind([connectionId, dbName, collection, field], value)`.
 - `DiagnosticService.secretsStatus` gains `columnKeyProtected: boolean`, which goes into the exported diagnostic bundle. Settings had no keychain line and no channel that reported one, so a read-only, input-free `secrets:status` channel (`{ columnKeyProtected }`) feeds a new "Local data protection" row in Settings. The `ipc-channel-auditor` agent runs for it.
-- The dev database-reset path in `main.ts` relaunches the app after deleting the files; reopening in place left every service, the vault and the cipher on the closed handle.
+- The dev database-reset path in `main.ts` empties the live database instead of deleting its files (`resetDatabaseInPlace`: one transaction deleting `connections`, which cascades to every per-connection table, and `app_state`; then the owed VACUUM), keeps `column_keys` so the live cipher stays valid, clears `AppStateService`'s cache and reloads the window. Reopening the file had left every service, the vault and the cipher on a closed handle, and a relaunch cannot come back under the Vite dev server.
 - `tests/helpers/db.ts` gains `createTempCipher()` with fixed keys; integration specs construct repos with it.
 
 ## 5. Linux without a keychain

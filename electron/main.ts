@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import type { Database } from 'better-sqlite3';
-import { openDatabase, closeDatabase, truncateWal, adoptLegacyDatabase, DB_FILENAME } from './db/sqlite.ts';
+import { openDatabase, closeDatabase, truncateWal, adoptLegacyDatabase, resetDatabaseInPlace, DB_FILENAME } from './db/sqlite.ts';
 import { AppStateRepo } from './db/repositories/AppStateRepo.ts';
 import { AppStateService } from './services/AppStateService.ts';
 import { SecretsVault, type SafeStorageLike } from './secrets/SecretsVault.ts';
@@ -563,27 +563,28 @@ app.on('before-quit', (e) => {
 
 function registerDevResetShortcut(): void {
   // Same reason as the logger level: a NODE_ENV check never fires in a shipped
-  // build, so this destructive shortcut — it deletes the database — was live
+  // build, so this destructive shortcut — it empties the database — was live
   // for every user. `app.isPackaged` is the signal that is actually set.
   if (app.isPackaged) return;
   const accelerator =
     process.platform === 'darwin' ? 'Command+Shift+Alt+R' : 'Control+Shift+Alt+R';
   globalShortcut.register(accelerator, () => {
-    if (!win || !db) return;
-    // Every service, the vault and the column cipher hold the old handle, so
-    // reopening in place left them on a closed database. A relaunch rebuilds
-    // the whole graph from the fresh file.
+    if (!win || !db || !appState || !log) return;
+    // In place on the live handle: every service, the vault and the cipher
+    // keep working, and the Vite dev server (which exits with Electron)
+    // stays up for the reload.
+    try {
+      resetDatabaseInPlace(db, log);
+    } catch (err) {
+      log.error('dev', 'DB reset failed', { message: String(err) });
+      return;
+    }
+    appState.reset();
     if (pool) {
       void pool.disconnectAll();
     }
-    closeDatabase(db);
-    const userDataDir = resolveUserDataDir();
-    for (const suffix of ['', '-wal', '-shm']) {
-      fs.rmSync(path.join(userDataDir, dbFilename + suffix), { force: true });
-    }
-    log?.info('dev', 'DB reset, relaunching');
-    app.relaunch();
-    app.exit(0);
+    win.reload();
+    log.info('dev', 'DB reset');
   });
 }
 

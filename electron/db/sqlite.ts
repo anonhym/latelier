@@ -169,6 +169,23 @@ export function openDatabase(opts: OpenDatabaseOptions): Database {
   return db;
 }
 
+/**
+ * The dev reset: empties the live database instead of deleting its files.
+ * Deleting connections cascades to connection_secrets, saved_queries,
+ * recent_queries, workspace_tabs, reference_rules, audit_log and
+ * recent_field_values. `column_keys` stays, so the cipher the repositories
+ * hold keeps matching the (now empty) data. Every service keeps its handle,
+ * which is why this works where reopening the file did not.
+ */
+export function resetDatabaseInPlace(db: Database, log: Pick<Logger, 'warn'>): void {
+  db.transaction(() => {
+    db.prepare('DELETE FROM connections').run();
+    db.prepare('DELETE FROM app_state').run();
+    markVacuumPending(db);
+  })();
+  runOwedVacuum(db, 'after the dev reset', log);
+}
+
 export function closeDatabase(db: Database): void {
   try {
     db.close();

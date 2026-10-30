@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadOrCreateColumnKeys, resetProtectedData } from '../../electron/db/columnKeyStore';
 import type { SafeStorageLike } from '../../electron/secrets/SecretsVault';
-import { isVacuumPending } from '../../electron/db/sqlite';
+import { isVacuumPending, resetDatabaseInPlace } from '../../electron/db/sqlite';
+import { AppStateRepo } from '../../electron/db/repositories/AppStateRepo';
+import { AppStateService } from '../../electron/services/AppStateService';
 import { createTempDb, insertConnectionRow, type TempDb } from '../helpers/db';
 
 /** A reversible stand-in for safeStorage whose availability and failure the test controls. */
@@ -154,5 +156,34 @@ describe('column key store', () => {
 
     const fresh = loadOrCreateColumnKeys(tmp.db, keychain, log());
     expect(fresh.keys.enc.equals(old.keys.enc)).toBe(false);
+  });
+
+  it('the dev reset empties every user table in place but keeps the column key', () => {
+    const keychain = fakeKeychain({ available: true });
+    const key = loadOrCreateColumnKeys(tmp.db, keychain, log());
+    insertConnectionRow(tmp.db, 'c1');
+    const now = new Date().toISOString();
+    tmp.db.prepare(`INSERT INTO connection_secrets (connection_id, field, ciphertext, updated_at) VALUES ('c1', 'password', x'01', ?)`).run(now);
+    tmp.db.prepare(`INSERT INTO reference_rules (id, connection_id, source_db, source_collection, source_field, target_db, target_collection, created_at, updated_at)
+      VALUES ('rr', 'c1', 'd', 'c', 'f', 'd', 't', ?, ?)`).run(now, now);
+    tmp.db.prepare(`INSERT INTO saved_queries (id, connection_id, db_name, collection, kind, name, payload_json, created_at, updated_at)
+      VALUES ('s', 'c1', 'd', 'c', 'find', 'n', x'01', ?, ?)`).run(now, now);
+    tmp.db.prepare(`INSERT INTO recent_field_values (id, connection_id, db_name, collection, field, value, value_mac, val_type, last_used_at)
+      VALUES ('v', 'c1', 'd', 'c', 'f', x'01', 'm', 'string', ?)`).run(now);
+    const appState = new AppStateService(new AppStateRepo(tmp.db));
+    appState.set('ui.showSystemDbs', true);
+    expect(appState.get('ui.showSystemDbs')).toBe(true);
+
+    resetDatabaseInPlace(tmp.db, log());
+    appState.reset();
+
+    for (const table of ['connections', 'connection_secrets', 'reference_rules', 'saved_queries', 'recent_queries',
+      'workspace_tabs', 'audit_log', 'recent_field_values', 'app_state']) {
+      expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
+    }
+    expect(appState.get('ui.showSystemDbs')).toBeNull();
+    expect(isVacuumPending(tmp.db)).toBe(false);
+    const kept = loadOrCreateColumnKeys(tmp.db, keychain, log());
+    expect(kept.keys.enc.equals(key.keys.enc)).toBe(true);
   });
 });
