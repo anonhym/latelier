@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from 'playwright';
 import {
@@ -75,6 +76,17 @@ async function typeFilter(app: ElectronApplication, host: string, port: number):
   await ws.queryBarTextarea.fill('{"n":7}');
 }
 
+/** The shutdown lines main logged about the renderer flush, from every log file in `userDataDir`. */
+function flushLogLines(userDataDir: string): Array<{ level: string; msg: string; data?: { outcome?: string } }> {
+  const dir = path.join(userDataDir, 'logs');
+  return fs
+    .readdirSync(dir)
+    .flatMap((f) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n'))
+    .filter((l) => l.trim() !== '')
+    .map((l) => JSON.parse(l) as { level: string; tag: string; msg: string; data?: { outcome?: string } })
+    .filter((l) => l.tag === 'shutdown' && /flush/.test(l.msg));
+}
+
 /** After a relaunch: the saved tab holds the filter, and the reopened tab shows it. */
 async function expectFilterRestored(win: Page): Promise<void> {
   await win.waitForLoadState('domcontentloaded');
@@ -101,6 +113,11 @@ test('an edit typed just before quitting is saved and comes back on relaunch', a
       await requestQuit(app);
       expect(await gone).toBe(0);
     });
+    // The edit could also have reached the database through its own debounce
+    // during a slow teardown; this pins that the quit asked and was answered.
+    expect(flushLogLines(userDataDir).map((l) => ({ level: l.level, outcome: l.data?.outcome }))).toEqual([
+      { level: 'info', outcome: 'flushed' },
+    ]);
     await withAppOnUserData(userDataDir, async (app) => {
       await expectFilterRestored(await app.firstWindow());
     });

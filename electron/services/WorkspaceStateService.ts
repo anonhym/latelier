@@ -66,7 +66,7 @@ export class WorkspaceStateService {
 
   /**
    * How many saved collection tabs hold a pipeline with unsaved edits, by the
-   * renderer's own rule (`aggregation.dirty`). Main recounts with this when
+   * renderer's own rule (a truthy `aggregation.dirty`). Main recounts with this when
    * the page that reported the count is gone. A row whose state does not
    * parse cannot be read as dirty, so it counts 0; the rows are named in one
    * warning per count.
@@ -84,7 +84,8 @@ export class WorkspaceStateService {
         unreadable.push(row.id);
         continue;
       }
-      if ((state as Partial<CollectionTabState> | null)?.aggregation?.dirty === true) count++;
+      // Truthy, not `=== true`: the Workspace counts its tabs the same way.
+      if ((state as Partial<CollectionTabState> | null)?.aggregation?.dirty) count++;
     }
     if (unreadable.length > 0) {
       this.log?.warn('tabs', 'saved tab state does not parse; not counted as a dirty pipeline', { ids: unreadable });

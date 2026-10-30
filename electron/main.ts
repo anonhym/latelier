@@ -88,6 +88,7 @@ import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
 import {
   awaitRendererFlush,
+  createBeforeQuitHandler,
   createQuitGate,
   describeQuitDetail,
   resetUnsavedWork,
@@ -199,7 +200,7 @@ let renderCrashesInWindow = 0;
 // may already be closed.
 const unsaved: UnsavedWorkStore = { connectionForm: 0, pipelines: 0 };
 function clearUnsavedWork(): void {
-  resetUnsavedWork(unsaved, () => (shuttingDown ? 0 : (tabsSvc?.dirtyPipelineCount() ?? 0)));
+  resetUnsavedWork(unsaved, () => (beforeQuit.isShuttingDown() ? 0 : (tabsSvc?.dirtyPipelineCount() ?? 0)));
 }
 // The pending flush request's ack while a quit waits on the renderer, so
 // `app:flushDone` has somewhere to land; a stray answer outside a quit does nothing.
@@ -487,7 +488,6 @@ app.on('activate', () => {
 
 // Graceful shutdown ----------------------------------------------------------
 
-let shuttingDown = false;
 function runningWork(): RunningWork {
   return {
     scripts: scriptSvc?.runningCount() ?? 0,
@@ -521,20 +521,15 @@ async function askToQuit(message: string): Promise<boolean> {
 // `before-quit` alike; see `createQuitGate` for what each answer lets through.
 const quitGate = createQuitGate({ counts: runningWork, confirm: askToQuit });
 
-app.on('before-quit', (e) => {
-  if (shuttingDown) return;
-  if (quitGate.check() === 'hold') {
-    e.preventDefault();
-    quitGate.ask().then(
-      (yes) => {
-        if (yes) app.quit();
-      },
-      (err: unknown) => log?.error('shutdown', 'could not ask about quitting', { err: String(err) }),
-    );
-    return;
-  }
-  shuttingDown = true;
-  e.preventDefault();
+const beforeQuit = createBeforeQuitHandler({
+  gate: quitGate,
+  quit: () => app.quit(),
+  shutdown: beginShutdown,
+  onAskError: (err: unknown) => log?.error('shutdown', 'could not ask about quitting', { err: String(err) }),
+});
+app.on('before-quit', beforeQuit.handle);
+
+function beginShutdown(): void {
   log?.info('shutdown', 'begin');
 
   const timeoutMs = 8_000;
@@ -564,7 +559,7 @@ app.on('before-quit', (e) => {
     log?.info('shutdown', 'end');
     app.exit(0);
   });
-});
+}
 
 // Nothing-happened safety: if something kept the promise pending forever,
 // the exit timeout above still fires.
@@ -585,6 +580,8 @@ async function flushRenderer(): Promise<void> {
   flushAck = null;
   if (outcome === 'timeout') {
     log?.warn('shutdown', 'renderer did not answer the flush request in time', { timeoutMs: RENDERER_FLUSH_TIMEOUT_MS });
+  } else {
+    log?.info('shutdown', 'renderer flush', { outcome });
   }
 }
 
@@ -610,9 +607,9 @@ function registerDevResetShortcut(): void {
     }
     db = openDatabase({ userDataDir, filename: dbFilename, log: log ?? undefined });
     appState = new AppStateService(new AppStateRepo(db));
-    // The tabs service still holds the closed database, and the reload below
-    // recounts dirty pipelines through it. The new database has no tabs.
-    tabsSvc = null;
+    // The reload below recounts dirty pipelines, so the count must read the
+    // new database, not the closed one.
+    tabsSvc = new WorkspaceStateService(new WorkspaceTabRepo(db), new SavedQueryService(new SavedQueryRepo(db)), log ?? undefined);
     if (pool) {
       void pool.disconnectAll();
     }

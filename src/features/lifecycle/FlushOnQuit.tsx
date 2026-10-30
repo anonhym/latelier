@@ -14,7 +14,10 @@ export function FlushOnQuit() {
   useEffect(
     () =>
       api.app.onFlushRequest(() => {
-        void flushAll().finally(() => api.app.flushDone());
+        // A refused answer only costs main its timeout wait; say so in the console.
+        flushAll()
+          .finally(() => api.app.flushDone())
+          .catch(console.warn);
       }),
     [],
   );

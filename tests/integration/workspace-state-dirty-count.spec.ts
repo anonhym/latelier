@@ -68,10 +68,12 @@ describe('WorkspaceStateService.dirtyPipelineCount', () => {
     expect(svc.dirtyPipelineCount()).toBe(1);
   });
 
-  it('counts only a strict true, as the saved JSON holds it', () => {
-    const id = openPipeline('truthy', true);
-    setRaw(id, 'state_json', JSON.stringify({ aggregation: { dirty: 'yes' } }));
-    expect(svc.dirtyPipelineCount()).toBe(0);
+  it('counts a truthy non-boolean dirty and ignores a falsy one, as the Workspace does', () => {
+    const truthy = openPipeline('truthy', true);
+    const falsy = openPipeline('falsy', true);
+    setRaw(truthy, 'state_json', JSON.stringify({ aggregation: { dirty: 'yes' } }));
+    setRaw(falsy, 'state_json', JSON.stringify({ aggregation: { dirty: 0 } }));
+    expect(svc.dirtyPipelineCount()).toBe(1);
   });
 
   it('counts an unparseable row as 0 and names every such row in one warning', () => {

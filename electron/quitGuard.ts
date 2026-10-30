@@ -166,6 +166,38 @@ export function createQuitGate(deps: {
 }
 
 /**
+ * The `before-quit` handler. Every call holds Electron's own quit: before the
+ * teardown it would skip the question or the teardown, and during it (a second
+ * Cmd+Q while the renderer flushes, say) it would end the app with the pool
+ * connected or the database half closed. The teardown ends the app itself,
+ * with `app.exit`, which emits no `before-quit`. Over work the gate holds, it
+ * asks, and quits again on a yes; otherwise it starts `shutdown`, once.
+ */
+export function createBeforeQuitHandler(deps: {
+  gate: Pick<QuitGate, 'check' | 'ask'>;
+  quit: () => void;
+  shutdown: () => void;
+  onAskError: (err: unknown) => void;
+}): { handle: (e: { preventDefault: () => void }) => void; isShuttingDown: () => boolean } {
+  let shuttingDown = false;
+  return {
+    handle(e) {
+      e.preventDefault();
+      if (shuttingDown) return;
+      if (deps.gate.check() === 'hold') {
+        deps.gate.ask().then((yes) => {
+          if (yes) deps.quit();
+        }, deps.onAskError);
+        return;
+      }
+      shuttingDown = true;
+      deps.shutdown();
+    },
+    isShuttingDown: () => shuttingDown,
+  };
+}
+
+/**
  * Runs shutdown steps in order, each in its own try/catch, so one that throws
  * or rejects cannot skip the ones after it (a failed step must not leave the
  * pool connected or the database open). Never throws; failures go to `onError`.

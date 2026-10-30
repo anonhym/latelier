@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   awaitRendererFlush,
   confirmQuit,
+  createBeforeQuitHandler,
   createQuitGate,
   describeQuitDetail,
   describeRunningWork,
@@ -341,5 +342,66 @@ describe('awaitRendererFlush', () => {
     expect(await settled(promise)).toBe('timeout');
     ack();
     expect(await promise).toBe('timeout');
+  });
+});
+
+describe('createBeforeQuitHandler', () => {
+  function setup(check: 'allow' | 'hold', answer: Promise<boolean> = Promise.resolve(true)) {
+    const gate = { check: vi.fn(() => check), ask: vi.fn(() => answer) };
+    const deps = { gate, quit: vi.fn(), shutdown: vi.fn(), onAskError: vi.fn() };
+    const event = () => ({ preventDefault: vi.fn() });
+    return { deps, handler: createBeforeQuitHandler(deps), event };
+  }
+
+  it('holds the quit and starts the teardown once when the gate allows', () => {
+    const { deps, handler, event } = setup('allow');
+    expect(handler.isShuttingDown()).toBe(false);
+    const e = event();
+    handler.handle(e);
+    expect(e.preventDefault).toHaveBeenCalledTimes(1);
+    expect(deps.shutdown).toHaveBeenCalledTimes(1);
+    expect(handler.isShuttingDown()).toBe(true);
+    expect(deps.gate.ask).not.toHaveBeenCalled();
+  });
+
+  it('holds a second quit during the teardown without starting it again or asking', () => {
+    const { deps, handler, event } = setup('allow');
+    handler.handle(event());
+    deps.gate.check.mockReturnValue('hold');
+    const second = event();
+    handler.handle(second);
+    expect(second.preventDefault).toHaveBeenCalledTimes(1);
+    expect(deps.shutdown).toHaveBeenCalledTimes(1);
+    expect(deps.gate.ask).not.toHaveBeenCalled();
+  });
+
+  it('over held work, asks instead of shutting down, and quits again on a yes', async () => {
+    const { deps, handler, event } = setup('hold', Promise.resolve(true));
+    const e = event();
+    handler.handle(e);
+    expect(e.preventDefault).toHaveBeenCalledTimes(1);
+    expect(deps.shutdown).not.toHaveBeenCalled();
+    expect(handler.isShuttingDown()).toBe(false);
+    expect(deps.gate.ask).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(deps.quit).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not quit on a no, and a later allowed quit still shuts down', async () => {
+    const { deps, handler, event } = setup('hold', Promise.resolve(false));
+    handler.handle(event());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.quit).not.toHaveBeenCalled();
+    deps.gate.check.mockReturnValue('allow');
+    handler.handle(event());
+    expect(deps.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a failed question to onAskError', async () => {
+    const boom = new Error('no dialog');
+    const { deps, handler, event } = setup('hold', Promise.reject(boom));
+    handler.handle(event());
+    await vi.waitFor(() => expect(deps.onAskError).toHaveBeenCalledWith(boom));
+    expect(deps.quit).not.toHaveBeenCalled();
   });
 });
