@@ -5,6 +5,7 @@ import { I } from '../../../icons';
 import { Button, Group, Menu, Modal, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api, getErrorMessage, isIpcError } from '../../../api/atelier';
+import { logFailure } from '../../../utils/rendererLog';
 import { notify } from '../../../theme/notifications';
 import type {
   AggregationLastRun,
@@ -370,7 +371,10 @@ export function AggregationTab({
   const onCancelRun = () => {
     const token = runTokenRef.current;
     if (!token || stoppingRef.current) return;
-    void api.agg.cancel({ token }).catch(() => {});
+    void api.agg.cancel({ token }).catch((err) => {
+      logFailure('aggregation cancel', err);
+      notify.error(getErrorMessage(err, 'The run could not be cancelled.'), { title: 'Cancel failed' });
+    });
     if (runIsWriteRef.current) {
       // Keep the token: the run settles as stopped, completed or failed, and
       // executeRun reports which.
@@ -455,6 +459,10 @@ export function AggregationTab({
   // main process would refuse on the next run. The two modals read `stages`
   // from state, and the patch has landed by the time the user acts in them.
   const onSave = async () => {
+    // The Save button is inert while a run is in flight or nothing changed; the
+    // palette command and the shortcut reach this same function, so the rule
+    // lives here rather than on the button alone.
+    if (running || !state.dirty) return;
     const saveStages = repairStageBodies();
     if (!state.savedId) {
       setSaveOpen(true);
@@ -499,7 +507,7 @@ export function AggregationTab({
     [connectionId, dbName, collection, repairStageBodies],
   );
   const onCancelExplainToken = React.useCallback((cancelToken: string) => {
-    void api.agg.cancel({ token: cancelToken }).catch(() => {});
+    void api.agg.cancel({ token: cancelToken }).catch((err) => logFailure('explain cancel', err));
   }, []);
 
   // ── Copy ─────────────────────────────────────────────────────────

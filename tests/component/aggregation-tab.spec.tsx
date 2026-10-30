@@ -5,6 +5,7 @@ import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { DarkCtx } from '../../src/ThemeContext';
 import { AggregationTab } from '../../src/pages/Workspace/Aggregation/AggregationTab';
 import { notifications } from '@mantine/notifications';
+import { commandRegistry } from '../../src/commands/registry';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
@@ -987,5 +988,71 @@ describe('AggregationTab — Save stays focusable when it goes inert', () => {
     const after = screen.getByRole('button', { name: 'Save' });
     expect(after.hasAttribute('disabled')).toBe(false);
     expect(document.activeElement).toBe(after);
+  });
+});
+
+// The palette command reaches the same save as the button, so the button's
+// inert states (nothing changed, a run in flight) have to hold for it too.
+describe('AggregationTab — the "Save pipeline" palette command', () => {
+  const savedState = {
+    ...DEFAULT_AGGREGATION_TAB_STATE,
+    stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    savedId: 's1',
+    name: 'p',
+  } satisfies AggregationTabState;
+
+  const updateOk = async () => ({
+    id: 's1',
+    connectionId: 'c1',
+    name: 'p',
+    dbName: 'app',
+    collection: 'orders',
+    kind: 'aggregation' as const,
+    payload: { kind: 'aggregation' as const, stages: [] },
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  function runSaveCommand() {
+    const cmd = commandRegistry.list().find((c) => c.id === 'agg.save');
+    if (!cmd) throw new Error('agg.save is not registered');
+    act(() => {
+      void cmd.perform({ pathname: '/workspace', connectionId: 'c1' });
+    });
+  }
+
+  it('saves nothing on a clean pipeline', async () => {
+    const update = vi.fn<IpcApi['saved']['update']>(updateOk);
+    installAtelierMock({ saved: { update } });
+    renderStatefulTab(savedState);
+
+    runSaveCommand();
+    await act(async () => {});
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('saves nothing while a run is in flight', async () => {
+    const update = vi.fn<IpcApi['saved']['update']>(updateOk);
+    const run = vi.fn<IpcApi['agg']['run']>(() => new Promise(() => {}));
+    installAtelierMock({ saved: { update }, agg: { run } });
+    renderStatefulTab({ ...savedState, dirty: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    runSaveCommand();
+    await act(async () => {});
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('still saves a dirty, idle pipeline', async () => {
+    const update = vi.fn<IpcApi['saved']['update']>(updateOk);
+    installAtelierMock({ saved: { update } });
+    renderStatefulTab({ ...savedState, dirty: true });
+
+    runSaveCommand();
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
   });
 });
