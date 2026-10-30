@@ -10,7 +10,7 @@ X13 gives every Connection a durable **Audit Log** of the Operations that change
 
 ## Scope
 
-**In scope** — ten `op` values, chosen by blast radius on documents rather than by API level. Two of them belong to channels that do not exist yet; each gets its row in the per-channel table (§4) when its channel lands, and until then nothing records it:
+**In scope** — ten `op` values, chosen by blast radius on documents rather than by API level. Each has an IPC channel and an entry in the static per-channel table in main (§4):
 
 | Channel | `op` |
 | --- | --- |
