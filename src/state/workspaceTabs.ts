@@ -15,6 +15,7 @@ import { confirmDestructive } from '../utils/confirm';
 import { api, isIpcError } from '../api/atelier';
 import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
+import { registerFlusher } from './pendingFlush';
 
 /**
  * Global sticky-default prefs key (T0.5 / W07 §1). Stores the last page size
@@ -170,16 +171,6 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     new Map(),
   );
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // A debounced flush scheduled just before unmount otherwise fires after
-  // the component (and, in a test, the environment it ran in) is gone —
-  // `api.tabs.update` inside it reaches for `window`, which no longer
-  // exists by then.
-  useEffect(() => {
-    return () => {
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-    };
-  }, []);
 
   const activeId = tabs.find((t) => t.isActive)?.id ?? null;
 
@@ -445,34 +436,57 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   }, []);
 
   const saveFailureShown = useRef(false);
+  // Sends every pending patch now, dropping the debounce, and resolves once
+  // each save has succeeded or failed. Each `tabs.update` is dispatched
+  // synchronously, so a caller that is about to lose the page (unmount,
+  // `pagehide`) has its edits on the wire before it returns.
+  const flushNow = useCallback(async (): Promise<void> => {
+    if (flushTimer.current) {
+      clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+    }
+    const entries = [...pendingPatches.current.entries()];
+    pendingPatches.current.clear();
+    await Promise.all(
+      entries.map(async ([id, patch]) => {
+        // Result documents stay in renderer memory; main strips them too,
+        // this only avoids shipping them over IPC on every run.
+        const state = stripResultPatch(patch);
+        if (Object.keys(state).length === 0) return;
+        try {
+          await api.tabs.update(id, { state });
+          saveFailureShown.current = false;
+        } catch {
+          // The tab keeps working in memory; only its saved copy is
+          // behind, so tell the user once per outage, not on every flush.
+          if (saveFailureShown.current) return;
+          saveFailureShown.current = true;
+          notify.error('Tab changes could not be saved');
+        }
+      }),
+    );
+  }, []);
+
   const scheduleFlush = useCallback(() => {
     if (flushTimer.current) return;
-    flushTimer.current = setTimeout(() => {
-      flushTimer.current = null;
-      const entries = [...pendingPatches.current.entries()];
-      pendingPatches.current.clear();
-      void Promise.all(
-        entries.map(([id, patch]) => {
-          // Result documents stay in renderer memory; main strips them too,
-          // this only avoids shipping them over IPC on every run.
-          const state = stripResultPatch(patch);
-          if (Object.keys(state).length === 0) return undefined;
-          return api.tabs
-            .update(id, { state })
-            .then(() => {
-              saveFailureShown.current = false;
-            })
-            .catch(() => {
-              // The tab keeps working in memory; only its saved copy is
-              // behind, so tell the user once per outage, not on every flush.
-              if (saveFailureShown.current) return;
-              saveFailureShown.current = true;
-              notify.error('Tab changes could not be saved');
-            });
-        }),
-      );
-    }, DEBOUNCE_MS);
-  }, []);
+    flushTimer.current = setTimeout(() => void flushNow(), DEBOUNCE_MS);
+  }, [flushNow]);
+
+  // Edits still in the debounce would otherwise be lost: on unmount (leaving
+  // the Workspace), on `pagehide` (a reload, or the window closing while main
+  // lives on) and when main quits, which asks through `flushAll`. Unmount
+  // flushes rather than only clearing the timer, because a timer left behind
+  // would fire after the component (and, in a test, its environment) is gone.
+  useEffect(() => {
+    const unregister = registerFlusher(flushNow);
+    const onPageHide = () => void flushNow();
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      unregister();
+      window.removeEventListener('pagehide', onPageHide);
+      void flushNow();
+    };
+  }, [flushNow]);
 
   const patchCollectionState = useCallback(
     (id: string, patch: Partial<CollectionTabState>) => {

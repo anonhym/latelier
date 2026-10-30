@@ -86,7 +86,15 @@ import { ImportService } from './mongo/ImportService.ts';
 import { DEFAULT_EXPORT_CAP, QueryService } from './mongo/QueryService.ts';
 import { DocumentService } from './mongo/DocumentService.ts';
 import { createLogger, type Logger } from './log.ts';
-import { createQuitGate, describeQuitDetail, runTeardown, type RunningWork, type UnsavedWorkStore } from './quitGuard.ts';
+import {
+  awaitRendererFlush,
+  createQuitGate,
+  describeQuitDetail,
+  resetUnsavedWork,
+  runTeardown,
+  type RunningWork,
+  type UnsavedWorkStore,
+} from './quitGuard.ts';
 import { PrivateModeError } from './utils/privateFs.ts';
 import { createRouter } from './ipc/router.ts';
 import { senderCheck } from './ipc/senderGuard.ts';
@@ -181,15 +189,21 @@ let importSvc: ImportService | null = null;
 let log: Logger | null = null;
 let connExportSvc: ConnectionExportService | null = null;
 let importWizardSvc: ImportWizardService | null = null;
+let tabsSvc: WorkspaceStateService | null = null;
 let renderCrashesInWindow = 0;
-// What the renderer last reported as unsaved (`app:setUnsavedWork`). Zeroed
+// What the renderer last reported as unsaved (`app:setUnsavedWork`). Reset
 // whenever the page that reported it goes (reload, crash, window closed), so
-// a stale report cannot make every later quit ask.
+// a stale report cannot make every later quit ask: the form's report is
+// dropped, and dirty pipelines are recounted from the saved tabs, which
+// outlive the page. Not recounted once shutdown has begun, since the database
+// may already be closed.
 const unsaved: UnsavedWorkStore = { connectionForm: 0, pipelines: 0 };
 function clearUnsavedWork(): void {
-  unsaved.connectionForm = 0;
-  unsaved.pipelines = 0;
+  resetUnsavedWork(unsaved, () => (shuttingDown ? 0 : (tabsSvc?.dirtyPipelineCount() ?? 0)));
 }
+// The pending flush request's ack while a quit waits on the renderer, so
+// `app:flushDone` has somewhere to land; a stray answer outside a quit does nothing.
+let flushAck: (() => void) | null = null;
 let firstCrashAt = 0;
 
 function resolveUserDataDir(): string {
@@ -526,6 +540,11 @@ app.on('before-quit', (e) => {
   const timeoutMs = 8_000;
   const work = runTeardown(
     [
+      // `app.exit` below destroys the window without its unload events, so
+      // the tab edits the renderer still holds back are asked for here, while
+      // the database is open. Bounded: a renderer that does not answer is
+      // logged and the quit goes on.
+      ['flush renderer', flushRenderer],
       ['persist bounds', persistBoundsNow],
       ['dispose documents', () => docSvc?.dispose()],
       ['dispose shells', () => mshellSvc?.disposeAll()],
@@ -550,6 +569,25 @@ app.on('before-quit', (e) => {
 // Nothing-happened safety: if something kept the promise pending forever,
 // the exit timeout above still fires.
 
+const RENDERER_FLUSH_TIMEOUT_MS = 1_500;
+
+async function flushRenderer(): Promise<void> {
+  const flush = awaitRendererFlush({
+    send: () => {
+      if (!win || win.isDestroyed()) return false;
+      win.webContents.send(IPC_CHANNELS.appFlushRequestEvent);
+      return true;
+    },
+    timeoutMs: RENDERER_FLUSH_TIMEOUT_MS,
+  });
+  flushAck = flush.ack;
+  const outcome = await flush.promise;
+  flushAck = null;
+  if (outcome === 'timeout') {
+    log?.warn('shutdown', 'renderer did not answer the flush request in time', { timeoutMs: RENDERER_FLUSH_TIMEOUT_MS });
+  }
+}
+
 // Dev reset shortcut: Cmd/Ctrl+Shift+Alt+R (dev only) ------------------------
 
 function registerDevResetShortcut(): void {
@@ -572,6 +610,9 @@ function registerDevResetShortcut(): void {
     }
     db = openDatabase({ userDataDir, filename: dbFilename, log: log ?? undefined });
     appState = new AppStateService(new AppStateRepo(db));
+    // The tabs service still holds the closed database, and the reload below
+    // recounts dirty pipelines through it. The new database has no tabs.
+    tabsSvc = null;
     if (pool) {
       void pool.disconnectAll();
     }
@@ -740,7 +781,7 @@ app.whenReady().then(() => {
   const savedSvc = new SavedQueryService(savedRepo);
   // Workspace tabs; opening a saved pipeline reads its stored stages.
   const tabsRepo = new WorkspaceTabRepo(db);
-  const tabsSvc = new WorkspaceStateService(tabsRepo, savedSvc);
+  tabsSvc = new WorkspaceStateService(tabsRepo, savedSvc, log);
   applyRestoreTabsPref(appState, tabsSvc);
 
   const recentRepo = new RecentQueryRepo(db);
@@ -783,7 +824,7 @@ app.whenReady().then(() => {
   // Filled by the open dialog, read by the data channels: the only files an
   // import may read are ones the user picked in main's own dialog.
   const pickedImports = new Set<string>();
-  registerAppChannels(router, () => win, pickedImports, pickedCredentialPaths, diagnostic, unsaved);
+  registerAppChannels(router, () => win, pickedImports, pickedCredentialPaths, diagnostic, unsaved, () => flushAck?.());
   registerMongoChannels(router, pool, () => win?.webContents ?? null);
   registerMetaChannels(router, metaSvc);
   registerIndexChannels(router, indexSvc);

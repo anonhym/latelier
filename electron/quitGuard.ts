@@ -14,13 +14,52 @@ export interface RunningWork {
 
 /**
  * Unsaved work the renderer reports through `app:setUnsavedWork`, one count
- * per source, each report replacing the last. Main resets both to zero when
- * the renderer reloads, crashes or its window closes, so a report never
- * outlives the page that made it.
+ * per source, each report replacing the last. When the renderer reloads,
+ * crashes or its window closes, main resets it (`resetUnsavedWork`), so a
+ * report never outlives the page that made it.
  */
 export interface UnsavedWorkStore {
   connectionForm: number;
   pipelines: number;
+}
+
+/**
+ * Forgets what a page that is gone reported. The form's report goes with the
+ * form. Dirty pipelines do not: they live in the saved tabs, so `savedDirtyPipelines`
+ * recounts them from there instead of waiting for the Workspace to mount again
+ * and report.
+ */
+export function resetUnsavedWork(store: UnsavedWorkStore, savedDirtyPipelines: () => number): void {
+  store.connectionForm = 0;
+  store.pipelines = savedDirtyPipelines();
+}
+
+export type RendererFlushOutcome = 'flushed' | 'timeout' | 'no-window';
+
+/**
+ * Asks the renderer to save its pending tab edits and waits for its answer,
+ * bounded. `send` delivers the request and returns false when there is no
+ * window to send it to; `ack` is what the renderer's reply calls. An ack after
+ * the timeout, or a second one, changes nothing.
+ */
+export function awaitRendererFlush(deps: { send: () => boolean; timeoutMs: number }): {
+  promise: Promise<RendererFlushOutcome>;
+  ack: () => void;
+} {
+  // The executor runs synchronously, so `ack` is final by the time it is returned.
+  let ack = (): void => {};
+  const promise = new Promise<RendererFlushOutcome>((resolve) => {
+    if (!deps.send()) {
+      resolve('no-window');
+      return;
+    }
+    const timer = setTimeout(() => resolve('timeout'), deps.timeoutMs);
+    ack = () => {
+      clearTimeout(timer);
+      resolve('flushed');
+    };
+  });
+  return { promise, ack };
 }
 
 const plural = (n: number, noun: string): string => `${n} running ${noun}${n === 1 ? '' : 's'}`;

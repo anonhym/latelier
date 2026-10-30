@@ -249,12 +249,21 @@ export interface IpcApi {
     diagnosticBundle: () => Promise<{ path: string | null }>;
     /**
      * Reports how much unsaved work one source holds, replacing its last
-     * report, so quitting can name it (F06). Main forgets every report when
-     * the page reloads, crashes or its window closes.
+     * report, so quitting can name it (F06). When the page reloads, crashes
+     * or its window closes, main forgets the form's report and recounts dirty
+     * pipelines from the saved tabs.
      */
     setUnsavedWork: (input: { source: UnsavedWorkSource; count: number }) => Promise<void>;
     /** Native File-menu commands pushed from main; returns the unsubscribe. */
     onMenuCommand: (cb: (command: MenuCommand) => void) => () => void;
+    /**
+     * Main is about to quit or close the window and asks the renderer to save
+     * its pending tab edits first (F06 §4); returns the unsubscribe. The
+     * renderer answers with `flushDone` once those saves have settled.
+     */
+    onFlushRequest: (cb: () => void) => () => void;
+    /** The answer to a flush request: the pending tab edits have been sent. */
+    flushDone: () => Promise<void>;
   };
 
   /** Auto-update: one state, one action. See specs/X20-auto-update.md. */
@@ -564,6 +573,8 @@ export const IPC_CHANNELS = {
   appSaveFile:     'app:saveFile',
   appDiagnosticBundle: 'app:diagnosticBundle',
   appSetUnsavedWork: 'app:setUnsavedWork',
+  appFlushRequestEvent: 'app:flush-request-event',
+  appFlushDone: 'app:flushDone',
 
   // Auto-update -----------------------------------------
   updatesGetState:   'updates:getState',

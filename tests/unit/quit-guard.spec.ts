@@ -1,5 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
-import { confirmQuit, createQuitGate, describeQuitDetail, describeRunningWork, runTeardown, type RunningWork } from '../../electron/quitGuard';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  awaitRendererFlush,
+  confirmQuit,
+  createQuitGate,
+  describeQuitDetail,
+  describeRunningWork,
+  resetUnsavedWork,
+  runTeardown,
+  type RendererFlushOutcome,
+  type RunningWork,
+  type UnsavedWorkStore,
+} from '../../electron/quitGuard';
 
 describe('describeRunningWork', () => {
   it('is null when nothing is running', () => {
@@ -270,5 +281,65 @@ describe('runTeardown', () => {
     const onError = vi.fn();
     await runTeardown([['a', () => {}]], onError);
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe('resetUnsavedWork', () => {
+  it('forgets the form report and takes the pipeline count from the saved tabs', () => {
+    const store: UnsavedWorkStore = { connectionForm: 1, pipelines: 5 };
+    resetUnsavedWork(store, () => 2);
+    expect(store).toEqual({ connectionForm: 0, pipelines: 2 });
+  });
+
+  it('zeroes the pipelines when no saved tab is dirty', () => {
+    const store: UnsavedWorkStore = { connectionForm: 0, pipelines: 3 };
+    resetUnsavedWork(store, () => 0);
+    expect(store).toEqual({ connectionForm: 0, pipelines: 0 });
+  });
+});
+
+describe('awaitRendererFlush', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The outcome so far, or 'pending', read after letting microtasks run. */
+  async function settled(promise: Promise<RendererFlushOutcome>): Promise<RendererFlushOutcome | 'pending'> {
+    return Promise.race([promise, Promise.resolve().then(() => 'pending' as const)]);
+  }
+
+  it('sends the request once, and answers no-window at once, with no timer, when there is no window', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn(() => false);
+    const { promise, ack } = awaitRendererFlush({ send, timeoutMs: 1500 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    ack();
+    expect(await promise).toBe('no-window');
+  });
+
+  it('answers flushed on the ack and clears its timer', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn(() => true);
+    const { promise, ack } = awaitRendererFlush({ send, timeoutMs: 1500 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(await settled(promise)).toBe('pending');
+    ack();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(await promise).toBe('flushed');
+    ack();
+    expect(await promise).toBe('flushed');
+  });
+
+  it('waits the whole timeout, then answers timeout, and a late ack changes nothing', async () => {
+    vi.useFakeTimers();
+    const { promise, ack } = awaitRendererFlush({ send: () => true, timeoutMs: 1500 });
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(await settled(promise)).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await settled(promise)).toBe('timeout');
+    ack();
+    expect(await promise).toBe('timeout');
   });
 });
