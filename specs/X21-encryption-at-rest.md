@@ -136,7 +136,7 @@ When the wrapped key cannot be decrypted at boot (Keychain reset, macOS Deny at 
 - **Quit** (default). The user can restore the keychain item, or relaunch and click Allow.
 - **Reset protected data.** One transaction deletes all rows from `recent_queries`, `recent_field_values`, `audit_log`, `saved_queries`, `workspace_tabs` and `column_keys`; then VACUUM, WAL truncate, and a fresh key. Connections stay; their passwords follow the vault's existing per-secret handling.
 
-The dialog distinguishes "access denied" from "key gone" by `isEncryptionAvailable()` alone, never by Electron's error text, using the same rule as the connection-password classifier (`electron/mongo/errors.ts`): on macOS a denied keychain prompt leaves encryption unavailable until relaunch, so unavailable on `darwin` is "access denied" and the dialog tells the user to relaunch and click Always Allow; an available keychain that cannot decrypt, or any other platform, is "key gone".
+The dialog tells "keychain not reachable right now" from "key gone" by `isEncryptionAvailable()` alone, never by Electron's error text (`columnKeyDialogCopy` in `electron/db/columnKeyStore.ts`). Unavailable means unreachable on every platform: a denied macOS prompt lasts until relaunch, and a Linux keyring that is locked, missing from an SSH or X-forwarded session, behind a dead D-Bus, or overridden by `--password-store=basic` — or a Windows profile problem — fixes itself. That copy says to quit and start again from the normal desktop session (on macOS: relaunch and click Always Allow) and offers Reset only "if the keychain is gone for good". An available keychain whose decrypt throws is "key gone": the item was removed or reset, the profile moved, or the keyring password changed. Quit stays the default in both.
 
 ## 7. Encrypting existing rows
 
@@ -173,7 +173,7 @@ The WAL truncate sets the file length to 0 without zeroing the freed blocks; a f
 ## 10. Decided
 
 1. **Saved queries on key reset** are deleted with the rest: an undecryptable saved query is noise.
-2. **Denied vs gone** is decided by `isEncryptionAvailable()`, not by parsing Electron's error (§6).
+2. **Unreachable vs gone** is decided by `isEncryptionAvailable()`, not by parsing Electron's error (§6).
 
 ## Acceptance criteria
 

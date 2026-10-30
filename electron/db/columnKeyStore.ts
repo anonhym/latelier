@@ -34,6 +34,43 @@ const PROTECTED_TABLES = [
   'column_keys',
 ] as const;
 
+export interface ColumnKeyDialogCopy {
+  /** `unreachable`: the keychain cannot be asked right now; `gone`: it answered and cannot decrypt. */
+  kind: 'unreachable' | 'gone';
+  message: string;
+  detail: string;
+}
+
+/**
+ * Copy for the boot dialog shown when the column key cannot be unwrapped.
+ * Decided by availability alone, never by Electron's error text. An
+ * unavailable keychain is almost always temporary on every platform — a
+ * denied macOS prompt lasts until relaunch, a Linux keyring can be locked,
+ * missing from an SSH session or behind a dead D-Bus — so that copy steers
+ * away from Reset, which would wipe data over a condition that fixes itself.
+ */
+export function columnKeyDialogCopy(encryptionAvailable: boolean, platform: NodeJS.Platform): ColumnKeyDialogCopy {
+  const what = 'It encrypts your saved queries, query history, value suggestions, audit log and open tabs.';
+  const reset =
+    'Reset protected data deletes all of those and creates a new key. Connections are kept; a saved password the keychain can no longer read will need re-entering.';
+  if (!encryptionAvailable) {
+    const retry =
+      platform === 'darwin'
+        ? "macOS keeps refusing until the app is relaunched. Quit, reopen L'Atelier and click Always Allow when macOS asks."
+        : "Quit and start L'Atelier again from your normal desktop session, with your keyring unlocked.";
+    return {
+      kind: 'unreachable',
+      message: "The OS keychain that holds your local data key can't be reached right now.",
+      detail: `${what}\n\n${retry}\n\nOnly if the keychain is gone for good: ${reset}`,
+    };
+  }
+  return {
+    kind: 'gone',
+    message: 'The key that protects your local data is no longer in the OS keychain.',
+    detail: `${what}\n\nThe keychain item was removed or reset, the user profile moved, or the keyring password changed. If you can restore it, quit and do that first.\n\n${reset}`,
+  };
+}
+
 function unreadable(message: string, safeStorage: SafeStorageLike, cause?: unknown): SystemError {
   return new SystemError('COLUMN_KEY_UNREADABLE', message, {
     ...(cause === undefined ? {} : { cause: cause instanceof Error ? cause.message : String(cause) }),

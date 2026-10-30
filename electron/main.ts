@@ -21,7 +21,13 @@ import { AppStateRepo } from './db/repositories/AppStateRepo.ts';
 import { AppStateService } from './services/AppStateService.ts';
 import { SecretsVault, type SafeStorageLike } from './secrets/SecretsVault.ts';
 import { ColumnCipher } from './db/columnCipher.ts';
-import { encryptLegacyRows, loadOrCreateColumnKeys, resetProtectedData, type LoadedColumnKeys } from './db/columnKeyStore.ts';
+import {
+  columnKeyDialogCopy,
+  encryptLegacyRows,
+  loadOrCreateColumnKeys,
+  resetProtectedData,
+  type LoadedColumnKeys,
+} from './db/columnKeyStore.ts';
 import { AppError } from './errors.ts';
 import { MongoPool } from './mongo/MongoPool.ts';
 import { ConnectionRepo } from './db/repositories/ConnectionRepo.ts';
@@ -618,29 +624,19 @@ function loadColumnKey(database: Database, crypto: SafeStorageLike, logger: Logg
     if (!(err instanceof AppError && err.code === 'COLUMN_KEY_UNREADABLE')) throw err;
     logger.error('boot', 'column key unreadable', { message: err.message, details: err.details });
   }
-  // Same rule as the connection-password classifier: on macOS a denied
-  // keychain prompt leaves encryption unavailable until relaunch, while an
-  // available keychain that cannot decrypt means the item itself is gone.
-  const denied = process.platform === 'darwin' && !crypto.isEncryptionAvailable();
-  const what =
-    'It encrypts your saved queries, query history, value suggestions, audit log and open tabs.';
-  const reset =
-    'Reset protected data deletes all of those and creates a new key. Connections are kept; a saved password the keychain can no longer read will need re-entering.';
+  const copy = columnKeyDialogCopy(crypto.isEncryptionAvailable(), process.platform);
+  // Quit is the default and the cancel answer: Reset destroys data.
   const choice = dialog.showMessageBoxSync({
     type: 'error',
     buttons: ['Quit', 'Reset protected data'],
     defaultId: 0,
     cancelId: 0,
     title: "L'Atelier can't read its data key",
-    message: denied
-      ? 'macOS blocked access to the key that protects your local data.'
-      : 'The key that protects your local data could not be read from the OS keychain.',
-    detail: denied
-      ? `${what}\n\nmacOS keeps refusing until the app is relaunched. Quit, reopen L'Atelier and click Always Allow when macOS asks.\n\n${reset}`
-      : `${what}\n\nThe keychain item was removed or reset, the user profile moved, or the keyring password changed. If you can restore it, quit and do that first.\n\n${reset}`,
+    message: copy.message,
+    detail: copy.detail,
   });
   if (choice !== 1) {
-    logger.info('boot', 'quit at the column key dialog');
+    logger.info('boot', 'quit at the column key dialog', { kind: copy.kind });
     return null;
   }
   resetProtectedData(database, logger);
