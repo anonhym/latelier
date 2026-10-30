@@ -25,21 +25,22 @@ describe('app:log', () => {
   let gate: RateGate;
   const send = async (payload: unknown) =>
     (await handlers.get(IPC_CHANNELS.appLog)!(invokeEvent, payload)) as Envelope<void>;
-  // Only the lines the channel wrote: the router logs every request under `ipc` too.
-  const rendererLines = (): Line[] => {
+  const allLines = (): Line[] => {
     const logsDir = path.join(dir, 'logs');
     return fs.readdirSync(logsDir)
       .flatMap((f) => fs.readFileSync(path.join(logsDir, f), 'utf8').trim().split('\n'))
       .filter((l) => l)
-      .map((l) => JSON.parse(l) as Line)
-      .filter((l) => l.tag === 'renderer');
+      .map((l) => JSON.parse(l) as Line);
   };
+  // Only the lines the channel wrote: a refused call also gets the router's `ipc.err`.
+  const rendererLines = (): Line[] => allLines().filter((l) => l.tag === 'renderer');
 
   function register(withSink = true, now: () => number = () => 1_000) {
     handlers.clear();
     const log = createLogger(dir, { toStderr: false });
     gate = createRateGate(50, 60_000, now);
-    const router = createRouter({ handle: (c: string, fn: Handler) => void handlers.set(c, fn) }, testSenderCheck);
+    // The same logger as the router's, as in main, so the router's own lines land in the file too.
+    const router = createRouter({ handle: (c: string, fn: Handler) => void handlers.set(c, fn) }, testSenderCheck, log);
     registerAppChannels(
       router, () => null, new Set(), createPickedCredentialPaths(), undefined, undefined, undefined,
       withSink ? { log, gate } : undefined,
@@ -113,6 +114,16 @@ describe('app:log', () => {
       tag: 'renderer',
       msg: `renderer log rate limit reached; dropping until ${new Date(61_000).toISOString()}`,
     });
+  });
+
+  it('a flood writes only the gated lines and one notice: the router adds nothing per call', async () => {
+    for (let i = 0; i < 200; i++) {
+      await send({ level: 'error', message: `loop ${i}`, source: 'window.error', stack: 's'.repeat(8000) });
+    }
+    const lines = allLines();
+    expect(lines).toHaveLength(51);
+    expect(lines.filter((l) => l.tag !== 'renderer')).toEqual([]);
+    expect(lines.at(-1)!.msg).toMatch(/^renderer log rate limit reached/);
   });
 
   it('takes lines again once the gate is reset, as a fresh page does', async () => {

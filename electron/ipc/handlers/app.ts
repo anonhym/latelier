@@ -224,5 +224,7 @@ export function registerAppChannels(
         );
       }
     },
+    // The gate above decides what is logged; the router's own per-call lines would bypass it.
+    { quiet: true },
   );
 }
