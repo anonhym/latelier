@@ -1,4 +1,4 @@
--- Migration 016: allow 'collectionModify' as an audit_log.op so collMod
+-- Migration 017: allow 'collectionModify' as an audit_log.op so collMod
 -- (validation rules, view definitions) leaves a row like the other
 -- collection admin Operations. SQLite cannot alter a CHECK constraint in
 -- place, so the table is rebuilt: copy → drop → rename. The `op` set in 012
@@ -41,4 +41,4 @@ ALTER TABLE audit_log_new RENAME TO audit_log;
 
 CREATE INDEX idx_audit_by_conn_time ON audit_log(connection_id, ran_at DESC);
 
-UPDATE schema_version SET version = 16;
+UPDATE schema_version SET version = 17;

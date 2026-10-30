@@ -18,7 +18,7 @@ function loadMigrationsFromDisk(): Migration[] {
     .sort((a, b) => a.version - b.version);
 }
 
-describe('migration 016 — audit collectionModify', () => {
+describe('migration 017 — audit collectionModify', () => {
   let db: BetterSqlite3.Database | null = null;
   let dir: string | null = null;
 
@@ -30,7 +30,7 @@ describe('migration 016 — audit collectionModify', () => {
   });
 
   function open(): BetterSqlite3.Database {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-mig16-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-mig17-'));
     db = new BetterSqlite3(path.join(dir, 'test.db'));
     db.pragma('foreign_keys = ON');
     return db;
@@ -52,10 +52,10 @@ describe('migration 016 — audit collectionModify', () => {
       )
       .run(`id-${op}`, op);
 
-  it('keeps a row written under 012 intact, every column, and lands on version 16', () => {
+  it('keeps a row written under 012 intact, every column, and lands on version 17', () => {
     const d = open();
     const all = loadMigrationsFromDisk();
-    runMigrations(d, all.filter((m) => m.version < 16));
+    runMigrations(d, all.filter((m) => m.version < 17));
     seedConnection(d, 'c1');
     d.prepare(
       `INSERT INTO audit_log
@@ -70,7 +70,7 @@ describe('migration 016 — audit collectionModify', () => {
 
     expect(d.prepare('SELECT * FROM audit_log').all()).toEqual(before);
     expect(before).toHaveLength(1);
-    expect((d.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(16);
+    expect((d.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(17);
   });
 
   it("accepts op 'collectionModify' and still refuses an unknown op", () => {

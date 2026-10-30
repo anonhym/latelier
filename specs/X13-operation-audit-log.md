@@ -84,7 +84,7 @@ New `AppErrorCode` members, thrown via `SystemError` so the renderer can `switch
 - `AUDIT_ALREADY_UNDONE` — `undone_at` is set.
 - `AUDIT_TARGET_CHANGED` — the document has changed since the Operation.
 
-## 2. Database — migrations `012-audit-log.sql` and `016-audit-collection-modify.sql`
+## 2. Database — migrations `012-audit-log.sql` and `017-audit-collection-modify.sql`
 
 ```sql
 CREATE TABLE audit_log (

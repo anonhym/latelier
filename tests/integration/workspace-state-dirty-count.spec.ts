@@ -5,7 +5,7 @@ import { SavedQueryService } from '../../electron/services/SavedQueryService';
 import { WorkspaceStateService } from '../../electron/services/WorkspaceStateService';
 import type { Logger } from '../../electron/log';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '../../shared/defaults';
-import { createTempDb, type TempDb } from '../helpers/db';
+import { createTempDb, type TempDb, createTempCipher } from '../helpers/db';
 
 // When the page that reported dirty pipelines is gone (reload, crash, window
 // closed), main recounts them from the saved tabs with `dirtyPipelineCount`,
@@ -35,7 +35,7 @@ describe('WorkspaceStateService.dirtyPipelineCount', () => {
       )
       .run(now, now);
     log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger;
-    svc = new WorkspaceStateService(new WorkspaceTabRepo(tmp.db), new SavedQueryService(new SavedQueryRepo(tmp.db)), log);
+    svc = new WorkspaceStateService(new WorkspaceTabRepo(tmp.db, createTempCipher()), new SavedQueryService(new SavedQueryRepo(tmp.db, createTempCipher())), log);
   });
 
   afterEach(() => {
