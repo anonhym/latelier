@@ -30,6 +30,8 @@ describe('sqlite bootstrap', () => {
     tmp = createTempDb();
     expect(tmp.db.pragma('journal_mode', { simple: true })).toBe('wal');
     expect(tmp.db.pragma('foreign_keys', { simple: true })).toBe(1);
+    // 2 = MEMORY: VACUUM's temp copy never reaches disk.
+    expect(tmp.db.pragma('temp_store', { simple: true })).toBe(2);
   });
 
   it('creates all expected tables', () => {
@@ -48,6 +50,7 @@ describe('sqlite bootstrap', () => {
       'app_state',
       'audit_log',
       'recent_field_values',
+      'column_keys',
     ]) {
       expect(names, `expected table ${expected}`).toContain(expected);
     }

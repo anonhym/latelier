@@ -118,6 +118,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     secrets: {
       setPlaintextFallback: async (enabled) => ({ enabled }),
+      status: async () => ({ columnKeyProtected: true }),
     },
     query: {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
@@ -459,6 +460,7 @@ function makePermissiveStub(): IpcApi {
     },
     secrets: {
       setPlaintextFallback: async (enabled) => ({ enabled }),
+      status: async () => ({ columnKeyProtected: true }),
     },
     query: {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),

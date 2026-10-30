@@ -166,6 +166,7 @@ const api: IpcApi = {
   secrets: {
     setPlaintextFallback: (enabled) =>
       call(IPC_CHANNELS.secretsSetPlaintextFallback, { enabled }),
+    status: () => call(IPC_CHANNELS.secretsStatus),
   },
 
   query: {
