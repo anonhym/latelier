@@ -280,13 +280,11 @@ export function createLogger(userDataDir: string, opts: {
   // Resumes the newest part of the day already on disk, so a restart appends
   // where the last run stopped rather than to a part that is already full.
   function openDay(stamp: string): void {
-    let newest = 0;
-    for (const name of fs.readdirSync(logsDir)) {
-      if (!name.startsWith(`latelier.${stamp}.`) || !name.endsWith('.log')) continue;
-      const n = logNameParts(name).part;
-      // Stryker disable next-line EqualityOperator: `>=` differs only when n equals newest, where it assigns the value newest already holds.
-      if (n > newest) newest = n;
-    }
+    const parts = fs.readdirSync(logsDir)
+      .filter((name) => name.startsWith(`latelier.${stamp}.`) && name.endsWith('.log'))
+      .map((name) => logNameParts(name).part)
+      .filter((n) => Number.isInteger(n));
+    const newest = Math.max(0, ...parts);
     bytes = fs.statSync(partPath(stamp, newest), { throwIfNoEntry: false })?.size ?? 0;
     part = newest;
     day = stamp;
