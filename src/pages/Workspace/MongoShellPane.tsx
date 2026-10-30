@@ -5,8 +5,15 @@ import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
 import type { ShellOutputEvent } from '@shared/types';
 import { useLatest } from '../../commands/useLatest';
+import { logToMain } from '../../utils/rendererLog';
 
 const MAX_BUFFER_BYTES = 200_000;
+
+// A stop during cleanup has no pane left to report to, so it goes to the log
+// file: a session that would not stop is a leaked child process.
+function logCleanupStopFailure(err: unknown): void {
+  logToMain('warn', 'mshell stop failed during cleanup', 'component', getErrorMessage(err, 'stop failed'));
+}
 
 interface Props {
   connectionId: string;
@@ -154,7 +161,7 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
       try {
         const info = await api.mshell.start({ connectionId, dbName: dbNameRef.current });
         if (cancelled) {
-          void api.mshell.stop({ sessionId: info.sessionId }).catch(() => {});
+          void api.mshell.stop({ sessionId: info.sessionId }).catch(logCleanupStopFailure);
           return;
         }
         sessionIdRef.current = info.sessionId;
@@ -172,7 +179,7 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
       cancelled = true;
       const id = sessionIdRef.current;
       sessionIdRef.current = null;
-      if (id) void api.mshell.stop({ sessionId: id }).catch(() => {});
+      if (id) void api.mshell.stop({ sessionId: id }).catch(logCleanupStopFailure);
     };
   }, [connectionId, restartNonce, dbNameRef]);
 
@@ -247,7 +254,14 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
 
   const handleStop = async () => {
     const id = sessionIdRef.current;
-    if (id) await api.mshell.stop({ sessionId: id }).catch(() => {});
+    if (!id) return;
+    try {
+      await api.mshell.stop({ sessionId: id });
+    } catch (err) {
+      const message = getErrorMessage(err, 'stop failed');
+      append(`\n[could not stop the shell: ${message}]\n`);
+      logToMain('warn', 'mshell stop failed', 'component', message);
+    }
   };
 
   // The call being waited on cannot be cancelled inside the session, so
