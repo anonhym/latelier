@@ -396,6 +396,22 @@ describe('QueryBar — Explain reads through the X14 repair', () => {
     expect(explainSpy).not.toHaveBeenCalled();
   });
 
+  // The Run gate trims, so NBSP padding opens Explain; the repair Explain
+  // reads through used to refuse the same text and leave the click dead.
+  it('explains a filter padded with Unicode spaces, sending it trimmed', async () => {
+    const explainSpy = vi.fn<IpcApi['query']['explain']>(async () => ({
+      plan: { ok: 1 },
+      verbosity: 'queryPlanner',
+    }));
+    mountWith(tabWith('\u00a0{"foo":1}\u00a0', true), explainSpy);
+
+    await openExplainMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+
+    await waitFor(() => expect(explainSpy).toHaveBeenCalledTimes(1));
+    expect(explainSpy.mock.calls[0]?.[0]?.filter).toBe('{"foo":1}');
+  });
+
   it('sends the filter byte-identical when it already parses strictly', async () => {
     const explainSpy = vi.fn<IpcApi['query']['explain']>(async () => ({
       plan: { ok: 1 },

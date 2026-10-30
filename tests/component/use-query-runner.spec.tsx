@@ -823,6 +823,48 @@ describe('useQueryRunner', () => {
     });
   });
 
+  // The Run gate and the runner share one filter rule. NBSP padding is what
+  // `String.prototype.trim` strips and `JSON.parse` refuses, so it is the case
+  // that told the two apart: the find must go out with the trimmed text.
+  it('runs a filter padded with Unicode spaces, sending it trimmed', async () => {
+    const find = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 1, hasMore: false }));
+    installAtelierMock({ query: { find, count: async () => ({ count: 0 }) } });
+    const { result } = renderHook(() =>
+      useQueryRunner({
+        active: makeTarget({ queryRaw: '\u00a0{"a":1}\u00a0' }),
+        patchCollectionState: vi.fn(),
+        loadingDelayMs: 0,
+      }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(find).toHaveBeenCalledTimes(1);
+    expect(find.mock.calls[0]?.[0]?.filter).toBe('{"a":1}');
+  });
+
+  // Fail-closed: a refused filter never runs, as `{}` or otherwise, and the
+  // pill says what is wrong with it rather than a generic "not valid JSON".
+  it('refuses a broken filter before any find, naming the problem in the pill', async () => {
+    const find = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 1, hasMore: false }));
+    installAtelierMock({ query: { find, count: async () => ({ count: 0 }) } });
+    const patch = vi.fn();
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: makeTarget({ queryRaw: '[1]' }), patchCollectionState: patch, loadingDelayMs: 0 }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(find).not.toHaveBeenCalled();
+    expect(patch).toHaveBeenCalledWith('t1', {
+      lastRun: expect.objectContaining({
+        error: { code: 'VALIDATION', message: 'A filter must be a document, like { "status": "active" }.' },
+      }),
+    });
+  });
+
   // W14 §9 — the runner keeps its own gate: a Saved or Recent "Run here"
   // reaches it without passing the Run button.
   it('refuses a find option that cannot run, before any find', async () => {

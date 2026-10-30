@@ -132,14 +132,27 @@ export function repairToCanonicalEjson(text: string): RepairOutcome {
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
     out = out.slice(0, edit.start) + edit.replacement + out.slice(edit.end);
   }
+  // Acorn skips Unicode spaces at either end (NBSP, BOM, em space) that
+  // `JSON.parse` refuses, so text padded with them — strict JSON included —
+  // repairs to its trimmed self rather than failing the check below. The
+  // filter's Run gate trims the same way, so the two agree on such a paste.
+  // Only then: ASCII whitespace `JSON.parse` accepts stays as typed.
+  if (!parsesAsJson(out)) out = out.trim();
 
   // Last line of defence: never hand back text the rest of the app cannot read.
-  try {
-    JSON.parse(out);
-  } catch {
+  if (!parsesAsJson(out)) {
     return { kind: 'failed', reason: 'The text uses syntax this application does not support.' };
   }
   return { kind: 'repaired', text: out };
+}
+
+function parsesAsJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 /**

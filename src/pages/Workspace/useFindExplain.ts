@@ -1,8 +1,8 @@
 import React from 'react';
 import { api } from '../../api/atelier';
-import { ejsonParse, isEjsonDocument, isPlainDocument } from '../../utils/ejson';
+import { ejsonParse, isPlainDocument } from '../../utils/ejson';
 import { suggestIndex } from '../../utils/indexSuggestion';
-import { compileFindOptions, optionsProblem, parseSortString } from './builder';
+import { compileFindOptions, filterProblem, optionsProblem, parseSortString } from './builder';
 import { useCollectionWorkspace } from './context';
 import type { ExplainRunResult } from './Aggregation/ExplainDrawer';
 import type { ExplainVerbosity } from '@shared/types';
@@ -39,8 +39,13 @@ export function useFindExplain(readFilterText: () => string): {
     (verbosity: ExplainVerbosity) => {
       // The rule (never widen a refused filter to `{}`) applies even to a
       // read-only path like Explain.
-      const text = readFilterText();
-      if (!isEjsonDocument(text)) return Promise.reject(new Error('No runnable filter'));
+      // The Run gate's rule, and the trimmed text `currentFilterJson` sends:
+      // `filterProblem` accepts Unicode-space padding the main process's
+      // `JSON.parse` would refuse.
+      const raw = readFilterText();
+      const problem = filterProblem(raw);
+      if (problem !== null) return Promise.reject(new Error(problem));
+      const text = raw.trim();
       // Same for the options: the builder's message, not the server's refusal.
       if (optionError !== null) return Promise.reject(new Error(optionError));
       return api.query.explain({

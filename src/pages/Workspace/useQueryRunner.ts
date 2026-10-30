@@ -9,6 +9,7 @@ import {
   compileFindOptions,
   currentFilterJson,
   effectivePageLimit,
+  filterProblem,
   optionsProblem,
   projectionProblem,
   sortProblem,
@@ -214,10 +215,9 @@ export function useQueryRunner({
               documents: target.state.lastRun?.documents ?? [],
               durationMs: 0,
               ranAt: new Date().toISOString(),
-              error: {
-                code: 'VALIDATION',
-                message: 'Filter text is blank or not valid JSON',
-              },
+              // `currentFilterJson` is null exactly when `filterProblem`
+              // names a reason, so the pill says what is wrong with the filter.
+              error: { code: 'VALIDATION', message: filterProblem(state.queryRaw)! },
             },
           });
           return;

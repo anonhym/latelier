@@ -20,6 +20,7 @@ import {
   compileFindOptions,
   effectivePageLimit,
   findProblem,
+  requireFilterJson,
   FIELD_OPS,
   DRAGGED_FIELD_MIME,
   condFromDragged,
@@ -1835,11 +1836,12 @@ function BuilderPaneInner({
     // A clause the gates above let through but `findCode` cannot write is a
     // bug in one of the two; from a menu click it would otherwise surface as
     // an uncaught page error with nothing copied and nothing said.
+    const filter = requireFilterJson(state);
     let code: string;
     try {
       code = findCode(lang, {
         collection,
-        filter: state.queryRaw,
+        filter,
         projection: opts.projection,
         sort: opts.sort,
         collation: opts.collation,

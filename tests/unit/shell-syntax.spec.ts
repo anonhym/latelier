@@ -632,6 +632,14 @@ describe('repairToCanonicalEjson — exact refusal reasons', () => {
     expect(mustRepair('{a: 1}   ')).toBe('{"a": 1}   ');
   });
 
+  // Acorn reads NBSP, BOM and em space as whitespace and `JSON.parse` does
+  // not, so such padding used to fail the last strictness check even around
+  // strict JSON — while the filter's Run gate, which trims, accepted it.
+  it('trims Unicode-space padding JSON refuses, strict JSON included', () => {
+    expect(mustRepair('\u00a0{"a":1}\u00a0')).toBe('{"a":1}');
+    expect(mustRepair('\ufeff{a: 1}\u2003')).toBe('{"a": 1}');
+  });
+
   it('reports the generic fallback reason, not a comment-specific one, when a comment breaks the result', () => {
     expect(repairToCanonicalEjson('{a: 1 /* x, y */}')).toEqual({
       kind: 'failed',
