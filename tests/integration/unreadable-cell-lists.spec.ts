@@ -101,6 +101,45 @@ describe('one undecryptable cell does not take down a list', () => {
     expectWarned('workspace_tabs', 'state_json', 'bad');
   });
 
+  describe('a tab whose state cell is unreadable stays usable', () => {
+    function setupBadTab() {
+      const repo = new WorkspaceTabRepo(tmp.db, createTempCipher(), log);
+      for (const [id, position] of [['good', 0], ['bad', 1]] as const) {
+        repo.insert({
+          id, connection_id: 'c1', kind: 'collection', db_name: 'd', collection: id,
+          state_json: JSON.stringify({ queryRaw: SECRET }), position, is_active: id === 'bad' ? 1 : 0, opened_at: now, pinned: 0,
+        });
+      }
+      swapIn(tmp, 'workspace_tabs', 'state_json', 'good', 'bad');
+      const svc = new WorkspaceStateService(repo, new SavedQueryService(new SavedQueryRepo(tmp.db, createTempCipher())));
+      return { repo, svc };
+    }
+
+    it('updates, and the update re-seals the cell so it decrypts again', () => {
+      const { svc } = setupBadTab();
+      svc.update('bad', { state: { pageSize: 100 } });
+      const cell = tmp.db.prepare("SELECT state_json FROM workspace_tabs WHERE id = 'bad'").get() as { state_json: Buffer };
+      expect(JSON.parse(createTempCipher().open('workspace_tabs', 'state_json', 'bad', cell.state_json))).toMatchObject({ pageSize: 100 });
+      expectWarned('workspace_tabs', 'state_json', 'bad');
+      warn.mockClear();
+      svc.update('bad', { state: { pageSize: 50 } });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('closes, activates and pins', () => {
+      const { svc } = setupBadTab();
+      expect(() => svc.setPinned('bad', true)).not.toThrow();
+      expect(() => svc.setActive('bad')).not.toThrow();
+      expect(svc.close('bad')).toEqual({ newActiveId: 'good' });
+      expect(svc.list().map((t) => t.id)).toEqual(['good']);
+    });
+
+    it('is found by findMatching, as opening the same collection again does', () => {
+      const { repo } = setupBadTab();
+      expect(repo.findMatching('c1', 'collection', 'd', 'bad')).toMatchObject({ id: 'bad', state_json: '' });
+    });
+  });
+
   it('value suggestions: the bad value is skipped, the rest listed', () => {
     const repo = new RecentFieldValueRepo(tmp.db, createTempCipher(), log);
     const base = { connectionId: 'c1', dbName: 'd', collection: 'c', field: 'f', valType: 'string' as const, lastUsedAt: now };

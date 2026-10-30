@@ -105,11 +105,12 @@ describe('WorkspaceTabRepo', () => {
     expect(cellType(tmp.db, 'workspace_tabs', 'state_json', 'a')).toBe('blob');
   });
 
-  it('a state cell copied onto another tab fails to open rather than decrypting there', () => {
+  it('a state cell copied onto another tab reads as empty state rather than decrypting there', () => {
     repo.insert(makeRow({ id: 'a', collection: 'a', state_json: '{"view":"Tree"}' }));
     repo.insert(makeRow({ id: 'b', collection: 'b', position: 1, state_json: '{"view":"JSON"}' }));
     tmp.db.prepare("UPDATE workspace_tabs SET state_json = (SELECT state_json FROM workspace_tabs WHERE id = 'a') WHERE id = 'b'").run();
-    expect(() => repo.findById('b')).toThrow(expect.objectContaining({ code: 'COLUMN_DECRYPT_FAILED' }));
+    expect(repo.findById('b')!.state_json).toBe('');
+    expect(repo.findById('a')!.state_json).toBe('{"view":"Tree"}');
   });
 
   it('deleteById returns changes count', () => {

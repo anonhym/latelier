@@ -138,16 +138,20 @@ export class WorkspaceTabRepo {
   }
 
   list(): WorkspaceTabRow[] {
-    // An unreadable state lists as '', which the service's parser already
-    // turns into the default state of a tab.
-    return (this.listStmt.all() as StoredRow[]).map((r) => ({
-      ...r,
-      state_json: openListedCell(this.cipher, this.log, 'workspace_tabs', 'state_json', r.id, r.state_json) ?? '',
-    }));
+    return (this.listStmt.all() as StoredRow[]).map((r) => this.opened(r));
   }
 
+  /**
+   * Every read, single-row ones included: an unreadable state reads as '',
+   * which the service's parser turns into a tab's default state. A tab must
+   * stay closable, pinnable and updatable, and the next update re-seals the
+   * cell, which heals it.
+   */
   private opened(row: StoredRow): WorkspaceTabRow {
-    return { ...row, state_json: this.cipher.open('workspace_tabs', 'state_json', row.id, row.state_json) };
+    return {
+      ...row,
+      state_json: openListedCell(this.cipher, this.log, 'workspace_tabs', 'state_json', row.id, row.state_json) ?? '',
+    };
   }
 
   findMatching(
