@@ -73,6 +73,8 @@ export function saveFilters(defaultName: string): FileFilter[] {
  *
  * `unsaved` is the store the quit gate reads; the renderer's reports land in
  * it. Optional like `diagnostic`, and the channel fails the same way without it.
+ * `onFlushDone` receives the renderer's answer to a flush request (see
+ * `awaitRendererFlush`); optional and failing the same way.
  */
 export function registerAppChannels(
   router: Router,
@@ -81,6 +83,7 @@ export function registerAppChannels(
   pickedCredentialPaths: PickedCredentialPaths,
   diagnostic?: DiagnosticService,
   unsaved?: UnsavedWorkStore,
+  onFlushDone?: () => void,
 ): void {
   router.register(
     IPC_CHANNELS.appPickFile,
@@ -179,6 +182,15 @@ export function registerAppChannels(
     async ({ source, count }) => {
       if (!unsaved) throw new SystemError('INTERNAL', 'unsaved-work store not available');
       unsaved[source] = count;
+    },
+  );
+
+  router.register(
+    IPC_CHANNELS.appFlushDone,
+    zodValidator(NoInput),
+    async () => {
+      if (!onFlushDone) throw new SystemError('INTERNAL', 'flush acknowledgement sink not available');
+      onFlushDone();
     },
   );
 }
