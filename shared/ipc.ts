@@ -371,6 +371,12 @@ export interface IpcApi {
      * value now in force, so a cancelled enable comes back `{ enabled: false }`.
      */
     setPlaintextFallback: (enabled: boolean) => Promise<{ enabled: boolean }>;
+    /**
+     * Whether the key that encrypts saved queries, history, the audit log and
+     * tab state is wrapped by the OS keychain. False means it is stored
+     * unprotected beside the data, so that data is obfuscated, not protected.
+     */
+    status: () => Promise<{ columnKeyProtected: boolean }>;
   };
 
   query: {
@@ -629,6 +635,7 @@ export const IPC_CHANNELS = {
 
   // Secrets settings (main-confirmed) -----------------------------
   secretsSetPlaintextFallback: 'secrets:set-plaintext-fallback',
+  secretsStatus: 'secrets:status',
 
   // Query runner -----------------------------------------
   queryFind:             'query:find',

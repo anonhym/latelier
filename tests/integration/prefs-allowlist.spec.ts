@@ -51,7 +51,7 @@ describe('prefs key allowlist and the main-confirmed plaintext switch', () => {
     );
     const confirm = vi.fn(async () => confirmAnswer);
     registerPrefsChannels(router, appState, () => null);
-    registerSecretsChannels(router, appState, confirm);
+    registerSecretsChannels(router, appState, confirm, () => ({ columnKeyProtected: false }));
     const invoke = async <T>(ch: string, payload?: unknown): Promise<Envelope<T>> =>
       (await handlers.get(ch)!(invokeEvent, payload)) as Envelope<T>;
     return { appState, invoke, confirm };
@@ -162,6 +162,12 @@ describe('prefs key allowlist and the main-confirmed plaintext switch', () => {
     expect(
       (await invoke(IPC_CHANNELS.prefsSet, { key, value: Array.from({ length: 500 }, () => UUID) })).ok,
     ).toBe(true);
+  });
+
+  it('secrets:status reports the column key protection main computed at boot', async () => {
+    const { invoke } = setup();
+    const env = await invoke<{ columnKeyProtected: boolean }>(IPC_CHANNELS.secretsStatus, undefined);
+    expect(env.ok && env.data).toEqual({ columnKeyProtected: false });
   });
 
   describe('secrets:set-plaintext-fallback', () => {

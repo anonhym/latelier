@@ -1,6 +1,6 @@
 # X21 — Encryption at rest for Mongo-derived values
 
-> **Status: Draft.**
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -60,7 +60,7 @@ last 16      GCM auth tag
 
 **Nonce** is random per write. The NIST SP 800-38D bound of 2^32 messages per key is far above this database's lifetime write count; no counter is persisted.
 
-**Length** leaks: ciphertext is plaintext + 29 bytes. `recent_field_values.value` is padded to a 32-byte multiple before sealing so short literals do not reveal their length; the other columns hold JSON whose length is low-value and is not padded.
+**Length** leaks: ciphertext is plaintext + 29 bytes. `recent_field_values.value` is padded to a 32-byte multiple before sealing so short literals do not reveal their length; the other columns hold JSON whose length is low-value and is not padded. The padding is on the UTF-8 bytes: a `0x80` marker, then zeros to the next multiple (a full extra block when already aligned), so every value round-trips exactly. The cipher decides which columns are padded from the table and column name, so a repository cannot pad on write and forget to strip on read.
 
 ## 2. `ColumnCipher` — `electron/db/columnCipher.ts`
 
@@ -119,8 +119,8 @@ Modelled on `SecretsVault.set`/`get`:
 - `main.ts`, right after the vault is built: load the keys, build the `ColumnCipher`, run `encryptLegacyRows` (§7), then construct the five repos with the cipher injected.
 - Repos seal on write and open on read. Row types keep `string` fields, so services, handlers and IPC are unchanged; no channel is added.
 - `RecentFieldValueRepo.upsert` writes `value_mac = cipher.blind([connectionId, dbName, collection, field], value)`.
-- `DiagnosticService.secretsStatus` gains `columnKeyProtected: boolean`, surfaced next to the existing keychain line in Settings. If the diagnostics payload type in `shared/` changes, the `ipc-channel-auditor` agent runs.
-- The dev database-reset path in `main.ts` rebuilds the cipher and repos with the database, or relaunches.
+- `DiagnosticService.secretsStatus` gains `columnKeyProtected: boolean`, which goes into the exported diagnostic bundle. Settings had no keychain line and no channel that reported one, so a read-only, input-free `secrets:status` channel (`{ columnKeyProtected }`) feeds a new "Local data protection" row in Settings. The `ipc-channel-auditor` agent runs for it.
+- The dev database-reset path in `main.ts` relaunches the app after deleting the files; reopening in place left every service, the vault and the cipher on the closed handle.
 - `tests/helpers/db.ts` gains `createTempCipher()` with fixed keys; integration specs construct repos with it.
 
 ## 5. Linux without a keychain
@@ -134,7 +134,7 @@ When the wrapped key cannot be decrypted at boot (Keychain reset, macOS Deny at 
 - **Quit** (default). The user can restore the keychain item, or relaunch and click Allow.
 - **Reset protected data.** One transaction deletes all rows from `recent_queries`, `recent_field_values`, `audit_log`, `saved_queries`, `workspace_tabs` and `column_keys`; then VACUUM, WAL truncate, and a fresh key. Connections stay; their passwords follow the vault's existing per-secret handling.
 
-The dialog distinguishes "access denied" (`isEncryptionAvailable()` is true and decryption threw) from "key gone", and tells a user who denied the prompt to relaunch and click Allow.
+The dialog distinguishes "access denied" from "key gone" by `isEncryptionAvailable()` alone, never by Electron's error text, using the same rule as the connection-password classifier (`electron/mongo/errors.ts`): on macOS a denied keychain prompt leaves encryption unavailable until relaunch, so unavailable on `darwin` is "access denied" and the dialog tells the user to relaunch and click Always Allow; an available keychain that cannot decrypt, or any other platform, is "key gone".
 
 ## 7. Encrypting existing rows
 
@@ -148,7 +148,7 @@ encryptLegacyRows(db, cipher, log):
   if any row was converted: VACUUM, then wal_checkpoint(TRUNCATE)
 ```
 
-Migration 016 drops and recreates `recent_field_values` with `value BLOB` and `value_mac TEXT` carrying the UNIQUE index in place of `value`. It is a 30-day suggestion cache; wiping it is cheaper than a two-phase rebuild, and the release notes say so.
+Migration 016 drops and recreates `recent_field_values` with `value BLOB` and `value_mac TEXT` carrying the UNIQUE index in place of `value`. The index is on `value_mac` alone: the blind index is already scoped to (connection, db, collection, field), and the upsert conflicts on it. It is a 30-day suggestion cache; wiping it is cheaper than a two-phase rebuild, and the release notes say so.
 
 The step's own VACUUM is required. Rows written before `secure_delete` was turned on leave stale plaintext copies in page slack and on freelist pages that an UPDATE plus checkpoint does not reach; only VACUUM removes them. The VACUUM in `openDatabase` runs during migration 016, before this step, so it does not help.
 
@@ -168,10 +168,10 @@ The WAL truncate sets the file length to 0 without zeroing the freed blocks; a f
 - **`safeStorage.encryptString` per cell.** Smaller diff, but no AAD (cells swap between rows undetected), a format Electron owns, and `recent_field_values` still needs a key for its blind index — so a wrapped key is needed anyway.
 - **Store less.** Making `recent_field_values` opt-in, hashing the audit filter and keeping `schema.entries[].numeric` in memory shrink the surface, but cannot cover saved queries and tab script source, which the user expects back. Complements X21; does not replace it.
 
-## 10. Open questions
+## 10. Decided
 
-1. **Saved queries on key reset.** Delete them (proposed: an undecryptable saved query is noise) or keep them as "unreadable" rows?
-2. **macOS Deny at the keychain prompt.** The exact error Electron raises is unverified. Settle it with a signed build before the §6 dialog copy is final.
+1. **Saved queries on key reset** are deleted with the rest: an undecryptable saved query is noise.
+2. **Denied vs gone** is decided by `isEncryptionAvailable()`, not by parsing Electron's error (§6).
 
 ## Acceptance criteria
 
@@ -182,7 +182,7 @@ The WAL truncate sets the file length to 0 without zeroing the freed blocks; a f
 - An unreadable key fails boot with the §6 dialog and never generates a new key on its own.
 - On a host with no usable keychain the key is stored with `is_plaintext = 1`, Settings says it is unprotected, and the next boot with a keychain re-wraps it.
 - `temp_store` is `MEMORY` for every connection `openDatabase` returns.
-- Services, IPC handlers and the renderer are unchanged apart from the diagnostics field.
+- Services, IPC handlers and the renderer are unchanged apart from the diagnostics field and the read-only `secrets:status` channel that feeds the Settings line.
 - `SECURITY.md`'s local-data section and F02's schema section describe the encrypted columns, the threat-model limits and the plaintext schema names.
 
 ## Test cases
