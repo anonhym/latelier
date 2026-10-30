@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CollectionTabState, LastRun } from '@shared/types';
 import { api, getErrorMessage } from '../../api/atelier';
+import { logFailure } from '../../utils/rendererLog';
 import { invalidateRecentValuesCache } from '../../features/fieldSuggestions/sources';
 import { fieldValueEntriesFromFilter } from '../../features/fieldSuggestions/fieldValueEntries';
 import { queryRunKey } from '../../utils/queryRunKey';
@@ -388,7 +389,12 @@ export function useQueryRunner({
               userLimit !== null ? Math.min(count, userLimit) : count;
             patchState(target.id, { totalCount: displayCount });
           })
-          .catch(() => {});
+          .catch((err) => {
+            // A superseded run's count is cancelled with it, which is not a failure.
+            // The page itself is already on screen; only its total goes missing.
+            if (runToken !== runTokenRef.current.get(target.id)) return;
+            logFailure('counting the matching documents', err);
+          });
       } catch (err) {
         // Superseded (cancelled, or a newer run already took over): the
         // abort's rejection is expected noise, not a result to show — a

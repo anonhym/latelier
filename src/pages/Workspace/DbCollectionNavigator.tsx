@@ -9,6 +9,7 @@ import {
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
 import type { ConnectionSummary, ProbeErrorCode } from '@shared/types';
 import { api, getErrorMessage } from '../../api/atelier';
+import { logFailure } from '../../utils/rendererLog';
 import { notify } from '../../theme/notifications';
 import { copyToClipboard } from '../../utils/clipboard';
 import { disconnectConnection } from '../../features/connections/disconnectConnection';
@@ -395,11 +396,13 @@ export function DbCollectionNavigator({
     (id: string) => {
       const next = expandedConnId === id ? null : id;
       if (expandedConnId && expandedConnId !== next) {
-        void api.prefs.set(connExpandedKey(expandedConnId), false).catch(() => {});
+        const key = connExpandedKey(expandedConnId);
+        void api.prefs.set(key, false).catch((err) => logFailure(`saving preference ${key}`, err));
       }
-      void api.prefs.set(connExpandedKey(id), next === id).catch(() => {});
+      const expandedKey = connExpandedKey(id);
+      void api.prefs.set(expandedKey, next === id).catch((err) => logFailure(`saving preference ${expandedKey}`, err));
       if (next === id && isKnownNotConnected(connections.find((c) => c.id === id))) {
-        void api.mongo.connect(id).catch(() => {});
+        void api.mongo.connect(id).catch((err) => logFailure('connect', err));
       }
       dispatch({ type: 'expandedConnSet', id: next });
     },
@@ -502,7 +505,7 @@ export function DbCollectionNavigator({
   }, []);
 
   const reconnect = React.useCallback((id: string) => {
-    void api.mongo.connect(id).catch(() => {});
+    void api.mongo.connect(id).catch((err) => logFailure('reconnect', err));
   }, []);
 
   const retryDatabases = React.useCallback((cid: string) => void loadDbs(cid), [loadDbs]);

@@ -168,3 +168,19 @@ describe('installGlobalErrorLogging', () => {
     ]);
   });
 });
+
+describe('logFailure', () => {
+  it('names the action, carries the error message, and adds a stack only for an Error', async () => {
+    const { logFailure } = await load();
+    const log = mockLog();
+    const error = new Error('disk full');
+    logFailure('saving preference ui.x', error);
+    logFailure('saving preference ui.x', { code: 'INTERNAL', message: 'refused' });
+    logFailure('saving preference ui.x', 'a bare string');
+    expect(log.mock.calls.map((c) => c[0])).toEqual([
+      { level: 'warn', message: 'saving preference ui.x failed: disk full', source: 'component', stack: error.stack },
+      { level: 'warn', message: 'saving preference ui.x failed: refused', source: 'component' },
+      { level: 'warn', message: 'saving preference ui.x failed: unknown error', source: 'component' },
+    ]);
+  });
+});

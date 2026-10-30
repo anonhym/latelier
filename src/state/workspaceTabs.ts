@@ -13,6 +13,7 @@ import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationSeed, IpcError } from '@shared/ipc';
 import { confirmDestructive } from '../utils/confirm';
 import { api, isIpcError } from '../api/atelier';
+import { logFailure } from '../utils/rendererLog';
 import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
@@ -229,8 +230,9 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         ) {
           seed.pageSize = pageSize;
         }
-      } catch {
-        // best-effort; fall back to the server-side default.
+      } catch (err) {
+        // Best-effort: fall back to the server-side default.
+        logFailure(`reading preference ${DEFAULT_PAGE_SIZE_PREF_KEY}`, err);
       }
       try {
         // Same rule as the page size: a value outside the enum is a never-set pref.
@@ -238,8 +240,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         if ((RESULT_VIEW_OPTIONS as readonly unknown[]).includes(view)) {
           seed.view = view as ResultViewMode;
         }
-      } catch {
-        // best-effort; fall back to the server-side default.
+      } catch (err) {
+        logFailure(`reading preference ${DEFAULT_VIEW_PREF_KEY}`, err);
       }
       const initialState = Object.keys(seed).length > 0 ? seed : undefined;
       const tab = await api.tabs.openCollection({
@@ -329,7 +331,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     const toClose = snapshot.filter((t) => t.connectionId === connectionId);
     setTabs(snapshot.filter((t) => t.connectionId !== connectionId));
     await Promise.all(
-      toClose.map((t) => api.tabs.close(t.id).catch(() => { /* best-effort */ })),
+      toClose.map((t) => api.tabs.close(t.id).catch((err) => logFailure('closing a tab', err))),
     );
     await refresh();
   }, [refresh]);
@@ -357,7 +359,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         if (!proceed) return;
       }
       await Promise.all(
-        matches.map((t) => api.tabs.close(t.id).catch(() => { /* best-effort */ })),
+        matches.map((t) => api.tabs.close(t.id).catch((err) => logFailure('closing a tab', err))),
       );
       await refresh();
     },
@@ -373,8 +375,9 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
           oldCollection: collection,
           newCollection,
         });
-      } catch {
-        // best-effort — the navigator's own refresh still shows the new name
+      } catch (err) {
+        // Best-effort: the navigator's own refresh still shows the new name.
+        logFailure('retargeting tabs after a collection rename', err);
       }
       await refresh();
     },
