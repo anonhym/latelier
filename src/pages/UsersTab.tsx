@@ -300,9 +300,9 @@ export function UsersTab({
           + New user
         </Button>
 
-        <Button size="compact-xs" variant="subtle" onClick={() => void loadUsers()} leftSection={I.sync} disabled={loading}>
+        <SubmitButton size="compact-xs" variant="subtle" onClick={() => void loadUsers()} leftSection={I.sync} submitting={loading}>
           Refresh
-        </Button>
+        </SubmitButton>
       </div>
 
       <div
