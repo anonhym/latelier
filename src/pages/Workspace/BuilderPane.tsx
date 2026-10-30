@@ -745,6 +745,10 @@ function CondRow({
             items={opSuggestionItems}
             anchorRef={opInputRef}
             label="Operator suggestions"
+            // Headers only over the unfiltered catalog. Focusing the box puts
+            // the committed op in the token, which filters the list, so the
+            // grouped view shows on a blank row or once the box is cleared.
+            groupOperators={opValue.trim() === ''}
             onSelect={(s) => {
               if (s.kind === 'operator') {
                 // The popover blurs the input on its way out, so the blur
