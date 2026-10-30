@@ -56,7 +56,7 @@ bytes 13..   AES-256-GCM ciphertext of the UTF-8 text
 last 16      GCM auth tag
 ```
 
-**AAD** is `${table}.${column}:${id}` in UTF-8. A cell moved to another row, column or table fails authentication. All five tables have a UUID `id` primary key. `recent_field_values`' upsert never rewrites `value` on conflict, so a cell stays bound to the id it was sealed with.
+**AAD** is `${table}.${column}:${id}` in UTF-8. A cell moved to another row, column or table fails authentication. This gives confidentiality plus swap detection for sealed cells, not integrity against a downgrade: someone who can write the file can replace a sealed cell with TEXT, which `open` reads as legacy plaintext. Only `recent_field_values.value`, which 016 rebuilt empty and so never held legacy text, refuses TEXT cells. All five tables have a UUID `id` primary key. `recent_field_values`' upsert never rewrites `value` on conflict, so a cell stays bound to the id it was sealed with.
 
 **Nonce** is random per write. The NIST SP 800-38D bound of 2^32 messages per key is far above this database's lifetime write count; no counter is persisted.
 

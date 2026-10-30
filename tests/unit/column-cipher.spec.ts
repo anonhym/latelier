@@ -64,7 +64,17 @@ describe('ColumnCipher', () => {
 
   it('returns a legacy string cell as-is', () => {
     expect(cipher.open('saved_queries', 'payload_json', ID, '{"legacy":true}')).toBe('{"legacy":true}');
-    expect(cipher.open('recent_field_values', 'value', ID, 'plain\u0080\0')).toBe('plain\u0080\0');
+    expect(cipher.open('recent_queries', 'payload_json', ID, 'plain\u0080\0')).toBe('plain\u0080\0');
+  });
+
+  it('refuses a TEXT cell in recent_field_values.value, which never held legacy plaintext', () => {
+    expectDecryptFailed(
+      () => cipher.open('recent_field_values', 'value', ID, 'planted'),
+      'plaintext cell in a sealed-only column',
+    );
+    // Same column name under another table is still a legacy cell.
+    expect(cipher.open('recent_field_values', 'field', ID, 'f')).toBe('f');
+    expect(cipher.open('other', 'value', ID, 'v')).toBe('v');
   });
 
   it('rejects a cell opened under another table, column or id', () => {

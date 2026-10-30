@@ -131,12 +131,11 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
 
   describe('RecentFieldValueRepo.deleteOlderThan + MaintenanceService.purgeExpired', () => {
     const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    // Through the repo: the column only accepts sealed cells.
     const insertFieldValue = (id: string, value: string, lastUsedAt: string) =>
-      tmp.db.prepare(`
-        INSERT INTO recent_field_values
-          (id, connection_id, db_name, collection, field, value, value_mac, val_type, last_used_at)
-        VALUES (?, ?, 'mydb', 'items', 'status', ?, ?, 'string', ?)
-      `).run(id, CONNECTION_ID, value, `mac-${id}`, lastUsedAt);
+      new RecentFieldValueRepo(tmp.db, createTempCipher()).upsert({
+        id, connectionId: CONNECTION_ID, dbName: 'mydb', collection: 'items', field: 'status', value, valType: 'string', lastUsedAt,
+      });
 
     it('deleteOlderThan removes rows older than the threshold and keeps newer rows', () => {
       const repo = new RecentFieldValueRepo(tmp.db, createTempCipher());

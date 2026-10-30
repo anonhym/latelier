@@ -25,6 +25,14 @@ const PAD_MARKER = 0x80;
 const PADDED_COLUMNS: ReadonlySet<string> = new Set(['recent_field_values.value']);
 
 /**
+ * Columns that never held plaintext: migration 016 rebuilt them empty. A TEXT
+ * cell there can only be written by someone editing the file, so it is
+ * refused rather than read as legacy plaintext, which would let them plant
+ * chosen text past the AAD binding.
+ */
+const SEALED_ONLY_COLUMNS: ReadonlySet<string> = new Set(['recent_field_values.value']);
+
+/**
  * Always appends a marker byte, then zeros up to the next block. A value that
  * already fills whole blocks gets a full extra one, so every input — trailing
  * NULs and trailing marker bytes included — round-trips exactly.
@@ -75,9 +83,8 @@ export class ColumnCipher {
     return Buffer.concat([Buffer.of(FORMAT_VERSION), nonce, ciphertext, cipher.getAuthTag()]);
   }
 
-  /** A string is a legacy plaintext cell and is returned as-is. */
+  /** A string is a legacy plaintext cell and is returned as-is, except in a sealed-only column. */
   open(table: string, column: string, id: string, cell: string | Buffer): string {
-    if (typeof cell === 'string') return cell;
     const fail = (reason: string) =>
       new SystemError('COLUMN_DECRYPT_FAILED', 'A stored value could not be decrypted.', {
         table,
@@ -85,6 +92,10 @@ export class ColumnCipher {
         id,
         reason,
       });
+    if (typeof cell === 'string') {
+      if (SEALED_ONLY_COLUMNS.has(`${table}.${column}`)) throw fail('plaintext cell in a sealed-only column');
+      return cell;
+    }
     if (cell.length < HEADER_BYTES + TAG_BYTES) throw fail('truncated cell');
     if (cell[0] !== FORMAT_VERSION) throw fail('unknown format version');
     // The tag slice is always TAG_BYTES long, so a truncated-tag forgery
