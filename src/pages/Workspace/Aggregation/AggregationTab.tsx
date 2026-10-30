@@ -1,5 +1,6 @@
 import React from 'react';
 import { themeVars } from '../../../theme/themeVars';
+import { SubmitButton } from '../../../components/SubmitButton';
 import { I } from '../../../icons';
 import { Button, Group, Menu, Modal, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -661,9 +662,9 @@ export function AggregationTab({
           )}
         </Group>
 
-        <Button size="compact-xs" variant="default" leftSection={I.save} disabled={running || !state.dirty} onClick={onSave}>
+        <SubmitButton size="compact-xs" variant="default" leftSection={I.save} submitting={running || !state.dirty} onClick={onSave}>
           Save
-        </Button>
+        </SubmitButton>
         <Button size="compact-xs" variant="default" disabled={running} onClick={onSaveAs}>
           Save as
         </Button>

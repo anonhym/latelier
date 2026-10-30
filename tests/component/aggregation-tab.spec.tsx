@@ -932,3 +932,60 @@ describe('AggregationTab — Copy menu (#23)', () => {
     expect((screen.getByRole('button', { name: 'Copy pipeline' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+// jsdom never blurs an element that goes `disabled`, and the e2e suite cannot
+// inject IPC latency, so the focus drop itself is unobservable here; what the
+// fix guarantees (and what is asserted) is that Save never takes the real
+// `disabled` attribute, which is what makes Chromium blur it.
+describe('AggregationTab — Save stays focusable when it goes inert', () => {
+  const savedState = {
+    ...DEFAULT_AGGREGATION_TAB_STATE,
+    stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    savedId: 's1',
+    name: 'p',
+  } satisfies AggregationTabState;
+
+  const updateOk = async () => ({
+    id: 's1',
+    connectionId: 'c1',
+    name: 'p',
+    dbName: 'app',
+    collection: 'orders',
+    kind: 'aggregation' as const,
+    payload: { kind: 'aggregation' as const, stages: [] },
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  it('a clean pipeline: Save is aria-disabled, not disabled, and a click saves nothing', () => {
+    const update = vi.fn<IpcApi['saved']['update']>(updateOk);
+    installAtelierMock({ saved: { update } });
+    renderStatefulTab(savedState);
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.hasAttribute('disabled')).toBe(false);
+    expect(save.getAttribute('aria-disabled')).toBe('true');
+
+    fireEvent.click(save);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('a successful save clears dirty without taking focus off the button', async () => {
+    const update = vi.fn<IpcApi['saved']['update']>(updateOk);
+    installAtelierMock({ saved: { update } });
+    renderStatefulTab({ ...savedState, dirty: true });
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.hasAttribute('aria-disabled')).toBe(false);
+    save.focus();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save' }).getAttribute('aria-disabled')).toBe('true'),
+    );
+    const after = screen.getByRole('button', { name: 'Save' });
+    expect(after.hasAttribute('disabled')).toBe(false);
+    expect(document.activeElement).toBe(after);
+  });
+});
