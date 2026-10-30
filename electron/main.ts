@@ -580,6 +580,8 @@ function registerDevResetShortcut(): void {
       return;
     }
     appState.reset();
+    // Shell sessions belong to the connections just deleted.
+    void mshellSvc?.disposeAll();
     if (pool) {
       void pool.disconnectAll();
     }
