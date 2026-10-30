@@ -703,6 +703,30 @@ describe('AggregationTab — cancelling a run', () => {
     return { run, cancel };
   }
 
+  it('a refused cancel is logged and shown to the user', async () => {
+    const log = vi.fn<IpcApi['app']['log']>(async () => undefined);
+    installAtelierMock({
+      app: { log },
+      agg: {
+        run: (() => new Promise(() => {})) as never,
+        cancel: async () => {
+          throw { code: 'INTERNAL', message: 'no such run' };
+        },
+      },
+    });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByText('Cancel failed')).toBeTruthy();
+    expect(screen.getByText('no such run')).toBeTruthy();
+    expect(log).toHaveBeenCalledWith({ level: 'warn', message: 'aggregation cancel failed: no such run', source: 'component' });
+  });
+
   it('a cancelled write run that completes shows its result and says the write ran to completion', async () => {
     const pending = deferred<typeof ranOk>();
     const { run, cancel } = await startWriteRun(pending.promise);

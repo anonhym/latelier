@@ -317,7 +317,11 @@ export function DbCollectionNavigator({
       backfilledRef.current.add(c.id);
       const id = c.id;
       void (async () => {
-        const runtime = await api.mongo.status(id).catch(() => null);
+        // No status just means no error banner to backfill; the log keeps the cause.
+        const runtime = await api.mongo.status(id).catch((err) => {
+          logFailure('reading connection status', err);
+          return null;
+        });
         if (!runtime || runtime.status !== 'error' || !runtime.errorMessage) return;
         const message = runtime.errorMessage;
         dispatch({ type: 'connectErrorBackfill', id, message, code: runtime.errorCode });

@@ -140,7 +140,7 @@ export function useQueryRunner({
       // itself as stale and skips patching state once the abort settles.
       runTokenRef.current.set(target.id, (runTokenRef.current.get(target.id) ?? 0) + 1);
       clearRunning(target.id);
-      void api.query.cancel({ token }).catch((err: unknown) => console.warn('[query] cancel failed', err));
+      void api.query.cancel({ token }).catch((err: unknown) => logFailure('query cancel', err));
     },
     [clearRunning],
   );
@@ -155,7 +155,7 @@ export function useQueryRunner({
       if (runningIdsRef.current.has(target.id)) {
         const staleToken = cancelTokensRef.current.get(target.id);
         if (staleToken) {
-          void api.query.cancel({ token: staleToken }).catch((err: unknown) => console.warn('[query] cancel failed', err));
+          void api.query.cancel({ token: staleToken }).catch((err: unknown) => logFailure('query cancel', err));
         }
       }
       const runToken = (runTokenRef.current.get(target.id) ?? 0) + 1;
@@ -336,7 +336,7 @@ export function useQueryRunner({
               if (lastWrittenRef.current.get(target.id) !== written) return;
               patchState(target.id, { lastRun: { ...lastRun, plan: res.plan } });
             })
-            .catch((err: unknown) => console.warn('[query] plan explain failed', err));
+            .catch((err: unknown) => logFailure('plan explain', err));
         }
         // Fire-and-forget: persists the values this run's conditions actually
         // carried for the value-suggestion popover. Never
@@ -356,7 +356,7 @@ export function useQueryRunner({
             })
             // Value history is a convenience: a failed write must not fail
             // the run, but it is reported rather than dropped.
-            .catch((err: unknown) => console.warn('[recent] recordFieldValues failed', err));
+            .catch((err: unknown) => logFailure('recording field values', err));
         }
         recordEvent?.(
           'queryRun',

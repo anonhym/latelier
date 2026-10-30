@@ -286,7 +286,7 @@ export function AggregationTab({
           api.recent
             .recordFieldValues({ connectionId, dbName, collection, entries })
             .then(() => invalidateRecentValuesCache(connectionId, dbName, collection))
-            .catch((err: unknown) => console.warn('[recent] recordFieldValues failed', err));
+            .catch((err: unknown) => logFailure('recording field values', err));
         }
         if (stoppingRef.current) {
           notify.info("The write couldn't be stopped, so it ran to completion.");
@@ -460,8 +460,8 @@ export function AggregationTab({
   // from state, and the patch has landed by the time the user acts in them.
   const onSave = async () => {
     // The Save button is inert while a run is in flight or nothing changed; the
-    // palette command and the shortcut reach this same function, so the rule
-    // lives here rather than on the button alone.
+    // palette command reaches this same function, so the rule lives here
+    // rather than on the button alone.
     if (running || !state.dirty) return;
     const saveStages = repairStageBodies();
     if (!state.savedId) {
