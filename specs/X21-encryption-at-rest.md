@@ -154,6 +154,8 @@ Migration 016 drops and recreates `recent_field_values` with `value BLOB` and `v
 
 The step's own VACUUM is required. Rows written before `secure_delete` was turned on leave stale plaintext copies in page slack and on freelist pages that an UPDATE plus checkpoint does not reach; only VACUUM removes them. The VACUUM in `openDatabase` runs during migration 016, before this step, so it does not help.
 
+A VACUUM can fail (it needs free disk about the size of the database) after the work it cleans up has committed. So the conversion, "Reset protected data" and a failed post-migration VACUUM all leave an `app_state` marker (`db.vacuumPending`), written in the same transaction as the conversion or reset; the step runs the VACUUM whenever rows were converted or the marker is set, and clears the marker only after a VACUUM succeeds. `app_state` holds it because main keeps its own maintenance state there, it survives the reset (which empties `column_keys`), and the renderer cannot read or write it.
+
 `sqlite.ts` sets `PRAGMA temp_store = MEMORY` before any VACUUM. Otherwise the post-migration VACUUM copies the still-plaintext tables into a temp file on disk.
 
 The WAL truncate sets the file length to 0 without zeroing the freed blocks; a filesystem snapshot taken in that boot-time window keeps them. This cannot be closed in-app.

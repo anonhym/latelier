@@ -37,16 +37,49 @@ export function truncateWal(db: Database): boolean {
  * folds and truncates the WAL that the rebuild wrote. VACUUM needs free disk
  * about the size of the database and the work before it has committed, so
  * with a logger a failure is reported rather than thrown. `when` names the
- * step in the log line.
+ * step in the log line. Returns whether the VACUUM itself succeeded.
  */
-export function vacuumAndTruncateWal(db: Database, when: string, log?: Pick<Logger, 'warn'>): void {
+export function vacuumAndTruncateWal(db: Database, when: string, log?: Pick<Logger, 'warn'>): boolean {
+  let vacuumed = true;
   try {
     db.exec('VACUUM');
   } catch (err) {
     if (!log) throw err;
     log.warn('db', `vacuum ${when} failed`, { message: String(err) });
+    vacuumed = false;
   }
   if (!truncateWal(db)) log?.warn('db', `wal checkpoint ${when} was blocked`);
+  return vacuumed;
+}
+
+/**
+ * `app_state` key present while a VACUUM that must erase plaintext is still
+ * owed. A failed VACUUM (disk full) after work that has already committed
+ * would otherwise never be retried: the next boot has nothing left to
+ * convert and no migration to run. It lives in `app_state` because that is
+ * where main keeps its own maintenance state, it survives "Reset protected
+ * data" (which empties `column_keys`), and the renderer can neither read nor
+ * write it (it is not on the prefs allowlist). Only its presence counts.
+ */
+export const VACUUM_PENDING_KEY = 'db.vacuumPending';
+
+export function markVacuumPending(db: Database): void {
+  db.prepare(
+    `INSERT INTO app_state (key, value_json, updated_at) VALUES (?, 'true', ?)
+     ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+  ).run(VACUUM_PENDING_KEY, new Date().toISOString());
+}
+
+export function isVacuumPending(db: Database): boolean {
+  return db.prepare('SELECT 1 FROM app_state WHERE key = ?').get(VACUUM_PENDING_KEY) !== undefined;
+}
+
+/** Runs the owed VACUUM and clears the marker only when it succeeded. */
+export function runOwedVacuum(db: Database, when: string, log: Pick<Logger, 'warn'>): boolean {
+  if (!vacuumAndTruncateWal(db, when, log)) return false;
+  db.prepare('DELETE FROM app_state WHERE key = ?').run(VACUUM_PENDING_KEY);
+  truncateWal(db);
+  return true;
 }
 
 /**
@@ -126,8 +159,9 @@ export function openDatabase(opts: OpenDatabaseOptions): Database {
 
   const migrations = opts.migrations ?? loadMigrations();
   // An upgrade's migrations may scrub data, so the file is rebuilt after them.
+  // A failed VACUUM leaves the marker, so the post-open step retries it.
   if (runMigrations(db, migrations) > 0) {
-    vacuumAndTruncateWal(db, 'after migrations', opts.log);
+    if (!vacuumAndTruncateWal(db, 'after migrations', opts.log)) markVacuumPending(db);
   } else if (!truncateWal(db)) {
     opts.log?.warn('db', 'wal checkpoint after migrations was blocked');
   }

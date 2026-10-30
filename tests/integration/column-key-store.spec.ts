@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadOrCreateColumnKeys, resetProtectedData } from '../../electron/db/columnKeyStore';
 import type { SafeStorageLike } from '../../electron/secrets/SecretsVault';
+import { isVacuumPending } from '../../electron/db/sqlite';
 import { createTempDb, insertConnectionRow, type TempDb } from '../helpers/db';
 
 /** A reversible stand-in for safeStorage whose availability and failure the test controls. */
@@ -149,6 +150,7 @@ describe('column key store', () => {
       expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
     }
     expect(tmp.db.prepare("SELECT id FROM connections WHERE id = 'c1'").get()).toBeDefined();
+    expect(isVacuumPending(tmp.db)).toBe(false);
 
     const fresh = loadOrCreateColumnKeys(tmp.db, keychain, log());
     expect(fresh.keys.enc.equals(old.keys.enc)).toBe(false);

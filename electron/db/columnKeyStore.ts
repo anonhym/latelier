@@ -3,7 +3,7 @@ import { SystemError } from '../errors.ts';
 import type { Logger } from '../log.ts';
 import type { SafeStorageLike } from '../secrets/SecretsVault.ts';
 import { COLUMN_KEY_BYTES, ColumnCipher, type ColumnKeys } from './columnCipher.ts';
-import { truncateWal, vacuumAndTruncateWal } from './sqlite.ts';
+import { isVacuumPending, markVacuumPending, runOwedVacuum, truncateWal } from './sqlite.ts';
 
 export interface LoadedColumnKeys {
   keys: ColumnKeys;
@@ -175,12 +175,13 @@ export function encryptLegacyRows(db: Database, cipher: ColumnCipher, log: Pick<
       for (const { id, cell } of rows) update.run(cipher.seal(table, column, id, cell), id);
       count += rows.length;
     }
+    // Committed with the conversion, so a VACUUM that fails below, or a crash
+    // before it, is retried on the next boot.
+    if (count > 0) markVacuumPending(db);
     return count;
   })();
-  if (converted > 0) {
-    log.info('db', 'encrypted legacy rows', { converted });
-    vacuumAndTruncateWal(db, 'after encrypting legacy rows', log);
-  }
+  if (converted > 0) log.info('db', 'encrypted legacy rows', { converted });
+  if (converted > 0 || isVacuumPending(db)) runOwedVacuum(db, 'after encrypting legacy rows', log);
   return converted;
 }
 
@@ -192,6 +193,7 @@ export function encryptLegacyRows(db: Database, cipher: ColumnCipher, log: Pick<
 export function resetProtectedData(db: Database, log: Pick<Logger, 'warn'>): void {
   db.transaction(() => {
     for (const table of PROTECTED_TABLES) db.prepare(`DELETE FROM ${table}`).run();
+    markVacuumPending(db);
   })();
-  vacuumAndTruncateWal(db, 'after resetting protected data', log);
+  runOwedVacuum(db, 'after resetting protected data', log);
 }

@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { runMigrations } from '../../electron/db/migrationRunner';
-import { openDatabase, closeDatabase } from '../../electron/db/sqlite';
+import { openDatabase, closeDatabase, isVacuumPending } from '../../electron/db/sqlite';
 import { encryptLegacyRows } from '../../electron/db/columnKeyStore';
 import { createTempCipher, loadMigrationsFromDisk } from '../helpers/db';
 
@@ -126,6 +126,49 @@ describe('migration 016 and encryptLegacyRows', () => {
       for (const marker of markers) expect(afterClose.includes(marker), marker).toBe(false);
     });
   }
+
+  it('a VACUUM that fails after sealing stays owed and is retried and cleared on the next boot', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-016-'));
+    dirs.push(dir);
+    // Seeded at 16 with secure_delete off: the case only this step's VACUUM erases.
+    const dbPath = seed(dir, false, 16);
+    const markers = Object.values(MARK).filter((m) => m !== MARK.values);
+    const cipher = createTempCipher();
+    const warnings: string[] = [];
+    const log = { info: () => {}, warn: (_s: string, m: string) => void warnings.push(m) };
+
+    const first = openDatabase({ userDataDir: dir, migrations: loadMigrationsFromDisk() });
+    const real = first.exec.bind(first);
+    const spy = vi.spyOn(first, 'exec').mockImplementationOnce((sql: string) => {
+      if (sql === 'VACUUM') throw new Error('database or disk is full');
+      return real(sql);
+    });
+    try {
+      expect(encryptLegacyRows(first, cipher, log)).toBe(4);
+      expect(spy).toHaveBeenCalledWith('VACUUM');
+      expect(warnings).toEqual(['vacuum after encrypting legacy rows failed']);
+      expect(isVacuumPending(first)).toBe(true);
+      // The failed VACUUM left the stale plaintext behind.
+      expect(markers.some((m) => bytesOnDisk(dbPath).includes(m))).toBe(true);
+    } finally {
+      spy.mockRestore();
+      closeDatabase(first);
+    }
+
+    const second = openDatabase({ userDataDir: dir, migrations: loadMigrationsFromDisk() });
+    try {
+      expect(encryptLegacyRows(second, cipher, log)).toBe(0);
+      expect(isVacuumPending(second)).toBe(false);
+      const onDisk = bytesOnDisk(dbPath);
+      for (const marker of markers) expect(onDisk.includes(marker), marker).toBe(false);
+      // Nothing owed any more: a third run does not VACUUM again.
+      const exec = vi.spyOn(second, 'exec');
+      expect(encryptLegacyRows(second, cipher, log)).toBe(0);
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      closeDatabase(second);
+    }
+  });
 
   it('dedupes recent_field_values on value_mac alone and still cascades on connection delete', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atelier-016-'));
