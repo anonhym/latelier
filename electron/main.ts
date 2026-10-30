@@ -32,7 +32,7 @@ import { registerConnImportChannels } from './ipc/handlers/connImport.ts';
 import { ConnectionExportService, type ConnectionExportDialogs } from './services/ConnectionExportService.ts';
 import { ImportWizardService } from './services/ImportWizardService.ts';
 import { createPickedCredentialPaths } from './security/credentialPaths.ts';
-import { registerAppChannels, saveFilters } from './ipc/handlers/app.ts';
+import { registerAppChannels, resetGateOnFreshPage, saveFilters } from './ipc/handlers/app.ts';
 import { registerMongoChannels } from './ipc/handlers/mongo.ts';
 import { registerMetaChannels } from './ipc/handlers/meta.ts';
 import { registerIndexChannels } from './ipc/handlers/indexes.ts';
@@ -445,11 +445,9 @@ function createWindow(): void {
   // own route changes are hash navigations, which are same-document and keep
   // their reports.
   win.webContents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument) {
-      clearUnsavedWork();
-      rendererLogGate.reset();
-    }
+    if (details.isMainFrame && !details.isSameDocument) clearUnsavedWork();
   });
+  resetGateOnFreshPage(win.webContents, rendererLogGate);
   win.webContents.on('render-process-gone', (_evt, details) => {
     clearUnsavedWork();
     const now = Date.now();

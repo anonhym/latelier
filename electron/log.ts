@@ -182,7 +182,9 @@ export function createRateGate(maxPerWindow: number, windowMs: number, now: () =
   return {
     take() {
       const t = now();
-      if (t - windowStart >= windowMs) {
+      // A clock that moved back (NTP, a manual change) also opens a window:
+      // otherwise every call would be refused until it caught up, unannounced.
+      if (t < windowStart || t - windowStart >= windowMs) {
         windowStart = t;
         count = 0;
       }

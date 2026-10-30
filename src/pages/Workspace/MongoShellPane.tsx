@@ -9,10 +9,16 @@ import { logToMain } from '../../utils/rendererLog';
 
 const MAX_BUFFER_BYTES = 200_000;
 
-// A stop during cleanup has no pane left to report to, so it goes to the log
-// file: a session that would not stop is a leaked child process.
+// A session that would not stop is a leaked child process, so a failed stop
+// goes to the log file. Main rejects with a plain `{ code, message }`, which
+// has no stack; an Error thrown on this side does.
+function logStopFailure(what: string, err: unknown): void {
+  logToMain('warn', `${what}: ${getErrorMessage(err, 'stop failed')}`, 'component', err instanceof Error ? err.stack : undefined);
+}
+
+// A stop during cleanup has no pane left to report to; the log is all there is.
 function logCleanupStopFailure(err: unknown): void {
-  logToMain('warn', 'mshell stop failed during cleanup', 'component', getErrorMessage(err, 'stop failed'));
+  logStopFailure('mshell stop failed during cleanup', err);
 }
 
 interface Props {
@@ -260,7 +266,7 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
     } catch (err) {
       const message = getErrorMessage(err, 'stop failed');
       append(`\n[could not stop the shell: ${message}]\n`);
-      logToMain('warn', 'mshell stop failed', 'component', message);
+      logStopFailure('mshell stop failed', err);
     }
   };
 

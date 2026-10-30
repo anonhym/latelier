@@ -616,6 +616,15 @@ describe('createRateGate', () => {
     expect(gate.take()).toEqual({ allow: false, firstDrop: true, until: 2000 });
   });
 
+  it('opens a new window when the clock moves back', () => {
+    let t = 10_000;
+    const gate = createRateGate(1, 1000, () => t);
+    gate.take();
+    t = 5_000;
+    expect(gate.take()).toEqual({ allow: true });
+    expect(gate.take()).toEqual({ allow: false, firstDrop: true, until: 6_000 });
+  });
+
   it('allows again right after reset, inside the same window', () => {
     let t = 0;
     const gate = createRateGate(1, 1000, () => t);

@@ -592,7 +592,7 @@ describe('MongoShellPane', () => {
 
     expect(await screen.findByText(/\[could not stop the shell: no session s1\]/)).toBeTruthy();
     expect(log).toHaveBeenCalledWith({
-      level: 'warn', message: 'mshell stop failed', source: 'component', stack: 'no session s1',
+      level: 'warn', message: 'mshell stop failed: no session s1', source: 'component',
     });
   });
 
@@ -605,7 +605,21 @@ describe('MongoShellPane', () => {
     view.unmount();
 
     await waitFor(() => expect(log).toHaveBeenCalledWith({
-      level: 'warn', message: 'mshell stop failed during cleanup', source: 'component', stack: 'no session s1',
+      level: 'warn', message: 'mshell stop failed during cleanup: no session s1', source: 'component',
+    }));
+  });
+
+  it('a stop that throws an Error sends its stack as the stack', async () => {
+    const { mshell, log } = installDrivable();
+    const err = new Error('bridge gone');
+    mshell.stop.mockRejectedValueOnce(err);
+    mount();
+    await readyInput();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(log).toHaveBeenCalledWith({
+      level: 'warn', message: 'mshell stop failed: bridge gone', source: 'component', stack: err.stack,
     }));
   });
 
@@ -628,7 +642,7 @@ describe('MongoShellPane', () => {
 
     await waitFor(() => expect(mshell.stop).toHaveBeenCalledWith({ sessionId: 's1' }));
     await waitFor(() => expect(log).toHaveBeenCalledWith({
-      level: 'warn', message: 'mshell stop failed during cleanup', source: 'component', stack: 'no session s1',
+      level: 'warn', message: 'mshell stop failed during cleanup: no session s1', source: 'component',
     }));
   });
 });

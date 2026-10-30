@@ -8,7 +8,7 @@ vi.mock('electron', () => ({ dialog: {}, shell: {} }));
 
 // Imports must come after the mock so the handler binds to the stub.
 const { createRouter } = await import('../../electron/ipc/router');
-const { registerAppChannels } = await import('../../electron/ipc/handlers/app');
+const { registerAppChannels, resetGateOnFreshPage } = await import('../../electron/ipc/handlers/app');
 const { IPC_CHANNELS } = await import('../../shared/ipc');
 const { createLogger, createRateGate } = await import('../../electron/log');
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
@@ -138,5 +138,37 @@ describe('app:log', () => {
     const res = await send({ level: 'warn', message: 'x', source: 'component' });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('INTERNAL');
+  });
+});
+
+describe('resetGateOnFreshPage', () => {
+  type Details = { isMainFrame: boolean; isSameDocument: boolean };
+  function setup() {
+    let listener: ((d: Details) => void) | null = null;
+    const webContents = {
+      on: (event: 'did-start-navigation', fn: (d: Details) => void) => {
+        expect(event).toBe('did-start-navigation');
+        listener = fn;
+      },
+    };
+    const gate = createRateGate(1, 60_000, () => 0);
+    resetGateOnFreshPage(webContents, gate);
+    gate.take();
+    return { gate, navigate: (d: Details) => listener!(d) };
+  }
+
+  it('gives a full page load a fresh allowance', () => {
+    const { gate, navigate } = setup();
+    navigate({ isMainFrame: true, isSameDocument: false });
+    expect(gate.take()).toEqual({ allow: true });
+  });
+
+  it.each([
+    ['a same-document (hash) navigation', { isMainFrame: true, isSameDocument: true }],
+    ['a subframe navigation', { isMainFrame: false, isSameDocument: false }],
+  ])('keeps the window through %s', (_label, details) => {
+    const { gate, navigate } = setup();
+    navigate(details);
+    expect(gate.take()).toMatchObject({ allow: false });
   });
 });

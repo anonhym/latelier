@@ -70,6 +70,21 @@ export function saveFilters(defaultName: string): FileFilter[] {
 }
 
 /**
+ * A full page load (a reload, or the page after a crash) gets a fresh
+ * `app:log` allowance, so the errors of the page that replaced a looping one
+ * still land. The app's own route changes are hash navigations: same-document,
+ * and they keep the window they are in.
+ */
+export function resetGateOnFreshPage(
+  webContents: { on(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown },
+  gate: RateGate,
+): void {
+  webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) gate.reset();
+  });
+}
+
+/**
  * `pickedImports` collects every path the open dialog returned for
  * `data-import`: the data channels read a file only when it is in here, so
  * the renderer can hand back a file the user picked but never name another.

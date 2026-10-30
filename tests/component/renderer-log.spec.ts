@@ -68,9 +68,43 @@ describe('logToMain', () => {
     }).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
   });
+
+  it('does not throw for a message or stack that is not a string', async () => {
+    const { logToMain } = await load();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockLog();
+    expect(() => logToMain('error', 42 as unknown as string, 'component', {} as unknown as string)).not.toThrow();
+  });
 });
 
+// An Error whose message and stack were reassigned to non-strings.
+function oddError(): Error {
+  const err = new Error('x');
+  (err as { message: unknown }).message = 42;
+  (err as { stack: unknown }).stack = { toString: () => 'custom stack' };
+  return err;
+}
+
 describe('describeError', () => {
+  it('coerces an Error message and stack that are not strings', async () => {
+    const { describeError } = await load();
+    expect(describeError(oddError())).toStrictEqual({ message: '42', stack: 'custom stack' });
+  });
+
+  it('leaves the stack out when an Error has none', async () => {
+    const { describeError } = await load();
+    const err = new Error('bare');
+    err.stack = undefined;
+    expect(describeError(err)).toStrictEqual({ message: 'bare' });
+  });
+
+  it('survives an Error whose message getter throws', async () => {
+    const { describeError } = await load();
+    const err = new Error('x');
+    Object.defineProperty(err, 'message', { get: () => { throw new Error('no'); } });
+    expect(describeError(err)).toEqual({ message: 'a value that cannot be printed was thrown' });
+  });
+
   it('takes the message and stack of an Error', async () => {
     const { describeError } = await load();
     const err = new TypeError('nope');
@@ -106,6 +140,12 @@ describe('installGlobalErrorLogging', () => {
     const error = new Error('kaput');
     target.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught Error: kaput' }));
     expect(log).toHaveBeenCalledWith({ level: 'error', message: 'kaput', source: 'window.error', stack: error.stack });
+  });
+
+  it('still logs an Error whose message and stack are not strings', async () => {
+    const { log, target } = await setup();
+    target.dispatchEvent(new ErrorEvent('error', { error: oddError(), message: 'Uncaught' }));
+    expect(log).toHaveBeenCalledWith({ level: 'error', message: '42', source: 'window.error', stack: 'custom stack' });
   });
 
   it('falls back to the event message when the error object is withheld', async () => {

@@ -20,11 +20,12 @@ export function logToMain(
   source: RendererLogSource,
   stack?: string,
 ): void {
-  const input: RendererLogInput = { level, message: message.slice(0, MAX_MESSAGE), source };
-  if (stack !== undefined) input.stack = stack.slice(0, MAX_STACK);
   try {
-    // `api` throws synchronously when the bridge is missing; the call itself
-    // rejects when main refuses or is gone.
+    // Built inside the try: a caller outside TypeScript's reach can pass a
+    // value with no `slice`. `api` throws synchronously when the bridge is
+    // missing; the call itself rejects when main refuses or is gone.
+    const input: RendererLogInput = { level, message: message.slice(0, MAX_MESSAGE), source };
+    if (stack !== undefined) input.stack = stack.slice(0, MAX_STACK);
     api.app.log(input).catch(fallBack);
   } catch (err) {
     fallBack(err);
@@ -40,14 +41,22 @@ function fallBack(err: unknown): void {
   console.warn('[rendererLog] could not send a log line to main; later failures are not reported', err);
 }
 
-/** A thrown value as a message and, for an Error, its stack. */
+/**
+ * A thrown value as a message and, for an Error, its stack, both as strings.
+ * Anything can be thrown, and an Error's `message` and `stack` can be
+ * reassigned to any value, so both are coerced.
+ */
 export function describeError(value: unknown): { message: string; stack?: string } {
-  if (value instanceof Error) return { message: value.message, stack: value.stack };
   try {
+    if (value instanceof Error) {
+      const { message, stack } = value as { message: unknown; stack?: unknown };
+      return stack === undefined ? { message: String(message) } : { message: String(message), stack: String(stack) };
+    }
     return { message: String(value) };
   } catch {
     // String() throws for an object with no usable toString (a null-prototype
-    // object, say); the line is still worth sending without the value.
+    // object, say), and a getter can throw; the line is still worth sending
+    // without the value.
     return { message: 'a value that cannot be printed was thrown' };
   }
 }
