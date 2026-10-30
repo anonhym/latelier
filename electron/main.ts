@@ -779,7 +779,7 @@ app.whenReady().then(() => {
   // this point, so the trusted frame is read through a closure rather than
   // captured — and it is re-read per message, which is what keeps it correct
   // across a reload.
-  const auditRepo = new AuditRepo(db, cipher);
+  const auditRepo = new AuditRepo(db, cipher, log);
   const auditSvc = new AuditService(auditRepo, pool, new UndoStore(), log);
   const router = createRouter(
     ipcMain,
@@ -787,16 +787,16 @@ app.whenReady().then(() => {
     log,
     auditSvc,
   );
-  const savedRepo = new SavedQueryRepo(db, cipher);
+  const savedRepo = new SavedQueryRepo(db, cipher, log);
   const savedSvc = new SavedQueryService(savedRepo);
   // Workspace tabs; opening a saved pipeline reads its stored stages.
-  const tabsRepo = new WorkspaceTabRepo(db, cipher);
+  const tabsRepo = new WorkspaceTabRepo(db, cipher, log);
   const tabsSvc = new WorkspaceStateService(tabsRepo, savedSvc);
   applyRestoreTabsPref(appState, tabsSvc);
 
-  const recentRepo = new RecentQueryRepo(db, cipher);
+  const recentRepo = new RecentQueryRepo(db, cipher, log);
   const recentSvc = new RecentQueryService(recentRepo, log);
-  const recentFieldValueRepo = new RecentFieldValueRepo(db, cipher);
+  const recentFieldValueRepo = new RecentFieldValueRepo(db, cipher, log);
   const recentFieldValueSvc = new RecentFieldValueService(recentFieldValueRepo);
   const querySvc = new QueryService(pool, recentSvc, DEFAULT_EXPORT_CAP, log);
   docSvc = new DocumentService(pool, { log });

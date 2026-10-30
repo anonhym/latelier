@@ -3,6 +3,8 @@ import type { SavedKind } from '@shared/types';
 import { ConflictError, NotFoundError } from '../../errors.ts';
 import { isUniqueConstraintError, rethrowMissingConnection } from '../sqliteErrors.ts';
 import type { ColumnCipher } from '../columnCipher.ts';
+import { openListedCell } from './listedCell.ts';
+import type { Logger } from '../../log.ts';
 
 export interface SavedQueryRow {
   id: string;
@@ -35,10 +37,12 @@ export interface SavedQueryPatch {
 export class SavedQueryRepo {
   private db: Database;
   private cipher: ColumnCipher;
+  private log?: Pick<Logger, 'warn'>;
 
-  constructor(db: Database, cipher: ColumnCipher) {
+  constructor(db: Database, cipher: ColumnCipher, log?: Pick<Logger, 'warn'>) {
     this.db = db;
     this.cipher = cipher;
+    this.log = log;
   }
 
   private seal(id: string, payloadJson: string): Buffer {
@@ -119,7 +123,12 @@ export class SavedQueryRepo {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = this.db.prepare(`SELECT * FROM saved_queries ${where} ORDER BY updated_at DESC`).all(...params) as StoredRow[];
-    return rows.map((r) => this.opened(r));
+    // An unreadable payload lists as '', which the service already reads as
+    // "no payload" for a corrupted row.
+    return rows.map((r) => ({
+      ...r,
+      payload_json: openListedCell(this.cipher, this.log, 'saved_queries', 'payload_json', r.id, r.payload_json) ?? '',
+    }));
   }
 
   deleteById(id: string): number {

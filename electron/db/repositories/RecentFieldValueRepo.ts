@@ -2,6 +2,8 @@ import type { Database, Statement } from 'better-sqlite3';
 import type { ValType } from '@shared/types';
 import { rethrowMissingConnection } from '../sqliteErrors.ts';
 import type { ColumnCipher } from '../columnCipher.ts';
+import { openListedCell } from './listedCell.ts';
+import type { Logger } from '../../log.ts';
 
 export interface RecentFieldValueRow {
   id: string;
@@ -50,6 +52,7 @@ type StoredRow = Omit<RecentFieldValueRow, 'value'> & { value: Buffer | string }
 export class RecentFieldValueRepo {
   private db: Database;
   private cipher: ColumnCipher;
+  private log?: Pick<Logger, 'warn'>;
   private upsertStmt: Statement;
   private listStmt: Statement<[string, string, string, string, number]>;
   private evictStmt: Statement<[string, string, string, string, string, string, string, string, number]>;
@@ -57,9 +60,10 @@ export class RecentFieldValueRepo {
   private clearAllStmt: Statement;
   private deleteOlderThanStmt: Statement<[number]>;
 
-  constructor(db: Database, cipher: ColumnCipher) {
+  constructor(db: Database, cipher: ColumnCipher, log?: Pick<Logger, 'warn'>) {
     this.db = db;
     this.cipher = cipher;
+    this.log = log;
     // `id` is inert on the UPDATE branch — a conflict keeps the row's
     // original id and only bumps use_count/last_used_at/val_type. `value`
     // is never rewritten on conflict either, so a stored cell stays bound to
@@ -138,7 +142,11 @@ export class RecentFieldValueRepo {
       q.field,
       q.limit ?? DEFAULT_LIST_LIMIT,
     ) as StoredRow[];
-    return rows.map((r) => ({ ...r, value: this.cipher.open('recent_field_values', 'value', r.id, r.value) }));
+    // Skipped: an empty suggestion would be offered as a real value.
+    return rows.flatMap((r) => {
+      const value = openListedCell(this.cipher, this.log, 'recent_field_values', 'value', r.id, r.value);
+      return value === null ? [] : [{ ...r, value }];
+    });
   }
 
   /** Trims a `(conn, db, coll, field)` bucket to its `keep` most-recent rows. */

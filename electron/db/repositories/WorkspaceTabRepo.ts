@@ -2,6 +2,8 @@ import type { Database, Statement } from 'better-sqlite3';
 import { withTransaction } from '../sqlite.ts';
 import { rethrowMissingConnection } from '../sqliteErrors.ts';
 import type { ColumnCipher } from '../columnCipher.ts';
+import { openListedCell } from './listedCell.ts';
+import type { Logger } from '../../log.ts';
 
 // SQLite still allows the legacy 'aggregation' literal for rows that haven't
 // been migrated yet. Runtime inserts use 'collection' or 'script' (W12).
@@ -31,6 +33,7 @@ type StoredRow = Omit<WorkspaceTabRow, 'state_json'> & { state_json: string | Bu
 export class WorkspaceTabRepo {
   private db: Database;
   private cipher: ColumnCipher;
+  private log?: Pick<Logger, 'warn'>;
   private insertStmt: Statement;
   private updateStateStmt: Statement<[Buffer, string]>;
   private deleteStmt: Statement<[string]>;
@@ -45,9 +48,10 @@ export class WorkspaceTabRepo {
   private setPinnedStmt: Statement<[number, string]>;
   private retargetCollectionStmt: Statement<[string, string]>;
 
-  constructor(db: Database, cipher: ColumnCipher) {
+  constructor(db: Database, cipher: ColumnCipher, log?: Pick<Logger, 'warn'>) {
     this.db = db;
     this.cipher = cipher;
+    this.log = log;
     this.insertStmt = db.prepare(`
       INSERT INTO workspace_tabs (
         id, connection_id, kind, db_name, collection,
@@ -134,7 +138,12 @@ export class WorkspaceTabRepo {
   }
 
   list(): WorkspaceTabRow[] {
-    return (this.listStmt.all() as StoredRow[]).map((r) => this.opened(r));
+    // An unreadable state lists as '', which the service's parser already
+    // turns into the default state of a tab.
+    return (this.listStmt.all() as StoredRow[]).map((r) => ({
+      ...r,
+      state_json: openListedCell(this.cipher, this.log, 'workspace_tabs', 'state_json', r.id, r.state_json) ?? '',
+    }));
   }
 
   private opened(row: StoredRow): WorkspaceTabRow {
