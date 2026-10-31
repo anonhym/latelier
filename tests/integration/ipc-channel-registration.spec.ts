@@ -101,6 +101,7 @@ const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.mshellOutputEvent,
   IPC_CHANNELS.dataImportProgressEvent,
   IPC_CHANNELS.appMenuCommandEvent,
+  IPC_CHANNELS.appFlushRequestEvent,
   IPC_CHANNELS.updatesStateEvent,
 ]);
 
@@ -141,6 +142,7 @@ describe('IPC channel registration — full router coverage', () => {
       router,
       stubSvc<Parameters<typeof registerSecretsChannels>[1]>(),
       async () => false,
+      () => ({ columnKeyProtected: true }),
     );
     registerTabsChannels(router, stubSvc<Parameters<typeof registerTabsChannels>[1]>());
     registerQueryChannels(
