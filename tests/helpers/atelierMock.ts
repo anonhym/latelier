@@ -47,6 +47,9 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       diagnosticBundle: async () => ({ path: null }),
       setUnsavedWork: async () => {},
       onMenuCommand: () => () => {},
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
+      log: async () => {},
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),
@@ -115,6 +118,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     },
     secrets: {
       setPlaintextFallback: async (enabled) => ({ enabled }),
+      status: async () => ({ columnKeyProtected: true }),
     },
     query: {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
@@ -387,6 +391,9 @@ function makePermissiveStub(): IpcApi {
       diagnosticBundle: async () => ({ path: null }),
       setUnsavedWork: async () => {},
       onMenuCommand: () => () => {},
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
+      log: async () => {},
     },
     updates: {
       getState: async () => ({ status: 'idle' as const }),
@@ -453,6 +460,7 @@ function makePermissiveStub(): IpcApi {
     },
     secrets: {
       setPlaintextFallback: async (enabled) => ({ enabled }),
+      status: async () => ({ columnKeyProtected: true }),
     },
     query: {
       find: async () => ({ documents: [], durationMs: 0, hasMore: false }),
