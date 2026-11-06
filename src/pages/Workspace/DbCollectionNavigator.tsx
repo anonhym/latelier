@@ -348,24 +348,37 @@ export function DbCollectionNavigator({
     !!activeDbName && !!ownGet(cache.colls, activeDbName);
   const activeDbCollsLoading =
     !!activeDbName && !!ownGet(cache.collsLoading, activeDbName);
+  // The collections fetch does not wait for the database list: both go out
+  // together. A DB the list turns out not to have fails into `collsLoadError`.
+  // A whole-connection refresh is the exception: it empties the cache and
+  // re-fetches the list first, and its own loop decides which DBs reload, so
+  // this waits for the list (`dbsPresent` is a dependency) rather than race it.
+  const refreshInFlightRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    if (!connectionId || !activeIsExpandedRoot || !activeDbName || !dbsPresent) return;
+    if (!connectionId || !activeIsExpandedRoot || !activeDbName) return;
+    if (activeDbCollsPresent || activeDbCollsLoading) return;
+    if (refreshInFlightRef.current.has(connectionId) && !dbsPresent) return;
     queueMicrotask(() => {
-      dispatch({ type: 'dbExpandedSet', connectionId, dbName: activeDbName, value: true });
-      if (!activeDbCollsPresent && !activeDbCollsLoading) {
-        void loadColls(connectionId, activeDbName);
-      }
+      void loadColls(connectionId, activeDbName);
     });
   }, [
     connectionId,
     activeIsExpandedRoot,
     activeDbName,
-    dbsPresent,
     activeDbCollsPresent,
     activeDbCollsLoading,
+    dbsPresent,
     loadColls,
-    dispatch,
   ]);
+
+  // Expanded state is set only once the list shows the DB, so a DB that was
+  // dropped is never left expanded.
+  React.useEffect(() => {
+    if (!connectionId || !activeIsExpandedRoot || !activeDbName || !dbsPresent) return;
+    queueMicrotask(() => {
+      dispatch({ type: 'dbExpandedSet', connectionId, dbName: activeDbName, value: true });
+    });
+  }, [connectionId, activeIsExpandedRoot, activeDbName, dbsPresent, dispatch]);
 
   const filterLower = filter.trim().toLowerCase();
   const filterActive = filterLower.length > 0;
@@ -439,7 +452,6 @@ export function DbCollectionNavigator({
   // forced: an emptied cache means the old in-flight answers are not wanted.
   // A manual refresh is skipped while one runs (keyed by connectionId, so one
   // Connection can't block another); a refresh after a change (`force`) never is.
-  const refreshInFlightRef = React.useRef<Set<string>>(new Set());
   const refreshAll = React.useCallback(
     async (id: string, opts: LoadOptions = {}) => {
       if (!opts.force && refreshInFlightRef.current.has(id)) return;
