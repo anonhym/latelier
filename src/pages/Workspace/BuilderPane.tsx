@@ -1009,6 +1009,7 @@ function GroupView({
   isRoot,
   suggestionContext,
   headerExtra,
+  statusSlot,
   excludedNoteId,
 }: TreeEditProps & {
   node: GroupNode;
@@ -1018,6 +1019,12 @@ function GroupView({
   suggestionContext: SuggestionContext | null;
   /** Controls placed at the right end of this group's header (the root's Undo / Redo). */
   headerExtra?: React.ReactNode;
+  /**
+   * The root's status lines (problems, read-only, live count), placed between
+   * the header and the rows so that one appearing shrinks the scrolling list
+   * instead of pushing the header's add buttons down.
+   */
+  statusSlot?: React.ReactNode;
 }) {
   const T = themeVars;
 
@@ -1127,6 +1134,12 @@ function GroupView({
               // The root's own box owns the pane's drop highlight, filling
               // the same visible area as the outer drawer wrapper, so no
               // drop can land outside every group's DOM node.
+              // It also fills the drawer's height: the header and status
+              // lines keep their place and only the rows below them scroll.
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              minHeight: 0,
               background: isActive ? T.accentSoft : undefined,
               boxShadow: isActive ? `inset 0 0 0 1.5px ${T.accent}` : undefined,
               transition: 'background 120ms, box-shadow 120ms',
@@ -1151,6 +1164,7 @@ function GroupView({
           display: 'flex',
           alignItems: 'center',
           gap: 6,
+          flexShrink: 0,
           padding: isRoot ? '7px 10px' : '0 0 6px',
           borderBottom: isRoot ? `1px solid ${T.border}` : 'none',
         }}
@@ -1253,7 +1267,15 @@ function GroupView({
           )}
         </div>
       </div>
-      <div style={{ padding: isRoot ? '6px 10px 4px' : 0, opacity: dim }}>
+      {isRoot && statusSlot}
+      <div
+        data-testid={isRoot ? 'filter-list' : undefined}
+        style={
+          isRoot
+            ? { padding: '6px 10px 4px', opacity: dim, flex: 1, minHeight: 0, overflowY: 'auto' }
+            : { opacity: dim }
+        }
+      >
         {/* Say what an empty tree's state means and what to do about it, in
             words, rather than leaving a radiogroup and three icon buttons
             over blank space — but not while the tree is frozen read-only
@@ -1662,54 +1684,8 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     </>
   );
 
-  return (
-    <div
-      // Per-group targeting resolves drops on each GroupView (root
-      // included), which renders below the two banners in this div. A drop
-      // landing exactly on a banner never reaches GroupView's own handler,
-      // since it's a sibling, not an ancestor — that leaves a dead zone the
-      // root GroupView's `stopPropagation()` doesn't cover, and ADR 0007
-      // states no drop should be able to land outside every group's DOM
-      // node. This wrapper is the fallback: it only ever sees a drop
-      // GroupView didn't already claim and stop, so it always means the
-      // root group.
-      onDragOver={(e) => {
-        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        // Reaching this handler at all means no GroupView's own
-        // `stopPropagation()`'d handler claimed the event first — the
-        // pointer is over a banner or the wrapper's own padding, a dead
-        // zone that still means "root" per the fallback below.
-        if (activeDropPath !== 'root') setActiveDropPath('root');
-      }}
-      onDrop={(e) => {
-        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
-        e.preventDefault();
-        setActiveDropPath(null);
-        const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
-        if (!raw) return;
-        // `null` and bare scalars parse too; the field check below refuses them.
-        let dragged: DraggedField | null;
-        try {
-          dragged = JSON.parse(raw) as DraggedField;
-        } catch {
-          return;
-        }
-        // A dragged field can legitimately hold `undefined` (BSON's Undefined
-        // type) — `DocFieldTree`'s drag source now guards against starting
-        // such a drag at all, but this is defense in depth for any other
-        // payload source, since `condFromDragged` crashes downstream on one.
-        if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
-        applyEdit(insertAt(root, [], condFromDragged(dragged)));
-      }}
-      style={{
-        border: `1.5px solid ${T.border}`,
-        borderRadius: T.r,
-        background: T.bg,
-        overflow: 'hidden',
-      }}
-    >
+  const statusSlot = (
+    <>
       {problems.length > 0 && (
         <div
           role="status"
@@ -1752,6 +1728,59 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
           {liveCount.state === 'unavailable' && 'Match count unavailable'}
         </div>
       )}
+    </>
+  );
+
+  return (
+    <div
+      // Per-group targeting resolves drops on each GroupView (root
+      // included); the status lines render inside the root GroupView, so a
+      // drop on one already lands on the root's own handler. ADR 0007 states
+      // no drop should be able to land outside every group's DOM node, and
+      // this wrapper's border is the last strip outside the root group, so
+      // it stays the fallback: it only ever sees a drop GroupView didn't
+      // already claim and stop, so it always means the root group.
+      onDragOver={(e) => {
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        // Reaching this handler at all means no GroupView's own
+        // `stopPropagation()`'d handler claimed the event first — the
+        // pointer is over the wrapper's own border, a dead zone that still
+        // means "root" per the fallback below.
+        if (activeDropPath !== 'root') setActiveDropPath('root');
+      }}
+      onDrop={(e) => {
+        if (readOnly || !e.dataTransfer.types.includes(DRAGGED_FIELD_MIME)) return;
+        e.preventDefault();
+        setActiveDropPath(null);
+        const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
+        if (!raw) return;
+        // `null` and bare scalars parse too; the field check below refuses them.
+        let dragged: DraggedField | null;
+        try {
+          dragged = JSON.parse(raw) as DraggedField;
+        } catch {
+          return;
+        }
+        // A dragged field can legitimately hold `undefined` (BSON's Undefined
+        // type) — `DocFieldTree`'s drag source now guards against starting
+        // such a drag at all, but this is defense in depth for any other
+        // payload source, since `condFromDragged` crashes downstream on one.
+        if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+        applyEdit(insertAt(root, [], condFromDragged(dragged)));
+      }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        border: `1.5px solid ${T.border}`,
+        borderRadius: T.r,
+        background: T.bg,
+        overflow: 'hidden',
+      }}
+    >
       <GroupView
         node={root}
         path={[]}
@@ -1764,6 +1793,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         isRoot
         suggestionContext={suggestionContext}
         headerExtra={historyButtons}
+        statusSlot={statusSlot}
       />
     </div>
   );
@@ -2006,8 +2036,12 @@ function BuilderPaneInner({
 
   return (
     <div
+      data-testid="builder-pane"
       style={{
         width: '100%',
+        // Fills the drawer, so the background, left border and pinned footer
+        // reach the bottom of the window however few rows the filter has.
+        height: '100%',
         borderLeft: `1px solid ${T.border}`,
         background: T.surface,
         display: 'flex',
@@ -2054,19 +2088,29 @@ function BuilderPaneInner({
           value="Builder"
           style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
         >
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <FilterDrawer
-                key={`${meta.tabId}:${loadGen}`}
-                queryRaw={state.queryRaw}
-                filterDraft={state.filterDraft}
-                onCommit={onPatch}
-                suggestionContext={suggestionContext}
-              />
-              <div style={{ fontSize: 10, color: T.textMuted }}>
-                Sort, limit and skip are set in the query bar&apos;s advanced row; projection is
-                under Fields.
-              </div>
+          {/* Nothing here scrolls but the filter's rows (inside FilterDrawer):
+              the add buttons above them and the footer below stay put as rows
+              come and go. */}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              padding: '12px 12px 8px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <FilterDrawer
+              key={`${meta.tabId}:${loadGen}`}
+              queryRaw={state.queryRaw}
+              filterDraft={state.filterDraft}
+              onCommit={onPatch}
+              suggestionContext={suggestionContext}
+            />
+            <div style={{ flexShrink: 0, fontSize: 10, color: T.textMuted }}>
+              Sort, limit and skip are set in the query bar&apos;s advanced row; projection is
+              under Fields.
             </div>
           </div>
 
