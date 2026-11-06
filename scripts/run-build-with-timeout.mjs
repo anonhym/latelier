@@ -14,7 +14,15 @@ if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   process.exit(1);
 }
 
-const child = spawn('npm', ['run', 'build'], { stdio: 'inherit', detached: true });
+// npm sets `npm_execpath` for everything it runs, so the build starts through
+// the very npm that started this script rather than whatever `npm` PATH finds.
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  console.error('[run-e2e] npm_execpath is unset - run this through `npm run test:e2e`');
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [npmCli, 'run', 'build'], { stdio: 'inherit', detached: true });
 
 const timer = setTimeout(() => {
   try {
