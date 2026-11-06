@@ -45,6 +45,7 @@ export function SchemaView({
       onPatch({
         entries,
         sampledCount: docs.length,
+        sampledSize: sampleSize,
         ranAt: new Date().toISOString(),
         durationMs: Math.round(performance.now() - startedAt),
         errorMessage: undefined,
@@ -108,7 +109,7 @@ export function SchemaView({
         <div style={{ color: T.textMuted, flex: 1 }}>
           {state.ranAt ? (
             <>
-              Sampled {state.sampledCount ?? 0} of {sampleSize} documents
+              Sampled {state.sampledCount ?? 0} of {state.sampledSize ?? sampleSize} documents
               {typeof state.durationMs === 'number' && (
                 <span style={{ color: T.textMuted }}> · {state.durationMs}ms</span>
               )}

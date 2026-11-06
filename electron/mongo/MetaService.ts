@@ -219,8 +219,19 @@ export class MetaService {
       );
       const arr = await cursor.toArray();
       const row = (arr[0] ?? {}) as { recent?: unknown[]; random?: unknown[] };
-      const merged = [...(row.recent ?? []), ...(row.random ?? [])];
-      return { docs: ejsonEncodeArray(merged, false) };
+      const merged = ejsonEncodeArray([...(row.recent ?? []), ...(row.random ?? [])], false);
+      // A document can land in both branches. Keep the first (recent wins) by
+      // its canonical EJSON `_id` and cap at n, so a caller never counts it twice.
+      const seen = new Set<string>();
+      const docs: unknown[] = [];
+      for (const d of merged) {
+        const key = JSON.stringify((d as { _id?: unknown })._id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        docs.push(d);
+        if (docs.length === n) break;
+      }
+      return { docs };
     } catch {
       // Permission / timeout / hostile collection: fail open so the
       // renderer treats this source as absent rather than surfacing an

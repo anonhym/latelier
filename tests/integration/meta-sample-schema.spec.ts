@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { MongoPool } from '../../electron/mongo/MongoPool';
+import { MetaService } from '../../electron/mongo/MetaService';
 import { SecretsVault } from '../../electron/secrets/SecretsVault';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb } from '../helpers/db';
@@ -88,5 +89,36 @@ describe('meta:sampleSchema aggregation ($facet recent + random)', () => {
     // a degenerate "sample degraded to natural order" regression.
     const inFirstHalf = indices.filter((i) => i < 100).length;
     expect(inFirstHalf).toBeGreaterThan(5);
+  });
+  describe('MetaService.sampleSchema', () => {
+    async function sample(collName: string, count: number, size: number) {
+      tmp = createTempDb();
+      vault = new SecretsVault(tmp.db, createSafeStorageMock());
+      const conn = makeConnection('c1', hp, { defaultDb: 'schema_test' });
+      pool = new MongoPool({ repo: makeReader([conn]), vault });
+      const client = await pool.write('c1').client();
+      const coll = client.db('schema_test').collection(collName);
+      await coll.deleteMany({});
+      await coll.insertMany(Array.from({ length: count }, (_, i) => ({ idx: i })));
+      const { docs } = await new MetaService(pool).sampleSchema({
+        connectionId: 'c1',
+        dbName: 'schema_test',
+        collection: collName,
+        size,
+      });
+      return docs as Array<{ _id: { $oid: string } }>;
+    }
+
+    it('returns each document of a small collection once', async () => {
+      const docs = await sample('sample_dedupe_small', 3, 100);
+      expect(docs).toHaveLength(3);
+      expect(new Set(docs.map((d) => d._id.$oid)).size).toBe(3);
+    });
+
+    it('caps a larger collection at the requested size with unique _ids', async () => {
+      const docs = await sample('sample_dedupe_large', 300, 100);
+      expect(docs).toHaveLength(100);
+      expect(new Set(docs.map((d) => d._id.$oid)).size).toBe(100);
+    });
   });
 });
