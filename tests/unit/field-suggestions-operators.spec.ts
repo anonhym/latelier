@@ -143,6 +143,15 @@ describe('operatorSource context ranking', () => {
     expect(inContextAt('{ a: { $| } }', '$sort').size).toBe(0);
   });
 
+  it('hands each caller its own array, so a caller cannot corrupt the cached list', async () => {
+    const first = operatorSource(ctx()) as unknown[];
+    first.length = 0;
+    expect((operatorSource(ctx()) as unknown[]).length).toBe(OPERATORS.length);
+    const field = (await fieldOperatorSource({} as never)) as unknown[];
+    field.length = 0;
+    expect(((await fieldOperatorSource({} as never)) as unknown[]).length).toBe(FIELD_POSITION_OPS.size);
+  });
+
   it('leaves the catalog unranked when no context is set', () => {
     const out = operatorSource(ctx()) as Array<{ offContext: boolean }>;
     expect(out.every((s) => !s.offContext)).toBe(true);
