@@ -582,6 +582,25 @@ describe('MetaService', () => {
       expect(names.toSorted((a, b) => a.localeCompare(b))).toEqual(['a', 'b', 'c']);
     });
 
+    it('keeps distinct view rows that share an _id, as a $unwind produces', async () => {
+      await setup();
+      const db = (await pool.write(connId).client()).db(DB);
+      await db.dropCollection('unwind_view').catch(() => false);
+      await db.collection('unwind_source').deleteMany({});
+      await db.collection('unwind_source').insertOne({ items: [{ a: 1 }, { b: 2 }, { c: 3 }] });
+      await db.createCollection('unwind_view', {
+        viewOn: 'unwind_source',
+        pipeline: [{ $unwind: '$items' }],
+      });
+      const { docs } = await svc.sampleSchema({
+        connectionId: connId,
+        dbName: DB,
+        collection: 'unwind_view',
+        size: 3,
+      });
+      expect(docs).toHaveLength(3);
+    });
+
     it('keeps documents that have no _id, which a view can project away', async () => {
       await setup();
       const db = (await pool.write(connId).client()).db(DB);

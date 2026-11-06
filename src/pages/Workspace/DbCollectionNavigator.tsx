@@ -470,6 +470,11 @@ export function DbCollectionNavigator({
       try {
         const previouslyExpanded = ownGet(expandedRef.current, id) ?? {};
         dispatch({ type: 'cacheReset', id });
+        // An explicit refresh is a fresh chance for a database whose early
+        // collections fetch failed; the loop below skips the active database.
+        for (const key of earlyAttemptedRef.current) {
+          if (key.startsWith(`${id}\u0000`)) earlyAttemptedRef.current.delete(key);
+        }
         const dbs = await loadDbs(id, { force: true });
         const pending: Promise<void>[] = [];
         for (const db of dbs ?? []) {
