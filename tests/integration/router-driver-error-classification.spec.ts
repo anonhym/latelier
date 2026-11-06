@@ -5,6 +5,7 @@ import { MongoClient } from 'mongodb';
 import type { Envelope } from '@shared/ipc';
 import { IPC_CHANNELS } from '@shared/ipc';
 import { createRouter } from '../../electron/ipc/router';
+import { untypedRouter } from '../helpers/ipcShim';
 import { registerQueryChannels } from '../../electron/ipc/handlers/query';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { QueryService } from '../../electron/mongo/QueryService';
@@ -161,10 +162,10 @@ describe('a driver error reaches the renderer classified, not as INTERNAL', () =
   it('an error that is not from the driver is still INTERNAL', async () => {
     // The backstop must not relabel our own bugs as database problems.
     const local = new Map<string, Handler>();
-    const router = createRouter(
+    const router = untypedRouter(createRouter(
       { handle: (channel: string, fn: Handler) => local.set(channel, fn) } as never,
       testSenderCheck,
-    );
+    ));
     router.register(
       'test:boom',
       (p) => p,
@@ -202,10 +203,10 @@ describe('a driver error reaches the renderer classified, not as INTERNAL', () =
     expect((raw as { codeName?: string })?.codeName).toBe('MaxTimeMSExpired');
 
     const local = new Map<string, Handler>();
-    const router = createRouter(
+    const router = untypedRouter(createRouter(
       { handle: (channel: string, fn: Handler) => local.set(channel, fn) } as never,
       testSenderCheck,
-    );
+    ));
     router.register(
       'test:raw-driver',
       (p) => p,
@@ -235,10 +236,10 @@ describe('a driver error reaches the renderer classified, not as INTERNAL', () =
     ],
   ])('still returns an envelope for %s', async (_what, make) => {
     const local = new Map<string, Handler>();
-    const router = createRouter(
+    const router = untypedRouter(createRouter(
       { handle: (channel: string, fn: Handler) => local.set(channel, fn) } as never,
       testSenderCheck,
-    );
+    ));
     router.register(
       'test:hostile',
       (p) => p,
