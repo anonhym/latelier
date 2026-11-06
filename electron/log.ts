@@ -126,16 +126,23 @@ function walk(value: unknown, seen: Map<object, unknown>): unknown {
 const SHAPE_MAX_DEPTH = 6;
 const SHAPE_MAX_ITEMS = 3;
 const SHAPE_MAX_KEYS = 50;
+const SHAPE_MAX_KEY_LENGTH = 40;
 
 /**
- * The structure of a value with every leaf value dropped: key names and type
- * names only, never a string, number or its length. Used for the debug
- * `ipc.req` line, so a raised log level records what a request looked like
- * without copying documents, filters or shell input to disk. An array shows its
- * length and the shapes of its first few elements; nesting, element and key
- * counts are capped so one huge payload cannot flood the log, and a cycle
- * resolves to a marker. A non-plain object (Date, Uint8Array, Map) shows only
- * its type, since walking its contents would expose them.
+ * The structure of a value with every leaf value dropped, never a string,
+ * number or its length. Used for the debug `ipc.req` line, so a raised log
+ * level records what a request looked like without copying documents, filters
+ * or shell input to disk.
+ *
+ * Key names appear only for the top-level object, whose keys a channel's schema
+ * fixes. A nested object shows only how many keys it holds: its keys can be
+ * data themselves (a map keyed by document `_id`, by user field names), so
+ * they never reach the log. Top-level key names are cut to a fixed length.
+ * An array shows its length and the shapes of its first few elements; nesting,
+ * element and key counts are capped so one huge payload cannot flood the log,
+ * and an array that contains itself resolves to a marker. A non-plain object
+ * (Date, Uint8Array, Map) shows only its type, since walking its contents would
+ * expose them.
  */
 export function describeShape(value: unknown): unknown {
   return shapeOf(value, 0, new Set());
@@ -144,8 +151,8 @@ export function describeShape(value: unknown): unknown {
 function shapeOf(value: unknown, depth: number, ancestors: Set<object>): unknown {
   if (value === null) return 'null';
   if (typeof value !== 'object') return typeof value;
-  if (ancestors.has(value)) return CIRCULAR_PLACEHOLDER;
   if (Array.isArray(value)) {
+    if (ancestors.has(value)) return CIRCULAR_PLACEHOLDER;
     const label = `array(${value.length})`;
     if (depth >= SHAPE_MAX_DEPTH || value.length === 0) return label;
     ancestors.add(value);
@@ -155,14 +162,15 @@ function shapeOf(value: unknown, depth: number, ancestors: Set<object>): unknown
   }
   const tag = Object.prototype.toString.call(value).slice(8, -1);
   if (tag !== 'Object') return tag;
-  if (depth >= SHAPE_MAX_DEPTH) return 'object';
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
-  ancestors.add(value);
+  if (depth > 0) return `object(${keys.length})`;
   const entries: Array<[string, unknown]> = keys
     .slice(0, SHAPE_MAX_KEYS)
-    .map((k) => [k, shapeOf(record[k], depth + 1, ancestors)]);
-  ancestors.delete(value);
+    .map((k) => [
+      k.length > SHAPE_MAX_KEY_LENGTH ? `${k.slice(0, SHAPE_MAX_KEY_LENGTH)}…` : k,
+      shapeOf(record[k], depth + 1, ancestors),
+    ]);
   if (keys.length > SHAPE_MAX_KEYS) entries.push(['…', `${keys.length - SHAPE_MAX_KEYS} more keys`]);
   // fromEntries defines own properties, so a `__proto__` key stays a key.
   return Object.fromEntries(entries);

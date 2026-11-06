@@ -160,9 +160,10 @@ export function createRouter(
           return DENIED;
         }
         const t0 = Date.now();
-        // Debug records the payload's shape — key names and value types —
-        // so a developer can trace every request without the log copying
-        // documents, filters or shell input to disk.
+        // Debug records the payload's shape — top-level key names and value
+        // types, nested objects only as a key count — so a developer can
+        // trace every request without the log copying documents, filters,
+        // document ids or shell input to disk.
         if (!quiet) log?.debug('ipc.req', channel, { shape: describeShape(raw) });
         // Set only once validation passes: a payload that fails its schema
         // never reached a server, and has no trustworthy namespace to record.

@@ -204,10 +204,12 @@ describe('compareLogFiles (property)', () => {
 });
 
 describe('describeShape (property)', () => {
-  // Every generated string leaf carries a marker no key may hold, so finding
-  // the marker anywhere in the output means a leaf value leaked.
+  // Every generated string leaf and every nested key carries a marker, so
+  // finding it anywhere in the output means a value, or a key that may be
+  // data, leaked. The tree sits under one fixed top-level key, the only kind
+  // of key name the output may hold.
   const MARK = '\u0001';
-  const key = fc.string({ maxLength: 8 }).filter((k) => !k.includes(MARK));
+  const key = fc.string({ maxLength: 8 }).map((k) => `${MARK}${k}`);
   const { tree } = fc.letrec((tie) => ({
     tree: fc.oneof(
       { depthSize: 'small', withCrossShrink: true },
@@ -227,10 +229,10 @@ describe('describeShape (property)', () => {
       ? Object.entries(v).flatMap(([k, x]) => [k, ...primitives(x)])
       : [v];
 
-  it('never writes a leaf value: every output primitive is a string without the marker', () => {
+  it('never writes a leaf value or a nested key: every output primitive is a string without the marker', () => {
     fc.assert(
       fc.property(tree, (value) => {
-        for (const p of primitives(describeShape(value))) {
+        for (const p of primitives(describeShape({ payload: value }))) {
           expect(typeof p).toBe('string');
           expect(p as string).not.toContain(MARK);
         }

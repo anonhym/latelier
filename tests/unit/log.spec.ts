@@ -648,14 +648,13 @@ describe('createRateGate', () => {
 });
 
 describe('describeShape', () => {
-  // Nests `inner` under `depth` levels of `{ a: … }`.
-  const nest = (depth: number, inner: unknown): unknown =>
-    depth === 0 ? inner : { a: nest(depth - 1, inner) };
-
-  it('keeps key names and drops every leaf value', () => {
+  it('keeps top-level key names and drops every leaf value', () => {
     const payload = {
       connectionId: 'SENTINEL-9f3a',
-      filter: { age: 424242, tags: ['SENTINEL-9f3a', 424242], ok: true, gone: null },
+      tags: ['SENTINEL-9f3a', 424242],
+      count: 424242,
+      ok: true,
+      gone: null,
     };
     const out = describeShape(payload);
     const text = JSON.stringify(out);
@@ -663,7 +662,34 @@ describe('describeShape', () => {
     expect(text).not.toContain('424242');
     expect(out).toEqual({
       connectionId: 'string',
-      filter: { age: 'number', tags: ['array(2)', 'string', 'number'], ok: 'boolean', gone: 'null' },
+      tags: ['array(2)', 'string', 'number'],
+      count: 'number',
+      ok: 'boolean',
+      gone: 'null',
+    });
+  });
+
+  // A nested record can be keyed by data: expandedRows by document _id,
+  // column widths by user field names.
+  it('shows a nested object only as its key count, never its keys', () => {
+    const payload = {
+      id: 't1',
+      patch: { state: { expandedRows: { 'a@b.com': true, '65f0c0ffee': true }, columns: { ssn: 120 } } },
+      rows: [{ 'a@b.com': 1 }, {}],
+    };
+    const out = describeShape(payload);
+    const text = JSON.stringify(out);
+    expect(text).not.toContain('a@b.com');
+    expect(text).not.toContain('65f0c0ffee');
+    expect(text).not.toContain('ssn');
+    expect(out).toEqual({ id: 'string', patch: 'object(1)', rows: ['array(2)', 'object(1)', 'object(0)'] });
+  });
+
+  it('cuts a top-level key name to forty characters', () => {
+    const long = 'k'.repeat(45);
+    expect(describeShape({ [long]: 1, ['j'.repeat(40)]: 2 })).toEqual({
+      [`${'k'.repeat(40)}…`]: 'number',
+      ['j'.repeat(40)]: 'number',
     });
   });
 
@@ -688,20 +714,11 @@ describe('describeShape', () => {
     expect(describeShape(bare)).toEqual({ k: 'string' });
   });
 
-  it('expands six levels of objects and summarises the seventh', () => {
-    expect(describeShape(nest(5, { b: 1 }))).toEqual(nest(5, { b: 'number' }));
-    expect(describeShape(nest(6, { b: 1 }))).toEqual(nest(6, 'object'));
-  });
-
   it('expands six levels of arrays and summarises the seventh by length', () => {
-    expect(describeShape(nest(5, [1, 2]))).toEqual(nest(5, ['array(2)', 'number', 'number']));
-    expect(describeShape(nest(6, [1, 2]))).toEqual(nest(6, 'array(2)'));
-  });
-
-  it('counts depth through arrays nested in arrays', () => {
     const deep = (n: number): unknown => (n === 0 ? [] : [deep(n - 1)]);
     const shape = (n: number): unknown => (n === 0 ? 'array(1)' : ['array(1)', shape(n - 1)]);
     expect(describeShape(deep(8))).toEqual(shape(6));
+    expect(describeShape({ a: deep(7) })).toEqual({ a: shape(5) });
   });
 
   it('lists up to fifty keys and counts the rest', () => {
@@ -716,21 +733,20 @@ describe('describeShape', () => {
     expect(more['…']).toBe('2 more keys');
   });
 
-  it('marks a cycle but expands a reference shared by two siblings', () => {
-    const shared = { v: 1 };
-    const loop: Record<string, unknown> = { shared, again: shared };
-    loop.self = loop;
-    const list: unknown[] = [shared];
+  it('marks an array that contains itself but expands one shared by two siblings', () => {
+    const list: unknown[] = ['x'];
     list.push(list);
-    expect(describeShape(loop)).toEqual({ shared: { v: 'number' }, again: { v: 'number' }, self: '[Circular]' });
-    expect(describeShape(list)).toEqual(['array(2)', { v: 'number' }, '[Circular]']);
+    expect(describeShape(list)).toEqual(['array(2)', 'string', '[Circular]']);
     const inner = ['x'];
     expect(describeShape([inner, inner])).toEqual(['array(2)', ['array(1)', 'string'], ['array(1)', 'string']]);
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    expect(describeShape(loop)).toEqual({ self: 'object(1)' });
   });
 
   it('keeps a __proto__ key as an own key', () => {
     const out = describeShape(JSON.parse('{"__proto__":{"x":1}}')) as Record<string, unknown>;
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
-    expect(Object.getOwnPropertyDescriptor(out, '__proto__')?.value).toEqual({ x: 'number' });
+    expect(Object.getOwnPropertyDescriptor(out, '__proto__')?.value).toBe('object(1)');
   });
 });

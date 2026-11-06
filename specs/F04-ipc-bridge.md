@@ -234,7 +234,7 @@ The same predicate backs the `will-navigate` guard, so the navigation rule and t
 - An `invoke` from the window's main frame **after it holds a foreign document** returns `code: 'UNTRUSTED_SENDER'`.
 - A denied request is not written to the log at `debug` — an untrusted payload is not ours to record.
 - Every registered channel has a schema.
-- The `debug` request line (`ipc.req`) records the payload's shape (key names and value types, capped in depth and size), never a value.
+- The `debug` request line (`ipc.req`) records the payload's shape (top-level key names and value types; a nested object only as its key count, since its keys can be data such as document ids), never a value.
 - `router.register` and preload's `call` are typed against `ChannelSig` in `shared/ipc.ts`, which is total over the invoke channels and read off `IpcApi` except for the bindings preload adapts (written out beside it): a handler whose result differs from the channel's `ChannelSig` entry, or a schema that refuses a payload preload sends, fails `tsc -b`.
 
 ## 10. Test cases

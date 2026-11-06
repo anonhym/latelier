@@ -146,7 +146,7 @@ describe('router', () => {
       const lines = setup();
       await shim.invoke('test:loud', { x: 424242, filter: { name: 'SENTINEL-9f3a' } });
       const req = lines.find((l) => l.tag === 'ipc.req');
-      expect(req?.data).toEqual({ shape: { x: 'number', filter: { name: 'string' } } });
+      expect(req?.data).toEqual({ shape: { x: 'number', filter: 'object(1)' } });
       expect(JSON.stringify(req?.data)).not.toMatch(/SENTINEL-9f3a|424242/);
     });
 
