@@ -68,7 +68,7 @@ describe('OperatorDocPanel', () => {
     expect(screen.getByText(/No documentation available/)).toBeTruthy();
   });
 
-  it('routes the Learn more click through window.atelier.shell.openExternal', () => {
+  it('routes the Learn more click through window.atelier.docs.openExternal', () => {
     render(<OperatorDocPanel op={FULL} />);
     const link = screen.getByText(/Learn more/);
     fireEvent.click(link);

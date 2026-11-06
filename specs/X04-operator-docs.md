@@ -467,7 +467,7 @@ Stack layout, top to bottom:
    <class badge word>"` (e.g. `"Class: query operator"`, in
    `fontSize: 10`, color `T.textGhost`). Right: `"Learn more →"` link
    (`color: T.accent`, `textDecoration: none`, `fontSize: 10`; opens via
-   `window.atelier.shell.openExternal(url)` — **DO NOT** use a raw
+   `window.atelier.docs.openExternal(url)` — **DO NOT** use a raw
    `<a href>` because this is Electron and we need to route to the host
    browser explicitly). Footer only renders if `op.url`.
 
@@ -506,7 +506,7 @@ There is no existing `api.docs.openExternal`; check
     becoming an arbitrary-URL opener.
   - Handler: `electron.shell.openExternal(url)` from Electron.
   - Output: `void` (envelope `{ ok: true }`).
-- Expose via `preload.ts` under `window.atelier.shell.openExternal`.
+- Expose via `preload.ts` under `window.atelier.docs.openExternal`.
 - Add to `shared/ipc.ts` types.
 
 This is the only IPC touch in the whole spec.
@@ -872,7 +872,7 @@ Same as 11.3, anchored to the pill.
 - Missing `example`: example block not rendered, no empty `<pre>`.
 - `op={null}`: renders placeholder text, no crash.
 - "Learn more →" click calls
-  `window.atelier.shell.openExternal` with the URL (mocked).
+  `window.atelier.docs.openExternal` with the URL (mocked).
 
 **`tests/component/OperatorTooltip.spec.tsx`** (new)
 
@@ -971,8 +971,8 @@ Modify:
 - `src/pages/Workspace/Aggregation/StageAccordion.tsx` — side panel
   in `AddStagePill`, tooltip on `StageRow` pill.
 - `src/pages/Workspace/BuilderPane.tsx` — `?` icon in `CondRow`.
-- `shared/ipc.ts` — `shell.openExternal` type.
-- `electron/preload.ts` — `shell.openExternal` binding.
+- `shared/ipc.ts` — `docs.openExternal` type.
+- `electron/preload.ts` — `docs.openExternal` binding.
 - `electron/main.ts` — register the shell router.
 - `src/api/atelier.ts` — `api.docs.openExternal` wrapper.
 - `scripts/ipc-secret-allowlist.txt` — **not** added; the channel
