@@ -15,6 +15,7 @@ import { createSafeStorageMock } from '../helpers/safeStorageMock';
 import { createTempDb, type TempDb, createTempCipher } from '../helpers/db';
 import { makeConnection, makeReader, uriToHostPort } from '../helpers/mongo';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
+import { startMongoMemoryServer } from '../helpers/startMongoMemoryServer';
 
 /**
  * X18 §7 / T16: a raw driver error must reach the router already classified,
@@ -50,7 +51,7 @@ describe('a driver error reaches the renderer classified, not as INTERNAL', () =
 
   beforeAll(async () => {
     // `failCommand` needs `enableTestCommands`, so this gets its own server.
-    server = await MongoMemoryServer.create({
+    server = await startMongoMemoryServer({
       instance: { args: ['--setParameter', 'enableTestCommands=1'] },
     });
     const seed = new MongoClient(server.getUri());
@@ -89,9 +90,9 @@ describe('a driver error reaches the renderer classified, not as INTERNAL', () =
   }, 60_000);
 
   afterAll(async () => {
-    await pool.disconnectAll();
-    tmp.cleanup();
-    await server.stop();
+    await pool?.disconnectAll();
+    tmp?.cleanup();
+    await server?.stop();
   });
 
   const failNext = async (commands: string[], errorCode: number): Promise<void> => {

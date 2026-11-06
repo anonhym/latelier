@@ -19,6 +19,7 @@ import type { ConnectionInput } from '@shared/types';
 import { ejsonParse } from '../../electron/mongo/ejson';
 import { NotFoundError } from '../../electron/errors';
 import { getSharedMongoUri, uriToHostPort } from '../helpers/mongo';
+import { startMongoMemoryServer } from '../helpers/startMongoMemoryServer';
 
 /** What the server sends when a role lacks `collStats`: code 13, `Unauthorized`. */
 function unauthorized(ns: string): Error {
@@ -563,7 +564,7 @@ describe('MetaService', () => {
     let ftConnId: string;
 
     beforeAll(async () => {
-      ftServer = await MongoMemoryServer.create({
+      ftServer = await startMongoMemoryServer({
         instance: { args: ['--setParameter', 'enableTestCommands=1'] },
       });
       const hp = uriToHostPort(ftServer.getUri());
@@ -599,9 +600,9 @@ describe('MetaService', () => {
     }, 60_000);
 
     afterAll(async () => {
-      await ftPool.disconnectAll();
-      ftTmp.cleanup();
-      await ftServer.stop();
+      await ftPool?.disconnectAll();
+      ftTmp?.cleanup();
+      await ftServer?.stop();
     });
 
     it('retries with nameOnly and still returns database names', async () => {
