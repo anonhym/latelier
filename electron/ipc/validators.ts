@@ -22,10 +22,16 @@ export const CollectionTargetSchema = z.object({
 export const IdInputSchema = z.object({ id: NonEmpty });
 
 /**
- * Shape a Zod parse into the router's validator. The result also carries, as a
- * type only, what the schema accepts, so `router.register` can check that every
- * payload preload sends for the channel is one the schema takes.
+ * A schema whose input is `any` would accept every wire type and make the
+ * check meaningless, so it is typed as accepting nothing and fails to register.
  */
-export function zodValidator<S extends z.ZodType>(schema: S): SchemaValidator<z.output<S>, z.input<S>> {
-  return (payload: unknown) => schema.parse(payload);
+type Accepted<T> = 0 extends 1 & T ? never : T;
+
+/**
+ * Shape a Zod parse into the router's validator. The result also states what
+ * the schema accepts, so `router.register` can check that every payload
+ * preload sends for the channel is one the schema takes.
+ */
+export function zodValidator<S extends z.ZodType>(schema: S): SchemaValidator<z.output<S>, Accepted<z.input<S>>> {
+  return Object.assign((payload: unknown) => schema.parse(payload), { accepts: () => undefined });
 }

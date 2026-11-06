@@ -24,6 +24,15 @@ function registerAll(router: Router): void {
   // @ts-expect-error the schema requires a field preload never sends
   router.register(IPC_CHANNELS.docsOpenExternal, zodValidator(z.object({ url: z.string(), tab: z.string() })), () => ({ opened: true as const }));
 
+  // @ts-expect-error a bare function validator states nothing it accepts
+  router.register(IPC_CHANNELS.docsOpenExternal, (raw: unknown) => raw as { url: string }, () => ({ opened: true as const }));
+
+  // @ts-expect-error a schema of `any` would accept every wire type, so it accepts none
+  router.register(IPC_CHANNELS.docsOpenExternal, zodValidator(z.any()), () => ({ opened: true as const }));
+
+  // @ts-expect-error a schema built for another channel's payload
+  router.register(IPC_CHANNELS.docsOpenExternal, zodValidator(z.object({ id: z.string() })), () => ({ opened: true as const }));
+
   // @ts-expect-error a push-event channel is sent by main, never invoked
   router.register(IPC_CHANNELS.updatesStateEvent, docsInput, () => ({ opened: true as const }));
 
@@ -36,6 +45,9 @@ describe('router.register channel signatures', () => {
     const channels: string[] = [];
     registerAll({ register: (channel: string) => void channels.push(channel) });
     expect(channels).toEqual([
+      'docs:openExternal',
+      'docs:openExternal',
+      'docs:openExternal',
       'docs:openExternal',
       'docs:openExternal',
       'docs:openExternal',

@@ -9,11 +9,13 @@ export type Validator<I> = (payload: unknown) => I;
 export type Handler<I, O> = (input: I) => Promise<O> | O;
 
 /**
- * A validator that also records, as a type only, the input it accepts. The
- * marker is a function so it is checked contravariantly: a channel's wire
- * payload must be assignable to what the validator accepts, not the reverse.
+ * A validator that also states the input it accepts. `accepts` is a no-op at
+ * runtime and exists for its type: a function, so it is checked
+ * contravariantly — a channel's wire payload must be assignable to what the
+ * validator accepts, not the reverse. It is required, so a bare function
+ * cannot stand in for a schema and skip the check.
  */
-export type SchemaValidator<I, W> = Validator<I> & { readonly accepts?: (wire: W) => void };
+export type SchemaValidator<I, W> = Validator<I> & { readonly accepts: (wire: W) => void };
 
 /**
  * A type rewritten as plain object literals, all the way down. Shared types are
