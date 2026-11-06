@@ -32,6 +32,7 @@ import { ownGet } from '../utils/ownProperty';
 import type { DbInfo } from '@shared/ipc';
 import { useConnectionDialogs } from './Workspace/useConnectionDialogs';
 import { useDocumentDialogs } from './Workspace/useDocumentDialogs';
+import { isViewCollection } from './Workspace/isViewCollection';
 import { offerUndo } from './Workspace/offerUndo';
 import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
@@ -472,12 +473,34 @@ function WorkspaceInner() {
     },
     [tabsRef],
   );
+  const activeIsView =
+    activeCollection !== null &&
+    isViewCollection(
+      navigatorData.tree,
+      activeCollection.connectionId,
+      activeCollection.dbName,
+      activeCollection.collection,
+    );
+  const openSiblingCollection = React.useCallback(
+    (collection: string) => {
+      const a = activeCollectionRef.current;
+      if (!a) return;
+      void tabsRef.current.openCollection({
+        connectionId: a.connectionId,
+        dbName: a.dbName,
+        collection,
+        reuseExisting: true,
+      });
+    },
+    [activeCollectionRef, tabsRef],
+  );
   const documentDialogs = useDocumentDialogs({
     activeCollectionRef,
     queryRunner,
     activeTabId: tabs.activeId,
     resolveRunnerTarget,
     readOnly: focusedConnection?.readOnly ?? false,
+    isView: activeIsView,
   });
   const {
     openEdit,
@@ -615,9 +638,10 @@ function WorkspaceInner() {
             collection: activeCollection.collection,
             tabId: activeCollection.id,
             isLoading: showLoading,
+            isView: activeIsView,
           }
         : null,
-    [activeCollection, showLoading],
+    [activeCollection, showLoading, activeIsView],
   );
   // `actions` is the `workspaceActions` reference itself, not a rewrap, so
   // its identity only changes when that memo's own deps do.
@@ -783,7 +807,8 @@ function WorkspaceInner() {
         keywords: ['insert', 'add', 'new', 'document', 'create'],
         when: () =>
           activeCollectionRef.current !== null &&
-          activeCollectionRef.current.state.activeView === 'documents',
+          activeCollectionRef.current.state.activeView === 'documents' &&
+          !activeIsView,
         perform: () => openInsertModal(),
       },
       {
@@ -809,7 +834,7 @@ function WorkspaceInner() {
         },
       })),
     ],
-    [active?.pinned, builderCollapsed, shellOpen, toggleBuilderWithFocus],
+    [active?.pinned, builderCollapsed, shellOpen, toggleBuilderWithFocus, activeIsView],
   );
 
   // `⌘K → orders`-style commands for every collection of the focused
@@ -1240,6 +1265,7 @@ function WorkspaceInner() {
         connections={connections}
         activeCollection={activeCollection}
         focusedConnectionReadOnly={focusedConnection?.readOnly ?? false}
+        openSiblingCollection={openSiblingCollection}
         referenceRules={referenceRules}
         refDrawer={{ refHover, refEditorOpen, setRefEditorOpen }}
         queryBarSaveOpen={queryBarSaveOpen}
