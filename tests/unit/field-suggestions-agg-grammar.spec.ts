@@ -275,11 +275,21 @@ describe('detectAggGrammar', () => {
         ["a quoted field's object", '{ "age": { "$g| } }'],
         ["a field's object inside an $and clause", '{ $and: [{ age: { $g| } }] }'],
         ['$not', '{ age: { $not: { $g| } } }'],
-        ['$elemMatch', '{ items: { $elemMatch: { $g| } } }'],
         ['a subfield inside $elemMatch', '{ items: { $elemMatch: { qty: { $g| } } } }'],
+        ['a condition in an $elemMatch clause', '{ items: { $elemMatch: { $or: [{ qty: { $g| } }] } } }'],
+        ['$not inside $elemMatch', '{ items: { $elemMatch: { $not: { $g| } } } }'],
         ['a geo operator', '{ loc: { $geoWithin: { $g| } } }'],
       ])('tags matchKey inside %s', (_, text) => {
         expect(contextAt(text, '$match')).toBe('matchKey');
+      });
+
+      it.each([
+        ['$elemMatch', '{ items: { $elemMatch: { $| } } }'],
+        ['an $elemMatch clause', '{ items: { $elemMatch: { $or: [{ $| }] } } }'],
+        ['$elemMatch inside a field\'s $not', '{ items: { $not: { $elemMatch: { $| } } } }'],
+        ['$elemMatch inside $elemMatch', '{ m: { $elemMatch: { $elemMatch: { $| } } } }'],
+      ])('tags elemMatchKey inside %s', (_, text) => {
+        expect(contextAt(text, '$match')).toBe('elemMatchKey');
       });
 
       it.each([
@@ -302,7 +312,12 @@ describe('detectAggGrammar', () => {
       });
     });
 
-    it.each(['$sort', '$limit', '$skip', '$count', '$unwind'])(
+    it('tags noOperator at a $sort key and sortValue in a sort value', () => {
+      expect(contextAt('{ $|', '$sort')).toBe('noOperator');
+      expect(contextAt('{ score: { $| } }', '$sort')).toBe('sortValue');
+    });
+
+    it.each(['$limit', '$skip', '$count', '$unwind'])(
       'tags noOperator at every depth inside %s',
       (stageOp) => {
         expect(contextAt('{ $|', stageOp)).toBe('noOperator');

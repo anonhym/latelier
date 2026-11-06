@@ -25,6 +25,10 @@ export type OperatorContext =
   | 'filterTop'
   /** A field's own operator object in a filter, `{ field: { $gt: 1 } }`. */
   | 'matchKey'
+  /** Inside `$elemMatch`: a document predicate or a scalar comparison. */
+  | 'elemMatchKey'
+  /** A `$sort` field's value, `{ score: { $meta: "textScore" } }`. */
+  | 'sortValue'
   | 'groupValue'
   /** A `$setWindowFields` `output` field's window operator. */
   | 'windowValue'
@@ -67,7 +71,9 @@ export interface OperatorDef {
 // ranking. A wrong tag is worse: it ranks an invalid operator as valid, so a
 // tag is added only where the operator is accepted.
 const FILTER_TOP: readonly OperatorContext[] = ['filterTop'];
-const MATCH: readonly OperatorContext[] = ['matchKey'];
+/** Logical operators, also valid in an `$elemMatch` document predicate. */
+const LOGICAL: readonly OperatorContext[] = ['filterTop', 'elemMatchKey'];
+const MATCH: readonly OperatorContext[] = ['matchKey', 'elemMatchKey'];
 const STAGE: readonly OperatorContext[] = ['stage'];
 /** Accumulators `$group` and `$setWindowFields` `output` both accept. */
 const GROUP: readonly OperatorContext[] = ['groupValue', 'windowValue'];
@@ -811,7 +817,7 @@ const QUERY: readonly OperatorDef[] = [
   {
     name: '$and',
     class: 'logical',
-    validIn: FILTER_TOP,
+    validIn: LOGICAL,
     description:
       'Joins query clauses with a logical AND. All clauses must match. ' +
       'Implicit when multiple fields appear in the same query document.',
@@ -822,7 +828,7 @@ const QUERY: readonly OperatorDef[] = [
   {
     name: '$or',
     class: 'logical',
-    validIn: FILTER_TOP,
+    validIn: LOGICAL,
     description: 'Joins query clauses with a logical OR. A document matches if any clause matches.',
     syntax: '{ $or: [<clause1>, <clause2>, …] }',
     example: '{ $or: [{ status: "active" }, { trial: true }] }',
@@ -842,7 +848,7 @@ const QUERY: readonly OperatorDef[] = [
   {
     name: '$nor',
     class: 'logical',
-    validIn: FILTER_TOP,
+    validIn: LOGICAL,
     description: 'Joins query clauses with a logical NOR. A document matches if no clause matches.',
     syntax: '{ $nor: [<clause1>, <clause2>, …] }',
     example: '{ $nor: [{ status: "archived" }, { banned: true }] }',
@@ -1962,7 +1968,8 @@ const EXPRESSIONS: readonly OperatorDef[] = [
   ...EXPRESSION_NAMES.filter((n) => !RICH_EXPRESSION_NAMES.has(n)).map((name) => ({
     name,
     class: 'expression' as const,
-    validIn: PROJECT_EXPR,
+    // `$meta` is also the one operator a `$sort` value accepts.
+    validIn: name === '$meta' ? [...PROJECT_EXPR, 'sortValue' as const] : PROJECT_EXPR,
     summary: EXPRESSION_SUMMARIES[name],
   })),
 ];

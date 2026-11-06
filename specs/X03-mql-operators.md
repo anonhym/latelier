@@ -52,6 +52,8 @@ export type OperatorClass =
 export type OperatorContext =
   | 'filterTop'    // top level of a filter document
   | 'matchKey'     // a field's own operator object, { field: { $gt: 1 } }
+  | 'elemMatchKey' // inside $elemMatch: a document predicate or a scalar comparison
+  | 'sortValue'    // a $sort field's value, { score: { $meta: "textScore" } }
   | 'groupValue' | 'windowValue' | 'projectValue' | 'addFieldsValue'
   | 'stage' | 'update'
   | 'noOperator';  // a stage body that takes no operator; no entry carries it
@@ -160,7 +162,8 @@ Resolution rule (`resolveOperatorContext(stageOp, scopes)`):
 | `$setWindowFields`                               | —          | windowValue under `output.<field>` (depth ≥ 3), else — |
 | `$project`                                       | —          | projectValue                                     |
 | `$set`, `$addFields`                             | —          | addFieldsValue                                   |
-| `$sort`, `$limit`, `$skip`, `$count`, `$unwind`  | noOperator | noOperator                                       |
+| `$sort`                                          | noOperator | sortValue (only `$meta` carries it)              |
+| `$limit`, `$skip`, `$count`, `$unwind`           | noOperator | noOperator                                       |
 | `$facet`, unknown, absent                        | —          | —                                                |
 
 Depth is `scopes.length` at the caret. "—" means `operatorContext` is
@@ -175,8 +178,12 @@ is walked from the outside in:
   `filterTop`: field names and `$and`, `$or`, `$nor`, `$expr`, `$text`,
   `$where`, `$jsonSchema`.
 - A field's object is `matchKey`, and so is everything nested under it
-  (`$not`, `$elemMatch`, a subfield inside `$elemMatch`, the geo
-  modifiers inside `$geoWithin`/`$near`).
+  (`$not`, the geo modifiers inside `$geoWithin`/`$near`).
+- An `$elemMatch` object, and each clause of an `$and`/`$or`/`$nor` list
+  inside it, is `elemMatchKey`: it holds either a document predicate
+  (subfields and the logical operators) or a scalar comparison (field
+  operators), so both rank first. A subfield's object inside it is
+  `matchKey` again.
 - Inside `$expr` the context is `projectValue`: only expressions are
   valid there.
 - Anything else (a key-less object, an array not owned by a logical
@@ -409,8 +416,11 @@ lives in memory.
   accumulators it accepts rank first.
 - Inside a `$bucket` / `$bucketAuto` `output` field, accumulators rank
   first.
-- Inside a `$sort`, `$limit`, `$skip`, `$count` or `$unwind` body, no
-  operator ranks in-context.
+- Inside a `$limit`, `$skip`, `$count` or `$unwind` body, and at a
+  `$sort` key, no operator ranks in-context. In a `$sort` field's value
+  only `$meta` does.
+- Inside `$elemMatch`, both the logical operators and the field
+  operators rank first.
 - Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
   expression ops rank first.
 - Inside `$facet`, the full catalog is shown (no context filter).

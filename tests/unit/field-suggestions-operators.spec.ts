@@ -138,9 +138,27 @@ describe('operatorSource context ranking', () => {
     expect(names.has('accumulator:$rank')).toBe(false);
   });
 
-  it('ranks no operator in-context in a $sort body', () => {
+  it('ranks no operator in-context at a $sort key, and only $meta in a sort value', () => {
     expect(inContextAt('{ $|', '$sort').size).toBe(0);
-    expect(inContextAt('{ a: { $| } }', '$sort').size).toBe(0);
+    expect([...inContextAt('{ score: { $| } }', '$sort')]).toEqual(['expression:$meta']);
+  });
+
+  it('ranks both $elemMatch forms in-context inside $elemMatch', () => {
+    const names = [...inContextAt('{ items: { $elemMatch: { $| } } }', '$match')].map(
+      (n) => n.split(':')[1],
+    );
+    // A document predicate (`$or: [...]`) and a scalar comparison (`$gt`).
+    for (const op of ['$and', '$or', '$nor', '$gt', '$in', '$not']) expect(names).toContain(op);
+    for (const op of ['$expr', '$text', '$where']) expect(names).not.toContain(op);
+    expect(names.some((n) => n === '$concat')).toBe(false);
+  });
+
+  it("ranks field operators in a condition inside an $elemMatch clause list", () => {
+    const names = [
+      ...inContextAt('{ items: { $elemMatch: { $or: [{ qty: { $| } }] } } }', '$match'),
+    ].map((n) => n.split(':')[1]);
+    expect(names).toContain('$gt');
+    expect(names).not.toContain('$or');
   });
 
   it('hands each caller its own array, so a caller cannot corrupt the cached list', async () => {
