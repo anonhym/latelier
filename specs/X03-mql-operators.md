@@ -191,7 +191,9 @@ filter context. Window-only operators (`$rank`, `$denseRank`,
 `$covarianceSamp`) carry `windowValue` alone. The other accumulators
 carry both `groupValue` and `windowValue`, except `$accumulator` and
 `$function`, which `$setWindowFields` rejects. The Query Builder's op box
-filters strictly by `FIELD_POSITION_OPS` and is unaffected. `$facet` bodies recurse through stage-named keys
+filters strictly by `FIELD_POSITION_OPS` and is unaffected.
+
+`$facet` bodies recurse through stage-named keys
 (e.g., `byStatus: [{$match: ...}]`); tracking the inner stage at the
 caret is a Phase-B-v2 refinement — the current detector returns no
 context for `$facet`, which is acceptable (full catalog).
@@ -397,9 +399,19 @@ lives in memory.
   "needs raw JSON" and disables Run.
 - `$mod` with an empty, single-element, or divisor-0 value is
   caught pre-run.
-- Inside `$match` at any depth, query ops rank first and
-  accumulators/stage ops sink.
-- Inside `$group` at depth ≥ 2, accumulators rank first.
+- At the top level of a `$match` body or the Filter Bar, and in each
+  `$and`/`$or`/`$nor` clause, only the top-level filter operators rank
+  first; no expression ranks in-context.
+- Inside a field's object (`{ field: { … } }`), only field operators
+  rank first. Inside `$expr`, expressions rank first.
+- Inside `$group` at depth ≥ 2, accumulators rank first; window-only
+  operators sink.
+- Inside a `$setWindowFields` `output` field, window operators and the
+  accumulators it accepts rank first.
+- Inside a `$bucket` / `$bucketAuto` `output` field, accumulators rank
+  first.
+- Inside a `$sort`, `$limit`, `$skip`, `$count` or `$unwind` body, no
+  operator ranks in-context.
 - Inside `$project` / `$set` / `$addFields` at depth ≥ 2,
   expression ops rank first.
 - Inside `$facet`, the full catalog is shown (no context filter).
