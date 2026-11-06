@@ -69,3 +69,36 @@ describe('DbCollectionNavigator — the active DB loads in parallel with the dat
     expect(screen.queryByText('orders')).toBeNull();
   });
 });
+
+describe('DbCollectionNavigator — the early collections fetch respects the connection state', () => {
+  it('does not fetch collections for an active DB on a disconnected connection', async () => {
+    const listCollections = vi.fn(async () => [coll('orders')]);
+    installAtelierMock({
+      mongo: { status: async (id: string) => ({ id, status: 'disconnected' as const }) },
+      meta: { listDatabases: async () => [], listCollections: listCollections as never },
+    });
+    render(
+      <DbCollectionNavigator
+        connectionsWithTabs={new Set()}
+        connections={[connectionFixture({ id: 'c1', name: 'Test', status: 'disconnected' })]}
+        focusedConnectionId="c1"
+        activeDbName="shop"
+        activeCollection={null}
+        onOpenCollection={vi.fn()}
+        onOpenAggregation={vi.fn()}
+      />,
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(listCollections).not.toHaveBeenCalled();
+  });
+
+  it('tries a failing fetch once instead of looping', async () => {
+    const listCollections = vi.fn(async () => {
+      throw { code: 'MONGO_ERROR', message: 'ns not found' };
+    });
+    mountActive(async () => [{ name: 'other', sizeOnDisk: 1, empty: false }], listCollections);
+    await screen.findByText('other');
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+    expect(listCollections).toHaveBeenCalledTimes(1);
+  });
+});

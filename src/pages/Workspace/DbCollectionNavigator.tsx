@@ -354,14 +354,25 @@ export function DbCollectionNavigator({
   // re-fetches the list first, and its own loop decides which DBs reload, so
   // this waits for the list (`dbsPresent` is a dependency) rather than race it.
   const refreshInFlightRef = React.useRef<Set<string>>(new Set());
+  // A connection that is not connected is never connected by this fetch (the
+  // pool would otherwise open it), and a failed fetch is tried once: a failure
+  // leaves the collections absent, which would re-run this effect forever.
+  const earlyAttemptedRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    if (!connectionId || !activeIsExpandedRoot || !activeDbName) return;
-    if (activeDbCollsPresent || activeDbCollsLoading) return;
+    if (!connectionId || !activeIsExpandedRoot || !activeDbName || !isConnected) return;
+    const attemptKey = `${connectionId}\u0000${activeDbName}`;
+    if (activeDbCollsPresent) {
+      earlyAttemptedRef.current.delete(attemptKey);
+      return;
+    }
+    if (activeDbCollsLoading || earlyAttemptedRef.current.has(attemptKey)) return;
     if (refreshInFlightRef.current.has(connectionId) && !dbsPresent) return;
+    earlyAttemptedRef.current.add(attemptKey);
     queueMicrotask(() => {
       void loadColls(connectionId, activeDbName);
     });
   }, [
+    isConnected,
     connectionId,
     activeIsExpandedRoot,
     activeDbName,
