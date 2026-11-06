@@ -273,6 +273,34 @@ describe('ReferenceRulesService', () => {
     expect(names).toEqual(['A', 'B', 'C']);
   });
 
+  it('resolves an array of numbers whatever numeric type each side stores', async () => {
+    const client = await pool.write(CONN_ID).client();
+    const db = client.db(DB_NAME);
+    await db.collection('items').deleteMany({});
+    await db.collection('items').insertMany([
+      { _id: new Int32(5), name: 'int' },
+      { _id: Long.fromNumber(6), name: 'long' },
+      { _id: new Double(7), name: 'double' },
+    ] as unknown as Document[]);
+
+    const rule = svc.create({
+      connectionId: CONN_ID,
+      sourceDb: DB_NAME,
+      sourceCollection: 'orders',
+      sourceField: 'item_ids',
+      targetDb: DB_NAME,
+      targetCollection: 'items',
+      projection: ['name'],
+    });
+
+    const result = await svc.resolve({
+      ruleId: rule.id,
+      valueEjson: JSON.stringify([{ $numberLong: '5' }, { $numberDouble: '6.0' }, { $numberInt: '7' }]),
+    });
+
+    expect(result.documents.map((d) => (d as Record<string, unknown>).name)).toEqual(['int', 'long', 'double']);
+  });
+
   it('returns a resolved document with its numbers in their stored type', async () => {
     const client = await pool.write(CONN_ID).client();
     const db = client.db(DB_NAME);
