@@ -15,7 +15,7 @@ interface ListDatabasesReply {
   databases?: Array<{ name: string; sizeOnDisk?: number; empty?: boolean }>;
 }
 
-const SAMPLE_DEFAULT = 50;
+const SAMPLE_DEFAULT = 100;
 // Cap the parallel fan-out from `listCollections`. A connection on a
 // 50-collection database used to fire 50 simultaneous `$collStats`
 // aggregates; on a slow Atlas link that piled up against the driver pool
@@ -218,28 +218,8 @@ export class MetaService {
         { allowDiskUse: false, maxTimeMS: STATS_TIMEOUT_MS },
       );
       const arr = await cursor.toArray();
-      const row = (arr[0] ?? {}) as { recent?: unknown[]; random?: unknown[] };
-      const recent = ejsonEncodeArray(row.recent ?? [], false);
-      const random = ejsonEncodeArray(row.random ?? [], false);
-      // A document can land in both branches, and a view may drop `_id`, so the
-      // key falls back to the whole canonical document then.
-      const seen = new Set<string>();
-      const docs: unknown[] = [];
-      const take = (d: unknown): void => {
-        if (docs.length >= n) return;
-        const id = (d as { _id?: unknown })._id;
-        const key = id === undefined ? `d:${JSON.stringify(d)}` : `i:${JSON.stringify(id)}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        docs.push(d);
-      };
-      // Half from the newest, then the random draw, then the rest of the
-      // newest to top up, so both branches contribute and the cap is n.
-      const half = Math.ceil(n / 2);
-      recent.slice(0, half).forEach(take);
-      random.forEach(take);
-      recent.slice(half).forEach(take);
-      return { docs };
+      const row = (arr[0] ?? {}) as { recent?: Document[]; random?: Document[] };
+      return { docs: ejsonEncodeArray(blendSample(row.recent ?? [], row.random ?? [], n), false) };
     } catch {
       // Permission / timeout / hostile collection: fail open so the
       // renderer treats this source as absent rather than surfacing an
@@ -247,6 +227,28 @@ export class MetaService {
       return { docs: [] };
     }
   }
+}
+
+/**
+ * At most `n` documents, the branches taking turns so neither crowds the other
+ * out. Each branch asks for `n` so the other's picks can't leave the sample
+ * short. Both can pick one document and `$sample` can repeat one, so an `_id`
+ * counts once; a document with none (a view can project it away) is kept.
+ */
+function blendSample(recent: Document[], random: Document[], n: number): Document[] {
+  const seen = new Set<string>();
+  const blended: Document[] = [];
+  const longest = Math.max(recent.length, random.length);
+  for (let i = 0; i < longest && blended.length < n; i++) {
+    for (const doc of [recent[i], random[i]]) {
+      if (!doc || blended.length === n) continue;
+      const id = doc._id === undefined ? undefined : ejsonStringify(doc._id);
+      if (id !== undefined && seen.has(id)) continue;
+      if (id !== undefined) seen.add(id);
+      blended.push(doc);
+    }
+  }
+  return blended;
 }
 
 /** The slice of a `listCollections` entry that `collectionDetails` reads. */

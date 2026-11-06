@@ -941,12 +941,12 @@ export interface SchemaSampleEntry {
 }
 
 export interface SchemaTabState {
-  /** Number of documents requested from `meta:sampleSchema`. */
+  /** The selector's size, which the next `meta:sampleSchema` will request. */
   sampleSize: number;
-  /** Total documents actually used to build `entries` (may be < sampleSize). */
+  /** Distinct documents used to build `entries` (may be < sampledOf). */
   sampledCount?: number;
-  /** The size requested for the run that produced `entries`; the header's "of N". */
-  sampledSize?: number;
+  /** The size `entries` was requested at. Absent on a sample persisted before it was recorded. */
+  sampledOf?: number;
   entries?: SchemaSampleEntry[];
   ranAt?: string;
   durationMs?: number;
