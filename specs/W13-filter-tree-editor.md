@@ -497,6 +497,14 @@ unchanged.
   clause pasted from elsewhere can be adopted into the tree).
 - **Footer**: `Reset` · `Copy code`. **The pane's Run button is removed** — see
   §7.
+- **Layout stays put.** The pane fills the drawer's height, so its background,
+  left border and pinned footer reach the bottom of the window however short
+  the filter is. The root header stays at the top and the status lines (the
+  *not applied* banner, the read-only banner and the live match count) sit
+  under it, as drawn above. Only the list of rows below them scrolls, and the
+  empty state fills that same list region. Adding or removing a row, or a
+  status line appearing, never moves the header's add buttons or the footer;
+  a status line takes its room from the list.
 - Drag-and-drop targets whichever group or row is under the cursor, not the
   pane as a whole — updated by ADR 0007. A drop on a group inserts
   a fresh `$eq` cond there (`condFromDragged`, retargeted at that group's own
@@ -712,6 +720,10 @@ Retired test ids and controls, so the churn isn't a surprise:
   not by inspection. Purity is the property that makes this module reusable as
   redesign C's `$match` editor; nothing else in the suite would catch it
   rotting.
+- The Filter tab's add buttons and footer keep their position, within 1 px, at
+  0, 1, 3 and 10 conditions and with the match-count line showing; the pane's
+  bottom meets the drawer's; at 10 conditions the list scrolls by itself while
+  the footer stays on screen (§6).
 
 ## 11. Test cases
 
@@ -749,6 +761,7 @@ Retired test ids and controls, so the churn isn't a surprise:
 
 ### E2E
 - **workspace-filter-tree.e2e.ts**: open a seeded collection → build `(a AND (b OR c))` in the drawer → Run → results → hand-edit the bar to an `$elemMatch` → the drawer shows a raw clause rather than disabling → Run still works. A second test switches a condition off and runs without it, keeps it across a switch to another tab and back, then negates it and runs NOT.
+- **w13-filter-layout-stable.e2e.ts**: measures the add-condition button and the footer at 0, 1, 3 and 10 conditions and with a valid filter's count line, the pane's bottom against the drawer's, and the list's own overflow at 10 conditions (§6's layout statement).
 
 ## 12. Spec migration
 
