@@ -141,6 +141,14 @@ describe('router', () => {
       ]);
     });
 
+    it('logs a request as its shape, never its values', async () => {
+      const lines = setup();
+      await shim.invoke('test:loud', { x: 424242, filter: { name: 'SENTINEL-9f3a' } });
+      const req = lines.find((l) => l.tag === 'ipc.req');
+      expect(req?.data).toEqual({ shape: { x: 'number', filter: { name: 'string' } } });
+      expect(JSON.stringify(req?.data)).not.toMatch(/SENTINEL-9f3a|424242/);
+    });
+
     it('still logs a refused quiet call, without any of its payload', async () => {
       const lines = setup();
       const payload = { x: 'nope', connectionId: 'c-secret', filter: { pw: 'f-secret' } };

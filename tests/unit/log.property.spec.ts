@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { compareLogFiles, redactSecrets } from '../../electron/log';
+import { compareLogFiles, describeShape, redactSecrets } from '../../electron/log';
 
 // Mirrors REDACTED_KEYS in electron/log.ts — kept in sync manually since the
 // source set isn't exported.
@@ -198,6 +198,42 @@ describe('compareLogFiles (property)', () => {
         const byKey = [...files].sort((a, b) =>
           a.key[0] !== b.key[0] ? (a.key[0] < b.key[0] ? -1 : 1) : a.key[1] - b.key[1] || a.key[2] - b.key[2]);
         expect(files.map((f) => f.name).sort(compareLogFiles)).toEqual(byKey.map((f) => f.name));
+      }),
+    );
+  });
+});
+
+describe('describeShape (property)', () => {
+  // Every generated string leaf carries a marker no key may hold, so finding
+  // the marker anywhere in the output means a leaf value leaked.
+  const MARK = '\u0001';
+  const key = fc.string({ maxLength: 8 }).filter((k) => !k.includes(MARK));
+  const { tree } = fc.letrec((tie) => ({
+    tree: fc.oneof(
+      { depthSize: 'small', withCrossShrink: true },
+      fc.string().map((s) => `${MARK}${s}`),
+      fc.integer(),
+      fc.double(),
+      fc.boolean(),
+      fc.constant(null),
+      fc.array(tie('tree'), { maxLength: 5 }),
+      fc.dictionary(key, tie('tree'), { maxKeys: 5 }),
+    ),
+  }));
+
+  // Every primitive the output holds, keys included.
+  const primitives = (v: unknown): unknown[] =>
+    v !== null && typeof v === 'object'
+      ? Object.entries(v).flatMap(([k, x]) => [k, ...primitives(x)])
+      : [v];
+
+  it('never writes a leaf value: every output primitive is a string without the marker', () => {
+    fc.assert(
+      fc.property(tree, (value) => {
+        for (const p of primitives(describeShape(value))) {
+          expect(typeof p).toBe('string');
+          expect(p as string).not.toContain(MARK);
+        }
       }),
     );
   });

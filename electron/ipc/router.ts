@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron';
 import type { Envelope } from '@shared/ipc';
-import type { Logger } from '../log.ts';
+import { describeShape, type Logger } from '../log.ts';
 import type { SenderCheck } from './senderGuard.ts';
 import { success, toIpcError } from './envelope.ts';
 import { classifyIfDriverError } from '../mongo/errors.ts';
@@ -79,8 +79,8 @@ function compactField(v: unknown): unknown {
  * (connection / db / collection) and the few inputs that matter for
  * diagnosing pagination or filter issues without dumping the whole
  * envelope. Filter / sort / projection / aggregation stages get
- * stringified-and-truncated; the full payload is still available at debug
- * level via ipc.req.
+ * stringified-and-truncated. The debug ipc.req line carries only the
+ * payload's shape, never its values.
  */
 function summarizeRequest(raw: unknown): Record<string, unknown> | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -138,11 +138,10 @@ export function createRouter(
           return DENIED;
         }
         const t0 = Date.now();
-        // Full input goes to debug so production (info) stays terse but a
-        // developer can flip the log level for a fine-grained trace of every
-        // DB request — including the filter / sort / projection that was
-        // actually sent to MongoDB.
-        if (!quiet) log?.debug('ipc.req', channel, { input: raw });
+        // Debug records the payload's shape — key names and value types —
+        // so a developer can trace every request without the log copying
+        // documents, filters or shell input to disk.
+        if (!quiet) log?.debug('ipc.req', channel, { shape: describeShape(raw) });
         // Set only once validation passes: a payload that fails its schema
         // never reached a server, and has no trustworthy namespace to record.
         let validated: { input: I } | null = null;
