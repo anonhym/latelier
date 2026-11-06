@@ -6,6 +6,7 @@ import { zodValidator } from '../../electron/ipc/validators';
 import { ValidationError, NotFoundError } from '../../electron/errors';
 import type { Envelope } from '@shared/ipc';
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
+import { untypedRouter } from '../helpers/ipcShim';
 
 /**
  * Minimal ipcMain shim mirroring Electron's handle() contract.
@@ -39,7 +40,7 @@ describe('router', () => {
   });
 
   it('dispatches a successful call', async () => {
-    const router = createRouter(shim.ipcMain, testSenderCheck);
+    const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck));
     router.register(
       'test:echo',
       zodValidator(z.object({ x: z.number() })),
@@ -50,7 +51,7 @@ describe('router', () => {
   });
 
   it('validation failure returns VALIDATION envelope', async () => {
-    const router = createRouter(shim.ipcMain, testSenderCheck);
+    const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck));
     router.register(
       'test:v',
       zodValidator(z.object({ x: z.number() })),
@@ -62,7 +63,7 @@ describe('router', () => {
   });
 
   it('maps AppError subclasses to the right codes', async () => {
-    const router = createRouter(shim.ipcMain, testSenderCheck);
+    const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck));
     router.register(
       'test:nf',
       zodValidator(z.object({}).passthrough()),
@@ -84,7 +85,7 @@ describe('router', () => {
   });
 
   it('unknown throws collapse to INTERNAL without leaking stack', async () => {
-    const router = createRouter(shim.ipcMain, testSenderCheck);
+    const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck));
     router.register(
       'test:boom',
       zodValidator(z.object({}).passthrough()),
@@ -100,7 +101,7 @@ describe('router', () => {
   });
 
   it('awaits async handlers', async () => {
-    const router = createRouter(shim.ipcMain, testSenderCheck);
+    const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck));
     router.register(
       'test:async',
       zodValidator(z.object({}).passthrough()),
@@ -123,7 +124,7 @@ describe('router', () => {
 
     function setup() {
       const { lines, log } = recordingLogger();
-      const router = createRouter(shim.ipcMain, testSenderCheck, log);
+      const router = untypedRouter(createRouter(shim.ipcMain, testSenderCheck, log));
       const schema = zodValidator(z.object({ x: z.number() }).passthrough());
       router.register('test:loud', schema, () => ({}));
       router.register('test:quiet', schema, () => ({}), { quiet: true });

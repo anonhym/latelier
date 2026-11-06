@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron';
-import type { Envelope } from '@shared/ipc';
+import type { ChannelIn, ChannelOut, Envelope, InvokeChannel } from '@shared/ipc';
 import { describeShape, type Logger } from '../log.ts';
 import type { SenderCheck } from './senderGuard.ts';
 import { success, toIpcError } from './envelope.ts';
@@ -7,6 +7,23 @@ import { classifyIfDriverError } from '../mongo/errors.ts';
 
 export type Validator<I> = (payload: unknown) => I;
 export type Handler<I, O> = (input: I) => Promise<O> | O;
+
+/**
+ * A validator that also records, as a type only, the input it accepts. The
+ * marker is a function so it is checked contravariantly: a channel's wire
+ * payload must be assignable to what the validator accepts, not the reverse.
+ */
+export type SchemaValidator<I, W> = Validator<I> & { readonly accepts?: (wire: W) => void };
+
+/**
+ * A type rewritten as plain object literals, all the way down. Shared types are
+ * mostly interfaces, and an interface is never assignable to an index
+ * signature, so a deliberately loose `z.record(...)` schema would otherwise
+ * reject a wire payload it accepts at runtime.
+ */
+type Plain<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object ? { [K in keyof T]: Plain<T[K]> } : T;
 
 /**
  * Receives every validated invocation once its envelope is settled. Decides
@@ -38,10 +55,15 @@ export interface RegisterOptions {
 }
 
 export interface Router {
-  register<I, O>(
-    channel: string,
-    validate: Validator<I>,
-    handler: Handler<I, O>,
+  /**
+   * Typed against the channel's wire signature in `ChannelSig`: the validator
+   * must accept every payload preload sends, and the handler must resolve
+   * what the renderer is promised.
+   */
+  register<C extends InvokeChannel, I>(
+    channel: C,
+    validate: SchemaValidator<I, Plain<ChannelIn<C>>>,
+    handler: Handler<I, ChannelOut<C>>,
     opts?: RegisterOptions,
   ): void;
 }
