@@ -219,8 +219,27 @@ export class MetaService {
       );
       const arr = await cursor.toArray();
       const row = (arr[0] ?? {}) as { recent?: unknown[]; random?: unknown[] };
-      const merged = [...(row.recent ?? []), ...(row.random ?? [])];
-      return { docs: ejsonEncodeArray(merged, false) };
+      const recent = ejsonEncodeArray(row.recent ?? [], false);
+      const random = ejsonEncodeArray(row.random ?? [], false);
+      // A document can land in both branches, and a view may drop `_id`, so the
+      // key falls back to the whole canonical document then.
+      const seen = new Set<string>();
+      const docs: unknown[] = [];
+      const take = (d: unknown): void => {
+        if (docs.length >= n) return;
+        const id = (d as { _id?: unknown })._id;
+        const key = id === undefined ? `d:${JSON.stringify(d)}` : `i:${JSON.stringify(id)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        docs.push(d);
+      };
+      // Half from the newest, then the random draw, then the rest of the
+      // newest to top up, so both branches contribute and the cap is n.
+      const half = Math.ceil(n / 2);
+      recent.slice(0, half).forEach(take);
+      random.forEach(take);
+      recent.slice(half).forEach(take);
+      return { docs };
     } catch {
       // Permission / timeout / hostile collection: fail open so the
       // renderer treats this source as absent rather than surfacing an

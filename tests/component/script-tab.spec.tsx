@@ -527,6 +527,7 @@ describe('ScriptTab — completion database', () => {
         connectionId: 'c1',
         dbName: 'smoke',
         collection: 'wiring',
+        size: 100,
       }),
     );
     expect(sampleSchema).not.toHaveBeenCalledWith(expect.objectContaining({ dbName: 'test' }));

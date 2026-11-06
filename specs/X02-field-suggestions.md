@@ -96,7 +96,7 @@ blocking render. `useSuggestions` composes a fixed list per surface.
 | Source | Kind | Cost | Notes |
 |---|---|---|---|
 | `lastRunSource` | sync | free | Walks `ctx.recentDocs` for top-level + dotted paths with inferred `DisplayType` and frequency. |
-| `sampleSchemaSource` | async | 1 IPC | Runs `meta:sampleSchema` (`$facet { recent, random }` in one round trip). Caches per `(connId, db, coll)` with 5-min TTL. Fails open. |
+| `sampleSchemaSource` | async | 1 IPC | Runs `meta:sampleSchema` (`$facet { recent, random }` in one round trip). Requests `size: 100`. Caches per `(connId, db, coll)` with 5-min TTL. Fails open. |
 | `operatorSource` *(X03)* | sync | free | Emits every catalog entry from `OPERATORS`. Not part of `DEFAULT_FIELD_SOURCES`; surfaces opt in explicitly (textarea hook uses `[...DEFAULT_FIELD_SOURCES, operatorSource]`, builder op input uses `[operatorSource]`). |
 
 ### Default value sources
@@ -139,8 +139,8 @@ one line in `DEFAULT_FIELD_SOURCES` or `DEFAULT_VALUE_SOURCES`.
 
 - Main runs `db.coll.aggregate([{ $facet: { recent: [{$sort:{_id:-1}},{$limit: size}], random: [{$sample:{size}}] } }])`
   under a fixed 3 s server-side budget (`STATS_TIMEOUT_MS`; the caller
-  cannot set it) and returns both branches concatenated, so a document
-  both branches pick appears twice.
+  cannot set it) and returns both branches concatenated, deduplicated
+  by `_id` (recent first) and capped at `size`, so no document appears twice.
 - Main does not derive paths. The renderer's `sampleSchemaSource` walks
   `docs` once with `lastRunSource` (one row per dotted path with
   `DisplayType` + frequency) and digests the same sample with

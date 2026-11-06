@@ -945,6 +945,8 @@ export interface SchemaTabState {
   sampleSize: number;
   /** Total documents actually used to build `entries` (may be < sampleSize). */
   sampledCount?: number;
+  /** The size requested for the run that produced `entries`; the header's "of N". */
+  sampledSize?: number;
   entries?: SchemaSampleEntry[];
   ranAt?: string;
   durationMs?: number;

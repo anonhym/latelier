@@ -438,7 +438,7 @@ specified in §13.2):
 - `query:explain` already takes `verbosity: 'queryPlanner' | 'executionStats' | 'allPlansExecution'`;
 - `index:list` / `index:create` / `index:drop` are unchanged and already
   collection-scoped in their payloads;
-- `meta:sampleSchema` is unchanged.
+- `meta:sampleSchema` is unchanged by this section (§14.3 later dedupes its sample).
 
 The renderer gains a second call site for `query:explain` (in the query
 runner, beside `api.query.find`) — a call site, not a channel.
@@ -859,16 +859,18 @@ Sample values and value distributions ("top values") are out of scope. They
 would write user document values into SQLite with the tab, and the feature this
 tier answers asks only for cardinality and numeric range.
 
-Known ceiling: the sample is the most recent documents plus a random draw, so a
-document can appear twice. `distinct` is unaffected; `avg` is weighted by the
-duplicates.
+The sample is the most recent documents plus a random draw, deduplicated by
+`_id` (recent first) and capped at the requested size, so no document is counted
+twice and `avg` is not weighted by duplicates. The header reads "Sampled N of M"
+with M the size the run was requested with (`sampledSize`), not the selector's
+current value; a tab saved before that field existed falls back to the selector.
 
 ### 14.4 The sample-size bound
 
 The sample size selector offers 50, 100 and 200 — `SCHEMA_SAMPLE_MAX`
 (`shared/defaults.ts`), the bound `meta:sampleSchema` validates. Raising it is
-unsafe on its own: the `recent` and `random` branches (n documents each) share
-one `$facet` output document with BSON's 16 MB cap, and a breach fails open to
+unsafe on its own: the `recent` and `random` branches (n documents each, before
+deduplication) share one `$facet` output document with BSON's 16 MB cap, and a breach fails open to
 an empty sample. A tab persisted with a larger size samples at the bound.
 
 ### 14.5 Acceptance criteria
