@@ -1,7 +1,10 @@
 // `npm run build` under a watchdog: a wedged build (Rolldown's thread pool can
 // stall under load) would otherwise hang the e2e run forever. macOS has no
-// timeout(1), so this is a Node spawn with a kill timer, as in run-tests.mjs.
-import { spawnSync } from 'node:child_process';
+// timeout(1), so this is a Node spawn with a kill timer.
+//
+// The build runs in its own process group and the whole group is killed on
+// expiry: killing only npm would leave the shell and the real tsc/vite alive.
+import { spawn } from 'node:child_process';
 
 const DEFAULT_MS = 5 * 60 * 1000;
 const raw = process.env.ATELIER_BUILD_TIMEOUT_MS;
@@ -11,16 +14,24 @@ if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   process.exit(1);
 }
 
-const result = spawnSync('npm', ['run', 'build'], {
-  stdio: 'inherit',
-  timeout: timeoutMs,
-  killSignal: 'SIGKILL',
-});
+const child = spawn('npm', ['run', 'build'], { stdio: 'inherit', detached: true });
 
-if (result.error || result.signal) {
-  console.error(
-    `\n[run-e2e] build timed out after ${timeoutMs}ms (signal: ${result.signal ?? 'n/a'}) - treating as failure.`,
-  );
+const timer = setTimeout(() => {
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch (err) {
+    if (err.code !== 'ESRCH') throw err; // group already gone
+  }
+  console.error(`\n[run-e2e] build timed out after ${timeoutMs}ms - treating as failure.`);
   process.exit(1);
-}
-process.exit(result.status ?? 1);
+}, timeoutMs);
+
+child.on('error', (err) => {
+  clearTimeout(timer);
+  console.error(`[run-e2e] could not start the build: ${err.message}`);
+  process.exit(1);
+});
+child.on('exit', (code, signal) => {
+  clearTimeout(timer);
+  process.exit(signal ? 1 : (code ?? 1));
+});
