@@ -278,10 +278,9 @@ Two popovers in the same row:
 
 - **field input** — `fieldSources: DEFAULT_FIELD_SOURCES` (field-only
   behavior preserved; operators don't pollute the field-path input).
-- **op input** — `fieldSources: [operatorSource]`,
-  `operatorContext: 'matchKey'` (builder filters are `$match`
-  semantics, so query-side ops rank first; stage ops and accumulators
-  still appear, downranked).
+- **op input** — `fieldSources: [fieldOperatorSource]`, which lists
+  exactly the `FIELD_POSITION_OPS` names (the op box always sits at a
+  field's own operator position), so nothing else appears.
 
 On accept, the op input dispatches `{ t: 'patchCond', patch: { op: s.name } }`.
 
@@ -392,7 +391,7 @@ lives in memory.
   stage bodies and the query bar textarea.
 - AddStagePill search accepts bare stage names (`sort` → `$sort`).
 - Builder condition row's op field is an autocomplete input
-  offering the full catalog, with `matchKey`-context ranking.
+  offering exactly the field-position operators (`FIELD_POSITION_OPS`).
 - Typing an op outside `FIELD_OPS[valType]` flags the row and
   disables Run; the warning message names the mismatch.
 - Typing an object-shape op (e.g. `$elemMatch`) flags the row as
