@@ -303,7 +303,8 @@ string-escape handling. At `caret`, classifies the position:
 | Anywhere else | `null` |
 
 `stageOp` is optional. When provided, fieldName hits carry an
-`operatorContext` resolved from `stageOp` + object-nesting depth. See
+`operatorContext` resolved from `stageOp` + the keys along the path to
+the caret. See
 X03 §5 for the resolution table. `$`-prefixed bare keys return a
 fieldName hit so the operator source can consume them.
 
