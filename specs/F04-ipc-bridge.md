@@ -235,13 +235,15 @@ The same predicate backs the `will-navigate` guard, so the navigation rule and t
 - A denied request is not written to the log at `debug` — an untrusted payload is not ours to record.
 - Every registered channel has a schema.
 - The `debug` request line (`ipc.req`) records the payload's shape (key names and value types, capped in depth and size), never a value.
-- `router.register` and preload's `call` are typed against `ChannelSig` in `shared/ipc.ts`, which is total over the invoke channels: a handler whose result differs from what `IpcApi` promises, or a schema that refuses a payload preload sends, fails `tsc -b`.
+- `router.register` and preload's `call` are typed against `ChannelSig` in `shared/ipc.ts`, which is total over the invoke channels and read off `IpcApi` except for the bindings preload adapts (written out beside it): a handler whose result differs from the channel's `ChannelSig` entry, or a schema that refuses a payload preload sends, fails `tsc -b`.
 
 ## 10. Test cases
 
 ### Unit
 - **envelope.spec.ts**: `toIpcError(new ValidationError(...))` → `code: 'VALIDATION'`. `toIpcError(new Error('x'))` → `code: 'INTERNAL'` with no stack leaked.
 - **zod-parity.spec.ts**: each Zod schema's inferred type equals the shared type (uses `expectTypeOf`).
+- **router-channel-signature.spec.ts**: compiled by `tsc -b`; `@ts-expect-error` registrations with a wrong result, a schema that refuses the wire payload, a schema requiring a field preload never sends, a push-event channel and an unknown channel must each fail to compile.
+- **log.spec.ts / log.property.spec.ts** (`describeShape`): no leaf value, and no generated string, ever reaches the output; depth, element and key caps; cycles.
 
 ### Integration
 - **router-dispatch.spec.ts**: Spin up a mock `ipcMain` (`electron`'s test harness or a custom shim), register a dummy channel, call via `ipcRenderer.invoke` in a child Electron process, verify envelope semantics for success, validation failure, domain failure.

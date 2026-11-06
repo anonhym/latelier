@@ -973,8 +973,7 @@ Modify:
 - `src/pages/Workspace/BuilderPane.tsx` — `?` icon in `CondRow`.
 - `shared/ipc.ts` — `docs.openExternal` type.
 - `electron/preload.ts` — `docs.openExternal` binding.
-- `electron/main.ts` — register the shell router.
-- `src/api/atelier.ts` — `api.docs.openExternal` wrapper.
+- `electron/main.ts` — register the docs router (`registerDocsChannels`).
 - `scripts/ipc-secret-allowlist.txt` — **not** added; the channel
   does not accept secrets.
 - `tests/component/SuggestionPopover.spec.tsx` — panel assertions.
