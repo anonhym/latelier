@@ -86,8 +86,8 @@ const api: IpcApi = {
     },
   },
 
-  shell: {
-    openExternal: (input) => call(IPC_CHANNELS.shellOpenExternal, input),
+  docs: {
+    openExternal: (input) => call(IPC_CHANNELS.docsOpenExternal, input),
   },
 
   mongo: {

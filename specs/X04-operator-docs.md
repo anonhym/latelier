@@ -497,10 +497,10 @@ Stack layout, top to bottom:
 
 ### 4.4 `openExternal` contract
 
-There is no existing `api.shell.openExternal`; check
+There is no existing `api.docs.openExternal`; check
 `src/api/atelier.ts`. If missing:
 
-- Add IPC channel `shell:openExternal` (no `SECRET_INPUT`).
+- Add IPC channel `docs:openExternal` (no `SECRET_INPUT`).
   - Input: `{ url: string }`. Validate it starts with `https://www.mongodb.com/docs/`
     in the zod schema — refuse anything else to prevent the doc panel
     becoming an arbitrary-URL opener.
@@ -830,7 +830,7 @@ Same as 11.3, anchored to the pill.
   keyboard focus.
 - The "Learn more →" link opens in the user's default browser via
   `shell.openExternal`, not inside the Electron window.
-- The `shell:openExternal` IPC rejects any URL that does not start
+- The `docs:openExternal` IPC rejects any URL that does not start
   with `https://www.mongodb.com/docs/`.
 - All existing X02/X03 acceptance criteria still pass.
 
@@ -892,9 +892,9 @@ Same as 11.3, anchored to the pill.
 
 ### 13.3 Integration
 
-No IPC-side test except the new `shell:openExternal` channel:
+No IPC-side test except the new `docs:openExternal` channel:
 
-**`tests/integration/shell-open-external.spec.ts`** (new)
+**`tests/integration/docs-open-external.spec.ts`** (new)
 
 - Valid URL → success envelope, `electron.shell.openExternal` called.
 - URL not starting with `https://www.mongodb.com/docs/` → `{ ok: false,
@@ -935,7 +935,7 @@ Each phase should land as one commit. Run tests between phases.
 5. **Placement utility + unit tests**. Commit.
 6. **`OperatorDocPanel` component + its component test**. No consumer
    yet. Commit.
-7. **`shell:openExternal` IPC + its integration test**. Commit.
+7. **`docs:openExternal` IPC + its integration test**. Commit.
 8. **Wire into `SuggestionPopover`**. Commit.
 9. **Wire into `AddStagePill`**. Commit.
 10. **`OperatorTooltip` component + its tests**. Commit.
@@ -956,8 +956,8 @@ Create:
 - `tests/unit/placement.spec.ts`
 - `tests/component/OperatorDocPanel.spec.tsx`
 - `tests/component/OperatorTooltip.spec.tsx`
-- `tests/integration/shell-open-external.spec.ts`
-- `electron/ipc/handlers/shell.ts` (new router for the one channel)
+- `tests/integration/docs-open-external.spec.ts`
+- `electron/ipc/handlers/docs.ts` (new router for the one channel)
 
 Modify:
 
@@ -974,7 +974,7 @@ Modify:
 - `shared/ipc.ts` — `shell.openExternal` type.
 - `electron/preload.ts` — `shell.openExternal` binding.
 - `electron/main.ts` — register the shell router.
-- `src/api/atelier.ts` — `api.shell.openExternal` wrapper.
+- `src/api/atelier.ts` — `api.docs.openExternal` wrapper.
 - `scripts/ipc-secret-allowlist.txt` — **not** added; the channel
   does not accept secrets.
 - `tests/component/SuggestionPopover.spec.tsx` — panel assertions.

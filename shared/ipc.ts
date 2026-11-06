@@ -290,7 +290,7 @@ export interface IpcApi {
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
-  shell: {
+  docs: {
     openExternal: (input: { url: string }) => Promise<{ opened: true }>;
   };
 
@@ -599,7 +599,7 @@ export const IPC_CHANNELS = {
   updatesStateEvent: 'updates:state-event',
 
   // Docs-restricted external opener -----------------------------------------
-  shellOpenExternal: 'shell:openExternal',
+  docsOpenExternal:  'docs:openExternal',
 
   // Mongo lifecycle -----------------------------------------
   mongoConnect:     'mongo:connect',
