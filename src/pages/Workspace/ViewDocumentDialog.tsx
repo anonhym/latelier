@@ -12,8 +12,8 @@ interface ViewDocumentDialogProps {
   collection: string;
   doc: unknown;
   onClose: () => void;
-  /** Opens the collection the view reads from. */
-  onOpenSource: (collection: string) => void;
+  /** Opens the collection the view reads from, in this dialog's own connection and database. */
+  onOpenSource: (target: { connectionId: string; dbName: string; collection: string }) => void;
 }
 
 /**
@@ -66,7 +66,7 @@ export function ViewDocumentDialog({
               variant="default"
               size="compact-xs"
               onClick={() => {
-                onOpenSource(source);
+                onOpenSource({ connectionId, dbName, collection: source });
                 close();
               }}
             >

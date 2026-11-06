@@ -215,7 +215,7 @@ describe('ViewDocumentDialog', () => {
       screen.getByText(/This is a view, so its documents can.t be edited here\. To change them, open the source collection\./),
     ).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: 'Open orders' }));
-    expect(onOpenSource).toHaveBeenCalledWith('orders');
+    expect(onOpenSource).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'shop', collection: 'orders' });
   });
 
   it('leaves Open out until the source is known', async () => {

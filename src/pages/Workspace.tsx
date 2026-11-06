@@ -481,18 +481,13 @@ function WorkspaceInner() {
       activeCollection.dbName,
       activeCollection.collection,
     );
-  const openSiblingCollection = React.useCallback(
-    (collection: string) => {
-      const a = activeCollectionRef.current;
-      if (!a) return;
-      void tabsRef.current.openCollection({
-        connectionId: a.connectionId,
-        dbName: a.dbName,
-        collection,
-        reuseExisting: true,
-      });
+  // The target comes from the dialog that was opened, not from the focused tab:
+  // the focus can move while a dialog is open.
+  const openCollectionTab = React.useCallback(
+    (target: { connectionId: string; dbName: string; collection: string }) => {
+      void tabsRef.current.openCollection({ ...target, reuseExisting: true });
     },
-    [activeCollectionRef, tabsRef],
+    [tabsRef],
   );
   const documentDialogs = useDocumentDialogs({
     activeCollectionRef,
@@ -1265,7 +1260,7 @@ function WorkspaceInner() {
         connections={connections}
         activeCollection={activeCollection}
         focusedConnectionReadOnly={focusedConnection?.readOnly ?? false}
-        openSiblingCollection={openSiblingCollection}
+        openCollectionTab={openCollectionTab}
         referenceRules={referenceRules}
         refDrawer={{ refHover, refEditorOpen, setRefEditorOpen }}
         queryBarSaveOpen={queryBarSaveOpen}

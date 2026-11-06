@@ -223,8 +223,8 @@ export interface DialogStackProps {
   connections: ConnectionSummary[];
   activeCollection: CollectionTab | null;
   focusedConnectionReadOnly: boolean;
-  /** Opens a collection of the Focused Tab's database in a tab (a view's source). */
-  openSiblingCollection: (collection: string) => void;
+  /** Opens the named collection in a tab, in the connection and database given (a view's source). */
+  openCollectionTab: (target: { connectionId: string; dbName: string; collection: string }) => void;
   referenceRules: UseReferenceRulesResult;
   refDrawer: Pick<
     ReferenceDrawerState,
@@ -251,7 +251,7 @@ export function DialogStack({
   connections,
   activeCollection,
   focusedConnectionReadOnly,
-  openSiblingCollection,
+  openCollectionTab,
   referenceRules,
   refDrawer,
   queryBarSaveOpen,
@@ -376,7 +376,7 @@ export function DialogStack({
           collection={viewing.target.collection}
           doc={viewing.doc}
           onClose={closeViewer}
-          onOpenSource={openSiblingCollection}
+          onOpenSource={openCollectionTab}
         />
       )}
 
