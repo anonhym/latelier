@@ -636,8 +636,11 @@ export function AggregationTab({
           flexShrink: 0,
         }}
       >
-        <Group gap={6} wrap="nowrap" style={{ flex: 1 }}>
-          <span style={{ fontSize: 12, color: T.textMuted }}>
+        <Group gap={6} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+          <span
+            title={state.name ?? undefined}
+            style={{ minWidth: 0, fontSize: 12, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
             {state.name ?? 'Unsaved pipeline'}
           </span>
           {state.dirty && (
@@ -670,10 +673,10 @@ export function AggregationTab({
           )}
         </Group>
 
-        <SubmitButton size="compact-xs" variant="default" leftSection={I.save} submitting={running || !state.dirty} onClick={onSave}>
+        <SubmitButton size="compact-xs" variant="default" leftSection={I.save} submitting={running || !state.dirty} onClick={onSave} style={{ flexShrink: 0 }}>
           Save
         </SubmitButton>
-        <Button size="compact-xs" variant="default" disabled={running} onClick={onSaveAs}>
+        <Button size="compact-xs" variant="default" disabled={running} onClick={onSaveAs} style={{ flexShrink: 0 }}>
           Save as
         </Button>
         <Button
@@ -682,10 +685,13 @@ export function AggregationTab({
           leftSection={running ? I.close : I.play}
           disabled={stopping || (!running && !validation.ok)}
           onClick={running ? onCancelRun : onRun}
+          // Wide enough for "Stopping…", so Run becoming Cancel moves nothing.
+          w={104}
+          style={{ flexShrink: 0 }}
         >
           {running ? (stopping ? 'Stopping…' : 'Cancel') : 'Run'}
         </Button>
-        <Button size="compact-xs" variant="default" leftSection={I.eye} disabled={running || !validation.ok} onClick={onExplain}>
+        <Button size="compact-xs" variant="default" leftSection={I.eye} disabled={running || !validation.ok} onClick={onExplain} style={{ flexShrink: 0 }}>
           Explain
         </Button>
         <Menu position="bottom-end" shadow="md">
@@ -697,6 +703,7 @@ export function AggregationTab({
               leftSection={I.copy}
               disabled={!validation.ok}
               aria-label="Copy pipeline"
+              style={{ flexShrink: 0 }}
             >
               Copy
             </Button>

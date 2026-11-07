@@ -418,3 +418,51 @@ describe('TreeView — rendering and interaction', () => {
     });
   });
 });
+
+describe('TreeView row actions', () => {
+  const DOCS = [
+    { _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' },
+    { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'beta' },
+  ];
+  const rowActions = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLElement>('[data-testid="tree-row-actions"]')];
+
+  it('are hidden at rest with their space kept, so a row never shifts', () => {
+    const { container } = renderTree(DOCS);
+    const [first] = rowActions(container);
+    expect(first!.style.opacity).toBe('0');
+    // Still mounted: hiding them must not take the width away, or Tab's reach.
+    expect(within(first!).getByRole('button', { name: /^Edit document/ })).toBeTruthy();
+    expect(within(first!).getByRole('button', { name: /^Delete document/ })).toBeTruthy();
+    expect(within(first!).getByRole('button', { name: /^More actions/ })).toBeTruthy();
+  });
+
+  it('show on hover and hide again', () => {
+    const { container } = renderTree(DOCS);
+    const row = container.querySelectorAll('[role="treeitem"]')[1]!;
+    const actions = rowActions(container)[1]!;
+    fireEvent.mouseEnter(row);
+    expect(actions.style.opacity).toBe('1');
+    fireEvent.mouseLeave(row);
+    expect(actions.style.opacity).toBe('0');
+  });
+
+  it('show with focus inside the row, so a keyboard user sees what Tab reached', () => {
+    const { container } = renderTree(DOCS);
+    const actions = rowActions(container)[1]!;
+    fireEvent.focus(within(actions).getByRole('button', { name: /^Edit document/ }));
+    expect(actions.style.opacity).toBe('1');
+    fireEvent.blur(within(actions).getByRole('button', { name: /^Edit document/ }));
+    expect(actions.style.opacity).toBe('0');
+  });
+
+  it('show on the active row, for as long as the tree holds focus', () => {
+    const { container } = renderTree(DOCS);
+    const tree = container.querySelector('[role="tree"]') as HTMLElement;
+    act(() => tree.focus());
+    expect(rowActions(container)[0]!.style.opacity).toBe('1');
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    expect(rowActions(container)[0]!.style.opacity).toBe('0');
+    expect(rowActions(container)[1]!.style.opacity).toBe('1');
+  });
+});

@@ -8,6 +8,7 @@ import {
   Stack,
   TextInput,
   VisuallyHidden,
+  Tooltip,
 } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
@@ -140,7 +141,7 @@ function useProjectionDraft() {
  * pattern `columns` / `expandedRows` / `schema` already use — or, for the
  * projection, `actions.patch({ builder })` as the query bar does for sort.
  */
-export function FieldsControl() {
+export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
   const isTableView = state.view === 'Table';
@@ -344,40 +345,73 @@ export function FieldsControl() {
       returnFocus
       onChange={(next) => (next ? setOpened(true) : close())}
     >
-      <Popover.Target>
-        <Button
-          // A controlled Popover's target does not toggle by itself.
-          onClick={() => (opened ? close() : setOpened(true))}
-          variant="default"
-          size="compact-xs"
-          rightSection={
-            showCountBadge || showProjectionBadge ? (
-              <>
-                {showCountBadge && (
-                  <Badge size="xs" variant="light" color="violet">
-                    {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
-                  </Badge>
-                )}
-                {/* The projection's only sign while the control is closed —
-                    it changes what Run returns, so it must not hide behind
-                    a click. Warn-coloured while it cannot run as written. */}
-                {showProjectionBadge && (
-                  <Badge
-                    size="xs"
-                    variant="light"
-                    color={projRawError || projection.message ? 'orange' : 'teal'}
-                    ml={4}
-                  >
-                    projection
-                  </Badge>
-                )}
-              </>
-            ) : undefined
-          }
-        >
-          Fields
-        </Button>
-      </Popover.Target>
+      {/* The tooltip sits outside the target so the target's aria props land on the
+          button. It has nothing to add while the button shows its name. */}
+      <Tooltip label="Fields" withArrow disabled={!iconOnly}>
+        <Popover.Target>
+          {iconOnly ? (
+            // The badges are this control's only sign of a changed view or a
+            // projection while it is closed, so the icon keeps a mark for them.
+            <ActionIcon
+              onClick={() => (opened ? close() : setOpened(true))}
+              variant="default"
+              size={26}
+              aria-label="Fields"
+              style={{ position: 'relative' }}
+            >
+              {I.coll}
+              {(showCountBadge || showProjectionBadge) && (
+                <span
+                  data-testid="fields-changed-mark"
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: projRawError || projection.message ? T.warn : T.accent,
+                  }}
+                />
+              )}
+            </ActionIcon>
+          ) : (
+          <Button
+            // A controlled Popover's target does not toggle by itself.
+            onClick={() => (opened ? close() : setOpened(true))}
+            variant="default"
+            size="compact-xs"
+            rightSection={
+              showCountBadge || showProjectionBadge ? (
+                <>
+                  {showCountBadge && (
+                    <Badge size="xs" variant="light" color="violet">
+                      {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
+                    </Badge>
+                  )}
+                  {/* The projection's only sign while the control is closed —
+                      it changes what Run returns, so it must not hide behind
+                      a click. Warn-coloured while it cannot run as written. */}
+                  {showProjectionBadge && (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={projRawError || projection.message ? 'orange' : 'teal'}
+                      ml={4}
+                    >
+                      projection
+                    </Badge>
+                  )}
+                </>
+              ) : undefined
+            }
+          >
+            Fields
+          </Button>
+          )}
+        </Popover.Target>
+      </Tooltip>
       <Popover.Dropdown
         p="xs"
         style={{ maxWidth: 320 }}

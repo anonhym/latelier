@@ -1520,6 +1520,11 @@ export function TableView({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
+        // Whole pixels, for the header and every row. The inherited 1.55 gives
+        // 26.047 px rows; the browser rounds their total and the list's height
+        // separately, which can leave the last row a fraction of a pixel past
+        // the bottom at full scroll.
+        lineHeight: '17px',
       }}
     >
       {/* Header — sits above the List inside the same horizontal scroll
@@ -1781,6 +1786,8 @@ export function TableView({
           flex: 1,
           minHeight: 0,
           minWidth: totalWidth,
+          // Rows keep their place when the list starts or stops fitting.
+          scrollbarGutter: 'stable',
         }}
       />
 

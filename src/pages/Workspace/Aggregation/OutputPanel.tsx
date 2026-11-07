@@ -2,12 +2,14 @@ import React from 'react';
 import { themeVars } from '../../../theme/themeVars';
 import { I } from '../../../icons';
 import type { AggregationLastRun, ResultViewMode } from '@shared/types';
-import { Button, Group, SegmentedControl, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip, VisuallyHidden } from '@mantine/core';
 import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { api, getErrorMessage } from '../../../api/atelier';
 import { notify } from '../../../theme/notifications';
 import { resizeKeyStep } from '../resizeKeyStep';
+import { useElementWidth } from '../../../hooks/useElementWidth';
+import { outputBarActions } from '../toolbarLayout';
 
 interface OutputPanelProps {
   height: number;
@@ -118,6 +120,9 @@ export function OutputPanel({
 
   const rows = lastRun?.rows ?? [];
   const err = lastRun?.error;
+  const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
+  const actionsForm = outputBarActions(barWidth);
+  const noRows = rows.length === 0;
 
   // Always mounted: a live region only announces text that changes after it
   // exists, so start and finish of a run are both heard.
@@ -180,49 +185,98 @@ export function OutputPanel({
       </div>
 
       <Group
+        ref={barRef}
+        data-testid="output-bar"
         gap={10}
         wrap="nowrap"
         style={{
-          padding: '6px 14px',
+          minHeight: 42,
+          boxSizing: 'border-box',
+          padding: '0 14px',
           borderBottom: `1px solid ${T.border}`,
           flexShrink: 0,
+          whiteSpace: 'nowrap',
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Pipeline output</span>
-        {lastRun && (
-          <>
-            <span style={{ fontSize: 11, color: T.textMuted, fontVariantNumeric: 'tabular-nums' }}>
-              {rows.length} docs
-            </span>
-            <span style={{ fontSize: 11, color: T.textMuted }}>· {lastRun.durationMs}ms</span>
-          </>
+        {actionsForm !== 'menu' && (
+          <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.text }}>Pipeline output</span>
         )}
-        <div style={{ flex: 1 }} />
+        {/* Holds the gap whether or not a run has happened: a long count
+            truncates here before any control moves. */}
+        <span
+          title={lastRun ? `${rows.length} docs · ${lastRun.durationMs} ms` : undefined}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            fontSize: 12,
+            color: T.textMuted,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {lastRun && `${rows.length} docs · ${lastRun.durationMs} ms`}
+        </span>
         <SegmentedControl
           size="xs"
           value={view}
           onChange={(v) => onViewChange(v as ResultViewMode)}
           data={['Tree', 'JSON', 'Table'].map((m) => ({ label: m, value: m }))}
+          style={{ flexShrink: 0 }}
         />
-        <Button size="compact-xs" variant="default" leftSection={I.copy} onClick={copyAll} disabled={rows.length === 0}>
-          Copy
-        </Button>
-        <Button size="compact-xs" variant="default" leftSection={I.save} onClick={onSaveAsCollection} disabled={running || rows.length === 0}>
-          Save as…
-        </Button>
-        <Button size="compact-xs" variant="default" onClick={onSaveAsView} disabled={running}>
-          Save as view…
-        </Button>
-        <Button
-          size="compact-xs"
-          variant="default"
-          onClick={() => void download()}
-          disabled={rows.length === 0}
-          aria-label="Download output as JSON"
-          title="Download output as JSON"
-        >
-          ⇩
-        </Button>
+        {actionsForm === 'labels' && (
+          <>
+            <Button size="compact-xs" variant="default" leftSection={I.copy} onClick={copyAll} disabled={noRows} style={{ flexShrink: 0 }}>
+              Copy
+            </Button>
+            <Button size="compact-xs" variant="default" leftSection={I.save} onClick={onSaveAsCollection} disabled={running || noRows} style={{ flexShrink: 0 }}>
+              Save as…
+            </Button>
+            <Button size="compact-xs" variant="default" leftSection={I.view} onClick={onSaveAsView} disabled={running} style={{ flexShrink: 0 }}>
+              Save as view…
+            </Button>
+          </>
+        )}
+        {actionsForm === 'icons' && (
+          <>
+            <OutputIcon label="Copy" icon={I.copy} onClick={copyAll} disabled={noRows} />
+            <OutputIcon label="Save as…" icon={I.save} onClick={onSaveAsCollection} disabled={running || noRows} />
+            <OutputIcon label="Save as view…" icon={I.view} onClick={onSaveAsView} disabled={running} />
+          </>
+        )}
+        {actionsForm !== 'menu' && (
+          <OutputIcon
+            label="Download output as JSON"
+            icon={I.download}
+            onClick={() => void download()}
+            disabled={noRows}
+          />
+        )}
+        {actionsForm === 'menu' && (
+          <Menu position="bottom-end" shadow="md">
+            <Tooltip label="Copy, Save as, Save as view, Download" withArrow>
+              <Menu.Target>
+                <ActionIcon variant="default" size={26} style={{ flexShrink: 0 }} aria-label="Output actions">
+                  {I.more}
+                </ActionIcon>
+              </Menu.Target>
+            </Tooltip>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={I.copy} onClick={copyAll} disabled={noRows}>
+                Copy
+              </Menu.Item>
+              <Menu.Item leftSection={I.save} onClick={onSaveAsCollection} disabled={running || noRows}>
+                Save as…
+              </Menu.Item>
+              <Menu.Item leftSection={I.view} onClick={onSaveAsView} disabled={running}>
+                Save as view…
+              </Menu.Item>
+              <Menu.Item leftSection={I.download} onClick={() => void download()} disabled={noRows}>
+                Download output as JSON
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        )}
       </Group>
 
       <div
@@ -334,6 +388,26 @@ export function OutputPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function OutputIcon({
+  label,
+  icon,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <Tooltip label={label} withArrow>
+      <ActionIcon variant="default" size={26} onClick={onClick} disabled={disabled} aria-label={label} style={{ flexShrink: 0 }}>
+        {icon}
+      </ActionIcon>
+    </Tooltip>
   );
 }
 

@@ -208,6 +208,12 @@ function DocRowImpl({
   const isExpanded = !!ownGet(expandedRows, docId);
   const isSelected = indices.has(index);
   const isActive = index === activeIndex;
+  // Same rule as the Table view's actions: shown on hover, on the active row or
+  // with focus inside. Hidden by opacity alone, so their space stays reserved and
+  // Tab still reaches them; a mouse over one has already hovered the row.
+  const [rowHovered, setRowHovered] = React.useState(false);
+  const [actionsFocused, setActionsFocused] = React.useState(false);
+  const actionsVisible = rowHovered || isActive || actionsFocused;
 
   const handleRowClick = (e: React.MouseEvent) => {
     setActiveIndex(index);
@@ -252,6 +258,8 @@ function DocRowImpl({
           just clicked. */}
       <div
         onClick={handleRowClick}
+        onMouseEnter={() => setRowHovered(true)}
+        onMouseLeave={() => setRowHovered(false)}
         id={rowId(index)}
         role="treeitem"
         aria-expanded={isExpanded}
@@ -318,10 +326,16 @@ function DocRowImpl({
           previewFields={previewFields}
         />
 
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        <div
+          data-testid="tree-row-actions"
+          onFocus={() => setActionsFocused(true)}
+          onBlur={() => setActionsFocused(false)}
+          style={{ display: 'flex', gap: 2, flexShrink: 0, opacity: actionsVisible ? 1 : 0 }}
+        >
           <Tooltip label={isView ? 'View document' : 'Edit document'} withArrow openDelay={400}>
             <ActionIcon
               variant="default"
+              size={26}
               c="var(--atelier-text-muted)"
               onClick={(e) => {
                 e.stopPropagation();
@@ -336,6 +350,7 @@ function DocRowImpl({
             <Tooltip label="Delete document" withArrow openDelay={400}>
               <ActionIcon
                 variant="default"
+                size={26}
                 c="var(--atelier-red)"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -350,6 +365,7 @@ function DocRowImpl({
           <Tooltip label="More actions" withArrow openDelay={400}>
             <ActionIcon
               variant="default"
+              size={26}
               c="var(--atelier-text-muted)"
               onClick={(e) => {
                 e.stopPropagation();
@@ -698,6 +714,8 @@ export function TreeView({
             flex: 1,
             minHeight: 0,
             overflowX: 'hidden',
+            // Rows keep their place when the list starts or stops fitting.
+            scrollbarGutter: 'stable',
           }}
         />
         {stickyHeaderOffset !== null && (

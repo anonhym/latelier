@@ -48,6 +48,7 @@ import {
 } from './context';
 import { useConnectionTransfer } from '../../features/connections/ConnectionTransferProvider';
 import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
+import { ONE_PANEL_BUILDER_PX } from './sidePanels';
 import { useCollectionTabActions } from './useCollectionTabActions';
 import { useDocumentDialogs } from './useDocumentDialogs';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
@@ -225,6 +226,7 @@ export function PanelBody({
     innerHSplit, commitInnerHSplit,
     shellSplit, commitShellSplit,
     builderCollapsed,
+    onePanelOnly,
   } = panelPrefs;
   const {
     patchActiveScript,
@@ -368,14 +370,16 @@ export function PanelBody({
                 onLayoutChanged={(layout) => {
                   // Geometry-based guard: a state flag races toggleBuilder's synchronous collapse() call.
                   const builderPct = layout['h-builder'];
-                  if (!isUserChosenBuilderSplit(builderPct)) return;
+                  // The drawer's width while the window is narrow is ours, not a choice to store.
+                  if (onePanelOnly || !isUserChosenBuilderSplit(builderPct)) return;
                   commitInnerHSplit(builderPct);
                 }}
               >
                 <Panel
                   id="h-result"
                   defaultSize={100 - innerHSplit}
-                  minSize={30}
+                  // A plain number is pixels: enough for the toolbar on two rows.
+                  minSize={320}
                   style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
                 >
                   <Tabs.Panel value="documents" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -473,7 +477,7 @@ export function PanelBody({
                   id="h-builder"
                   panelRef={builderPanelRef}
                   defaultSize={builderCollapsed ? BUILDER_COLLAPSED_PCT : innerHSplit}
-                  minSize={BUILDER_MIN_PCT}
+                  minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : BUILDER_MIN_PCT}
                   collapsible
                   collapsedSize={BUILDER_COLLAPSED_PCT}
                   style={{ overflow: 'visible' }}

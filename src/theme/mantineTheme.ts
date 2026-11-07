@@ -1,7 +1,10 @@
 import {
+  Button,
   CloseButton,
   createTheme,
   defaultVariantColorsResolver,
+  Input,
+  SegmentedControl,
   Tooltip,
   type VariantColorsResolver,
   type CloseButtonProps,
@@ -45,6 +48,12 @@ const variantColorResolver: VariantColorsResolver = (input) => {
   return { ...base, background: fill.bg, hover: fill.hover };
 };
 
+// One density for every control: compact buttons 26 px, regular buttons and
+// inputs 36 px, labels 13 px. Mantine has no 13 px step (it pairs 36 px with
+// 14 px), so these go through the size vars rather than per call site. ActionIcon
+// stays out: icon buttons are sized where they sit, and the pager keeps its 22 px.
+const LABEL_FZ = '13px';
+
 export const mantineTheme: MantineThemeOverride = createTheme({
   primaryColor: 'violet',
   respectReducedMotion: true,
@@ -60,6 +69,29 @@ export const mantineTheme: MantineThemeOverride = createTheme({
     lg: '0 8px 32px rgba(0,0,0,0.10)',
   },
   components: {
+    Button: Button.extend({
+      vars: (_theme, { size }) => {
+        if (size === 'compact-xs' || size === 'compact-sm') {
+          return { root: { '--button-height': '26px', '--button-padding-x': '10px', '--button-fz': LABEL_FZ } };
+        }
+        if (size === 'xs') return { root: { '--button-height': '36px', '--button-fz': LABEL_FZ } };
+        return { root: size === undefined || size === 'sm' ? { '--button-fz': LABEL_FZ } : {} };
+      },
+    }),
+    Input: Input.extend({
+      vars: (_theme, { size }) => {
+        if (size === 'xs') return { wrapper: { '--input-height': '36px', '--input-fz': LABEL_FZ } };
+        return { wrapper: size === undefined || size === 'sm' ? { '--input-fz': LABEL_FZ } : {} };
+      },
+    }),
+    // Same outer height as a compact button, so a switch lines up beside one.
+    SegmentedControl: SegmentedControl.extend({
+      styles: { root: { padding: 2 } },
+      vars: (_theme, { size }) => ({
+        root: size === 'xs' ? { '--sc-padding': '1px 8px', '--sc-font-size': LABEL_FZ } : {},
+      }),
+    }),
+
     // Mantine's own default is `events: { hover: true, focus: false, touch:
     // false }` — a Tooltip on an icon-only button never shows for a
     // keyboard-only user tabbing onto it, only for a mouse hovering it. That

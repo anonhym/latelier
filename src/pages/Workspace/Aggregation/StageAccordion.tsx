@@ -60,6 +60,8 @@ interface AccordionProps {
   onRefreshPreview: (id: number) => void;
 }
 
+const STAGE_BODY_HEIGHT = 316;
+
 function opColor(op: string, dark: boolean) {
   return brightenBadgeForDark(
     OP_COLOR[op] ?? { bg: 'rgba(100,100,100,0.15)', text: '#888' },
@@ -859,8 +861,11 @@ function StageRow({
       </div>
 
       {active && (
-        <div style={{ display: 'flex', borderTop: `1px solid ${T.border}` }}>
-          <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column' }}>
+        // One fixed height in every state. This is also what turns on the preview's
+        // own scroll: without a limit, its documents set the card's height and push
+        // everything below it down the page.
+        <div style={{ display: 'flex', height: STAGE_BODY_HEIGHT, boxSizing: 'border-box', borderTop: `1px solid ${T.border}` }}>
+          <div style={{ flex: 1, minWidth: 0, padding: 10, display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
                 border: `1px solid ${bodyErr ? T.red : T.border}`,
@@ -881,22 +886,33 @@ function StageRow({
                 ariaLabel={`Body of stage ${stage.op}`}
               />
             </div>
-            {bodyErr && (
-              <div
-                role="alert"
-                style={{ marginTop: 6, fontSize: 11, color: T.red }}
-              >
-                {bodyErr}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            {/* Reserved so an error cannot move the buttons below it; the full
+                text is one hover away. */}
+            <div
+              role={bodyErr ? 'alert' : undefined}
+              title={bodyErr ?? undefined}
+              style={{
+                height: 16,
+                marginTop: 2,
+                flexShrink: 0,
+                fontSize: 11,
+                lineHeight: '16px',
+                color: T.red,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {bodyErr}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
               <Tooltip label="Copy body" withArrow>
-                <Button variant="default" size="compact-xs" fz={11} c={T.textMuted} onClick={onCopy}>
+                <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onCopy}>
                   Copy
                 </Button>
               </Tooltip>
               <Tooltip label="Pretty-print" withArrow>
-                <Button variant="default" size="compact-xs" fz={11} c={T.textMuted} onClick={onFormat}>
+                <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onFormat}>
                   Format
                 </Button>
               </Tooltip>
@@ -904,7 +920,6 @@ function StageRow({
                 <Button
                   variant="light"
                   size="compact-xs"
-                  fz={11}
                   onClick={onRunToStage}
                   disabled={previewLoading}
                 >
@@ -926,6 +941,7 @@ function StageRow({
             <div
               style={{
                 padding: '6px 10px',
+                flexShrink: 0,
                 borderBottom: `1px solid ${T.border}`,
                 fontSize: 11,
                 color: T.textMuted,
@@ -942,9 +958,6 @@ function StageRow({
                 <Button
                   variant="default"
                   size="compact-xs"
-                  h={18}
-                  px={6}
-                  fz={10}
                   c={previewLoading ? undefined : T.textMuted}
                   onClick={onRefreshPreview}
                   disabled={previewLoading}
@@ -953,7 +966,7 @@ function StageRow({
                 </Button>
               </Tooltip>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8, scrollbarGutter: 'stable' }}>
               {!stage.enabled ? (
                 <div style={{ fontSize: 11, color: T.textMuted, padding: 8 }}>
                   Stage is disabled.
