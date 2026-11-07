@@ -263,12 +263,12 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
         style={{
           display: 'flex',
           alignItems: 'flex-start',
-          gap: 8,
+          gap: T.gapSm,
           padding: '4px 6px',
           borderLeft: `2px solid ${edited ? T.accent : 'transparent'}`,
         }}
       >
-        <div style={{ width: 180, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingTop: 4 }}>
+        <div style={{ width: 180, flexShrink: 0, display: 'flex', alignItems: 'center', gap: T.gapXs, paddingTop: 4 }}>
           {isContainer && (
             <ActionIcon
               type="button"
@@ -278,7 +278,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
               aria-expanded={!isCollapsed}
               aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dotted}`}
               onClick={() => ctx.toggleCollapsed(key)}
-              style={{ fontSize: 11 }}
+              style={{ fontSize: T.fsXs }}
             >
               {isCollapsed ? '▸' : '▾'}
             </ActionIcon>
@@ -286,7 +286,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
           <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
             {displayName}
             {edited && (
-              <Text span size="xs" c={T.accent} ml={6}>
+              <Text span size="xs" c={T.accentInk} ml={6}>
                 edited
               </Text>
             )}
@@ -295,7 +295,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           {!hasValueControl ? (
             isContainer ? null : (
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: T.gapSm, flexWrap: 'wrap' }}>
                 <Text size="sm" ff="monospace" c="dimmed" style={{ overflowWrap: 'anywhere', paddingTop: 4 }}>
                   {kind === 'null' ? 'null' : textOf(kind, value)}
                 </Text>
@@ -437,7 +437,7 @@ function AddFieldRow({
   return (
     <div
       data-testid={`add-field-${isRootLevel ? 'root' : parentSegments.join('.')}`}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
+      style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapSm, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
     >
       <div style={{ flex: 1, minWidth: 0, maxWidth: 260 }}>
         <FieldAutocompleteInput
@@ -455,7 +455,7 @@ function AddFieldRow({
               submit();
             }
           }}
-          style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: '4px 6px' }}
+          style={{ width: '100%', fontFamily: 'monospace', fontSize: themeVars.fsSm, padding: '4px 6px' }}
         />
       </div>
       <Button size="compact-xs" variant="default" disabled={name.trim() === ''} onClick={submit}>
@@ -480,7 +480,7 @@ function AddItemRow({ ctx, parentSegments, length }: { ctx: RowCtx; parentSegmen
   return (
     <div
       data-testid={`add-item-${parentSegments.join('.')}`}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
+      style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapSm, padding: '4px 6px', marginLeft: ADD_ROW_OFFSET }}
     >
       <Button size="compact-xs" variant="default" onClick={submit}>
         Add item
@@ -1026,7 +1026,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
       {/* The wrapper carries the key handler so ⌘↵ also works from the footer;
           the footer sits outside the resizable surface so the browser's resize
           grip lands above it, never on Save. */}
-      <div onKeyDown={handleKeyDown} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div onKeyDown={handleKeyDown} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: themeVars.gapSm }}>
         <div
           ref={surfaceRef}
           data-testid="document-editor-surface"
@@ -1040,7 +1040,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
+            gap: themeVars.gapSm,
           }}
         >
           <Group justify="space-between" align="center">
@@ -1058,7 +1058,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           </Group>
 
           {view === 'json' ? (
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: themeVars.gapXs }}>
               {/* Absolutely filled, so the editor's own height resolves whatever the
                   flex shrink did to this box; it scrolls inside instead of growing
                   under the footer. */}
@@ -1100,7 +1100,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
           )}
 
           {conflict === 'changed' && (
-            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
+            <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
               This document changed since you opened it. Reload puts your edits on top of the current version;
               Overwrite saves them over it.
               <Group gap={6} mt={6}>
@@ -1114,17 +1114,17 @@ export function DocumentEditor(props: DocumentEditorProps) {
             </div>
           )}
           {conflict === 'deleted' && (
-            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
+            <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
               This document was deleted since you opened it. There is nothing left to save to.
             </div>
           )}
           {err && (
-            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
+            <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
               {err}
             </div>
           )}
         </div>
-        <Group justify="flex-end" gap={8} pt={8} style={{ flex: 'none', borderTop: `1px solid ${themeVars.border}` }}>
+        <Group justify="flex-end" gap={themeVars.gapSm} pt={8} style={{ flex: 'none', borderTop: `1px solid ${themeVars.border}` }}>
           <Button size="compact-sm" variant="default" onClick={() => void requestClose()}>
             Cancel
           </Button>

@@ -69,7 +69,7 @@ export function RoleRowsEditor({
     border: `1px solid ${T.border}`,
     borderRadius: T.rs,
     padding: '4px 8px',
-    fontSize: 12,
+    fontSize: T.fsSm,
     color: T.text,
     background: T.surfaceRaised,
     outline: 'none',
@@ -98,7 +98,7 @@ export function RoleRowsEditor({
                 size="xs"
                 style={{ flex: 1 }}
               />
-              <span style={{ fontSize: 12, color: T.textMuted, alignSelf: 'center' }}>@</span>
+              <span style={{ fontSize: T.fsSm, color: T.textMuted, alignSelf: 'center' }}>@</span>
               <input
                 aria-label={`Role db ${i + 1}`}
                 value={r.db}
@@ -118,7 +118,7 @@ export function RoleRowsEditor({
               </Tooltip>
             </div>
             {unknown && (
-              <div style={{ fontSize: 11, color: T.warn, marginTop: 2 }}>
+              <div style={{ fontSize: T.fsXs, color: T.warn, marginTop: 2 }}>
                 Unknown role on {r.db.trim()}
               </div>
             )}

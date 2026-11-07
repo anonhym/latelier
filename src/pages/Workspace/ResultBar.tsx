@@ -162,7 +162,7 @@ export function ResultBar() {
         borderBottom: `1px solid ${T.border}`,
         background: T.surface,
         flexShrink: 0,
-        fontSize: 12,
+        fontSize: T.fsSm,
         color: T.textMuted,
         // Set once here and inherited, so no text in this row wraps onto a
         // second line. That would grow the bar, which one flex column up shrinks
@@ -236,7 +236,7 @@ export function ResultBar() {
         comboboxProps={{ keepMounted: false }}
         rightSectionWidth={18}
         // A compact control here, beside 26 px buttons, not the theme's 36 px input.
-        styles={{ input: { height: 26, minHeight: 26, fontSize: 12, paddingInline: '6px 18px' } }}
+        styles={{ input: { height: 26, minHeight: 26, fontSize: T.fsSm, paddingInline: '6px 18px' } }}
         style={{ width: 52, flexShrink: 0 }}
       />
 
@@ -249,7 +249,7 @@ export function ResultBar() {
           minWidth: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
+          gap: T.gapXs,
           overflow: 'hidden',
         }}
       >
@@ -362,7 +362,7 @@ export function ResultBar() {
             title={planLabel}
             onClick={() => setPlanOpen(true)}
             style={{
-              fontSize: 11,
+              fontSize: T.fsXs,
               padding: '1px 6px',
               flex: '0 1 auto',
               minWidth: 44,

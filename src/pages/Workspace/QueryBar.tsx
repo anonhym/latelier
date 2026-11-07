@@ -85,7 +85,7 @@ function Notice({ id, text }: { id: string; text: string }) {
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-        fontSize: 11,
+        fontSize: themeVars.fsXs,
         color: themeVars.warnText,
       }}
     >
@@ -433,7 +433,7 @@ function QueryBarInner({
     padding: '0 12px',
     background: T.surfaceRaised,
     borderRight: `1px solid ${T.border}`,
-    fontSize: 10,
+    fontSize: T.fsXs,
     fontWeight: 700,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -455,7 +455,7 @@ function QueryBarInner({
     flex: 1,
     minWidth: 0,
     fontFamily: '"JetBrains Mono", monospace',
-    fontSize: 11,
+    fontSize: T.fsXs,
     padding: '4px 0',
     border: 'none',
     background: 'transparent',
@@ -502,7 +502,7 @@ function QueryBarInner({
           query on this collection". This is now the one Save button in the
           Documents view — the builder-drawer footer's copy was deleted, and
           `saved.create`'s hint anchor moved here with it. */}
-      <Group gap={8} wrap="nowrap" style={{ padding: '8px 12px' }}>
+      <Group gap={T.gapSm} wrap="nowrap" style={{ padding: '8px 12px' }}>
         <Button
           data-hint-anchor="saved.create"
           variant="default"
@@ -530,7 +530,7 @@ function QueryBarInner({
         {willResetPage && (
           <span
             data-testid="page-reset-hint"
-            style={{ fontSize: 11, color: T.textMuted, whiteSpace: 'nowrap' }}
+            style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
           >
             Will jump to page 1 on run
           </span>
@@ -686,7 +686,7 @@ function QueryBarInner({
             >
               {I.chevD}
             </span>
-            <span style={{ color: T.accent }}>query</span>
+            <span style={{ color: T.accentInk }}>query</span>
             {/* W14 §2 — collapsed, the row gave no non-hover sign that
                 sort / limit were set. A count rather than the dot
                 43ee030 shipped and 7a21468 reverted: it survives monochrome
@@ -729,7 +729,7 @@ function QueryBarInner({
             style={{
               flex: 1,
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: 12,
+              fontSize: T.fsSm,
               padding: '6px 8px',
               border: 'none',
               borderBottom: `1px solid ${

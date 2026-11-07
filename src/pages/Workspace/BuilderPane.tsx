@@ -225,7 +225,7 @@ function LogicPicker({
             onClick={() => onChange(v)}
             style={{
               padding: '2px 9px',
-              fontSize: 10,
+              fontSize: T.fsXs,
               fontWeight: 700,
               letterSpacing: 0.3,
               cursor: disabled ? 'default' : 'pointer',
@@ -713,7 +713,7 @@ function CondRow({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: T.gapXs,
         marginBottom: 8,
         paddingBottom: 8,
         borderBottom: `1px solid ${T.border}`,
@@ -722,7 +722,7 @@ function CondRow({
         transition: 'background 120ms, box-shadow 120ms',
       }}
     >
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'center' }}>
         <IncludeBox
           node={node}
           label={node.field.trim() ? `Include condition ${node.field}` : 'Include condition'}
@@ -730,7 +730,7 @@ function CondRow({
           onToggle={toggle}
           describedBy={excludedNoteId}
         />
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1, minWidth: 0, opacity: dim }}>
+        <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'center', flex: 1, minWidth: 0, opacity: dim }}>
           <TextInput
             ref={fieldInputRef}
             placeholder="field"
@@ -830,7 +830,7 @@ function CondRow({
                 size={18}
                 c={T.textGhost}
                 aria-label={`Documentation for ${node.op}`}
-                style={{ fontSize: 10, fontWeight: 600, cursor: 'help', flexShrink: 0 }}
+                style={{ fontSize: T.fsXs, fontWeight: 600, cursor: 'help', flexShrink: 0 }}
               >
                 ?
               </ActionIcon>
@@ -864,7 +864,7 @@ function CondRow({
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', opacity: dim }}>
+      <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'flex-start', opacity: dim }}>
         <Select
           value={node.valType}
           disabled={readOnly}
@@ -885,7 +885,7 @@ function CondRow({
           style={{ width: 88, flexShrink: 0 }}
           styles={{
             input: {
-              fontSize: 9,
+              fontSize: T.fsXs,
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: 0.4,
@@ -910,20 +910,20 @@ function CondRow({
           size="compact-xs"
           disabled={readOnly}
           onClick={convertToRaw}
-          styles={{ root: { alignSelf: 'flex-start', fontSize: 10, padding: '0 4px' } }}
+          styles={{ root: { alignSelf: 'flex-start', fontSize: T.fsXs, padding: '0 4px' } }}
         >
           Convert to raw clause
         </Button>
       )}
 
       {opProblem && (
-        <span role="alert" style={{ fontSize: 10, color: T.warn, lineHeight: 1.3 }}>
+        <span role="alert" style={{ fontSize: T.fsXs, color: T.warn, lineHeight: 1.3 }}>
           {opProblem}
         </span>
       )}
 
       {typeWarning && (
-        <span style={{ fontSize: 10, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
+        <span style={{ fontSize: T.fsXs, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
           Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents that have it
         </span>
       )}
@@ -978,7 +978,7 @@ function RawRow({
         transition: 'background 120ms, box-shadow 120ms, border-color 120ms',
       }}
     >
-      <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'flex-start' }}>
         <IncludeBox
           node={node}
           label={`Include raw clause ${groupPosition(path)}`}
@@ -986,7 +986,7 @@ function RawRow({
           onToggle={toggle}
           describedBy={excludedNoteId}
         />
-        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
+        <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
           <textarea
             value={node.json}
             disabled={readOnly}
@@ -999,7 +999,7 @@ function RawRow({
             style={{
               flex: 1,
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: 11,
+              fontSize: T.fsXs,
               padding: '4px 6px',
               border: `1px solid ${problem ? T.warn : T.border}`,
               borderRadius: T.rx,
@@ -1040,7 +1040,7 @@ function RawRow({
           Try to parse
         </Button>
         {problem && (
-          <span role="alert" style={{ fontSize: 10, color: T.warn, lineHeight: 1.3 }}>
+          <span role="alert" style={{ fontSize: T.fsXs, color: T.warn, lineHeight: 1.3 }}>
             {problem}
           </span>
         )}
@@ -1304,7 +1304,7 @@ function GroupView({
         >
           {isNegation ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: T.accent }}>NOT</span>
+              <span style={{ fontSize: T.fsXs, fontWeight: 700, letterSpacing: 0.3, color: T.accentInk }}>NOT</span>
               <Tooltip label={`Remove negation ${position}`} withArrow>
                 <ActionIcon
                   variant="subtle"
@@ -1381,7 +1381,7 @@ function GroupView({
                 onClick={negate}
                 aria-label={`Negate group ${position}`}
               >
-                <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>¬</span>
+                <span aria-hidden style={{ fontSize: T.fsMd, lineHeight: 1 }}>¬</span>
               </ActionIcon>
             </Tooltip>
           )}
@@ -1437,8 +1437,8 @@ function GroupView({
               textAlign: 'center',
             }}
           >
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: T.text }}>No conditions yet</p>
-            <p style={{ margin: 0, maxWidth: 260, fontSize: 12, lineHeight: 1.5, color: T.textMuted }}>
+            <p style={{ margin: 0, fontSize: T.fsMd, fontWeight: 600, color: T.text }}>No conditions yet</p>
+            <p style={{ margin: 0, maxWidth: 260, fontSize: T.fsSm, lineHeight: 1.5, color: T.textMuted }}>
               This filter matches every document. Drag a field here from the results, or start from a common filter.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 6, maxWidth: 290 }}>
@@ -1534,13 +1534,13 @@ function GroupView({
             title={`Drop a field here to add a condition to this ${isRoot ? 'filter' : 'group'}`}
             style={{
               textAlign: 'center',
-              fontSize: 11,
+              fontSize: T.fsXs,
               lineHeight: '28px',
               height: 28,
               marginTop: node.children.length === 0 ? 0 : 4,
               borderRadius: T.rs,
               border: `1px dashed ${isActive ? T.accent : T.border}`,
-              color: isActive ? T.accent : T.textMuted,
+              color: isActive ? T.accentInk : T.textMuted,
               transition: 'border-color 120ms, color 120ms',
             }}
           >
@@ -1808,7 +1808,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // time (the toast after a save or delete), and two buttons both called
   // "Undo" would leave a screen-reader user guessing which is which.
   const historyButtons = (
-    <span style={{ display: 'inline-flex', gap: 4 }}>
+    <span style={{ display: 'inline-flex', gap: T.gapXs }}>
       <Tooltip label="Undo filter edit" withArrow>
         <ActionIcon
           ref={undoRef}
@@ -1865,7 +1865,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         height: 24,
         boxSizing: 'border-box',
         padding: '0 10px',
-        fontSize: 11,
+        fontSize: T.fsXs,
         lineHeight: '22px',
         color: T.textMuted,
         overflow: 'hidden',
@@ -2045,7 +2045,7 @@ function BuilderPaneInner({
     void confirmDestructive({
       title: 'Reset this query?',
       body: (
-        <span style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
+        <span style={{ fontSize: T.fsSm, color: T.textMuted, lineHeight: 1.5 }}>
           This clears the filter — every condition, group and raw clause — back
           to <code>{'{}'}</code>, along with the sort, limit and projection
           {setOptions.length > 0 && <>, and the {setOptions.join(', ')} you set</>}.
@@ -2193,7 +2193,7 @@ function BuilderPaneInner({
           style={{ flexShrink: 0, height: 42, borderBottom: `1px solid ${T.border}` }}
         >
           {(['Builder', 'Saved', 'Recent'] as BuilderTab[]).map((tab) => (
-            <Tabs.Tab key={tab} value={tab} styles={{ tab: { fontSize: 11 } }}>
+            <Tabs.Tab key={tab} value={tab} styles={{ tab: { fontSize: T.fsXs } }}>
               {/* W13 §6 — the first tab's label is "Filter"; `tab` (the
                   BuilderTab value 'Builder') is unchanged so persisted tab
                   state / other call sites keep working. */}

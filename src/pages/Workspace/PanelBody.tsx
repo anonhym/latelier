@@ -97,13 +97,13 @@ function SubTabStrip({ active }: { active: CollectionView }) {
             key={t.key}
             value={t.key}
             leftSection={
-              <span aria-hidden="true" style={{ fontSize: 10, opacity: 0.7 }}>
+              <span aria-hidden="true" style={{ fontSize: T.fsXs, opacity: 0.7 }}>
                 {t.icon}
               </span>
             }
             style={{
               padding: '0 11px',
-              fontSize: 10,
+              fontSize: T.fsXs,
               fontWeight: 600,
               letterSpacing: 0.5,
               textTransform: 'uppercase',
@@ -671,7 +671,7 @@ export function PanelBody({
                             color="gray"
                             variant="light"
                             style={{ maxWidth: 280, pointerEvents: 'auto' }}
-                            styles={{ message: { fontSize: 12, lineHeight: 1.5 } }}
+                            styles={{ message: { fontSize: T.fsSm, lineHeight: 1.5 } }}
                           >
                             The Query Builder only applies to the Documents
                             view.{' '}
@@ -679,7 +679,7 @@ export function PanelBody({
                               variant="subtle"
                               size="compact-xs"
                               onClick={() => selectActiveView('documents')}
-                              styles={{ root: { padding: 0, height: 'auto', fontSize: 12 } }}
+                              styles={{ root: { padding: 0, height: 'auto', fontSize: T.fsSm } }}
                             >
                               Switch to Documents
                             </Button>
@@ -700,7 +700,7 @@ export function PanelBody({
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: T.textMuted,
-                fontSize: 13,
+                fontSize: T.fsMd,
               }}
             >
               Select a collection to query.

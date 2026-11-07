@@ -43,10 +43,10 @@ function redactHidden(doc: unknown, hidden: Set<string>): unknown {
 
 function tokenColor(kind: TokenKind): string {
   switch (kind) {
-    case 'key':     return 'var(--atelier-accent)';
-    case 'string':  return '#2e7d32';
+    case 'key':     return 'var(--atelier-accent-ink)';
+    case 'string':  return 'var(--atelier-color-string)';
     case 'number':  return 'var(--atelier-color-number)';
-    case 'boolean': return '#e65100';
+    case 'boolean': return 'var(--atelier-color-boolean)';
     case 'null':    return 'var(--atelier-text-ghost)';
     case 'punct':   return 'var(--atelier-text-muted)';
     default:        return 'var(--atelier-text)';
@@ -197,7 +197,7 @@ export function HighlightedJson({
       style={{
         margin: 0,
         fontFamily: 'monospace',
-        fontSize: 11,
+        fontSize: 'var(--atelier-fs-xs)',
         lineHeight: 1.5,
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-all',
@@ -323,7 +323,7 @@ function DocCard({
         outlineOffset: isActive ? '-2px' : undefined,
       }}
     >
-      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
+      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 'var(--atelier-gap-xs)' }}>
         <SelectToggle
           selected={isSelected}
           docLabel={getDocId(doc)}
@@ -634,7 +634,7 @@ export function JsonView({ documents }: JsonViewProps) {
         <div
           style={{
             padding: '4px 12px 0',
-            fontSize: 11,
+            fontSize: 'var(--atelier-fs-xs)',
             color: 'var(--atelier-text-muted)',
           }}
         >

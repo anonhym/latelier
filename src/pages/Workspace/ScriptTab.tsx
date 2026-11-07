@@ -207,9 +207,9 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           variant="unstyled"
           size="xs"
           style={{ flex: '0 1 200px' }}
-          styles={{ input: { fontWeight: 500, fontSize: 13 } }}
+          styles={{ input: { fontWeight: 500, fontSize: T.fsMd } }}
         />
-        <span style={{ fontSize: 11, color: T.textMuted }}>db:</span>
+        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>db:</span>
         <TextInput
           value={state.dbName ?? ''}
           onChange={onDbNameChange}
@@ -217,7 +217,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           size="xs"
           style={{ width: 140 }}
         />
-        <span style={{ fontSize: 11, color: T.textMuted }}>timeout:</span>
+        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>timeout:</span>
         <Select
           value={String(state.maxTimeMs ?? 60_000)}
           onChange={onMaxTimeChange}
@@ -341,7 +341,7 @@ function ScriptResultPanel({
       <div
         style={{
           padding: 10,
-          fontSize: 12,
+          fontSize: T.fsSm,
           color: T.textMuted,
           fontStyle: 'italic',
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -357,7 +357,7 @@ function ScriptResultPanel({
       <div
         style={{
           padding: 10,
-          fontSize: 12,
+          fontSize: T.fsSm,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           color: T.red,
           whiteSpace: 'pre-wrap',
@@ -374,7 +374,7 @@ function ScriptResultPanel({
       <div
         style={{
           padding: '6px 12px',
-          fontSize: 11,
+          fontSize: T.fsXs,
           color: T.textMuted,
           display: 'flex',
           alignItems: 'center',
@@ -394,7 +394,7 @@ function ScriptResultPanel({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: T.gapSm,
         height: '100%',
         minHeight: 0,
       }}
@@ -402,7 +402,7 @@ function ScriptResultPanel({
       <div
         style={{
           color: T.textMuted,
-          fontSize: 11,
+          fontSize: T.fsXs,
           padding: '6px 10px 0',
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           flexShrink: 0,
@@ -431,7 +431,7 @@ function ScriptResultPanel({
             style={{
               color: T.textMuted,
               cursor: 'pointer',
-              fontSize: 11,
+              fontSize: T.fsXs,
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             }}
           >
@@ -443,7 +443,7 @@ function ScriptResultPanel({
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               color: T.textMuted,
-              fontSize: 12,
+              fontSize: T.fsSm,
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             }}
           >
@@ -518,7 +518,7 @@ function ResultValueView({
         padding: '0 10px',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
-        fontSize: 12,
+        fontSize: T.fsSm,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         color: T.text,
       }}
@@ -614,14 +614,14 @@ function ArrayResultView({
                 size="compact-xs"
                 onClick={() => enabled && setView(v)}
                 disabled={!enabled}
-                styles={{ root: { fontSize: 11, fontWeight: active ? 600 : 400 } }}
+                styles={{ root: { fontSize: T.fsXs, fontWeight: active ? 600 : 400 } }}
               >
                 {v}
               </Button>
             </Tooltip>
           );
         })}
-        <span style={{ marginLeft: 8, fontSize: 11, color: T.textMuted }}>
+        <span style={{ marginLeft: 8, fontSize: T.fsXs, color: T.textMuted }}>
           {documents.length} {documents.length === 1 ? 'doc' : 'docs'}
         </span>
       </div>
@@ -654,7 +654,7 @@ function ArrayResultView({
 
 const kbdStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 10,
+  fontSize: themeVars.fsXs,
   padding: '1px 4px',
   border: '1px solid currentColor',
   borderRadius: 3,

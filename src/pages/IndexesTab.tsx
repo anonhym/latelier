@@ -258,7 +258,7 @@ export function IndexesTab({
 
   if (viewOn !== undefined) {
     return (
-      <div style={{ padding: '10px 16px', fontSize: 12, color: T.textMuted, borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ padding: '10px 16px', fontSize: T.fsSm, color: T.textMuted, borderBottom: `1px solid ${T.border}` }}>
         Views have no indexes of their own. This view uses the indexes of {viewOn}, the collection it reads from.
       </div>
     );
@@ -314,7 +314,7 @@ export function IndexesTab({
             color="orange"
             variant="light"
             m="sm"
-            styles={{ message: { fontSize: 12 } }}
+            styles={{ message: { fontSize: T.fsSm } }}
           >
             <Group gap="xs" wrap="nowrap" align="flex-start">
               <Text size="xs">
@@ -343,7 +343,7 @@ export function IndexesTab({
               minHeight: expectedCount ? INDEX_TABLE_BASE_PX + expectedCount * INDEX_ROW_PX : undefined,
               padding: 20,
               color: T.textMuted,
-              fontSize: 13,
+              fontSize: T.fsMd,
             }}
           >
             Loading indexes…
@@ -393,9 +393,9 @@ export function IndexesTab({
             withTableBorder
             withColumnBorders={false}
             styles={{
-              table: { fontSize: 12 },
+              table: { fontSize: T.fsSm },
               th: {
-                fontSize: 10,
+                fontSize: T.fsXs,
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
                 fontWeight: 600,
@@ -456,7 +456,7 @@ export function IndexesTab({
                         </Text>
                       </Table.Td>
                       <Table.Td>
-                        <Group gap={4} wrap="wrap">
+                        <Group gap={T.gapXs} wrap="wrap">
                           {indexBadges(idx).map((b) => (
                             <IndexBadge key={b.label} label={b.label} tone={b.tone} />
                           ))}
@@ -741,13 +741,13 @@ function CreateIndexDrawer({
         body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
       }}
     >
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: T.gapLg }}>
         <Section title="Fields">
           {initialFields && reason && (
             <div
               data-testid="create-index-reason"
               style={{
-                fontSize: 11,
+                fontSize: T.fsXs,
                 color: T.textMuted,
                 marginBottom: 8,
                 lineHeight: 1.4,
@@ -866,7 +866,7 @@ function CreateIndexDrawer({
               border: `1px solid ${T.warn}`,
               background: 'rgba(184,76,20,0.08)',
               color: T.warn,
-              fontSize: 11,
+              fontSize: T.fsXs,
             }}
           >
             {error}
@@ -879,7 +879,7 @@ function CreateIndexDrawer({
           paddingTop: 12,
           borderTop: `1px solid ${T.border}`,
           display: 'flex',
-          gap: 8,
+          gap: T.gapSm,
           justifyContent: 'flex-end',
         }}
       >
@@ -911,7 +911,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div>
       <div
         style={{
-          fontSize: 10,
+          fontSize: T.fsXs,
           fontWeight: 600,
           color: T.textMuted,
           textTransform: 'uppercase',
@@ -944,7 +944,7 @@ function Check({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: 12,
+        fontSize: T.fsSm,
         color: T.text,
         marginBottom: 4,
         cursor: 'pointer',
@@ -968,7 +968,7 @@ function inputStyle(T: typeof themeVars): React.CSSProperties {
     border: `1px solid ${T.border}`,
     borderRadius: T.rs,
     padding: '4px 8px',
-    fontSize: 12,
+    fontSize: T.fsSm,
     color: T.text,
     background: T.surfaceRaised,
     outline: 'none',

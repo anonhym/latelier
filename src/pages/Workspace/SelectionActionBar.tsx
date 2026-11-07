@@ -92,7 +92,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
         background:
           occupant === 'selection' ? T.accentSoft : occupant === 'lost' ? T.warnSoft : 'transparent',
         flexShrink: 0,
-        fontSize: 11,
+        fontSize: T.fsXs,
       }}
     >
       {occupant === 'lost' && connectionLost && (

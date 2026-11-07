@@ -389,7 +389,7 @@ export function CreateCollectionDrawer({
               value={collation}
               onChange={(e) => setCollation(e.currentTarget.value)}
               minRows={2}
-              styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+              styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--atelier-fs-xs)' } }}
             />
           )}
         </Stack>
@@ -409,7 +409,7 @@ export function CreateCollectionDrawer({
                 value={validator}
                 onChange={(e) => setValidator(e.currentTarget.value)}
                 minRows={3}
-                styles={{ input: { fontFamily: 'monospace', fontSize: 11 } }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--atelier-fs-xs)' } }}
               />
               <Group gap="xs">
                 <Select

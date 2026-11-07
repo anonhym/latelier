@@ -104,7 +104,7 @@ export function SchemaView({
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
           flexShrink: 0,
-          fontSize: 12,
+          fontSize: T.fsSm,
         }}
       >
         <div style={{ color: T.textMuted, flex: 1 }}>
@@ -133,7 +133,7 @@ export function SchemaView({
               borderRadius: T.rs,
               background: T.surfaceRaised,
               color: T.text,
-              fontSize: 12,
+              fontSize: T.fsSm,
             }}
           >
             {SAMPLE_SIZE_OPTIONS.map((n) => (
@@ -153,7 +153,7 @@ export function SchemaView({
           role="alert"
           style={{
             padding: '6px 14px',
-            fontSize: 12,
+            fontSize: T.fsSm,
             color: T.warn,
             background: T.surface,
             borderBottom: `1px solid ${T.border}`,
@@ -174,7 +174,7 @@ export function SchemaView({
                 padding: '40px 14px',
                 textAlign: 'center',
                 color: T.textMuted,
-                fontSize: 12,
+                fontSize: T.fsSm,
               }}
             >
               {sampling
@@ -189,7 +189,7 @@ export function SchemaView({
             style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: 12,
+              fontSize: T.fsSm,
             }}
           >
             <thead>
@@ -225,14 +225,14 @@ function SchemaRow({ entry }: { entry: SchemaSampleEntry }) {
         </code>
       </td>
       <td style={cellBody(T)}>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: T.gapXs, flexWrap: 'wrap' }}>
           {sortedTypes.map(([type, count]) => (
             <span
               key={type}
               title={`${count} document${count === 1 ? '' : 's'}`}
               style={{
                 padding: '1px 6px',
-                fontSize: 10,
+                fontSize: T.fsXs,
                 fontWeight: 500,
                 borderRadius: T.rx,
                 background: typeBg(T, type),
@@ -275,7 +275,7 @@ function cellHead(T: typeof themeVars): React.CSSProperties {
   return {
     textAlign: 'left',
     padding: '6px 12px',
-    fontSize: 11,
+    fontSize: T.fsXs,
     fontWeight: 600,
     color: T.textMuted,
     borderBottom: `1px solid ${T.border}`,
@@ -298,7 +298,7 @@ function typeBg(T: typeof themeVars, type: string): string {
 
 function typeFg(T: typeof themeVars, type: string): string {
   if (type === 'null' || type === 'undefined') return T.textGhost;
-  if (type === 'objectid' || type === 'date') return T.accent;
+  if (type === 'objectid' || type === 'date') return T.accentInk;
   return T.text;
 }
 
