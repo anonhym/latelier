@@ -1271,7 +1271,7 @@ function WorkspaceInner() {
         id="startup.restore"
         visible={startupRestoreHint.visible}
         onDismiss={startupRestoreHint.dismiss}
-        onCta={settings.open}
+        onCta={() => settings.open('editor')}
       />
 
       <DialogStack
