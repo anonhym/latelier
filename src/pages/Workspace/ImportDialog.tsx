@@ -221,7 +221,7 @@ export function ImportDialog({
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {report === null ? (
             running ? (
-              <Stack gap={4}>
+              <Stack gap={themeVars.gapXs}>
                 <Text size="sm">
                   Importing {csv?.preview.fileName ?? 'the file'} into {dbName}.{collection}.
                 </Text>
@@ -246,7 +246,7 @@ export function ImportDialog({
                     <Table.Tr>
                       {csv.columns.map((c, i) => (
                         <Table.Th key={i} miw={120}>
-                          <Stack gap={4}>
+                          <Stack gap={themeVars.gapXs}>
                             <Text size="xs" fw={600} ff="monospace">{columnName(c.header)}</Text>
                             <NativeSelect
                               size="xs"

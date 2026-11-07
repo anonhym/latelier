@@ -73,10 +73,10 @@ export default function NewConnection() {
         height: '100vh', display: 'flex', flexDirection: 'column',
         background: T.bg, color: T.text,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        fontSize: 13,
+        fontSize: T.fsMd,
       }}>
         <div style={{
-          height: 46, display: 'flex', alignItems: 'center', gap: 12,
+          height: 46, display: 'flex', alignItems: 'center', gap: T.gapMd,
           padding: '0 16px', borderBottom: `1px solid ${T.border}`,
           background: T.surface, flexShrink: 0,
           WebkitAppRegion: 'drag',
@@ -85,7 +85,7 @@ export default function NewConnection() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <TitleBarBackLink label={backLabel} onClick={() => navigate(backTarget)} />
             <span style={{ color: T.textGhost }}>/</span>
-            <span style={{ color: T.textMuted, fontSize: 13 }}>
+            <span style={{ color: T.textMuted, fontSize: T.fsMd }}>
               {isEdit ? 'Edit Connection' : 'New Connection'}
             </span>
           </div>

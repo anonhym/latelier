@@ -66,6 +66,37 @@ export default defineConfig([
     },
   },
   {
+    // Type scale: a font size in src/ comes from themeVars (fsXs..fsLg, 11/12/13/16px),
+    // never a literal, and nothing is below 11px. The selectors match a number or a
+    // "<n>px/em/rem" string only, so `fontSize: 'inherit'`, `var(...)` strings, the
+    // editor-size preference and `fz="xs"` stay legal. Token definitions live in
+    // index.css and themeVars.ts (strings starting `var(`), which these never match.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "Property[key.name='fontSize'][value.type='Literal'][value.raw=/^['\"]?\\d/], Property[key.value='fontSize'][value.type='Literal'][value.raw=/^['\"]?\\d/]",
+          message:
+            'Literal font size. Use a themeVars token: fsXs (11), fsSm (12), fsMd (13) or fsLg (16). Nothing below 11px.',
+        },
+        {
+          selector:
+            "JSXAttribute[name.name=/^(fz|fontSize)$/][value.type='JSXExpressionContainer'][value.expression.type='Literal'][value.expression.raw=/^['\"]?\\d/], JSXAttribute[name.name=/^(fz|fontSize)$/][value.type='Literal'][value.raw=/^['\"]?\\d/]",
+          message:
+            'Literal font size on fz/fontSize. Use a themeVars token: fsXs (11), fsSm (12), fsMd (13) or fsLg (16). Nothing below 11px.',
+        },
+        {
+          selector:
+            "JSXOpeningElement[name.name='Text'] > JSXAttribute[name.name='size'][value.type='Literal'][value.raw=/^['\"]?\\d/]",
+          message:
+            'Literal px size on Text. Use fz with a themeVars token (fsXs, fsSm, fsMd or fsLg). Nothing below 11px.',
+        },
+      ],
+    },
+  },
+  {
     // filterTree.ts (W13) is a pure module — no React, no
     // CollectionTabState, no api — so it stays reusable as the aggregation
     // `$match` editor later without a rewrite (specs/W13-filter-tree-editor.md

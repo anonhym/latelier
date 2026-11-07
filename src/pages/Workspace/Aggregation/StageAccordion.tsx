@@ -231,7 +231,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
+                  gap: T.gapSm,
                   padding: '8px 10px',
                   borderBottom: `1px solid ${T.border}`,
                 }}
@@ -249,14 +249,14 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                     background: 'none',
                     border: 'none',
                     outline: 'none',
-                    fontSize: 12,
+                    fontSize: T.fsSm,
                     color: T.text,
                   }}
                 />
               </div>
               <div role="listbox" tabIndex={0} style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {filtered.length === 0 && (
-                  <div style={{ padding: '10px', fontSize: 11, color: T.textMuted, textAlign: 'center' }}>
+                  <div style={{ padding: '10px', fontSize: T.fsXs, color: T.textMuted, textAlign: 'center' }}>
                     No stages match “{query}”
                   </div>
                 )}
@@ -284,7 +284,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                       <span
                         style={{
                           fontFamily: 'JetBrains Mono, monospace',
-                          fontSize: 12,
+                          fontSize: T.fsSm,
                           fontWeight: 600,
                           padding: '2px 6px',
                           borderRadius: T.rx,
@@ -295,7 +295,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                       >
                         {op}
                       </span>
-                      <span style={{ fontSize: 11.5, color: T.textMuted }}>{info?.desc ?? ''}</span>
+                      <span style={{ fontSize: T.fsSm, color: T.textMuted }}>{info?.desc ?? ''}</span>
                     </div>
                   );
                 })}
@@ -306,10 +306,10 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: T.gapSm,
                     width: '100%',
                     padding: '8px 12px',
-                    fontSize: 11.5,
+                    fontSize: T.fsSm,
                     color: T.textMuted,
                   }}
                 >
@@ -319,8 +319,8 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
             </>
           )}
           {customMode && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10 }}>
-              <div style={{ fontSize: 11, color: T.textMuted }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapSm, padding: 10 }}>
+              <div style={{ fontSize: T.fsXs, color: T.textMuted }}>
                 Custom stage operator (e.g. <code>myStage</code>)
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -337,7 +337,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                     border: `1px solid ${T.border}`,
                     borderRadius: T.rs,
                     outline: 'none',
-                    fontSize: 12,
+                    fontSize: T.fsSm,
                     color: T.text,
                     padding: '4px 8px',
                   }}
@@ -345,7 +345,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                 <Button
                   variant="light"
                   size="compact-xs"
-                  fz={11}
+                  fz={T.fsXs}
                   onClick={submitCustom}
                   aria-label="Add custom stage"
                   disabled={!cleanCustomName}
@@ -635,7 +635,7 @@ function StageRow({
           role="alert"
           style={{
             padding: '4px 10px',
-            fontSize: 11,
+            fontSize: T.fsXs,
             color: T.red,
             background: 'rgba(180,60,60,0.08)',
             borderBottom: `1px solid ${T.border}`,
@@ -660,7 +660,7 @@ function StageRow({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: T.gapSm,
           padding: '8px 10px',
           cursor: 'pointer',
           background: active ? T.accentSoft : 'transparent',
@@ -690,7 +690,7 @@ function StageRow({
           {I.drag}
         </span>
         <span
-          style={{ fontSize: 10, color: T.textGhost, width: 14, textAlign: 'center', flexShrink: 0 }}
+          style={{ fontSize: T.fsXs, color: T.textGhost, width: 14, textAlign: 'center', flexShrink: 0 }}
         >
           {index + 1}
         </span>
@@ -707,7 +707,7 @@ function StageRow({
                 aria-label={`Change operator for stage ${index + 1} (currently ${stage.op})`}
                 style={{
                   fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 11.5,
+                  fontSize: T.fsSm,
                   fontWeight: 700,
                   padding: '2px 7px',
                   borderRadius: T.rx,
@@ -725,7 +725,7 @@ function StageRow({
           <span
             title="Unknown operator — server will decide"
             style={{
-              fontSize: 9,
+              fontSize: T.fsXs,
               color: T.warn,
               background: 'rgba(200,160,0,0.1)',
               padding: '1px 5px',
@@ -748,7 +748,7 @@ function StageRow({
           }}
           style={{
             font: 'inherit',
-            fontSize: 11.5,
+            fontSize: T.fsSm,
             color: bodyErr ? T.red : T.textMuted,
             flex: 1,
             minWidth: 0,
@@ -762,7 +762,7 @@ function StageRow({
         {typeof count === 'number' && (
           <span
             style={{
-              fontSize: 10,
+              fontSize: T.fsXs,
               color: T.textGhost,
               background: T.surfaceRaised,
               border: `1px solid ${T.border}`,
@@ -784,7 +784,7 @@ function StageRow({
               size="compact-xs"
               h={18}
               px={5}
-              fz={9}
+              fz={T.fsXs}
               fw={700}
               c={stage.enabled ? undefined : T.textGhost}
               onClick={(e) => {
@@ -895,7 +895,7 @@ function StageRow({
                 height: 16,
                 marginTop: 2,
                 flexShrink: 0,
-                fontSize: 11,
+                fontSize: T.fsXs,
                 lineHeight: '16px',
                 color: T.red,
                 overflow: 'hidden',
@@ -943,7 +943,7 @@ function StageRow({
                 padding: '6px 10px',
                 flexShrink: 0,
                 borderBottom: `1px solid ${T.border}`,
-                fontSize: 11,
+                fontSize: T.fsXs,
                 color: T.textMuted,
                 display: 'flex',
                 alignItems: 'center',
@@ -968,11 +968,11 @@ function StageRow({
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8, scrollbarGutter: 'stable' }}>
               {!stage.enabled ? (
-                <div style={{ fontSize: 11, color: T.textMuted, padding: 8 }}>
+                <div style={{ fontSize: T.fsXs, color: T.textMuted, padding: 8 }}>
                   Stage is disabled.
                 </div>
               ) : sample.length === 0 ? (
-                <div style={{ fontSize: 11, color: T.textMuted, padding: 8 }}>
+                <div style={{ fontSize: T.fsXs, color: T.textMuted, padding: 8 }}>
                   {previewLoading ? 'Running preview…' : 'Run to see output.'}
                 </div>
               ) : (
@@ -1103,7 +1103,7 @@ export function StageAccordion(props: AccordionProps) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: T.gapSm,
           marginBottom: 8,
           padding: '7px 12px',
           background: T.surfaceRaised,
@@ -1112,9 +1112,9 @@ export function StageAccordion(props: AccordionProps) {
         }}
       >
         <span style={{ color: T.textMuted, display: 'flex' }}>{I.db}</span>
-        <span style={{ fontSize: 12, color: T.textMuted }}>{collection || '(source)'}</span>
+        <span style={{ fontSize: T.fsSm, color: T.textMuted }}>{collection || '(source)'}</span>
         {sourceCount !== null && (
-          <span style={{ fontSize: 11, color: T.textMuted }}>{fmt(sourceCount)} documents</span>
+          <span style={{ fontSize: T.fsXs, color: T.textMuted }}>{fmt(sourceCount)} documents</span>
         )}
       </div>
 
@@ -1163,7 +1163,7 @@ export function StageAccordion(props: AccordionProps) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: T.gapSm,
           marginTop: 4,
           padding: '7px 12px',
           background: T.accentSoft,
@@ -1171,10 +1171,10 @@ export function StageAccordion(props: AccordionProps) {
           borderRadius: T.rs,
         }}
       >
-        <span style={{ color: T.accent, display: 'flex' }}>{I.arrowR}</span>
-        <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>Output</span>
+        <span style={{ color: T.accentInk, display: 'flex' }}>{I.arrowR}</span>
+        <span style={{ fontSize: T.fsSm, color: T.accentInk, fontWeight: 600 }}>Output</span>
         {outputCount !== null && (
-          <span style={{ fontSize: 11, color: T.accent }}>{fmt(outputCount)} documents</span>
+          <span style={{ fontSize: T.fsXs, color: T.accentInk }}>{fmt(outputCount)} documents</span>
         )}
       </div>
     </div>

@@ -505,7 +505,7 @@ function TableCell({
                 borderRadius: 2,
                 background: 'var(--atelier-surface-raised)',
                 color: 'var(--atelier-red)',
-                fontSize: 11,
+                fontSize: 'var(--atelier-fs-xs)',
                 whiteSpace: 'nowrap',
               }}
             >
@@ -810,7 +810,7 @@ function TableRowImpl({
           display: 'flex',
           alignItems: 'stretch',
           cursor: 'pointer',
-          fontSize: 11,
+          fontSize: 'var(--atelier-fs-xs)',
           fontFamily: 'monospace',
           // #60 — sighted-visible counterpart to `aria-activedescendant`.
           // An inset outline (paints on top, reserves no layout space) so it
@@ -1615,9 +1615,9 @@ export function TableView({
               title={sortNote.text}
               data-testid="table-header-sort-note"
               style={{
-                fontSize: 11,
+                fontSize: 'var(--atelier-fs-xs)',
                 fontWeight: 700,
-                color: sortNote.warn ? 'var(--atelier-warn)' : 'var(--atelier-accent)',
+                color: sortNote.warn ? 'var(--atelier-warn)' : 'var(--atelier-accent-ink)',
               }}
             >
               {sortNote.glyph}
@@ -1657,7 +1657,7 @@ export function TableView({
               {indicator && (
                 <span
                   aria-label={dir === 1 ? 'sorted ascending' : 'sorted descending'}
-                  style={{ fontSize: 10, color: 'var(--atelier-accent)', flexShrink: 0 }}
+                  style={{ fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-accent-ink)', flexShrink: 0 }}
                 >
                   {indicator}
                 </span>
@@ -1682,8 +1682,8 @@ export function TableView({
                 padding: sortable ? 0 : '5px 8px',
                 textAlign: 'left',
                 fontWeight: 600,
-                color: dir ? 'var(--atelier-accent)' : 'var(--atelier-text-muted)',
-                fontSize: 11,
+                color: dir ? 'var(--atelier-accent-ink)' : 'var(--atelier-text-muted)',
+                fontSize: 'var(--atelier-fs-xs)',
                 position: 'relative',
                 userSelect: 'none',
                 overflow: 'hidden',
@@ -1693,7 +1693,7 @@ export function TableView({
                 cursor: sortable ? 'pointer' : 'default',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 'var(--atelier-gap-xs)',
               }}
             >
               {/* S6848 — the old fix wrapped a plain onClick div around the
@@ -1711,7 +1711,7 @@ export function TableView({
                     minWidth: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 4,
+                    gap: 'var(--atelier-gap-xs)',
                     padding: '5px 8px',
                     font: 'inherit',
                   }}

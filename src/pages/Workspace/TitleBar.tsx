@@ -70,7 +70,7 @@ export function TitleBar({
             {connectionSlot}
           </div>
         ) : (
-          <span style={{ fontSize: 12, color: T.textMuted }}>
+          <span style={{ fontSize: T.fsSm, color: T.textMuted }}>
             {connectionName ?? '—'}
           </span>
         )}

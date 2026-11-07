@@ -36,7 +36,7 @@ export function PaneState({ title, detail, tone = 'neutral', actions }: PaneStat
         padding: '16px 24px',
         overflow: 'hidden',
         textAlign: 'center',
-        fontSize: 13,
+        fontSize: T.fsMd,
         color: T.textMuted,
       }}
     >
@@ -54,7 +54,7 @@ export function PaneState({ title, detail, tone = 'neutral', actions }: PaneStat
               overflow: 'auto',
               padding: '8px 10px',
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: 12,
+              fontSize: T.fsSm,
               lineHeight: 1.5,
               textAlign: 'left',
               whiteSpace: 'pre-wrap',

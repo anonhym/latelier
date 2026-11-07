@@ -119,7 +119,7 @@ export function ConnectionExportDialog({ onClose, ids }: {
                   value={[...ticked]}
                   onChange={(ids) => setTicked(new Set(ids))}
                 >
-                  <Stack gap={4} mt={4}>
+                  <Stack gap="var(--atelier-gap-xs)" mt={4}>
                     {(connections ?? []).map((c) => (
                       <Checkbox
                         key={c.id}

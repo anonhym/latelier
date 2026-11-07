@@ -104,8 +104,8 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 4,
-              fontSize: 11,
+              gap: 'var(--atelier-gap-xs)',
+              fontSize: 'var(--atelier-fs-xs)',
               color: 'var(--atelier-text-muted)',
               minWidth: 0,
               overflow: 'hidden',
@@ -276,10 +276,10 @@ function DocRowImpl({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 'var(--atelier-gap-sm)',
           padding: '10px 12px',
           cursor: 'pointer',
-          fontSize: 12,
+          fontSize: 'var(--atelier-fs-sm)',
           minHeight: 44,
           userSelect: 'none',
           // #60 — sighted-visible counterpart to `aria-activedescendant`.
@@ -322,8 +322,8 @@ function DocRowImpl({
         <span
           style={{
             fontFamily: 'monospace',
-            fontSize: 11,
-            color: 'var(--atelier-accent)',
+            fontSize: 'var(--atelier-fs-xs)',
+            color: 'var(--atelier-accent-ink)',
             fontWeight: 600,
             flexShrink: 0,
             minWidth: 68,
@@ -755,9 +755,9 @@ export function TreeView({
               borderLeft: '3px solid transparent',
               display: 'grid',
               gridTemplateColumns: DOC_FIELD_TREE_GRID_TEMPLATE,
-              gap: 12,
+              gap: 'var(--atelier-gap-md)',
               padding: '4px 12px',
-              fontSize: 9,
+              fontSize: 'var(--atelier-fs-xs)',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: 0.6,

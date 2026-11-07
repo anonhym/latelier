@@ -1,9 +1,12 @@
 import {
+  Badge,
   Button,
   CloseButton,
   createTheme,
+  type CSSVariablesResolver,
   defaultVariantColorsResolver,
   Input,
+  InputWrapper,
   SegmentedControl,
   Tooltip,
   type VariantColorsResolver,
@@ -72,7 +75,28 @@ const variantColorResolver: VariantColorsResolver = (input) => {
 // inputs 36 px, labels 13 px. Mantine has no 13 px step (it pairs 36 px with
 // 14 px), so these go through the size vars rather than per call site. ActionIcon
 // stays out: icon buttons are sized where they sit, and the pager keeps its 22 px.
-const LABEL_FZ = '13px';
+const LABEL_FZ = 'var(--atelier-fs-md)';
+
+// Mantine writes `--mantine-color-dimmed` itself (gray-6, 3.3:1 on white) from a
+// `:root[data-mantine-color-scheme]` rule that outranks the alias in index.css, so
+// every `c="dimmed"` in light mode missed 4.5:1. Resolved here, where Mantine builds
+// the variable, so each use (descriptions, hints, counts) gets the muted token. Dark
+// keeps Mantine's own value, dark[2], which already clears 4.5:1. Placeholders have the
+// same problem in both schemes (gray-5 and dark-3), so they take the ghost token.
+// A Button, ActionIcon or Badge with neither `color` nor `variant` never reaches
+// variantColorResolver: its stylesheet falls back to the primary-filled variable, so that
+// variable has to carry the same fill.
+export const cssVariablesResolver: CSSVariablesResolver = () => ({
+  variables: {
+    '--mantine-primary-color-filled': filledFills.violet!.bg,
+    '--mantine-primary-color-filled-hover': filledFills.violet!.hover,
+  },
+  light: {
+    '--mantine-color-dimmed': 'var(--atelier-text-muted)',
+    '--mantine-color-placeholder': 'var(--atelier-text-ghost)',
+  },
+  dark: { '--mantine-color-placeholder': 'var(--atelier-text-ghost)' },
+});
 
 export const mantineTheme: MantineThemeOverride = createTheme({
   primaryColor: 'violet',
@@ -102,6 +126,24 @@ export const mantineTheme: MantineThemeOverride = createTheme({
       vars: (_theme, { size }) => {
         if (size === 'xs') return { wrapper: { '--input-height': '36px', '--input-fz': LABEL_FZ } };
         return { wrapper: size === undefined || size === 'sm' ? { '--input-fz': LABEL_FZ } : {} };
+      },
+    }),
+    // The 11 px floor reaches Mantine's own named sizes: Badge xs and sm default to 9 and
+    // 10 px, and an xs input's description and error to 10 px.
+    Badge: Badge.extend({
+      vars: (_theme, { size }) => ({
+        root: size === 'xs' || size === 'sm' ? { '--badge-fz': 'var(--atelier-fs-xs)' } : {},
+      }),
+    }),
+    InputWrapper: InputWrapper.extend({
+      vars: (_theme, { size }) => {
+        const floor = size === 'xs' ? 'var(--atelier-fs-xs)' : undefined;
+        return {
+          label: {},
+          error: { '--input-error-size': floor },
+          success: { '--input-success-size': floor },
+          description: { '--input-description-size': floor },
+        };
       },
     }),
     // Same outer height as a compact button, so a switch lines up beside one.

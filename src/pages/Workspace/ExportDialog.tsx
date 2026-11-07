@@ -123,7 +123,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
 
   return (
     <Modal opened onClose={close} title="Export documents" size={380} centered>
-      <Stack gap={12} ref={bodyRef}>
+      <Stack gap="var(--atelier-gap-md)" ref={bodyRef}>
         <SegmentedControl
           size="xs"
           fullWidth
@@ -153,7 +153,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
           onChange={(e) => setRelaxed(e.currentTarget.checked)}
         />
 
-        <Group justify="flex-end" gap={8} mt={4}>
+        <Group justify="flex-end" gap="var(--atelier-gap-sm)" mt={4}>
           <Button variant="default" size="xs" onClick={close}>
             Cancel
           </Button>

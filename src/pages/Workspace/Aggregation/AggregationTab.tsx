@@ -627,7 +627,7 @@ export function AggregationTab({
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Action bar (below the workspace tab strip) */}
       <Group
-        gap={8}
+        gap={T.gapSm}
         wrap="nowrap"
         style={{
           padding: '6px 14px',
@@ -639,7 +639,7 @@ export function AggregationTab({
         <Group gap={6} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
           <span
             title={state.name ?? undefined}
-            style={{ minWidth: 0, fontSize: 12, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            style={{ minWidth: 0, fontSize: T.fsSm, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
             {state.name ?? 'Unsaved pipeline'}
           </span>
@@ -660,7 +660,7 @@ export function AggregationTab({
           {hasWriteStage && (
             <span
               style={{
-                fontSize: 10,
+                fontSize: T.fsXs,
                 color: T.red,
                 background: 'rgba(180,60,60,0.08)',
                 padding: '1px 5px',
@@ -872,12 +872,12 @@ export function WriteStageConfirm({
       centered
     >
       <div>
-        <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 16 }}>
+        <div style={{ fontSize: T.fsSm, color: T.textMuted, marginBottom: 16 }}>
           Running this pipeline will write to collection{' '}
           <code style={{ color: T.text }}>{target ?? '(unknown)'}</code> via{' '}
           <code style={{ color: T.text }}>{op}</code>. Proceed?
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: T.gapSm, justifyContent: 'flex-end' }}>
           <Button variant="default" size="xs" c={T.textMuted} onClick={cancel}>
             Cancel
           </Button>

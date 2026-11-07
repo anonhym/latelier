@@ -1254,7 +1254,7 @@ export function DbCollectionNavigator({
               background: 'transparent',
               border: 'none',
               outline: 'none',
-              fontSize: 12,
+              fontSize: T.fsSm,
               color: T.text,
               minWidth: 0,
             }}
@@ -1519,15 +1519,15 @@ function NavRowImpl({
     content = <DbSkeletonRow T={T} index={row.index} />;
   } else if (row.kind === 'db-empty') {
     content = (
-      <div style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: 12 }}>
+      <div style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: T.fsSm }}>
         {row.text}
       </div>
     );
   } else if (row.kind === 'filter-empty') {
     content = (
-      <div data-testid="nav-filter-empty" style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: 12 }}>
+      <div data-testid="nav-filter-empty" style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: T.fsSm }}>
         <div style={{ marginBottom: 6, overflowWrap: 'anywhere' }}>{row.text}</div>
-        <Button type="button" variant="default" size="compact-xs" fz={11} c={T.text} onClick={clearFilter}>
+        <Button type="button" variant="default" size="compact-xs" fz={T.fsXs} c={T.text} onClick={clearFilter}>
           Clear filter
         </Button>
       </div>
@@ -1537,7 +1537,7 @@ function NavRowImpl({
       <div
         style={{
           padding: '4px 10px 4px 46px',
-          fontSize: 11,
+          fontSize: T.fsXs,
           color: T.textMuted,
           fontStyle: 'italic',
         }}
@@ -1654,7 +1654,7 @@ function ConnErrorRow({
         border: `1px solid ${T.borderMed}`,
         borderRadius: T.rs,
         background: T.surfaceRaised,
-        fontSize: 12,
+        fontSize: T.fsSm,
       }}
     >
       <div style={{ color: T.warnText, marginBottom: 4, fontWeight: 600 }}>
@@ -1669,7 +1669,7 @@ function ConnErrorRow({
           type="button"
           variant="default"
           size="compact-xs"
-          fz={11}
+          fz={T.fsXs}
           c={T.text}
           aria-label={row.retryLabel}
           onClick={(e) => {
@@ -1685,7 +1685,7 @@ function ConnErrorRow({
           type="button"
           variant="default"
           size="compact-xs"
-          fz={11}
+          fz={T.fsXs}
           c={T.text}
           ml={6}
           aria-label={`Re-enter password for ${row.conn.name}`}
@@ -1762,7 +1762,7 @@ function ConnectionRow({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: 12,
+        fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',
         padding: '5px 10px',
@@ -1797,7 +1797,7 @@ function ConnectionRow({
       {conn.readOnly && (
         <span
           style={{
-            fontSize: 9,
+            fontSize: T.fsXs,
             letterSpacing: 0.5,
             padding: '0 4px',
             borderRadius: T.rx,
@@ -1810,7 +1810,7 @@ function ConnectionRow({
         </span>
       )}
       {!isConnected && (
-        <span style={{ fontSize: 10, color: T.textGhost }}>
+        <span style={{ fontSize: T.fsXs, color: T.textGhost }}>
           {conn.status === 'connecting'
             ? 'connecting'
             : conn.status === 'error'
@@ -1830,7 +1830,7 @@ function ConnectionRow({
           size="compact-xs"
           h={18}
           px={6}
-          fz={10}
+          fz={T.fsXs}
           c={T.text}
           aria-label={`Cancel connecting to ${conn.name}`}
           onClick={(e) => {
@@ -1843,7 +1843,7 @@ function ConnectionRow({
         </Button>
       )}
       {dbCount !== null && (
-        <span style={{ fontSize: 10, color: T.textGhost }}>{dbCount}</span>
+        <span style={{ fontSize: T.fsXs, color: T.textGhost }}>{dbCount}</span>
       )}
     </div>
   );
@@ -1889,7 +1889,7 @@ function DbRow({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: 12,
+        fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',
         padding: '4px 6px 4px 18px',
@@ -1958,7 +1958,7 @@ function DbRow({
         />
       </div>
       {row.count !== null && !barVisible && !row.refreshing && (
-        <span style={{ fontSize: 10, color: T.textGhost }}>{row.count}</span>
+        <span style={{ fontSize: T.fsXs, color: T.textGhost }}>{row.count}</span>
       )}
       {row.refreshing && (
         <span
@@ -2057,11 +2057,11 @@ function CollRow({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: 12,
+        fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',
         padding: '3px 10px 3px 46px',
-        color: !dimmed && isActive ? T.accent : T.textMuted,
+        color: !dimmed && isActive ? T.accentInk : T.textMuted,
         background: isActive
           ? T.accentSoft
           : isFocused
@@ -2075,7 +2075,7 @@ function CollRow({
       <span
         style={{
           display: 'inline-flex',
-          color: isActive ? T.accent : T.textGhost,
+          color: isActive ? T.accentInk : T.textGhost,
           flexShrink: 0,
         }}
       >
@@ -2094,7 +2094,7 @@ function CollRow({
       {(coll.type !== 'collection' || coll.capped) && (
         <span
           style={{
-            fontSize: 9,
+            fontSize: T.fsXs,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
             padding: '0 4px',

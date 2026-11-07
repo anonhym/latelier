@@ -199,7 +199,7 @@ export function OutputPanel({
         }}
       >
         {actionsForm !== 'menu' && (
-          <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: T.text }}>Pipeline output</span>
+          <span style={{ flexShrink: 0, fontSize: T.fsSm, fontWeight: 600, color: T.text }}>Pipeline output</span>
         )}
         {/* Holds the gap whether or not a run has happened: a long count
             truncates here before any control moves. */}
@@ -210,7 +210,7 @@ export function OutputPanel({
             minWidth: 0,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            fontSize: 12,
+            fontSize: T.fsSm,
             color: T.textMuted,
             fontVariantNumeric: 'tabular-nums',
           }}
@@ -285,7 +285,7 @@ export function OutputPanel({
           overflowY: 'auto',
           padding: '8px 14px',
           fontFamily: 'JetBrains Mono, monospace',
-          fontSize: 11.5,
+          fontSize: T.fsSm,
           position: 'relative',
         }}
       >
@@ -299,7 +299,7 @@ export function OutputPanel({
               position: 'absolute',
               top: 4,
               right: 14,
-              fontSize: 11,
+              fontSize: T.fsXs,
               color: T.textMuted,
               background: T.surface,
               padding: '1px 6px',
@@ -321,16 +321,16 @@ export function OutputPanel({
               color: T.text,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, color: T.red }}>
+            <div style={{ fontSize: T.fsSm, fontWeight: 600, marginBottom: 4, color: T.red }}>
               {err.code}
             </div>
-            <div style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{err.message}</div>
+            <div style={{ fontSize: T.fsSm, whiteSpace: 'pre-wrap' }}>{err.message}</div>
             <Button
               variant="subtle"
               size="compact-xs"
-              fz={11}
+              fz={T.fsXs}
               td="underline"
-              c={T.accent}
+              c={T.accentInk}
               mt={8}
               onClick={() => setErrDetails((d) => !d)}
             >
@@ -344,7 +344,7 @@ export function OutputPanel({
                   background: T.surfaceRaised,
                   border: `1px solid ${T.border}`,
                   borderRadius: T.rs,
-                  fontSize: 10,
+                  fontSize: T.fsXs,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
                 }}
@@ -361,7 +361,7 @@ export function OutputPanel({
               justifyContent: 'center',
               height: '100%',
               color: T.textMuted,
-              fontSize: 12,
+              fontSize: T.fsSm,
             }}
           >
             Run the pipeline to see output.
@@ -374,7 +374,7 @@ export function OutputPanel({
               justifyContent: 'center',
               height: '100%',
               color: T.textMuted,
-              fontSize: 12,
+              fontSize: T.fsSm,
             }}
           >
             Pipeline returned no documents.
@@ -416,7 +416,7 @@ function OutputIcon({
 function JsonOutput({ rows }: { rows: unknown[] }) {
   const T = themeVars;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapSm }}>
       {rows.map((doc, i) => (
         <div
           key={i}
@@ -430,7 +430,7 @@ function JsonOutput({ rows }: { rows: unknown[] }) {
           <pre
             style={{
               margin: 0,
-              fontSize: 11,
+              fontSize: T.fsXs,
               color: T.text,
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-all',
@@ -453,7 +453,7 @@ function TreeOutput({ rows }: { rows: unknown[] }) {
           key={i}
           style={{
             display: 'flex',
-            gap: 8,
+            gap: T.gapSm,
             padding: '4px 0',
             borderBottom: `1px solid ${T.border}`,
             alignItems: 'flex-start',
@@ -463,7 +463,7 @@ function TreeOutput({ rows }: { rows: unknown[] }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', flex: 1 }}>
             {doc && typeof doc === 'object'
               ? Object.entries(doc as Record<string, unknown>).map(([k, v]) => (
-                  <span key={k} style={{ fontSize: 11, color: T.textMuted }}>
+                  <span key={k} style={{ fontSize: T.fsXs, color: T.textMuted }}>
                     <span style={{ color: T.textMuted }}>{k}: </span>
                     <span style={{ color: typeof v === 'number' ? '#5B8FCA' : T.text }}>
                       {tryStringify(v)}
@@ -471,7 +471,7 @@ function TreeOutput({ rows }: { rows: unknown[] }) {
                   </span>
                 ))
               : (
-                <span style={{ fontSize: 11, color: T.text }}>{tryStringify(doc)}</span>
+                <span style={{ fontSize: T.fsXs, color: T.text }}>{tryStringify(doc)}</span>
               )}
           </div>
         </div>
@@ -532,7 +532,7 @@ function TableOutput({ rows }: { rows: unknown[] }) {
               style={{
                 padding: '4px 8px',
                 textAlign: 'left',
-                fontSize: 11,
+                fontSize: T.fsXs,
                 fontWeight: 600,
                 color: T.textMuted,
                 whiteSpace: 'nowrap',

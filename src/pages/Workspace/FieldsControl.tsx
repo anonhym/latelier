@@ -291,20 +291,20 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
   const showProjectionBadge = canFetch && (hasProjection || projection.message !== null);
 
   const sectionHeadingStyle: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: T.fsXs,
     fontWeight: 700,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: T.textMuted,
   };
   const sectionHelpStyle: React.CSSProperties = {
-    fontSize: 11,
+    fontSize: T.fsXs,
     color: T.textMuted,
     margin: '2px 0 6px',
   };
   const noticeStyle: React.CSSProperties = {
     marginTop: 4,
-    fontSize: 10,
+    fontSize: T.fsXs,
     lineHeight: 1.3,
     color: T.warn,
   };
@@ -424,11 +424,11 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
         <div id="fields-show-heading" style={sectionHeadingStyle}>Show in results</div>
         <div style={sectionHelpStyle}>Display only — instant, nothing is re-fetched.</div>
         {documents.length === 0 ? (
-          <div style={{ padding: '4px 8px', fontSize: 12, color: T.textMuted }}>
+          <div style={{ padding: '4px 8px', fontSize: T.fsSm, color: T.textMuted }}>
             No fields available
           </div>
         ) : (
-          <Stack gap={4} style={{ maxHeight: 260, overflowY: 'auto', minWidth: 200 }}>
+          <Stack gap={T.gapXs} style={{ maxHeight: 260, overflowY: 'auto', minWidth: 200 }}>
             {orderedFields.map((field, index) => (
               <div
                 key={field}
@@ -453,7 +453,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
                 style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'grab' }}
                 title="Drag to reorder"
               >
-                <span style={{ color: T.textGhost, fontSize: 11, display: 'flex' }}>{I.drag}</span>
+                <span style={{ color: T.textGhost, fontSize: T.fsXs, display: 'flex' }}>{I.drag}</span>
                 <Checkbox
                   size="xs"
                   label={
@@ -499,7 +499,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
         {notFetchedOnly.length > 0 && (
           <Stack gap={2} mt={4} data-testid="fields-not-fetched">
             {notFetchedOnly.map((field) => (
-              <div key={field} style={{ fontSize: 12, color: T.textMuted, paddingLeft: 17 }}>
+              <div key={field} style={{ fontSize: T.fsSm, color: T.textMuted, paddingLeft: 17 }}>
                 {field} — not fetched
               </div>
             ))}
@@ -514,11 +514,11 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
         {isTableView && (
           <>
             {computed.length > 0 && (
-              <Stack gap={4} mt="xs" style={{ minWidth: 200 }}>
+              <Stack gap={T.gapXs} mt="xs" style={{ minWidth: 200 }}>
                 {computed.map((c) => (
                   <div
                     key={c.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: T.fsXs }}
                   >
                     <span style={{ flex: 1, color: T.text, fontFamily: 'monospace' }}>
                       {c.label ?? c.path}
@@ -602,7 +602,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
                 width: '100%',
                 boxSizing: 'border-box',
                 fontFamily: '"JetBrains Mono", monospace',
-                fontSize: 11,
+                fontSize: T.fsXs,
                 padding: '4px 6px',
                 border: `1px solid ${projection.message || projRawError ? T.warn : T.border}`,
                 borderRadius: T.rs,
