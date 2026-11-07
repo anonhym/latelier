@@ -253,7 +253,11 @@ export function ResultBar() {
           overflow: 'hidden',
         }}
       >
-        {docCount !== null ? (
+        {lastRun?.error && docCount === 0 ? (
+          <span data-testid="result-count-failed" style={{ color: T.redText, fontWeight: 600 }}>
+            Query failed
+          </span>
+        ) : docCount !== null ? (
           <>
             <span
               title={countForm === 'full' ? undefined : countDetail}
