@@ -79,6 +79,7 @@ export function DropCollectionConfirm({
           <TextInput
             aria-label="Confirm collection name"
             autoFocus
+            data-autofocus
             value={typed}
             onChange={(e) => setTyped(e.currentTarget.value)}
             size="xs"

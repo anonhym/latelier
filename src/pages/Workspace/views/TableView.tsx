@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { isContextMenuKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
+import { isContextMenuKey, isDeleteKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import { ownGet, ownSet } from '../../../utils/ownProperty';
@@ -142,6 +142,8 @@ interface TableCellProps {
   cellKey: string;
   isCopied: boolean;
   rule?: ReferenceRule;
+  /** `-1` takes every control in the cell out of the Tab order (a cell of a row that is not the roving row). */
+  tabIndex?: number;
   /** Set when the chip belongs to a nested path of an object cell: the chip acts on this path and value instead of the cell's. */
   refPath?: string;
   refValue?: unknown;
@@ -172,6 +174,7 @@ function TableCell({
   cellKey,
   isCopied,
   rule,
+  tabIndex,
   refPath,
   refValue,
   onCopyCell,
@@ -425,6 +428,7 @@ function TableCell({
         <input
           type="checkbox"
           aria-label={`Edit ${fieldPath}`}
+          tabIndex={tabIndex}
           checked={pendingBoolean ?? value === true}
           disabled={pendingBoolean !== null}
           onChange={(e) => {
@@ -534,6 +538,7 @@ function TableCell({
           </span>
           <ReferenceChip
             rule={rule}
+            tabIndex={tabIndex}
             onHover={(rect) => onRefHover?.(rule, refPath ? refValue : value, rect)}
             onLeave={() => onRefHoverLeave?.()}
             onClick={() => onRefOpen?.(rule, refPath ?? fieldPath, refPath ? refValue : value)}
@@ -559,6 +564,7 @@ function TableCell({
           size={16}
           c="var(--atelier-text-ghost)"
           aria-label="Edit cell value"
+          tabIndex={tabIndex}
           onClick={(e) => {
             e.stopPropagation();
             startEdit();
@@ -589,6 +595,7 @@ function TableCell({
           size={16}
           c="var(--atelier-text-ghost)"
           aria-label="Edit cell value"
+          tabIndex={tabIndex}
           onClick={(e) => {
             e.stopPropagation();
             actions.openEdit(doc, fieldPath);
@@ -619,6 +626,7 @@ function TableCell({
           opened={expandOpen}
           onChange={setExpandOpen}
           visible={affordanceVisible}
+          tabIndex={tabIndex}
         />
       )}
     </div>
@@ -638,6 +646,13 @@ interface TableRowProps {
    * selected, both, or neither, and each combination reads distinctly.
    */
   activeIndex: number;
+  /**
+   * The row whose buttons stay in the Tab order: the roving index itself,
+   * which unlike `activeIndex` above keeps naming a row while the grid lacks
+   * focus. Every other row's buttons are `tabIndex={-1}`, so a page of rows is
+   * one tab stop for the grid plus the controls of one row.
+   */
+  tabStopIndex: number;
   copiedCell: string | null;
   expandedRows: Record<string, boolean>;
   deepPaths: Set<string>;
@@ -700,6 +715,7 @@ function TableRowImpl({
   widths,
   indices,
   activeIndex,
+  tabStopIndex,
   copiedCell,
   expandedRows,
   deepPaths,
@@ -739,6 +755,7 @@ function TableRowImpl({
   const [rowHovered, setRowHovered] = React.useState(false);
   const [actionsFocused, setActionsFocused] = React.useState(false);
   const actionsVisible = rowHovered || isActive || actionsFocused;
+  const buttonTabIndex = index === tabStopIndex ? undefined : -1;
   const rowBackground = isSelected
     ? 'var(--atelier-accent-soft)'
     : index % 2 === 0
@@ -829,11 +846,13 @@ function TableRowImpl({
             selected={isSelected}
             docLabel={getDocId(doc)}
             onToggle={() => onToggleSelect(index)}
+            tabIndex={buttonTabIndex}
           />
           <ActionIcon
             variant="subtle"
             color="gray"
             size={20}
+            tabIndex={buttonTabIndex}
             c="var(--atelier-text-ghost)"
             onClick={(e) => {
               e.stopPropagation();
@@ -889,6 +908,7 @@ function TableRowImpl({
               cellKey={cellKey}
               isCopied={isCopied}
               rule={rule}
+              tabIndex={buttonTabIndex}
               onCopyCell={onCopyCell}
               onContextMenu={(e, payload) => onContextMenu(e, { doc, ...payload })}
               onRefHover={onRefHover}
@@ -942,6 +962,7 @@ function TableRowImpl({
                 e.stopPropagation();
                 onEditDoc(doc);
               }}
+              tabIndex={buttonTabIndex}
               aria-label={`${isView ? 'View' : 'Edit'} document ${getDocId(doc)}`}
             >
               {I.edit}
@@ -957,6 +978,7 @@ function TableRowImpl({
                   e.stopPropagation();
                   onDeleteDoc(doc);
                 }}
+                tabIndex={buttonTabIndex}
                 aria-label={`Delete document ${getDocId(doc)}`}
               >
                 {I.trash}
@@ -981,6 +1003,7 @@ function TableRowImpl({
                   focusMenuOnOpen: viaKeyboard,
                 });
               }}
+              tabIndex={buttonTabIndex}
               aria-label={`More actions for document ${getDocId(doc)}`}
             >
               {I.more}
@@ -1059,6 +1082,7 @@ export function TableView({
   const { state, actions, meta } = useCollectionWorkspace();
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
+  const canDelete = !meta.isView && !meta.isReadOnly;
   const onDuplicateDoc = actions.openDuplicate;
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
@@ -1431,6 +1455,13 @@ export function TableView({
         onEditDoc(documents[roving.activeIndex]);
         return;
       }
+      if (isDeleteKey(e)) {
+        // Views and read-only snapshots offer no delete, so the key is left alone.
+        if (documents.length === 0 || !canDelete) return;
+        e.preventDefault();
+        onDeleteDoc(documents[roving.activeIndex]);
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -1441,7 +1472,7 @@ export function TableView({
     // `roving` itself is a fresh object every render (see `handleSelect`
     // above) — depend on the members this actually reads instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, openDocMenu],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, onDeleteDoc, canDelete, openDocMenu],
   );
 
   const rowProps = React.useMemo<TableRowProps>(
@@ -1451,6 +1482,7 @@ export function TableView({
       widths,
       indices: selection.indices,
       activeIndex: roving.highlightIndex,
+      tabStopIndex: roving.activeIndex,
       copiedCell,
       expandedRows,
       deepPaths,
@@ -1479,6 +1511,7 @@ export function TableView({
       widths,
       selection.indices,
       roving.highlightIndex,
+      roving.activeIndex,
       copiedCell,
       expandedRows,
       deepPaths,
