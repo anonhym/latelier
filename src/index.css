@@ -148,7 +148,11 @@ body { font-family: "Inter", system-ui, sans-serif; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.35); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
-* { -webkit-font-smoothing: antialiased; }
+/* geometricPrecision gives Linux the fractional glyph advances macOS already
+   has. Without it, hinted whole-pixel advances set the same text about 16%
+   wider there, which is enough to cut labels that fit everywhere else. On `*`
+   because form controls reset this property, so inheriting would miss them. */
+* { -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
 input, button, select, textarea { font-family: inherit; }
 a { text-decoration: none; }
 
