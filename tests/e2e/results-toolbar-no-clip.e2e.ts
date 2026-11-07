@@ -97,10 +97,16 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         expect(stale.left, `${width}: stale moved a control`).toEqual(fresh.left);
         expect(await countIsCut(win), `${width}: count cut when stale`).toBe(false);
         // From the default window up there is room to say it whole.
-        const staleLabelCut = await win
-          .getByTestId('result-count-stale')
-          .evaluate((el) => el.scrollWidth > el.clientWidth);
-        expect(staleLabelCut && width >= 1280, `${width}: "not current" cut`).toBe(false);
+        const label = await win.getByTestId('result-count-stale').evaluate((el) => ({
+          text: el.scrollWidth,
+          box: el.clientWidth,
+          slot: el.parentElement?.clientWidth,
+          bar: el.closest('[data-testid="result-bar"]')?.clientWidth,
+        }));
+        expect(
+          label.text > label.box && width >= 1280,
+          `${width}: "not current" cut ${JSON.stringify(label)}`,
+        ).toBe(false);
 
         await input.fill('{}');
         await expect(win.getByTestId('result-count-stale')).toHaveCount(0);

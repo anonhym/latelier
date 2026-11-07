@@ -192,8 +192,16 @@ export function ResultBar() {
         >
           {I.chevL}
         </ActionIcon>
-        {/* Reserved for a four-digit page count, so Next and Last hold still. */}
-        <span style={{ minWidth: 48, textAlign: 'center', color: T.text, fontVariantNumeric: 'tabular-nums' }}>
+        {/* Room for "2400 / 2400", the widest this page count reaches, so Next and Last hold still. */}
+        <span
+          data-testid="page-label"
+          style={{
+            minWidth: `max(48px, ${2 * String(totalPages ?? '').length + 3}ch)`,
+            textAlign: 'center',
+            color: T.text,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
           {page + 1}
           {totalPages !== null ? ` / ${totalPages}` : ''}
         </span>

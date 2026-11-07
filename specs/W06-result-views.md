@@ -114,7 +114,7 @@ Each view is one tab stop (`role="tree"` for Tree and JSON, the grid for Table) 
 - `Enter` or `Space`: in Tree, expands or collapses the active row; in Table, selects only the active row (or clears it if it was already the sole selection); in JSON, only keeps the card active (a card has nothing to expand). `Cmd/Ctrl+Enter` is Run, never a row action.
 - `E` edits the active document in all three views (unmodified key only).
 - `Shift+F10` or the ContextMenu key opens the document menu for the active row in Table and JSON.
-- `D` deletes the active document in all three views, through the same confirmation as the row's Delete button (unmodified key only). On a view or a read-only snapshot, which offer no delete, the key does nothing.
+- `D` deletes the active document in all three views, through the same confirmation as the row's Delete button (unmodified key only). On a view or a read-only snapshot, which offer no delete, the key does nothing. On a read-only connection it opens the confirmation with Delete disabled and the reason, as the row's button does.
 
 ### Performance
 - Table, Tree and JSON rows are always virtualized with `react-window` (no row-count threshold).
