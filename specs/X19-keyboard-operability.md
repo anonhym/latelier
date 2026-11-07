@@ -97,6 +97,13 @@ they cannot use.
   real focus throughout and only the pointer moves.
 - Because `aria-activedescendant` must reference a *mounted* element, the active
   index change and the `react-window` scroll-into-view are one operation, not two.
+- A move is an urgent update, so the next key (Space, `D`, Tab) acts on the row it
+  moved to. The exception is a sustained run: after 8 moves with no pause, further
+  moves are transitions until the keys pause for 250 ms and the last move has
+  settled. Urgent updates arriving faster than the list renders keep React's
+  nested-update count from ever resetting, and at 50 it throws "Maximum update
+  depth exceeded". During such a run the next key acts on the row that is painted,
+  which can briefly be behind the keys pressed.
 
 ### Test and mutation position
 

@@ -237,6 +237,40 @@ test('table roving focus: a long ArrowDown run lands fully in the viewport, not 
   }));
 
 /**
+ * Keys pressed faster than the list can render used to crash the workspace
+ * into the error boundary with React's "Maximum update depth exceeded": each
+ * urgent key press left work pending on every commit, so React's nested-update
+ * count climbed across presses, about three per press once rows were mounting.
+ * One pass from a fresh grid can finish under the limit, so this keeps going,
+ * and it covers all three views because each has its own rows and row heights.
+ * Pressing without a pause is the point. It also proves no key press is lost.
+ * The sibling tests that press ArrowDown then Tab or Space prove the other half:
+ * a short run must not defer, or the second key acts on the previous row.
+ */
+test('every view survives repeated full-speed ArrowDown runs without losing a press', async () =>
+  withRovingFocusTable('Held Arrow Key', async ({ win }) => {
+    const ws = new WorkspacePage(win);
+    for (const { button, role, prefix } of [
+      { button: ws.viewTableButton, role: 'grid', prefix: 'table-row-' },
+      { button: ws.viewTreeButton, role: 'tree', prefix: 'tree-row-' },
+      { button: ws.viewJsonButton, role: 'tree', prefix: 'json-row-' },
+    ] as const) {
+      await button.click();
+      const list = win.getByRole(role, { name: 'Documents' });
+      await expect(win.locator(`#${prefix}0`)).toBeVisible({ timeout: 8000 });
+      await list.focus();
+      for (let pass = 0; pass < 3; pass++) {
+        await win.keyboard.press('Home');
+        for (let i = 0; i < DOC_COUNT - 1; i++) {
+          await win.keyboard.press('ArrowDown');
+        }
+        await expect(list).toHaveAttribute('aria-activedescendant', `${prefix}${DOC_COUNT - 1}`);
+        await expect(win.locator(`#${prefix}${DOC_COUNT - 1}`)).toBeInViewport({ ratio: 1 });
+      }
+    }
+  }));
+
+/**
  * #62 — `TreeView.tsx` wires the identical `useDynamicRowHeight` +
  * `scrollToRow({ align: 'auto' })` pattern through the same
  * `useRovingFocus` driver as `TableView`, so the fix belongs in the shared
