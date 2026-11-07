@@ -31,6 +31,8 @@ interface LoadedFrame {
   result: ReferenceResolveResult | null;
   loading: boolean;
   error: string | null;
+  /** Opened from a list with its document in hand, so there is nothing to resolve. */
+  picked?: boolean;
 }
 
 export function ReferenceDrawer({
@@ -62,7 +64,7 @@ export function ReferenceDrawer({
   }, [stack]);
 
   React.useEffect(() => {
-    if (!topFrame) return;
+    if (!topFrame || loaded[topFrame.id]?.picked) return;
     let cancelled = false;
     setLoaded((prev) => {
       if (prev[topFrame.id]) return prev;
@@ -122,21 +124,23 @@ export function ReferenceDrawer({
     onPush({ id: makeFrameId(rule), rule, value, label: field });
   };
 
-  // Drilling into one element of a multi-doc list pushes a child frame whose
-  // value is that element's targetField. The drawer's resolve effect then
-  // rerolls into the single-doc UI for the new frame.
+  // Drilling into one element of a multi-doc list opens the document already in
+  // hand. Resolving again by its targetField could not: the field may be dotted
+  // or outside the rule's projection, and a value two documents share would only
+  // resolve back to this list.
   const handleListPick = (doc: Record<string, unknown>) => {
-    const pickValue = doc[topFrame.rule.targetField];
-    if (pickValue === undefined) return;
+    const id = makeFrameId(topFrame.rule);
+    const result = { ruleId: topFrame.rule.id, found: true, documents: [doc], durationMs: 0 };
+    setLoaded((prev) => ({ ...prev, [id]: { result, loading: false, error: null, picked: true } }));
     const label =
       (topFrame.rule.displayTemplate
         ? renderDisplayTemplate(topFrame.rule.displayTemplate, doc)
         : '') ||
       topFrame.rule.targetCollection;
     onPush({
-      id: makeFrameId(topFrame.rule),
+      id,
       rule: topFrame.rule,
-      value: pickValue,
+      value: doc[topFrame.rule.targetField] ?? doc._id,
       label,
     });
   };
