@@ -105,11 +105,6 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
             slot: el.parentElement?.clientWidth,
             bar: el.closest('[data-testid="result-bar"]')?.clientWidth,
             font: `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`,
-            inter: [...document.fonts]
-              .filter((f) => f.family.includes('Inter'))
-              .map((f) => f.status)
-              .join(),
-            loaded: document.fonts.check(`${style.fontWeight} ${style.fontSize} Inter`),
           };
         });
         expect(

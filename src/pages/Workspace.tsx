@@ -1209,7 +1209,6 @@ function WorkspaceInner() {
         overflow: 'hidden',
         background: T.bg,
         color: T.text,
-        fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
       <ShellSection
