@@ -81,7 +81,11 @@ export default function App() {
   return (
     <MantineProvider theme={mantineTheme} forceColorScheme={dark ? 'dark' : 'light'}>
       <ModalsProvider>
-        <Notifications position="bottom-right" />
+        {/* Bottom-left, not bottom-right: every dialog's primary buttons are right-aligned
+            in its footer, and a stack of two toasts rises into that footer in a
+            short window. The left side is clear of them at the 900 px minimum
+            width as well as at 1280. */}
+        <Notifications position="bottom-left" />
         <HintsProvider>
           {splashVisible && <Splash />}
           <RouterProvider router={router} />

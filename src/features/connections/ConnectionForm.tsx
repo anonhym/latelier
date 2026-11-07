@@ -201,9 +201,9 @@ function Field({ label, required, error, group, children }: {
   );
 }
 
-function Input({ value, onChange, placeholder, type = 'text', style: sx, readOnly }: {
+function Input({ value, onChange, placeholder, type = 'text', style: sx, readOnly, autoFocus }: {
   value: string; onChange: (v: string) => void; placeholder?: string;
-  type?: string; style?: React.CSSProperties; readOnly?: boolean;
+  type?: string; style?: React.CSSProperties; readOnly?: boolean; autoFocus?: boolean;
 }) {
   const T = themeVars;
   const fieldProps = useFieldControlProps();
@@ -217,6 +217,9 @@ function Input({ value, onChange, placeholder, type = 'text', style: sx, readOnl
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       readOnly={readOnly}
+      // `data-autofocus` is what Mantine's Modal focus trap looks for; plain autoFocus alone loses to it.
+      data-autofocus={autoFocus ? true : undefined}
+      autoFocus={autoFocus}
       style={{
         width: '100%', boxSizing: 'border-box',
         padding: '6px 10px', border: `1px solid ${T.border}`,
@@ -412,12 +415,13 @@ function FilePathRow({ purpose, label, value, onChange, placeholder }: {
 
 
 function GeneralTab({
-  form, set, fieldErrors, onPasteUri,
+  form, set, fieldErrors, onPasteUri, focusName,
 }: {
   form: FormState;
   set: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   fieldErrors: Record<string, string>;
   onPasteUri: (uri: string) => void;
+  focusName: boolean;
 }) {
   const T = themeVars;
   const [showUri, setShowUri] = React.useState(false);
@@ -435,7 +439,7 @@ function GeneralTab({
         <SectionDivider>Identity</SectionDivider>
         <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
           <Field label="Name" required error={fieldErrors['name']}>
-            <Input value={form.name} onChange={(v) => set('name', v)} placeholder="My MongoDB Server" />
+            <Input value={form.name} onChange={(v) => set('name', v)} placeholder="My MongoDB Server" autoFocus={focusName} />
           </Field>
           <Field label="Color" group>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -975,6 +979,10 @@ function ConnectionFormImpl({
   );
   const fieldErrors = formApi.errors as Record<string, string>;
   const [loading, setLoading] = React.useState<boolean>(isEdit);
+  // A dialog opens on its Name field rather than its Close button. Cleared by
+  // the first tab change, so coming back to General never pulls focus off the
+  // tab strip. The page form is not a dialog and keeps its focus where it is.
+  const [focusName, setFocusName] = React.useState(embedded && initialFocus !== 'password');
   const [saving, setSaving] = React.useState(false);
   // The ⌘S listener closes over a stale `saving`; this ref gives it a live read.
   const savingRef = React.useRef(false);
@@ -1250,7 +1258,10 @@ function ConnectionFormImpl({
       )}
 
       <div style={{
-        flex: 1, overflowY: 'auto',
+        flex: 1, minHeight: 0,
+        // Embedded in a fixed-size dialog only the tab panel scrolls, so the
+        // footer stays docked; the page form scrolls as a whole.
+        overflowY: embedded ? 'hidden' : 'auto',
         display: 'flex', justifyContent: 'center',
         padding: embedded ? 0 : '28px 16px 40px',
       }}>
@@ -1276,7 +1287,7 @@ function ConnectionFormImpl({
               expect to find alone in the document. */}
           <Tabs
             value={tab}
-            onChange={(v) => { if (v) setTab(v as NCTab); }}
+            onChange={(v) => { if (v) { setFocusName(false); setTab(v as NCTab); } }}
             keepMounted={false}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
           >
@@ -1299,6 +1310,7 @@ function ConnectionFormImpl({
                       set={set}
                       fieldErrors={fieldErrors}
                       onPasteUri={(uri) => void handlePasteUri(uri)}
+                      focusName={focusName}
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="Auth">
