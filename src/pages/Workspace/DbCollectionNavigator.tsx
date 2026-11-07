@@ -1224,6 +1224,8 @@ export function DbCollectionNavigator({
         <div
           style={{
             flex: 1,
+            // Without this the input's intrinsic width pushes Refresh out of the panel.
+            minWidth: 0,
             display: 'flex',
             alignItems: 'center',
             gap: 6,
@@ -1255,6 +1257,7 @@ export function DbCollectionNavigator({
           <ActionIcon
             variant="default"
             size={24}
+            style={{ flexShrink: 0 }}
             c={connectionId && isConnected ? T.textMuted : undefined}
             onClick={() => {
               if (connectionId) void refreshAll(connectionId);
@@ -1299,6 +1302,8 @@ export function DbCollectionNavigator({
             style={{
               flex: 1,
               minHeight: 0,
+              // Rows keep their place when the tree starts or stops fitting.
+              scrollbarGutter: 'stable',
             }}
           />
         )}

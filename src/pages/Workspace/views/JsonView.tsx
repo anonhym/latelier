@@ -619,6 +619,8 @@ export function JsonView({ documents }: JsonViewProps) {
           flex: 1,
           minHeight: 0,
           padding: '8px 12px',
+          // Rows keep their place when the list starts or stops fitting.
+          scrollbarGutter: 'stable',
         }}
       />
       {docMenu && (

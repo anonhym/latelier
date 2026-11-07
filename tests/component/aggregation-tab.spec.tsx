@@ -727,6 +727,20 @@ describe('AggregationTab — cancelling a run', () => {
     expect(log).toHaveBeenCalledWith({ level: 'warn', message: 'aggregation cancel failed: no such run', source: 'component' });
   });
 
+  it('Run, Cancel and Stopping… are one width, so nothing beside them moves', async () => {
+    const pending = deferred<typeof ranOk>();
+    await startWriteRun(pending.promise);
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    const width = cancel.style.width;
+    expect(width).not.toBe('');
+
+    fireEvent.click(cancel);
+    expect((await screen.findByRole('button', { name: /Stopping/ })).style.width).toBe(width);
+
+    await act(async () => pending.resolve(ranOk));
+    expect((await screen.findByRole('button', { name: 'Run' })).style.width).toBe(width);
+  });
+
   it('a cancelled write run that completes shows its result and says the write ran to completion', async () => {
     const pending = deferred<typeof ranOk>();
     const { run, cancel } = await startWriteRun(pending.promise);
@@ -745,7 +759,7 @@ describe('AggregationTab — cancelling a run', () => {
     expect(
       await screen.findByText("The write couldn't be stopped, so it ran to completion."),
     ).toBeTruthy();
-    expect(screen.queryByText('· 7ms')).not.toBeNull();
+    expect(screen.queryByText(/· 7 ms/)).not.toBeNull();
     expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
   });
 

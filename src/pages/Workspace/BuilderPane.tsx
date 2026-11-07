@@ -1436,7 +1436,7 @@ function GroupView({
           >
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: T.text }}>No conditions yet</p>
             <p style={{ margin: 0, maxWidth: 260, fontSize: 12, lineHeight: 1.5, color: T.textMuted }}>
-              Drag a field here from the results, or start from a common filter.
+              This filter matches every document. Drag a field here from the results, or start from a common filter.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 6, maxWidth: 290 }}>
               {FILTER_TEMPLATES.map((tpl) => (
@@ -1840,58 +1840,60 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
         ? 'Counting…'
         : liveCount.state === 'unavailable'
           ? 'Match count unavailable'
-          : root.children.length === 0
-            ? 'Matches every document'
-            : '';
+          : '';
   const summary = rowsSummary(root);
 
+  const notApplied = problems.length > 0 ? problemLabels(root, problems).join(', ') : '';
+  const frozenText = frozenOnDraft
+    ? "Filter text isn't valid JSON — showing this filter as you last left it in the drawer. Fix the text in the bar to edit it."
+    : "Filter text isn't valid JSON — the tree below is the last valid version.";
+
   // Inside the root group's DOM, so a drop on it still lands on the root
-  // (ADR 0007: no drop lands outside every group). Always there, so the list
-  // below starts at the same place whatever the filter's state; only the one
-  // sentence too long to clip, the frozen-tree alert, may wrap past its height.
+  // (ADR 0007: no drop lands outside every group). One fixed line in every state,
+  // so the list below always starts at the same place; a state only swaps the
+  // text. The frozen-tree sentence is too long for it, so a short form shows and
+  // the full one stays in a tooltip and for a screen reader.
   const statusLine = (
     <div
+      data-testid="filter-status-line"
+      title={readOnly ? frozenText : notApplied || undefined}
       style={{
         flexShrink: 0,
-        minHeight: 28,
+        height: 24,
         boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: 2,
-        padding: '4px 10px',
+        padding: '0 10px',
         fontSize: 11,
-        lineHeight: 1.35,
+        lineHeight: '22px',
         color: T.textMuted,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
         borderTop: `1px solid ${T.border}`,
         borderBottom: `1px solid ${T.border}`,
       }}
     >
-      {problems.length > 0 && (
-        <div
-          role="status"
-          title={problemLabels(root, problems).join(', ')}
-          style={{ color: T.redText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-        >
-          ⚠ {problems.length} not applied: {problemLabels(root, problems).join(', ')}
-        </div>
+      {problems.length > 0 && !readOnly && (
+        <span role="status" style={{ color: T.redText }}>
+          ⚠ {problems.length} not applied: {notApplied}
+        </span>
       )}
       {readOnly && (
-        <div role="alert">
-          {frozenOnDraft
-            ? "Filter text isn't valid JSON — showing this filter as you last left it in the drawer. Fix the text in the bar to edit it."
-            : "Filter text isn't valid JSON — the tree below is the last valid version."}
-        </div>
+        <span role="alert" style={{ color: T.warnText }}>
+          <span aria-hidden="true">
+            {frozenOnDraft ? 'Invalid text. Fix it in the bar to edit.' : 'Invalid text. Showing last valid filter.'}
+          </span>
+          <VisuallyHidden>{frozenText}</VisuallyHidden>
+        </span>
       )}
       {problems.length === 0 && !readOnly && (
-        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {/* `aria-live` without `role="status"`: the banners above are the
-              drawer's status roles, and a count is not a problem report. Only
+        <>
+          {/* `aria-live` without `role="status"`: the banner above is the
+              drawer's status role, and a count is not a problem report. Only
               the count is live, so a keystroke in a row announces nothing. */}
-          {liveCountText && <span aria-live="polite">{liveCountText}</span>}
+          <span aria-live="polite">{liveCountText}</span>
           {liveCountText && summary && ' · '}
           {summary}
-        </div>
+        </>
       )}
     </div>
   );
@@ -1913,15 +1915,6 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     />
   );
 }
-
-/** Tight enough that the longest label, "Open as pipeline", fits a third of the default pane. */
-const BOTTOM_ROW_BUTTON = {
-  variant: 'default',
-  h: 28,
-  px: 0,
-  fullWidth: true,
-  styles: { label: { fontSize: 11, fontWeight: 500 } },
-} as const;
 
 function BuilderPaneInner({
   savedRefreshKey,
@@ -2219,35 +2212,31 @@ function BuilderPaneInner({
           />
 
           {/* Pinned bottom row: Reset / Copy code / Open as pipeline, three
-              actions on the whole query, so one even row rather than the
-              filter's own controls. Save lived here too until the QueryBar
-              toolbar Save (always visible, next to Run/History) made this one
-              a duplicate; `saved.create`'s hint anchor moved with it.
-              `SavedStrip` — a preview of the Saved tab one click away — is
-              gone for the same reason.
+              actions on the whole query. Save lived here too until the QueryBar
+              toolbar Save (always visible, next to Run/History) made this one a
+              duplicate; `saved.create`'s hint anchor moved with it. `SavedStrip`,
+              a preview of the Saved tab one click away, is gone for the same
+              reason.
 
-              `auto-fit` keeps three equal columns until a narrow pane can't
-              hold them, then wraps instead of clipping a label. */}
+              Each button keeps its natural width and the row wraps, so the
+              height depends on the pane's width alone and no label clips. */}
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
-              gap: 4,
-              alignItems: 'center',
-              alignContent: 'center',
-              minHeight: 48,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
               boxSizing: 'border-box',
-              padding: '6px 10px',
+              padding: '10px',
               borderTop: `1px solid ${T.border}`,
               flexShrink: 0,
             }}
           >
-            <Button {...BOTTOM_ROW_BUTTON} onClick={handleReset}>
+            <Button variant="default" size="compact-xs" onClick={handleReset}>
               Reset
             </Button>
             <Menu position="top-start" shadow="md">
               <Menu.Target>
-                <Button {...BOTTOM_ROW_BUTTON} rightSection={I.chevD}>
+                <Button variant="default" size="compact-xs" rightSection={I.chevD}>
                   Copy code
                 </Button>
               </Menu.Target>
@@ -2259,7 +2248,7 @@ function BuilderPaneInner({
                 ))}
               </Menu.Dropdown>
             </Menu>
-            <Button {...BOTTOM_ROW_BUTTON} onClick={handleOpenAsPipeline}>
+            <Button variant="default" size="compact-xs" onClick={handleOpenAsPipeline}>
               Open as pipeline
             </Button>
           </div>
