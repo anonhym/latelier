@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Decimal128, Double, Int32, Long } from 'bson';
+import { BSONRegExp, Decimal128, Double, Int32, Long } from 'bson';
 import {
+  matchKey,
   pairInSourceOrder,
   valuesAtPath,
 } from '../../electron/services/referencePairing';
@@ -25,8 +26,20 @@ describe('valuesAtPath', () => {
     expect(valuesAtPath({ tags: ['a', 'b'] }, 'tags')).toEqual([['a', 'b'], 'a', 'b']);
   });
 
+  it('stops at a null on the way down the path', () => {
+    expect(valuesAtPath({ n: null }, 'n.k')).toEqual([]);
+    expect(valuesAtPath({ n: [null, { k: 1 }] }, 'n.k')).toEqual([1]);
+  });
+
   it('does not read a prototype member as a field', () => {
     expect(valuesAtPath({}, 'constructor')).toEqual([undefined]);
+  });
+});
+
+describe('matchKey', () => {
+  it('keeps regex options a JS RegExp cannot hold, as distinct keys', () => {
+    expect(matchKey(new BSONRegExp('a', 'x'))).not.toBe(matchKey(new BSONRegExp('a', '')));
+    expect(matchKey(new BSONRegExp('a', 's'))).toContain('"options":"s"');
   });
 });
 

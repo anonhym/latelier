@@ -104,8 +104,8 @@ Above the result area; matches mock.
    - `projection = buildProjection(state.builder.projection)` if any.
    - `limit = state.builder.limit ? Number(state.builder.limit) : pageSize`.
    - `skip = page * pageSize`.
-2. Validate `filter` is EJSON. If not, abort and show a red pill "Invalid MQL".
-3. `setPending(true); setLastError(null);`
+2. Validate `filter` is EJSON. If not, abort: the rows stay, dimmed, and the reason shows beside Run.
+3. `setPending(true);`
 4. `const res = await api.query.find(FindInput)`.
 5. Display: result bar updates with `documents.length` and `durationMs`. Pass `documents` to W06 result views via context.
 6. `await api.query.count({...})` in parallel for the `totalCount` — separate spinner inside the doc-count pill.
@@ -142,7 +142,7 @@ Each run generates a UUID `cancelToken`, stored in a ref. If a new Run starts, t
   untouched.
 - Run honors the current `queryRaw` regardless of sync state.
 - `⌘↵` runs; `Esc` cancels.
-- A failed run does not clobber a prior successful result (`documents` remain visible until the next success).
+- A run the client refuses keeps the rows, dimmed. A run the server refuses replaces them with the error (W06 §5).
 - The result bar reflects `documents.length`, count (when available), duration, and error state correctly.
 
 ## 8. Test cases
@@ -152,7 +152,7 @@ Each run generates a UUID `cancelToken`, stored in a ref. If a new Run starts, t
 - **dirty-parseable.spec.tsx**: hand-edit to `{ amount: { $gt: 10 } }` → DIRTY pill offers Re-sync. Click it → builder reflects the new condition; SYNCED again.
 - **dirty-freeform.spec.tsx**: hand-edit to `{ $expr: { … } }` → DIRTY (parseNo); builder pane is disabled.
 - **run-uses-queryRaw.spec.tsx**: set DIRTY, click Run → mock `api.query.find` receives the raw bar text, not the builder-compiled MQL.
-- **invalid-ejson.spec.tsx**: bar contains `{ not json` → Run disabled; pill red.
+- **invalid-ejson.spec.tsx**: bar contains `{ not json` → Run disabled; the reason shows beside Run.
 - **cancel-esc.spec.tsx**: start a run (mock resolves after 2s); press Esc → `api.query.cancel` called; no banner shown.
 
 ### Integration

@@ -882,9 +882,12 @@ function CondRow({
           size="xs"
           allowDeselect={false}
           withCheckIcon={false}
-          style={{ width: 88, flexShrink: 0 }}
+          rightSectionWidth={20}
+          // Wide enough for OBJECTID, the longest type, once the padding is this tight.
+          style={{ width: 92, flexShrink: 0 }}
           styles={{
             input: {
+              paddingInlineStart: 8,
               fontSize: T.fsXs,
               fontWeight: 700,
               textTransform: 'uppercase',

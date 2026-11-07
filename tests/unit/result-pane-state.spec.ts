@@ -120,6 +120,11 @@ describe('latestFailedConnection', () => {
     expect(latestFailedConnection(list, { a: {}, b: {} })?.id).toBe('b');
   });
 
+  it('is the last of three, not the second', () => {
+    const list = [conn('a', 'error'), conn('b', 'error'), conn('c', 'error')];
+    expect(latestFailedConnection(list, { a: {}, b: {}, c: {} })?.id).toBe('c');
+  });
+
   it('still names a failure with no message yet', () => {
     expect(latestFailedConnection([conn('a', 'unknown'), conn('b', 'error')], {})?.id).toBe('b');
   });

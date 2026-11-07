@@ -154,6 +154,11 @@ test('every control in a condition row stays inside the drawer at 1280, with no 
     await expect(win.getByRole('button', { name: 'Remove condition' })).toBeVisible();
     expect(await overflow()).toEqual({ stray: [], scrolling: [] });
 
+    // The longest value type has to fit its select too, not only the default one.
+    await win.locator('input[aria-label="Value type"]').click();
+    await win.getByRole('option', { name: 'objectid', exact: true }).click();
+    expect(await overflow()).toEqual({ stray: [], scrolling: [] });
+
     await win.getByRole('button', { name: 'More ways to add', exact: true }).click();
     await win.getByRole('menuitem', { name: 'Add group', exact: true }).click();
     await win.getByRole('button', { name: 'Add condition to group 2', exact: true }).click();

@@ -367,7 +367,7 @@ main process, and it is pure JavaScript with no Node built-ins, so
 
 ### T5 — error feedback
 
-- A failed input shows its reason inline, under that input.
+- A failed input shows its reason on one line beside Run.
 - The message locates the problem by line or column.
 - The stale result count is not presented as current while the input is
   unrunnable.

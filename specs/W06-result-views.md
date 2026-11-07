@@ -92,7 +92,7 @@ Row layout (matches existing mock):
 - Nested objects/arrays show as `{N}` / `[N]` badges that expand into a small popover showing the nested JSON.
 - Any cell with a value has a hover/focus-revealed `⤢` that opens the full, untruncated value in a popover (`FullValuePopover`, shared with Tree leaves).
 - Double-click copies a cell's value. The cell's native title says so next to the drag hint ("Drag to add … to builder · double-click to copy"); no per-cell tooltip component, which would mount one floating instance per cell of a virtualized grid.
-- Right-click on a row → context menu: `Edit`, `Delete`, `Copy`, `Copy as JSON`.
+- Right-click on a row → context menu: `Edit`, `Delete`, `Copy`, `Copy as JSON`. On a view, Edit becomes View document and Delete is gone.
 
 ## 5. Common
 
@@ -114,7 +114,7 @@ Each view is one tab stop (`role="tree"` for Tree and JSON, the grid for Table) 
 - `Enter` or `Space`: in Tree, expands or collapses the active row; in Table, selects only the active row (or clears it if it was already the sole selection); in JSON, only keeps the card active (a card has nothing to expand). `Cmd/Ctrl+Enter` is Run, never a row action.
 - `E` edits the active document in all three views (unmodified key only).
 - `Shift+F10` or the ContextMenu key opens the document menu for the active row in Table and JSON.
-- Not implemented: a `d` shortcut to delete the selected document(s). Deleting is through the row's Delete button or the document menu (W08).
+- `D` deletes the active document in all three views, through the same confirmation as the row's Delete button (unmodified key only). On a view or a read-only snapshot, which offer no delete, the key does nothing.
 
 ### Performance
 - Table, Tree and JSON rows are always virtualized with `react-window` (no row-count threshold).
