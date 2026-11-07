@@ -337,6 +337,8 @@ function DocList({ docs, displayTemplate, onPick }: DocListProps) {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: 'block',
+                height: 'auto',
+                textAlign: 'left',
               },
             }}
           >
