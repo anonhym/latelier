@@ -99,6 +99,10 @@ type DocumentEditorProps = EditModeProps | InsertModeProps;
 
 const SIZE_PREF_KEY = 'ui.workspace.documentEditorSize';
 const DEFAULT_WIDTH = 720;
+// A definite default height, so the dialog is the same size for a one-line
+// document and a long one, and the JSON editor has a height to fill. The 80vh
+// cap on the dialog still wins in a short window.
+const DEFAULT_HEIGHT = 520;
 /** W18 §3 — the filter box appears only past this many top-level fields. */
 const FILTER_BOX_THRESHOLD = 15;
 
@@ -846,7 +850,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     void handleSave();
   };
 
-  const [size, setSize] = React.useState<EditorSize>({ width: DEFAULT_WIDTH });
+  const [size, setSize] = React.useState<EditorSize>({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
   const renderedSize = React.useRef(size);
   // Layout effect: it lands before the browser's resize notifications for the
   // same frame, so a size just rendered is never mistaken for a drag.
@@ -858,7 +862,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
     void api.prefs
       .get<unknown>(SIZE_PREF_KEY)
       .then((v) => {
-        if (live && isEditorSize(v)) setSize(v);
+        // A remembered width with no height keeps the default height rather
+        // than letting the dialog size itself to its content.
+        if (live && isEditorSize(v)) setSize({ height: DEFAULT_HEIGHT, ...v });
       })
       // An unreadable pref leaves the default size; the log keeps the cause.
       .catch((err) => logFailure(`reading preference ${SIZE_PREF_KEY}`, err));
@@ -870,9 +876,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
   // resize handle, so an inline size that differs from the rendered one is a
   // resize to remember — content growing inside an auto height is not.
   const observer = React.useRef<ResizeObserver | null>(null);
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [surfaceEl, setSurfaceEl] = React.useState<HTMLDivElement | null>(null);
   const surfaceRef = React.useCallback((el: HTMLDivElement | null) => {
-    containerRef.current = el;
+    setSurfaceEl(el);
     observer.current?.disconnect();
     observer.current = null;
     if (!el) return;
@@ -910,11 +916,26 @@ export function DocumentEditor(props: DocumentEditorProps) {
   // Close button. `querySelector('[data-autofocus]')` is the trap's own
   // first lookup, ahead of its tabbable-element fallback, so setting the
   // attribute now is visible to it whenever it actually runs.
+  //
+  // It follows the surface element arriving (`surfaceEl`) rather than running
+  // once on mount: the dialog's content mounts in a portal after this
+  // component's first effects, so a mount-time lookup finds no container.
   React.useEffect(() => {
-    if (!focusPath) return;
-    const path = focusPath;
-    const container = containerRef.current;
+    const container = surfaceEl;
     if (!container) return;
+    if (!focusPath) {
+      // No targeted field: open on the first one a person can type in (the
+      // filter box when there is one), not on the dialog's Close button.
+      // Only when `focusPath` is absent, or this would compete with the
+      // targeted `data-autofocus` below. Scoped to the fields list: the view
+      // switch above it has inputs of its own.
+      container
+        .querySelector('[data-testid="document-editor-fields-body"]')
+        ?.querySelector('input:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')
+        ?.setAttribute('data-autofocus', 'true');
+      return;
+    }
+    const path = focusPath;
     const escaped = CSS.escape(path);
     const rowEl = container.querySelector(`[data-field="${escaped}"]`);
     rowEl?.scrollIntoView({ block: 'center' });
@@ -928,7 +949,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
       null;
     control?.setAttribute('data-autofocus', 'true');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [surfaceEl]);
 
   // W18 §6 — the Insert button label, live off the uncommitted JSON buffer:
   // an array shows its count before Save is even pressed, and stays current
@@ -1002,100 +1023,108 @@ export function DocumentEditor(props: DocumentEditorProps) {
         body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
       }}
     >
-      <div
-        ref={surfaceRef}
-        data-testid="document-editor-surface"
-        onKeyDown={handleKeyDown}
-        style={{
-          width: size.width,
-          height: size.height,
-          minWidth: 360,
-          minHeight: 0,
-          maxWidth: '95vw',
-          resize: 'both',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
-      >
-        <Group justify="space-between" align="center">
-          <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
-          <SegmentedControl
-            size="xs"
-            aria-label="View"
-            value={view}
-            onChange={(next) => (next === 'json' ? switchToJson() : trySwitchToFields())}
-            data={[
-              { label: 'Fields', value: 'fields' },
-              { label: 'JSON', value: 'json' },
-            ]}
-          />
-        </Group>
+      {/* The wrapper carries the key handler so ⌘↵ also works from the footer;
+          the footer sits outside the resizable surface so the browser's resize
+          grip lands above it, never on Save. */}
+      <div onKeyDown={handleKeyDown} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div
+          ref={surfaceRef}
+          data-testid="document-editor-surface"
+          style={{
+            width: size.width,
+            height: size.height,
+            minWidth: 360,
+            minHeight: 0,
+            maxWidth: '95vw',
+            resize: 'both',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <Group justify="space-between" align="center">
+            <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
+            <SegmentedControl
+              size="xs"
+              aria-label="View"
+              value={view}
+              onChange={(next) => (next === 'json' ? switchToJson() : trySwitchToFields())}
+              data={[
+                { label: 'Fields', value: 'fields' },
+                { label: 'JSON', value: 'json' },
+              ]}
+            />
+          </Group>
 
-        {view === 'json' ? (
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <ScriptEditor
-                value={jsonText}
-                onChange={(next) => {
-                  setJsonText(next);
-                  setErr(null);
-                }}
-                onBlur={() => void commitJson()}
-                height="100%"
-                ariaLabel="Document JSON"
-                testId="document-editor-json"
-              />
+          {view === 'json' ? (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Absolutely filled, so the editor's own height resolves whatever the
+                  flex shrink did to this box; it scrolls inside instead of growing
+                  under the footer. */}
+              <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                <div style={{ position: 'absolute', inset: 0 }}>
+                  <ScriptEditor
+                    value={jsonText}
+                    onChange={(next) => {
+                      setJsonText(next);
+                      setErr(null);
+                    }}
+                    onBlur={() => void commitJson()}
+                    height="100%"
+                    ariaLabel="Document JSON"
+                    testId="document-editor-json"
+                  />
+                </div>
+              </div>
+              {jsonLiveError && (
+                <Text size="xs" c="red" role="alert" style={{ flex: 'none' }}>
+                  {jsonLiveError}
+                </Text>
+              )}
             </div>
-            {jsonLiveError && (
-              <Text size="xs" c="red" role="alert">
-                {jsonLiveError}
-              </Text>
-            )}
-          </div>
-        ) : (
-          <div data-testid="document-editor-fields-body" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            {Object.keys(draft).length > FILTER_BOX_THRESHOLD && (
-              <TextInput
-                aria-label="Filter fields"
-                placeholder="Filter fields"
-                value={filterText}
-                onChange={(e) => setFilterText(e.currentTarget.value)}
-                size="xs"
-                mb={4}
-              />
-            )}
-            <RowsList ctx={ctx} parentSegments={[]} />
-          </div>
-        )}
+          ) : (
+            <div data-testid="document-editor-fields-body" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {Object.keys(draft).length > FILTER_BOX_THRESHOLD && (
+                <TextInput
+                  aria-label="Filter fields"
+                  placeholder="Filter fields"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.currentTarget.value)}
+                  size="xs"
+                  mb={4}
+                />
+              )}
+              <RowsList ctx={ctx} parentSegments={[]} />
+            </div>
+          )}
 
-        {conflict === 'changed' && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
-            This document changed since you opened it. Reload puts your edits on top of the current version;
-            Overwrite saves them over it.
-            <Group gap={6} mt={6}>
-              <Button size="compact-xs" variant="default" onClick={() => void reload()}>
-                Reload
-              </Button>
-              <Button size="compact-xs" variant="default" color="red" onClick={() => void sendEdit(false)}>
-                Overwrite
-              </Button>
-            </Group>
-          </div>
-        )}
-        {conflict === 'deleted' && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
-            This document was deleted since you opened it. There is nothing left to save to.
-          </div>
-        )}
-        {err && (
-          <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
-            {err}
-          </div>
-        )}
-
-        <Group justify="flex-end" gap={8}>
+          {conflict === 'changed' && (
+            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
+              This document changed since you opened it. Reload puts your edits on top of the current version;
+              Overwrite saves them over it.
+              <Group gap={6} mt={6}>
+                <Button size="compact-xs" variant="default" onClick={() => void reload()}>
+                  Reload
+                </Button>
+                <Button size="compact-xs" variant="default" color="red" onClick={() => void sendEdit(false)}>
+                  Overwrite
+                </Button>
+              </Group>
+            </div>
+          )}
+          {conflict === 'deleted' && (
+            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
+              This document was deleted since you opened it. There is nothing left to save to.
+            </div>
+          )}
+          {err && (
+            <div role="alert" style={{ fontSize: 12, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
+              {err}
+            </div>
+          )}
+        </div>
+        <Group justify="flex-end" gap={8} pt={8} style={{ flex: 'none', borderTop: `1px solid ${themeVars.border}` }}>
           <Button size="compact-sm" variant="default" onClick={() => void requestClose()}>
             Cancel
           </Button>
