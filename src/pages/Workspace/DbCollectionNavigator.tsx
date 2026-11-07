@@ -139,6 +139,7 @@ type TreeRow =
   | { kind: 'coll-empty'; id: string; dbName: string }
   | { kind: 'db-skeleton'; id: string; index: number }
   | { kind: 'db-empty'; id: string; text: string }
+  | { kind: 'filter-empty'; id: string; text: string }
   // Per-root, not a panel above the tree — with several Connections open, a
   // shared error banner can't say which root is down.
   | {
@@ -162,7 +163,7 @@ function navigatorRowDomId(id: string): string {
 }
 
 // #66 — the only three kinds a keyboard/AT user can land on. Everything else
-// (skeleton/db-skeleton/coll-empty/db-empty/conn-error) is inert content: it
+// (skeleton/db-skeleton/coll-empty/db-empty/filter-empty/conn-error) is inert content: it
 // has no `id`, no focus treatment, and nothing to act on. Used everywhere
 // "navigable" is decided, so there's exactly one place that list can drift.
 function isNavigableRow(row: TreeRow): boolean {
@@ -665,6 +666,11 @@ export function DbCollectionNavigator({
           });
         }
       }
+      // Said only once every list is in: a database still loading may yet match.
+      const lists = cache.dbs.map((db) => ownGet(cache.colls, db.name));
+      if (filterActive && lists.every((colls) => colls?.every((c) => !matches(c.name)))) {
+        out.push({ kind: 'filter-empty', id: `nomatch:${conn.id}`, text: `No collections match “${filterLower}”.` });
+      }
     }
     return out;
   }, [
@@ -1161,6 +1167,7 @@ export function DbCollectionNavigator({
       spineFor,
       T,
       setFocusedId,
+      clearFilter: () => setFilter(''),
       toggleConnection,
       toggleDb,
       refreshDb,
@@ -1411,6 +1418,7 @@ interface NavRowProps {
   toggleConnection: (id: string) => void;
   toggleDb: (db: string) => void;
   refreshDb: (connectionId: string, db: string) => void;
+  clearFilter: () => void;
   /** Cancels an in-flight connect — this is `mongo:disconnect`. */
   cancelConnection: (connectionId: string) => void;
   retryConnection: (connectionId: string) => void;
@@ -1437,6 +1445,7 @@ function NavRowImpl({
   toggleConnection,
   toggleDb,
   refreshDb,
+  clearFilter,
   cancelConnection,
   retryConnection,
   reenterPassword,
@@ -1512,6 +1521,15 @@ function NavRowImpl({
     content = (
       <div style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: 12 }}>
         {row.text}
+      </div>
+    );
+  } else if (row.kind === 'filter-empty') {
+    content = (
+      <div data-testid="nav-filter-empty" style={{ padding: '6px 10px 6px 32px', color: T.textMuted, fontSize: 12 }}>
+        <div style={{ marginBottom: 6, overflowWrap: 'anywhere' }}>{row.text}</div>
+        <Button type="button" variant="default" size="compact-xs" fz={11} c={T.text} onClick={clearFilter}>
+          Clear filter
+        </Button>
       </div>
     );
   } else if (row.kind === 'coll-empty') {

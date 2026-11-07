@@ -11,6 +11,8 @@ import { notify } from '../../theme/notifications';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { isKnownNotConnected } from '../../state/connections';
+import { ownGet } from '../../utils/ownProperty';
+import { PaneState } from '../../components/PaneState';
 import type {
   CollectionView,
   CollectionTab,
@@ -50,6 +52,9 @@ import {
 import { useConnectionTransfer } from '../../features/connections/ConnectionTransferProvider';
 import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
 import { ONE_PANEL_BUILDER_PX } from './sidePanels';
+import { GENERIC_CONNECT_ERROR } from './useNavigatorData';
+import type { ConnectErrorInfo } from './navigatorTreeReducer';
+import { latestFailedConnection } from './resultPaneState';
 import { useCollectionTabActions } from './useCollectionTabActions';
 import { useDocumentDialogs } from './useDocumentDialogs';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
@@ -147,6 +152,53 @@ function CenteredPane({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** A pane with no live connection behind it says why, in the words of the state it is in. */
+function ConnectionPane({
+  conn,
+  connectError,
+  onConnect,
+  extraActions,
+}: {
+  conn: ConnectionSummary;
+  connectError?: ConnectErrorInfo;
+  onConnect: () => void;
+  extraActions?: React.ReactNode;
+}) {
+  if (conn.status === 'connecting') return <PaneState title={`Connecting to ${conn.name}…`} />;
+  const connect = (label: string) => (
+    <Button variant="filled" size="xs" onClick={onConnect}>
+      {label}
+    </Button>
+  );
+  if (conn.status === 'error') {
+    return (
+      <PaneState
+        tone="error"
+        title={`Could not connect to ${conn.name}`}
+        detail={connectError?.message ?? GENERIC_CONNECT_ERROR}
+        actions={
+          <>
+            {/* A denied macOS keychain stays denied until relaunch, so Retry cannot succeed. */}
+            {connectError?.code !== 'KEYCHAIN_BLOCKED' && connect('Retry')}
+            {extraActions}
+          </>
+        }
+      />
+    );
+  }
+  if (conn.lostReason) {
+    return (
+      <PaneState
+        tone="error"
+        title={`The connection to ${conn.name} was lost`}
+        detail={conn.lostReason}
+        actions={connect('Reconnect')}
+      />
+    );
+  }
+  return <PaneState title={`${conn.name} is not connected.`} actions={connect('Connect')} />;
+}
+
 // `key={v-${prefsReady}}`/`key={h-${prefsReady}}` must stay on the PanelGroup elements below — jsdom's no-op ResizeObserver means a relocated key passes silently, but workspace-panel-prefs.spec.tsx pins it by DOM identity.
 
 // `actions` must stay the exact `workspaceActions` reference from Workspace.tsx — workspace-actions-identity.spec.tsx pins it across renders.
@@ -186,6 +238,7 @@ export interface PanelBodyProps {
   /** See `IndexCreateRequest` — scoped to `collection`'s own tab by the caller (`Workspace.tsx`) before it reaches here. */
   structureInitialCreate?: IndexCreateRequest | null;
   onStructureInitialCreateConsumed?: () => void;
+  connectErrors: Record<string, ConnectErrorInfo>;
 }
 
 export function PanelBody({
@@ -212,8 +265,27 @@ export function PanelBody({
   notchRef,
   structureInitialCreate,
   onStructureInitialCreateConsumed,
+  connectErrors,
 }: PanelBodyProps) {
   const T = themeVars;
+  const failedConnection = anyConnectionOpen
+    ? null
+    : latestFailedConnection(switcherProps.connections, connectErrors);
+  // Rows already on screen outlive a dropped connection, with the band saying
+  // so. Anywhere else (no rows yet, Structure, a script) a query would only be
+  // the first thing to fail, so the pane says it instead.
+  const connectionLost =
+    focusedConnection?.lostReason &&
+    focusedConnection.status !== 'connected' &&
+    focusedConnection.status !== 'error' &&
+    collection?.view === 'documents' &&
+    collection.tab.state.lastRun
+      ? {
+          reason: focusedConnection.lostReason,
+          reconnecting: focusedConnection.status === 'connecting',
+          onReconnect: () => openConnection(focusedConnection.id),
+        }
+      : undefined;
   const { openImport } = useConnectionTransfer();
   // Bumped by every load that replaces the query wholesale (Reset, Saved and
   // Recent run-here, all in BuilderPane). Lifted here because QueryBar needs
@@ -300,6 +372,13 @@ export function PanelBody({
           <CenteredPane>
             <span>Loading workspace…</span>
           </CenteredPane>
+        ) : tabs.tabs.length === 0 && failedConnection ? (
+          <ConnectionPane
+            conn={failedConnection}
+            connectError={ownGet(connectErrors, failedConnection.id)}
+            onConnect={() => openConnection(failedConnection.id)}
+            extraActions={<ConnectionSwitcher {...switcherProps} variant="cta" />}
+          />
         ) : tabs.tabs.length === 0 ? (
           <CenteredPane>
             <div style={{ textAlign: 'center', maxWidth: 320 }}>
@@ -324,22 +403,13 @@ export function PanelBody({
               )}
             </div>
           </CenteredPane>
-        ) : active && isKnownNotConnected(focusedConnection) ? (
+        ) : active && isKnownNotConnected(focusedConnection) && !connectionLost ? (
           // Never render the result grid off a stale cache while the tab's own connection is dormant.
-          <CenteredPane>
-            <div style={{ textAlign: 'center', maxWidth: 320 }}>
-              <div style={{ color: T.textMuted, marginBottom: 12 }}>
-                {focusedConnection!.name} is not connected.
-              </div>
-              <Button
-                variant="filled"
-                size="xs"
-                onClick={() => openConnection(active.connectionId)}
-              >
-                Connect
-              </Button>
-            </div>
-          </CenteredPane>
+          <ConnectionPane
+            conn={focusedConnection!}
+            connectError={ownGet(connectErrors, active.connectionId)}
+            onConnect={() => openConnection(active.connectionId)}
+          />
         ) : activeScript ? (
           <ScriptTab
             tab={activeScript}
@@ -405,10 +475,14 @@ export function PanelBody({
                       />
                       <ResultViewer>
                         <ResultViewer.Pagination />
-                        <ResultViewer.SelectionBar onDeleteSelected={setDeleteSelected} />
+                        <ResultViewer.SelectionBar
+                          onDeleteSelected={setDeleteSelected}
+                          connectionLost={connectionLost}
+                        />
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                           <ResultViewer.Body
                             onClearFilter={clearActiveFilter}
+                            onQueryReplaced={bumpLoadGen}
                             onColumnResize={handleColumnResize}
                             onRowExpand={handleRowExpand}
                             onSortField={handleSortField}

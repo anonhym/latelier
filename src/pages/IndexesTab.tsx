@@ -43,6 +43,11 @@ export interface IndexCreateRequest {
   suggestion: IndexSuggestion | null;
 }
 
+// Measured against the rendered table (head plus the shorter `_id_` row, which
+// has no drop button, comes to 30 + one row); confirm again if its padding changes.
+const INDEX_TABLE_BASE_PX = 30;
+const INDEX_ROW_PX = 39;
+
 function humanCount(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
@@ -108,6 +113,7 @@ export function IndexesTab({
   dbName,
   collection,
   viewOn,
+  expectedCount,
   initialCreate,
   onInitialCreateConsumed,
   onChanged,
@@ -115,6 +121,8 @@ export function IndexesTab({
   connectionId: string;
   dbName: string;
   collection: string;
+  /** How many indexes the statistics reported, to hold their space while the list loads. */
+  expectedCount?: number;
   /**
    * Set when the namespace is a view: the collection it reads from. The server
    * rejects `listIndexes` on a view, so no list is requested and no create or
@@ -327,8 +335,19 @@ export function IndexesTab({
           </Alert>
         )}
 
-        {!indexError && loadingIndexes && !indexes && (
-          <div style={{ padding: 20, color: T.textMuted, fontSize: 13 }}>Loading indexes…</div>
+        {!indexError && !indexes && viewOn === undefined && (
+          <div
+            style={{
+              boxSizing: 'border-box',
+              // The table's height, so the sections below don't move when it replaces this.
+              minHeight: expectedCount ? INDEX_TABLE_BASE_PX + expectedCount * INDEX_ROW_PX : undefined,
+              padding: 20,
+              color: T.textMuted,
+              fontSize: 13,
+            }}
+          >
+            Loading indexes…
+          </div>
         )}
 
         {drawerOpen && (

@@ -1265,6 +1265,7 @@ function WorkspaceInner() {
           createIndexRequest?.tabId === activeCollection?.id ? createIndexRequest : null
         }
         onStructureInitialCreateConsumed={onCreateIndexConsumed}
+        connectErrors={navigatorTree.connectErrors}
       />
 
       <FeatureHint

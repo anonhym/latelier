@@ -14,7 +14,7 @@ The single-line editor above the result area that shows the compiled MQL, accept
 
 ## Scope
 
-- **In**: Query bar UI, bidirectional sync state machine, Run button, hydration on builder change, hand-edit detection, "Re-sync builder" action, error pill, duration pill, document-count pill.
+- **In**: Query bar UI, bidirectional sync state machine, Run button, hydration on builder change, hand-edit detection, "Re-sync builder" action, the notice beside Run, duration pill, document-count pill. A failed run replaces the results (W06 §5).
 - **Out**: The runner (W03), result rendering (W06), pagination (W07).
 
 ## Dependencies
@@ -66,7 +66,7 @@ Above the result area; matches mock.
 │           [Run]                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ┌─ Result bar ────────────────────────────────────────────────────────────┐
-│ [▲ N docs] · [▲ 42 ms] · [▲ error pill]       [pagination — W07]        │
+│ [▲ N docs] · [▲ 42 ms]                        [pagination — W07]        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,7 +93,7 @@ Above the result area; matches mock.
 - Result bar shows, in order:
   - `N documents` (or `—` if not yet run).
   - Duration `Xms`.
-  - Optional error pill: when last run errored, shows `ERR: <code>` with hover for message; clicking opens a side drawer with the raw error JSON.
+  - When the last run failed and left no rows, "Query failed" in the count's place; the error itself fills the results pane (W06 §5).
   - Pagination controls (W07).
 
 ## 3. Run flow
@@ -127,11 +127,9 @@ Each run generates a UUID `cancelToken`, stored in a ref. If a new Run starts, t
 
 | Error                         | UX |
 | ----------------------------- | -- |
-| Client-side invalid EJSON     | Red pill "Invalid MQL"; Run disabled until fixed. |
-| `MONGO_ERROR` with `AUTH`     | Banner: "Permission denied." |
-| `NETWORK`/`TIMEOUT`           | Pill red "Error — timed out", with retry via Run. |
-| `UNAUTHORIZED`                | Banner: "Your user lacks read access to this collection." |
-| `VALIDATION` (malformed op)   | Pill red with tooltip showing the Mongo error message. |
+| Client-side invalid EJSON     | The reason, in a line beside Run that moves nothing; Run disabled until fixed. Rows stay, dimmed. |
+| `NETWORK`/`UNAUTHORIZED`      | Results pane: the error, with Run again (W06 §5). |
+| Anything else the server refuses (`VALIDATION`, `MONGO_ERROR`, `TIMEOUT`) | Results pane: the whole error, with Revert to last valid query (W06 §5). |
 
 ## 7. Acceptance criteria
 
