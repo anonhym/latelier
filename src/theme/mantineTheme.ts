@@ -29,6 +29,26 @@ const violet: MantineColorsTuple = [
   '#251a55',
 ];
 
+// Mantine paints dark dialogs, menus, dropdowns, popovers and inputs from its
+// `dark` palette, which is neutral grey. Mapped onto the app's blue-black
+// surfaces (index.css `--atelier-*`) so they match the page behind them: 7 is
+// the dialog and dropdown surface (= --atelier-surface), 6 the input and raised
+// surface, 5 hover (= surface-active), 4 borders, 8 and 9 the page and below it.
+// The light steps are text: 0 body (11.8:1 on 7), 2 descriptions, 3 placeholders
+// (5.4:1 on the input surface), so none falls under 4.5:1.
+const dark: MantineColorsTuple = [
+  '#cdd5de',
+  '#b9c2cc',
+  '#a9b4c0',
+  '#8b98a5',
+  '#2e3842',
+  '#232b34',
+  '#1c2228',
+  '#161a1e',
+  '#0f1214',
+  '#0a0d0f',
+];
+
 // White text on a filled control needs 4.5:1. `primaryShade` is one number for
 // every colour and also drives outline borders and `c="red"` text, so moving it
 // would shift variants that are fine today. Only the filled background and its
@@ -58,7 +78,7 @@ export const mantineTheme: MantineThemeOverride = createTheme({
   primaryColor: 'violet',
   respectReducedMotion: true,
   primaryShade: { light: 4, dark: 4 },
-  colors: { violet },
+  colors: { violet, dark },
   variantColorResolver,
   defaultRadius: 'md',
   fontFamily: 'Inter, system-ui, sans-serif',

@@ -26,7 +26,8 @@ import { ConnectionSwitcher, type ConnectionSwitcherProps } from '../../features
 import { ReferenceDrawer } from '../../features/references/ReferenceDrawer';
 import type { UseReferenceRulesResult } from '../../features/references/useReferenceRules';
 import {
-  BUILDER_COLLAPSED_PCT,
+  asPercent,
+  BUILDER_COLLAPSED_PX,
   BUILDER_MIN_PCT,
   isUserChosenBuilderSplit,
 } from './panelSizes';
@@ -254,6 +255,7 @@ export function PanelBody({
   // (Aggregation) or has no Run (Structure). A dialog keeps its own ⌘↵ —
   // same rule as ⌘B in Workspace.tsx; React bubbles portal events here too.
   const runShortcutRef = React.useRef<(() => void) | null>(null);
+  const builderDividerUsed = React.useRef(false);
   const handleRunShortcut = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) {
@@ -289,8 +291,8 @@ export function PanelBody({
       >
         <Panel
           id="v-main"
-          defaultSize={shellOpen && focusedConnection ? 100 - shellSplit : 100}
-          minSize={30}
+          defaultSize={asPercent(shellOpen && focusedConnection ? 100 - shellSplit : 100)}
+          minSize={asPercent(30)}
           style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
         >
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -368,16 +370,20 @@ export function PanelBody({
                 style={{ flex: 1, overflow: 'hidden' }}
                 onKeyDown={handleRunShortcut}
                 onLayoutChanged={(layout) => {
-                  // Geometry-based guard: a state flag races toggleBuilder's synchronous collapse() call.
+                  // Only the divider is a choice to store. Layouts also change when a
+                  // window crosses the one-panel width, and the drawer passes through
+                  // its minimum on the way back to the stored width.
+                  const fromDivider = builderDividerUsed.current;
+                  builderDividerUsed.current = false;
                   const builderPct = layout['h-builder'];
-                  // The drawer's width while the window is narrow is ours, not a choice to store.
-                  if (onePanelOnly || !isUserChosenBuilderSplit(builderPct)) return;
+                  // The drawer's width while the window is narrow is ours, too.
+                  if (!fromDivider || onePanelOnly || !isUserChosenBuilderSplit(builderPct)) return;
                   commitInnerHSplit(builderPct);
                 }}
               >
                 <Panel
                   id="h-result"
-                  defaultSize={100 - innerHSplit}
+                  defaultSize={builderCollapsed ? undefined : asPercent(100 - innerHSplit)}
                   // A plain number is pixels: enough for the toolbar on two rows.
                   minSize={320}
                   style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
@@ -472,14 +478,26 @@ export function PanelBody({
                     zIndex: 2,
                   }}
                   aria-label="Resize Query Builder"
+                  onPointerDown={() => {
+                    builderDividerUsed.current = true;
+                  }}
+                  // Capture: the library resizes in its own listener on this element,
+                  // which runs before a bubbling React handler would.
+                  onKeyDownCapture={(e) => {
+                    if (e.key !== 'Tab') builderDividerUsed.current = true;
+                  }}
                 />
                 <Panel
                   id="h-builder"
                   panelRef={builderPanelRef}
-                  defaultSize={builderCollapsed ? BUILDER_COLLAPSED_PCT : innerHSplit}
-                  minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : BUILDER_MIN_PCT}
-                  collapsible
-                  collapsedSize={BUILDER_COLLAPSED_PCT}
+                  defaultSize={builderCollapsed ? BUILDER_COLLAPSED_PX : asPercent(innerHSplit)}
+                  minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : asPercent(BUILDER_MIN_PCT)}
+                  // Only once the toggle has asked for it: while open, a drag stops at
+                  // the minimum. Otherwise it could collapse the panel without
+                  // `builderCollapsed` knowing, leaving no way to reopen it. Workspace's
+                  // sync effect does the collapse, a frame after this prop turns on.
+                  collapsible={builderCollapsed}
+                  collapsedSize={BUILDER_COLLAPSED_PX}
                   style={{ overflow: 'visible' }}
                 >
                   {builderCollapsed ? (
@@ -630,8 +648,8 @@ export function PanelBody({
             />
             <Panel
               id="v-shell"
-              defaultSize={shellSplit}
-              minSize={10}
+              defaultSize={asPercent(shellSplit)}
+              minSize={asPercent(10)}
               style={{ overflow: 'hidden' }}
             >
               <MongoShellPane

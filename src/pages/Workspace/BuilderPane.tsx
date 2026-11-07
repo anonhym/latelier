@@ -786,7 +786,10 @@ function CondRow({
             title={opProblem}
             error={!!opProblem}
             size="xs"
-            style={{ width: 76, flexShrink: 0 }}
+            // Gives up width before the row overflows the drawer: the field
+            // box keeps its floor, and the remove button is the last control
+            // and the first to be cut off when the row is too wide.
+            style={{ flex: '0 1 76px', minWidth: 52 }}
             styles={{ input: { fontFamily: 'monospace' } }}
           />
           <SuggestionPopover
