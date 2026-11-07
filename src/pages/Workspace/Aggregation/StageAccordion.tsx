@@ -60,8 +60,6 @@ interface AccordionProps {
   onRefreshPreview: (id: number) => void;
 }
 
-const STAGE_BODY_HEIGHT = 316;
-
 function opColor(op: string, dark: boolean) {
   return brightenBadgeForDark(
     OP_COLOR[op] ?? { bg: 'rgba(100,100,100,0.15)', text: '#888' },
@@ -861,10 +859,10 @@ function StageRow({
       </div>
 
       {active && (
-        // One fixed height in every state. This is also what turns on the preview's
-        // own scroll: without a limit, its documents set the card's height and push
-        // everything below it down the page.
-        <div style={{ display: 'flex', height: STAGE_BODY_HEIGHT, boxSizing: 'border-box', borderTop: `1px solid ${T.border}` }}>
+        // One fixed height in every state (`.stage-body` in index.css). This is also
+        // what turns on the preview's own scroll: without a limit, its documents set
+        // the card's height and push everything below it down the page.
+        <div className="stage-body" style={{ boxSizing: 'border-box', borderTop: `1px solid ${T.border}` }}>
           <div style={{ flex: 1, minWidth: 0, padding: 10, display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
@@ -929,15 +927,7 @@ function StageRow({
               <div style={{ flex: 1 }} />
             </div>
           </div>
-          <div
-            style={{
-              width: 280,
-              borderLeft: `1px solid ${T.border}`,
-              display: 'flex',
-              flexDirection: 'column',
-              flexShrink: 0,
-            }}
-          >
+          <div className="stage-preview" style={{ display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
                 padding: '6px 10px',
@@ -1098,7 +1088,7 @@ export function StageAccordion(props: AccordionProps) {
   };
 
   return (
-    <div ref={rootRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+    <div ref={rootRef} className="stage-list" style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
       <div
         style={{
           display: 'flex',

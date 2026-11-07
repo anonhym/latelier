@@ -238,6 +238,9 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
         expect(bar.overflow, `${width}: bar overflow`).toBeLessThanOrEqual(0);
         expect(bar.clipped, `${width}: clipped`).toEqual([]);
         expect(bar.barHeight, `${width}: one row`).toBe(42);
+        // Below some width the editor stacks over its preview instead of shrinking.
+        const editor = await win.getByTestId('stage-body-editor-1').boundingBox();
+        expect(editor!.width, `${width}: stage editor width`).toBeGreaterThanOrEqual(300);
       }
     });
   });

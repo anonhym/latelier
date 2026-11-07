@@ -222,6 +222,18 @@ a { text-decoration: none; }
   background: var(--atelier-accent) !important;
 }
 
+/* An open stage puts its editor beside its preview, and stacks them once the stage
+   list is too narrow for the editor to hold a typical stage. A container query, not
+   the window width: the navigator and outline decide how much room the list has.
+   Both layouts have a fixed height, so a run's documents never move the page. */
+.stage-list { container-type: inline-size; }
+.stage-body { display: flex; height: 316px; }
+.stage-preview { width: 280px; flex-shrink: 0; border-left: 1px solid var(--atelier-border); }
+@container (width < 640px) {
+  .stage-body { flex-direction: column; height: auto; }
+  .stage-preview { width: auto; height: 200px; border-left: none; border-top: 1px solid var(--atelier-border); }
+}
+
 /* 0.01ms, not 0: animationend / transitionend listeners still fire. !important
    beats the inline `animation: spin …` on the connection and navigator spinners. */
 @media (prefers-reduced-motion: reduce) {

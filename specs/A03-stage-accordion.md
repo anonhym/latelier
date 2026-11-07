@@ -57,6 +57,8 @@ Header line, always visible:
 └───────────────────────────────────────────┴────────────────────────────┘
 ```
 
+When the stage list is narrower than 640 px, the editor sits above a full-width preview instead, so the editor never shrinks below a readable width. A container query on the stage list decides this, not the window width, because the navigator and outline take varying room. Both layouts have a fixed height, so preview documents never move the page.
+
 ### Editor
 - Monospace textarea. Grows with content, height clamped (min 140, max 500 px; user-resizable via resize handle).
 - Inline validation: EJSON parse on blur (or after 400ms idle). Error → red bar under editor with message.

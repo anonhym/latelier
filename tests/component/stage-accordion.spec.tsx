@@ -945,8 +945,10 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
 });
 
 describe('StageAccordion body height', () => {
+  // The height itself is a `.stage-body` rule in index.css, which jsdom never
+  // loads; the aggregation e2e measures it.
   const fixedBody = (container: HTMLElement) =>
-    container.querySelector<HTMLElement>('[data-testid="stage-row-7"] [style*="height: 316px"]')!;
+    container.querySelector<HTMLElement>('[data-testid="stage-row-7"] .stage-body')!;
 
   it('is fixed however many preview documents arrive, and the preview scrolls inside', () => {
     const docs = Array.from({ length: 5 }, (_, i) => ({ _id: i, note: 'x'.repeat(200) }));
