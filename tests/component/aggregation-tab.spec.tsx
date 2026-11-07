@@ -837,10 +837,12 @@ describe('AggregationTab — cancelling a run', () => {
       }),
     );
 
-    expect(
-      await screen.findByText('$merge with whenMatched: fail found an existing document'),
-    ).toBeTruthy();
-    expect(screen.getByText('CONFLICT')).toBeTruthy();
+    // The "Stopping…" toast is an alert too; the pane state is the one with a test id.
+    const alert = await screen.findByTestId('pane-state');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.textContent).toContain('CONFLICT: $merge with whenMatched: fail found an existing document');
+    // The server's details, which no other surface shows, stay in the error text.
+    expect(alert.textContent).toContain('"mongoCode": 11000');
     expect(screen.queryByText(/ran to completion/)).toBeNull();
     expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false);
   });

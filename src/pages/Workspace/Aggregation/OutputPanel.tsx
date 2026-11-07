@@ -1,7 +1,8 @@
 import React from 'react';
 import { themeVars } from '../../../theme/themeVars';
 import { I } from '../../../icons';
-import type { AggregationLastRun, ResultViewMode } from '@shared/types';
+import type { AggregationLastRun, LastRunError, ResultViewMode } from '@shared/types';
+import { PaneState } from '../../../components/PaneState';
 import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip, VisuallyHidden } from '@mantine/core';
 import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { copyToClipboard } from '../../../utils/clipboard';
@@ -23,6 +24,10 @@ interface OutputPanelProps {
   onSaveAsCollection: () => void;
   /** Saves the pipeline itself, so it needs no output rows. */
   onSaveAsView: () => void;
+  /** The toolbar's Run, offered again by the empty and failed states. */
+  onRun: () => void;
+  /** False while a stage body does not parse, as for the toolbar's Run. */
+  canRun: boolean;
 }
 
 const DEFAULT_HEIGHT = 260;
@@ -42,6 +47,12 @@ function clampHeight(px: number): number {
  * re-parse to identical BSON, so the copied text still means exactly what the
  * server returned; an int64 stays wrapped rather than arriving rounded.
  */
+/** The whole error, server details included, since nothing else shows them. */
+function errorText(err: LastRunError): string {
+  const head = `${err.code}: ${err.message}`;
+  return err.details === undefined ? head : `${head}\n\n${JSON.stringify(err.details, null, 2)}`;
+}
+
 function safeStringifyArray(rows: unknown[]): string {
   try {
     return ejsonStringifyReadable(rows, 2);
@@ -61,9 +72,10 @@ export function OutputPanel({
   onViewChange,
   onSaveAsCollection,
   onSaveAsView,
+  onRun,
+  canRun,
 }: OutputPanelProps) {
   const T = themeVars;
-  const [errDetails, setErrDetails] = React.useState(false);
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
 
   // `maxHeight()` reads `window.innerHeight` fresh on every call, so the
@@ -123,6 +135,12 @@ export function OutputPanel({
   const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
   const actionsForm = outputBarActions(barWidth);
   const noRows = rows.length === 0;
+  const showsState = !!err || noRows;
+  const runButton = (label: string) => (
+    <Button variant="default" size="xs" disabled={running || !canRun} onClick={onRun}>
+      {label}
+    </Button>
+  );
 
   // Always mounted: a live region only announces text that changes after it
   // exists, so start and finish of a run are both heard.
@@ -284,8 +302,10 @@ export function OutputPanel({
           flex: 1,
           overflowY: 'auto',
           padding: '8px 14px',
-          fontFamily: 'JetBrains Mono, monospace',
-          fontSize: T.fsSm,
+          // A pane state fills the pane in the app's text face; rows keep the code face.
+          ...(showsState
+            ? { display: 'flex', flexDirection: 'column' }
+            : { fontFamily: 'JetBrains Mono, monospace', fontSize: T.fsSm }),
           position: 'relative',
         }}
       >
@@ -311,74 +331,21 @@ export function OutputPanel({
         )}
 
         {err ? (
-          <div
-            role="alert"
-            style={{
-              border: `1px solid ${T.red}`,
-              borderRadius: T.rs,
-              padding: 10,
-              background: 'rgba(180,60,60,0.08)',
-              color: T.text,
-            }}
-          >
-            <div style={{ fontSize: T.fsSm, fontWeight: 600, marginBottom: 4, color: T.red }}>
-              {err.code}
-            </div>
-            <div style={{ fontSize: T.fsSm, whiteSpace: 'pre-wrap' }}>{err.message}</div>
-            <Button
-              variant="subtle"
-              size="compact-xs"
-              fz={T.fsXs}
-              td="underline"
-              c={T.accentInk}
-              mt={8}
-              onClick={() => setErrDetails((d) => !d)}
-            >
-              {errDetails ? 'Hide details' : 'Show details'}
-            </Button>
-            {errDetails && (
-              <pre
-                style={{
-                  marginTop: 8,
-                  padding: 8,
-                  background: T.surfaceRaised,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: T.rs,
-                  fontSize: T.fsXs,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {JSON.stringify(err, null, 2)}
-              </pre>
-            )}
-          </div>
+          <PaneState
+            tone="error"
+            title="The pipeline failed"
+            detail={errorText(err)}
+            actions={runButton('Run again')}
+          />
         ) : !lastRun ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              color: T.textMuted,
-              fontSize: T.fsSm,
-            }}
-          >
-            Run the pipeline to see output.
-          </div>
+          // Not "Run": that name belongs to the toolbar button.
+          <PaneState title="Run the pipeline to see output" actions={runButton('Run pipeline')} />
         ) : rows.length === 0 ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              color: T.textMuted,
-              fontSize: T.fsSm,
-            }}
-          >
-            Pipeline returned no documents.
-          </div>
+          <PaneState
+            title="The pipeline returned no documents"
+            detail="Each stage's preview shows where the documents stop."
+            actions={runButton('Run again')}
+          />
         ) : view === 'JSON' ? (
           <JsonOutput rows={rows} />
         ) : view === 'Table' ? (

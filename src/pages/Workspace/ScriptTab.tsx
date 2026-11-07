@@ -14,6 +14,7 @@ import { invalidateSchemaEnumCache } from '../../features/fieldSuggestions/sourc
 import { themeVars } from '../../theme/themeVars';
 import { Button, Group, Select, TextInput, Tooltip } from '@mantine/core';
 import { ScriptEditor } from '../../components/ScriptEditor';
+import { PaneState } from '../../components/PaneState';
 import { ejsonStringify } from '../../utils/ejson';
 import { isRecord } from '../../utils/displayValue';
 import { ownSet } from '../../utils/ownProperty';
@@ -302,6 +303,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           resultColumns={state.resultColumns}
           resultExpandedRows={state.resultExpandedRows}
           onPatch={onPatch}
+          onRun={() => void runScript()}
         />
       </div>
     </div>
@@ -316,9 +318,11 @@ interface ScriptResultPanelProps {
   resultColumns?: Record<string, { width: number }>;
   resultExpandedRows?: Record<string, boolean>;
   onPatch: (patch: Partial<ScriptTabState>) => void;
+  onRun: () => void;
 }
 
 function ScriptResultPanel({
+  onRun,
   running,
   lastResult,
   lastError,
@@ -352,23 +356,24 @@ function ScriptResultPanel({
     );
   }
 
+  const runAgain = (
+    <Button variant="default" size="xs" onClick={onRun}>
+      Run again
+    </Button>
+  );
+
   if (lastError) {
     return (
-      <div
-        style={{
-          padding: 10,
-          fontSize: T.fsSm,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          color: T.red,
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        <div style={{ fontWeight: 600 }}>{lastError.code}</div>
-        <div>{lastError.message}</div>
-      </div>
+      <PaneState
+        tone="error"
+        title="The script failed"
+        detail={`${lastError.code}: ${lastError.message}`}
+        actions={runAgain}
+      />
     );
   }
 
+  // Before a first run the panel is a 32 px strip, too short for a pane state.
   if (!lastResult) {
     return (
       <div
@@ -388,6 +393,16 @@ function ScriptResultPanel({
   }
 
   const printed = lastResult.printBuffer;
+
+  if (lastResult.valueJson === null && printed.length === 0) {
+    return (
+      <PaneState
+        title="The script returned nothing"
+        detail={`It ran in ${lastResult.durationMs} ms, printed nothing, and its last line has no value.`}
+        actions={runAgain}
+      />
+    );
+  }
 
   return (
     <div

@@ -40,6 +40,8 @@ function renderPanel(
     onViewChange?: (v: ResultViewMode) => void;
     onSaveAsCollection?: () => void;
     onSaveAsView?: () => void;
+    onRun?: () => void;
+    canRun?: boolean;
   } = {},
 ) {
   return render(
@@ -54,6 +56,8 @@ function renderPanel(
         onViewChange={overrides.onViewChange ?? vi.fn()}
         onSaveAsCollection={overrides.onSaveAsCollection ?? vi.fn()}
         onSaveAsView={overrides.onSaveAsView ?? vi.fn()}
+        onRun={overrides.onRun ?? vi.fn()}
+        canRun={overrides.canRun ?? true}
       />
   );
 }
@@ -85,7 +89,33 @@ describe('OutputPanel — rendering and view switching', () => {
     };
     renderPanel({ lastRun });
     const alert = screen.getByRole('alert');
-    expect(alert.textContent).toContain('pipeline blew up');
+    expect(alert.textContent).toContain('MONGO_ERROR: pipeline blew up');
+  });
+
+  it('offers the next run from each state, and only when the toolbar could run', () => {
+    const onRun = vi.fn();
+    const failed = { ...runMeta, rows: [], durationMs: 0, error: { code: 'X', message: 'boom' } };
+    const empty = { ...runMeta, rows: [], durationMs: 3 };
+    const cases: Array<[AggregationLastRun | undefined, string, string]> = [
+      [undefined, 'Run the pipeline to see output', 'Run pipeline'],
+      [failed, 'The pipeline failed', 'Run again'],
+      [empty, 'The pipeline returned no documents', 'Run again'],
+    ];
+    for (const [lastRun, title, button] of cases) {
+      const { unmount } = renderPanel({ lastRun, onRun });
+      expect(screen.getByText(title)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      unmount();
+    }
+    expect(onRun).toHaveBeenCalledTimes(3);
+
+    renderPanel({ lastRun: empty, canRun: false });
+    expect((screen.getByRole('button', { name: 'Run again' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disables the next run while a run is in flight', () => {
+    renderPanel({ lastRun: { ...runMeta, rows: [], durationMs: 3 }, running: true });
+    expect((screen.getByRole('button', { name: 'Run again' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('invokes onViewChange when the user clicks a view button', () => {
@@ -172,6 +202,8 @@ describe('OutputPanel — rendering and view switching', () => {
         onViewChange={vi.fn()}
         onSaveAsCollection={vi.fn()}
         onSaveAsView={vi.fn()}
+        onRun={vi.fn()}
+        canRun
       />
     );
     const { rerender } = render(panel(false));
@@ -218,6 +250,8 @@ function ControlledOutputPanel() {
       onViewChange={() => {}}
       onSaveAsCollection={() => {}}
       onSaveAsView={() => {}}
+      onRun={() => {}}
+      canRun
     />
   );
 }
@@ -350,6 +384,8 @@ describe('OutputPanel bar', () => {
         onViewChange={vi.fn()}
         onSaveAsCollection={vi.fn()}
         onSaveAsView={vi.fn()}
+        onRun={vi.fn()}
+        canRun
       />,
     );
     expect(form()).toEqual([true, true, true, true]);

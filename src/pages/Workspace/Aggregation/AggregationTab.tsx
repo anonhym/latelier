@@ -770,6 +770,8 @@ export function AggregationTab({
             onViewChange={onViewChange}
             onSaveAsCollection={onSaveAsCollection}
             onSaveAsView={onSaveAsView}
+            onRun={onRun}
+            canRun={validation.ok}
           />
         </div>
       </div>

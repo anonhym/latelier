@@ -48,6 +48,8 @@ function renderPanel(rows: unknown[], view: ResultViewMode = 'JSON') {
       onViewChange={vi.fn()}
       onSaveAsCollection={vi.fn()}
       onSaveAsView={vi.fn()}
+      onRun={vi.fn()}
+      canRun
     />,
   );
 }
