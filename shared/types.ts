@@ -1106,7 +1106,10 @@ export interface ReferenceResolveResult {
    * For scalar source values this is a 0- or 1-element array. For array
    * source values (e.g. `item_ids: [ObjectId, ObjectId, …]`) the resolver
    * runs `$in` against the target field and returns every match in the
-   * source array's order; unmatched ids are silently dropped.
+   * source array's order; source values that match nothing are silently
+   * dropped. A document the server matched that pairs with no source value
+   * (the server compares numbers across types, a key does not) follows the
+   * ordered ones, so a match is never lost.
    */
   documents: unknown[];
   durationMs: number;

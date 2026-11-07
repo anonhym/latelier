@@ -34,6 +34,7 @@
     "src/pages/Workspace/builder.ts",
     "src/pages/Workspace/builderToPipeline.ts",
     "src/pages/Workspace/queryCaps.ts",
+    "electron/services/referencePairing.ts",
     "src/pages/Workspace/toolbarLayout.ts",
     "src/pages/Workspace/sidePanels.ts",
     "src/pages/Workspace/projection.ts",
