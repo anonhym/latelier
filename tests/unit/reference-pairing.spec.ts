@@ -57,6 +57,11 @@ describe('pairInSourceOrder', () => {
     expect(pairInSourceOrder(['a'], ['first', 'second'], [['a'], ['a']])).toEqual(['first', 'second']);
   });
 
+  it('keeps documents sharing one value together, ahead of the next source value', () => {
+    const out = pairInSourceOrder(['a', 'b'], ['A1', 'B', 'A2'], [['a'], ['b'], ['a']]);
+    expect(out).toEqual(['A1', 'A2', 'B']);
+  });
+
   it('pairs a document found by an array element with any of its keys', () => {
     expect(pairInSourceOrder(['y', 'x'], ['X', 'Y'], [['x', 'x2'], ['y']])).toEqual(['Y', 'X']);
   });

@@ -44,7 +44,9 @@ export function pairInSourceOrder(source: unknown[], docs: unknown[], keysOf: un
   const byKey = new Map<string, number[]>();
   keysOf.forEach((keys, i) => {
     for (const key of new Set(keys.map(matchKey))) {
-      byKey.set(key, [...(byKey.get(key) ?? []), i]);
+      const bucket = byKey.get(key);
+      if (bucket) bucket.push(i);
+      else byKey.set(key, [i]);
     }
   });
   const taken = new Set<number>();
