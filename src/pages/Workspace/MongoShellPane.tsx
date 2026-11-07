@@ -320,7 +320,7 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
           flexShrink: 0,
         }}
       >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: themeVars.gapXs }}>
           {I.terminal}
           <span style={{ fontWeight: 600, color: T.text }}>mongosh</span>
         </span>

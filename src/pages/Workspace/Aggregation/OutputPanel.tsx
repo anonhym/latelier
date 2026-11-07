@@ -205,7 +205,7 @@ export function OutputPanel({
       <Group
         ref={barRef}
         data-testid="output-bar"
-        gap={10}
+        gap={themeVars.gapSm}
         wrap="nowrap"
         style={{
           minHeight: 42,
@@ -427,7 +427,7 @@ function TreeOutput({ rows }: { rows: unknown[] }) {
           }}
         >
           <span style={{ color: T.textGhost }}>{I.doc}</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', flex: 1 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${themeVars.gapXs} ${themeVars.gapLg}`, flex: 1 }}>
             {doc && typeof doc === 'object'
               ? Object.entries(doc as Record<string, unknown>).map(([k, v]) => (
                   <span key={k} style={{ fontSize: T.fsXs, color: T.textMuted }}>

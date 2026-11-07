@@ -307,7 +307,7 @@ export function UpdateConfirm({
             </SubmitButton>
           </Group>
         ) : (
-          <Stack gap={6}>
+          <Stack gap={themeVars.gapXs}>
             <Text size="xs" fw={600}>
               {reviewed.count.toLocaleString()} matching document{reviewed.count === 1 ? '' : 's'}
             </Text>

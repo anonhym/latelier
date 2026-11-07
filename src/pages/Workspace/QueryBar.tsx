@@ -670,7 +670,7 @@ function QueryBarInner({
               // in the 120px track, so the badge drops to its own line
               // rather than spilling under the filter cell.
               ...(!advancedOpen && hasAdvanced && advancedProblems > 0
-                ? { flexWrap: 'wrap', rowGap: 2, paddingTop: 3, paddingBottom: 3 }
+                ? { flexWrap: 'wrap', rowGap: themeVars.gapXs, paddingTop: 3, paddingBottom: 3 }
                 : null),
             }}
           >

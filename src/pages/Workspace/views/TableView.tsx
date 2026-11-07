@@ -520,7 +520,7 @@ function TableCell({
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 'var(--atelier-gap-xs)',
             maxWidth: '100%',
             overflow: 'hidden',
           }}
@@ -836,7 +836,7 @@ function TableRowImpl({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 2,
+            gap: 'var(--atelier-gap-xs)',
             borderBottom: '1px solid var(--atelier-border)',
             borderRight: '1px solid var(--atelier-border)',
             boxSizing: 'border-box',
@@ -940,7 +940,7 @@ function TableRowImpl({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
-            gap: 2,
+            gap: 'var(--atelier-gap-xs)',
             padding: '0 6px',
             borderBottom: '1px solid var(--atelier-border)',
             borderLeft: '1px solid var(--atelier-border)',

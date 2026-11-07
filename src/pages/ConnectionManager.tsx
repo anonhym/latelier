@@ -41,7 +41,7 @@ function TitleBar({ dark, toggle, onCmdK, connectionName }: {
       WebkitAppRegion: 'drag',
     } as React.CSSProperties}>
       <div style={{ width: 70, flexShrink: 0 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <TitleBarBackLink label="Data View" onClick={() => navigate('/workspace')} />
         <span style={{ color: T.textGhost }}>/</span>
         {/* Sister fix to TabStrip's own: a Connection missing from

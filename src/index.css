@@ -9,7 +9,9 @@
 
 /* Type and gap scales (theme-independent). Four type sizes with an 11px floor and
    five gaps replace the ad-hoc literals; src/ lint (no-restricted-syntax) fails a
-   new literal font size, so a size comes from here. Exposed to TS by themeVars.ts. */
+   new literal font size or non-zero gap, so both come from here. Exposed to TS by
+   themeVars.ts. Mantine's named spacing (`gap="xs"` is 10px) is its own scale and
+   stays legal. */
 :root {
   --atelier-fs-xs: 11px;
   --atelier-fs-sm: 12px;

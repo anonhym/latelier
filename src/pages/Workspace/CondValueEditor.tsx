@@ -197,7 +197,7 @@ export function CondValueEditor({
   // The preview sits on its own line: beside the input it took the width the
   // input and its error message needed once the pane was narrow.
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapXs, flex: 1, minWidth: 0 }}>
       <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'flex-start', minWidth: 0 }}>
         <TextInput
           ref={valueInputRef}

@@ -450,7 +450,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
                   if (from === null) return;
                   moveField(from, index);
                 }}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'grab' }}
+                style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, cursor: 'grab' }}
                 title="Drag to reorder"
               >
                 <span style={{ color: T.textGhost, fontSize: T.fsXs, display: 'flex' }}>{I.drag}</span>
@@ -497,7 +497,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
             to show or hide, and keeping them out of `orderedFields` leaves
             the index-based drag and keyboard-move logic untouched. */}
         {notFetchedOnly.length > 0 && (
-          <Stack gap={2} mt={4} data-testid="fields-not-fetched">
+          <Stack gap={themeVars.gapXs} mt={4} data-testid="fields-not-fetched">
             {notFetchedOnly.map((field) => (
               <div key={field} style={{ fontSize: T.fsSm, color: T.textMuted, paddingLeft: 17 }}>
                 {field} — not fetched
@@ -518,7 +518,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
                 {computed.map((c) => (
                   <div
                     key={c.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: T.fsXs }}
+                    style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, fontSize: T.fsXs }}
                   >
                     <span style={{ flex: 1, color: T.text, fontFamily: 'monospace' }}>
                       {c.label ?? c.path}
@@ -537,7 +537,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
               </Stack>
             )}
 
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: themeVars.gapXs, marginTop: 8 }}>
               <TextInput
                 size="xs"
                 aria-label="Computed column path"

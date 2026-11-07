@@ -116,7 +116,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
             {err}
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapSm }}>
           <label style={{ fontSize: T.fsXs, color: T.textMuted }}>
             Database
             <select

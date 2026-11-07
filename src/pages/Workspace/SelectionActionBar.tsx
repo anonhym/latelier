@@ -82,7 +82,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
   return (
     <Group
       data-testid="selection-bar"
-      gap={10}
+      gap={themeVars.gapSm}
       wrap="nowrap"
       style={{
         height: BAR_HEIGHT,

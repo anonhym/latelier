@@ -171,7 +171,7 @@ export function ResultBar() {
       }}
     >
       {/* Pager — first · prev · P/T · next · last */}
-      <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+      <Group gap={themeVars.gapXs} wrap="nowrap" style={{ flexShrink: 0 }}>
         <ActionIcon
           variant="subtle"
           color="gray"

@@ -85,7 +85,7 @@ function JsonNodeImpl({ name, value, depth, path, expandedPaths, onToggle, highl
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: 'var(--atelier-gap-xs)',
           padding: '2px 0',
           paddingLeft: depth * 16,
           fontSize: 'var(--atelier-fs-xs)',

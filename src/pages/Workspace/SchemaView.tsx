@@ -99,7 +99,7 @@ export function SchemaView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: themeVars.gapSm,
           padding: '8px 14px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
@@ -120,7 +120,7 @@ export function SchemaView({
             <span style={{ color: T.textMuted }}>Not sampled yet.</span>
           )}
         </div>
-        <label style={{ color: T.textMuted, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        <label style={{ color: T.textMuted, display: 'inline-flex', gap: themeVars.gapXs, alignItems: 'center' }}>
           <span>Sample size</span>
           <select
             aria-label="Sample size"

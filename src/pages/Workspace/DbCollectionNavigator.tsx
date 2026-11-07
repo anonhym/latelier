@@ -1223,7 +1223,7 @@ export function DbCollectionNavigator({
           padding: '8px 10px',
           borderBottom: `1px solid ${T.border}`,
           display: 'flex',
-          gap: 6,
+          gap: themeVars.gapXs,
           alignItems: 'center',
           flexShrink: 0,
         }}
@@ -1235,7 +1235,7 @@ export function DbCollectionNavigator({
             minWidth: 0,
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: themeVars.gapXs,
             padding: '4px 8px',
             background: T.surfaceRaised,
             border: `1px solid ${T.border}`,
@@ -1761,7 +1761,7 @@ function ConnectionRow({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: themeVars.gapXs,
         fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',
@@ -1888,7 +1888,7 @@ function DbRow({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: themeVars.gapXs,
         fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',
@@ -1932,7 +1932,7 @@ function DbRow({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
+          gap: themeVars.gapXs,
           visibility: barVisible ? 'visible' : 'hidden',
           opacity: barVisible ? 1 : 0,
           transition: 'opacity 80ms',
@@ -2056,7 +2056,7 @@ function CollRow({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: themeVars.gapXs,
         fontSize: T.fsSm,
         cursor: 'pointer',
         userSelect: 'none',

@@ -101,7 +101,7 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: themeVars.gapSm,
           padding: '10px 16px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,

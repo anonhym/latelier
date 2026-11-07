@@ -259,7 +259,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
           <Section value="appearance">
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Theme
                 </Text>
@@ -279,7 +279,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
 
           <Section value="results">
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Default page size
                 </Text>
@@ -299,7 +299,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
             </Group>
 
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Default result view
                 </Text>
@@ -319,7 +319,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
 
           <Section value="editor">
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Editor font size
                 </Text>
@@ -339,7 +339,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
             </Group>
 
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Reopen tabs on launch
                 </Text>
@@ -359,7 +359,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
 
           <Section value="maintenance">
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Hints
                 </Text>
@@ -378,7 +378,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
             </Group>
 
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Diagnostic bundle
                 </Text>
@@ -397,7 +397,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
             </Group>
 
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2} style={{ flex: 1 }}>
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
                 <Text size="sm" fw={600}>
                   Value suggestions
                 </Text>
@@ -416,7 +416,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
             </Group>
 
             {columnKeyProtected !== null && (
-              <Stack gap={2}>
+              <Stack gap="var(--atelier-gap-xs)">
                 <Text size="sm" fw={600}>
                   Local data protection
                 </Text>

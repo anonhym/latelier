@@ -82,7 +82,7 @@ export default function NewConnection() {
           WebkitAppRegion: 'drag',
         } as React.CSSProperties}>
           <div style={{ width: 70, flexShrink: 0 }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <TitleBarBackLink label={backLabel} onClick={() => navigate(backTarget)} />
             <span style={{ color: T.textGhost }}>/</span>
             <span style={{ color: T.textMuted, fontSize: T.fsMd }}>

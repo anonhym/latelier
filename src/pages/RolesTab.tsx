@@ -159,7 +159,7 @@ export function RolesTab({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: themeVars.gapSm,
           padding: '10px 16px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
@@ -267,7 +267,7 @@ export function RolesTab({
                 return (
                   <Table.Tr key={`${r.db}.${r.role}`}>
                     <Table.Td>
-                      <Group gap={6} wrap="nowrap">
+                      <Group gap={themeVars.gapXs} wrap="nowrap">
                         <span style={{ fontFamily: 'monospace', color: T.text }}>{r.role}</span>
                         {r.isBuiltin && (
                           <Badge size="xs" variant="light" color="gray" style={{ textTransform: 'none' }}>

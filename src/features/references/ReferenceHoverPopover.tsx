@@ -67,7 +67,7 @@ export function ReferenceHoverPopover({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: themeVars.gapXs,
           marginBottom: 8,
           color: T.textMuted,
           fontSize: T.fsXs,
@@ -124,7 +124,7 @@ export function ReferenceHoverPopover({
                 key={field}
                 style={{
                   display: 'flex',
-                  gap: 6,
+                  gap: themeVars.gapXs,
                   padding: '2px 0',
                   overflow: 'hidden',
                 }}

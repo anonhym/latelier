@@ -150,7 +150,7 @@ function ConnectionDetailRow({
       viaSshTunnel: Boolean(detail.ssh?.enabled),
     }) !== null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 24, rowGap: 6 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: themeVars.gapXl, rowGap: themeVars.gapXs }}>
       <DetailField label="Default DB" value={detail.defaultDb || '—'} />
       <DetailField
         label="Auth"
@@ -411,7 +411,7 @@ export function ConnectionExpandedTable({
             <Text span size="xs" c="dimmed"> · {formatConnectionType(c.connectionType)}</Text>
           </Table.Td>
           <Table.Td>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs }}>
               <span
                 aria-hidden
                 style={{
@@ -507,7 +507,7 @@ export function ConnectionExpandedTable({
       closeOnEscape={stacked === null && !transfer.isOpen}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapMd }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapSm }}>
           <TextInput
             // Not `autoFocus`: this Modal wraps its body in Mantine's
             // `FocusTrap`, which looks for `[data-autofocus]` first and only

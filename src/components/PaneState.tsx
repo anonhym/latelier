@@ -32,7 +32,7 @@ export function PaneState({ title, detail, tone = 'neutral', actions }: PaneStat
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 10,
+        gap: themeVars.gapSm,
         padding: '16px 24px',
         overflow: 'hidden',
         textAlign: 'center',

@@ -254,7 +254,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
   if (dbName && !dbNames.includes(dbName)) dbNames.unshift(dbName);
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: themeVars.gapLg }}>
       {conn.readOnly && (
         <div id={readOnlyNoteId} style={{ fontSize: T.fsSm, color: T.textMuted }}>
           Read-only connection: killing operations and changing the profiler are disabled.
@@ -269,7 +269,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
             checked={activeOnly}
             onChange={(e) => setActiveOnly(e.currentTarget.checked)}
           />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: T.fsSm, color: T.textMuted }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, fontSize: T.fsSm, color: T.textMuted }}>
             Running ≥
             <input
               type="number"
@@ -404,7 +404,7 @@ export function MonitorTab({ conn, runtime }: { conn: ConnectionSummary; runtime
               { value: '2', label: 'All' },
             ]}
           />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: T.fsSm, color: T.textMuted }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, fontSize: T.fsSm, color: T.textMuted }}>
             slowms
             <input
               type="number"

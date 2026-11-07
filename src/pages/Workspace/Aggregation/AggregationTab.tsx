@@ -636,7 +636,7 @@ export function AggregationTab({
           flexShrink: 0,
         }}
       >
-        <Group gap={6} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+        <Group gap={themeVars.gapXs} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
           <span
             title={state.name ?? undefined}
             style={{ minWidth: 0, fontSize: T.fsSm, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

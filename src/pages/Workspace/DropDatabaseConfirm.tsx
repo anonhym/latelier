@@ -70,7 +70,7 @@ export function DropDatabaseConfirm({
         <Text size="xs" c="dimmed" lh={1.5}>
           This permanently deletes every collection in this database. This cannot be undone.
         </Text>
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Text size="xs" c="dimmed">
             Type the database name to confirm:
           </Text>

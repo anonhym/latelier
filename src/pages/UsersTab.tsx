@@ -234,7 +234,7 @@ export function UsersTab({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: themeVars.gapSm,
           padding: '10px 16px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
@@ -267,7 +267,7 @@ export function UsersTab({
             flex: 1,
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: themeVars.gapXs,
             border: `1px solid ${T.border}`,
             borderRadius: T.rs,
             background: T.surfaceRaised,
@@ -403,7 +403,7 @@ export function UsersTab({
                       style={{ cursor: 'pointer' }}
                     >
                       <Table.Td>
-                        <Group gap={6} wrap="nowrap">
+                        <Group gap={themeVars.gapXs} wrap="nowrap">
                           <DisclosureToggle open={open}>
                             <span
                               style={{
@@ -423,7 +423,7 @@ export function UsersTab({
                         </Group>
                       </Table.Td>
                       <Table.Td>
-                        <Group gap={6} wrap="nowrap">
+                        <Group gap={themeVars.gapXs} wrap="nowrap">
                           <Text size="xs" c="dimmed">{u.db}</Text>
                           {u.db === '$external' && <RoleBadge label="external" />}
                         </Group>
@@ -508,7 +508,7 @@ export function UsersTab({
                             paddingLeft: 38,
                           }}
                         >
-                          <Stack gap={6} py={4}>
+                          <Stack gap={themeVars.gapXs} py={4}>
                             <Text size="xs" c="dimmed">
                               <span style={{ color: T.textMuted }}>External</span>
                               {' · '}
@@ -934,7 +934,7 @@ function DrawerCheck({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: themeVars.gapXs,
         fontSize: T.fsSm,
         color: T.text,
         marginBottom: 4,
@@ -1023,7 +1023,7 @@ function DropUserDialog({
         <Text size="xs" c="dimmed" lh={1.5}>
           This is permanent. Apps using these credentials will fail to authenticate.
         </Text>
-        <Stack gap={6}>
+        <Stack gap={themeVars.gapXs}>
           <Text size="xs" c="dimmed">
             Type the username to confirm:
           </Text>

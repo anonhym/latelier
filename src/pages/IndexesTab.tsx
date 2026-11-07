@@ -270,7 +270,7 @@ export function IndexesTab({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: themeVars.gapSm,
           padding: '10px 16px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
@@ -512,7 +512,7 @@ export function IndexesTab({
                             paddingLeft: 38,
                           }}
                         >
-                          <Stack gap={6} py={4}>
+                          <Stack gap={themeVars.gapXs} py={4}>
                             <Text size="xs" c="dimmed">
                               <span style={{ color: T.textMuted }}>Version</span>
                               {' · v'}
@@ -757,7 +757,7 @@ function CreateIndexDrawer({
             </div>
           )}
           {fields.map((f, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            <div key={i} style={{ display: 'flex', gap: themeVars.gapXs, marginBottom: 6 }}>
               <input
                 aria-label={`Field ${i + 1}`}
                 value={f.field}
@@ -943,7 +943,7 @@ function Check({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: themeVars.gapXs,
         fontSize: T.fsSm,
         color: T.text,
         marginBottom: 4,
@@ -1034,7 +1034,7 @@ function DropConfirmDialog({
         <Text size="xs" c="dimmed" lh={1.5}>
           This is permanent. Queries that relied on this index may slow down.
         </Text>
-        <Stack gap={6}>
+        <Stack gap={themeVars.gapXs}>
           <Text size="xs" c="dimmed">
             Type the index name to confirm:
           </Text>

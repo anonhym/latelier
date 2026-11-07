@@ -113,7 +113,7 @@ function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionIte
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 'var(--atelier-gap-sm)',
         padding: '9px 16px',
         width: '100%',
         background: 'transparent',
@@ -122,7 +122,7 @@ function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionIte
         fontSize: 'var(--atelier-fs-md)',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--atelier-gap-xs)', flex: 1, minWidth: 0 }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {cmd.title}
         </span>

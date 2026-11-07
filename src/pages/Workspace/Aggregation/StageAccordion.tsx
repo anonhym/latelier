@@ -273,7 +273,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 10,
+                        gap: themeVars.gapSm,
                         padding: '8px 12px',
                         cursor: 'pointer',
                         background: active ? T.accentSoft : 'transparent',
@@ -321,7 +321,7 @@ function StageOpPicker({ onPick, renderTrigger, align = 'center' }: StageOpPicke
               <div style={{ fontSize: T.fsXs, color: T.textMuted }}>
                 Custom stage operator (e.g. <code>myStage</code>)
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: themeVars.gapXs }}>
                 <input
                   ref={customInputRef}
                   value={customName}
@@ -775,7 +775,7 @@ function StageRow({
             {stale ? ' ⚠' : ''}
           </span>
         )}
-        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
           <Tooltip label={stage.enabled ? 'Disable' : 'Enable'} withArrow>
             <Button
               variant={stage.enabled ? 'light' : 'default'}
@@ -903,7 +903,7 @@ function StageRow({
             >
               {bodyErr}
             </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: themeVars.gapXs, marginTop: 4 }}>
               <Tooltip label="Copy body" withArrow>
                 <Button variant="default" size="compact-xs" c={T.textMuted} onClick={onCopy}>
                   Copy

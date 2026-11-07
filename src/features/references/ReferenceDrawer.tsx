@@ -162,7 +162,7 @@ export function ReferenceDrawer({
       }}
     >
       <Group
-        gap={6}
+        gap={themeVars.gapXs}
         wrap="nowrap"
         style={{
           padding: '8px 10px',
@@ -393,7 +393,7 @@ function DocFields({ doc, rulesByField, onFollow }: DocFieldsProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: themeVars.gapXs,
               padding: '6px 12px',
               borderBottom: `1px solid ${T.border}`,
               fontSize: T.fsXs,

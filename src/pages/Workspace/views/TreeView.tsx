@@ -86,7 +86,7 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-end',
-        gap: 10,
+        gap: 'var(--atelier-gap-sm)',
         overflow: 'hidden',
         flexWrap: 'nowrap',
         minWidth: 0,
@@ -341,7 +341,7 @@ function DocRowImpl({
           data-testid="tree-row-actions"
           onFocus={() => setActionsFocused(true)}
           onBlur={() => setActionsFocused(false)}
-          style={{ display: 'flex', gap: 2, flexShrink: 0, opacity: actionsVisible ? 1 : 0 }}
+          style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', flexShrink: 0, opacity: actionsVisible ? 1 : 0 }}
         >
           <Tooltip label={isView ? 'View document' : 'Edit document'} withArrow openDelay={400}>
             <ActionIcon

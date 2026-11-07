@@ -70,7 +70,7 @@ export function CollectionHeader({
 
   return (
     <Group
-      gap={10}
+      gap={themeVars.gapSm}
       wrap="nowrap"
       style={{
         padding: '0 14px',

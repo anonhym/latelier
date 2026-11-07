@@ -250,7 +250,7 @@ export function DeleteConfirm({
         )}
 
         {isMulti && (
-          <Stack gap={6}>
+          <Stack gap="var(--atelier-gap-xs)">
             <Text size="xs" c="dimmed">
               Type <strong>{collection}</strong> to confirm
             </Text>

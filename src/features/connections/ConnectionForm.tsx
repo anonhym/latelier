@@ -160,7 +160,7 @@ function Label({ children, required, htmlFor, id }: {
 }) {
   const T = themeVars;
   const style: React.CSSProperties = {
-    fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, marginBottom: 5, display: 'flex', gap: 3,
+    fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, marginBottom: 5, display: 'flex', gap: themeVars.gapXs,
   };
   const content = (
     <>
@@ -274,7 +274,7 @@ function Toggle({ checked, onChange, label, disabled }: {
       onClick={() => onChange(!checked)}
       className="focus-ring"
       style={{
-        display: 'flex', alignItems: 'center', gap: 9,
+        display: 'flex', alignItems: 'center', gap: themeVars.gapSm,
         cursor: disabled ? 'not-allowed' : 'pointer', userSelect: 'none',
         opacity: disabled ? 0.5 : 1,
         // Strip the UA button chrome; every visual below is unchanged.
@@ -385,7 +385,7 @@ function FilePathRow({ purpose, label, value, onChange, placeholder }: {
     }
   };
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
+    <div style={{ display: 'flex', gap: themeVars.gapXs }}>
       <Input value={value} onChange={onChange} placeholder={placeholder} readOnly />
       <Tooltip label="Browse" withArrow openDelay={400}>
         <Button
@@ -434,7 +434,7 @@ function GeneralTab({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapLg }}>
       <div>
         <SectionDivider>Identity</SectionDivider>
         <div style={{ display: 'grid', gap: T.gapMd, marginTop: 10 }}>
@@ -485,7 +485,7 @@ function GeneralTab({
 
         {showUri ? (
           <Field label="Connection URI">
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: themeVars.gapXs }}>
               <Input
                 value={uriDraft}
                 onChange={setUriDraft}
@@ -495,12 +495,12 @@ function GeneralTab({
             </div>
           </Field>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapSm }}>
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: form.type === 'srv' ? '1fr' : '2fr 1fr',
-                gap: 10,
+                gap: themeVars.gapSm,
               }}
             >
               <Field label="Hostname" required error={fieldErrors['host']}>
@@ -516,7 +516,7 @@ function GeneralTab({
                 </Field>
               )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
               <Field label="Default database">
                 <Input
                   value={form.defaultDb}
@@ -624,7 +624,7 @@ function AuthTab({ form, set, fieldErrors, isEdit, focusPassword }: {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapMd }}>
       <Field label="Authentication mechanism">
         <Select value={form.authMech} onChange={(v) => set('authMech', v as FormState['authMech'])}>
           <option value="default">Default (negotiate)</option>
@@ -639,7 +639,7 @@ function AuthTab({ form, set, fieldErrors, isEdit, focusPassword }: {
         form.authMech === 'scram256' ||
         form.authMech === 'scram1') && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
             <Field label="Username" required error={fieldErrors['authUsername']}>
               <Input value={form.authUsername} onChange={(v) => set('authUsername', v)} placeholder="admin" />
             </Field>
@@ -757,7 +757,7 @@ function SSHTab({ form, set }: {
       {form.sshEnabled && (
         <>
           <div style={{ height: 1, background: T.border }} />
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: themeVars.gapSm }}>
             <Field label="SSH Host">
               <Input value={form.sshHost} onChange={(v) => set('sshHost', v)} placeholder="bastion.example.com" />
             </Field>
@@ -778,10 +778,10 @@ function AdvancedTab({ form, set, fieldErrors }: {
 }) {
   const T = themeVars;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapLg }}>
       <div>
         <SectionDivider>Timeouts (ms)</SectionDivider>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: themeVars.gapSm, marginTop: 10 }}>
           <Field label="Connect timeout" error={fieldErrors['advanced.connectTimeoutMs']}>
             <Input value={form.connectTimeoutMs} onChange={(v) => set('connectTimeoutMs', v)} placeholder="10000" />
           </Field>
@@ -797,7 +797,7 @@ function AdvancedTab({ form, set, fieldErrors }: {
           </Field>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
         <Field label="Read preference">
           <Select
             value={form.readPreference}
@@ -847,7 +847,7 @@ function TestStatus({ state, errorMsg }: { state: TestState; errorMsg: string | 
   const c = palette[state];
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 7,
+      display: 'flex', alignItems: 'center', gap: themeVars.gapSm,
       padding: '6px 12px', borderRadius: T.rs,
       background: c.bg, border: `1px solid ${c.border}`,
       color: c.color, fontSize: T.fsXs, maxWidth: 480,
@@ -1346,7 +1346,7 @@ function ConnectionFormImpl({
           )}
 
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
+            display: 'flex', alignItems: 'center', gap: themeVars.gapSm,
             padding: '12px 24px', borderTop: `1px solid ${T.border}`,
             background: T.surfaceRaised,
             ...(embedded ? {} : { borderRadius: `0 0 ${T.r} ${T.r}` }),
@@ -1477,7 +1477,7 @@ function PlaintextFallbackModal({
           <strong>Not recommended.</strong> Anyone with read access to the local database
           {' '}file will be able to recover the password. Use this only on machines you control.
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: themeVars.gapSm }}>
           <Button type="button" variant="subtle" color="gray" size="compact-xs" onClick={close}>
             Cancel
           </Button>

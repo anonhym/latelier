@@ -316,7 +316,7 @@ function FieldNodeImpl({
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 'var(--atelier-gap-xs)',
                 minWidth: 0,
                 overflow: 'hidden',
                 position: 'relative',

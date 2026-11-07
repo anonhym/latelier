@@ -247,7 +247,7 @@ export function TabStrip({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: themeVars.gapXs,
                 padding: '0 10px',
                 fontSize: T.fsXs,
                 fontWeight: 600,
@@ -356,7 +356,7 @@ export function TabStrip({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 5,
+                    gap: themeVars.gapXs,
                     padding: '0 12px',
                     fontSize: T.fsSm,
                     cursor: 'pointer',
@@ -425,7 +425,7 @@ export function TabStrip({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 3,
+            gap: themeVars.gapXs,
             padding: '0 10px',
             color: T.textMuted,
             fontSize: T.fsXs,

@@ -235,7 +235,7 @@ export function ImportDialog({
                 </Text>
               </Stack>
             ) : csv ? (
-              <Stack gap={6}>
+              <Stack gap={themeVars.gapXs}>
                 <Text size="xs" c="dimmed">
                   The first {plural(csv.preview.rows.length, 'row')} of {csv.preview.fileName}. Each column&apos;s type
                   was inferred from the whole file; change any before importing. A dotted header nests, and an empty cell

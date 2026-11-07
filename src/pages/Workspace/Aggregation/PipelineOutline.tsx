@@ -64,7 +64,7 @@ export function PipelineOutline({
         }}
       >
         <span style={{ fontSize: T.fsSm, fontWeight: 600, color: T.text }}>Pipeline</span>
-        <div style={{ display: 'flex', gap: 5 }}>
+        <div style={{ display: 'flex', gap: themeVars.gapXs }}>
           <span
             style={{
               fontSize: T.fsXs,
@@ -98,7 +98,7 @@ export function PipelineOutline({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 7,
+            gap: themeVars.gapSm,
             padding: '5px 12px',
             fontSize: T.fsSm,
             color: T.textMuted,
@@ -133,7 +133,7 @@ export function PipelineOutline({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 7,
+                  gap: themeVars.gapSm,
                   width: '100%',
                   padding: '5px 12px',
                   font: 'inherit',
@@ -207,7 +207,7 @@ export function PipelineOutline({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 7,
+            gap: themeVars.gapSm,
             padding: '5px 12px',
             fontSize: T.fsSm,
             color: T.accentInk,

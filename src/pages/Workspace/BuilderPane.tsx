@@ -1277,7 +1277,7 @@ function GroupView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: themeVars.gapXs,
           padding: isRoot ? '6px 8px' : '0 0 6px',
           ...(isRoot ? { flexShrink: 0, minHeight: 40, boxSizing: 'border-box' } : {}),
         }}
@@ -1306,7 +1306,7 @@ function GroupView({
           }}
         >
           {isNegation ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: themeVars.gapXs }}>
               <span style={{ fontSize: T.fsXs, fontWeight: 700, letterSpacing: 0.3, color: T.accentInk }}>NOT</span>
               <Tooltip label={`Remove negation ${position}`} withArrow>
                 <ActionIcon
@@ -1435,7 +1435,7 @@ function GroupView({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 14,
+              gap: themeVars.gapMd,
               padding: 16,
               textAlign: 'center',
             }}
@@ -1444,7 +1444,7 @@ function GroupView({
             <p style={{ margin: 0, maxWidth: 260, fontSize: T.fsSm, lineHeight: 1.5, color: T.textMuted }}>
               This filter matches every document. Drag a field here from the results, or start from a common filter.
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 6, maxWidth: 290 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: themeVars.gapXs, maxWidth: 290 }}>
               {FILTER_TEMPLATES.map((tpl) => (
                 <Tooltip key={tpl.id} label={`Uses ${tpl.operator}`} withArrow>
                   <Button variant="light" size="compact-xs" onClick={() => addTemplate(tpl)}>
@@ -2230,7 +2230,7 @@ function BuilderPaneInner({
             style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: 6,
+              gap: themeVars.gapXs,
               boxSizing: 'border-box',
               padding: '10px',
               borderTop: `1px solid ${T.border}`,

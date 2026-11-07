@@ -192,7 +192,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
     >
       {/* Toolbar */}
       <Group
-        gap={10}
+        gap={themeVars.gapSm}
         wrap="nowrap"
         style={{
           padding: '6px 12px',
@@ -608,7 +608,7 @@ function ArrayResultView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
+          gap: themeVars.gapXs,
           padding: '0 10px 4px',
           flexShrink: 0,
         }}

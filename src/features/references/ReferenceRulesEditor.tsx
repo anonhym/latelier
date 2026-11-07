@@ -545,7 +545,7 @@ function RuleForm({
       <div style={{ fontSize: T.fsSm, fontWeight: 600, color: T.text, marginBottom: 10 }}>
         {editing ? 'Edit rule' : 'New rule'}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
         <label style={labelStyle}>
           Source field
           <FieldAutocompleteInput
@@ -615,7 +615,7 @@ function RuleForm({
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 6,
+          gap: themeVars.gapXs,
           marginTop: 12,
           fontSize: T.fsSm,
           color: T.textMuted,

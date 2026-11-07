@@ -272,7 +272,7 @@ export function CreateCollectionDrawer({
           size="xs"
         />
 
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Checkbox
             label="Capped collection"
             aria-label="Capped"
@@ -311,7 +311,7 @@ export function CreateCollectionDrawer({
           )}
         </Stack>
 
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Checkbox
             label="Time series"
             aria-label="Time series"
@@ -349,7 +349,7 @@ export function CreateCollectionDrawer({
           )}
         </Stack>
 
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Checkbox
             label="Clustered collection (MongoDB 5.3+)"
             aria-label="Clustered"
@@ -375,7 +375,7 @@ export function CreateCollectionDrawer({
           )}
         </Stack>
 
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Checkbox
             label="Collation (EJSON)"
             aria-label="Collation"
@@ -394,7 +394,7 @@ export function CreateCollectionDrawer({
           )}
         </Stack>
 
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Checkbox
             label="Validator (EJSON)"
             aria-label="Validator"

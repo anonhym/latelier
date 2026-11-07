@@ -72,7 +72,7 @@ export function DropCollectionConfirm({
           This permanently deletes the collection and every document in it. This cannot be
           undone.
         </Text>
-        <Stack gap={6}>
+        <Stack gap="var(--atelier-gap-xs)">
           <Text size="xs" c="dimmed">
             Type the collection name to confirm:
           </Text>

@@ -203,7 +203,7 @@ function OverviewTab({ conn, runtime }: {
   return (
     <div style={{ padding: 20 }}>
       <div style={{
-        display: 'flex', alignItems: 'center', marginBottom: 12, gap: 10,
+        display: 'flex', alignItems: 'center', marginBottom: 12, gap: themeVars.gapSm,
       }}>
         <span style={{ fontSize: T.fsXs, color: T.textMuted }}>
           {lastLoadedAt ? `Updated ${new Date(lastLoadedAt).toLocaleTimeString()}` : 'Never refreshed'}
@@ -382,12 +382,12 @@ function CollectionsTab({ conn, runtime }: {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
+        display: 'flex', alignItems: 'center', gap: themeVars.gapSm,
         padding: '10px 16px', borderBottom: `1px solid ${T.border}`,
         background: T.surface,
       }}>
         <div style={{
-          flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+          flex: 1, display: 'flex', alignItems: 'center', gap: themeVars.gapXs,
           border: `1px solid ${T.border}`, borderRadius: T.rs,
           background: T.surfaceRaised, padding: '4px 8px', maxWidth: 320,
         }}>
@@ -403,7 +403,7 @@ function CollectionsTab({ conn, runtime }: {
             }}
           />
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: T.fsXs, color: T.textMuted, cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, fontSize: T.fsXs, color: T.textMuted, cursor: 'pointer' }}>
           <input
             type="checkbox"
             checked={showSystem}
@@ -498,7 +498,7 @@ function CollectionsTab({ conn, runtime }: {
                         {rows.map((c) => (
                           <Table.Tr key={c.name}>
                             <Table.Td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs }}>
                                 <span style={{ color: T.textGhost, display: 'flex' }}>{I.doc}</span>
                                 <span style={{ fontSize: T.fsSm, fontWeight: 500, color: T.text }}>{c.name}</span>
                               </div>
@@ -619,7 +619,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: T.gapMd, marginBottom: 10 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapSm, marginBottom: 4 }}>
               <span style={{ fontSize: T.fsLg, fontWeight: 700, color: T.text }}>{selected.name}</span>
               <span style={{
                 fontSize: T.fsXs, fontWeight: 600, letterSpacing: '0.05em',
@@ -646,7 +646,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
             <Button variant="subtle" size="compact-xs" leftSection={I.edit} onClick={() => navigate(`/connections/${selected.id}/edit`)}>
               Edit
             </Button>

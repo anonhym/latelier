@@ -305,7 +305,7 @@ export function ExplainDrawer({
                   >
                     {summary.stages.join(' → ')}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: themeVars.gapXs, flexWrap: 'wrap' }}>
                     {summary.collscan ? (
                       <span
                         style={{

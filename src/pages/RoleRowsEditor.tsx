@@ -88,7 +88,7 @@ export function RoleRowsEditor({
         const unknown = Array.isArray(known) && name !== '' && !known.includes(name);
         return (
           <div key={i} style={{ marginBottom: 6 }}>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: themeVars.gapXs }}>
               <Autocomplete
                 aria-label={`Role name ${i + 1}`}
                 value={r.role}

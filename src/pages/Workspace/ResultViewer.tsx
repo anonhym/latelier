@@ -108,7 +108,7 @@ function Body({
       }}
     >
       {showSkeleton ? (
-        <Stack role="status" aria-label="Loading results" gap={6} p="8px 12px">
+        <Stack role="status" aria-label="Loading results" gap="var(--atelier-gap-xs)" p="8px 12px">
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} height={22} />
           ))}

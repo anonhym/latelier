@@ -134,7 +134,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
           This view used to early-return a bare centered message, so anyone
           switching here while it loaded got an unlabelled blank panel. */}
       <Group
-        gap={6}
+        gap={themeVars.gapXs}
         wrap="nowrap"
         px={10}
         pt={10}
@@ -201,7 +201,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         return (
           <Group
             key={item.id}
-            gap={6}
+            gap={themeVars.gapXs}
             wrap="nowrap"
             px={10}
             py={7}

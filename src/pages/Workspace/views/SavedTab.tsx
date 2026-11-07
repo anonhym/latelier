@@ -100,7 +100,7 @@ export function SavedTab({
           This view used to early-return a bare centered message, so anyone
           switching here while it loaded got an unlabelled blank panel. */}
       <Group
-        gap={6}
+        gap={themeVars.gapXs}
         wrap="nowrap"
         px={10}
         pt={10}
@@ -147,7 +147,7 @@ export function SavedTab({
       {!loading && !err && items.map((item) => (
         <Group
           key={item.id}
-          gap={6}
+          gap={themeVars.gapXs}
           wrap="nowrap"
           px={10}
           py={7}

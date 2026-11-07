@@ -26,7 +26,7 @@ function Row({ node }: { node: PlanNode }) {
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 6,
+          gap: themeVars.gapXs,
           padding: '3px 8px',
           marginBottom: 3,
           borderRadius: T.rs,

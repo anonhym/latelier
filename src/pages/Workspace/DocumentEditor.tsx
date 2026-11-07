@@ -1103,7 +1103,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
             <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
               This document changed since you opened it. Reload puts your edits on top of the current version;
               Overwrite saves them over it.
-              <Group gap={6} mt={6}>
+              <Group gap={themeVars.gapXs} mt={6}>
                 <Button size="compact-xs" variant="default" onClick={() => void reload()}>
                   Reload
                 </Button>
