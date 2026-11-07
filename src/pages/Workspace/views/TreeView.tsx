@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { anchorFromRect, isEditKey } from '../../../utils/contextMenuKey';
+import { anchorFromRect, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -143,6 +143,13 @@ interface DocRowProps {
    * selected, both, or neither, and each combination reads distinctly.
    */
   activeIndex: number;
+  /**
+   * The row whose action buttons stay in the Tab order: the roving index
+   * itself, which unlike `activeIndex` above keeps naming a row while the
+   * tree lacks focus. Tabbing from the tree then reaches only this row's
+   * actions, so a 50-row page is one tab stop plus one row, not 250.
+   */
+  tabStopIndex: number;
   deepPaths: Set<string>;
   copiedPath: string | null;
   previewFields?: string[] | null;
@@ -182,6 +189,7 @@ function DocRowImpl({
   expandedRows,
   indices,
   activeIndex,
+  tabStopIndex,
   deepPaths,
   copiedPath,
   previewFields,
@@ -214,6 +222,7 @@ function DocRowImpl({
   const [rowHovered, setRowHovered] = React.useState(false);
   const [actionsFocused, setActionsFocused] = React.useState(false);
   const actionsVisible = rowHovered || isActive || actionsFocused;
+  const buttonTabIndex = index === tabStopIndex ? undefined : -1;
 
   const handleRowClick = (e: React.MouseEvent) => {
     setActiveIndex(index);
@@ -284,6 +293,7 @@ function DocRowImpl({
         <SelectToggle
           selected={isSelected}
           docLabel={getDocId(doc)}
+          tabIndex={buttonTabIndex}
           onToggle={() => {
             onToggleSelect(index);
             setActiveIndex(index);
@@ -293,6 +303,7 @@ function DocRowImpl({
           variant="subtle"
           color="gray"
           size={28}
+          tabIndex={buttonTabIndex}
           c="var(--atelier-text-ghost)"
           onClick={(e) => {
             e.stopPropagation();
@@ -336,6 +347,7 @@ function DocRowImpl({
             <ActionIcon
               variant="default"
               size={26}
+              tabIndex={buttonTabIndex}
               c="var(--atelier-text-muted)"
               onClick={(e) => {
                 e.stopPropagation();
@@ -351,6 +363,7 @@ function DocRowImpl({
               <ActionIcon
                 variant="default"
                 size={26}
+                tabIndex={buttonTabIndex}
                 c="var(--atelier-red)"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -366,6 +379,7 @@ function DocRowImpl({
             <ActionIcon
               variant="default"
               size={26}
+              tabIndex={buttonTabIndex}
               c="var(--atelier-text-muted)"
               onClick={(e) => {
                 e.stopPropagation();
@@ -457,6 +471,7 @@ export function TreeView({
   }, [hasFieldConfig, documents, columnConfig?.order, columnConfig?.hidden]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
+  const canDelete = !meta.isView && !meta.isReadOnly;
   const onDuplicateDoc = actions.openDuplicate;
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
@@ -560,6 +575,13 @@ export function TreeView({
         onEditDoc(documents[roving.activeIndex]);
         return;
       }
+      if (isDeleteKey(e)) {
+        // Views and read-only snapshots offer no delete, so the key is left alone.
+        if (documents.length === 0 || !canDelete) return;
+        e.preventDefault();
+        onDeleteDoc(documents[roving.activeIndex]);
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -572,7 +594,7 @@ export function TreeView({
     // `roving` is a fresh object every render — depend on the members this
     // actually reads instead (same as `TableView`'s `handleGridKeyDown`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc],
+    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh
@@ -584,6 +606,7 @@ export function TreeView({
       expandedRows,
       indices: selection.indices,
       activeIndex: roving.highlightIndex,
+      tabStopIndex: roving.activeIndex,
       deepPaths,
       copiedPath,
       previewFields,
@@ -609,6 +632,7 @@ export function TreeView({
       selection.indices,
       selection.toggle,
       roving.highlightIndex,
+      roving.activeIndex,
       deepPaths,
       copiedPath,
       previewFields,

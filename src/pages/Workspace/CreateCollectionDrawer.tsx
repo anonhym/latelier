@@ -268,6 +268,7 @@ export function CreateCollectionDrawer({
           value={name}
           onChange={(e) => setName(e.currentTarget.value)}
           autoFocus
+          data-autofocus
           size="xs"
         />
 

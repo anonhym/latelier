@@ -292,6 +292,7 @@ export function ReferenceRulesEditor({
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <Button
               ref={newRuleRef}
+              data-autofocus
               size="compact-xs"
               variant="filled"
               leftSection={I.plus}

@@ -246,7 +246,9 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                 {group.label}
               </Text>
               {group.sections.map((s) => (
-                <Tabs.Tab key={s.value} value={s.value}>
+                // The open section's rail tab takes focus on open, not Close:
+                // arrows then change section and Tab enters its controls.
+                <Tabs.Tab key={s.value} value={s.value} data-autofocus={s.value === section ? true : undefined}>
                   {s.label}
                 </Tabs.Tab>
               ))}

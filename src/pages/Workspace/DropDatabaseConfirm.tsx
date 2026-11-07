@@ -77,6 +77,7 @@ export function DropDatabaseConfirm({
           <TextInput
             aria-label="Confirm database name"
             autoFocus
+            data-autofocus
             value={typed}
             onChange={(e) => setTyped(e.currentTarget.value)}
             size="xs"

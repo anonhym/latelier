@@ -12,7 +12,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
+import type { CollectionWorkspaceActions, CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState, TableColumnConfig } from '@shared/types';
 
 const noop = () => {};
@@ -36,12 +36,13 @@ function renderTree(documents: unknown[], opts: {
   onRowExpand?: (id: string, expanded: boolean) => void;
   onSelect?: (doc: unknown) => void;
   actions?: Partial<CollectionWorkspaceActions>;
+  meta?: Partial<CollectionWorkspaceMeta>;
 } = {}) {
   return render(
       <CollectionWorkspaceProvider
         state={emptyState(opts.columnConfig)}
         actions={emptyWorkspaceActions(opts.actions)}
-        meta={emptyWorkspaceMeta()}
+        meta={emptyWorkspaceMeta(opts.meta)}
       >
         <TreeView
           documents={documents}
@@ -248,6 +249,61 @@ describe('TreeView — rendering and interaction', () => {
       fireEvent.keyDown(tree, { key: 'E' });
 
       expect(openEdit).toHaveBeenCalledWith(threeDocs[1]);
+    });
+
+    it('D on the tree opens the delete confirmation for the active row', () => {
+      const openDelete = vi.fn();
+      const { container } = renderTree(threeDocs, { actions: { openDelete } });
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      fireEvent.keyDown(tree, { key: 'D' });
+
+      expect(openDelete).toHaveBeenCalledTimes(1);
+      expect(openDelete).toHaveBeenCalledWith(threeDocs[1]);
+    });
+
+    it('D does nothing with a modifier or from a nested control', () => {
+      const openDelete = vi.fn();
+      const { container } = renderTree(threeDocs, { actions: { openDelete } });
+      const tree = container.querySelector('[role="tree"]')!;
+
+      fireEvent.keyDown(tree, { key: 'd', ctrlKey: true });
+      fireEvent.keyDown(tree, { key: 'd', metaKey: true });
+      fireEvent.keyDown(screen.getAllByRole('button', { name: /^Edit document/ })[0], { key: 'd' });
+
+      expect(openDelete).not.toHaveBeenCalled();
+    });
+
+    it.each([{ isView: true }, { isReadOnly: true }])('D does nothing, and is not swallowed, when %o', (meta) => {
+      const openDelete = vi.fn();
+      const { container } = renderTree(threeDocs, { actions: { openDelete }, meta });
+
+      const notPrevented = fireEvent.keyDown(container.querySelector('[role="tree"]')!, { key: 'd' });
+
+      expect(openDelete).not.toHaveBeenCalled();
+      expect(notPrevented).toBe(true);
+    });
+
+    // One tab stop per list (X19): Tab from the tree reaches only the active
+    // row's actions, so a page of rows is not a page of tab stops.
+    it('only the active row keeps its buttons in the Tab order, and the stop follows the arrows', () => {
+      const { container } = renderTree(threeDocs);
+      const tree = container.querySelector('[role="tree"]')!;
+      const tabStops = () =>
+        screen.getAllByRole('button').filter((b) => b.getAttribute('tabindex') !== '-1').map((b) => b.getAttribute('aria-label'));
+
+      expect(tabStops()).toEqual([
+        'Select document 99439011',
+        'Expand document',
+        'Edit document 99439011',
+        'Delete document 99439011',
+        'More actions for document 99439011',
+      ]);
+
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(tabStops().every((label) => label?.includes('99439012') || label === 'Expand document')).toBe(true);
+      expect(tabStops()).toHaveLength(5);
     });
 
     // Mirrors the existing per-row guard test above, at the container level:

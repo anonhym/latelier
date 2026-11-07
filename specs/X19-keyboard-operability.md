@@ -171,7 +171,9 @@ Per interactive control this spec touches:
 
 Per composite widget (grid, tree, tablist, listbox):
 
-- Exactly one tab stop for the whole widget, never one per child.
+- Exactly one tab stop for the whole widget, never one per child. A list whose
+  rows carry their own buttons keeps the active row's in the Tab order after it,
+  so each pointer action has a keyboard path; no other row's are.
 - Arrow keys move the active child; Home/End jump to first/last.
 - The active child is scrolled into view when it moves.
 - The active child is identified to assistive tech — `aria-activedescendant`
