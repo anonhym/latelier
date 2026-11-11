@@ -2,6 +2,7 @@ import type { PaletteObject } from '../../commands/types';
 import type { WorkspaceTabsState } from '../../state/workspaceTabs';
 import type { NavigatorDialogRequest } from './DbCollectionNavigator';
 import { requestExport } from './exportRequest';
+import { notify } from '../../theme/notifications';
 
 /**
  * A collection as a palette object (X07 §13.4). Each action calls what the
@@ -17,6 +18,8 @@ export function collectionObject(args: {
   tabs: () => WorkspaceTabsState;
   showStructure: (tabId: string, section: 'Indexes' | 'Schema') => void;
   requestDialog: (request: NavigatorDialogRequest) => void;
+  /** Whether the Connection is dormant, read when an action runs. */
+  dormant: () => boolean;
 }): PaletteObject {
   const { connectionId, db, coll, isView, tabs, showStructure, requestDialog } = args;
   const input = { connectionId, dbName: db, collection: coll };
@@ -51,6 +54,12 @@ export function collectionObject(args: {
         // The tab's own Export dialog, which exports from its Documents view.
         perform: async () => {
           const tab = await openReusing();
+          // A dormant tab shows its Connect pane, not the bar that honours the
+          // request, which would otherwise wait and fire after a later connect.
+          if (args.dormant()) {
+            notify.info(`Connect to ${args.connectionName ?? 'the connection'} first, then export.`);
+            return;
+          }
           if ((tab.state.activeView ?? 'documents') !== 'documents') tabs().setActiveView(tab.id, 'documents');
           requestExport(tab.id);
         },

@@ -3,10 +3,11 @@ import { collectionObject } from '../../src/pages/Workspace/collectionObject';
 import { _resetExportRequestForTests, exportRequested } from '../../src/pages/Workspace/exportRequest';
 import type { WorkspaceTabsState } from '../../src/state/workspaceTabs';
 import type { PaletteContext } from '../../src/commands/types';
+import { notify } from '../../src/theme/notifications';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
-function build(isView = false, activeView: string | undefined = 'documents') {
+function build(isView = false, activeView: string | undefined = 'documents', dormant = false) {
   const tab = { id: 't9', state: { activeView } };
   const tabs = {
     openCollection: vi.fn(async () => tab),
@@ -24,6 +25,7 @@ function build(isView = false, activeView: string | undefined = 'documents') {
     tabs: () => tabs as unknown as WorkspaceTabsState,
     showStructure,
     requestDialog,
+    dormant: () => dormant,
   });
   const action = (id: string) => obj.actions.find((a) => a.id === id)!;
   return { obj, tabs, showStructure, requestDialog, action };
@@ -106,6 +108,17 @@ describe('collectionObject', () => {
     await onStructure.action('export').perform(ctx);
     expect(onStructure.tabs.setActiveView).toHaveBeenCalledWith('t9', 'documents');
     expect(exportRequested('t9')).toBe(true);
+  });
+
+  it('on a dormant Connection, opens the tab and says to connect instead of asking for the dialog', async () => {
+    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+    const { tabs, action } = build(false, 'structure', true);
+    await action('export').perform(ctx);
+    expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
+    expect(info).toHaveBeenCalledWith('Connect to Production first, then export.');
+    expect(exportRequested('t9')).toBe(false);
+    expect(tabs.setActiveView).not.toHaveBeenCalled();
+    info.mockRestore();
   });
 
   it('asks the navigator for its Import, Rename and Drop dialogs', async () => {
