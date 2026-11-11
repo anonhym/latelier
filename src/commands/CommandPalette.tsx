@@ -718,12 +718,16 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     performAndClose(cmd.forQuery ? null : cmd.id, cmd.perform, cmd.title);
   };
 
-  /** `⌘↵`: an object's alternate, where it has one; a command performs as on Enter. */
+  /**
+   * `⌘↵`: an object's alternate, where it has one; a command performs as on
+   * Enter. A row listed for a verb has no alternate: the footer offers none.
+   */
   const activateAlternate = (entry: Entry) => {
     if (entry.type !== 'row' || !entry.cmd.object) {
       activate(entry);
       return;
     }
+    if (entry.row.action) return;
     const obj = entry.cmd.object;
     const alt = obj.actions.find((a) => a.alternate);
     if (alt) performAction(obj, alt);

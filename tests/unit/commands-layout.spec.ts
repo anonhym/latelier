@@ -139,12 +139,12 @@ describe('the scope and kind tables', () => {
 
   it('gives every kind its group label, its more-noun and its scope', () => {
     expect(KIND_LAYOUT).toEqual({
-      collection: { group: 'Collections', noun: 'collections', scope: 'collections' },
-      database: { group: 'Databases', noun: 'databases', scope: 'collections' },
-      connection: { group: 'Connections', noun: 'connections', scope: null },
-      tab: { group: 'Tabs', noun: 'tabs', scope: 'tabs' },
-      saved: { group: 'Saved', noun: 'saved', scope: 'saved' },
-      action: { group: 'Actions', noun: 'actions', scope: 'actions' },
+      collection: { group: 'Collections', noun: 'collections', one: 'collection', scope: 'collections' },
+      database: { group: 'Databases', noun: 'databases', one: 'database', scope: 'collections' },
+      connection: { group: 'Connections', noun: 'connections', one: 'connection', scope: null },
+      tab: { group: 'Tabs', noun: 'tabs', one: 'tab', scope: 'tabs' },
+      saved: { group: 'Saved', noun: 'saved', one: 'saved', scope: 'saved' },
+      action: { group: 'Actions', noun: 'actions', one: 'action', scope: 'actions' },
     });
   });
 });
@@ -265,10 +265,12 @@ describe('layoutPalette — typed query in All', () => {
     expect(l.entries.some((e) => e.type === 'more')).toBe(false);
   });
 
-  it('says how many more actions there are', () => {
+  it('says how many more actions there are, singular for one', () => {
     const all = Array.from({ length: 6 }, (_, i) => cmd({ id: `a${i}`, title: `Go ${i}` }));
     const l = layoutPalette(all, 'go', ctx, [], 'all');
-    expect((l.entries.at(-1) as MoreEntry).label).toBe('Show 1 more actions');
+    expect((l.entries.at(-1) as MoreEntry).label).toBe('Show 1 more action');
+    const seven = Array.from({ length: 7 }, (_, i) => cmd({ id: `a${i}`, title: `Go ${i}` }));
+    expect((layoutPalette(seven, 'go', ctx, [], 'all').entries.at(-1) as MoreEntry).label).toBe('Show 2 more actions');
     expect((l.entries.at(-1) as MoreEntry).scope).toBe('actions');
   });
 

@@ -160,7 +160,7 @@ describe('All on a typed query', () => {
   it('switches scope on a click on Show more', () => {
     mount(many(6));
     open('orders');
-    fireEvent.click(dialog().getByRole('option', { name: 'Show 1 more collections' }));
+    fireEvent.click(dialog().getByRole('option', { name: 'Show 1 more collection' }));
     expect(selectedScope()).toBe('Collections');
   });
 });

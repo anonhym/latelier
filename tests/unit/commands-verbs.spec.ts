@@ -180,7 +180,8 @@ describe('a verb in the query', () => {
   it('lists every object with the verb when nothing follows it, in a single scope', () => {
     const l = layoutPalette(all, 'open', ctx, [], 'collections');
     expect(rows(l).map((e) => e.id)).toEqual(['tab.open:c1:shop.orders', 'tab.open:c1:sales.order_items']);
-    expect(l.verb?.verb).toBe('open');
+    // No name follows the verb, so there is no verb line.
+    expect(l.verb).toBeNull();
   });
 
   it('ranks under a verb through rankCapped as well', () => {
@@ -260,7 +261,8 @@ describe('Connections only', () => {
     const l = layoutPalette(all, 'open', ctx, [], 'all', true);
     expect(l.groups.map((g) => g.label)).toEqual([null]);
     expect(rows(l).map((e) => e.kind)).toEqual(Array(7).fill('connection'));
-    expect(l.verb?.verb).toBe('open');
+    expect(l.verb).toBeNull();
+    expect(layoutPalette(all, 'open prod', ctx, [], 'all', true).verb?.verb).toBe('open');
     // Connections have no scope: they count in none.
     expect(l.counts).toEqual({ collections: 1, actions: 1, saved: 0, tabs: 0 });
   });

@@ -37,13 +37,16 @@ export const SCOPE_CAP = 50;
  * Per kind: its group's label in All, the noun of its `Show <n> more` line, and
  * the scope its rows are listed in (Connections have none).
  */
-export const KIND_LAYOUT: Record<RowKind, { group: string; noun: string; scope: Exclude<Scope, 'all'> | null }> = {
-  collection: { group: 'Collections', noun: 'collections', scope: 'collections' },
-  database: { group: 'Databases', noun: 'databases', scope: 'collections' },
-  connection: { group: 'Connections', noun: 'connections', scope: null },
-  tab: { group: 'Tabs', noun: 'tabs', scope: 'tabs' },
-  saved: { group: 'Saved', noun: 'saved', scope: 'saved' },
-  action: { group: 'Actions', noun: 'actions', scope: 'actions' },
+export const KIND_LAYOUT: Record<
+  RowKind,
+  { group: string; noun: string; one: string; scope: Exclude<Scope, 'all'> | null }
+> = {
+  collection: { group: 'Collections', noun: 'collections', one: 'collection', scope: 'collections' },
+  database: { group: 'Databases', noun: 'databases', one: 'database', scope: 'collections' },
+  connection: { group: 'Connections', noun: 'connections', one: 'connection', scope: null },
+  tab: { group: 'Tabs', noun: 'tabs', one: 'tab', scope: 'tabs' },
+  saved: { group: 'Saved', noun: 'saved', one: 'saved', scope: 'saved' },
+  action: { group: 'Actions', noun: 'actions', one: 'action', scope: 'actions' },
 };
 
 /** The tag naming a row's kind under RECENT. */
@@ -183,7 +186,7 @@ export function layoutPalette(
     };
   };
   const addMore = (group: LayoutGroup, kind: RowKind, more: number) => {
-    const { noun, scope: target } = KIND_LAYOUT[kind];
+    const { noun, one, scope: target } = KIND_LAYOUT[kind];
     if (more <= 0 || !target) return;
     const entry: MoreEntry = {
       type: 'more',
@@ -191,7 +194,7 @@ export function layoutPalette(
       index: entries.length,
       kind,
       scope: target,
-      label: `Show ${more} more ${noun}`,
+      label: `Show ${more} more ${more === 1 ? one : noun}`,
     };
     group.entries.push(entry);
     entries.push(entry);
@@ -252,7 +255,9 @@ export function layoutPalette(
     return kind;
   };
   const ranked = rankCapped(all, query, ctx, recentIds, single ? SCOPE_CAP : ALL_CAP, bucketOf, verbQuery);
-  const verb = verbQuery ? parsed : null;
+  // The line reads a verb only when a name follows it (X07 §13.4); a verb
+  // alone in a scope still lists that scope's objects that have it.
+  const verb = parsed && parsed.rest.length > 0 ? parsed : null;
   const counts = typed ? countsOf(ranked.counts) : null;
 
   if (single) {

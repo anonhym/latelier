@@ -323,6 +323,16 @@ describe('destructive actions', () => {
     await waitFor(() => expect(performed).toHaveBeenCalledWith('shop.orders/drop'));
   });
 
+  it('⌘↵ on a row listed for a verb does nothing: the verb picked the action', async () => {
+    mount();
+    open('open orders');
+    expect(titles()).toEqual(['shop.orders']);
+    press(search(), 'Enter', { metaKey: true });
+    await act(async () => {});
+    expect(performed).not.toHaveBeenCalled();
+    expect(dialog().getByRole('option')).toBeTruthy();
+  });
+
   it('a verb an object lacks hides it, and a command on the whole query stays', () => {
     mount();
     open('open settings');
@@ -379,6 +389,8 @@ describe('a verb alone and Connections only', () => {
     expect(titles()).toEqual(['Open a collection…', 'Open a connection…', 'Open settings']);
     expect(dialog().getByText('Collections scope ›')).toBeTruthy();
     expect(dialog().getByText('All, connections only ›')).toBeTruthy();
+    // Nothing follows the verb yet, so there is no verb line.
+    expect(document.querySelector('[data-verb-line]')).toBeNull();
     expect(footer()).toContain('Switch scope');
     expect(footer()).toContain('Keep typing a name:open shop.or');
   });
@@ -400,6 +412,7 @@ describe('a verb alone and Connections only', () => {
     expect(dialog().getByRole('tab', { selected: true }).textContent).toBe('All');
     // Shorter names first, inside one match class.
     expect(titles()).toEqual(['Staging', 'Production']);
+    expect(document.querySelector('[data-verb-line]')).toBeNull();
     const chip = document.querySelector('[data-connections-only]');
     expect(chip?.textContent).toContain('Connections only');
     // The chip sits outside the tablist, which holds tabs only.
