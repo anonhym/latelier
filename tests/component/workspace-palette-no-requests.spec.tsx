@@ -15,6 +15,7 @@ import {
 import { PaletteContextProvider } from '../../src/commands/PaletteContext';
 import { ConnectionPaletteCommands } from '../../src/commands/ConnectionPaletteCommands';
 import { useRegisterCommands } from '../../src/commands/useRegisterCommands';
+import { api } from '../../src/api/atelier';
 import { commandRegistry } from '../../src/commands/registry';
 import { _resetTabRequestsForTests } from '../../src/pages/Workspace/tabRequest';
 import {
@@ -67,7 +68,7 @@ function LeakOnRank() {
         title: 'Leaky command',
         group: 'general',
         when: () => {
-          void window.atelier?.meta.listCollections({ connectionId: 'c1', dbName: 'shop' });
+          void api.meta.listCollections({ connectionId: 'c1', dbName: 'shop' });
           return true;
         },
         perform: () => {},
@@ -80,7 +81,7 @@ function LeakOnRank() {
 
 function mount(leak = false) {
   const tabs = [collectionTabFixture({ id: 't1', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true })];
-  const api = installAtelierMock({
+  const mock = installAtelierMock({
     conn: {
       list: async () => [
         connectionFixture({ id: 'c1', name: 'Production' }),
@@ -107,7 +108,7 @@ function mount(leak = false) {
       </PaletteContextProvider>
     </MemoryRouter>,
   );
-  return api;
+  return mock;
 }
 
 const input = () => screen.getByLabelText('Search commands');
@@ -123,10 +124,10 @@ async function settle() {
 
 /** Mounts, waits for the navigator's own listings, then starts watching. */
 async function mountWatched(leak = false) {
-  const api = mount(leak);
+  const mock = mount(leak);
   await screen.findByTestId('nav-coll-shop-orders');
   await settle();
-  const watch = watchServerCalls(api);
+  const watch = watchServerCalls(mock);
   return watch;
 }
 
