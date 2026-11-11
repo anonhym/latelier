@@ -52,6 +52,7 @@ import {
   type NodeProblem,
 } from './filterTree';
 import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } from './filterHistory';
+import { clearFilterStep, peekFilterStep } from './filterStep';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
@@ -1644,7 +1645,18 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   const [seed] = React.useState(() => seedTree(queryRaw, filterDraft));
   // Undo / redo history of the tree (§5.7): in memory only, so a remount (tab
   // switch, Reset, a Saved or Recent load) starts it afresh.
-  const [history, setHistory] = React.useState<History<GroupNode>>(() => initHistory(seed.root));
+  // A filter the palette replaced while this drawer was closed arrives as one
+  // step: what the tab held before, then the new tree.
+  const [history, setHistory] = React.useState<History<GroupNode>>(() => {
+    const step = peekFilterStep(meta.tabId, queryRaw);
+    return step
+      ? pushHistory(initHistory(seedTree(step.from.queryRaw, step.from.filterDraft).root), seed.root)
+      : initHistory(seed.root);
+  });
+  // Consumed by the render that read it, so it cannot reach a later drawer.
+  React.useEffect(() => {
+    clearFilterStep(meta.tabId);
+  });
   const [readOnly, setReadOnly] = React.useState(seed.readOnly);
   const root = history.present;
   const [problems, setProblems] = React.useState<NodeProblem[]>(seed.problems);
@@ -1720,7 +1732,9 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     const fresh = seedTree(queryRaw, undefined);
     setLastPrinted(queryRaw);
     setSyncedText(fresh.syncedText);
-    setHistory(initHistory(fresh.root));
+    setHistory(
+      peekFilterStep(meta.tabId, queryRaw) ? pushHistory(history, fresh.root) : initHistory(fresh.root),
+    );
     setReadOnly(fresh.readOnly);
     setFrozenOnDraft(false);
     setProblems([]);
@@ -1738,8 +1752,11 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     } else if (parsed.ok) {
       setSyncedText(queryRaw);
       // The text moved under the drawer, so steps recorded against the old
-      // tree no longer apply: start the history again from the new one.
-      setHistory(initHistory(parsed.root));
+      // tree no longer apply: start the history again from the new one,
+      // unless the palette replaced the filter as one undoable step.
+      setHistory(
+        peekFilterStep(meta.tabId, queryRaw) ? pushHistory(history, parsed.root) : initHistory(parsed.root),
+      );
       setReadOnly(false);
       setProblems([]);
       // The outside text replaced the drawer's tree, rows the text can't

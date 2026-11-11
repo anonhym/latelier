@@ -1,3 +1,4 @@
+import { prepareCommand, prunePrepared } from './rank';
 import type { Command } from './types';
 
 type Listener = () => void;
@@ -13,6 +14,7 @@ class Registry {
   private listeners = new Set<Listener>();
   private warnedIds = new Set<string>();
   private cachedList: Command[] | null = null;
+  private prunePending = false;
 
   list(): Command[] {
     // Cached so `useSyncExternalStore` sees a stable identity when nothing
@@ -34,6 +36,8 @@ class Registry {
         }
         this.warnedIds.add(cmd.id);
       }
+      // Text that does not change between keystrokes is prepared once, here.
+      prepareCommand(cmd);
       this.entries.set(cmd.id, { cmd, token });
     }
     this.notify();
@@ -61,7 +65,22 @@ class Registry {
     this.notify();
   }
 
+  /**
+   * Forgets the cached preparations of ids no longer registered. Deferred to a
+   * microtask: a re-registration unregisters the old batch and adds the new one
+   * in the same commit, and pruning in between would throw the work away.
+   */
+  private schedulePrune(): void {
+    if (this.prunePending) return;
+    this.prunePending = true;
+    queueMicrotask(() => {
+      this.prunePending = false;
+      prunePrepared((id) => this.entries.has(id));
+    });
+  }
+
   private notify(): void {
+    this.schedulePrune();
     this.cachedList = null;
     for (const cb of this.listeners) cb();
   }

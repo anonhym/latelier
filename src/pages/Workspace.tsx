@@ -26,6 +26,8 @@ import {
   type UpdateFieldOutcome,
 } from './Workspace/context';
 import { useQueryRunner } from './Workspace/useQueryRunner';
+import { recordFilterStep } from './Workspace/filterStep';
+import { parsePastedObjectId } from '../commands/pastedId';
 import type { RunnerTarget } from './Workspace/useQueryRunner';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useNavigatorData, useNavigatorStatusSync } from './Workspace/useNavigatorData';
@@ -729,10 +731,11 @@ function WorkspaceInner() {
       },
       {
         id: 'tab.pin.toggle',
-        // Reads `active` directly, not via the ref — useLatest lags by one render.
-        title: active?.pinned ? 'Unpin current tab' : 'Pin current tab',
+        title: 'Pin tab',
         group: 'workspace',
-        keywords: ['pinned', 'sticky'],
+        keywords: ['pinned', 'sticky', 'unpin', 'current', 'toggle'],
+        // Reads `active` directly, not via the ref — useLatest lags by one render.
+        toggle: { checked: !!active?.pinned },
         when: () => activeRef.current !== null,
         perform: () => {
           const a = activeRef.current;
@@ -741,15 +744,16 @@ function WorkspaceInner() {
       },
       {
         id: 'shell.toggle',
-        title: shellOpen ? 'Close Shell' : 'Open Shell',
+        title: 'Shell',
         group: 'workspace',
-        keywords: ['shell', 'mongosh', 'repl', 'terminal'],
+        keywords: ['mongosh', 'repl', 'terminal', 'open', 'close', 'toggle'],
+        toggle: { checked: shellOpen },
         when: () => focusedConnectionRef.current !== null,
         perform: () => setShellOpen((v) => !v),
       },
       {
         id: 'view.structure.schema',
-        title: 'Go to Schema',
+        title: 'Go to schema',
         group: 'view',
         keywords: ['structure', 'fields', 'types', 'sample'],
         when: () => activeCollectionRef.current !== null,
@@ -763,7 +767,7 @@ function WorkspaceInner() {
       },
       {
         id: 'view.structure.indexes',
-        title: 'Go to Indexes',
+        title: 'Go to indexes',
         group: 'view',
         keywords: ['structure', 'index'],
         when: () => activeCollectionRef.current !== null,
@@ -777,15 +781,18 @@ function WorkspaceInner() {
       },
       {
         id: 'query.drawer.toggle',
-        title: builderCollapsed ? 'Expand query drawer' : 'Collapse query drawer',
+        title: 'Query drawer',
         group: 'query',
         shortcut: '⌘B',
-        keywords: ['builder', 'filter', 'panel', 'sidebar', 'saved', 'recent'],
+        keywords: ['builder', 'filter', 'panel', 'sidebar', 'saved', 'recent', 'expand', 'collapse', 'toggle'],
+        toggle: { checked: !builderCollapsed },
         // Builder is aria-hidden outside documents view and absent for script tabs.
         when: () =>
           activeCollectionRef.current !== null &&
           (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
-        perform: toggleBuilderWithFocus,
+        // The palette stays open on a toggle, so focus stays in it: ⌘B moves
+        // focus with the drawer, this does not.
+        perform: toggleBuilder,
       },
       {
         id: 'query.run',
@@ -810,9 +817,11 @@ function WorkspaceInner() {
         title: 'Copy MQL to clipboard',
         group: 'query',
         keywords: ['copy', 'filter'],
-        when: () => {
-          const a = activeCollectionRef.current;
-          return !!a && (a.state.queryRaw ?? '').trim().length > 0;
+        when: () => activeCollectionRef.current !== null,
+        // An empty filter is `{}` once the builder has written one, as the live count reads it.
+        disabledReason: () => {
+          const raw = (activeCollectionRef.current?.state.queryRaw ?? '').trim();
+          return raw === '' || raw === '{}' ? 'Type a filter first' : null;
         },
         perform: () => {
           const raw = activeCollectionRef.current?.state.queryRaw ?? '';
@@ -826,8 +835,9 @@ function WorkspaceInner() {
         keywords: ['insert', 'add', 'new', 'document', 'create'],
         when: () =>
           activeCollectionRef.current !== null &&
-          activeCollectionRef.current.state.activeView === 'documents' &&
-          !activeIsView,
+          activeCollectionRef.current.state.activeView === 'documents',
+        // Worded like the view document dialog's note.
+        disabledReason: () => (activeIsView ? "This is a view, so documents can't be inserted here" : null),
         perform: () => openInsertModal(),
       },
       {
@@ -853,7 +863,7 @@ function WorkspaceInner() {
         },
       })),
     ],
-    [active?.pinned, builderCollapsed, shellOpen, toggleBuilderWithFocus, activeIsView],
+    [active?.pinned, builderCollapsed, shellOpen, toggleBuilder, activeIsView],
   );
 
   // `⌘K → orders`-style commands for every collection of the focused
@@ -927,6 +937,7 @@ function WorkspaceInner() {
     );
   }, [focusedCache, focusedIsConnected]);
 
+  const focusedName = focusedConnection?.name;
   const collectionCommands = React.useMemo(
     () =>
       paletteCollections.map(({ db, coll }) => ({
@@ -934,9 +945,10 @@ function WorkspaceInner() {
         // is not "recent".
         id: `tab.open:${focusedConnectionId}:${db}:${coll}`,
         title: `Open: ${db}.${coll}`,
-        fuzzyText: `${db}.${coll}`,
+        matchText: `${db}.${coll}`,
+        subtitle: focusedName,
         group: 'workspace' as const,
-        keywords: ['collection', 'tab', 'new', db, coll],
+        keywords: [db, coll],
         hideWhenEmptyQuery: true,
         perform: () => {
           if (focusedConnectionId) {
@@ -949,9 +961,47 @@ function WorkspaceInner() {
           }
         },
       })),
-    [paletteCollections, focusedConnectionId, tabsRef],
+    [paletteCollections, focusedConnectionId, focusedName, tabsRef],
   );
   useRegisterCommands(collectionCommands, [collectionCommands]);
+
+  // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row
+  // exists only for that query, and only with a collection tab in front.
+  useRegisterCommands(
+    [
+      {
+        id: 'query.find-pasted-id',
+        title: 'Find _id',
+        group: 'query',
+        when: () => activeCollectionRef.current !== null,
+        perform: () => {},
+        forQuery: (query) => {
+          const a = activeCollectionRef.current;
+          const value = parsePastedObjectId(query);
+          if (!a || !value) return null;
+          return {
+            title: `Find _id ${value} in ${a.dbName}.${a.collection}`,
+            subtitle: 'Replaces the filter and runs it · Undo puts the old filter back',
+            emphasis: value,
+            perform: () => {
+              const now = activeCollectionRef.current;
+              if (!now) return;
+              const text = JSON.stringify({ _id: { $oid: value } });
+              // One undo step in the drawer's own history, whether or not it is open.
+              recordFilterStep(now.id, {
+                to: text,
+                from: { queryRaw: now.state.queryRaw, filterDraft: now.state.filterDraft },
+              });
+              const patch = { queryRaw: text, filterDraft: undefined };
+              tabsRef.current.patchCollectionState(now.id, patch);
+              void run(patch);
+            },
+          };
+        },
+      },
+    ],
+    [run],
+  );
 
   // Keyboard shortcuts
   React.useEffect(() => {
