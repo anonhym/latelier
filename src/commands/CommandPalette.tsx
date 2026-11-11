@@ -1,12 +1,6 @@
 import React from 'react';
 import { UnstyledButton } from '@mantine/core';
-import {
-  SpotlightRoot,
-  SpotlightSearch,
-  SpotlightActionsList,
-  createSpotlight,
-  useSpotlight,
-} from '@mantine/spotlight';
+import { SpotlightRoot, createSpotlight, useSpotlight } from '@mantine/spotlight';
 import { useRovingHighlight } from '../hooks/useRovingHighlight';
 import { useHints } from '../hints/HintsContext';
 import { useFeatureHint } from '../hints/useFeatureHint';
@@ -17,7 +11,25 @@ import { useRegistrySnapshot } from './useRegistrySnapshot';
 import { formatShortcut } from './shortcutLabel';
 import { isMacRenderer } from '../utils/platform';
 import { usePaletteContext } from './PaletteContext';
-import { displayText, groupRows, rankCommands, type Range, type RenderRow } from './rank';
+import { displayText, type Range, type RowKind } from './rank';
+import {
+  SCOPES,
+  SCOPE_CAP,
+  SCOPE_LABEL,
+  cycleScope,
+  footerHints,
+  layoutPalette,
+  pushHistory,
+  stepHistory,
+  type Aside,
+  type Entry,
+  type FooterHints,
+  type KeyHint,
+  type MoreEntry,
+  type RowEntry,
+  type Scope,
+} from './layout';
+import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
 import type { Command } from './types';
 
@@ -86,15 +98,7 @@ export function usePaletteApi(): PaletteApi {
   );
 }
 
-// ── Action item renderer ──────────────────────────────────────────────────────
-
-interface ActionItemProps {
-  row: RenderRow;
-  id: string;
-  isCursor: boolean;
-  onActivate: (cmd: Command) => void;
-  onHover: (index: number) => void;
-}
+// ── Pieces of a row ───────────────────────────────────────────────────────────
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -105,6 +109,66 @@ const VISUALLY_HIDDEN: React.CSSProperties = {
   overflow: 'hidden',
   clip: 'rect(0 0 0 0)',
   whiteSpace: 'nowrap',
+};
+
+const KBD: React.CSSProperties = {
+  fontSize: 'var(--atelier-fs-xs)',
+  padding: '1px 6px',
+  border: '1px solid var(--atelier-border-med)',
+  borderRadius: 'var(--atelier-radius-xs)',
+  color: 'var(--atelier-text-muted)',
+  background: 'var(--atelier-surface-raised)',
+  whiteSpace: 'nowrap',
+  flex: 'none',
+};
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return <span style={KBD}>{children}</span>;
+}
+
+function Svg({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+const KIND_ICON: Record<RowKind, React.ReactNode> = {
+  collection: (
+    <Svg>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M9 10v10" />
+    </Svg>
+  ),
+  database: (
+    <Svg>
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </Svg>
+  ),
+  connection: (
+    <Svg>
+      <rect x="3" y="4" width="18" height="7" rx="1" />
+      <rect x="3" y="13" width="18" height="7" rx="1" />
+    </Svg>
+  ),
+  tab: (
+    <Svg>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 9h8V5" />
+    </Svg>
+  ),
+  saved: (
+    <Svg>
+      <path d="M6 3h12v18l-6-4-6 4z" />
+    </Svg>
+  ),
+  action: (
+    <Svg>
+      <path d="M9 18l6-6-6-6" />
+    </Svg>
+  ),
 };
 
 /**
@@ -149,70 +213,172 @@ function QueryRowTitle({ title, emphasis }: { title: string; emphasis: string })
   );
 }
 
-function ActionItem({ row, id, isCursor, onActivate, onHover }: ActionItemProps) {
-  const { cmd, index, row: ranked } = row;
-  const { fromQuery } = ranked;
+function Switch({ checked }: { checked: boolean }) {
+  return (
+    <span
+      data-switch={checked ? 'on' : 'off'}
+      aria-hidden="true"
+      style={{
+        width: 28,
+        height: 16,
+        borderRadius: 8,
+        background: checked ? 'var(--atelier-accent)' : 'var(--atelier-border-med)',
+        position: 'relative',
+        flex: 'none',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: checked ? 14 : 2,
+          width: 12,
+          height: 12,
+          borderRadius: 6,
+          background: 'var(--atelier-accent-text)',
+        }}
+      />
+    </span>
+  );
+}
+
+function AsideView({ aside }: { aside: Aside }) {
+  if (!aside) return null;
+  if (aside.type === 'switch') return <Switch checked={aside.checked} />;
+  return <Kbd>{aside.type === 'key' ? formatShortcut(aside.keys, isMacRenderer()) : aside.label}</Kbd>;
+}
+
+const ROW_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--atelier-gap-sm)',
+  padding: '8px 16px',
+  width: '100%',
+  textAlign: 'left',
+  fontFamily: 'inherit',
+  fontSize: 'var(--atelier-fs-md)',
+  color: 'var(--atelier-text)',
+};
+
+interface EntryProps {
+  entry: Entry;
+  id: string;
+  isCursor: boolean;
+  onActivate: (entry: Entry) => void;
+  onHover: (index: number) => void;
+}
+
+function RowView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { entry: RowEntry }) {
+  const { cmd, row, disabled } = entry;
+  const { fromQuery } = row;
+  const subtitle = disabled ?? cmd.subtitle;
+  const tone = disabled === null ? undefined : 'var(--atelier-text-ghost)';
   return (
     <UnstyledButton
       id={id}
       type="button"
       role="option"
+      tabIndex={-1}
       aria-selected={isCursor}
+      aria-disabled={disabled === null ? undefined : true}
+      aria-checked={cmd.toggle ? cmd.toggle.checked : undefined}
       data-action
-      data-selected={isCursor || undefined}
+      data-kind={entry.kind}
       data-cursor={isCursor || undefined}
-      onClick={() => onActivate(cmd)}
-      onMouseEnter={() => onHover(index)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--atelier-gap-sm)',
-        padding: '9px 16px',
-        width: '100%',
-        background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent',
-        textAlign: 'left',
-        fontFamily: 'inherit',
-        fontSize: 'var(--atelier-fs-md)',
-      }}
+      onClick={() => onActivate(entry)}
+      onMouseEnter={() => onHover(entry.index)}
+      style={{ ...ROW_STYLE, background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent', color: tone ?? ROW_STYLE.color }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--atelier-gap-xs)', flex: 1, minWidth: 0 }}>
-        <span
-          data-title={fromQuery ? cmd.title : displayText(cmd)}
-          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-        >
-          {fromQuery ? (
+      <span style={{ color: tone ?? 'var(--atelier-text-muted)', display: 'flex', flex: 'none' }}>{KIND_ICON[entry.kind]}</span>
+      {fromQuery ? (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--atelier-gap-xs)', flex: 1, minWidth: 0 }}>
+          <span data-title={cmd.title} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             <QueryRowTitle title={cmd.title} emphasis={fromQuery.emphasis} />
-          ) : (
-            <Highlighted text={displayText(cmd)} ranges={ranked.ranges} />
+          </span>
+          <span style={{ fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-text-muted)' }}>{cmd.subtitle}</span>
+        </span>
+      ) : (
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span data-title={displayText(cmd)}>
+            <Highlighted text={displayText(cmd)} ranges={row.ranges} />
+          </span>
+          {subtitle && (
+            <span
+              data-subtitle
+              style={{ color: tone ?? 'var(--atelier-text-muted)', fontSize: 'var(--atelier-fs-sm)', marginLeft: 8 }}
+            >
+              {subtitle}
+            </span>
           )}
         </span>
-        {cmd.subtitle && (
-          <span
-            style={{
-              fontSize: 'var(--atelier-fs-xs)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: 'var(--atelier-text-muted)',
-            }}
-          >
-            {cmd.subtitle}
-          </span>
-        )}
-      </div>
-      {cmd.shortcut && (
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontSize: 'var(--atelier-fs-xs)',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            color: 'var(--atelier-text-ghost)',
-          }}
-        >
-          {formatShortcut(cmd.shortcut, isMacRenderer())}
-        </span>
       )}
+      <AsideView aside={entry.aside} />
     </UnstyledButton>
+  );
+}
+
+function MoreView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { entry: MoreEntry }) {
+  return (
+    <UnstyledButton
+      id={id}
+      type="button"
+      role="option"
+      tabIndex={-1}
+      aria-selected={isCursor}
+      data-more={entry.scope}
+      data-cursor={isCursor || undefined}
+      onClick={() => onActivate(entry)}
+      onMouseEnter={() => onHover(entry.index)}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        fontFamily: 'inherit',
+        color: 'var(--atelier-accent-ink)',
+        fontSize: 'var(--atelier-fs-sm)',
+        padding: '6px 16px 6px 42px',
+        background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent',
+      }}
+    >
+      {entry.label}
+    </UnstyledButton>
+  );
+}
+
+function EntryView(props: EntryProps) {
+  const { entry } = props;
+  return entry.type === 'more' ? <MoreView {...props} entry={entry} /> : <RowView {...props} entry={entry} />;
+}
+
+const BAR_BORDER = '1px solid var(--atelier-border)';
+
+function Footer({ hints }: { hints: FooterHints }) {
+  const mac = isMacRenderer();
+  const hint = (h: KeyHint) => (
+    <span key={h.keys} style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', alignItems: 'center' }}>
+      <Kbd>{formatShortcut(h.keys, mac)}</Kbd>
+      {h.label}
+    </span>
+  );
+  return (
+    <div
+      data-palette-footer
+      style={{
+        display: 'flex',
+        gap: 'var(--atelier-gap-lg)',
+        padding: '8px 16px',
+        borderTop: BAR_BORDER,
+        fontSize: 'var(--atelier-fs-xs)',
+        color: 'var(--atelier-text-muted)',
+        alignItems: 'center',
+        minHeight: 35,
+        boxSizing: 'border-box',
+      }}
+    >
+      {hints.left.map(hint)}
+      <span style={{ flex: 1 }} />
+      {hints.right.map(hint)}
+    </div>
   );
 }
 
@@ -222,44 +388,87 @@ interface PaletteContentProps {
   onClose: () => void;
   recentIds: string[];
   recordRecent: (id: string) => void;
+  initialScope: Scope;
+  /** The session's earlier queries, newest first. */
+  history: readonly string[];
 }
 
-function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProps) {
+const setQuery = (query: string) => paletteStore.setState((s) => ({ ...s, query }));
+
+function PaletteContent({ onClose, recentIds, recordRecent, initialScope, history }: PaletteContentProps) {
   const ctx = usePaletteContext();
   const all = useRegistrySnapshot();
   const { query } = useSpotlight(paletteStore);
+  const [scope, setScope] = React.useState<Scope>(initialScope);
+  // Where `↑` left the history; it holds while the input still shows that entry.
+  const [historyAt, setHistoryAt] = React.useState(-1);
+  // The query the palette reopened on is the newest entry, so `↑` from an
+  // empty input starts at the one before it.
+  const [startAt] = React.useState(() => (history.length > 0 && history[0] === query ? 0 : -1));
+  const browsing = historyAt >= 0 && history[historyAt] === query;
 
-  const ranked = React.useMemo(
-    () => rankCommands(all, query, ctx, recentIds),
-    [all, query, ctx, recentIds],
+  const layout = React.useMemo(
+    () => layoutPalette(all, query, ctx, recentIds, scope),
+    [all, query, ctx, recentIds, scope],
   );
-  const groups = React.useMemo(() => groupRows(ranked), [ranked]);
-  // The cursor walks the rows in the order they are drawn, which groups
-  // reorder: the rank order is not the screen order.
-  const displayed = React.useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const { entries } = layout;
+  const typed = query.trim() !== '';
   const listId = React.useId();
-  const optionId = (cmdId: string) => `${listId}-opt-${cmdId}`;
+  const optionId = (entry: Entry) => `${listId}-opt-${entry.id}`;
 
-  // `resetKey: query` resets the cursor to 0 whenever the query changes,
-  // without touching state during render or using an effect — this component
-  // doesn't own the search input's onChange (Spotlight's own store does), so
-  // it can't reset imperatively the way ConnectionSwitcher's search field does.
-  const { index: safeCursor, setIndex: setCursor, move: moveCursor } =
-    useRovingHighlight(displayed.length, query);
+  // A new query or scope is a new list: the cursor goes back to the top.
+  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, `${scope}\u0000${query}`);
 
+  // A toggle keeps the cursor on its row even when re-registering moves it.
+  const followRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const id = followRef.current;
+    if (id === null) return;
+    const at = entries.findIndex((e) => e.type === 'row' && e.id === id);
+    if (at !== -1 && at !== safeCursor) setIndex(at);
+  }, [entries, safeCursor, setIndex]);
+  const setCursor = (index: number) => {
+    followRef.current = null;
+    setIndex(index);
+  };
+  const moveCursor = (delta: number) => {
+    followRef.current = null;
+    move(delta);
+  };
+  const switchScope = (next: Scope) => {
+    followRef.current = null;
+    setScope(next);
+  };
+
+  // A toggle enters the MRU when the palette closes, so its row does not jump
+  // into RECENT under the cursor while the palette is open.
+  const toggledRef = React.useRef(new Set<string>());
+  const recordRecentRef = useLatest(recordRecent);
+  React.useEffect(() => {
+    const toggled = toggledRef.current;
+    const record = recordRecentRef;
+    return () => {
+      for (const id of toggled) record.current(id);
+    };
+  }, [recordRecentRef]);
+
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  // The last query comes back selected, so typing replaces it.
+  React.useEffect(() => {
+    inputRef.current?.select();
+  }, []);
+
+  const cursorEntry = entries[safeCursor];
+  const activeId = cursorEntry ? optionId(cursorEntry) : undefined;
   // Keyboard moves the cursor with the focus staying in the search input, so
   // the highlighted row has to be scrolled into view by hand. (Optional call:
   // jsdom has no scrollIntoView.)
-  const activeId = displayed[safeCursor] ? optionId(displayed[safeCursor].cmd.id) : undefined;
   React.useEffect(() => {
     if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' });
   }, [activeId]);
 
-  const perform = React.useCallback(
+  const run = React.useCallback(
     async (cmd: Command) => {
-      onClose();
-      // A row built from the query is not a command to come back to.
-      if (!cmd.forQuery) recordRecent(cmd.id);
       try {
         await cmd.perform(ctx);
       } catch (e) {
@@ -268,15 +477,53 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
         });
       }
     },
-    [onClose, ctx, recordRecent],
+    [ctx],
   );
 
-  // SpotlightSearch handles ArrowDown/ArrowUp/Enter via its built-in store
-  // bindings, but those rely on the package's default store. Our private
-  // store + custom action rows means we handle keyboard nav here. Home/End
-  // round out the keyboard contract the legacy palette exposed.
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
+  const activate = (entry: Entry) => {
+    if (entry.type === 'more') {
+      switchScope(entry.scope);
+      return;
+    }
+    if (entry.disabled !== null) return;
+    const { cmd } = entry;
+    if (cmd.toggle) {
+      followRef.current = cmd.id;
+      toggledRef.current.add(cmd.id);
+      void run(cmd);
+      return;
+    }
+    onClose();
+    // A row built from the query is not a command to come back to.
+    if (!cmd.forQuery) recordRecent(cmd.id);
+    void run(cmd);
+  };
+
+  const recall = (direction: 'older' | 'newer') => {
+    const step = stepHistory(history, browsing ? historyAt : startAt, direction);
+    if (!step) return;
+    setHistoryAt(step.at);
+    setQuery(step.query);
+  };
+
+  // The input is the one element that ever holds focus here, so every key
+  // the palette answers is bound on it.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      switchScope(cycleScope(scope, e.shiftKey ? -1 : 1));
+    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      switchScope('collections');
+    } else if (e.key === 'ArrowUp' && (browsing || query === '') && history.length > 0) {
+      e.preventDefault();
+      recall('older');
+    } else if (e.key === 'ArrowDown' && browsing) {
+      e.preventDefault();
+      recall('newer');
+    } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       moveCursor(1);
     } else if (e.key === 'ArrowUp') {
@@ -287,32 +534,132 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
       setCursor(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setCursor(Math.max(0, displayed.length - 1));
+      setCursor(Math.max(0, entries.length - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const row = displayed[safeCursor];
-      if (row) void perform(row.cmd);
+      if (cursorEntry) activate(cursorEntry);
     }
   };
 
+  const onlyFromQuery = entries.length > 0 && entries.every((e) => e.type === 'row' && e.row.fromQuery);
+  const emptyText = typed
+    ? `No matches for "${query.trim()}"`
+    : scope === 'all'
+      ? 'No actions available here yet.'
+      : `Type to search ${SCOPE_LABEL[scope].toLowerCase()}.`;
+
   return (
-    // Plain grouping wrapper — no handler of its own (S6848). Keyboard nav
-    // is bound to the search input below, the one element that ever holds
-    // focus here (SpotlightSearch passes onKeyDown through to the native
-    // <input> it renders).
     <div>
-      <SpotlightSearch
-        placeholder="Search actions, connections…"
-        aria-label="Search commands"
-        role="combobox"
-        aria-expanded
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={activeId}
-        onKeyDown={onKeyDown}
-      />
-      <SpotlightActionsList id={listId} role="listbox" aria-label="Commands">
-        {ranked.length === 0 ? (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--atelier-gap-sm)',
+          padding: '12px 16px',
+          borderBottom: BAR_BORDER,
+          color: 'var(--atelier-text-muted)',
+        }}
+      >
+        <Svg>
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-4-4" />
+        </Svg>
+        <input
+          ref={inputRef}
+          data-autofocus
+          className="atelier-palette-input"
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+          placeholder="Search collections, actions, tabs…"
+          aria-label="Search commands"
+          role="combobox"
+          aria-expanded
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeId}
+          onKeyDown={onKeyDown}
+          spellCheck={false}
+          autoComplete="off"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: 'transparent',
+            border: 0,
+            outline: 0,
+            color: 'var(--atelier-text)',
+            font: 'inherit',
+            fontSize: 'var(--atelier-fs-lg)',
+          }}
+        />
+        <Kbd>esc</Kbd>
+      </div>
+      <div
+        role="tablist"
+        aria-label="Scope"
+        style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', padding: '8px 12px', borderBottom: BAR_BORDER, alignItems: 'center' }}
+      >
+        {SCOPES.map((s) => {
+          const selected = s === scope;
+          return (
+            <button
+              key={s}
+              type="button"
+              role="tab"
+              tabIndex={-1}
+              aria-selected={selected}
+              aria-controls={listId}
+              // The input keeps the focus: a click selects the scope, nothing more.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => switchScope(s)}
+              style={{
+                background: selected ? 'var(--atelier-accent-soft)' : 'transparent',
+                border: 0,
+                color: selected ? 'var(--atelier-accent-ink)' : 'var(--atelier-text-muted)',
+                fontWeight: selected ? 600 : 400,
+                font: 'inherit',
+                fontSize: 'var(--atelier-fs-sm)',
+                padding: '4px 10px',
+                borderRadius: 'var(--atelier-radius-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              {SCOPE_LABEL[s]}
+              {layout.counts && s !== 'all' && (
+                <span
+                  data-count
+                  style={{
+                    fontSize: 'var(--atelier-fs-xs)',
+                    marginLeft: 5,
+                    color: 'var(--atelier-text-ghost)',
+                    fontWeight: 400,
+                  }}
+                >
+                  {layout.counts[s]}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {!typed && (
+          <>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-text-ghost)' }}>
+              Tab to switch scope
+            </span>
+          </>
+        )}
+      </div>
+      <div
+        id={listId}
+        role="listbox"
+        aria-label={scope === 'all' ? 'Results' : SCOPE_LABEL[scope]}
+        style={{
+          maxHeight: 'min(460px, calc(100vh - 260px))',
+          overflowY: 'auto',
+          padding: scope === 'all' ? '0 0 4px' : '4px 0',
+        }}
+      >
+        {entries.length === 0 ? (
           <div
             style={{
               padding: '24px 16px',
@@ -321,38 +668,42 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
               color: 'var(--atelier-text-muted)',
             }}
           >
-            {query.trim() ? `No matches for "${query.trim()}"` : 'No actions available here yet.'}
+            {emptyText}
           </div>
         ) : (
-          groups.map((group) => (
-            <div key={group.key} role="group" aria-labelledby={`${listId}-grp-${group.key}`}>
-              <div
-                id={`${listId}-grp-${group.key}`}
-                style={{
-                  padding: '8px 16px 4px',
-                  fontSize: 'var(--atelier-fs-xs)',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                  color: 'var(--atelier-text-muted)',
-                }}
-              >
-                {group.label}
+          layout.groups.map((group) => {
+            const views = group.entries.map((entry) => (
+              <EntryView
+                key={entry.id}
+                entry={entry}
+                id={optionId(entry)}
+                isCursor={entry.index === safeCursor}
+                onActivate={activate}
+                onHover={setCursor}
+              />
+            ));
+            if (group.label === null) return <React.Fragment key={group.key}>{views}</React.Fragment>;
+            return (
+              <div key={group.key} role="group" aria-labelledby={`${listId}-grp-${group.key}`}>
+                <div
+                  id={`${listId}-grp-${group.key}`}
+                  style={{
+                    padding: '10px 16px 4px',
+                    fontSize: 'var(--atelier-fs-xs)',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: 'var(--atelier-text-muted)',
+                  }}
+                >
+                  {group.label}
+                </div>
+                {views}
               </div>
-              {group.rows.map((row) => (
-                <ActionItem
-                  key={row.cmd.id}
-                  row={row}
-                  id={optionId(row.cmd.id)}
-                  isCursor={row.index === safeCursor}
-                  onActivate={perform}
-                  onHover={setCursor}
-                />
-              ))}
-            </div>
-          ))
+            );
+          })
         )}
-        {ranked.length > 0 && ranked.every((row) => row.fromQuery) && (
+        {onlyFromQuery && (
           <div
             style={{
               padding: '20px 16px',
@@ -364,7 +715,22 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
             No other matches
           </div>
         )}
-      </SpotlightActionsList>
+      </div>
+      {layout.hidden > 0 && (
+        <div
+          data-row-limit
+          style={{
+            padding: '8px 16px',
+            fontSize: 'var(--atelier-fs-sm)',
+            color: 'var(--atelier-text-muted)',
+            borderTop: BAR_BORDER,
+            background: 'var(--atelier-surface-raised)',
+          }}
+        >
+          Showing the best {SCOPE_CAP} · keep typing to narrow {layout.hidden} more
+        </div>
+      )}
+      <Footer hints={footerHints(scope, typed, cursorEntry)} />
     </div>
   );
 }
@@ -377,6 +743,10 @@ interface PaletteShellProps {
 
 export function CommandPalette({ registerApi }: PaletteShellProps) {
   const [recentIds, setRecentIds] = React.useState<string[]>([]);
+  // Session only: never persisted.
+  const [history, setHistory] = React.useState<string[]>([]);
+  // The scope the next open lands on: All, except through ⌘P.
+  const [openScope, setOpenScope] = React.useState<Scope>('all');
 
   const hints = useHints();
   const paletteOpenedCount = hints.getSessionEventCount('palette', 'opened');
@@ -399,6 +769,31 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
       hints.recordSessionEvent('palette', 'opened');
       paletteControls.open();
     }
+  }, [hints]);
+
+  // A query the palette closes on, after a perform or not, is one to come back to.
+  const onPaletteClose = React.useCallback(() => {
+    const { query } = paletteStore.getState();
+    setHistory((h) => pushHistory(h, query));
+    setOpenScope('all');
+  }, []);
+
+  // ⌘P opens on Collections. The same rules as ⌘N and ⌘, (GlobalCommands): a
+  // dialog that is already open keeps the key, and in a text field only ⌘
+  // reaches it, since a bare Ctrl+P is macOS's previous-line.
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'p') return;
+      const origin = e.target instanceof HTMLElement ? e.target : null;
+      if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
+      if (origin?.closest('input, textarea, select, [contenteditable]') && !e.metaKey) return;
+      e.preventDefault();
+      hints.recordSessionEvent('palette', 'opened');
+      setOpenScope('collections');
+      paletteControls.open();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [hints]);
 
   // Capture phase, registered once: focus has usually moved onto the search
@@ -473,6 +868,9 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
         data-command-palette
         store={paletteStore}
         shortcut="mod + K"
+        // The last query comes back on the next open (X07 §13.3).
+        clearQueryOnClose={false}
+        onSpotlightClose={onPaletteClose}
         // Mantine's Modal applies `aria-label` to the outer root, not the
         // `role="dialog"` content element, so it never names the dialog. The
         // dialog's accessible name comes from its title (rendered as
@@ -480,8 +878,20 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
         // on by the F04 e2e — while hiding the header so the palette stays
         // visually title-less.
         title="Command palette"
-        styles={{ header: { display: 'none' } }}
-        size={540}
+        styles={{
+          header: { display: 'none' },
+          content: {
+            background: 'var(--atelier-surface)',
+            border: '1px solid var(--atelier-border-med)',
+            borderRadius: 'var(--atelier-radius)',
+            boxShadow: 'var(--atelier-shadow-lg)',
+            color: 'var(--atelier-text)',
+            fontSize: 'var(--atelier-fs-md)',
+            overflow: 'hidden',
+          },
+          body: { padding: 0 },
+        }}
+        size={640}
         yOffset={80}
       >
         {/* Only mount palette content while opened — keeps registry memos and
@@ -491,6 +901,8 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
             onClose={closePalette}
             recentIds={recentIds}
             recordRecent={recordRecent}
+            initialScope={openScope}
+            history={history}
           />
         )}
       </SpotlightRoot>

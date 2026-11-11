@@ -67,5 +67,17 @@ export interface Command {
    * ranked, never recorded as recent; when it answers it is listed first.
    */
   forQuery?: (query: string) => QueryRow | null;
+  /**
+   * An on/off setting: the row shows a switch, and performing it flips the
+   * state and leaves the palette open on the row. The title names the setting,
+   * not the change (`Dark mode`, not `Toggle dark mode`).
+   */
+  toggle?: { checked: boolean };
+  /**
+   * Why the command cannot run here, or null when it can. A reason lists the
+   * row greyed with the reason as its subtitle, and Enter does nothing. Unlike
+   * `when`, which removes a command that does not apply here at all.
+   */
+  disabledReason?: (ctx: PaletteContext) => string | null;
   perform: (ctx: PaletteContext) => void | Promise<void>;
 }

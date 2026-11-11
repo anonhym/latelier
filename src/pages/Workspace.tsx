@@ -731,10 +731,11 @@ function WorkspaceInner() {
       },
       {
         id: 'tab.pin.toggle',
-        // Reads `active` directly, not via the ref — useLatest lags by one render.
-        title: active?.pinned ? 'Unpin current tab' : 'Pin current tab',
+        title: 'Pin tab',
         group: 'workspace',
-        keywords: ['pinned', 'sticky'],
+        keywords: ['pinned', 'sticky', 'unpin', 'current', 'toggle'],
+        // Reads `active` directly, not via the ref — useLatest lags by one render.
+        toggle: { checked: !!active?.pinned },
         when: () => activeRef.current !== null,
         perform: () => {
           const a = activeRef.current;
@@ -743,9 +744,10 @@ function WorkspaceInner() {
       },
       {
         id: 'shell.toggle',
-        title: shellOpen ? 'Close shell' : 'Open shell',
+        title: 'Shell',
         group: 'workspace',
-        keywords: ['shell', 'mongosh', 'repl', 'terminal'],
+        keywords: ['mongosh', 'repl', 'terminal', 'open', 'close', 'toggle'],
+        toggle: { checked: shellOpen },
         when: () => focusedConnectionRef.current !== null,
         perform: () => setShellOpen((v) => !v),
       },
@@ -779,15 +781,18 @@ function WorkspaceInner() {
       },
       {
         id: 'query.drawer.toggle',
-        title: builderCollapsed ? 'Expand query drawer' : 'Collapse query drawer',
+        title: 'Query drawer',
         group: 'query',
         shortcut: '⌘B',
-        keywords: ['builder', 'filter', 'panel', 'sidebar', 'saved', 'recent'],
+        keywords: ['builder', 'filter', 'panel', 'sidebar', 'saved', 'recent', 'expand', 'collapse', 'toggle'],
+        toggle: { checked: !builderCollapsed },
         // Builder is aria-hidden outside documents view and absent for script tabs.
         when: () =>
           activeCollectionRef.current !== null &&
           (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
-        perform: toggleBuilderWithFocus,
+        // The palette stays open on a toggle, so focus stays in it: ⌘B moves
+        // focus with the drawer, this does not.
+        perform: toggleBuilder,
       },
       {
         id: 'query.run',
@@ -812,10 +817,9 @@ function WorkspaceInner() {
         title: 'Copy MQL to clipboard',
         group: 'query',
         keywords: ['copy', 'filter'],
-        when: () => {
-          const a = activeCollectionRef.current;
-          return !!a && (a.state.queryRaw ?? '').trim().length > 0;
-        },
+        when: () => activeCollectionRef.current !== null,
+        disabledReason: () =>
+          (activeCollectionRef.current?.state.queryRaw ?? '').trim() ? null : 'Type a filter first',
         perform: () => {
           const raw = activeCollectionRef.current?.state.queryRaw ?? '';
           if (raw) void copyToClipboard(raw, 'Query copied to the clipboard.');
@@ -828,8 +832,9 @@ function WorkspaceInner() {
         keywords: ['insert', 'add', 'new', 'document', 'create'],
         when: () =>
           activeCollectionRef.current !== null &&
-          activeCollectionRef.current.state.activeView === 'documents' &&
-          !activeIsView,
+          activeCollectionRef.current.state.activeView === 'documents',
+        // Worded like the view document dialog's note.
+        disabledReason: () => (activeIsView ? "This is a view, so documents can't be inserted here" : null),
         perform: () => openInsertModal(),
       },
       {
@@ -855,7 +860,7 @@ function WorkspaceInner() {
         },
       })),
     ],
-    [active?.pinned, builderCollapsed, shellOpen, toggleBuilderWithFocus, activeIsView],
+    [active?.pinned, builderCollapsed, shellOpen, toggleBuilder, activeIsView],
   );
 
   // `⌘K → orders`-style commands for every collection of the focused

@@ -17,7 +17,7 @@ import { useRegisterCommands } from './useRegisterCommands';
  */
 export function GlobalCommands() {
   const navigate = useNavigate();
-  const [, toggleTheme] = useTheme();
+  const [isDark, toggleTheme] = useTheme();
   const settings = useSettings();
   const transfer = useConnectionTransfer();
   const [audit, setAudit] = useState<{ connectionId: string | null } | null>(null);
@@ -51,9 +51,10 @@ export function GlobalCommands() {
     [
       {
         id: 'theme.toggle',
-        title: 'Toggle dark mode',
+        title: 'Dark mode',
         group: 'general',
-        keywords: ['theme', 'dark', 'light'],
+        keywords: ['theme', 'light', 'toggle'],
+        toggle: { checked: isDark },
         perform: () => toggleTheme(),
       },
       {
@@ -121,7 +122,7 @@ export function GlobalCommands() {
         perform: () => transfer.openImport(),
       },
     ],
-    [navigate, toggleTheme, settings, transfer],
+    [navigate, isDark, toggleTheme, settings, transfer],
   );
 
   return (

@@ -94,18 +94,23 @@ afterEach(() => {
 });
 
 describe('palette: shell and structure entries', () => {
-  it('"Open shell" opens the Mongo shell pane, and the entry then offers to close it', async () => {
+  it('"Shell" opens the Mongo shell pane and closes it again, the palette staying open on its row', async () => {
     const { start } = mount([collectionTab()]);
     await screen.findByLabelText('Close orders');
     expect(screen.queryByTestId('mongo-shell-pane')).toBeNull();
 
-    await run('shell', 'Open shell');
+    fireEvent.click(screen.getByText('toggle'));
+    fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: 'shell' } });
+    const row = () => within(screen.getByRole('dialog')).getByRole('option', { name: /^Shell/ });
+    fireEvent.click(row());
 
     expect(await screen.findByTestId('mongo-shell-pane')).toBeTruthy();
     await waitFor(() => expect(start).toHaveBeenCalled());
+    await waitFor(() => expect(row().getAttribute('aria-checked')).toBe('true'));
 
-    await run('shell', 'Close shell');
+    fireEvent.click(row());
     await waitFor(() => expect(screen.queryByTestId('mongo-shell-pane')).toBeNull());
+    await waitFor(() => expect(row().getAttribute('aria-checked')).toBe('false'));
   });
 
   it('"Go to schema" switches to the Structure view and shows the schema', async () => {
@@ -185,13 +190,13 @@ describe('palette: shell and structure entries', () => {
     await screen.findByLabelText('Close Script');
     expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to schema']));
     expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to indexes']));
-    expect(paletteTitles('shell')).toContain('Open shell');
+    expect(paletteTitles('shell')).toContain('Shell');
   });
 
   it('offers no shell entry when no connection is focused', async () => {
     mount([]);
     await waitFor(() => expect(screen.getByText('toggle')).toBeTruthy());
-    expect(paletteTitles('shell')).not.toContain('Open shell');
+    expect(paletteTitles('shell')).not.toContain('Shell');
     expect(paletteTitles('schema')).not.toContain('Go to schema');
   });
 });

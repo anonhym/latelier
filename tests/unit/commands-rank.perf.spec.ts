@@ -3,6 +3,7 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { rankCommands, groupRows } from '../../src/commands/rank';
 import { commandRegistry } from '../../src/commands/registry';
+import { layoutPalette, type Scope } from '../../src/commands/layout';
 import type { Command, PaletteContext } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
@@ -125,4 +126,50 @@ describe.skipIf(underStryker)('registering 50,000 collections', () => {
       }
     },
   );
+});
+
+// What the palette runs per keystroke since the capped layout (X07 §13.7
+// rule 3): five rows per kind in All, 50 in a scope, the rest only counted.
+describe.skipIf(underStryker)('capped layout at 50,000 collections', () => {
+  const all = catalog(50_000, 'capped:');
+
+  it.each([
+    ['all', ''],
+    ['all', 'o'],
+    ['all', 'ord'],
+    ['collections', 'o'],
+    ['collections', 'collection 42'],
+    ['actions', 'o'],
+    ['all', 'zzz'],
+  ] as Array<[Scope, string]>)('lays out %s %j within the frame', (scope, query) => {
+    const times: number[] = [];
+    for (let i = 0; i < RUNS; i++) {
+      const t0 = performance.now();
+      layoutPalette(all, query, ctx, ['cmd.3'], scope);
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    const ms = times[Math.floor(RUNS / 2)]!;
+    process.stderr.write(`capped ${scope} ${JSON.stringify(query)}: ${ms.toFixed(1)} ms\n`);
+    expect(ms).toBeLessThanOrEqual(BOUND_MS);
+  });
+
+  it.each([
+    ['all', 'o'],
+    ['collections', 'o'],
+    ['all', 'ord'],
+  ] as Array<[Scope, string]>)('lays out %s %j within the frame on the first keystroke after a fresh registration', (scope, query) => {
+    const fresh = catalog(50_000, `capped-first-${scope}-${query}:`);
+    const off = commandRegistry.add(fresh);
+    try {
+      collectGarbage();
+      const t0 = performance.now();
+      layoutPalette(commandRegistry.list(), query, ctx, ['cmd.3'], scope);
+      const first = performance.now() - t0;
+      process.stderr.write(`capped first ${scope} ${JSON.stringify(query)}: ${first.toFixed(1)} ms\n`);
+      expect(first).toBeLessThanOrEqual(BOUND_MS);
+    } finally {
+      off();
+    }
+  });
 });
