@@ -436,7 +436,7 @@ A row's class is the weakest class among its tokens. Rows sort by class, then:
 
 Recency is a tie-break inside a class, never a class of its own once a query is typed: a recent row that matches by subsequence stays below an exact match. There is no edit-distance matching; `oders` finds nothing.
 
-**Group order on a typed query.** Rows are still drawn in groups, and the groups are ordered by their best row, so the first drawn row is always the best match and Enter performs it. The fixed group order below applies to the empty query only.
+**Group order on a typed query.** In All, the kinds are drawn in a fixed order, as on the agreed artboards: Collections, Databases, Tabs, Saved, Connections, Actions, each group in rank order and empty groups left out; a verb alone's `<Verb>…` group comes first. The cursor starts on the first drawn row. In a single scope the rows are in rank order. Before objects existed (step 1) the command groups were ordered by their best row; the kinds replace them.
 
 **Empty query.** RECENT first, as today. Then the groups owned by the tab in front (`query`, `view`, `references`, `aggregation`, whichever have rows), then `workspace`, `connection`, `navigation`, `general`. Objects (§13.4) other than recent ones are not listed until the user types.
 
@@ -580,7 +580,7 @@ This supersedes §4's "`⌘↵` is the same as Enter". On a command row both key
 | database   | Reveal in navigator · Create collection… · Drop database…                                                                                           |
 | collection | Open (reuses an open tab) · Open in new tab (alternate) · Query… · Filter by field… · Aggregate · Schema · Indexes · Export… · Import… · Rename… · Drop… |
 | tab        | Switch to · Close · Pin / Unpin                                                                                                                     |
-| saved      | Open · Run (alternate) · Rename… · Delete…                                                                                                          |
+| saved      | Open · Run (alternate) · Delete…                                                                                                                    |
 
 Each action calls the handler the same control calls elsewhere in the app; none is reimplemented for the palette. Actions that write are disabled, with a reason, on a view.
 
@@ -735,5 +735,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **`⌘P`** is free. The application menu (`electron/security/appMenu.ts`) has no Print item and no item bound to it, the only `globalShortcut` is a development-only reset, and nothing in the renderer listens for it.
 - **Disconnect** lives in `Workspace.tsx`'s `useConnectionDialogs`, which asks first when the Connection has open tabs. Connection objects register above `<Routes>`, so the action travels as a `disconnectConnectionId` route intent, the way open, edit and delete already do, and reaches that same handler and dialog.
 - **Initials against word starts.** Word start stays the stronger class (§13.2). A collection with a word starting with the query, such as `reports.sorted` for `so`, lists above `shop.orders`; recency breaks ties only inside a class.
+- **Saved `Rename…`.** Dropped from the Saved object: the app has no rename for a saved query or pipeline, and a new dialog was not part of the agreed design. Tracked as its own issue.
+- **Kind order in All.** Fixed, as the artboards draw it (§13.2, "Group order on a typed query"), so the layout does not reshuffle between keystrokes.
 - **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
 - **Reveal in navigator** exists for a collection row only (`DbCollectionNavigator`'s `revealRequest`, which requires a collection name). The Database object's default action needs that request to accept a database on its own. Until it does, the Database object's default is Create collection….
