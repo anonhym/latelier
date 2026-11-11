@@ -110,6 +110,8 @@ export interface VerbEntry {
   target: Exclude<Scope, 'all'> | 'connections';
   /** The verb word as typed. */
   typed: string;
+  /** A name to keep typing, from the first collection with the verb (`shop.or`); null when none has it. */
+  example: string | null;
 }
 
 export type Entry = RowEntry | MoreEntry | VerbEntry;
@@ -227,6 +229,7 @@ export function layoutPalette(
     const { verb, typed: word } = parsed;
     const title = capitalize(verb);
     const group: LayoutGroup = { key: 'verb', label: `${title}…`, entries: [] };
+    const example = exampleName(all, verb);
     for (const { kind, noun, destination } of VERB_KINDS) {
       const has = all.some((c) => c.object?.kind === kind && c.object.actions.some((a) => a.verb === verb));
       if (!has) continue;
@@ -240,6 +243,7 @@ export function layoutPalette(
         destination,
         target: VERB_TARGET[kind],
         typed: word,
+        example,
       };
       group.entries.push(entry);
       entries.push(entry);
@@ -282,6 +286,18 @@ export function layoutPalette(
     addMore(addGroup(kind, KIND_LAYOUT[kind].group, bucket.rows), kind, bucket.total - bucket.rows.length);
   }
   return { groups, entries, counts, hidden: 0, verb };
+}
+
+/**
+ * The start of the first collection with `verb`, to suggest typing after it:
+ * its database and the collection's first two letters (`shop.or`).
+ */
+function exampleName(all: Command[], verb: string): string | null {
+  const first = all.find((c) => c.object?.kind === 'collection' && c.object.actions.some((a) => a.verb === verb));
+  if (!first) return null;
+  const name = first.object!.name;
+  const dot = name.indexOf('.');
+  return name.slice(0, dot + 3);
 }
 
 /** Matches per scope, from matches per kind. */
@@ -432,7 +448,13 @@ export function footerHints(scope: Scope, typed: boolean, entry: Entry | undefin
   const label = entry ? enterLabel(entry) : null;
   if (label) left.push({ keys: '↵', label });
   if (entry) left.push(...objectHints(entry));
-  if (entry?.type === 'verb') left.push({ keys: '', label: 'Keep typing a name:', strong: `${entry.typed} shop.or` });
+  if (entry?.type === 'verb') {
+    left.push(
+      entry.example === null
+        ? { keys: '', label: 'Keep typing a name after', strong: entry.typed }
+        : { keys: '', label: 'Keep typing a name:', strong: `${entry.typed} ${entry.example}` },
+    );
+  }
   const right: KeyHint[] = [];
   if (scope !== 'all') right.push({ keys: '⇧Tab', label: SCOPE_LABEL[cycleScope(scope, -1)] });
   else if (!typed) right.push({ keys: '⌘P', label: 'Collections' });

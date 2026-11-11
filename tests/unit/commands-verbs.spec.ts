@@ -288,6 +288,29 @@ describe('a verb alone', () => {
       { keys: '', label: 'Keep typing a name:', strong: 'go shop.or' },
     ]);
   });
+
+  it('builds the name to keep typing from the first collection with the verb', () => {
+    const noExport = obj('tab.open:c1:aa.zz', 'collection', 'aa.zz', [act('Open', 'open')]);
+    const l = layoutPalette([noExport, coll('sales.order_items'), coll('shop.orders')], 'export', ctx, [], 'all');
+    expect(verbRows(l)[0]!.example).toBe('sales.or');
+    expect(footerHints('all', true, l.entries[0]).left[1]).toEqual({
+      keys: '',
+      label: 'Keep typing a name:',
+      strong: 'export sales.or',
+    });
+    const bare = layoutPalette([coll('logs')], 'open', ctx, [], 'all');
+    expect(verbRows(bare)[0]!.example).toBe('lo');
+  });
+
+  it('names no collection when none has the verb', () => {
+    const l = layoutPalette([conn('Production')], 'open', ctx, [], 'all');
+    expect(verbRows(l)[0]!.example).toBeNull();
+    expect(footerHints('all', true, l.entries[0]).left[1]).toEqual({
+      keys: '',
+      label: 'Keep typing a name after',
+      strong: 'open',
+    });
+  });
 });
 
 describe('Connections only', () => {
