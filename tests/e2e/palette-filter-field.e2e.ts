@@ -1,8 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { stopAllMemoryServers } from '../helpers/e2eApp';
 import { withOpenOrders } from './helpers/uiSeed';
 
 test.afterAll(stopAllMemoryServers);
+
+/** ⌘K, then the action list of `shop.orders`. */
+async function openOrdersActions(win: Page) {
+  const palette = win.locator('[role=dialog]:has(input[role=combobox])');
+  const search = palette.locator('input[role="combobox"]');
+  await expect(async () => {
+    if (!(await palette.isVisible())) await win.keyboard.press('ControlOrMeta+K');
+    await expect(palette).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 8000 });
+
+  await search.fill('shop.orders');
+  await expect(palette.getByRole('option').first()).toContainText('shop.orders');
+  await win.keyboard.press('Alt+Enter');
+  await expect(search).toHaveAttribute('aria-label', 'Filter actions');
+  return { palette, search };
+}
 
 const ORDERS = [
   { sku: 'apple-001', status: 'paid' },
@@ -18,17 +34,7 @@ const ORDERS = [
  */
 test('palette: Filter by field… appends a condition, a typed value and a run filter the result', async () => {
   await withOpenOrders('Filter By Field Target', ORDERS, 'banana-002', async (win) => {
-    const palette = win.locator('[role=dialog]:has(input[role=combobox])');
-    const search = palette.locator('input[role="combobox"]');
-    await expect(async () => {
-      if (!(await palette.isVisible())) await win.keyboard.press('ControlOrMeta+K');
-      await expect(palette).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 8000 });
-
-    await search.fill('shop.orders');
-    await expect(palette.getByRole('option').first()).toContainText('shop.orders');
-    await win.keyboard.press('Alt+Enter');
-    await expect(search).toHaveAttribute('aria-label', 'Filter actions');
+    const { palette, search } = await openOrdersActions(win);
     await search.fill('filter by field');
     await win.keyboard.press('Enter');
 
@@ -49,6 +55,23 @@ test('palette: Filter by field… appends a condition, a typed value and a run f
 
     await win.keyboard.press('ControlOrMeta+Enter');
     await expect(win.getByText('apple-001')).not.toBeVisible({ timeout: 8000 });
+    await expect(win.getByText('banana-002')).toBeVisible();
+  });
+});
+
+/**
+ * X07 §13.6 — `Query…` on an empty filter: the palette closes and the caret
+ * lands on the builder's `+ Condition`, not back where the palette opened from.
+ */
+test('palette: Query… leaves the focus in the builder', async () => {
+  await withOpenOrders('Query Target', ORDERS, 'banana-002', async (win) => {
+    const { palette, search } = await openOrdersActions(win);
+    await search.fill('query');
+    await expect(palette.getByRole('option').first()).toContainText('Query…');
+    await win.keyboard.press('Enter');
+    await expect(palette).not.toBeVisible({ timeout: 4000 });
+
+    await expect(win.getByRole('button', { name: 'Add condition' })).toBeFocused({ timeout: 4000 });
     await expect(win.getByText('banana-002')).toBeVisible();
   });
 });

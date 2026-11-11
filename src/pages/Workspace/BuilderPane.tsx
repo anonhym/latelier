@@ -367,34 +367,29 @@ function insertRowKeepingFocus(
 
 /** Puts the caret in the field box of the row at `path` once it has rendered. */
 function focusRowFieldAfterRender(path: NodePath): void {
-  focusRowInputAfterRender(path, 'field');
+  requestAnimationFrame(() => focusRowInput(path, 'field'));
 }
 
 /**
  * Puts the caret in the row's field box, or its value box. A row whose value
  * has no text box (a boolean's switch, a null) takes it in the field box.
  */
-function focusRowInputAfterRender(path: NodePath, which: 'field' | 'value'): void {
-  const key = pathKey(path);
-  requestAnimationFrame(() => {
-    const row = document.querySelector(`[data-row-path="${key}"]`);
-    const value =
-      which === 'value'
-        ? row?.querySelector<HTMLElement>('input[placeholder="value"], input[placeholder="add a value, Enter"]')
-        : null;
-    (value ?? row?.querySelector<HTMLElement>('input[placeholder="field"]'))?.focus();
-  });
+function focusRowInput(path: NodePath, which: 'field' | 'value'): void {
+  const row = document.querySelector(`[data-row-path="${pathKey(path)}"]`);
+  const value =
+    which === 'value'
+      ? row?.querySelector<HTMLElement>('input[placeholder="value"], input[placeholder="add a value, Enter"]')
+      : null;
+  (value ?? row?.querySelector<HTMLElement>('input[placeholder="field"]'))?.focus();
 }
 
 /** The filter's first field box, or `+ Condition` when it has no row (the palette's Query…). */
-function focusFirstFieldAfterRender(): void {
-  requestAnimationFrame(() => {
-    const drawer = document.querySelector('[data-group-path="root"]');
-    (
-      drawer?.querySelector<HTMLElement>('[data-row-path] input[placeholder="field"]') ??
-      drawer?.querySelector<HTMLElement>('button[aria-label="Add condition"]')
-    )?.focus();
-  });
+function focusFirstField(): void {
+  const drawer = document.querySelector('[data-group-path="root"]');
+  (
+    drawer?.querySelector<HTMLElement>('[data-row-path] input[placeholder="field"]') ??
+    drawer?.querySelector<HTMLElement>('button[aria-label="Add condition"]')
+  )?.focus();
 }
 
 /**
@@ -1832,13 +1827,26 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   // The palette's Query… and Filter by field… (X07 §13.6), taken as an edit
   // of this drawer's own: one condition appended at the root, one step of
   // its undo history, the filter already here kept, and nothing run.
+  //
+  // The caret goes to the new row once the commit that holds it has run, not
+  // on the next frame: an edit made from an effect renders in a scheduled
+  // task, which can land after that frame, and a frame that finds no row
+  // focuses nothing (the palette's own focus return then takes the caret).
   const filterRequest = React.useSyncExternalStore(subscribeTabRequests, () => peekFilterRequest(meta.tabId));
+  const pendingFocusRef = React.useRef<{ path: NodePath; which: 'field' | 'value' } | null>(null);
+  React.useLayoutEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending) return;
+    pendingFocusRef.current = null;
+    focusRowInput(pending.path, pending.which);
+  }, [root]);
   React.useEffect(() => {
     if (!filterRequest) return;
     const request = takeFilterRequest(meta.tabId);
     if (!request) return;
     if (!request.node) {
-      focusFirstFieldAfterRender();
+      // Nothing to add: the drawer is already in the DOM.
+      focusFirstField();
       return;
     }
     if (readOnly) {
@@ -1846,11 +1854,11 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       return;
     }
     const next = andAtRoot(root, request.node);
+    pendingFocusRef.current = { path: [next.children.length - 1], which: request.focus };
     // The request comes from outside React (the palette's store) and may be
     // waiting when this drawer mounts, so it lands here, once.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     applyEdit(next);
-    focusRowInputAfterRender([next.children.length - 1], request.focus);
     // Once per request: the edit reads this render's tree.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterRequest]);
