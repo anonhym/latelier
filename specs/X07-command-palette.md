@@ -672,12 +672,12 @@ Each step ships on its own and leaves the palette working. Two things come befor
 ### 13.10 Acceptance criteria
 
 - `prod open` and `open prod` both list `Production` with its Open action first; `orders shop` finds `shop.orders`.
-- Typing `open`, `new` or `tab` lists no collection that does not contain the word in its `<db>.<coll>`.
+- Typing `open`, `new` or `tab` matches no collection through a title prefix or keyword: a collection without the word in its `<db>.<coll>` is listed only by subsequence (§13.2), below every row matching by word start.
 - For the query `orders`, a collection named exactly `orders` ranks above `orders_archive`, which ranks above `reorders`.
 - `so` finds `shop.orders`; `rq` finds `Run query`.
 - A recently used row that matches by subsequence ranks below a row that matches by word start.
 - With an empty query and a collection tab in front, the Query and View groups are listed above Connection and General, and no per-Connection edit or delete row is listed.
-- Matched characters are emphasised in every listed row.
+- Matched characters are emphasised in every listed row, in its title or its subtitle; a row matched by a hidden keyword alone has no visible match to emphasise.
 - A command whose `perform` rejects shows one error toast naming it.
 - Pasting a 24-character hexadecimal string with a collection tab in front offers the `_id` row first; performing it filters the tab to that document, and Undo in the builder restores the previous filter.
 - `Tab` and `Shift+Tab` cycle the five scopes and keep the query; the palette always opens on All.
@@ -697,7 +697,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - A stored MRU written by v1 still shows its collections and Connections under RECENT.
 - Opening the palette, typing and navigating in it send no request to a MongoDB server; only `Filter by field…` does, at most one schema sample.
 - With 10,000 collections cached, no query renders more than 50 result rows in a scope or five per kind in All.
-- The ranker stays within 16 ms at 50,000 collections on the §13.7 probe.
+- The ranker stays within 16 ms at 50,000 collections on the §13.7 probe (`npm run perf:rank`; opt-in, since a 16 ms wall-clock assertion flakes under the full suite's load, which keeps a coarse guard).
 - The in-app measurements of §13.7 rule 6 are no worse after each step than before it.
 - Every row, scope and action is reachable and operable from the keyboard, and the highlighted row is announced through `aria-activedescendant` in the results and in the action list.
 
