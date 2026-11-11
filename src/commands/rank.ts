@@ -70,6 +70,12 @@ interface Prepared {
   ends: number[];
   sub: string;
   kw: string;
+  /** The command this was last matched to; a different object with the same id is checked by text. */
+  cmd: Command;
+  /** What this was built from, to tell whether a command still has the same text. */
+  source: string;
+  subtitle: string | undefined;
+  keywords: string[] | undefined;
 }
 
 const SEPARATORS = new Set([' ', '.', '_', '-', ':', '/', '→']);
@@ -94,8 +100,28 @@ function lowerKeepingLength(s: string): string {
   return out;
 }
 
-// Keyed on the command object, so a registration is prepared once, not on every keystroke (§13.7 rule 4).
-const prepared = new WeakMap<Command, Prepared>();
+// §13.7 rule 4: prepared once, not on every keystroke. Keyed on the id, with the
+// text that feeds the preparation kept in the record: ranking finds its command
+// by identity (one lookup), and a registration that rebuilds the same commands
+// as new objects (the workspace does on every change) finds them done. One
+// record per registered id.
+const preparedById = new Map<string, Prepared>();
+
+function sameKeywords(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((k, i) => k === b[i]);
+}
+
+/** Drops the cached preparations of ids `keep` rejects, so the cache follows the registry. */
+export function prunePrepared(keep: (id: string) => boolean): void {
+  for (const id of preparedById.keys()) if (!keep(id)) preparedById.delete(id);
+}
+
+/** How many ids have a cached preparation. */
+export function preparedCount(): number {
+  return preparedById.size;
+}
 
 /** The end of the word starting at `start`: the first separator, or `limit` (the next word's start). */
 function wordEndAt(source: string, start: number, limit: number): number {
@@ -115,9 +141,18 @@ export function prepareCommand(cmd: Command): void {
 }
 
 function prepare(cmd: Command): Prepared {
-  const hit = prepared.get(cmd);
-  if (hit) return hit;
+  const byId = preparedById.get(cmd.id);
+  if (byId?.cmd === cmd) return byId;
   const source = displayText(cmd);
+  if (
+    byId &&
+    byId.source === source &&
+    byId.subtitle === cmd.subtitle &&
+    sameKeywords(byId.keywords, cmd.keywords)
+  ) {
+    byId.cmd = cmd;
+    return byId;
+  }
   const starts: number[] = [];
   const ends: number[] = [];
   for (let i = 0; i < source.length; i++) {
@@ -136,8 +171,12 @@ function prepare(cmd: Command): Prepared {
     ends,
     sub: cmd.subtitle?.toLowerCase() ?? '',
     kw: (cmd.keywords ?? []).join(' ').toLowerCase(),
+    cmd,
+    source,
+    subtitle: cmd.subtitle,
+    keywords: cmd.keywords,
   };
-  prepared.set(cmd, p);
+  preparedById.set(cmd.id, p);
   return p;
 }
 

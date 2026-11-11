@@ -13,7 +13,7 @@ const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 const BOUND_MS = 16;
 const RUNS = 15;
 
-function catalog(collections: number): Command[] {
+function catalog(collections: number, idPrefix = ''): Command[] {
   const cmds: Command[] = [];
   for (let i = 0; i < 40; i++) {
     cmds.push({ id: `cmd.${i}`, title: `Run command number ${i}`, group: 'general', keywords: ['x'], perform: () => {} });
@@ -22,7 +22,7 @@ function catalog(collections: number): Command[] {
     const db = `db${i % 50}`;
     const coll = `collection_${i}`;
     cmds.push({
-      id: `tab.open:c1:${db}:${coll}`,
+      id: `${idPrefix}tab.open:c1:${db}:${coll}`,
       title: `Open: ${db}.${coll}`,
       matchText: `${db}.${coll}`,
       subtitle: 'Production',
@@ -66,16 +66,46 @@ function collectGarbage(): void {
 // What registering 50,000 rows costs. A generous bound: it guards against the
 // work growing per row, not against a slow machine.
 const REGISTER_BOUND_MS = 250;
+// Looking up 50,000 unchanged rows by id costs about 14 ms of that and the
+// registry's own bookkeeping about 11 more; a full prepare is about 70.
+const REREGISTER_BOUND_MS = 40;
 
 describe.skipIf(underStryker)('registering 50,000 collections', () => {
   it('prepares them within the registration budget', () => {
-    const all = catalog(50_000);
+    const all = catalog(50_000, 'budget:');
     const t0 = performance.now();
     const off = commandRegistry.add(all);
     const ms = performance.now() - t0;
     off();
     process.stderr.write(`register 50k: ${ms.toFixed(1)} ms\n`);
     expect(ms).toBeLessThanOrEqual(REGISTER_BOUND_MS);
+  });
+
+  it.each([10_000, 50_000])('times the first registration of %i rows', (n) => {
+    const all = catalog(n, `first${n}:`);
+    const t0 = performance.now();
+    const off = commandRegistry.add(all);
+    const ms = performance.now() - t0;
+    off();
+    process.stderr.write(`first registration ${n}: ${ms.toFixed(1)} ms\n`);
+    expect(ms).toBeLessThanOrEqual(REGISTER_BOUND_MS);
+  });
+
+  it('re-registers an identical 50,000-row catalog, rebuilt as new objects, at lookup cost', () => {
+    // A running app has registered before: warm the lookup path on a small
+    // catalog, so the timed run measures it and not first-use compilation.
+    commandRegistry.add(catalog(2_000, 'warm:'))();
+    commandRegistry.add(catalog(2_000, 'warm:'))();
+    const off1 = commandRegistry.add(catalog(50_000, 'same:'));
+    off1();
+    const again = catalog(50_000, 'same:');
+    collectGarbage();
+    const t0 = performance.now();
+    const off2 = commandRegistry.add(again);
+    const ms = performance.now() - t0;
+    off2();
+    process.stderr.write(`re-registration 50k: ${ms.toFixed(1)} ms\n`);
+    expect(ms).toBeLessThanOrEqual(REREGISTER_BOUND_MS);
   });
 
   it.each(['o', 'ord', 'collection 42', 'zzz'])(
