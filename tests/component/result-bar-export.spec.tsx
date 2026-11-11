@@ -359,7 +359,7 @@ describe('ResultBar — an export request from the palette', () => {
     expect(exportRequested('t2')).toBe(true);
   });
 
-  it('waits for the run, and says so when it matched nothing', async () => {
+  it('says so when the result matched nothing', async () => {
     const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
     renderBar({ lastRun: { documents: [], durationMs: 1, ranAt: new Date().toISOString() } }, { tabId: 't1' });
     act(() => requestExport('t1'));
@@ -369,9 +369,85 @@ describe('ResultBar — an export request from the palette', () => {
     expect(exportRequested('t1')).toBe(false);
   });
 
-  it('holds the request while no run has landed', () => {
-    renderBar({ lastRun: undefined }, { tabId: 't1' });
+  // A restored tab with a custom filter carries no result and is never
+  // auto-run, so the request runs the query itself and decides on the first
+  // run to settle. The bar is re-rendered with each state the tab moves through.
+  function liveBar(state: Partial<CollectionTabState>, meta: Partial<CollectionWorkspaceMeta> = {}) {
+    const actions = emptyWorkspaceActions();
+    const tree = (s: Partial<CollectionTabState>, m: Partial<CollectionWorkspaceMeta>) => (
+      <CollectionWorkspaceProvider state={makeState(s)} actions={actions} meta={emptyWorkspaceMeta({ tabId: 't1', ...m })}>
+        <ResultBar />
+      </CollectionWorkspaceProvider>
+    );
+    const { rerender } = render(tree(state, meta));
+    return { actions, update: (s: Partial<CollectionTabState>, m: Partial<CollectionWorkspaceMeta> = {}) => rerender(tree(s, m)) };
+  }
+  const restored = { lastRun: undefined, queryRaw: '{ "status": "open" }' };
+  const settled = (over: Partial<NonNullable<CollectionTabState['lastRun']>> = {}) => ({
+    ...restored,
+    lastRun: {
+      documents: [{ _id: { $oid: '507f1f77bcf86cd799439011' } }],
+      durationMs: 3,
+      ranAt: '2026-11-11T10:00:00.000Z',
+      ...over,
+    },
+  });
+
+  it('runs a restored tab with no result, then opens on the run that lands', async () => {
+    const { actions, update } = liveBar(restored);
     act(() => requestExport('t1'));
-    expect(exportRequested('t1')).toBe(true);
+    expect(actions.run).toHaveBeenCalledTimes(1);
+    expect(exportRequested('t1')).toBe(false);
+    update(restored, { isLoading: true });
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    update(settled());
+    expect(await screen.findByRole('dialog', { name: /Export documents/ })).toBeTruthy();
+    expect(actions.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the request when the run errors, and says to fix and run the query', () => {
+    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+    const { update } = liveBar(restored);
+    act(() => requestExport('t1'));
+    update(settled({ documents: [], error: { code: 'MONGO', message: 'boom' } }));
+    expect(info).toHaveBeenCalledWith('Nothing to export yet: fix the query and run it first.');
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    // Consumed on that settle: a later good run opens nothing.
+    update(settled({ ranAt: '2026-11-11T10:01:00.000Z' }));
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    expect(info).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs again on a tab whose last result is an error', () => {
+    const { actions } = liveBar(settled({ documents: [], error: { code: 'MONGO', message: 'boom' } }));
+    act(() => requestExport('t1'));
+    expect(actions.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the request without running when the filter is refused', () => {
+    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+    const { actions } = liveBar({ ...restored, queryRaw: '{ status: ' });
+    act(() => requestExport('t1'));
+    expect(actions.run).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith('Nothing to export yet: fix the query and run it first.');
+    expect(exportRequested('t1')).toBe(false);
+  });
+
+  it('drops the request silently when the run is cancelled', () => {
+    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+    const { update } = liveBar(restored);
+    act(() => requestExport('t1'));
+    update(restored, { isLoading: true });
+    update(restored, { isLoading: false });
+    update(settled());
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it('drops the request when the bar moves to another tab before the run lands', () => {
+    const { update } = liveBar(restored);
+    act(() => requestExport('t1'));
+    update(settled(), { tabId: 't2' });
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
   });
 });
