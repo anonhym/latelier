@@ -164,6 +164,9 @@ describe('databaseObject', () => {
     });
     expect(build(null).obj.subtitle).toBe('database');
     expect(build().obj.tag).toBeUndefined();
+    // Found by the word, and its default action answers to no verb of the table.
+    expect(build().obj.keywords).toEqual(['database']);
+    expect(build().obj.actions[0]!.verb).toBe('create');
   });
 
   it('creates a collection by default and drops only as a destructive action, through the navigator’s dialogs', () => {
