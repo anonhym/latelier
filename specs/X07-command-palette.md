@@ -470,6 +470,30 @@ Connection objects appear in All only.
 
 **Direct entry.** `⌘P` opens the palette on the Collections scope. It is listed in the shortcuts cheat sheet under "Anywhere".
 
+**Agreed design.** The UI below was reviewed and agreed in Claude Design, on the canvas "Command palette v2" (ten artboards: empty query, typed query in All, Collections scope, pasted `_id`, failure toast, first-letter lookup, action list, verb and object, verb alone, Filter by field). The build reproduces those artboards; where this section and an artboard differ in copy, the artboard's copy, quoted here, wins. Colours come from the `--atelier-*` tokens in both themes, never from the artboards' dark-theme values: a matched character uses `--atelier-accent-ink` at weight 600, the highlighted row `--atelier-accent-soft`, a destructive action the red tokens.
+
+- **Search row.** A search icon, the input (placeholder `Search collections, actions, tabs…`) and an `esc` key cap at the right.
+- **Scope row.** The five scopes as tabs, the selected one in the accent colour. Once a query is typed, each scope but All shows its match count after its name; with an empty query no count is shown. At the right of the row, on an empty query, the hint `Tab to switch scope`. Scope tabs carry `tabIndex={-1}`: a click selects them, the input keeps focus.
+- **Rows.** A kind icon (collection, database, connection, tab, saved, command), the title with matched characters emphasised, a muted subtitle on the same line (a collection's Connection name, a Connection's host, a tab's `<db> · <Connection>`, a saved item's namespace), and at the right either the command's shortcut as a key cap or a tag naming the row: `Recent` for a recent row, `Collection` and `Connection` for those kinds under RECENT, `Open tab` for a tab, `Query` or `Pipeline` for a saved item.
+- **Show more.** In All, the line under a capped kind reads `Show <n> more collections` (`… more saved`, `… more tabs`), in the accent colour.
+- **Row limit line.** Under a scope's list, fixed outside the scrolling area: `Showing the best 50 · keep typing to narrow <n> more`.
+- **Footer.** A bar of key hints for the highlighted row, changing with the state:
+  - object row: `↵ Open`, `⌘↵ Open in new tab` (only when it has an alternate), `⌥↵ Actions`; on an empty query in All also `⌘P Collections` at the right; in a single scope `⇧Tab All` at the right;
+  - action list: `↵ Run action`, `esc Back to results`, `← Back, on an empty input`;
+  - verb in the query: `↵ <action title>` with `(opens its confirm dialog)` for a destructive one, and `⌥↵ All actions`;
+  - verb alone: `↵ Switch scope`, and `Keep typing a name: open shop.or` with the verb typed;
+  - pasted `_id`: `↵ Find`;
+  - field step: `↵ Add "<field>" to the filter (nothing runs)`, `esc Back to actions`.
+- **Toggles.** A switch at the right of the row, filled with the accent when on.
+- **Unavailable rows.** Title and reason in the ghost text colour, the reason as the subtitle.
+- **Pasted `_id`.** Its group is labelled `In the tab in front`; the row reads `Find _id <value> in <db>.<coll>` with the value in the monospace font and the accent colour, and a second line `Replaces the filter and runs it · Undo puts the old filter back`. Below it, `No other matches` when nothing else matches.
+- **Failure toast.** Title `Couldn't run "<command title>"`, body the error's message, an error icon and a dismiss button, red border.
+- **Action list.** A back button, the object as a chip (its kind icon, its name, and the Connection for a collection: `shop.orders · Production`), and the input with placeholder `Filter actions…`. Every action is one row; the default carries the `↵` key cap and the tag `reuses the open tab` for a collection, the alternate `⌘↵`, `Filter by field…` a `›`. Destructive actions sit last, after a divider, in red with a trash icon and the tag `asks to confirm`.
+- **Verb in the query.** A line under the scope row: `Read as the verb <verb> (from "<typed word>")` when an alias was typed, `Read as the verb <verb>` otherwise, followed by `: only things that can be <verb past participle> are listed`, the verb in red when its action is destructive. Each object row shows its action as a tag at the right, a red outlined one for a destructive action.
+- **Verb alone.** A group titled `<Verb>…` of rows `<Verb> a collection…`, `<Verb> a connection…`, `<Verb> a tab…`, `<Verb> a saved query…` for the kinds that have the verb, each with its destination at the right (`Collections scope ›`, `All, connections only ›`, `Tabs scope ›`, `Saved scope ›`), then the matching commands under Actions.
+- **Connections only.** Connections have no scope of their own. Performing `<Verb> a connection…` keeps All selected and lists Connection objects only, until the query is cleared or the scope changes; the scope row shows a removable `Connections only` chip after All while it holds.
+- **Field step.** Two chips, the collection and `Filter by field`, and the input. Groups `Fields · sampled` (field path in the monospace font, its dominant type as a tag), `Starters` (the `FILTER_TEMPLATES` labels), and while the sample loads a `Sampling fields…` status row in place of the fields.
+
 ### 13.4 Objects and actions
 
 Lifts the "multi-step / nested commands" deferral in Scope.
@@ -634,7 +658,7 @@ Registering, listing and unregistering 50,000 rows took 6.4 ms. Ranking is not w
 
 Each step ships on its own and leaves the palette working. Two things come before any of them:
 
-- **Design review.** The UI and UX of §13.3, §13.4 and §13.6 — scopes, capped groups, toggles, greyed rows, object rows, the action list and the field step — are reviewed and agreed in Claude Design. No implementation starts before that review, and what it changes is written back into this section first.
+- **Design review.** Done. The UI and UX of §13.3, §13.4 and §13.6 were reviewed and agreed in Claude Design; the outcome is "Agreed design" in §13.3.
 - **Baseline measurement.** The in-app numbers of §13.7 rule 6 are taken on v1.
 
 1. **Ranking.** §13.2 against the v1 flat rows: tokens, classes, `matchText`, recency as a tie-break, the empty-query order, highlight, the failure toast, the title pass, the pasted `_id` row. Per-Connection edit and delete rows get `hideWhenEmptyQuery` until step 3 removes them.
@@ -708,4 +732,6 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **Sweeping every Open Connection.** Dropped. It would multiply the listings made on connect, and §13.7 rule 1 forbids it. Other connected Connections contribute what the navigator has already listed (§13.5).
 - **`⌘P`** is free. The application menu (`electron/security/appMenu.ts`) has no Print item and no item bound to it, the only `globalShortcut` is a development-only reset, and nothing in the renderer listens for it.
 - **Disconnect** lives in `Workspace.tsx`'s `useConnectionDialogs`, which asks first when the Connection has open tabs. Connection objects register above `<Routes>`, so the action travels as a `disconnectConnectionId` route intent, the way open, edit and delete already do, and reaches that same handler and dialog.
+- **Initials against word starts.** Word start stays the stronger class (§13.2). A collection with a word starting with the query, such as `reports.sorted` for `so`, lists above `shop.orders`; recency breaks ties only inside a class.
+- **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
 - **Reveal in navigator** exists for a collection row only (`DbCollectionNavigator`'s `revealRequest`, which requires a collection name). The Database object's default action needs that request to accept a database on its own. Until it does, the Database object's default is Create collection….
