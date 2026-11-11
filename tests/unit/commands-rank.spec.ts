@@ -547,6 +547,7 @@ describe('rankCommands — matchText', () => {
     ];
     expect(rank(all, 'open')).toEqual([]);
     expect(rank(all, 'new')).toEqual([]);
+    expect(rank([make({ id: 'c', title: 'Open in new tab: shop.orders', matchText: 'shop.orders' })], 'tab')).toEqual([]);
     expect(rank(all, 'orders')).toEqual(['a']);
     expect(rank(all, 'opn')).toEqual([]);
   });

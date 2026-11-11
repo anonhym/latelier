@@ -1,6 +1,6 @@
 # X07 — Command palette
 
-> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md). The v2 amendment in §13 is **Draft** and not built; §1–§12 describe what ships today.
+> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13, which is implemented too; where §13 names a part of §1–§12, §13 is what ships.
 
 ## Purpose
 
@@ -378,7 +378,7 @@ Lands in three commits, each independently mergeable:
 
 ## 13. Amendment — palette v2: search everywhere
 
-> **Draft.** Nothing in this section is built. It supersedes the parts of §1–§12 it names and leaves the rest standing.
+> **Implemented.** It supersedes the parts of §1–§12 it names and leaves the rest standing.
 
 ### 13.1 Why, and what changes
 
@@ -434,7 +434,7 @@ A row's class is the weakest class among its tokens. Rows sort by class, then:
 2. shorter match text first;
 3. registration order.
 
-Recency is a tie-break inside a class, never a class of its own once a query is typed: a recent row that matches by subsequence stays below an exact match. There is no edit-distance matching; `oders` finds nothing.
+Recency is a tie-break inside a class, never a class of its own once a query is typed: a recent row that matches by subsequence stays below an exact match. There is no edit-distance matching; `ordres` finds nothing (`oders` still finds `orders`, by subsequence).
 
 **Group order on a typed query.** In All, the kinds are drawn in a fixed order, as on the agreed artboards: Collections, Databases, Tabs, Saved, Connections, Actions, each group in rank order and empty groups left out; a verb alone's `<Verb>…` group comes first. The cursor starts on the first drawn row. In a single scope the rows are in rank order. Before objects existed (step 1) the command groups were ordered by their best row; the kinds replace them.
 
@@ -672,12 +672,12 @@ Each step ships on its own and leaves the palette working. Two things come befor
 ### 13.10 Acceptance criteria
 
 - `prod open` and `open prod` both list `Production` with its Open action first; `orders shop` finds `shop.orders`.
-- Typing `open`, `new` or `tab` matches no collection through a title prefix or keyword: a collection without the word in its `<db>.<coll>` is listed only by subsequence (§13.2), below every row matching by word start.
+- Typing `open`, `new` or `tab` matches no collection through a title prefix or keyword: a collection without the word in its `<db>.<coll>` matches only by subsequence (§13.2), so inside its group it ranks below every collection matching by word start. Groups keep the fixed kind order of §13.2, and in a single scope a verb typed alone lists that scope's objects (§13.4).
 - For the query `orders`, a collection named exactly `orders` ranks above `orders_archive`, which ranks above `reorders`.
 - `so` finds `shop.orders`; `rq` finds `Run query`.
 - A recently used row that matches by subsequence ranks below a row that matches by word start.
 - With an empty query and a collection tab in front, the Query and View groups are listed above Connection and General, and no per-Connection edit or delete row is listed.
-- Matched characters are emphasised in every listed row, in its title or its subtitle; a row matched by a hidden keyword alone has no visible match to emphasise.
+- Matched characters are emphasised in every listed row, in its title or its subtitle. Three kinds of row show none: a row matched by a hidden keyword alone, a verb row reached through an alias (the query names the verb, not the row), and an unavailable row, drawn in the ghost colour (§13.3).
 - A command whose `perform` rejects shows one error toast naming it.
 - Pasting a 24-character hexadecimal string with a collection tab in front offers the `_id` row first; performing it filters the tab to that document, and Undo in the builder restores the previous filter.
 - `Tab` and `Shift+Tab` cycle the five scopes and keep the query; the palette always opens on All.
@@ -738,4 +738,4 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **Saved `Rename…`.** Dropped from the Saved object: the app has no rename for a saved query or pipeline, and a new dialog was not part of the agreed design. Tracked as its own issue.
 - **Kind order in All.** Fixed, as the artboards draw it (§13.2, "Group order on a typed query"), so the layout does not reshuffle between keystrokes.
 - **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
-- **Reveal in navigator** exists for a collection row only (`DbCollectionNavigator`'s `revealRequest`, which requires a collection name). The Database object's default action needs that request to accept a database on its own. Until it does, the Database object's default is Create collection….
+- **Reveal in navigator** for a database: `DbCollectionNavigator`'s reveal request accepts a database on its own, which it expands, scrolls to and focuses. The request lives in `Workspace.tsx`, so the palette and the tab menu share it. `reveal` is not a verb (§13.4), like `create`: under `open` it would list every database.
