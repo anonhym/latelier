@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
-import { _resetExportRequestForTests, exportRequested, requestExport } from '../../src/pages/Workspace/exportRequest';
+import { _resetTabRequestsForTests, tabRequested, requestTab } from '../../src/pages/Workspace/tabRequest';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { notify } from '../../src/theme/notifications';
@@ -343,19 +343,19 @@ describe('ResultBar — Export all matching', () => {
 });
 
 describe('ResultBar — an export request from the palette', () => {
-  afterEach(() => _resetExportRequestForTests());
+  afterEach(() => _resetTabRequestsForTests());
 
   it('opens the Export dialog once for its own tab, and consumes the request', async () => {
     renderBar({}, { tabId: 't1' });
-    act(() => requestExport('t1'));
+    act(() => requestTab('export', 't1'));
     expect(await screen.findByRole('dialog', { name: /Export documents/ })).toBeTruthy();
-    expect(exportRequested('t1')).toBe(false);
+    expect(tabRequested('export', 't1')).toBe(false);
   });
 
   it('leaves another tab’s request alone', () => {
     renderBar({}, { tabId: 't1' });
-    act(() => requestExport('t2'));
+    act(() => requestTab('export', 't2'));
     expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
-    expect(exportRequested('t2')).toBe(true);
+    expect(tabRequested('export', 't2')).toBe(true);
   });
 });

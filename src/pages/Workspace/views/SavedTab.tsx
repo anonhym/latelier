@@ -4,7 +4,7 @@ import { I } from '../../../icons';
 import { themeVars } from '../../../theme/themeVars';
 import { SubmitButton } from '../../../components/SubmitButton';
 import { api, getErrorMessage } from '../../../api/atelier';
-import { confirmDestructive } from '../../../utils/confirm';
+import { confirmDeleteSaved } from '../savedActions';
 import type { SavedKind, SavedQuery, SavedQuerySummary } from '@shared/types';
 
 const KIND_LABEL: Record<SavedKind, string> = {
@@ -77,11 +77,7 @@ export function SavedTab({
   // modal manager. `confirmDestructive` is that same manager; Escape, the
   // backdrop and focus trapping come with it rather than being re-implemented.
   const requestDelete = async (target: SavedQuerySummary) => {
-    const proceed = await confirmDestructive({
-      title: `Delete "${target.name}"?`,
-      body: 'This removes the saved query. This action cannot be undone.',
-      confirmLabel: 'Delete',
-    });
+    const proceed = await confirmDeleteSaved(target);
     if (!proceed) return;
     setDeleting(true);
     try {

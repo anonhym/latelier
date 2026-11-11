@@ -47,6 +47,7 @@ import { useRegisterCommands } from '../commands/useRegisterCommands';
 import { useRegisterObjects } from '../commands/useRegisterObjects';
 import type { PaletteObject } from '../commands/types';
 import { collectionObject } from './Workspace/collectionObject';
+import { closeTabGuarded } from './Workspace/tabActions';
 import type { NavigatorDialogRequest } from './Workspace/DbCollectionNavigator';
 import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
@@ -738,7 +739,7 @@ function WorkspaceInner() {
         when: () => activeRef.current !== null,
         perform: () => {
           const a = activeRef.current;
-          if (a) void tabsRef.current.close(a.id);
+          if (a) void closeTabGuarded(tabsRef.current, a.id);
         },
       },
       {
@@ -1045,7 +1046,7 @@ function WorkspaceInner() {
         toggleBuilderWithFocus();
       } else if (e.key === 'w') {
         e.preventDefault();
-        if (tabs.activeId) void tabs.close(tabs.activeId);
+        if (tabs.activeId) void closeTabGuarded(tabs, tabs.activeId);
       } else if (e.key === 'Alt' || e.key === 'Option') {
         // noop
       } else if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {

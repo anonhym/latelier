@@ -105,7 +105,7 @@
     "src/commands/layout.ts",
     "src/commands/verbs.ts",
     "src/pages/Workspace/collectionObject.ts",
-    "src/pages/Workspace/exportRequest.ts",
+    "src/pages/Workspace/tabRequest.ts",
     "src/commands/pastedId.ts",
     "src/commands/shortcutLabel.ts",
     "electron/services/tabStateResults.ts",

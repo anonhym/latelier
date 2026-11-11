@@ -6,7 +6,7 @@ import {
   Separator as PanelResizeHandle,
   type PanelImperativeHandle,
 } from 'react-resizable-panels';
-import { getErrorMessage, isIpcError } from '../../api/atelier';
+import { getErrorMessage } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
@@ -39,6 +39,7 @@ import type { IndexCreateRequest } from '../IndexesTab';
 import { QueryBar } from './QueryBar';
 import { ResultViewer } from './ResultViewer';
 import { BuilderPane } from './BuilderPane';
+import { openSavedPipeline } from './savedActions';
 import { ResizeHandle } from './ResizeHandle';
 import { DividerNotch } from './DividerNotch';
 import { MongoShellPane } from './MongoShellPane';
@@ -608,26 +609,7 @@ export function PanelBody({
                           onLoaded={bumpLoadGen}
                           onOpenInTab={(saved) => {
                             if (saved.kind === 'aggregation') {
-                              // Main loads the stored stages and refuses a pipeline
-                              // that was deleted since the list loaded; say so rather
-                              // than leave the click doing nothing.
-                              tabs
-                                .openAggregation({
-                                  connectionId: saved.connectionId,
-                                  dbName: saved.dbName,
-                                  collection: saved.collection,
-                                  savedId: saved.id,
-                                  name: saved.name,
-                                })
-                                .catch((e: unknown) =>
-                                  notify.error(
-                                    // Main's NOT_FOUND text names the row by its id.
-                                    isIpcError(e) && e.code === 'NOT_FOUND'
-                                      ? 'It no longer exists.'
-                                      : getErrorMessage(e, String(e)),
-                                    { title: `Could not open “${saved.name}”` },
-                                  ),
-                                );
+                              void openSavedPipeline(tabs, saved);
                             } else if (saved.kind === 'script') {
                               void tabs.openScript({ connectionId: saved.connectionId });
                             }

@@ -103,16 +103,18 @@ export interface DbCollectionNavigatorProps {
   onRevealHandled?: () => void;
   /**
    * Opens one of the collection dialogs the context menu opens, from outside
-   * the tree (the palette's Rename…, Import… and Drop collection…). A new
+   * the tree (the palette's Rename…, Import…, Drop collection…, Create
+   * collection… and Drop database…). A new
    * object per request; `onDialogRequestHandled` is called once it is open.
    */
   dialogRequest?: NavigatorDialogRequest | null;
   onDialogRequestHandled?: () => void;
 }
 
-export interface NavigatorDialogRequest extends NavigatorOpenInput {
-  dialog: 'rename' | 'import' | 'drop';
-}
+export type NavigatorDialogRequest =
+  | (NavigatorOpenInput & { dialog: 'rename' | 'import' | 'drop' })
+  /** The database menu's Create collection and Drop database. */
+  | { connectionId: string; dbName: string; dialog: 'createCollection' | 'dropDatabase' };
 
 type TreeRow =
   | {
@@ -550,15 +552,20 @@ export function DbCollectionNavigator({
   // the menu opens. No menu trigger: focus goes back to wherever it was.
   React.useEffect(() => {
     if (!dialogRequest) return;
-    const { dialog, ...target } = dialogRequest;
+    const request = dialogRequest;
     queueMicrotask(() => {
       setMenuTrigger(null);
-      if (dialog === 'rename') setRenameTarget(target);
-      else if (dialog === 'import') setImportTarget(target);
-      else setDropCollTarget(target);
+      const db = { connectionId: request.connectionId, dbName: request.dbName };
+      if ('collection' in request) {
+        const target = { ...db, collection: request.collection };
+        if (request.dialog === 'rename') setRenameTarget(target);
+        else if (request.dialog === 'import') setImportTarget(target);
+        else setDropCollTarget(target);
+      } else if (request.dialog === 'createCollection') setCreateCollDb(db);
+      else setDropDbTarget(db);
       onDialogRequestHandled?.();
     });
-  }, [dialogRequest, onDialogRequestHandled, setMenuTrigger, setRenameTarget, setImportTarget, setDropCollTarget]);
+  }, [dialogRequest, onDialogRequestHandled, setMenuTrigger, setRenameTarget, setImportTarget, setDropCollTarget, setCreateCollDb, setDropDbTarget]);
 
   const disconnect = React.useCallback((id: string) => {
     void disconnectConnection(id);
