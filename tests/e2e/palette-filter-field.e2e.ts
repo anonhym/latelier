@@ -18,8 +18,8 @@ const ORDERS = [
  */
 test('palette: Filter by field… appends a condition, a typed value and a run filter the result', async () => {
   await withOpenOrders('Filter By Field Target', ORDERS, 'banana-002', async (win) => {
-    const search = win.locator('input[role="combobox"]');
-    const palette = win.getByRole('dialog').filter({ has: search });
+    const palette = win.locator('[role=dialog]:has(input[role=combobox])');
+    const search = palette.locator('input[role="combobox"]');
     await expect(async () => {
       if (!(await palette.isVisible())) await win.keyboard.press('ControlOrMeta+K');
       await expect(palette).toBeVisible({ timeout: 1000 });
