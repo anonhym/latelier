@@ -1206,12 +1206,15 @@ function WorkspaceInner() {
   const deleteConnectionId = navState?.deleteConnectionId ?? null;
   const editConnectionId = navState?.editConnectionId ?? null;
   const disconnectConnectionId = navState?.disconnectConnectionId ?? null;
+  // `openDeleteConnectionModal` counts the Connection's open tabs to word its
+  // dialog and refuses while they are still loading: wait for them too, or the
+  // intent is cleared and dropped.
   React.useEffect(() => {
-    if (!deleteConnectionId || connectionsLoading) return;
+    if (!deleteConnectionId || connectionsLoading || tabs.loading) return;
     void navigate(location.pathname, { replace: true, state: null });
     openDeleteConnectionModal(deleteConnectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deleteConnectionId, connectionsLoading]);
+  }, [deleteConnectionId, connectionsLoading, tabs.loading]);
   React.useEffect(() => {
     if (!editConnectionId || connectionsLoading) return;
     void navigate(location.pathname, { replace: true, state: null });

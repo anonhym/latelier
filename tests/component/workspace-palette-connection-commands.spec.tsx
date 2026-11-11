@@ -214,6 +214,33 @@ describe('Workspace palette Connection objects', () => {
   // hasn't resolved yet. `openDeleteConnectionModal` looks the id up in
   // `connections` and no-ops on a miss — acting (and clearing the nav state)
   // before that first load lands would drop the intent silently.
+  // `openDeleteConnectionModal` refuses while the tabs are loading (it counts
+  // them for its copy): an intent acted on before they land is dropped (#746).
+  it('a delete triggered from outside /workspace survives tabs that resolve late', async () => {
+    let resolveTabs: (v: unknown[]) => void = () => {};
+    const tabsPromise = new Promise<unknown[]>((resolve) => {
+      resolveTabs = resolve;
+    });
+    installAtelierMock({
+      conn: { list: async () => [conn()] },
+      tabs: { list: () => tabsPromise as never },
+    });
+
+    render(routedApp(['/connections/c1']));
+    await perform('delete prod', 'Prod');
+
+    await waitFor(() => expect(screen.queryByText('connection detail screen')).toBeNull());
+    await act(async () => {});
+    expect(screen.queryByRole('dialog', { name: 'Delete "Prod"?' })).toBeNull();
+
+    await act(async () => {
+      resolveTabs([]);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('dialog', { name: 'Delete "Prod"?' })).toBeTruthy();
+  });
+
   it('a delete triggered from outside /workspace survives the fresh mount, even if connections resolve late', async () => {
     let connCallCount = 0;
     let resolveSecondConnList: (v: ConnectionSummary[]) => void = () => {};
