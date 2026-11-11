@@ -110,6 +110,8 @@ export interface VerbEntry {
   target: Exclude<Scope, 'all'> | 'connections';
   /** The verb word as typed. */
   typed: string;
+  /** A name to keep typing, from the first collection with the verb (`shop.or`); null when none has it. */
+  example: string | null;
 }
 
 export type Entry = RowEntry | MoreEntry | VerbEntry;
@@ -185,7 +187,8 @@ export function layoutPalette(
       row,
       cmd: row.cmd,
       kind,
-      aside: row.fromQuery ? null : asideFor(row, kind, underRecent),
+      // The pasted `_id` row carries the Enter key cap, as its artboard draws it.
+      aside: row.fromQuery ? { type: 'key', keys: '↵' } : asideFor(row, kind, underRecent),
       disabled: (row.cmd.object ? rowAction(row)!.disabledReason : row.cmd.disabledReason)?.(ctx) ?? null,
     };
   };
@@ -226,6 +229,7 @@ export function layoutPalette(
     const { verb, typed: word } = parsed;
     const title = capitalize(verb);
     const group: LayoutGroup = { key: 'verb', label: `${title}…`, entries: [] };
+    const example = exampleName(all, verb);
     for (const { kind, noun, destination } of VERB_KINDS) {
       const has = all.some((c) => c.object?.kind === kind && c.object.actions.some((a) => a.verb === verb));
       if (!has) continue;
@@ -239,6 +243,7 @@ export function layoutPalette(
         destination,
         target: VERB_TARGET[kind],
         typed: word,
+        example,
       };
       group.entries.push(entry);
       entries.push(entry);
@@ -251,7 +256,7 @@ export function layoutPalette(
     return { groups, entries, counts: countsOf(ranked.counts), hidden: 0, verb: null };
   }
 
-  const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest } : null;
+  const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest, trailing: parsed.trailing } : null;
   const single = scope !== 'all' || narrowed;
   const bucketOf = (kind: RowKind): string | null => {
     if (narrowed) return kind === 'connection' ? kind : null;
@@ -281,6 +286,18 @@ export function layoutPalette(
     addMore(addGroup(kind, KIND_LAYOUT[kind].group, bucket.rows), kind, bucket.total - bucket.rows.length);
   }
   return { groups, entries, counts, hidden: 0, verb };
+}
+
+/**
+ * The start of the first collection with `verb`, to suggest typing after it:
+ * its database and the collection's first two letters (`shop.or`).
+ */
+function exampleName(all: Command[], verb: string): string | null {
+  const first = all.find((c) => c.object?.kind === 'collection' && c.object.actions.some((a) => a.verb === verb));
+  if (!first) return null;
+  const name = first.object!.name;
+  const dot = name.indexOf('.');
+  return name.slice(0, dot + 3);
 }
 
 /** Matches per scope, from matches per kind. */
@@ -333,6 +350,42 @@ export function actionList(obj: PaletteObject, query: string, ctx: PaletteContex
     });
   }
   return out;
+}
+
+/** The kind an action acts on, as the failure toast names it. */
+const KIND_NOUN: Record<ObjectKind, string> = {
+  collection: 'collection',
+  database: 'database',
+  connection: 'connection',
+  tab: 'tab',
+  saved: 'saved query',
+};
+
+/** Words that already name what an action acts on: `Drop collection…`, `Open in new tab`. */
+const NOUN_WORD = /\b(collection|database|connection|tab)\b/i;
+
+/** Actions titled with a noun, not a verb: what they do is open it. */
+const NOUN_TITLED = new Set(['schema', 'indexes']);
+
+/**
+ * An object action's title as the failure toast names it (X07 §13.3,
+ * `Couldn't run "Export collection…"`): the title with the kind it acts on
+ * put after its verb. A title that names a kind already reads as it is.
+ */
+export function failureTitle(kind: ObjectKind, action: ObjectAction): string {
+  const { title } = action;
+  if (NOUN_WORD.test(title)) return title;
+  const noun = KIND_NOUN[kind];
+  if (NOUN_TITLED.has(action.verb)) return `Open ${noun} ${title.toLowerCase()}`;
+  const ellipsis = title.endsWith('…') ? '…' : '';
+  const base = title.slice(0, title.length - ellipsis.length);
+  const space = base.indexOf(' ');
+  // `Switch to` takes its noun after the preposition.
+  const named =
+    space === -1 || base.endsWith(' to')
+      ? `${base} ${noun}`
+      : `${base.slice(0, space)} ${noun}${base.slice(space)}`;
+  return named + ellipsis;
 }
 
 /** The action list's footer. */
@@ -431,7 +484,13 @@ export function footerHints(scope: Scope, typed: boolean, entry: Entry | undefin
   const label = entry ? enterLabel(entry) : null;
   if (label) left.push({ keys: '↵', label });
   if (entry) left.push(...objectHints(entry));
-  if (entry?.type === 'verb') left.push({ keys: '', label: 'Keep typing a name:', strong: `${entry.typed} shop.or` });
+  if (entry?.type === 'verb') {
+    left.push(
+      entry.example === null
+        ? { keys: '', label: 'Keep typing a name after', strong: entry.typed }
+        : { keys: '', label: 'Keep typing a name:', strong: `${entry.typed} ${entry.example}` },
+    );
+  }
   const right: KeyHint[] = [];
   if (scope !== 'all') right.push({ keys: '⇧Tab', label: SCOPE_LABEL[cycleScope(scope, -1)] });
   else if (!typed) right.push({ keys: '⌘P', label: 'Collections' });

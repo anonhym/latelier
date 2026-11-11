@@ -149,9 +149,11 @@ describe('savedObject', () => {
 describe('databaseObject', () => {
   function build(connectionName: string | null = 'Production') {
     const requestDialog = vi.fn();
+    const reveal = vi.fn();
     return {
-      obj: databaseObject({ connectionId: 'c1', db: 'ordering', connectionName: connectionName ?? undefined, requestDialog }),
+      obj: databaseObject({ connectionId: 'c1', db: 'ordering', connectionName: connectionName ?? undefined, requestDialog, reveal }),
       requestDialog,
+      reveal,
     };
   }
 
@@ -166,19 +168,24 @@ describe('databaseObject', () => {
     expect(build().obj.tag).toBeUndefined();
     // Found by the word, and its default action answers to no verb of the table.
     expect(build().obj.keywords).toEqual(['database']);
-    expect(build().obj.actions[0]!.verb).toBe('create');
+    expect(build().obj.actions[0]!.verb).toBe('reveal');
+    expect(build().obj.actions[1]!.verb).toBe('create');
   });
 
-  it('creates a collection by default and drops only as a destructive action, through the navigator’s dialogs', () => {
-    const { obj, requestDialog } = build();
+  it('reveals itself in the navigator by default, then creates a collection, and drops only as a destructive action', () => {
+    const { obj, requestDialog, reveal } = build();
     expect(obj.actions.map((a) => [a.id, a.title, !!a.destructive])).toEqual([
+      ['reveal', 'Reveal in navigator', false],
       ['create-collection', 'Create collection…', false],
       ['drop', 'Drop database…', true],
     ]);
-    expect(obj.actions[1]!.verb).toBe('delete');
+    expect(obj.actions[2]!.verb).toBe('delete');
     void obj.actions[0]!.perform(ctx);
-    expect(requestDialog).toHaveBeenLastCalledWith({ connectionId: 'c1', dbName: 'ordering', dialog: 'createCollection' });
+    expect(reveal).toHaveBeenCalledWith('c1', 'ordering');
+    expect(requestDialog).not.toHaveBeenCalled();
     void obj.actions[1]!.perform(ctx);
+    expect(requestDialog).toHaveBeenLastCalledWith({ connectionId: 'c1', dbName: 'ordering', dialog: 'createCollection' });
+    void obj.actions[2]!.perform(ctx);
     expect(requestDialog).toHaveBeenLastCalledWith({ connectionId: 'c1', dbName: 'ordering', dialog: 'dropDatabase' });
   });
 });

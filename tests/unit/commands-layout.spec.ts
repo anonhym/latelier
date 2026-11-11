@@ -12,6 +12,7 @@ import {
   actionList,
   asideFor,
   cycleScope,
+  failureTitle,
   fieldStepHints,
   fieldStepList,
   footerHints,
@@ -23,7 +24,7 @@ import {
   type RowEntry,
 } from '../../src/commands/layout';
 import { objectRow } from '../../src/commands/registry';
-import type { Command, ObjectAction, PaletteContext, PaletteObject } from '../../src/commands/types';
+import type { Command, ObjectAction, ObjectKind, PaletteContext, PaletteObject } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
@@ -163,7 +164,7 @@ describe('cycleScope', () => {
 });
 
 describe('asideFor', () => {
-  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [], subtitleRanges: [] });
 
   it('shows a toggle’s switch before anything else', () => {
     const c = cmd({ id: 't', toggle: { checked: false }, shortcut: '⌘B' });
@@ -185,7 +186,7 @@ describe('asideFor', () => {
 });
 
 describe('asideFor — an object’s own tag', () => {
-  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [], subtitleRanges: [] });
   const tab = objectRow({ id: 'tab:t1', kind: 'tab', name: 'orders', tag: 'Open tab', actions: [act('Switch to', 'open')] });
 
   it('shows the tag instead of Recent, and under RECENT where its kind has no tag', () => {
@@ -300,7 +301,7 @@ describe('layoutPalette — typed query in All', () => {
     expect((l.entries.at(-1) as MoreEntry).scope).toBe('actions');
   });
 
-  it('puts a row built from the query first, under its own label, with nothing at its right', () => {
+  it('puts a row built from the query first, under its own label, with the Enter key cap, not its shortcut', () => {
     const pasted = cmd({
       id: 'q',
       shortcut: '⌘F',
@@ -311,7 +312,7 @@ describe('layoutPalette — typed query in All', () => {
       ['pasted', QUERY_ROW_LABEL],
       ['collection', 'Collections'],
     ]);
-    expect((l.entries[0] as RowEntry).aside).toBeNull();
+    expect((l.entries[0] as RowEntry).aside).toEqual({ type: 'key', keys: '↵' });
     expect((l.entries[1] as RowEntry).aside).toBeNull();
   });
 
@@ -399,7 +400,7 @@ describe('footerHints', () => {
     id: 'x',
     index: 0,
     cmd: cmd({ id: 'x' }),
-    row: { cmd: cmd({ id: 'x' }), recent: false, cls: null, ranges: [] },
+    row: { cmd: cmd({ id: 'x' }), recent: false, cls: null, ranges: [], subtitleRanges: [] },
     kind: 'action',
     aside: null,
     disabled: null,
@@ -409,20 +410,20 @@ describe('footerHints', () => {
   it('names what Enter does on the highlighted entry', () => {
     const left = (e: Entry | undefined) => footerHints('all', true, e).left;
     const c = coll('o');
-    expect(left(row({ kind: 'collection', cmd: c, row: { cmd: c, recent: false, cls: null, ranges: [] } }))).toEqual([
+    expect(left(row({ kind: 'collection', cmd: c, row: { cmd: c, recent: false, cls: null, ranges: [], subtitleRanges: [] } }))).toEqual([
       { keys: '↵', label: 'Open' },
       { keys: '⌘↵', label: 'Open in new tab' },
       { keys: '⌥↵', label: 'Actions' },
     ]);
     const p = conn('P');
-    expect(left(row({ kind: 'connection', cmd: p, row: { cmd: p, recent: false, cls: null, ranges: [] } }))).toEqual([
+    expect(left(row({ kind: 'connection', cmd: p, row: { cmd: p, recent: false, cls: null, ranges: [], subtitleRanges: [] } }))).toEqual([
       { keys: '↵', label: 'Open' },
       { keys: '⌥↵', label: 'Actions' },
     ]);
     expect(left(row({}))).toEqual([{ keys: '↵', label: 'Run' }]);
     expect(left(row({ cmd: cmd({ id: 't', toggle: { checked: true } }) }))).toEqual([{ keys: '↵', label: 'Toggle' }]);
     const fromQuery = { title: 't', subtitle: '', emphasis: 't', perform: () => {} };
-    expect(left(row({ row: { cmd: cmd({ id: 'q' }), recent: false, cls: null, ranges: [], fromQuery } }))).toEqual([
+    expect(left(row({ row: { cmd: cmd({ id: 'q' }), recent: false, cls: null, ranges: [], subtitleRanges: [], fromQuery } }))).toEqual([
       { keys: '↵', label: 'Find' },
     ]);
     expect(left(row({ disabled: 'no' }))).toEqual([]);
@@ -590,5 +591,74 @@ describe('the field step', () => {
     });
     expect(fieldStepHints(starter).left[0]).toEqual({ keys: '↵', label: 'Add "Last 7 days" to the filter (nothing runs)' });
     expect(fieldStepHints(undefined)).toEqual({ left: [{ keys: 'esc', label: 'Back to actions' }], right: [] });
+  });
+});
+
+describe('failureTitle', () => {
+  const title = (kind: ObjectKind, t: string, verb = 'x') =>
+    failureTitle(kind, { id: 'a', verb, title: t, perform: () => {} });
+
+  it('names the kind after the verb of every action the palette registers', () => {
+    expect(
+      (
+        [
+          ['collection', 'Open', 'open'],
+          ['collection', 'Open in new tab', 'open'],
+          ['collection', 'Query…', 'query'],
+          ['collection', 'Filter by field…', 'filter'],
+          ['collection', 'Aggregate', 'aggregate'],
+          ['collection', 'Schema', 'schema'],
+          ['collection', 'Indexes', 'indexes'],
+          ['collection', 'Export…', 'export'],
+          ['collection', 'Import…', 'import'],
+          ['collection', 'Rename…', 'rename'],
+          ['collection', 'Drop collection…', 'delete'],
+          ['database', 'Reveal in navigator', 'reveal'],
+          ['database', 'Create collection…', 'create'],
+          ['database', 'Drop database…', 'delete'],
+          ['connection', 'Open', 'open'],
+          ['connection', 'Edit', 'edit'],
+          ['connection', 'Disconnect', 'disconnect'],
+          ['connection', 'Delete…', 'delete'],
+          ['tab', 'Switch to', 'open'],
+          ['tab', 'Close', 'close'],
+          ['tab', 'Unpin', 'pin'],
+          ['saved', 'Open', 'open'],
+          ['saved', 'Run', 'run'],
+          ['saved', 'Delete…', 'delete'],
+        ] as const
+      ).map(([kind, t, verb]) => title(kind, t, verb)),
+    ).toEqual([
+      'Open collection',
+      'Open in new tab',
+      'Query collection…',
+      'Filter collection by field…',
+      'Aggregate collection',
+      'Open collection schema',
+      'Open collection indexes',
+      'Export collection…',
+      'Import collection…',
+      'Rename collection…',
+      'Drop collection…',
+      'Reveal database in navigator',
+      'Create collection…',
+      'Drop database…',
+      'Open connection',
+      'Edit connection',
+      'Disconnect connection',
+      'Delete connection…',
+      'Switch to tab',
+      'Close tab',
+      'Unpin tab',
+      'Open saved query',
+      'Run saved query',
+      'Delete saved query…',
+    ]);
+  });
+
+  it('reads a kind word only as a whole word, in any case', () => {
+    expect(title('collection', 'Tabulate')).toBe('Tabulate collection');
+    expect(title('collection', 'Copy to TAB')).toBe('Copy to TAB');
+    expect(title('tab', 'Go into')).toBe('Go tab into');
   });
 });

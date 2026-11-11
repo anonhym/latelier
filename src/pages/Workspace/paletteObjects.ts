@@ -66,15 +66,14 @@ export function savedObject(args: {
   };
 }
 
-/**
- * A database of a connected Connection. Its default is Create collection…:
- * the navigator's reveal takes a collection, never a database on its own.
- */
+/** A database of a connected Connection; its default reveals its row in the navigator. */
 export function databaseObject(args: {
   connectionId: string;
   db: string;
   connectionName: string | undefined;
   requestDialog: (request: NavigatorDialogRequest) => void;
+  /** Expands the database in the navigator, scrolls to its row and focuses it. */
+  reveal: (connectionId: string, db: string) => void;
 }): PaletteObject {
   const { connectionId, db, requestDialog } = args;
   const dialog = (kind: 'createCollection' | 'dropDatabase') => () =>
@@ -86,6 +85,8 @@ export function databaseObject(args: {
     subtitle: args.connectionName ? `${args.connectionName} · database` : 'database',
     keywords: ['database'],
     actions: [
+      // Not `open`: that verb would list every database beside the collections it opens.
+      { id: 'reveal', verb: 'reveal', title: 'Reveal in navigator', perform: () => args.reveal(connectionId, db) },
       { id: 'create-collection', verb: 'create', title: 'Create collection…', perform: dialog('createCollection') },
       { id: 'drop', verb: 'delete', title: 'Drop database…', destructive: true, perform: dialog('dropDatabase') },
     ],

@@ -90,6 +90,8 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     expect(options[0]!.textContent).toContain('Replaces the filter and runs it · Undo puts the old filter back');
     expect(dialog.getByText('In the tab in front')).toBeTruthy();
     expect(dialog.getByText('No other matches')).toBeTruthy();
+    // The Enter key cap at the right, as the artboard draws it (`Enter` off a Mac).
+    expect(options[0]!.lastElementChild?.textContent).toMatch(/^(↵|Enter)$/);
     // The value alone is set in the accent ink.
     const value = dialog.getByText(HEX);
     expect(value.style.color).toBe('var(--atelier-accent-ink)');

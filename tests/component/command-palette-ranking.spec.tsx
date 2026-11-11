@@ -92,6 +92,25 @@ describe('palette rows on a typed query', () => {
     expect(dialog.queryByText('Open: shop.orders')).toBeNull();
   });
 
+  it('emphasises the subtitle characters a row was matched through', async () => {
+    mount([...commands, cmd({ id: 'd', title: 'Open: shop.carts', matchText: 'shop.carts', subtitle: 'Staging' })]);
+    search('production');
+    const options = await within(screen.getByRole('dialog')).findAllByRole('option');
+    expect(options).toHaveLength(1);
+    const subtitle = options[0]!.querySelector('[data-subtitle]')!;
+    expect(subtitle.getAttribute('data-subtitle')).toBe('Production');
+    expect(Array.from(subtitle.querySelectorAll('[data-match]')).map((n) => n.textContent)).toEqual(['Production']);
+    expect(matched(options[0]!)).toEqual(['Production']);
+  });
+
+  it('leaves the subtitle plain for a row matched by a hidden keyword', async () => {
+    mount([cmd({ id: 'c', title: 'Open settings', subtitle: 'General', keywords: ['preferences'] })]);
+    search('preferences');
+    const [option] = await within(screen.getByRole('dialog')).findAllByRole('option');
+    expect(option!.querySelector('[data-subtitle]')!.textContent).toBe('General');
+    expect(matched(option!)).toEqual([]);
+  });
+
   it('reads the row’s name as one piece, not as highlighted fragments', async () => {
     mount(commands);
     search('run');
