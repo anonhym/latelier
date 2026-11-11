@@ -299,19 +299,13 @@ const RECENT_SPAN = 16;
 const NOT_RECENT = RECENT_SPAN - 1;
 const MAX_COMMANDS = INDEX_SPAN;
 
-/**
- * Filter commands by `when(ctx)`, then rank by query (X07 §13.2). Every
- * whitespace-separated token must match; a row's class is its weakest token's.
- * Inside a class a recently used row comes first, then the shorter text, then
- * registration order.
- */
-export function rankCommands(
-  all: Command[],
-  query: string,
-  ctx: PaletteContext,
-  recentIds: string[],
-): RankedRow[] {
-  const trimmed = query.trim();
+interface Prepass {
+  trimmed: string;
+  visible: Command[];
+  recentAt: Map<string, number>;
+}
+
+function prepass(all: Command[], query: string, ctx: PaletteContext, recentIds: string[]): Prepass {
   const visible = all.filter((cmd) => isVisible(cmd, ctx));
   if (visible.length > MAX_COMMANDS) {
     throw new Error(`rankCommands: ${visible.length} commands exceed the ${MAX_COMMANDS} the sort key holds`);
@@ -320,31 +314,45 @@ export function rankCommands(
   recentIds.forEach((id, i) => {
     if (!recentAt.has(id)) recentAt.set(id, i);
   });
+  return { trimmed: query.trim(), visible, recentAt };
+}
 
-  if (!trimmed) {
-    // Hidden from the catalog only: a recently used one still shows as Recent.
-    const byId = new Map(visible.map((cmd) => [cmd.id, cmd]));
-    const out: RankedRow[] = [];
-    const seen = new Set<string>();
-    for (const id of recentIds) {
-      const cmd = byId.get(id);
-      if (cmd && !cmd.forQuery && !seen.has(id)) {
-        out.push({ cmd, recent: true, cls: null, ranges: [] });
-        seen.add(id);
-      }
+/** The empty-query list: recent rows in MRU order, then the catalog in registration order. */
+function emptyQueryRows({ visible }: Prepass, recentIds: string[]): RankedRow[] {
+  // Hidden from the catalog only: a recently used one still shows as Recent.
+  const byId = new Map(visible.map((cmd) => [cmd.id, cmd]));
+  const out: RankedRow[] = [];
+  const seen = new Set<string>();
+  for (const id of recentIds) {
+    const cmd = byId.get(id);
+    if (cmd && !cmd.forQuery && !seen.has(id)) {
+      out.push({ cmd, recent: true, cls: null, ranges: [] });
+      seen.add(id);
     }
-    for (const cmd of visible) {
-      if (cmd.hideWhenEmptyQuery || cmd.forQuery || seen.has(cmd.id)) continue;
-      out.push({ cmd, recent: false, cls: null, ranges: [] });
-    }
-    return out;
   }
+  for (const cmd of visible) {
+    if (cmd.hideWhenEmptyQuery || cmd.forQuery || seen.has(cmd.id)) continue;
+    out.push({ cmd, recent: false, cls: null, ranges: [] });
+  }
+  return out;
+}
 
+interface Matches {
+  tokens: string[];
+  fromQuery: RankedRow[];
+  /** Match class per position in `visible`, for matched positions. */
+  classes: Uint8Array;
+}
+
+/**
+ * Matches every visible command against the typed query, handing each match's
+ * sort key to `onMatch`. Keys pack (class, recency, text length, registration
+ * index): a smaller key ranks first.
+ */
+function matchTyped({ trimmed, visible, recentAt }: Prepass, onMatch: (key: number, cmd: Command) => void): Matches {
   const tokens = trimmed.toLowerCase().split(/\s+/);
   const fromQuery: RankedRow[] = [];
   const classes = new Uint8Array(visible.length);
-  const keys = new Float64Array(visible.length);
-  let matched = 0;
   visible.forEach((cmd, index) => {
     if (cmd.forQuery) {
       const row = cmd.forQuery(trimmed);
@@ -370,16 +378,157 @@ export function rankCommands(
     const recency = pos === undefined ? NOT_RECENT : Math.min(pos, NOT_RECENT - 1);
     const length = Math.min(p.text.length, LENGTH_SPAN - 1);
     classes[index] = cls;
-    keys[matched++] = ((cls * RECENT_SPAN + recency) * LENGTH_SPAN + length) * INDEX_SPAN + index;
+    onMatch(((cls * RECENT_SPAN + recency) * LENGTH_SPAN + length) * INDEX_SPAN + index, cmd);
   });
-  const sorted = keys.subarray(0, matched).sort();
-  const rows: RankedRow[] = [...fromQuery];
-  for (const key of sorted) {
-    const at = key % INDEX_SPAN;
-    const recency = Math.floor(key / INDEX_SPAN / LENGTH_SPAN) % RECENT_SPAN;
-    rows.push(new MatchedRow(visible[at]!, recency !== NOT_RECENT, MATCH_CLASS[classes[at]!]!, tokens));
-  }
+  return { tokens, fromQuery, classes };
+}
+
+/** The row a sort key names. */
+function rowFor(key: number, visible: Command[], { classes, tokens }: Matches): RankedRow {
+  const at = key % INDEX_SPAN;
+  const recency = Math.floor(key / INDEX_SPAN / LENGTH_SPAN) % RECENT_SPAN;
+  return new MatchedRow(visible[at]!, recency !== NOT_RECENT, MATCH_CLASS[classes[at]!]!, tokens);
+}
+
+/**
+ * Filter commands by `when(ctx)`, then rank by query (X07 §13.2). Every
+ * whitespace-separated token must match; a row's class is its weakest token's.
+ * Inside a class a recently used row comes first, then the shorter text, then
+ * registration order. Returns every match: the palette reads `rankCapped`.
+ */
+export function rankCommands(
+  all: Command[],
+  query: string,
+  ctx: PaletteContext,
+  recentIds: string[],
+): RankedRow[] {
+  const pre = prepass(all, query, ctx, recentIds);
+  if (!pre.trimmed) return emptyQueryRows(pre, recentIds);
+  const keys = new Float64Array(pre.visible.length);
+  let matched = 0;
+  const m = matchTyped(pre, (key) => {
+    keys[matched++] = key;
+  });
+  const rows: RankedRow[] = [...m.fromQuery];
+  for (const key of keys.subarray(0, matched).sort()) rows.push(rowFor(key, pre.visible, m));
   return rows;
+}
+
+// ── Kinds and capped ranking ─────────────────────────────────────────────────
+
+/** What a row is, for the palette's scopes and its groups on a typed query. */
+export type RowKind = 'collection' | 'database' | 'connection' | 'tab' | 'saved' | 'action';
+
+/**
+ * A row's kind. Until objects exist (X07 §13.4), the id says it: the v1
+ * collection and Connection rows carry the ids their objects will keep.
+ */
+export function kindOf(cmd: Command): RowKind {
+  if (cmd.id.startsWith('tab.open:')) return 'collection';
+  if (cmd.id.startsWith('connection.open:')) return 'connection';
+  return 'action';
+}
+
+export interface Bucket {
+  key: string;
+  /** Its best rows, at most the cap, in rank order. */
+  rows: RankedRow[];
+  /** Every match the bucket holds, kept or not. */
+  total: number;
+}
+
+export interface CappedRanking {
+  /** Rows built from the query itself (the pasted `_id` row). */
+  fromQuery: RankedRow[];
+  /** Matches per kind, every kind counted whatever the buckets hold. */
+  counts: Map<RowKind, number>;
+  /** The buckets that matched, ordered by their best row. */
+  buckets: Bucket[];
+}
+
+/** The `cap` smallest keys seen, kept sorted: partial selection, never a full sort. */
+class TopKeys {
+  readonly keys: Float64Array;
+  size = 0;
+  total = 0;
+
+  constructor(cap: number) {
+    this.keys = new Float64Array(cap);
+  }
+
+  offer(key: number): void {
+    this.total++;
+    const { keys } = this;
+    let i = this.size;
+    if (i === keys.length) {
+      if (key >= keys[i - 1]!) return;
+      i--;
+    } else {
+      this.size++;
+    }
+    while (i > 0 && keys[i - 1]! > key) {
+      keys[i] = keys[i - 1]!;
+      i--;
+    }
+    keys[i] = key;
+  }
+}
+
+/**
+ * Ranks as `rankCommands` does, but keeps only the `cap` best rows of each
+ * bucket (X07 §13.7 rule 3): `bucketOf` names the bucket a kind's rows go to,
+ * or null to count them without keeping any. Rows past the cap are counted,
+ * never built. On an empty query the buckets hold the empty-query list in its
+ * own order.
+ */
+export function rankCapped(
+  all: Command[],
+  query: string,
+  ctx: PaletteContext,
+  recentIds: string[],
+  cap: number,
+  bucketOf: (kind: RowKind) => string | null,
+): CappedRanking {
+  if (!(cap >= 1)) throw new Error(`rankCapped: the cap must be at least 1, got ${cap}`);
+  const pre = prepass(all, query, ctx, recentIds);
+  const counts = new Map<RowKind, number>();
+  const count = (kind: RowKind) => counts.set(kind, (counts.get(kind) ?? 0) + 1);
+
+  if (!pre.trimmed) {
+    const byKey = new Map<string, Bucket>();
+    for (const row of emptyQueryRows(pre, recentIds)) {
+      const kind = kindOf(row.cmd);
+      count(kind);
+      const key = bucketOf(kind);
+      if (key === null) continue;
+      let bucket = byKey.get(key);
+      if (!bucket) byKey.set(key, (bucket = { key, rows: [], total: 0 }));
+      bucket.total++;
+      if (bucket.rows.length < cap) bucket.rows.push(row);
+    }
+    return { fromQuery: [], counts, buckets: [...byKey.values()] };
+  }
+
+  const tops = new Map<string, TopKeys>();
+  const m = matchTyped(pre, (key, cmd) => {
+    const kind = kindOf(cmd);
+    count(kind);
+    const name = bucketOf(kind);
+    if (name === null) return;
+    let top = tops.get(name);
+    if (!top) tops.set(name, (top = new TopKeys(cap)));
+    top.offer(key);
+  });
+  const ordered = [...tops.entries()].sort((a, b) => a[1].keys[0]! - b[1].keys[0]!);
+  return {
+    fromQuery: m.fromQuery,
+    counts,
+    buckets: ordered.map(([key, top]) => ({
+      key,
+      total: top.total,
+      rows: Array.from(top.keys.subarray(0, top.size), (k) => rowFor(k, pre.visible, m)),
+    })),
+  };
 }
 
 // The tab in front owns the first four; the empty palette lists them first.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { displayText, rankCommands } from '../../src/commands/rank';
+import { displayText, kindOf, rankCapped, rankCommands } from '../../src/commands/rank';
 import type { Command, PaletteContext } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: null };
@@ -85,6 +85,38 @@ describe('rankCommands — properties', () => {
         fc.pre(piece.trim() === piece && piece.length > 0 && !/\s/.test(piece));
         expect(ids(all, piece)).toContain(cmd.id);
       }),
+    );
+  });
+});
+
+// Ids spread over the three kinds `kindOf` reads, so every bucket fills.
+const PREFIXES = ['tab.open:', 'connection.open:', 'cmd.'];
+const mixed = commands.map((all) => all.map((c, i) => ({ ...c, id: `${PREFIXES[i % 3]}${c.id}` })));
+
+describe('rankCapped — properties', () => {
+  it('keeps exactly the best `cap` rows of each kind, in rank order, and counts them all', () => {
+    fc.assert(
+      fc.property(
+        mixed,
+        fc.array(token, { minLength: 0, maxLength: 2 }),
+        fc.integer({ min: 1, max: 4 }),
+        fc.subarray(['c0', 'c1', 'c2', 'c3', 'c4']),
+        (all, tokens, cap, recent) => {
+          const q = tokens.join(' ');
+          const recentIds = recent.map((r) => all.find((c) => c.id.endsWith(`:${r}`) || c.id === `cmd.${r}`)?.id ?? r);
+          const full = rankCommands(all, q, ctx, recentIds);
+          const capped = rankCapped(all, q, ctx, recentIds, cap, (kind) => kind);
+          for (const bucket of capped.buckets) {
+            const ofKind = full.filter((r) => kindOf(r.cmd) === bucket.key);
+            expect(bucket.total).toBe(ofKind.length);
+            expect(bucket.rows.map((r) => r.cmd.id)).toEqual(ofKind.slice(0, cap).map((r) => r.cmd.id));
+            expect(bucket.rows.map((r) => [r.recent, r.cls])).toEqual(ofKind.slice(0, cap).map((r) => [r.recent, r.cls]));
+            expect(capped.counts.get(bucket.key as never)).toBe(ofKind.length);
+          }
+          const kept = new Set(capped.buckets.map((b) => b.key));
+          for (const row of full) expect(kept.has(kindOf(row.cmd))).toBe(true);
+        },
+      ),
     );
   });
 });
