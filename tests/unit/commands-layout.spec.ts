@@ -163,7 +163,7 @@ describe('cycleScope', () => {
 });
 
 describe('asideFor', () => {
-  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [], subtitleRanges: [] });
 
   it('shows a toggle’s switch before anything else', () => {
     const c = cmd({ id: 't', toggle: { checked: false }, shortcut: '⌘B' });
@@ -185,7 +185,7 @@ describe('asideFor', () => {
 });
 
 describe('asideFor — an object’s own tag', () => {
-  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [], subtitleRanges: [] });
   const tab = objectRow({ id: 'tab:t1', kind: 'tab', name: 'orders', tag: 'Open tab', actions: [act('Switch to', 'open')] });
 
   it('shows the tag instead of Recent, and under RECENT where its kind has no tag', () => {
@@ -399,7 +399,7 @@ describe('footerHints', () => {
     id: 'x',
     index: 0,
     cmd: cmd({ id: 'x' }),
-    row: { cmd: cmd({ id: 'x' }), recent: false, cls: null, ranges: [] },
+    row: { cmd: cmd({ id: 'x' }), recent: false, cls: null, ranges: [], subtitleRanges: [] },
     kind: 'action',
     aside: null,
     disabled: null,
@@ -409,20 +409,20 @@ describe('footerHints', () => {
   it('names what Enter does on the highlighted entry', () => {
     const left = (e: Entry | undefined) => footerHints('all', true, e).left;
     const c = coll('o');
-    expect(left(row({ kind: 'collection', cmd: c, row: { cmd: c, recent: false, cls: null, ranges: [] } }))).toEqual([
+    expect(left(row({ kind: 'collection', cmd: c, row: { cmd: c, recent: false, cls: null, ranges: [], subtitleRanges: [] } }))).toEqual([
       { keys: '↵', label: 'Open' },
       { keys: '⌘↵', label: 'Open in new tab' },
       { keys: '⌥↵', label: 'Actions' },
     ]);
     const p = conn('P');
-    expect(left(row({ kind: 'connection', cmd: p, row: { cmd: p, recent: false, cls: null, ranges: [] } }))).toEqual([
+    expect(left(row({ kind: 'connection', cmd: p, row: { cmd: p, recent: false, cls: null, ranges: [], subtitleRanges: [] } }))).toEqual([
       { keys: '↵', label: 'Open' },
       { keys: '⌥↵', label: 'Actions' },
     ]);
     expect(left(row({}))).toEqual([{ keys: '↵', label: 'Run' }]);
     expect(left(row({ cmd: cmd({ id: 't', toggle: { checked: true } }) }))).toEqual([{ keys: '↵', label: 'Toggle' }]);
     const fromQuery = { title: 't', subtitle: '', emphasis: 't', perform: () => {} };
-    expect(left(row({ row: { cmd: cmd({ id: 'q' }), recent: false, cls: null, ranges: [], fromQuery } }))).toEqual([
+    expect(left(row({ row: { cmd: cmd({ id: 'q' }), recent: false, cls: null, ranges: [], subtitleRanges: [], fromQuery } }))).toEqual([
       { keys: '↵', label: 'Find' },
     ]);
     expect(left(row({ disabled: 'no' }))).toEqual([]);

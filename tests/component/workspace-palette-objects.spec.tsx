@@ -177,7 +177,7 @@ function rowsOf(kind: string): string[][] {
     .filter((o) => o.getAttribute('data-kind') === kind)
     .map((o) => {
       const title = o.querySelector('[data-title]')?.getAttribute('data-title') ?? '';
-      const sub = o.querySelector('[data-subtitle]')?.textContent ?? '';
+      const sub = o.querySelector('[data-subtitle]')?.getAttribute('data-subtitle') ?? '';
       const last = o.lastElementChild;
       const aside = !last || last.querySelector('[data-title]') ? '' : (last.textContent ?? '');
       return [title, sub, aside];

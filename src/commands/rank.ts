@@ -33,6 +33,8 @@ export interface RankedRow {
   cls: MatchClass | null;
   /** Matched characters of `displayText(cmd)`. */
   ranges: Range[];
+  /** Matched characters of `cmd.subtitle`, for the tokens the title did not match. */
+  subtitleRanges: Range[];
   /** Set on a row built from the query itself (the pasted `_id` row). */
   fromQuery?: QueryRow;
   /** On an object listed for a verb in the query: the action that verb selects. */
@@ -291,6 +293,7 @@ class MatchedRow implements RankedRow {
   readonly action: ObjectAction | undefined;
   private readonly tokens: string[];
   private computed: Range[] | undefined;
+  private computedSub: Range[] | undefined;
 
   constructor(cmd: Command, recent: boolean, cls: MatchClass, tokens: string[], action: ObjectAction | undefined) {
     this.cmd = cmd;
@@ -301,13 +304,33 @@ class MatchedRow implements RankedRow {
   }
 
   get ranges(): Range[] {
-    if (!this.computed) {
-      const out: Range[] = [];
-      const p = prepare(this.cmd);
-      for (const token of this.tokens) matchToken(p, token, out);
-      this.computed = mergeRanges(out);
+    if (!this.computed) this.compute();
+    return this.computed!;
+  }
+
+  get subtitleRanges(): Range[] {
+    if (!this.computedSub) this.compute();
+    return this.computedSub!;
+  }
+
+  /**
+   * Both range lists at once. A token the title matched only as a keyword is
+   * looked for in the subtitle, the only one of the two the row shows; one
+   * found in a hidden keyword alone has nothing to emphasise.
+   */
+  private compute(): void {
+    const out: Range[] = [];
+    const sub: Range[] = [];
+    const p = prepare(this.cmd);
+    // Keeps the length, so a range read here lands on the subtitle as shown.
+    const subtitle = lowerKeepingLength(this.cmd.subtitle ?? '');
+    for (const token of this.tokens) {
+      if (matchToken(p, token, out) !== KEYWORD) continue;
+      const at = subtitle.indexOf(token);
+      if (at !== -1) sub.push([at, at + token.length]);
     }
-    return this.computed;
+    this.computed = mergeRanges(out);
+    this.computedSub = mergeRanges(sub);
   }
 }
 
@@ -355,13 +378,13 @@ function emptyQueryRows({ visible }: Prepass, recentIds: string[]): RankedRow[] 
   for (const id of recentIds) {
     const cmd = byId.get(id);
     if (cmd && !cmd.forQuery && !seen.has(id)) {
-      out.push({ cmd, recent: true, cls: null, ranges: [] });
+      out.push({ cmd, recent: true, cls: null, ranges: [], subtitleRanges: [] });
       seen.add(id);
     }
   }
   for (const cmd of visible) {
     if (cmd.hideWhenEmptyQuery || cmd.forQuery || seen.has(cmd.id)) continue;
-    out.push({ cmd, recent: false, cls: null, ranges: [] });
+    out.push({ cmd, recent: false, cls: null, ranges: [], subtitleRanges: [] });
   }
   return out;
 }
@@ -391,6 +414,7 @@ function matchTyped({ trimmed, visible, recentAt, verb }: Prepass, onMatch: (key
           recent: false,
           cls: null,
           ranges: [],
+          subtitleRanges: [],
           fromQuery: row,
         });
       }

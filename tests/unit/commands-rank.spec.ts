@@ -720,6 +720,42 @@ describe('rankCommands — highlight ranges', () => {
   });
 });
 
+describe('rankCommands — subtitle ranges', () => {
+  const sub = (title: string, q: string, extra: Partial<Command> = {}) =>
+    rankCommands([make({ id: 'a', title, ...extra })], q, ctx, [])[0]?.subtitleRanges;
+
+  it('marks a token matched through the subtitle, in the subtitle', () => {
+    expect(sub('Alpha', 'duct', { subtitle: 'Production' })).toEqual([[3, 7]]);
+    expect(sub('Alpha', 'prod', { subtitle: 'Production' })).toEqual([[0, 4]]);
+  });
+
+  it('marks only the tokens the title missed, merged', () => {
+    expect(sub('Alpha', 'alp pro rod', { subtitle: 'Production' })).toEqual([[0, 4]]);
+    expect(sub('Alpha', 'alp', { subtitle: 'alpine' })).toEqual([]);
+  });
+
+  it('marks nothing for a hidden keyword, nor without a subtitle', () => {
+    expect(sub('Alpha', 'mongo', { subtitle: 'Production', keywords: ['mongo'] })).toEqual([]);
+    expect(sub('Alpha', 'mongo', { keywords: ['mongo'] })).toEqual([]);
+  });
+
+  it('keeps ranges on the subtitle as shown for a character whose lower case is longer', () => {
+    // `İ` lower-cases to two characters; the range must still land on `prod`.
+    expect(sub('Alpha', 'prod', { subtitle: 'İ Production' })).toEqual([[2, 6]]);
+  });
+
+  it('reads the ranges once, however often asked, and alongside the title’s', () => {
+    const [row] = rankCommands([make({ id: 'a', title: 'Alpha', subtitle: 'Production' })], 'alp prod', ctx, []);
+    expect(row!.subtitleRanges).toBe(row!.subtitleRanges);
+    expect(row!.ranges).toEqual([[0, 3]]);
+    expect(row!.subtitleRanges).toEqual([[0, 4]]);
+  });
+
+  it('is empty on an empty query', () => {
+    expect(sub('Alpha', '', { subtitle: 'Production' })).toEqual([]);
+  });
+});
+
 describe('rankCommands — empty query', () => {
   it('reports no class', () => {
     const rows = rankCommands([make({ id: 'a' })], '', ctx, []);

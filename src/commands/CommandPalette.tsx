@@ -347,10 +347,11 @@ function RowView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { en
           </span>
           {subtitle && (
             <span
-              data-subtitle
+              data-subtitle={subtitle}
               style={{ color: tone ?? 'var(--atelier-text-muted)', fontSize: 'var(--atelier-fs-sm)', marginLeft: 8 }}
             >
-              {subtitle}
+              {/* A disabled row's subtitle is its reason, which the query did not match. */}
+              <Highlighted text={subtitle} ranges={disabled === null ? row.subtitleRanges : []} />
             </span>
           )}
         </span>
