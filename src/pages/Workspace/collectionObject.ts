@@ -20,6 +20,8 @@ export function collectionObject(args: {
   requestDialog: (request: NavigatorDialogRequest) => void;
   /** Whether the Connection is dormant, read when an action runs. */
   dormant: () => boolean;
+  /** Whether tab `tabId` has a find in flight, read when an action runs. */
+  running: (tabId: string) => boolean;
 }): PaletteObject {
   const { connectionId, db, coll, isView, tabs, showStructure, requestDialog } = args;
   const input = { connectionId, dbName: db, collection: coll };
@@ -51,17 +53,21 @@ export function collectionObject(args: {
         id: 'export',
         verb: 'export',
         title: 'Export…',
-        // The tab's own Export dialog, which exports from its Documents view.
+        // The tab's own Export dialog, under its menu item's rule: only a
+        // settled result with documents exports. Anything else says why, once,
+        // and queues nothing.
         perform: async () => {
           const tab = await openReusing();
-          // A dormant tab shows its Connect pane, not the bar that honours the
-          // request, which would otherwise wait and fire after a later connect.
+          // A dormant tab shows its Connect pane, not the result bar.
           if (args.dormant()) {
             notify.info(`Connect to ${args.connectionName ?? 'the connection'} first, then export.`);
             return;
           }
           if ((tab.state.activeView ?? 'documents') !== 'documents') tabs().setActiveView(tab.id, 'documents');
-          requestExport(tab.id);
+          const run = tab.state.lastRun;
+          if (!run || run.error || args.running(tab.id)) notify.info('Run the query, then choose Export again');
+          else if (run.documents.length === 0) notify.info('The query matched no documents, so there is nothing to export.');
+          else requestExport(tab.id);
         },
       },
       {

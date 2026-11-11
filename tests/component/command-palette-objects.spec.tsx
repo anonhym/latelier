@@ -354,6 +354,7 @@ describe('the MRU', () => {
       showStructure: () => {},
       requestDialog: () => {},
       dormant: () => false,
+      running: () => false,
     });
     // The id a v1 `Open: shop.orders` row stored.
     expect(built.id).toBe('tab.open:c1:shop:orders');

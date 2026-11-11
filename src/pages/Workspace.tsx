@@ -977,9 +977,10 @@ function WorkspaceInner() {
         showStructure,
         requestDialog: requestNavigatorDialog,
         dormant: () => isKnownNotConnected(focusedConnectionRef.current),
+        running: queryRunner.isRunning,
       }),
     );
-  }, [paletteCollections, focusedConnectionId, focusedName, tabsRef, showStructure, requestNavigatorDialog, focusedConnectionRef]);
+  }, [paletteCollections, focusedConnectionId, focusedName, tabsRef, showStructure, requestNavigatorDialog, focusedConnectionRef, queryRunner.isRunning]);
   useRegisterObjects(collectionObjects, [collectionObjects]);
 
   // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row

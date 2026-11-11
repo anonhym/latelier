@@ -21,8 +21,6 @@ import { resultBarLayout } from './toolbarLayout';
 
 const VIEWS: ResultViewMode[] = ['Tree', 'JSON', 'Table'];
 
-const EXPORT_NEEDS_A_RUN = 'Nothing to export yet: fix the query and run it first.';
-
 // W07 §2 / §5: fixed page-size option set (canonical copy lives in
 // `state/workspaceTabs.ts`, reused here to avoid a second hardcoded array).
 // Changing the value resets `page` to 0 and re-runs (same reasoning as the
@@ -78,55 +76,16 @@ export function ResultBar() {
   // have no working `run`, so they keep the plain label.
   const canRunHere = !isReadOnly && !isLoading && runProblem === null;
 
-  // The palette's Export… on this tab, under the same rule as the menu item,
-  // which is disabled with nothing to export. Consumed on arrival, so it never
-  // fires twice. A tab with a result exports it; any other tab runs its query
-  // and decides on the first run to settle: a restored tab with a custom
-  // filter has no result and is never auto-run.
+  // The palette's Export… on this tab: the palette has already checked the
+  // tab has documents to export, so this only opens the dialog, once.
   const requested = React.useSyncExternalStore(subscribeExport, () => exportRequested(meta.tabId));
-  // The run the request waits for: which tab, and the `ranAt` it must replace.
-  const [awaiting, setAwaiting] = React.useState<{ tabId: string; after: string | undefined } | null>(null);
-  const sawLoading = React.useRef(false);
-  const exportResult = (run: NonNullable<typeof lastRun>) => {
-    if (run.error) notify.info(EXPORT_NEEDS_A_RUN);
-    else if (run.documents.length > 0) setExportOpen(true);
-    else notify.info('The query matched no documents, so there is nothing to export.');
-  };
   React.useEffect(() => {
     if (!requested) return;
     consumeExport(meta.tabId);
     // Acts on an external one-shot request, once.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (lastRun && !lastRun.error && !isLoading) exportResult(lastRun);
-    else if (isReadOnly || runProblem !== null) notify.info(EXPORT_NEEDS_A_RUN);
-    else {
-      sawLoading.current = false;
-      setAwaiting({ tabId: meta.tabId, after: lastRun?.ranAt });
-      actions.run();
-    }
-    // The request is the trigger; the rest is read as it stands when it lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requested]);
-  React.useEffect(() => {
-    if (!awaiting) return;
-    if (awaiting.tabId !== meta.tabId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAwaiting(null);
-      return;
-    }
-    if (isLoading) {
-      sawLoading.current = true;
-      return;
-    }
-    if (lastRun && lastRun.ranAt !== awaiting.after) {
-      setAwaiting(null);
-      exportResult(lastRun);
-    } else if (sawLoading.current) {
-      // The run ended with no result of its own: it was cancelled.
-      setAwaiting(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [awaiting, isLoading, lastRun, meta.tabId]);
+    setExportOpen(true);
+  }, [requested, meta.tabId]);
 
   // #160 — what the last run's query did: the index it used, or a collection
   // scan. Stale on the same rule as the count: the plan describes the query

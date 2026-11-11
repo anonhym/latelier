@@ -7,8 +7,16 @@ import { notify } from '../../src/theme/notifications';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
-function build(isView = false, activeView: string | undefined = 'documents', dormant = false) {
-  const tab = { id: 't9', state: { activeView } };
+const docs = { documents: [{ _id: 1 }], durationMs: 1, ranAt: '2026-11-11T10:00:00.000Z' };
+
+function build(
+  isView = false,
+  activeView: string | undefined = 'documents',
+  dormant = false,
+  lastRun: unknown = docs,
+  running = false,
+) {
+  const tab = { id: 't9', state: { activeView, lastRun } };
   const tabs = {
     openCollection: vi.fn(async () => tab),
     openAggregation: vi.fn(async () => tab),
@@ -26,6 +34,7 @@ function build(isView = false, activeView: string | undefined = 'documents', dor
     showStructure,
     requestDialog,
     dormant: () => dormant,
+    running: (id: string) => running && id === 't9',
   });
   const action = (id: string) => obj.actions.find((a) => a.id === id)!;
   return { obj, tabs, showStructure, requestDialog, action };
@@ -110,15 +119,48 @@ describe('collectionObject', () => {
     expect(exportRequested('t9')).toBe(true);
   });
 
-  it('on a dormant Connection, opens the tab and says to connect instead of asking for the dialog', async () => {
-    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
-    const { tabs, action } = build(false, 'structure', true);
-    await action('export').perform(ctx);
-    expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
-    expect(info).toHaveBeenCalledWith('Connect to Production first, then export.');
-    expect(exportRequested('t9')).toBe(false);
-    expect(tabs.setActiveView).not.toHaveBeenCalled();
-    info.mockRestore();
+  describe('Export… decides from the tab as it stands, and queues nothing it cannot open', () => {
+    const RUN_FIRST = 'Run the query, then choose Export again';
+    const exportWith = async (...a: Parameters<typeof build>) => {
+      const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+      const built = build(...a);
+      await built.action('export').perform(ctx);
+      return { ...built, info };
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it('asks for the dialog on a settled result with documents', async () => {
+      const { info } = await exportWith();
+      expect(exportRequested('t9')).toBe(true);
+      expect(info).not.toHaveBeenCalled();
+    });
+
+    it('says the query matched nothing on a settled result of 0 documents', async () => {
+      const { info } = await exportWith(false, 'documents', false, { ...docs, documents: [] });
+      expect(info).toHaveBeenCalledWith('The query matched no documents, so there is nothing to export.');
+      expect(exportRequested('t9')).toBe(false);
+    });
+
+    it.each([
+      // A restored tab: its result is not carried over.
+      ['no result', null, false],
+      ['an errored result', { ...docs, documents: [], error: { code: 'MONGO', message: 'boom' } }, false],
+      ['a query running', docs, true],
+    ])('says to run the query first with %s', async (_name, lastRun, running) => {
+      const { info } = await exportWith(false, 'documents', false, lastRun, running);
+      expect(info).toHaveBeenCalledWith(RUN_FIRST);
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(exportRequested('t9')).toBe(false);
+    });
+
+    it('on a dormant Connection, opens the tab and says to connect', async () => {
+      const { tabs, info } = await exportWith(false, 'structure', true);
+      expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
+      expect(info).toHaveBeenCalledWith('Connect to Production first, then export.');
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(exportRequested('t9')).toBe(false);
+      expect(tabs.setActiveView).not.toHaveBeenCalled();
+    });
   });
 
   it('asks the navigator for its Import, Rename and Drop dialogs', async () => {
