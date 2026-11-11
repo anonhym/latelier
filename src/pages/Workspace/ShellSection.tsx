@@ -12,7 +12,11 @@ import { TitleBar } from './TitleBar';
 import { TabStrip } from './TabStrip';
 import { ResizeHandle } from './ResizeHandle';
 import { DividerNotch } from './DividerNotch';
-import { DbCollectionNavigator, type NavigatorOpenInput } from './DbCollectionNavigator';
+import {
+  DbCollectionNavigator,
+  type NavigatorDialogRequest,
+  type NavigatorOpenInput,
+} from './DbCollectionNavigator';
 import { useSettings } from '../SettingsContext';
 import { usePaletteApi } from '../../commands/CommandPalette';
 import { useHints } from '../../hints/HintsContext';
@@ -43,6 +47,9 @@ export interface ShellSectionProps {
   navigatorData: NavigatorData;
   /** Opens the reference-rules drawer for the Focused Tab's collection. */
   onOpenReferences: () => void;
+  /** A collection dialog to open from outside the navigator, and its reset. */
+  navigatorDialogRequest: NavigatorDialogRequest | null;
+  onNavigatorDialogHandled: () => void;
 }
 
 export function ShellSection({
@@ -65,6 +72,8 @@ export function ShellSection({
   connectionDialogs,
   navigatorData,
   onOpenReferences,
+  navigatorDialogRequest,
+  onNavigatorDialogHandled,
 }: ShellSectionProps) {
   const T = themeVars;
   const { sidebarCollapsed, toggleSidebar, leftWidth, setLeftWidth, commitLeftWidth } = panelPrefs;
@@ -243,6 +252,8 @@ export function ShellSection({
                 data={navigatorData}
                 revealRequest={revealRequest}
                 onRevealHandled={() => setRevealRequest(null)}
+                dialogRequest={navigatorDialogRequest}
+                onDialogRequestHandled={onNavigatorDialogHandled}
               />
               <div
                 style={{

@@ -22,9 +22,10 @@ import {
 import type { CollectionInfo, DbInfo } from '@shared/ipc';
 import type { ConnectionRuntime } from '@shared/types';
 
+// A name ending in `_view` is listed as a view.
 const coll = (name: string): CollectionInfo => ({
   name,
-  type: 'collection',
+  type: name.endsWith('_view') ? 'view' : 'collection',
   documentCount: 0,
   sizeBytes: 0,
   indexCount: 0,
@@ -533,5 +534,75 @@ describe('the palette sweep on a server with many databases', () => {
     openPalette();
     search('in_db9');
     await waitFor(() => expect(openRows()).toEqual(['db9.in_db9']));
+  });
+});
+
+describe('palette Collection actions', () => {
+  const press = (key: string, init: KeyboardEventInit = {}) =>
+    fireEvent.keyDown(document.activeElement ?? screen.getByLabelText('Search commands'), { key, ...init });
+  const actionTitles = () =>
+    within(screen.getByRole('dialog', { name: 'Command palette' }))
+      .getAllByRole('option')
+      .map((o) => [o.querySelector('[data-title]')?.getAttribute('data-title'), o.getAttribute('aria-disabled') === 'true']);
+
+  it('lists the actions in order, and ⌘↵ opens a second tab', async () => {
+    const { listCollections, openCollection } = mount();
+    await settled(listCollections);
+    openPalette();
+    search('leads');
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', altKey: true });
+    expect(actionTitles()).toEqual([
+      ['Open', false],
+      ['Open in new tab', false],
+      ['Aggregate', false],
+      ['Schema', false],
+      ['Indexes', false],
+      ['Export…', false],
+      ['Import…', false],
+      ['Rename…', false],
+      ['Drop collection…', false],
+    ]);
+    fireEvent.keyDown(screen.getByLabelText('Filter actions'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', metaKey: true });
+    await waitFor(() =>
+      expect(openCollection).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'crm', collection: 'leads' }),
+    );
+  });
+
+  it('disables the writing actions on a view, with a reason', async () => {
+    const { listCollections } = mount({ c1: { shop: ['orders', 'big_view'], crm: ['leads'] } });
+    await settled(listCollections);
+    openPalette();
+    search('big_view');
+    await waitFor(() => expect(openRows()).toEqual(['shop.big_view']));
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', altKey: true });
+    const disabled = actionTitles().filter(([, d]) => d).map(([t]) => t);
+    expect(disabled).toEqual(['Import…', 'Rename…', 'Drop collection…']);
+    expect(screen.getByText("This is a view, so it can't be renamed here")).toBeTruthy();
+  });
+
+  it('`drop <name>` opens the navigator’s own drop confirmation', async () => {
+    const { listCollections } = mount();
+    await settled(listCollections);
+    openPalette();
+    search('drop leads');
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
+    press('Enter');
+    expect(await screen.findByRole('dialog', { name: 'Drop collection "leads"?' })).toBeTruthy();
+  });
+
+  it('Rename… opens the navigator’s rename dialog, opening a collapsed sidebar first', async () => {
+    const { listCollections } = mount();
+    await settled(listCollections);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    await waitFor(() => expect(screen.queryByTestId('nav-coll-shop-orders')).toBeNull());
+
+    openPalette();
+    search('rename leads');
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
+    press('Enter');
+    expect(await screen.findByRole('dialog', { name: 'Rename "leads"' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Collapse navigator' })).toBeTruthy();
   });
 });

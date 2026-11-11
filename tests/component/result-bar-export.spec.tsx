@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { render, screen, fireEvent, within, act, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { _resetExportRequestForTests, exportRequested, requestExport } from '../../src/pages/Workspace/exportRequest';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { notify } from '../../src/theme/notifications';
@@ -338,5 +339,39 @@ describe('ResultBar — Export all matching', () => {
       { header: 'age', path: 'age' },
       { header: 'name', path: 'name' },
     ]);
+  });
+});
+
+describe('ResultBar — an export request from the palette', () => {
+  afterEach(() => _resetExportRequestForTests());
+
+  it('opens the Export dialog once for its own tab, and consumes the request', async () => {
+    renderBar({}, { tabId: 't1' });
+    act(() => requestExport('t1'));
+    expect(await screen.findByRole('dialog', { name: /Export documents/ })).toBeTruthy();
+    expect(exportRequested('t1')).toBe(false);
+  });
+
+  it('leaves another tab’s request alone', () => {
+    renderBar({}, { tabId: 't1' });
+    act(() => requestExport('t2'));
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    expect(exportRequested('t2')).toBe(true);
+  });
+
+  it('waits for the run, and says so when it matched nothing', async () => {
+    const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+    renderBar({ lastRun: { documents: [], durationMs: 1, ranAt: new Date().toISOString() } }, { tabId: 't1' });
+    act(() => requestExport('t1'));
+    expect(info).toHaveBeenCalledWith('The query matched no documents, so there is nothing to export.');
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog', { name: /Export documents/ })).toBeNull();
+    expect(exportRequested('t1')).toBe(false);
+  });
+
+  it('holds the request while no run has landed', () => {
+    renderBar({ lastRun: undefined }, { tabId: 't1' });
+    act(() => requestExport('t1'));
+    expect(exportRequested('t1')).toBe(true);
   });
 });

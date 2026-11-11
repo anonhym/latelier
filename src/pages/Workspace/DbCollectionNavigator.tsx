@@ -101,6 +101,17 @@ export interface DbCollectionNavigatorProps {
    * settled without the collection, so it never fires later.
    */
   onRevealHandled?: () => void;
+  /**
+   * Opens one of the collection dialogs the context menu opens, from outside
+   * the tree (the palette's Rename…, Import… and Drop collection…). A new
+   * object per request; `onDialogRequestHandled` is called once it is open.
+   */
+  dialogRequest?: NavigatorDialogRequest | null;
+  onDialogRequestHandled?: () => void;
+}
+
+export interface NavigatorDialogRequest extends NavigatorOpenInput {
+  dialog: 'rename' | 'import' | 'drop';
 }
 
 type TreeRow =
@@ -228,6 +239,8 @@ export function DbCollectionNavigator({
   data,
   revealRequest,
   onRevealHandled,
+  dialogRequest,
+  onDialogRequestHandled,
 }: DbCollectionNavigatorProps) {
   const T = themeVars;
   // Shared with Workspace (and so the palette) when `data` is passed; the
@@ -532,6 +545,20 @@ export function DbCollectionNavigator({
     onCollectionDropped,
     onDatabaseDropped,
   });
+
+  // The same setters the collection menu's items call, so the dialog is the one
+  // the menu opens. No menu trigger: focus goes back to wherever it was.
+  React.useEffect(() => {
+    if (!dialogRequest) return;
+    const { dialog, ...target } = dialogRequest;
+    queueMicrotask(() => {
+      setMenuTrigger(null);
+      if (dialog === 'rename') setRenameTarget(target);
+      else if (dialog === 'import') setImportTarget(target);
+      else setDropCollTarget(target);
+      onDialogRequestHandled?.();
+    });
+  }, [dialogRequest, onDialogRequestHandled, setMenuTrigger, setRenameTarget, setImportTarget, setDropCollTarget]);
 
   const disconnect = React.useCallback((id: string) => {
     void disconnectConnection(id);
