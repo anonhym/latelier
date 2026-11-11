@@ -300,7 +300,7 @@ describe('layoutPalette — typed query in All', () => {
     expect((l.entries.at(-1) as MoreEntry).scope).toBe('actions');
   });
 
-  it('puts a row built from the query first, under its own label, with nothing at its right', () => {
+  it('puts a row built from the query first, under its own label, with the Enter key cap, not its shortcut', () => {
     const pasted = cmd({
       id: 'q',
       shortcut: '⌘F',
@@ -311,7 +311,7 @@ describe('layoutPalette — typed query in All', () => {
       ['pasted', QUERY_ROW_LABEL],
       ['collection', 'Collections'],
     ]);
-    expect((l.entries[0] as RowEntry).aside).toBeNull();
+    expect((l.entries[0] as RowEntry).aside).toEqual({ type: 'key', keys: '↵' });
     expect((l.entries[1] as RowEntry).aside).toBeNull();
   });
 

@@ -185,7 +185,8 @@ export function layoutPalette(
       row,
       cmd: row.cmd,
       kind,
-      aside: row.fromQuery ? null : asideFor(row, kind, underRecent),
+      // The pasted `_id` row carries the Enter key cap, as its artboard draws it.
+      aside: row.fromQuery ? { type: 'key', keys: '↵' } : asideFor(row, kind, underRecent),
       disabled: (row.cmd.object ? rowAction(row)!.disabledReason : row.cmd.disabledReason)?.(ctx) ?? null,
     };
   };
