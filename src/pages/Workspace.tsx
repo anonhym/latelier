@@ -1372,7 +1372,12 @@ function WorkspaceInner() {
       return;
     }
     const patch = hydrateFindPayload(pending.payload, tab.state.builder);
-    if ((tab.state.activeView ?? 'documents') !== 'documents') tabs.setActiveView(tab.id, 'documents');
+    // The switch would re-fire the auto-run: a saved `{}` would run on Open,
+    // and on Run once more, cancelling the explicit run below.
+    if ((tab.state.activeView ?? 'documents') !== 'documents') {
+      skipAutoRunRef.current = tab.id;
+      tabs.setActiveView(tab.id, 'documents');
+    }
     // The draft belongs to the filter being replaced: drop it with it.
     tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
     // The saved list's `onLoaded`: clears the query bar's held complaints and reseeds the drawer.
