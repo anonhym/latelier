@@ -67,7 +67,7 @@ function LeakOnRank() {
         title: 'Leaky command',
         group: 'general',
         when: () => {
-          void window.atelier.meta.listCollections({ connectionId: 'c1', dbName: 'shop' });
+          void window.atelier?.meta.listCollections({ connectionId: 'c1', dbName: 'shop' });
           return true;
         },
         perform: () => {},
