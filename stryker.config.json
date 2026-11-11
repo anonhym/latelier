@@ -103,6 +103,7 @@
     "src/utils/humanBytes.ts",
     "src/commands/rank.ts",
     "src/commands/layout.ts",
+    "src/commands/verbs.ts",
     "src/commands/pastedId.ts",
     "src/commands/shortcutLabel.ts",
     "electron/services/tabStateResults.ts",

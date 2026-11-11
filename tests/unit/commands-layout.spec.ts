@@ -467,6 +467,10 @@ describe('matchText', () => {
       [8, 11],
       [12, 15],
     ]);
+    expect(matchText('Open in new tab', 'tab  new')).toEqual([
+      [8, 11],
+      [12, 15],
+    ]);
     expect(matchText('Open', 'open x')).toBeNull();
   });
 });

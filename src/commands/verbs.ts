@@ -27,10 +27,18 @@ export const VERBS: readonly VerbSpec[] = [
   { verb: 'disconnect', aliases: [], participle: 'disconnected' },
 ];
 
-const BY_WORD = new Map<string, VerbSpec>();
-for (const spec of VERBS) {
-  BY_WORD.set(spec.verb, spec);
-  for (const alias of spec.aliases) BY_WORD.set(alias, spec);
+let byWord: Map<string, VerbSpec> | null = null;
+
+/** Verbs and aliases to their verb, built on first use. */
+function lookup(word: string): VerbSpec | undefined {
+  if (!byWord) {
+    byWord = new Map();
+    for (const spec of VERBS) {
+      byWord.set(spec.verb, spec);
+      for (const alias of spec.aliases) byWord.set(alias, spec);
+    }
+  }
+  return byWord.get(word);
 }
 
 /** Verbs whose actions are destructive: their line and tags are drawn in red. */
@@ -51,7 +59,7 @@ export interface ParsedVerb {
 export function parseVerb(query: string): ParsedVerb | null {
   const tokens = query.trim().toLowerCase().split(/\s+/);
   const typed = tokens[0]!;
-  const spec = BY_WORD.get(typed);
+  const spec = lookup(typed);
   if (!spec) return null;
   return {
     verb: spec.verb,

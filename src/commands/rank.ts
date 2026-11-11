@@ -85,7 +85,7 @@ interface Prepared {
   sub: string;
   kw: string;
   /** The command this was last matched to; a different object with the same id is checked by text. */
-  cmd: Command;
+  cmd: Command | null;
   /** What this was built from, to tell whether a command still has the same text. */
   source: string;
   subtitle: string | undefined;
@@ -183,7 +183,7 @@ function prepare(cmd: Command): Prepared {
   return p;
 }
 
-function build(source: string, subtitle: string | undefined, keywords: string[] | undefined, cmd: Command): Prepared {
+function build(source: string, subtitle: string | undefined, keywords: string[] | undefined, cmd: Command | null): Prepared {
   const starts: number[] = [];
   for (let i = 0; i < source.length; i++) {
     const c = source.charAt(i);
@@ -633,7 +633,7 @@ export function groupRows(rows: RankedRow[]): RenderGroup[] {
 export function matchText(text: string, query: string): Range[] | null {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return [];
-  const p = build(text, undefined, undefined, { id: '', title: text, group: 'general', perform: () => {} });
+  const p = build(text, undefined, undefined, null);
   const out: Range[] = [];
   for (const token of trimmed.split(/\s+/)) {
     if (matchToken(p, token, out) === -1) return null;

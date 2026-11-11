@@ -77,6 +77,23 @@ describe('parseVerb', () => {
       'aggregate', 'schema', 'indexes', 'export', 'import', 'pin', 'disconnect',
     ]);
     expect(VERBS.filter((v) => parseVerb(v.verb)?.destructive).map((v) => v.verb)).toEqual(['delete']);
+    expect(Object.fromEntries(VERBS.map((v) => [v.verb, [v.aliases.join(' '), parseVerb(v.verb)?.participle]]))).toEqual({
+      open: ['go switch show', 'opened'],
+      edit: ['modify', 'edited'],
+      delete: ['remove drop', 'deleted'],
+      close: ['', 'closed'],
+      rename: ['', 'renamed'],
+      run: ['execute', 'run'],
+      query: ['find', 'queried'],
+      filter: ['', 'filtered'],
+      aggregate: ['pipeline', 'aggregated'],
+      schema: ['structure', 'inspected'],
+      indexes: ['index', 'indexed'],
+      export: ['', 'exported'],
+      import: ['', 'imported'],
+      pin: ['unpin', 'pinned'],
+      disconnect: ['', 'disconnected'],
+    });
   });
 });
 
@@ -173,11 +190,21 @@ describe('a verb in the query', () => {
 });
 
 describe('a verb alone', () => {
-  const all = [coll('shop.orders'), conn('Production'), command('open.settings', 'Open settings'), command('x', 'Export all')];
+  const all = [
+    coll('shop.orders'),
+    coll('shop.openings'),
+    conn('Production'),
+    command('open.settings', 'Open settings'),
+    command('x', 'Export all'),
+  ];
 
   it('lists a row per kind that has the verb, then the commands it matches', () => {
     const l = layoutPalette(all, 'open', ctx, [], 'all');
-    expect(l.groups.map((g) => g.label)).toEqual(['Open…', 'Actions']);
+    expect(l.groups.map((g) => [g.key, g.label])).toEqual([
+      ['verb', 'Open…'],
+      ['action', 'Actions'],
+    ]);
+    expect(l.entries.map((e) => e.id)).toEqual(['verb:collection', 'verb:connection', 'open.settings']);
     expect(verbRows(l).map((e) => [e.title, e.destination, e.target, e.index])).toEqual([
       ['Open a collection…', 'Collections scope ›', 'collections', 0],
       ['Open a connection…', 'All, connections only ›', 'connections', 1],
@@ -185,7 +212,8 @@ describe('a verb alone', () => {
     expect(verbRows(l)[0]!.ranges).toEqual([[0, 4]]);
     expect(rows(l).map((e) => [e.id, e.index])).toEqual([['open.settings', 2]]);
     expect(l.verb).toBeNull();
-    expect(l.counts?.collections).toBe(0);
+    // `shop.openings` matches the word as a name: counted, not listed.
+    expect(l.counts?.collections).toBe(1);
   });
 
   it('gives no row to a kind whose objects lack the verb', () => {
@@ -222,7 +250,8 @@ describe('a verb alone', () => {
 
 describe('Connections only', () => {
   const all = [
-    coll('shop.orders'),
+    // Shorter than any Connection's name, so it would rank first if let through.
+    coll('a.b'),
     ...Array.from({ length: 7 }, (_, i) => conn(`Prod${i}`)),
     command('open.settings', 'Open settings'),
   ];
@@ -232,6 +261,8 @@ describe('Connections only', () => {
     expect(l.groups.map((g) => g.label)).toEqual([null]);
     expect(rows(l).map((e) => e.kind)).toEqual(Array(7).fill('connection'));
     expect(l.verb?.verb).toBe('open');
+    // Connections have no scope: they count in none.
+    expect(l.counts).toEqual({ collections: 1, actions: 1, saved: 0, tabs: 0 });
   });
 
   it('applies in All only', () => {
