@@ -66,7 +66,8 @@ interface Prepared {
   text: string;
   /** Offsets where a word starts. */
   starts: number[];
-  isStart: Uint8Array;
+  /** Where each of those words ends, exclusive. */
+  ends: number[];
   sub: string;
   kw: string;
 }
@@ -96,25 +97,43 @@ function lowerKeepingLength(s: string): string {
 // Keyed on the command object, so a registration is prepared once, not on every keystroke (§13.7 rule 4).
 const prepared = new WeakMap<Command, Prepared>();
 
+/** The end of the word starting at `start`: the first separator, or `limit` (the next word's start). */
+function wordEndAt(source: string, start: number, limit: number): number {
+  let j = start + 1;
+  while (j < limit && !SEPARATORS.has(source.charAt(j))) j++;
+  return j;
+}
+
+/**
+ * Works out a command's match text, word starts and keywords now, so the first
+ * keystroke after a registration finds them ready. The registry calls this when
+ * it receives a command; ranking falls back to it for a command that never went
+ * through the registry.
+ */
+export function prepareCommand(cmd: Command): void {
+  if (!cmd.forQuery) prepare(cmd);
+}
+
 function prepare(cmd: Command): Prepared {
   const hit = prepared.get(cmd);
   if (hit) return hit;
   const source = displayText(cmd);
   const starts: number[] = [];
-  const isStart = new Uint8Array(source.length);
+  const ends: number[] = [];
   for (let i = 0; i < source.length; i++) {
     const c = source.charAt(i);
     if (SEPARATORS.has(c)) continue;
     const prev = i > 0 ? source.charAt(i - 1) : '';
     if (i === 0 || SEPARATORS.has(prev) || (isLower(prev) && isUpper(c))) {
       starts.push(i);
-      isStart[i] = 1;
+      if (starts.length > 1) ends.push(wordEndAt(source, starts[starts.length - 2]!, i));
     }
   }
+  if (starts.length > 0) ends.push(wordEndAt(source, starts[starts.length - 1]!, source.length));
   const p: Prepared = {
     text: lowerKeepingLength(source),
     starts,
-    isStart,
+    ends,
     sub: cmd.subtitle?.toLowerCase() ?? '',
     kw: (cmd.keywords ?? []).join(' ').toLowerCase(),
   };
@@ -123,12 +142,6 @@ function prepare(cmd: Command): Prepared {
 }
 
 // ── Matching ─────────────────────────────────────────────────────────────────
-
-function wordEnd(p: Prepared, start: number): number {
-  let j = start + 1;
-  while (j < p.text.length && !SEPARATORS.has(p.text.charAt(j)) && !p.isStart[j]) j++;
-  return j;
-}
 
 /** The class of `token` against `p`, its ranges pushed to `out` when given; -1 for no match. */
 function matchToken(p: Prepared, token: string, out: Range[] | null): number {
@@ -142,8 +155,9 @@ function matchToken(p: Prepared, token: string, out: Range[] | null): number {
     }
     let wordAt = -1;
     for (let i = first; i !== -1; i = text.indexOf(token, i + 1)) {
-      if (!p.isStart[i]) continue;
-      if (wordEnd(p, i) === i + len) {
+      const k = p.starts.indexOf(i);
+      if (k === -1) continue;
+      if (p.ends[k] === i + len) {
         out?.push([i, i + len]);
         return EXACT;
       }

@@ -1,5 +1,8 @@
+import v8 from 'node:v8';
+import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { rankCommands, groupRows } from '../../src/commands/rank';
+import { commandRegistry } from '../../src/commands/registry';
 import type { Command, PaletteContext } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
@@ -52,4 +55,44 @@ describe.skipIf(underStryker)('ranker budget at 50,000 collections', () => {
   it.each(['', 'o', 'ord', 'collection 42', 'zzz', 'db1.collection_2'])('stays within the frame for %j', (query) => {
     expect(median(all, query)).toBeLessThanOrEqual(BOUND_MS);
   });
+});
+
+/** Settles the garbage the fixture left behind, so a collection pause is not timed as ranking. */
+function collectGarbage(): void {
+  v8.setFlagsFromString('--expose-gc');
+  (vm.runInNewContext('gc') as () => void)();
+}
+
+// What registering 50,000 rows costs. A generous bound: it guards against the
+// work growing per row, not against a slow machine.
+const REGISTER_BOUND_MS = 250;
+
+describe.skipIf(underStryker)('registering 50,000 collections', () => {
+  it('prepares them within the registration budget', () => {
+    const all = catalog(50_000);
+    const t0 = performance.now();
+    const off = commandRegistry.add(all);
+    const ms = performance.now() - t0;
+    off();
+    process.stderr.write(`register 50k: ${ms.toFixed(1)} ms\n`);
+    expect(ms).toBeLessThanOrEqual(REGISTER_BOUND_MS);
+  });
+
+  it.each(['o', 'ord', 'collection 42', 'zzz'])(
+    'ranks %j within the frame on the first keystroke after a fresh registration',
+    (query) => {
+      const fresh = catalog(50_000);
+      const off = commandRegistry.add(fresh);
+      try {
+        collectGarbage();
+        const t0 = performance.now();
+        groupRows(rankCommands(commandRegistry.list(), query, ctx, ['cmd.3']));
+        const first = performance.now() - t0;
+        process.stderr.write(`first ${JSON.stringify(query)}: ${first.toFixed(1)} ms\n`);
+        expect(first).toBeLessThanOrEqual(BOUND_MS);
+      } finally {
+        off();
+      }
+    },
+  );
 });

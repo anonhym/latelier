@@ -1,3 +1,4 @@
+import { prepareCommand } from './rank';
 import type { Command } from './types';
 
 type Listener = () => void;
@@ -34,6 +35,8 @@ class Registry {
         }
         this.warnedIds.add(cmd.id);
       }
+      // Text that does not change between keystrokes is prepared once, here.
+      prepareCommand(cmd);
       this.entries.set(cmd.id, { cmd, token });
     }
     this.notify();
