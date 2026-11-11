@@ -818,8 +818,11 @@ function WorkspaceInner() {
         group: 'query',
         keywords: ['copy', 'filter'],
         when: () => activeCollectionRef.current !== null,
-        disabledReason: () =>
-          (activeCollectionRef.current?.state.queryRaw ?? '').trim() ? null : 'Type a filter first',
+        // An empty filter is `{}` once the builder has written one, as the live count reads it.
+        disabledReason: () => {
+          const raw = (activeCollectionRef.current?.state.queryRaw ?? '').trim();
+          return raw === '' || raw === '{}' ? 'Type a filter first' : null;
+        },
         perform: () => {
           const raw = activeCollectionRef.current?.state.queryRaw ?? '';
           if (raw) void copyToClipboard(raw, 'Query copied to the clipboard.');

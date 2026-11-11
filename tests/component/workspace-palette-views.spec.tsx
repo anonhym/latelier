@@ -200,3 +200,24 @@ describe('palette: shell and structure entries', () => {
     expect(paletteTitles('schema')).not.toContain('Go to schema');
   });
 });
+
+describe('palette: Copy MQL to clipboard', () => {
+  const copyRow = () => within(screen.getByRole('dialog')).getByRole('option', { name: /^Copy MQL to clipboard/ });
+
+  it('is listed greyed, with its reason, while the filter is empty', async () => {
+    mount([collectionTab()]);
+    await screen.findByLabelText('Close orders');
+    paletteTitles('copy mql');
+    expect(copyRow().getAttribute('aria-disabled')).toBe('true');
+    expect(copyRow().querySelector('[data-subtitle]')!.textContent).toBe('Type a filter first');
+  });
+
+  it('is available once a filter is typed', async () => {
+    const tab = collectionTab();
+    mount([{ ...tab, state: { ...tab.state, queryRaw: '{"sku":"a"}' } } as WorkspaceTab]);
+    await screen.findByLabelText('Close orders');
+    paletteTitles('copy mql');
+    expect(copyRow().hasAttribute('aria-disabled')).toBe(false);
+  });
+});
+
