@@ -80,4 +80,37 @@ export interface Command {
    */
   disabledReason?: (ctx: PaletteContext) => string | null;
   perform: (ctx: PaletteContext) => void | Promise<void>;
+  /** Set on the row an object registers as (`useRegisterObjects`): the object it stands for. */
+  object?: PaletteObject;
+}
+
+// ── Objects (X07 §13.4) ──────────────────────────────────────────────────────
+
+export type ObjectKind = 'connection' | 'database' | 'collection' | 'tab' | 'saved';
+
+export interface ObjectAction {
+  /** Unique within the object. */
+  id: string;
+  /** The verb that selects this action from the query, lower case: `open`, `drop`. */
+  verb: string;
+  /** Row title in the action list: `Open`, `Drop collection…`. */
+  title: string;
+  /** Confirmed by its own dialog; styled as destructive and never the default. */
+  destructive?: boolean;
+  /** The object's alternate action, performed by `⌘↵`; at most one per object, never destructive. */
+  alternate?: boolean;
+  disabledReason?: (ctx: PaletteContext) => string | null;
+  perform: (ctx: PaletteContext) => void | Promise<void>;
+}
+
+export interface PaletteObject {
+  /** Stable and unique across kinds; what the MRU stores. */
+  id: string;
+  kind: ObjectKind;
+  /** Shown as the row title and matched as the match text. */
+  name: string;
+  subtitle?: string;
+  keywords?: string[];
+  /** The first action is the default, performed on Enter. */
+  actions: ObjectAction[];
 }

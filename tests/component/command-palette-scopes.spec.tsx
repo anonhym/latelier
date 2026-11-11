@@ -10,7 +10,7 @@ import {
 } from '../../src/commands/CommandPalette';
 import { PaletteContextProvider } from '../../src/commands/PaletteContext';
 import { useRegisterCommands } from '../../src/commands/useRegisterCommands';
-import { commandRegistry } from '../../src/commands/registry';
+import { commandRegistry, objectRow } from '../../src/commands/registry';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { Command } from '../../src/commands/types';
 
@@ -24,15 +24,14 @@ function Register({ commands }: { commands: Command[] }) {
   return null;
 }
 
-const coll = (name: string): Command => ({
-  id: `tab.open:c1:shop:${name}`,
-  title: `Open: shop.${name}`,
-  matchText: `shop.${name}`,
-  subtitle: 'Production',
-  group: 'workspace',
-  hideWhenEmptyQuery: true,
-  perform: () => {},
-});
+const coll = (name: string): Command =>
+  objectRow({
+    id: `tab.open:c1:shop:${name}`,
+    kind: 'collection',
+    name: `shop.${name}`,
+    subtitle: 'Production',
+    actions: [{ id: 'open', verb: 'open', title: 'Open', perform: () => {} }],
+  });
 
 const action = (id: string, title: string): Command => ({ id, title, group: 'general', perform: () => {} });
 

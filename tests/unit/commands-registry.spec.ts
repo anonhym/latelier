@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { commandRegistry } from '../../src/commands/registry';
+import { commandRegistry, objectRow } from '../../src/commands/registry';
 import { preparationsBuilt, preparedCount, rankCommands } from '../../src/commands/rank';
-import type { Command } from '../../src/commands/types';
+import type { Command, ObjectAction, PaletteObject } from '../../src/commands/types';
 
 function makeCmd(id: string, perform: () => void = () => {}): Command {
   return { id, title: id, group: 'general', perform };
@@ -130,5 +130,66 @@ describe('prepared match text — reuse', () => {
     const before = preparationsBuilt();
     commandRegistry.add([base({ forQuery: () => null })]);
     expect(preparationsBuilt()).toBe(before);
+  });
+});
+
+describe('commandRegistry — objects', () => {
+  const action = (id: string, over: Partial<ObjectAction> = {}): ObjectAction => ({
+    id,
+    verb: id,
+    title: id,
+    perform: () => {},
+    ...over,
+  });
+  const object = (id: string, name = id, over: Partial<PaletteObject> = {}): PaletteObject => ({
+    id,
+    kind: 'collection',
+    name,
+    actions: [action('open')],
+    ...over,
+  });
+  const ctx = { pathname: '/', connectionId: null };
+
+  it('adds objects as rows, replaces them by id and unregisters only its own', () => {
+    const offA = commandRegistry.addObjects([object('a', 'shop.a')]);
+    commandRegistry.addObjects([object('a', 'shop.b')]);
+    expect(commandRegistry.list().map((c) => [c.id, c.title, c.object?.name])).toEqual([['a', 'shop.b', 'shop.b']]);
+    offA();
+    expect(commandRegistry.list()).toHaveLength(1);
+    const offB = commandRegistry.addObjects([object('b')]);
+    offB();
+    expect(commandRegistry.list().map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('prepares an object at registration', () => {
+    const before = preparationsBuilt();
+    commandRegistry.addObjects([object('p1', 'shop.p1')]);
+    expect(preparationsBuilt()).toBe(before + 1);
+    rankCommands(commandRegistry.list(), 'p1', ctx, []);
+    expect(preparationsBuilt()).toBe(before + 1);
+  });
+
+  it('lists an object once typed or as Recent, and performs its default on the row', () => {
+    const open = vi.fn();
+    const row = objectRow(object('o', 'shop.o', { subtitle: 'Prod', keywords: ['k'], actions: [action('open', { perform: open })] }));
+    expect(row).toMatchObject({ id: 'o', title: 'shop.o', subtitle: 'Prod', keywords: ['k'], group: 'workspace', hideWhenEmptyQuery: true });
+    void row.perform(ctx);
+    expect(open).toHaveBeenCalledWith(ctx);
+    expect(objectRow(object('c', 'c', { kind: 'connection' })).group).toBe('connection');
+    commandRegistry.add([row]);
+    expect(rankCommands(commandRegistry.list(), '', ctx, []).map((r) => r.cmd.id)).toEqual([]);
+    expect(rankCommands(commandRegistry.list(), '', ctx, ['o']).map((r) => r.cmd.id)).toEqual(['o']);
+  });
+
+  it('refuses an object it could not offer safely', () => {
+    expect(() => objectRow(object('e', 'e', { actions: [] }))).toThrow('palette object "e" has no actions');
+    expect(() => objectRow(object('d', 'd', { actions: [action('drop', { destructive: true })] }))).toThrow(
+      'palette object "d": a destructive action is never the default',
+    );
+    const two = [action('a'), action('b', { alternate: true }), action('c', { alternate: true })];
+    expect(() => objectRow(object('t', 't', { actions: two }))).toThrow('at most one alternate');
+    const bad = [action('a'), action('b', { alternate: true, destructive: true })];
+    expect(() => objectRow(object('u', 'u', { actions: bad }))).toThrow('at most one alternate');
+    expect(() => objectRow(object('v', 'v', { actions: [action('a'), action('b', { alternate: true })] }))).not.toThrow();
   });
 });

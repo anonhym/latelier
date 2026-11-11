@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { kindOf, rankCapped, QUERY_ROW_LABEL } from '../../src/commands/rank';
+import { kindOf, matchText, rankCapped, QUERY_ROW_LABEL } from '../../src/commands/rank';
 import {
+  ACTION_LIST_HINTS,
   ALL_CAP,
   HISTORY_CAP,
   KIND_LAYOUT,
   SCOPE_LABEL,
   SCOPES,
   SCOPE_CAP,
+  actionList,
   asideFor,
   cycleScope,
   footerHints,
@@ -17,7 +19,8 @@ import {
   type MoreEntry,
   type RowEntry,
 } from '../../src/commands/layout';
-import type { Command, PaletteContext } from '../../src/commands/types';
+import { objectRow } from '../../src/commands/registry';
+import type { Command, ObjectAction, PaletteContext, PaletteObject } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
@@ -28,25 +31,43 @@ const cmd = (over: Partial<Command> & { id: string }): Command => ({
   ...over,
 });
 
-const coll = (name: string, over: Partial<Command> = {}): Command =>
-  cmd({
+const act = (id: string, verb: string, over: Partial<ObjectAction> = {}): ObjectAction => ({
+  id,
+  verb,
+  title: id,
+  perform: () => {},
+  ...over,
+});
+
+const coll = (name: string, over: Partial<Command> = {}): Command => ({
+  ...objectRow({
     id: `tab.open:c1:shop:${name}`,
-    title: `Open: shop.${name}`,
-    matchText: `shop.${name}`,
+    kind: 'collection',
+    name: `shop.${name}`,
     subtitle: 'Production',
-    group: 'workspace',
-    hideWhenEmptyQuery: true,
-    ...over,
-  });
+    actions: [
+      act('Open', 'open'),
+      act('Open in new tab', 'open', { alternate: true }),
+      act('Drop collection…', 'delete', { destructive: true }),
+    ],
+  }),
+  ...over,
+});
 
 const conn = (name: string): Command =>
-  cmd({ id: `connection.open:${name}`, title: `Open connection → ${name}`, subtitle: 'host', group: 'connection' });
+  objectRow({
+    id: `connection.open:${name}`,
+    kind: 'connection',
+    name,
+    subtitle: 'host',
+    actions: [act('Open', 'open'), act('Delete…', 'delete', { destructive: true })],
+  });
 
 const ids = (entries: Entry[]) => entries.map((e) => e.id);
 const rows = (entries: Entry[]) => entries.filter((e): e is RowEntry => e.type === 'row');
 
 describe('kindOf', () => {
-  it('reads a collection, a Connection or an action from the id', () => {
+  it('reads a row\'s kind from its object, and a command as an action', () => {
     expect(kindOf(coll('orders'))).toBe('collection');
     expect(kindOf(conn('Prod'))).toBe('connection');
     expect(kindOf(cmd({ id: 'connection.edit:Prod' }))).toBe('action');
@@ -73,7 +94,7 @@ describe('rankCapped', () => {
   it('keeps the best rows whatever order they arrive in', () => {
     const names = ['zz_orders_long_name', 'orders_b', 'orders', 'x_orders', 'orders_archive_x', 'o_orders'];
     const r = rankCapped(names.map((n) => coll(n)), 'orders', ctx, [], 3, () => 'b');
-    expect(r.buckets[0]!.rows.map((x) => x.cmd.matchText)).toEqual(['shop.orders', 'shop.orders_b', 'shop.x_orders']);
+    expect(r.buckets[0]!.rows.map((x) => x.cmd.title)).toEqual(['shop.orders', 'shop.orders_b', 'shop.x_orders']);
     expect(r.buckets[0]!.total).toBe(6);
   });
 
@@ -105,7 +126,8 @@ describe('rankCapped', () => {
       ['action', 3, ['c', 'a']],
     ]);
     expect(r.buckets[1]!.rows.map((x) => x.recent)).toEqual([true, false]);
-    expect(r.counts.get('connection')).toBe(1);
+    // An object that is not recent waits for the user to type.
+    expect(r.counts.has('connection')).toBe(false);
     expect(r.counts.get('action')).toBe(3);
   });
 });
@@ -189,9 +211,10 @@ describe('layoutPalette — empty query in All', () => {
     expect(l.counts).toBeNull();
   });
 
-  it('tags a kind only under RECENT', () => {
-    const l = layoutPalette([conn('Prod')], '', ctx, [], 'all');
-    expect(rows(l.entries).map((e) => e.aside)).toEqual([null]);
+  it('lists a Connection on an empty query only as Recent, tagged with its kind', () => {
+    expect(layoutPalette([conn('Prod')], '', ctx, [], 'all').entries).toEqual([]);
+    const l = layoutPalette([conn('Prod')], '', ctx, ['connection.open:Prod'], 'all');
+    expect(rows(l.entries).map((e) => e.aside)).toEqual([{ type: 'tag', label: 'Connection' }]);
   });
 
   it('greys a row whose disabledReason answers, and reads it with the palette context', () => {
@@ -329,8 +352,17 @@ describe('footerHints', () => {
 
   it('names what Enter does on the highlighted entry', () => {
     const left = (e: Entry | undefined) => footerHints('all', true, e).left;
-    expect(left(row({ kind: 'collection' }))).toEqual([{ keys: '↵', label: 'Open' }]);
-    expect(left(row({ kind: 'connection' }))).toEqual([{ keys: '↵', label: 'Open' }]);
+    const c = coll('o');
+    expect(left(row({ kind: 'collection', cmd: c, row: { cmd: c, recent: false, cls: null, ranges: [] } }))).toEqual([
+      { keys: '↵', label: 'Open' },
+      { keys: '⌘↵', label: 'Open in new tab' },
+      { keys: '⌥↵', label: 'Actions' },
+    ]);
+    const p = conn('P');
+    expect(left(row({ kind: 'connection', cmd: p, row: { cmd: p, recent: false, cls: null, ranges: [] } }))).toEqual([
+      { keys: '↵', label: 'Open' },
+      { keys: '⌥↵', label: 'Actions' },
+    ]);
     expect(left(row({}))).toEqual([{ keys: '↵', label: 'Run' }]);
     expect(left(row({ cmd: cmd({ id: 't', toggle: { checked: true } }) }))).toEqual([{ keys: '↵', label: 'Toggle' }]);
     const fromQuery = { title: 't', subtitle: '', emphasis: 't', perform: () => {} };
@@ -377,5 +409,64 @@ describe('query history', () => {
     expect(stepHistory(h, 0, 'newer')).toEqual({ at: -1, query: '' });
     expect(stepHistory(h, -1, 'newer')).toBeNull();
     expect(stepHistory([], -1, 'older')).toBeNull();
+  });
+});
+
+describe('actionList', () => {
+  const obj = (kind: 'collection' | 'connection'): PaletteObject => ({
+    id: 'o',
+    kind,
+    name: 'shop.orders',
+    actions: [
+      act('Open', 'open'),
+      act('Drop collection…', 'delete', { destructive: true }),
+      act('Open in new tab', 'open', { alternate: true }),
+      act('Rename…', 'rename', { disabledReason: (c) => (c.connectionId === 'c1' ? 'a view' : null) }),
+    ],
+  });
+
+  it('lists every action, destructive ones last, with keys and tags', () => {
+    const list = actionList(obj('collection'), '', ctx);
+    expect(list.map((a) => [a.action.id, a.index, a.keys, a.tag, a.disabled])).toEqual([
+      ['Open', 0, '↵', 'reuses the open tab', null],
+      ['Open in new tab', 1, '⌘↵', null, null],
+      ['Rename…', 2, null, null, 'a view'],
+      ['Drop collection…', 3, null, 'asks to confirm', null],
+    ]);
+  });
+
+  it('tags the reused tab on a collection only', () => {
+    expect(actionList(obj('connection'), '', ctx)[0]!.tag).toBeNull();
+  });
+
+  it('filters with the palette matcher, keeping the order', () => {
+    const list = actionList(obj('collection'), 'op', ctx);
+    expect(list.map((a) => [a.action.id, a.index, a.ranges])).toEqual([
+      ['Open', 0, [[0, 2]]],
+      ['Open in new tab', 1, [[0, 2]]],
+      ['Drop collection…', 2, [[2, 4]]],
+    ]);
+    expect(actionList(obj('collection'), 'new tab', ctx).map((a) => a.action.id)).toEqual(['Open in new tab']);
+    expect(actionList(obj('collection'), 'zzz', ctx)).toEqual([]);
+  });
+
+  it('gives the action list its own footer', () => {
+    expect(ACTION_LIST_HINTS.left.map((h) => `${h.keys} ${h.label}`)).toEqual([
+      '↵ Run action',
+      'esc Back to results',
+      '← Back, on an empty input',
+    ]);
+    expect(ACTION_LIST_HINTS.right).toEqual([]);
+  });
+});
+
+describe('matchText', () => {
+  it('returns ranges, [] on an empty query, null on a miss', () => {
+    expect(matchText('Open in new tab', '  ')).toEqual([]);
+    expect(matchText('Open in new tab', 'tab NEW')).toEqual([
+      [8, 11],
+      [12, 15],
+    ]);
+    expect(matchText('Open', 'open x')).toBeNull();
   });
 });

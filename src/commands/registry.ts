@@ -1,5 +1,30 @@
 import { prepareCommand, prunePrepared } from './rank';
-import type { Command } from './types';
+import type { Command, PaletteObject } from './types';
+
+/**
+ * The row an object is listed as: its name is the title and the match text, it
+ * is listed once the user types (or as Recent), and Enter performs its default
+ * action. Throws on an object the palette could not offer safely.
+ */
+export function objectRow(obj: PaletteObject): Command {
+  const [first] = obj.actions;
+  if (!first) throw new Error(`palette object "${obj.id}" has no actions`);
+  if (first.destructive) throw new Error(`palette object "${obj.id}": a destructive action is never the default`);
+  const alternates = obj.actions.filter((a) => a.alternate);
+  if (alternates.length > 1 || alternates.some((a) => a.destructive)) {
+    throw new Error(`palette object "${obj.id}": at most one alternate, never a destructive one`);
+  }
+  return {
+    id: obj.id,
+    title: obj.name,
+    subtitle: obj.subtitle,
+    keywords: obj.keywords,
+    group: obj.kind === 'connection' ? 'connection' : 'workspace',
+    hideWhenEmptyQuery: true,
+    object: obj,
+    perform: (ctx) => first.perform(ctx),
+  };
+}
 
 type Listener = () => void;
 
@@ -49,6 +74,11 @@ class Registry {
       }
       this.notify();
     };
+  }
+
+  /** Objects go in as rows (`objectRow`), under the same rules as commands. */
+  addObjects(objects: PaletteObject[]): () => void {
+    return this.add(objects.map(objectRow));
   }
 
   subscribe(cb: Listener): () => void {
