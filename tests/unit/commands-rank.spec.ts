@@ -736,7 +736,8 @@ describe('rankCommands — subtitle ranges', () => {
 
   it('marks nothing for a hidden keyword, nor without a subtitle', () => {
     expect(sub('Alpha', 'mongo', { subtitle: 'Production', keywords: ['mongo'] })).toEqual([]);
-    expect(sub('Alpha', 'mongo', { keywords: ['mongo'] })).toEqual([]);
+    // No subtitle: nothing to look in, whatever the keyword.
+    expect(sub('Alpha', 'here', { keywords: ['here'] })).toEqual([]);
   });
 
   it('keeps ranges on the subtitle as shown for a character whose lower case is longer', () => {
@@ -747,6 +748,7 @@ describe('rankCommands — subtitle ranges', () => {
   it('reads the ranges once, however often asked, and alongside the title’s', () => {
     const [row] = rankCommands([make({ id: 'a', title: 'Alpha', subtitle: 'Production' })], 'alp prod', ctx, []);
     expect(row!.subtitleRanges).toBe(row!.subtitleRanges);
+    expect(row!.ranges).toBe(row!.ranges);
     expect(row!.ranges).toEqual([[0, 3]]);
     expect(row!.subtitleRanges).toEqual([[0, 4]]);
   });
