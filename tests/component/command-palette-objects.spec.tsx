@@ -421,7 +421,8 @@ describe('a verb alone and Connections only', () => {
     expect(document.querySelector('[data-connections-only]')).toBeNull();
     expect(titles()[0]).toBe('Open a collection…');
 
-    press(search(), 'Home');
+    // A retyped query starts at the top (#745).
+    expect(cursorTitle()).toBe('Open a collection…');
     press(search(), 'ArrowDown');
     expect(cursorTitle()).toBe('Open a connection…');
     press(search(), 'Enter');
