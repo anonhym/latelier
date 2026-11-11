@@ -1,4 +1,4 @@
-// The palette's `Open: <db>.<coll>` rows, against a real mounted
+// The palette's `<db>.<coll>` collection rows, against a real mounted
 // `<Workspace/>`: what they list, how they are found, and that they read the
 // navigator's own database/collection cache instead of fetching a second copy.
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -129,12 +129,12 @@ function search(q: string) {
   fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: q } });
 }
 
-/** Every `Open: …` row the palette shows right now. */
+/** Every collection row the palette shows right now. */
 function openRows(): string[] {
   return within(screen.getByRole('dialog'))
     .queryAllByRole('option')
-    .map((o) => o.textContent ?? '')
-    .filter((t) => t.startsWith('Open: '));
+    .filter((o) => o.id.includes('-opt-tab.open:'))
+    .map((o) => o.querySelector('[data-title]')?.getAttribute('data-title') ?? '');
 }
 
 /** Waits for the palette sweep to reach every database of `c1`. */
@@ -160,7 +160,7 @@ describe('palette namespace rows', () => {
 
     openPalette();
     search('shop.orders');
-    await waitFor(() => expect(openRows()).toEqual(['Open: shop.orders']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
     fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
 
     await waitFor(() =>
@@ -179,7 +179,7 @@ describe('palette namespace rows', () => {
 
     openPalette();
     search('shord');
-    await waitFor(() => expect(openRows()).toEqual(['Open: shop.orders']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
   });
 
   it('lists no namespace rows on an empty query', async () => {
@@ -197,12 +197,12 @@ describe('palette namespace rows', () => {
 
     openPalette();
     search('leads');
-    await waitFor(() => expect(openRows()).toEqual(['Open: crm.leads']));
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
     fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     openPalette();
-    expect(openRows()).toEqual(['Open: crm.leads']);
+    expect(openRows()).toEqual(['crm.leads']);
   });
 
   it('does not count the same namespace on another connection as recent', async () => {
@@ -214,7 +214,7 @@ describe('palette namespace rows', () => {
 
     openPalette();
     search('shop.orders');
-    await waitFor(() => expect(openRows()).toEqual(['Open: shop.orders']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
     fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
@@ -225,7 +225,7 @@ describe('palette namespace rows', () => {
     );
     openPalette();
     search('shop.orders');
-    await waitFor(() => expect(openRows()).toEqual(['Open: shop.orders']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
     search('');
 
     expect(openRows()).toEqual([]);
@@ -248,12 +248,12 @@ describe('palette namespace rows', () => {
     await settled(listCollections);
 
     openPalette();
-    search('Open:');
+    search('.');
     await waitFor(() =>
       expect(openRows().sort((a, b) => a.localeCompare(b))).toEqual([
-        'Open: crm.leads',
-        'Open: shop.customers',
-        'Open: shop.orders',
+        'crm.leads',
+        'shop.customers',
+        'shop.orders',
       ]),
     );
     expect(listDatabases.mock.calls.map(([a]) => a.connectionId)).not.toContain('c2');
@@ -288,7 +288,7 @@ describe('the palette shares the navigator’s cache', () => {
 
     openPalette();
     search('leads');
-    await waitFor(() => expect(openRows()).toEqual(['Open: crm.leads']));
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
     expect(listDatabases).toHaveBeenCalledTimes(dbCalls);
     expect(listCollections).toHaveBeenCalledTimes(collCalls);
   });
@@ -336,7 +336,7 @@ describe('the palette shares the navigator’s cache', () => {
 
     openPalette();
     search('invoices');
-    await waitFor(() => expect(openRows()).toEqual(['Open: shop.invoices']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.invoices']));
   });
 });
 
@@ -347,7 +347,7 @@ describe('namespace rows follow the focused connection’s status', () => {
 
     emit({ id: 'c1', status: 'disconnected' });
     openPalette();
-    search('Open:');
+    search('.');
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
@@ -367,13 +367,13 @@ describe('namespace rows follow the focused connection’s status', () => {
     emit({ id: 'c1', status: 'connected' });
 
     openPalette();
-    search('Open:');
+    search('.');
     await waitFor(() =>
       expect(openRows().sort((a, b) => a.localeCompare(b))).toEqual([
-        'Open: billing.invoices',
-        'Open: crm.contacts',
-        'Open: crm.leads',
-        'Open: shop.orders',
+        'billing.invoices',
+        'crm.contacts',
+        'crm.leads',
+        'shop.orders',
       ]),
     );
   });
@@ -532,6 +532,6 @@ describe('the palette sweep on a server with many databases', () => {
     });
     openPalette();
     search('in_db9');
-    await waitFor(() => expect(openRows()).toEqual(['Open: db9.in_db9']));
+    await waitFor(() => expect(openRows()).toEqual(['db9.in_db9']));
   });
 });

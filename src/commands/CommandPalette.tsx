@@ -11,14 +11,13 @@ import { useRovingHighlight } from '../hooks/useRovingHighlight';
 import { useHints } from '../hints/HintsContext';
 import { useFeatureHint } from '../hints/useFeatureHint';
 import { FeatureHint } from '../hints/FeatureHint';
-import { api } from '../api/atelier';
+import { api, getErrorMessage } from '../api/atelier';
 import { notify } from '../theme/notifications';
 import { useRegistrySnapshot } from './useRegistrySnapshot';
 import { formatShortcut } from './shortcutLabel';
 import { isMacRenderer } from '../utils/platform';
 import { usePaletteContext } from './PaletteContext';
-import { groupRows, rankCommands } from './rank';
-import { GROUP_LABEL } from './types';
+import { displayText, groupRows, rankCommands, type Range, type RenderRow } from './rank';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
 import type { Command } from './types';
 
@@ -90,15 +89,69 @@ export function usePaletteApi(): PaletteApi {
 // ── Action item renderer ──────────────────────────────────────────────────────
 
 interface ActionItemProps {
-  cmd: Command;
+  row: RenderRow;
   id: string;
-  index: number;
   isCursor: boolean;
   onActivate: (cmd: Command) => void;
   onHover: (index: number) => void;
 }
 
-function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionItemProps) {
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+
+const VISUALLY_HIDDEN: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+};
+
+/**
+ * `text` with the matched ranges emphasised. The pieces are hidden from
+ * assistive technology and the whole text follows once, unbroken, so the
+ * row's name reads as the title and not as a run of fragments.
+ */
+function Highlighted({ text, ranges }: { text: string; ranges: Range[] }) {
+  if (ranges.length === 0) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) parts.push(text.slice(at, start));
+    parts.push(
+      <span key={start} data-match style={{ color: 'var(--atelier-accent-ink)', fontWeight: 600 }}>
+        {text.slice(start, end)}
+      </span>,
+    );
+    at = end;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return (
+    <>
+      <span aria-hidden="true">{parts}</span>
+      <span style={VISUALLY_HIDDEN}>{text}</span>
+    </>
+  );
+}
+
+/** A row built from the query: its title with the emphasised value in the monospace font. */
+function QueryRowTitle({ title, emphasis }: { title: string; emphasis: string }) {
+  const at = title.indexOf(emphasis);
+  if (at === -1) return <>{title}</>;
+  return (
+    <>
+      {title.slice(0, at)}
+      <span style={{ fontFamily: MONO, fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-accent-ink)' }}>
+        {emphasis}
+      </span>
+      {title.slice(at + emphasis.length)}
+    </>
+  );
+}
+
+function ActionItem({ row, id, isCursor, onActivate, onHover }: ActionItemProps) {
+  const { cmd, index, row: ranked } = row;
+  const { fromQuery } = ranked;
   return (
     <UnstyledButton
       id={id}
@@ -116,15 +169,22 @@ function ActionItem({ cmd, id, isCursor, onActivate, onHover, index }: ActionIte
         gap: 'var(--atelier-gap-sm)',
         padding: '9px 16px',
         width: '100%',
-        background: 'transparent',
+        background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent',
         textAlign: 'left',
         fontFamily: 'inherit',
         fontSize: 'var(--atelier-fs-md)',
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--atelier-gap-xs)', flex: 1, minWidth: 0 }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {cmd.title}
+        <span
+          data-title={fromQuery ? cmd.title : displayText(cmd)}
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {fromQuery ? (
+            <QueryRowTitle title={cmd.title} emphasis={fromQuery.emphasis} />
+          ) : (
+            <Highlighted text={displayText(cmd)} ranges={ranked.ranges} />
+          )}
         </span>
         {cmd.subtitle && (
           <span
@@ -174,6 +234,9 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
     [all, query, ctx, recentIds],
   );
   const groups = React.useMemo(() => groupRows(ranked), [ranked]);
+  // The cursor walks the rows in the order they are drawn, which groups
+  // reorder: the rank order is not the screen order.
+  const displayed = React.useMemo(() => groups.flatMap((g) => g.rows), [groups]);
   const listId = React.useId();
   const optionId = (cmdId: string) => `${listId}-opt-${cmdId}`;
 
@@ -182,12 +245,12 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
   // doesn't own the search input's onChange (Spotlight's own store does), so
   // it can't reset imperatively the way ConnectionSwitcher's search field does.
   const { index: safeCursor, setIndex: setCursor, move: moveCursor } =
-    useRovingHighlight(ranked.length, query);
+    useRovingHighlight(displayed.length, query);
 
   // Keyboard moves the cursor with the focus staying in the search input, so
   // the highlighted row has to be scrolled into view by hand. (Optional call:
   // jsdom has no scrollIntoView.)
-  const activeId = ranked[safeCursor] ? optionId(ranked[safeCursor].cmd.id) : undefined;
+  const activeId = displayed[safeCursor] ? optionId(displayed[safeCursor].cmd.id) : undefined;
   React.useEffect(() => {
     if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' });
   }, [activeId]);
@@ -195,13 +258,14 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
   const perform = React.useCallback(
     async (cmd: Command) => {
       onClose();
-      recordRecent(cmd.id);
+      // A row built from the query is not a command to come back to.
+      if (!cmd.forQuery) recordRecent(cmd.id);
       try {
         await cmd.perform(ctx);
       } catch (e) {
-        if (import.meta.env.DEV) {
-          console.error(`[commandRegistry] perform() threw for "${cmd.id}":`, e);
-        }
+        notify.error(getErrorMessage(e, 'The command failed.'), {
+          title: `Couldn't run "${cmd.title}"`,
+        });
       }
     },
     [onClose, ctx, recordRecent],
@@ -223,10 +287,10 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
       setCursor(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setCursor(Math.max(0, ranked.length - 1));
+      setCursor(Math.max(0, displayed.length - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const row = ranked[safeCursor];
+      const row = displayed[safeCursor];
       if (row) void perform(row.cmd);
     }
   };
@@ -273,23 +337,32 @@ function PaletteContent({ onClose, recentIds, recordRecent }: PaletteContentProp
                   color: 'var(--atelier-text-muted)',
                 }}
               >
-                {group.key === 'recent'
-                  ? group.label
-                  : GROUP_LABEL[group.key as keyof typeof GROUP_LABEL] ?? group.label}
+                {group.label}
               </div>
-              {group.rows.map(({ cmd, index }) => (
+              {group.rows.map((row) => (
                 <ActionItem
-                  key={cmd.id}
-                  cmd={cmd}
-                  id={optionId(cmd.id)}
-                  index={index}
-                  isCursor={index === safeCursor}
+                  key={row.cmd.id}
+                  row={row}
+                  id={optionId(row.cmd.id)}
+                  isCursor={row.index === safeCursor}
                   onActivate={perform}
                   onHover={setCursor}
                 />
               ))}
             </div>
           ))
+        )}
+        {ranked.length > 0 && ranked.every((row) => row.fromQuery) && (
+          <div
+            style={{
+              padding: '20px 16px',
+              textAlign: 'center',
+              fontSize: 'var(--atelier-fs-sm)',
+              color: 'var(--atelier-text-muted)',
+            }}
+          >
+            No other matches
+          </div>
         )}
       </SpotlightActionsList>
     </div>

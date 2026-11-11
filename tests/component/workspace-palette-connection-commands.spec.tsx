@@ -33,6 +33,12 @@ function ContextProbe() {
   return <div data-testid="palette-connection">{ctx.connectionId ?? 'none'}</div>;
 }
 
+/** Opens the palette on a query: a Connection's edit and delete rows are not listed on an empty one. */
+function openPalette() {
+  fireEvent.click(screen.getByText('toggle'));
+  fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: 'connection' } });
+}
+
 function ToggleButton() {
   const palette = usePaletteApi();
   return <button onClick={palette.toggle}>toggle</button>;
@@ -93,6 +99,20 @@ afterEach(() => {
  * keeps a command's gate and its target from disagreeing (a bug class this avoids).
  */
 describe('Workspace palette connection commands', () => {
+  it('lists no Edit or Delete row per Connection on an empty query, but still lists Open', async () => {
+    installAtelierMock({
+      conn: { list: async () => [conn()] },
+      tabs: { list: async () => [] },
+    });
+
+    render(app());
+
+    fireEvent.click(screen.getByText('toggle'));
+    expect(await screen.findByText('Open connection → Prod')).toBeTruthy();
+    expect(screen.queryByText('Delete connection → Prod')).toBeNull();
+    expect(screen.queryByText('Edit connection → Prod')).toBeNull();
+  });
+
   it('offers Delete and Edit for a Connection with no tabs open', async () => {
     // X16.5 — the opposite of the old "does not offer Delete when
     // there is no Focused Tab" test. A Connection can be open (status
@@ -106,7 +126,7 @@ describe('Workspace palette connection commands', () => {
 
     render(app());
 
-    fireEvent.click(screen.getByText('toggle'));
+    openPalette();
     expect(await screen.findByText('Delete connection → Prod')).toBeTruthy();
     expect(await screen.findByText('Edit connection → Prod')).toBeTruthy();
     // AC also names Refresh — untouched by this ticket (it's a whole-list
@@ -144,14 +164,14 @@ describe('Workspace palette connection commands', () => {
     await renderTwoConnectionsFocusedOnStaging();
 
     // The Focused Tab's own Connection (Staging) still works…
-    fireEvent.click(screen.getByText('toggle'));
+    openPalette();
     fireEvent.click(await screen.findByText('Delete connection → Staging'));
     expect(await screen.findByRole('dialog', { name: 'Delete "Staging"?' })).toBeTruthy();
 
     // …but so does a Connection that is NOT the Focused Tab's (Prod) — proof
     // the id is baked into `perform` at creation time, not read from
     // `PaletteContext` when the command runs.
-    fireEvent.click(screen.getByText('toggle'));
+    openPalette();
     fireEvent.click(await screen.findByText('Delete connection → Prod'));
     expect(await screen.findByRole('dialog', { name: 'Delete "Prod"?' })).toBeTruthy();
   });
@@ -159,7 +179,7 @@ describe('Workspace palette connection commands', () => {
   it('cancelling from the palette-triggered dialog reaches the same ConnectionDeleteDialog', async () => {
     await renderTwoConnectionsFocusedOnStaging();
 
-    fireEvent.click(screen.getByText('toggle'));
+    openPalette();
     fireEvent.click(await screen.findByText('Delete connection → Staging'));
     const dialog = await screen.findByRole('dialog', { name: 'Delete "Staging"?' });
 
@@ -202,7 +222,7 @@ describe('Workspace palette connection commands', () => {
     render(routedApp(['/connections/c1']));
     expect(screen.getByText('connection detail screen')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('toggle'));
+    openPalette();
     fireEvent.click(await screen.findByText('Delete connection → Prod'));
 
     // Landed on Workspace, but its own `connections` is still empty — the

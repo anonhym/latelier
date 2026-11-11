@@ -77,7 +77,7 @@ function paletteTitles(q: string): string[] {
   fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: q } });
   return within(screen.getByRole('dialog'))
     .queryAllByRole('option')
-    .map((o) => o.textContent ?? '');
+    .map((o) => o.querySelector('[data-title]')?.getAttribute('data-title') ?? '');
 }
 
 function structureTab() {
@@ -94,26 +94,26 @@ afterEach(() => {
 });
 
 describe('palette: shell and structure entries', () => {
-  it('"Open Shell" opens the Mongo shell pane, and the entry then offers to close it', async () => {
+  it('"Open shell" opens the Mongo shell pane, and the entry then offers to close it', async () => {
     const { start } = mount([collectionTab()]);
     await screen.findByLabelText('Close orders');
     expect(screen.queryByTestId('mongo-shell-pane')).toBeNull();
 
-    await run('shell', 'Open Shell');
+    await run('shell', 'Open shell');
 
     expect(await screen.findByTestId('mongo-shell-pane')).toBeTruthy();
     await waitFor(() => expect(start).toHaveBeenCalled());
 
-    await run('shell', 'Close Shell');
+    await run('shell', 'Close shell');
     await waitFor(() => expect(screen.queryByTestId('mongo-shell-pane')).toBeNull());
   });
 
-  it('"Go to Schema" switches to the Structure view and shows the schema', async () => {
+  it('"Go to schema" switches to the Structure view and shows the schema', async () => {
     mount([collectionTab()]);
     await screen.findByLabelText('Close orders');
     expect(structureTab().getAttribute('aria-selected')).toBe('false');
 
-    await run('schema', 'Go to Schema');
+    await run('schema', 'Go to schema');
 
     await waitFor(() => expect(structureTab().getAttribute('aria-selected')).toBe('true'));
     expect(await screen.findByLabelText('Sample size')).toBeTruthy();
@@ -122,7 +122,7 @@ describe('palette: shell and structure entries', () => {
   // The schema sits below the whole index list in one scroller, so selecting
   // Structure alone can leave it below the fold; the command must scroll to
   // it, and again when Structure is already the active view.
-  it('"Go to Schema" brings the schema section into view, also when Structure is already active', async () => {
+  it('"Go to schema" brings the schema section into view, also when Structure is already active', async () => {
     const scrolled: Element[] = [];
     const proto = HTMLElement.prototype as { scrollIntoView?: (arg?: unknown) => void };
     const original = proto.scrollIntoView;
@@ -133,12 +133,12 @@ describe('palette: shell and structure entries', () => {
       mount([collectionTab()]);
       await screen.findByLabelText('Close orders');
 
-      await run('schema', 'Go to Schema');
+      await run('schema', 'Go to schema');
       const region = await screen.findByRole('region', { name: 'Schema' });
       await waitFor(() => expect(scrolled).toContain(region));
 
       scrolled.length = 0;
-      await run('schema', 'Go to Schema');
+      await run('schema', 'Go to schema');
       await waitFor(() => expect(scrolled).toContain(region));
       expect(scrolled.some((el) => el.getAttribute('aria-label') === 'Indexes')).toBe(false);
     } finally {
@@ -146,7 +146,7 @@ describe('palette: shell and structure entries', () => {
     }
   });
 
-  it('"Go to Indexes" switches to the Structure view and brings the indexes into view', async () => {
+  it('"Go to indexes" switches to the Structure view and brings the indexes into view', async () => {
     const scrolled: Element[] = [];
     const proto = HTMLElement.prototype as { scrollIntoView?: (arg?: unknown) => void };
     const original = proto.scrollIntoView;
@@ -157,7 +157,7 @@ describe('palette: shell and structure entries', () => {
       mount([collectionTab()]);
       await screen.findByLabelText('Close orders');
 
-      await run('indexes', 'Go to Indexes');
+      await run('indexes', 'Go to indexes');
 
       await waitFor(() => expect(structureTab().getAttribute('aria-selected')).toBe('true'));
       const region = await screen.findByRole('region', { name: 'Indexes' });
@@ -183,15 +183,15 @@ describe('palette: shell and structure entries', () => {
       },
     ]);
     await screen.findByLabelText('Close Script');
-    expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to Schema']));
-    expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to Indexes']));
-    expect(paletteTitles('shell')).toContain('Open Shell');
+    expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to schema']));
+    expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to indexes']));
+    expect(paletteTitles('shell')).toContain('Open shell');
   });
 
   it('offers no shell entry when no connection is focused', async () => {
     mount([]);
     await waitFor(() => expect(screen.getByText('toggle')).toBeTruthy());
-    expect(paletteTitles('shell')).not.toContain('Open Shell');
-    expect(paletteTitles('schema')).not.toContain('Go to Schema');
+    expect(paletteTitles('shell')).not.toContain('Open shell');
+    expect(paletteTitles('schema')).not.toContain('Go to schema');
   });
 });

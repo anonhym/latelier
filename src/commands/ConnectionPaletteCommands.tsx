@@ -72,6 +72,9 @@ export function ConnectionPaletteCommands() {
     subtitle: conn.host,
     group: 'connection',
     keywords: ['connection', 'delete', 'remove', 'drop', conn.host],
+    // Until the Connection becomes an object with these as its actions: three
+    // rows per Connection would crowd the catalog of an empty query.
+    hideWhenEmptyQuery: true,
     perform: () =>
       navigate('/workspace', {
         state: { deleteConnectionId: conn.id },
@@ -84,6 +87,7 @@ export function ConnectionPaletteCommands() {
     subtitle: conn.host,
     group: 'connection',
     keywords: ['connection', 'edit', 'settings', conn.host],
+    hideWhenEmptyQuery: true,
     perform: () =>
       navigate('/workspace', {
         state: { editConnectionId: conn.id },

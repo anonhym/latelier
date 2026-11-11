@@ -26,6 +26,8 @@ import {
   type UpdateFieldOutcome,
 } from './Workspace/context';
 import { useQueryRunner } from './Workspace/useQueryRunner';
+import { recordFilterStep } from './Workspace/filterStep';
+import { parsePastedObjectId } from '../commands/pastedId';
 import type { RunnerTarget } from './Workspace/useQueryRunner';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useNavigatorData, useNavigatorStatusSync } from './Workspace/useNavigatorData';
@@ -741,7 +743,7 @@ function WorkspaceInner() {
       },
       {
         id: 'shell.toggle',
-        title: shellOpen ? 'Close Shell' : 'Open Shell',
+        title: shellOpen ? 'Close shell' : 'Open shell',
         group: 'workspace',
         keywords: ['shell', 'mongosh', 'repl', 'terminal'],
         when: () => focusedConnectionRef.current !== null,
@@ -749,7 +751,7 @@ function WorkspaceInner() {
       },
       {
         id: 'view.structure.schema',
-        title: 'Go to Schema',
+        title: 'Go to schema',
         group: 'view',
         keywords: ['structure', 'fields', 'types', 'sample'],
         when: () => activeCollectionRef.current !== null,
@@ -763,7 +765,7 @@ function WorkspaceInner() {
       },
       {
         id: 'view.structure.indexes',
-        title: 'Go to Indexes',
+        title: 'Go to indexes',
         group: 'view',
         keywords: ['structure', 'index'],
         when: () => activeCollectionRef.current !== null,
@@ -927,6 +929,7 @@ function WorkspaceInner() {
     );
   }, [focusedCache, focusedIsConnected]);
 
+  const focusedName = focusedConnection?.name;
   const collectionCommands = React.useMemo(
     () =>
       paletteCollections.map(({ db, coll }) => ({
@@ -934,9 +937,10 @@ function WorkspaceInner() {
         // is not "recent".
         id: `tab.open:${focusedConnectionId}:${db}:${coll}`,
         title: `Open: ${db}.${coll}`,
-        fuzzyText: `${db}.${coll}`,
+        matchText: `${db}.${coll}`,
+        subtitle: focusedName,
         group: 'workspace' as const,
-        keywords: ['collection', 'tab', 'new', db, coll],
+        keywords: [db, coll],
         hideWhenEmptyQuery: true,
         perform: () => {
           if (focusedConnectionId) {
@@ -949,9 +953,47 @@ function WorkspaceInner() {
           }
         },
       })),
-    [paletteCollections, focusedConnectionId, tabsRef],
+    [paletteCollections, focusedConnectionId, focusedName, tabsRef],
   );
   useRegisterCommands(collectionCommands, [collectionCommands]);
+
+  // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row
+  // exists only for that query, and only with a collection tab in front.
+  useRegisterCommands(
+    [
+      {
+        id: 'query.find-pasted-id',
+        title: 'Find _id',
+        group: 'query',
+        when: () => activeCollectionRef.current !== null,
+        perform: () => {},
+        forQuery: (query) => {
+          const a = activeCollectionRef.current;
+          const value = parsePastedObjectId(query);
+          if (!a || !value) return null;
+          return {
+            title: `Find _id ${value} in ${a.dbName}.${a.collection}`,
+            subtitle: 'Replaces the filter and runs it · Undo puts the old filter back',
+            emphasis: value,
+            perform: () => {
+              const now = activeCollectionRef.current;
+              if (!now) return;
+              const text = JSON.stringify({ _id: { $oid: value } });
+              // One undo step in the drawer's own history, whether or not it is open.
+              recordFilterStep(now.id, {
+                to: text,
+                from: { queryRaw: now.state.queryRaw, filterDraft: now.state.filterDraft },
+              });
+              const patch = { queryRaw: text, filterDraft: undefined };
+              tabsRef.current.patchCollectionState(now.id, patch);
+              void run(patch);
+            },
+          };
+        },
+      },
+    ],
+    [run],
+  );
 
   // Keyboard shortcuts
   React.useEffect(() => {

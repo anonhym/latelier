@@ -102,6 +102,7 @@
     "src/pages/Workspace/schemaSummary.ts",
     "src/utils/humanBytes.ts",
     "src/commands/rank.ts",
+    "src/commands/pastedId.ts",
     "src/commands/shortcutLabel.ts",
     "electron/services/tabStateResults.ts",
     "src/state/tabResultCarry.ts",
