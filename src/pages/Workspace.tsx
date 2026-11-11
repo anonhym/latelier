@@ -44,6 +44,10 @@ import { PanelBody, type PanelBodyCollectionProps } from './Workspace/PanelBody'
 import type { IndexCreateRequest } from './IndexesTab';
 import { useSettings } from './SettingsContext';
 import { useRegisterCommands } from '../commands/useRegisterCommands';
+import { useRegisterObjects } from '../commands/useRegisterObjects';
+import type { PaletteObject } from '../commands/types';
+import { collectionObject } from './Workspace/collectionObject';
+import type { NavigatorDialogRequest } from './Workspace/DbCollectionNavigator';
 import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
 import { useFeatureHint } from '../hints/useFeatureHint';
@@ -414,6 +418,14 @@ function WorkspaceInner() {
   // leave the schema below a long index list.
   const structureScrollRef = React.useRef<'Indexes' | 'Schema' | null>(null);
   const [structureScrollNonce, setStructureScrollNonce] = React.useState(0);
+  const showStructure = React.useCallback(
+    (tabId: string, section: 'Indexes' | 'Schema') => {
+      structureScrollRef.current = section;
+      setStructureScrollNonce((n) => n + 1);
+      tabsRef.current.setActiveView(tabId, 'structure');
+    },
+    [tabsRef],
+  );
   React.useEffect(() => {
     const target = structureScrollRef.current;
     if (!target || activeView !== 'structure') return;
@@ -759,10 +771,7 @@ function WorkspaceInner() {
         when: () => activeCollectionRef.current !== null,
         perform: () => {
           const a = activeCollectionRef.current;
-          if (!a) return;
-          structureScrollRef.current = 'Schema';
-          setStructureScrollNonce((n) => n + 1);
-          tabsRef.current.setActiveView(a.id, 'structure');
+          if (a) showStructure(a.id, 'Schema');
         },
       },
       {
@@ -773,10 +782,7 @@ function WorkspaceInner() {
         when: () => activeCollectionRef.current !== null,
         perform: () => {
           const a = activeCollectionRef.current;
-          if (!a) return;
-          structureScrollRef.current = 'Indexes';
-          setStructureScrollNonce((n) => n + 1);
-          tabsRef.current.setActiveView(a.id, 'structure');
+          if (a) showStructure(a.id, 'Indexes');
         },
       },
       {
@@ -863,7 +869,7 @@ function WorkspaceInner() {
         },
       })),
     ],
-    [active?.pinned, builderCollapsed, shellOpen, toggleBuilder, activeIsView],
+    [active?.pinned, builderCollapsed, shellOpen, toggleBuilder, activeIsView, showStructure],
   );
 
   // `⌘K → orders`-style commands for every collection of the focused
@@ -933,37 +939,49 @@ function WorkspaceInner() {
     const c = focusedCache;
     if (!focusedIsConnected || !c?.dbs) return [];
     return c.dbs.flatMap((d) =>
-      (ownGet(c.colls, d.name) ?? []).map((x) => ({ db: d.name, coll: x.name })),
+      (ownGet(c.colls, d.name) ?? []).map((x) => ({ db: d.name, coll: x.name, isView: x.type === 'view' })),
     );
   }, [focusedCache, focusedIsConnected]);
 
-  const focusedName = focusedConnection?.name;
-  const collectionCommands = React.useMemo(
-    () =>
-      paletteCollections.map(({ db, coll }) => ({
-        // Connection-qualified, so the same namespace on another Connection
-        // is not "recent".
-        id: `tab.open:${focusedConnectionId}:${db}:${coll}`,
-        title: `Open: ${db}.${coll}`,
-        matchText: `${db}.${coll}`,
-        subtitle: focusedName,
-        group: 'workspace' as const,
-        keywords: [db, coll],
-        hideWhenEmptyQuery: true,
-        perform: () => {
-          if (focusedConnectionId) {
-            void tabsRef.current.openCollection({
-              connectionId: focusedConnectionId,
-              dbName: db,
-              collection: coll,
-              reuseExisting: true,
-            });
-          }
-        },
-      })),
-    [paletteCollections, focusedConnectionId, focusedName, tabsRef],
+  // A collection dialog the navigator owns (Rename, Import, Drop), opened from
+  // the palette. The navigator is unmounted while the sidebar is collapsed, so
+  // the sidebar opens first: the dialog is the navigator's own.
+  const [navigatorDialogRequest, setNavigatorDialogRequest] = React.useState<NavigatorDialogRequest | null>(null);
+  const clearNavigatorDialog = React.useCallback(() => setNavigatorDialogRequest(null), []);
+  const panelPrefsRef = useLatest(panelPrefs);
+  const requestNavigatorDialog = React.useCallback(
+    (request: NavigatorDialogRequest) => {
+      if (panelPrefsRef.current.sidebarCollapsed) panelPrefsRef.current.toggleSidebar();
+      setNavigatorDialogRequest(request);
+    },
+    [panelPrefsRef],
   );
-  useRegisterCommands(collectionCommands, [collectionCommands]);
+
+  // One Collection object per collection of the focused Connection (X07
+  // §13.4). Each action calls what the navigator's menu or the tab calls.
+  const focusedName = focusedConnection?.name;
+  const collectionObjects = React.useMemo((): PaletteObject[] => {
+    const connectionId = focusedConnectionId;
+    if (!connectionId) return [];
+    // Read when an action runs, never during render.
+    const tabs = () => tabsRef.current;
+    // eslint-disable-next-line react-hooks/refs
+    return paletteCollections.map(({ db, coll, isView }) =>
+      collectionObject({
+        connectionId,
+        db,
+        coll,
+        isView,
+        connectionName: focusedName,
+        tabs,
+        showStructure,
+        requestDialog: requestNavigatorDialog,
+        dormant: () => isKnownNotConnected(focusedConnectionRef.current),
+        running: queryRunner.isRunning,
+      }),
+    );
+  }, [paletteCollections, focusedConnectionId, focusedName, tabsRef, showStructure, requestNavigatorDialog, focusedConnectionRef, queryRunner.isRunning]);
+  useRegisterObjects(collectionObjects, [collectionObjects]);
 
   // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row
   // exists only for that query, and only with a collection tab in front.
@@ -1133,8 +1151,8 @@ function WorkspaceInner() {
   } = connectionDialogs;
 
   // A full conn.list() refetch, not scoped to one Connection, registered
-  // here for the Data View. Per-connection delete/edit are registered
-  // separately by ConnectionPaletteCommands with the id baked in.
+  // here for the Data View. Each Connection's own actions are registered
+  // separately by ConnectionPaletteCommands, as a Connection object.
   useRegisterCommands(
     [
       {
@@ -1159,6 +1177,7 @@ function WorkspaceInner() {
         openCollection?: { dbName: string; collection: string };
         deleteConnectionId?: string;
         editConnectionId?: string;
+        disconnectConnectionId?: string;
       }
     | null;
   const openConnectionId = navState?.openConnectionId ?? null;
@@ -1182,24 +1201,36 @@ function WorkspaceInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openConnectionId]);
 
-  // Same nav-state handoff as openConnectionId, for the palette's
-  // per-connection delete/edit rows (mounted where they can't call these
-  // modal-openers directly). Held until connectionsLoading clears — acting
-  // before `connections` first loads would silently drop the intent.
+  // Same nav-state handoff as openConnectionId, for the palette's Connection
+  // actions (mounted where they can't call these modal-openers directly).
+  // Held until connectionsLoading clears — acting before `connections` first
+  // loads would silently drop the intent.
   const deleteConnectionId = navState?.deleteConnectionId ?? null;
   const editConnectionId = navState?.editConnectionId ?? null;
+  const disconnectConnectionId = navState?.disconnectConnectionId ?? null;
+  // `openDeleteConnectionModal` counts the Connection's open tabs to word its
+  // dialog and refuses while they are still loading: wait for them too, or the
+  // intent is cleared and dropped.
   React.useEffect(() => {
-    if (!deleteConnectionId || connectionsLoading) return;
+    if (!deleteConnectionId || connectionsLoading || tabs.loading) return;
     void navigate(location.pathname, { replace: true, state: null });
     openDeleteConnectionModal(deleteConnectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deleteConnectionId, connectionsLoading]);
+  }, [deleteConnectionId, connectionsLoading, tabs.loading]);
   React.useEffect(() => {
     if (!editConnectionId || connectionsLoading) return;
     void navigate(location.pathname, { replace: true, state: null });
     openEditConnectionModal(editConnectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editConnectionId, connectionsLoading]);
+  // `requestDisconnect` counts the Connection's open tabs to word its dialog,
+  // and refuses while the tabs are still loading: wait for them too.
+  React.useEffect(() => {
+    if (!disconnectConnectionId || connectionsLoading || tabs.loading) return;
+    void navigate(location.pathname, { replace: true, state: null });
+    requestDisconnect(disconnectConnectionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disconnectConnectionId, connectionsLoading, tabs.loading]);
 
   // ⌘E opens the Connections table from anywhere in the Data View, not only
   // from inside the Switcher (which handles its own ⌘E and stops it there).
@@ -1281,6 +1312,8 @@ function WorkspaceInner() {
         connectionDialogs={connectionDialogs}
         navigatorData={navigatorData}
         onOpenReferences={() => setRefEditorOpen(true)}
+        navigatorDialogRequest={navigatorDialogRequest}
+        onNavigatorDialogHandled={clearNavigatorDialog}
       />
 
       <PanelBody

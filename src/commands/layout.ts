@@ -2,12 +2,16 @@ import {
   QUERY_ROW_LABEL,
   groupRows,
   kindOf,
+  matchText,
   rankCapped,
   rankCommands,
   type RankedRow,
+  type Range,
   type RowKind,
+  type VerbQuery,
 } from './rank';
-import type { Command, PaletteContext } from './types';
+import { VERB_KINDS, capitalize, parseVerb, type ParsedVerb } from './verbs';
+import type { Command, ObjectAction, ObjectKind, PaletteContext, PaletteObject } from './types';
 
 // The palette's layout (X07 §13.3): scopes, capped groups, row tags, the
 // footer's key hints and the session's query history. Pure, so the component
@@ -33,13 +37,16 @@ export const SCOPE_CAP = 50;
  * Per kind: its group's label in All, the noun of its `Show <n> more` line, and
  * the scope its rows are listed in (Connections have none).
  */
-export const KIND_LAYOUT: Record<RowKind, { group: string; noun: string; scope: Exclude<Scope, 'all'> | null }> = {
-  collection: { group: 'Collections', noun: 'collections', scope: 'collections' },
-  database: { group: 'Databases', noun: 'databases', scope: 'collections' },
-  connection: { group: 'Connections', noun: 'connections', scope: null },
-  tab: { group: 'Tabs', noun: 'tabs', scope: 'tabs' },
-  saved: { group: 'Saved', noun: 'saved', scope: 'saved' },
-  action: { group: 'Actions', noun: 'actions', scope: 'actions' },
+export const KIND_LAYOUT: Record<
+  RowKind,
+  { group: string; noun: string; one: string; scope: Exclude<Scope, 'all'> | null }
+> = {
+  collection: { group: 'Collections', noun: 'collections', one: 'collection', scope: 'collections' },
+  database: { group: 'Databases', noun: 'databases', one: 'database', scope: 'collections' },
+  connection: { group: 'Connections', noun: 'connections', one: 'connection', scope: null },
+  tab: { group: 'Tabs', noun: 'tabs', one: 'tab', scope: 'tabs' },
+  saved: { group: 'Saved', noun: 'saved', one: 'saved', scope: 'saved' },
+  action: { group: 'Actions', noun: 'actions', one: 'action', scope: 'actions' },
 };
 
 /** The tag naming a row's kind under RECENT. */
@@ -59,6 +66,8 @@ export type Aside =
   | { type: 'switch'; checked: boolean }
   | { type: 'key'; keys: string }
   | { type: 'tag'; label: string }
+  /** The action a verb in the query selects, as a tag: red and outlined when destructive. */
+  | { type: 'action'; label: string; destructive: boolean }
   | null;
 
 export interface RowEntry {
@@ -82,7 +91,25 @@ export interface MoreEntry {
   label: string;
 }
 
-export type Entry = RowEntry | MoreEntry;
+/** A verb typed alone: one row per kind that has it, leading to where those objects are listed. */
+export interface VerbEntry {
+  type: 'verb';
+  id: string;
+  index: number;
+  kind: ObjectKind;
+  /** `Open a collection…` */
+  title: string;
+  /** The characters of `title` the typed word matched. */
+  ranges: Range[];
+  /** `Collections scope ›` */
+  destination: string;
+  /** A scope, or `connections` for All with Connections only. */
+  target: Exclude<Scope, 'all'> | 'connections';
+  /** The verb word as typed. */
+  typed: string;
+}
+
+export type Entry = RowEntry | MoreEntry | VerbEntry;
 
 export interface LayoutGroup {
   key: string;
@@ -99,11 +126,14 @@ export interface Layout {
   counts: Record<Exclude<Scope, 'all'>, number> | null;
   /** In a single scope, the matches past the ones listed. */
   hidden: number;
+  /** The verb the query starts with, when it selects actions; null otherwise. */
+  verb: ParsedVerb | null;
 }
 
 /** The row's right-hand side: a switch, then a kind tag under RECENT, the shortcut, `Recent`. */
 export function asideFor(row: RankedRow, kind: RowKind, underRecent: boolean): Aside {
-  const { cmd } = row;
+  const { cmd, action } = row;
+  if (action) return { type: 'action', label: action.title, destructive: action.destructive === true };
   if (cmd.toggle) return { type: 'switch', checked: cmd.toggle.checked };
   const kindTag = RECENT_KIND_TAG[kind];
   if (underRecent && kindTag) return { type: 'tag', label: kindTag };
@@ -112,15 +142,34 @@ export function asideFor(row: RankedRow, kind: RowKind, underRecent: boolean): A
   return null;
 }
 
-/** Lays the palette out for a query in a scope. */
+/** The action an object row performs on Enter: the verb's, else the default; undefined for a command. */
+export function rowAction(row: RankedRow): ObjectAction | undefined {
+  return row.action ?? row.cmd.object?.actions[0];
+}
+
+/** Where a verb typed alone leads, per kind. */
+const VERB_TARGET: Record<(typeof VERB_KINDS)[number]['kind'], VerbEntry['target']> = {
+  collection: 'collections',
+  connection: 'connections',
+  tab: 'tabs',
+  saved: 'saved',
+};
+
+/**
+ * Lays the palette out for a query in a scope. `connectionsOnly` narrows All
+ * to Connection objects (performing `<Verb> a connection…`).
+ */
 export function layoutPalette(
   all: Command[],
   query: string,
   ctx: PaletteContext,
   recentIds: string[],
   scope: Scope,
+  connectionsOnly = false,
 ): Layout {
   const typed = query.trim() !== '';
+  const parsed = typed ? parseVerb(query) : null;
+  const narrowed = connectionsOnly && scope === 'all';
   const groups: LayoutGroup[] = [];
   const entries: Entry[] = [];
   const rowEntry = (row: RankedRow, underRecent: boolean): RowEntry => {
@@ -133,8 +182,22 @@ export function layoutPalette(
       cmd: row.cmd,
       kind,
       aside: row.fromQuery ? null : asideFor(row, kind, underRecent),
-      disabled: row.cmd.disabledReason?.(ctx) ?? null,
+      disabled: (row.cmd.object ? rowAction(row)!.disabledReason : row.cmd.disabledReason)?.(ctx) ?? null,
     };
+  };
+  const addMore = (group: LayoutGroup, kind: RowKind, more: number) => {
+    const { noun, one, scope: target } = KIND_LAYOUT[kind];
+    if (more <= 0 || !target) return;
+    const entry: MoreEntry = {
+      type: 'more',
+      id: `more:${kind}`,
+      index: entries.length,
+      kind,
+      scope: target,
+      label: `Show ${more} more ${more === 1 ? one : noun}`,
+    };
+    group.entries.push(entry);
+    entries.push(entry);
   };
   const addGroup = (key: string, label: string | null, rows: RankedRow[], underRecent = false): LayoutGroup => {
     const group: LayoutGroup = { key, label, entries: [] };
@@ -151,56 +214,135 @@ export function layoutPalette(
     for (const g of groupRows(rankCommands(all, query, ctx, recentIds))) {
       addGroup(g.key, g.label, g.rows.map((r) => r.row), g.key === 'recent');
     }
-    return { groups, entries, counts: null, hidden: 0 };
+    return { groups, entries, counts: null, hidden: 0, verb: null };
   }
 
-  const single = scope !== 'all';
-  const ranked = rankCapped(all, query, ctx, recentIds, single ? SCOPE_CAP : ALL_CAP, (kind) =>
-    single ? (KIND_LAYOUT[kind].scope === scope ? scope : null) : kind,
-  );
-  let counts: Layout['counts'] = null;
-  if (typed) {
-    counts = { collections: 0, actions: 0, saved: 0, tabs: 0 };
-    for (const [kind, n] of ranked.counts) {
-      const s = KIND_LAYOUT[kind].scope;
-      if (s) counts[s] += n;
+  // A verb alone in All: a row per kind that has it, then the commands the word matches.
+  if (parsed && parsed.rest.length === 0 && scope === 'all' && !narrowed) {
+    const { verb, typed: word } = parsed;
+    const title = capitalize(verb);
+    const group: LayoutGroup = { key: 'verb', label: `${title}…`, entries: [] };
+    for (const { kind, noun, destination } of VERB_KINDS) {
+      const has = all.some((c) => c.object?.kind === kind && c.object.actions.some((a) => a.verb === verb));
+      if (!has) continue;
+      const entry: VerbEntry = {
+        type: 'verb',
+        id: `verb:${kind}`,
+        index: entries.length,
+        kind,
+        title: `${title} ${noun}…`,
+        ranges: word === verb ? [[0, verb.length]] : [],
+        destination,
+        target: VERB_TARGET[kind],
+        typed: word,
+      };
+      group.entries.push(entry);
+      entries.push(entry);
     }
+    if (group.entries.length > 0) groups.push(group);
+    const ranked = rankCapped(all, query, ctx, recentIds, ALL_CAP, (kind) => (kind === 'action' ? kind : null));
+    for (const bucket of ranked.buckets) {
+      addMore(addGroup(bucket.key, KIND_LAYOUT.action.group, bucket.rows), 'action', bucket.total - bucket.rows.length);
+    }
+    return { groups, entries, counts: countsOf(ranked.counts), hidden: 0, verb: null };
   }
+
+  const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest } : null;
+  const single = scope !== 'all' || narrowed;
+  const bucketOf = (kind: RowKind): string | null => {
+    if (narrowed) return kind === 'connection' ? kind : null;
+    if (scope !== 'all') return KIND_LAYOUT[kind].scope === scope ? scope : null;
+    return kind;
+  };
+  const ranked = rankCapped(all, query, ctx, recentIds, single ? SCOPE_CAP : ALL_CAP, bucketOf, verbQuery);
+  // The line reads a verb only when a name follows it (X07 §13.4); a verb
+  // alone in a scope still lists that scope's objects that have it.
+  const verb = parsed && parsed.rest.length > 0 ? parsed : null;
+  const counts = typed ? countsOf(ranked.counts) : null;
 
   if (single) {
     const bucket = ranked.buckets[0];
-    if (bucket) addGroup(scope, null, bucket.rows);
-    return { groups, entries, counts, hidden: bucket ? bucket.total - bucket.rows.length : 0 };
+    if (bucket) addGroup(bucket.key, null, bucket.rows);
+    return { groups, entries, counts, hidden: bucket ? bucket.total - bucket.rows.length : 0, verb };
   }
 
   if (ranked.fromQuery.length > 0) addGroup('pasted', QUERY_ROW_LABEL, ranked.fromQuery);
   for (const bucket of ranked.buckets) {
     const kind = bucket.key as RowKind;
-    const { group: label, noun, scope: target } = KIND_LAYOUT[kind];
-    const group = addGroup(kind, label, bucket.rows);
-    const more = bucket.total - bucket.rows.length;
-    if (more > 0 && target) {
-      const entry: MoreEntry = {
-        type: 'more',
-        id: `more:${kind}`,
-        index: entries.length,
-        kind,
-        scope: target,
-        label: `Show ${more} more ${noun}`,
-      };
-      group.entries.push(entry);
-      entries.push(entry);
-    }
+    addMore(addGroup(kind, KIND_LAYOUT[kind].group, bucket.rows), kind, bucket.total - bucket.rows.length);
   }
-  return { groups, entries, counts, hidden: 0 };
+  return { groups, entries, counts, hidden: 0, verb };
 }
+
+/** Matches per scope, from matches per kind. */
+function countsOf(byKind: Map<RowKind, number>): NonNullable<Layout['counts']> {
+  const counts = { collections: 0, actions: 0, saved: 0, tabs: 0 };
+  for (const [kind, n] of byKind) {
+    const s = KIND_LAYOUT[kind].scope;
+    if (s) counts[s] += n;
+  }
+  return counts;
+}
+
+// ── Action list ──────────────────────────────────────────────────────────────
+
+export interface ActionEntry {
+  action: ObjectAction;
+  index: number;
+  /** Matched characters of the title. */
+  ranges: Range[];
+  disabled: string | null;
+  /** The key cap at the right: `↵` on the default, `⌘↵` on the alternate. */
+  keys: string | null;
+  /** The tag before it: `reuses the open tab`, `asks to confirm`. */
+  tag: string | null;
+}
+
+/**
+ * An object's actions for the action list (X07 §13.4): filtered by `query`
+ * with the palette's matcher, in their declared order, destructive ones last.
+ */
+export function actionList(obj: PaletteObject, query: string, ctx: PaletteContext): ActionEntry[] {
+  const [first] = obj.actions;
+  const ordered = [...obj.actions.filter((a) => !a.destructive), ...obj.actions.filter((a) => a.destructive)];
+  const out: ActionEntry[] = [];
+  for (const action of ordered) {
+    const ranges = matchText(action.title, query);
+    if (ranges === null) continue;
+    const isDefault = action === first;
+    let tag: string | null = null;
+    if (action.destructive) tag = 'asks to confirm';
+    else if (isDefault && obj.kind === 'collection') tag = 'reuses the open tab';
+    out.push({
+      action,
+      index: out.length,
+      ranges,
+      disabled: action.disabledReason?.(ctx) ?? null,
+      keys: isDefault ? '↵' : action.alternate ? '⌘↵' : null,
+      tag,
+    });
+  }
+  return out;
+}
+
+/** The action list's footer. */
+export const ACTION_LIST_HINTS: FooterHints = {
+  left: [
+    { keys: '↵', label: 'Run action' },
+    { keys: 'esc', label: 'Back to results' },
+    { keys: '←', label: 'Back, on an empty input' },
+  ],
+  right: [],
+};
 
 // ── Footer ───────────────────────────────────────────────────────────────────
 
 export interface KeyHint {
-  /** Mac glyphs, formatted for the platform where drawn. */
+  /** Mac glyphs, formatted for the platform where drawn; empty for a hint with no key. */
   keys: string;
   label: string;
+  /** Drawn after the label in the body text colour, at weight 600. */
+  strong?: string;
 }
 
 export interface FooterHints {
@@ -210,11 +352,24 @@ export interface FooterHints {
 
 /** What Enter does on an entry; null when it does nothing. */
 function enterLabel(entry: Entry): string | null {
-  if (entry.type === 'more') return 'Switch scope';
+  if (entry.type !== 'row') return 'Switch scope';
   if (entry.disabled !== null) return null;
   if (entry.row.fromQuery) return 'Find';
   if (entry.cmd.toggle) return 'Toggle';
-  return entry.kind === 'action' ? 'Run' : 'Open';
+  const action = rowAction(entry.row);
+  if (!action) return 'Run';
+  return action.destructive ? `${action.title} (opens its confirm dialog)` : action.title;
+}
+
+/** The keys an object row adds after Enter: its alternate, and its action list. */
+function objectHints(entry: Entry): KeyHint[] {
+  if (entry.type !== 'row' || !entry.cmd.object) return [];
+  if (entry.row.action) return [{ keys: '⌥↵', label: 'All actions' }];
+  const alt = entry.cmd.object.actions.find((a) => a.alternate);
+  const hints: KeyHint[] = [];
+  if (alt) hints.push({ keys: '⌘↵', label: alt.title });
+  hints.push({ keys: '⌥↵', label: 'Actions' });
+  return hints;
 }
 
 /**
@@ -225,6 +380,8 @@ export function footerHints(scope: Scope, typed: boolean, entry: Entry | undefin
   const left: KeyHint[] = [];
   const label = entry ? enterLabel(entry) : null;
   if (label) left.push({ keys: '↵', label });
+  if (entry) left.push(...objectHints(entry));
+  if (entry?.type === 'verb') left.push({ keys: '', label: 'Keep typing a name:', strong: `${entry.typed} shop.or` });
   const right: KeyHint[] = [];
   if (scope !== 'all') right.push({ keys: '⇧Tab', label: SCOPE_LABEL[cycleScope(scope, -1)] });
   else if (!typed) right.push({ keys: '⌘P', label: 'Collections' });

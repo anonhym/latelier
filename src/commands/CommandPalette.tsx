@@ -13,14 +13,18 @@ import { isMacRenderer } from '../utils/platform';
 import { usePaletteContext } from './PaletteContext';
 import { displayText, type Range, type RowKind } from './rank';
 import {
+  ACTION_LIST_HINTS,
   SCOPES,
   SCOPE_CAP,
   SCOPE_LABEL,
+  actionList,
   cycleScope,
   footerHints,
   layoutPalette,
   pushHistory,
+  rowAction,
   stepHistory,
+  type ActionEntry,
   type Aside,
   type Entry,
   type FooterHints,
@@ -28,10 +32,12 @@ import {
   type MoreEntry,
   type RowEntry,
   type Scope,
+  type VerbEntry,
 } from './layout';
+import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
-import type { Command } from './types';
+import type { ObjectAction, PaletteContext, PaletteObject } from './types';
 
 const MRU_CAP = 8;
 const MRU_PREF_KEY = 'ui.commandPalette.mru';
@@ -126,21 +132,29 @@ function Kbd({ children }: { children: React.ReactNode }) {
   return <span style={KBD}>{children}</span>;
 }
 
-function Svg({ children }: { children: React.ReactNode }) {
+function Svg({ children, size = 16 }: { children: React.ReactNode; size?: number }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       {children}
     </svg>
   );
 }
 
+const COLLECTION_ICON_PATHS = (
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18M9 10v10" />
+  </>
+);
+
+const TRASH_ICON = (
+  <Svg size={14}>
+    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+  </Svg>
+);
+
 const KIND_ICON: Record<RowKind, React.ReactNode> = {
-  collection: (
-    <Svg>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 10h18M9 10v10" />
-    </Svg>
-  ),
+  collection: <Svg>{COLLECTION_ICON_PATHS}</Svg>,
   database: (
     <Svg>
       <ellipse cx="12" cy="5" rx="8" ry="3" />
@@ -242,9 +256,32 @@ function Switch({ checked }: { checked: boolean }) {
   );
 }
 
+const ACTION_TAG: React.CSSProperties = {
+  fontSize: 'var(--atelier-fs-sm)',
+  borderRadius: 'var(--atelier-radius-xs)',
+  padding: '1px 8px',
+  whiteSpace: 'nowrap',
+  flex: 'none',
+};
+
 function AsideView({ aside }: { aside: Aside }) {
   if (!aside) return null;
   if (aside.type === 'switch') return <Switch checked={aside.checked} />;
+  if (aside.type === 'action') {
+    return (
+      <span
+        data-action-tag={aside.destructive ? 'destructive' : 'plain'}
+        style={{
+          ...ACTION_TAG,
+          color: aside.destructive ? 'var(--atelier-red)' : 'var(--atelier-accent-ink)',
+          border: `1px solid ${aside.destructive ? 'var(--atelier-red-border)' : 'var(--atelier-accent-border)'}`,
+          background: aside.destructive ? 'var(--atelier-red-soft)' : 'var(--atelier-accent-soft)',
+        }}
+      >
+        {aside.label}
+      </span>
+    );
+  }
   return <Kbd>{aside.type === 'key' ? formatShortcut(aside.keys, isMacRenderer()) : aside.label}</Kbd>;
 }
 
@@ -346,9 +383,113 @@ function MoreView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { e
   );
 }
 
+function VerbView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { entry: VerbEntry }) {
+  return (
+    <UnstyledButton
+      id={id}
+      type="button"
+      role="option"
+      tabIndex={-1}
+      aria-selected={isCursor}
+      data-verb={entry.target}
+      data-cursor={isCursor || undefined}
+      onClick={() => onActivate(entry)}
+      onMouseEnter={() => onHover(entry.index)}
+      style={{ ...ROW_STYLE, background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent' }}
+    >
+      <span style={{ color: 'var(--atelier-text-muted)', display: 'flex', flex: 'none' }}>{KIND_ICON[entry.kind]}</span>
+      <span data-title={entry.title} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Highlighted text={entry.title} ranges={entry.ranges} />
+      </span>
+      <span style={{ fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-text-ghost)', flex: 'none' }}>
+        {entry.destination}
+      </span>
+    </UnstyledButton>
+  );
+}
+
 function EntryView(props: EntryProps) {
   const { entry } = props;
-  return entry.type === 'more' ? <MoreView {...props} entry={entry} /> : <RowView {...props} entry={entry} />;
+  if (entry.type === 'more') return <MoreView {...props} entry={entry} />;
+  if (entry.type === 'verb') return <VerbView {...props} entry={entry} />;
+  return <RowView {...props} entry={entry} />;
+}
+
+interface ActionRowProps {
+  entry: ActionEntry;
+  id: string;
+  isCursor: boolean;
+  onActivate: (entry: ActionEntry) => void;
+  onHover: (index: number) => void;
+}
+
+function ActionRowView({ entry, id, isCursor, onActivate, onHover }: ActionRowProps) {
+  const { action, disabled } = entry;
+  const tone = disabled !== null ? 'var(--atelier-text-ghost)' : action.destructive ? 'var(--atelier-red)' : undefined;
+  return (
+    <UnstyledButton
+      id={id}
+      type="button"
+      role="option"
+      tabIndex={-1}
+      aria-selected={isCursor}
+      aria-disabled={disabled === null ? undefined : true}
+      data-palette-action={action.id}
+      data-destructive={action.destructive || undefined}
+      data-cursor={isCursor || undefined}
+      onClick={() => onActivate(entry)}
+      onMouseEnter={() => onHover(entry.index)}
+      style={{
+        ...ROW_STYLE,
+        padding: '7px 16px',
+        background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent',
+        color: tone ?? ROW_STYLE.color,
+      }}
+    >
+      {action.destructive && <span style={{ display: 'flex', flex: 'none' }}>{TRASH_ICON}</span>}
+      <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span data-title={action.title}>
+          <Highlighted text={action.title} ranges={disabled === null ? entry.ranges : []} />
+        </span>
+        {disabled !== null && (
+          <span data-subtitle style={{ fontSize: 'var(--atelier-fs-sm)', marginLeft: 8 }}>
+            {disabled}
+          </span>
+        )}
+      </span>
+      {entry.tag && (
+        <span style={{ fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-text-ghost)', flex: 'none' }}>
+          {entry.tag}
+        </span>
+      )}
+      {entry.keys && <Kbd>{formatShortcut(entry.keys, isMacRenderer())}</Kbd>}
+    </UnstyledButton>
+  );
+}
+
+const CHIP: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--atelier-gap-xs)',
+  background: 'var(--atelier-surface-active)',
+  border: '1px solid var(--atelier-border-med)',
+  borderRadius: 'var(--atelier-radius-xs)',
+  padding: '2px 8px',
+  fontSize: 'var(--atelier-fs-sm)',
+  color: 'var(--atelier-text)',
+  whiteSpace: 'nowrap',
+  flex: 'none',
+};
+
+/** The object an action list is for: its kind icon and name, and a collection's Connection. */
+function ObjectChip({ obj }: { obj: PaletteObject }) {
+  const label = obj.kind === 'collection' && obj.subtitle ? `${obj.name} · ${obj.subtitle}` : obj.name;
+  return (
+    <span data-object-chip style={CHIP}>
+      <span style={{ display: 'flex', transform: 'scale(0.8125)', transformOrigin: 'center' }}>{KIND_ICON[obj.kind]}</span>
+      {label}
+    </span>
+  );
 }
 
 const BAR_BORDER = '1px solid var(--atelier-border)';
@@ -356,9 +497,10 @@ const BAR_BORDER = '1px solid var(--atelier-border)';
 function Footer({ hints }: { hints: FooterHints }) {
   const mac = isMacRenderer();
   const hint = (h: KeyHint) => (
-    <span key={h.keys} style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', alignItems: 'center' }}>
-      <Kbd>{formatShortcut(h.keys, mac)}</Kbd>
+    <span key={h.keys || h.label} style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', alignItems: 'center' }}>
+      {h.keys && <Kbd>{formatShortcut(h.keys, mac)}</Kbd>}
       {h.label}
+      {h.strong && <b style={{ color: 'var(--atelier-text)', fontWeight: 600 }}>{h.strong}</b>}
     </span>
   );
   return (
@@ -401,25 +543,47 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   const all = useRegistrySnapshot();
   const { query } = useSpotlight(paletteStore);
   const [scope, setScope] = React.useState<Scope>(initialScope);
+  // Set by `<Verb> a connection…`: All lists Connection objects only, until the
+  // query is cleared or the scope changes.
+  const [connectionsOnly, setConnectionsOnly] = React.useState(false);
+  // The object whose action list is open, by id so a re-registration keeps it.
+  const [actionsOfId, setActionsOfId] = React.useState<string | null>(null);
+  const [actionQuery, setActionQuery] = React.useState('');
   // Where `↑` left the history; it holds while the input still shows that entry.
   const [historyAt, setHistoryAt] = React.useState(-1);
   // The query the palette reopened on is the newest entry, so `↑` from an
   // empty input starts at the one before it.
   const [startAt] = React.useState(() => (history.length > 0 && history[0] === query ? 0 : -1));
   const browsing = historyAt >= 0 && history[historyAt] === query;
+  const typed = query.trim() !== '';
+
+  // Clearing the query ends Connections only (adjusted while rendering, not in an effect).
+  if (!typed && connectionsOnly) setConnectionsOnly(false);
+  const narrowed = connectionsOnly && typed;
 
   const layout = React.useMemo(
-    () => layoutPalette(all, query, ctx, recentIds, scope),
-    [all, query, ctx, recentIds, scope],
+    () => layoutPalette(all, query, ctx, recentIds, scope, narrowed),
+    [all, query, ctx, recentIds, scope, narrowed],
   );
   const { entries } = layout;
-  const typed = query.trim() !== '';
   const listId = React.useId();
   const optionId = (entry: Entry) => `${listId}-opt-${entry.id}`;
 
   // A new query or scope is a new list: the cursor goes back to the top.
-  const listKey = `${scope}\u0000${query}`;
+  const listKey = `${scope}\u0000${narrowed}\u0000${query}`;
   const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey);
+
+  const actionsOf = React.useMemo(
+    () => (actionsOfId === null ? null : (all.find((c) => c.id === actionsOfId)?.object ?? null)),
+    [all, actionsOfId],
+  );
+  const actionEntries = React.useMemo(
+    () => (actionsOf ? actionList(actionsOf, actionQuery, ctx) : []),
+    [actionsOf, actionQuery, ctx],
+  );
+  const actionsKey = `${actionsOfId ?? ''}\u0000${actionQuery}`;
+  const actionCursor = useRovingHighlight(actionEntries.length, actionsKey);
+  const actionOptionId = (entry: ActionEntry) => `${listId}-act-${entry.action.id}`;
 
   // A toggle keeps the cursor on its row even when re-registering moves it,
   // for as long as the list is the one it was toggled in: a new query or
@@ -445,6 +609,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   };
   const switchScope = (next: Scope) => {
     followRef.current = null;
+    setConnectionsOnly(false);
     setScope(next);
   };
 
@@ -466,8 +631,16 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     inputRef.current?.select();
   }, []);
 
+  const inActions = actionsOf !== null;
   const cursorEntry = entries[safeCursor];
-  const activeId = cursorEntry ? optionId(cursorEntry) : undefined;
+  const actionEntry = actionEntries[actionCursor.index];
+  const activeId = inActions
+    ? actionEntry
+      ? actionOptionId(actionEntry)
+      : undefined
+    : cursorEntry
+      ? optionId(cursorEntry)
+      : undefined;
   // Keyboard moves the cursor with the focus staying in the search input, so
   // the highlighted row has to be scrolled into view by hand. (Optional call:
   // jsdom has no scrollIntoView.)
@@ -476,39 +649,88 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   }, [activeId]);
 
   const run = React.useCallback(
-    async (cmd: Command) => {
+    async (perform: (ctx: PaletteContext) => void | Promise<void>, title: string) => {
       try {
-        await cmd.perform(ctx);
+        await perform(ctx);
       } catch (e) {
         notify.error(getErrorMessage(e, 'The command failed.'), {
-          title: `Couldn't run "${cmd.title}"`,
+          title: `Couldn't run "${title}"`,
         });
       }
     },
     [ctx],
   );
 
+  /** Closes the palette, records `id` as the most recent, then performs. */
+  const performAndClose = (id: string | null, perform: (ctx: PaletteContext) => void | Promise<void>, title: string) => {
+    onClose();
+    // Toggles flipped on this open go in first, so the command performed now
+    // ends up the most recent.
+    for (const t of toggledRef.current) recordRecent(t);
+    toggledRef.current.clear();
+    if (id !== null) recordRecent(id);
+    void run(perform, title);
+  };
+
+  const performAction = (obj: PaletteObject, action: ObjectAction) => {
+    if (action.disabledReason?.(ctx)) return;
+    // Every action of an object bumps the object.
+    performAndClose(obj.id, action.perform, `${action.title} ${obj.name}`);
+  };
+
+  const openActions = (obj: PaletteObject) => {
+    setActionQuery('');
+    setActionsOfId(obj.id);
+  };
+  const closeActions = () => {
+    setActionsOfId(null);
+    setActionQuery('');
+  };
+
   const activate = (entry: Entry) => {
     if (entry.type === 'more') {
       switchScope(entry.scope);
       return;
     }
+    if (entry.type === 'verb') {
+      if (entry.target === 'connections') {
+        followRef.current = null;
+        setConnectionsOnly(true);
+      } else {
+        switchScope(entry.target);
+      }
+      return;
+    }
     if (entry.disabled !== null) return;
     const { cmd } = entry;
+    const obj = cmd.object;
+    if (obj) {
+      performAction(obj, rowAction(entry.row)!);
+      return;
+    }
     if (cmd.toggle) {
       followRef.current = { id: cmd.id, listKey };
       toggledRef.current.add(cmd.id);
-      void run(cmd);
+      void run(cmd.perform, cmd.title);
       return;
     }
-    onClose();
-    // Toggles flipped on this open go in first, so the command performed now
-    // ends up the most recent.
-    for (const id of toggledRef.current) recordRecent(id);
-    toggledRef.current.clear();
     // A row built from the query is not a command to come back to.
-    if (!cmd.forQuery) recordRecent(cmd.id);
-    void run(cmd);
+    performAndClose(cmd.forQuery ? null : cmd.id, cmd.perform, cmd.title);
+  };
+
+  /**
+   * `⌘↵`: an object's alternate, where it has one; a command performs as on
+   * Enter. A row listed for a verb has no alternate: the footer offers none.
+   */
+  const activateAlternate = (entry: Entry) => {
+    if (entry.type !== 'row' || !entry.cmd.object) {
+      activate(entry);
+      return;
+    }
+    if (entry.row.action) return;
+    const obj = entry.cmd.object;
+    const alt = obj.actions.find((a) => a.alternate);
+    if (alt) performAction(obj, alt);
   };
 
   const recall = (direction: 'older' | 'newer') => {
@@ -518,11 +740,42 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     setQuery(step.query);
   };
 
+  const onActionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape' || ((e.key === 'ArrowLeft' || e.key === 'Backspace') && actionQuery === '')) {
+      e.preventDefault();
+      closeActions();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      actionCursor.move(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      actionCursor.move(-1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      actionCursor.setIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      actionCursor.setIndex(Math.max(0, actionEntries.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (actionsOf && actionEntry && actionEntry.disabled === null) performAction(actionsOf, actionEntry.action);
+    }
+  };
+
   // The input is the one element that ever holds focus here, so every key
   // the palette answers is bound on it.
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
+    if (inActions) {
+      onActionKeyDown(e);
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
+    const objectAtCursor = cursorEntry?.type === 'row' ? cursorEntry.cmd.object : undefined;
+    const input = e.currentTarget;
+    const caretAtEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
     if (e.key === 'Tab') {
       e.preventDefault();
       switchScope(cycleScope(scope, e.shiftKey ? -1 : 1));
@@ -547,9 +800,14 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     } else if (e.key === 'End') {
       e.preventDefault();
       setCursor(Math.max(0, entries.length - 1));
+    } else if (objectAtCursor && ((e.key === 'Enter' && e.altKey) || (e.key === 'ArrowRight' && caretAtEnd))) {
+      e.preventDefault();
+      openActions(objectAtCursor);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (cursorEntry) activate(cursorEntry);
+      if (!cursorEntry) return;
+      if (mod) activateAlternate(cursorEntry);
+      else activate(cursorEntry);
     }
   };
 
@@ -559,108 +817,202 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     : scope === 'all'
       ? 'No actions available here yet.'
       : `Type to search ${SCOPE_LABEL[scope].toLowerCase()}.`;
+  const line = layout.verb ? verbLine(layout.verb) : null;
 
-  return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--atelier-gap-sm)',
-          padding: '12px 16px',
-          borderBottom: BAR_BORDER,
-          color: 'var(--atelier-text-muted)',
-        }}
-      >
+  const searchRow = (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--atelier-gap-sm)',
+        padding: '12px 16px',
+        borderBottom: BAR_BORDER,
+        color: 'var(--atelier-text-muted)',
+      }}
+    >
+      {actionsOf ? (
+        <>
+          <button
+            type="button"
+            aria-label="Back to results"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={closeActions}
+            style={{ background: 'transparent', border: 0, color: 'inherit', padding: 0, display: 'flex', cursor: 'pointer' }}
+          >
+            <Svg>
+              <path d="M15 18l-6-6 6-6" />
+            </Svg>
+          </button>
+          <ObjectChip obj={actionsOf} />
+        </>
+      ) : (
         <Svg>
           <circle cx="11" cy="11" r="7" />
           <path d="M20 20l-4-4" />
         </Svg>
-        <input
-          ref={inputRef}
-          data-autofocus
-          className="atelier-palette-input"
-          value={query}
-          onChange={(e) => setQuery(e.currentTarget.value)}
-          placeholder="Search collections, actions, tabs…"
-          aria-label="Search commands"
-          role="combobox"
-          aria-expanded
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={activeId}
-          onKeyDown={onKeyDown}
-          spellCheck={false}
-          autoComplete="off"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: 'transparent',
-            border: 0,
-            outline: 0,
-            color: 'var(--atelier-text)',
-            font: 'inherit',
-            fontSize: 'var(--atelier-fs-lg)',
-          }}
-        />
-        <Kbd>esc</Kbd>
+      )}
+      <input
+        ref={inputRef}
+        data-autofocus
+        className="atelier-palette-input"
+        value={inActions ? actionQuery : query}
+        onChange={(e) => (inActions ? setActionQuery(e.currentTarget.value) : setQuery(e.currentTarget.value))}
+        placeholder={inActions ? 'Filter actions…' : 'Search collections, actions, tabs…'}
+        aria-label={inActions ? 'Filter actions' : 'Search commands'}
+        role="combobox"
+        aria-expanded
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeId}
+        // In the action list Escape goes back to the results; the modal's own
+        // Escape listener skips an event from an element marked this way.
+        data-mantine-stop-propagation={inActions ? 'true' : undefined}
+        onKeyDown={onKeyDown}
+        spellCheck={false}
+        autoComplete="off"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: 'transparent',
+          border: 0,
+          outline: 0,
+          color: 'var(--atelier-text)',
+          font: 'inherit',
+          fontSize: 'var(--atelier-fs-lg)',
+        }}
+      />
+      <Kbd>esc</Kbd>
+    </div>
+  );
+
+  if (actionsOf) {
+    const firstDestructive = actionEntries.findIndex((a) => a.action.destructive);
+    return (
+      <div>
+        {searchRow}
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={`Actions for ${actionsOf.name}`}
+          style={{ maxHeight: 'min(460px, calc(100vh - 260px))', overflowY: 'auto', padding: '4px 0' }}
+        >
+          {actionEntries.length === 0 ? (
+            <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-text-muted)' }}>
+              {`No actions match "${actionQuery.trim()}"`}
+            </div>
+          ) : (
+            actionEntries.map((entry) => (
+              <React.Fragment key={entry.action.id}>
+                {entry.index === firstDestructive && firstDestructive > 0 && (
+                  <div role="separator" style={{ height: 1, background: 'var(--atelier-border)', margin: '4px 0' }} />
+                )}
+                <ActionRowView
+                  entry={entry}
+                  id={actionOptionId(entry)}
+                  isCursor={entry.index === actionCursor.index}
+                  onActivate={(a) => {
+                    if (a.disabled === null) performAction(actionsOf, a.action);
+                  }}
+                  onHover={actionCursor.setIndex}
+                />
+              </React.Fragment>
+            ))
+          )}
+        </div>
+        <Footer hints={ACTION_LIST_HINTS} />
       </div>
+    );
+  }
+
+  return (
+    <div>
+      {searchRow}
       <div
-        role="tablist"
-        aria-label="Scope"
         style={{ display: 'flex', gap: 'var(--atelier-gap-xs)', padding: '8px 12px', borderBottom: BAR_BORDER, alignItems: 'center' }}
       >
-        {SCOPES.map((s) => {
-          const selected = s === scope;
-          return (
+        {/* `display: contents` lets the Connections-only chip sit after All
+            while staying outside the tablist, which holds tabs only. */}
+        <div role="tablist" aria-label="Scope" style={{ display: 'contents' }}>
+          {SCOPES.map((s, i) => {
+            const selected = s === scope;
+            return (
+              <button
+                key={s}
+                type="button"
+                role="tab"
+                tabIndex={-1}
+                aria-selected={selected}
+                aria-controls={listId}
+                // The input keeps the focus: a click selects the scope, nothing more.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => switchScope(s)}
+                style={{
+                  order: i === 0 ? 0 : 2,
+                  background: selected ? 'var(--atelier-accent-soft)' : 'transparent',
+                  border: 0,
+                  color: selected ? 'var(--atelier-accent-ink)' : 'var(--atelier-text-muted)',
+                  fontWeight: selected ? 600 : 400,
+                  font: 'inherit',
+                  fontSize: 'var(--atelier-fs-sm)',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--atelier-radius-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                {SCOPE_LABEL[s]}
+                {layout.counts && s !== 'all' && (
+                  <span
+                    data-count
+                    style={{
+                      fontSize: 'var(--atelier-fs-xs)',
+                      marginLeft: 5,
+                      color: 'var(--atelier-text-ghost)',
+                      fontWeight: 400,
+                    }}
+                  >
+                    {layout.counts[s]}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {narrowed && (
+          <span data-connections-only style={{ ...CHIP, order: 1 }}>
+            Connections only
             <button
-              key={s}
               type="button"
-              role="tab"
               tabIndex={-1}
-              aria-selected={selected}
-              aria-controls={listId}
-              // The input keeps the focus: a click selects the scope, nothing more.
+              aria-label="Remove Connections only"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => switchScope(s)}
-              style={{
-                background: selected ? 'var(--atelier-accent-soft)' : 'transparent',
-                border: 0,
-                color: selected ? 'var(--atelier-accent-ink)' : 'var(--atelier-text-muted)',
-                fontWeight: selected ? 600 : 400,
-                font: 'inherit',
-                fontSize: 'var(--atelier-fs-sm)',
-                padding: '4px 10px',
-                borderRadius: 'var(--atelier-radius-sm)',
-                cursor: 'pointer',
-              }}
+              onClick={() => setConnectionsOnly(false)}
+              style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--atelier-text-muted)', cursor: 'pointer', display: 'flex' }}
             >
-              {SCOPE_LABEL[s]}
-              {layout.counts && s !== 'all' && (
-                <span
-                  data-count
-                  style={{
-                    fontSize: 'var(--atelier-fs-xs)',
-                    marginLeft: 5,
-                    color: 'var(--atelier-text-ghost)',
-                    fontWeight: 400,
-                  }}
-                >
-                  {layout.counts[s]}
-                </span>
-              )}
+              <Svg size={12}>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </Svg>
             </button>
-          );
-        })}
+          </span>
+        )}
         {!typed && (
           <>
-            <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-text-ghost)' }}>
+            <span style={{ flex: 1, order: 3 }} />
+            <span style={{ order: 3, fontSize: 'var(--atelier-fs-xs)', color: 'var(--atelier-text-ghost)' }}>
               Tab to switch scope
             </span>
           </>
         )}
       </div>
+      {line && (
+        <div data-verb-line style={{ fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-text-muted)', padding: '8px 16px 0' }}>
+          {line.before}
+          <b style={{ color: layout.verb?.destructive ? 'var(--atelier-red)' : 'var(--atelier-text)', fontWeight: 600 }}>
+            {line.verb}
+          </b>
+          {line.after}
+        </div>
+      )}
       <div
         id={listId}
         role="listbox"
@@ -668,7 +1020,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
         style={{
           maxHeight: 'min(460px, calc(100vh - 260px))',
           overflowY: 'auto',
-          padding: scope === 'all' ? '0 0 4px' : '4px 0',
+          padding: scope === 'all' && !narrowed ? '0 0 4px' : '4px 0',
         }}
       >
         {entries.length === 0 ? (

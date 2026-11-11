@@ -1,4 +1,12 @@
-import { GROUP_LABEL, type Command, type CommandGroup, type PaletteContext, type QueryRow } from './types';
+import {
+  GROUP_LABEL,
+  type Command,
+  type CommandGroup,
+  type ObjectAction,
+  type ObjectKind,
+  type PaletteContext,
+  type QueryRow,
+} from './types';
 
 export const RECENT_LABEL = 'Recent';
 export const QUERY_ROW_LABEL = 'In the tab in front';
@@ -27,6 +35,14 @@ export interface RankedRow {
   ranges: Range[];
   /** Set on a row built from the query itself (the pasted `_id` row). */
   fromQuery?: QueryRow;
+  /** On an object listed for a verb in the query: the action that verb selects. */
+  action?: ObjectAction;
+}
+
+/** A query whose first word is a verb: objects match on `rest` and need an action for `verb`. */
+export interface VerbQuery {
+  verb: string;
+  rest: string[];
 }
 
 /** A ranked row placed in the list: `index` is its position in the displayed order. */
@@ -69,7 +85,7 @@ interface Prepared {
   sub: string;
   kw: string;
   /** The command this was last matched to; a different object with the same id is checked by text. */
-  cmd: Command;
+  cmd: Command | null;
   /** What this was built from, to tell whether a command still has the same text. */
   source: string;
   subtitle: string | undefined;
@@ -162,6 +178,12 @@ function prepare(cmd: Command): Prepared {
     return byId;
   }
   builds++;
+  const p = build(source, cmd.subtitle, cmd.keywords, cmd);
+  preparedById.set(cmd.id, p);
+  return p;
+}
+
+function build(source: string, subtitle: string | undefined, keywords: string[] | undefined, cmd: Command | null): Prepared {
   const starts: number[] = [];
   for (let i = 0; i < source.length; i++) {
     const c = source.charAt(i);
@@ -171,18 +193,16 @@ function prepare(cmd: Command): Prepared {
       starts.push(i);
     }
   }
-  const p: Prepared = {
+  return {
     text: lowerKeepingLength(source),
     starts,
-    sub: cmd.subtitle?.toLowerCase() ?? '',
-    kw: (cmd.keywords ?? []).join(' ').toLowerCase(),
+    sub: subtitle?.toLowerCase() ?? '',
+    kw: (keywords ?? []).join(' ').toLowerCase(),
     cmd,
     source,
-    subtitle: cmd.subtitle,
-    keywords: cmd.keywords,
+    subtitle,
+    keywords,
   };
-  preparedById.set(cmd.id, p);
-  return p;
 }
 
 // ── Matching ─────────────────────────────────────────────────────────────────
@@ -268,14 +288,16 @@ class MatchedRow implements RankedRow {
   readonly cmd: Command;
   readonly recent: boolean;
   readonly cls: MatchClass;
+  readonly action: ObjectAction | undefined;
   private readonly tokens: string[];
   private computed: Range[] | undefined;
 
-  constructor(cmd: Command, recent: boolean, cls: MatchClass, tokens: string[]) {
+  constructor(cmd: Command, recent: boolean, cls: MatchClass, tokens: string[], action: ObjectAction | undefined) {
     this.cmd = cmd;
     this.recent = recent;
     this.cls = cls;
     this.tokens = tokens;
+    this.action = action;
   }
 
   get ranges(): Range[] {
@@ -303,9 +325,16 @@ interface Prepass {
   trimmed: string;
   visible: Command[];
   recentAt: Map<string, number>;
+  verb: VerbQuery | null;
 }
 
-function prepass(all: Command[], query: string, ctx: PaletteContext, recentIds: string[]): Prepass {
+function prepass(
+  all: Command[],
+  query: string,
+  ctx: PaletteContext,
+  recentIds: string[],
+  verb: VerbQuery | null = null,
+): Prepass {
   const visible = all.filter((cmd) => isVisible(cmd, ctx));
   if (visible.length > MAX_COMMANDS) {
     throw new Error(`rankCommands: ${visible.length} commands exceed the ${MAX_COMMANDS} the sort key holds`);
@@ -314,7 +343,7 @@ function prepass(all: Command[], query: string, ctx: PaletteContext, recentIds: 
   recentIds.forEach((id, i) => {
     if (!recentAt.has(id)) recentAt.set(id, i);
   });
-  return { trimmed: query.trim(), visible, recentAt };
+  return { trimmed: query.trim(), visible, recentAt, verb };
 }
 
 /** The empty-query list: recent rows in MRU order, then the catalog in registration order. */
@@ -349,7 +378,7 @@ interface Matches {
  * sort key to `onMatch`. Keys pack (class, recency, text length, registration
  * index): a smaller key ranks first.
  */
-function matchTyped({ trimmed, visible, recentAt }: Prepass, onMatch: (key: number, cmd: Command) => void): Matches {
+function matchTyped({ trimmed, visible, recentAt, verb }: Prepass, onMatch: (key: number, cmd: Command) => void): Matches {
   const tokens = trimmed.toLowerCase().split(/\s+/);
   const fromQuery: RankedRow[] = [];
   const classes = new Uint8Array(visible.length);
@@ -367,9 +396,11 @@ function matchTyped({ trimmed, visible, recentAt }: Prepass, onMatch: (key: numb
       }
       return;
     }
+    // A verb in the query lists the objects that have it, matched on what follows.
+    if (verb && cmd.object && !verbAction(cmd, verb)) return;
     const p = prepare(cmd);
     let cls = EXACT;
-    for (const token of tokens) {
+    for (const token of tokensFor(cmd, tokens, verb)) {
       const c = matchToken(p, token, null);
       if (c === -1) return;
       if (c > cls) cls = c;
@@ -383,11 +414,29 @@ function matchTyped({ trimmed, visible, recentAt }: Prepass, onMatch: (key: numb
   return { tokens, fromQuery, classes };
 }
 
+/** The action a verb selects on an object row; undefined on a command or without a verb. */
+function verbAction(cmd: Command, verb: VerbQuery | null): ObjectAction | undefined {
+  if (!verb || !cmd.object) return undefined;
+  return cmd.object.actions.find((a) => a.verb === verb.verb);
+}
+
+/** Commands match the whole query; objects, under a verb, what follows it. */
+function tokensFor(cmd: Command, tokens: string[], verb: VerbQuery | null): string[] {
+  return verb && cmd.object ? verb.rest : tokens;
+}
+
 /** The row a sort key names. */
-function rowFor(key: number, visible: Command[], { classes, tokens }: Matches): RankedRow {
+function rowFor(key: number, { visible, verb }: Prepass, { classes, tokens }: Matches): RankedRow {
   const at = key % INDEX_SPAN;
   const recency = Math.floor(key / INDEX_SPAN / LENGTH_SPAN) % RECENT_SPAN;
-  return new MatchedRow(visible[at]!, recency !== NOT_RECENT, MATCH_CLASS[classes[at]!]!, tokens);
+  const cmd = visible[at]!;
+  return new MatchedRow(
+    cmd,
+    recency !== NOT_RECENT,
+    MATCH_CLASS[classes[at]!]!,
+    tokensFor(cmd, tokens, verb),
+    verbAction(cmd, verb),
+  );
 }
 
 /**
@@ -410,23 +459,18 @@ export function rankCommands(
     keys[matched++] = key;
   });
   const rows: RankedRow[] = [...m.fromQuery];
-  for (const key of keys.subarray(0, matched).sort()) rows.push(rowFor(key, pre.visible, m));
+  for (const key of keys.subarray(0, matched).sort()) rows.push(rowFor(key, pre, m));
   return rows;
 }
 
 // ── Kinds and capped ranking ─────────────────────────────────────────────────
 
 /** What a row is, for the palette's scopes and its groups on a typed query. */
-export type RowKind = 'collection' | 'database' | 'connection' | 'tab' | 'saved' | 'action';
+export type RowKind = ObjectKind | 'action';
 
-/**
- * A row's kind. Until objects exist (X07 §13.4), the id says it: the v1
- * collection and Connection rows carry the ids their objects will keep.
- */
+/** A row's kind: its object's, or `action` for a command. */
 export function kindOf(cmd: Command): RowKind {
-  if (cmd.id.startsWith('tab.open:')) return 'collection';
-  if (cmd.id.startsWith('connection.open:')) return 'connection';
-  return 'action';
+  return cmd.object?.kind ?? 'action';
 }
 
 export interface Bucket {
@@ -488,9 +532,10 @@ export function rankCapped(
   recentIds: string[],
   cap: number,
   bucketOf: (kind: RowKind) => string | null,
+  verb: VerbQuery | null = null,
 ): CappedRanking {
   if (!(cap >= 1)) throw new Error(`rankCapped: the cap must be at least 1, got ${cap}`);
-  const pre = prepass(all, query, ctx, recentIds);
+  const pre = prepass(all, query, ctx, recentIds, verb);
   const counts = new Map<RowKind, number>();
   const count = (kind: RowKind) => counts.set(kind, (counts.get(kind) ?? 0) + 1);
 
@@ -526,7 +571,7 @@ export function rankCapped(
     buckets: ordered.map(([key, top]) => ({
       key,
       total: top.total,
-      rows: Array.from(top.keys.subarray(0, top.size), (k) => rowFor(k, pre.visible, m)),
+      rows: Array.from(top.keys.subarray(0, top.size), (k) => rowFor(k, pre, m)),
     })),
   };
 }
@@ -576,4 +621,22 @@ export function groupRows(rows: RankedRow[]): RenderGroup[] {
   push('recent', RECENT_LABEL, recent);
   for (const g of typed ? byGroup.keys() : GROUP_PRIORITY) push(g, GROUP_LABEL[g], byGroup.get(g) ?? []);
   return out;
+}
+
+// ── Free text ────────────────────────────────────────────────────────────────
+
+/**
+ * Matches `query` against a short text with the palette's matcher, for lists
+ * too small to cache (an object's actions). Returns the matched ranges, `[]`
+ * for an empty query, or null when a token misses.
+ */
+export function matchText(text: string, query: string): Range[] | null {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return [];
+  const p = build(text, undefined, undefined, null);
+  const out: Range[] = [];
+  for (const token of trimmed.split(/\s+/)) {
+    if (matchToken(p, token, out) === -1) return null;
+  }
+  return mergeRanges(out);
 }
