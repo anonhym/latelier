@@ -421,7 +421,7 @@ Replaces §3.
 
 **Match classes**, strongest first, per token:
 
-1. **Exact** — the token equals the whole match text, or one whole word of it.
+1. **Exact** — the token equals the whole match text, or one whole segment of it. Segments are separated by a space or one of `. : / →`; `_`, `-` and a case change start a word but do not end a segment, so `orders` is exact for `shop.orders` and a word start for `shop.orders_archive`.
 2. **Word start** — the token is a prefix of a word.
 3. **Initials** — the token, two characters or more, is the first letters of consecutive words: `so` matches `shop.orders`, `rq` matches `Run query`.
 4. **Substring** — the token appears inside the match text.
@@ -435,6 +435,8 @@ A row's class is the weakest class among its tokens. Rows sort by class, then:
 3. registration order.
 
 Recency is a tie-break inside a class, never a class of its own once a query is typed: a recent row that matches by subsequence stays below an exact match. There is no edit-distance matching; `oders` finds nothing.
+
+**Group order on a typed query.** Rows are still drawn in groups, and the groups are ordered by their best row, so the first drawn row is always the best match and Enter performs it. The fixed group order below applies to the empty query only.
 
 **Empty query.** RECENT first, as today. Then the groups owned by the tab in front (`query`, `view`, `references`, `aggregation`, whichever have rows), then `workspace`, `connection`, `navigation`, `general`. Objects (§13.4) other than recent ones are not listed until the user types.
 
