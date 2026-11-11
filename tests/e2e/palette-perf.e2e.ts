@@ -55,10 +55,12 @@ function stats(xs: number[]) {
   };
 }
 
+type Probe = { ms: number; rows: number };
+
 /** Arm an in-page probe; the result is read back with `readProbe` after the key press. */
 async function armProbe(win: Page, kind: 'open' | 'keystroke'): Promise<void> {
   await win.evaluate((k) => {
-    const w = window as unknown as { __perfP?: Promise<number | null> };
+    const w = window as unknown as { __perfP?: Promise<Probe | null> };
     // Scoped to the palette dialog: the Data View has its own comboboxes (rows per page).
     const palette = () => document.querySelector('[role="dialog"]:has(input[role="combobox"])');
     const options = () =>
@@ -81,7 +83,7 @@ async function armProbe(win: Page, kind: 'open' | 'keystroke'): Promise<void> {
           const shown =
             !!lb && !!input && (input as HTMLElement).checkVisibility() && options().length > 0;
           const ready = k === 'open' ? shown : shown && sig() !== before;
-          if (ready) requestAnimationFrame((t) => resolve(t - t0));
+          if (ready) requestAnimationFrame((t) => resolve({ ms: t - t0, rows: options().length }));
           else if (performance.now() > deadline) resolve(null);
           else requestAnimationFrame(frame);
         };
@@ -115,7 +117,7 @@ const settle = (win: Page) =>
   });
 
 const readProbe = (win: Page) =>
-  win.evaluate(() => (window as unknown as { __perfP: Promise<number | null> }).__perfP);
+  win.evaluate(() => (window as unknown as { __perfP: Promise<Probe | null> }).__perfP);
 
 test.describe('palette performance', () => {
   test.skip(!RUN, 'set ATELIER_PALETTE_PERF=1 (npm run perf:palette) to run');
@@ -174,9 +176,11 @@ test.describe('palette performance', () => {
       }
       await close();
 
-      const opens: number[] = [];
-      const single: number[] = [];
-      const ord: [number[], number[], number[]] = [[], [], []];
+      const opens: Probe[] = [];
+      const single: Probe[] = [];
+      const ord: [Probe[], Probe[], Probe[]] = [[], [], []];
+      const keyC: Probe[] = [];
+      const seqP: [Probe[], Probe[], Probe[]] = [[], [], []];
       const timed = async (arm: 'open' | 'keystroke', act: () => Promise<void>) => {
         await armProbe(win, arm);
         await act();
@@ -200,7 +204,22 @@ test.describe('palette performance', () => {
         const c = await timed('keystroke', () => win.keyboard.press('d'));
         await close();
 
+        // Broad arms: every collection matches through its `<db>.<coll>` text in any palette version.
+        await open();
+        const bc = await timed('keystroke', () => win.keyboard.press('c'));
+        await close();
+
+        await open();
+        const bp = await timed('keystroke', () => win.keyboard.press('p'));
+        const bp0 = await timed('keystroke', () => win.keyboard.press('0'));
+        const bp00 = await timed('keystroke', () => win.keyboard.press('0'));
+        await close();
+
         if (keep) {
+          keyC.push(bc);
+          seqP[0].push(bp);
+          seqP[1].push(bp0);
+          seqP[2].push(bp00);
           opens.push(o);
           single.push(k1);
           ord[0].push(a);
@@ -209,17 +228,28 @@ test.describe('palette performance', () => {
         }
       }
 
+      // Per arm: latency stats plus the median number of option rows at the measured frame.
+      const arm = (xs: Probe[]) => ({
+        ...stats(xs.map((x) => x.ms)),
+        rowsMedian: stats(xs.map((x) => x.rows)).median,
+      });
       const result = {
         collections: DBS * PER_DB + 1,
         runs: RUNS,
         platform: `${process.platform}-${process.arch}`,
         cpus: os.cpus()[0]?.model,
-        openToFirstPaintMs: stats(opens),
-        keystrokeOMs: stats(single),
+        openToFirstPaintMs: arm(opens),
+        keystrokeOMs: arm(single),
+        keystrokeCMs: arm(keyC),
         sequenceOrdMs: {
-          o: stats(ord[0]),
-          or: stats(ord[1]),
-          ord: stats(ord[2]),
+          o: arm(ord[0]),
+          or: arm(ord[1]),
+          ord: arm(ord[2]),
+        },
+        sequenceP00Ms: {
+          p: arm(seqP[0]),
+          p0: arm(seqP[1]),
+          p00: arm(seqP[2]),
         },
       };
       fs.mkdirSync(path.dirname(OUT), { recursive: true });
@@ -227,7 +257,9 @@ test.describe('palette performance', () => {
       process.stdout.write(
         `palette-perf: open median ${result.openToFirstPaintMs.median}ms p90 ${result.openToFirstPaintMs.p90}ms | ` +
           `key "o" median ${result.keystrokeOMs.median}ms p90 ${result.keystrokeOMs.p90}ms | ` +
-          `"ord" 3rd key median ${result.sequenceOrdMs.ord.median}ms p90 ${result.sequenceOrdMs.ord.p90}ms -> ${OUT}\n`,
+          `"ord" 3rd key median ${result.sequenceOrdMs.ord.median}ms p90 ${result.sequenceOrdMs.ord.p90}ms ` +
+          `key "c" median ${result.keystrokeCMs.median}ms rows ${result.keystrokeCMs.rowsMedian} | ` +
+          `"p00" 3rd key median ${result.sequenceP00Ms.p00.median}ms rows ${result.sequenceP00Ms.p00.rowsMedian} -> ${OUT}\n`,
       );
     });
   });
