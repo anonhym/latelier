@@ -2,9 +2,9 @@ import v8 from 'node:v8';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { rankCommands, groupRows } from '../../src/commands/rank';
-import { commandRegistry } from '../../src/commands/registry';
+import { commandRegistry, objectRow } from '../../src/commands/registry';
 import { layoutPalette, type Scope } from '../../src/commands/layout';
-import type { Command, PaletteContext } from '../../src/commands/types';
+import type { Command, ObjectAction, PaletteContext } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
@@ -22,6 +22,25 @@ const PERF = process.env.ATELIER_RANK_PERF === '1';
 const COARSE_BOUND_MS = 100;
 const RUNS = 15;
 
+const act = (id: string, verb: string, extra: Partial<ObjectAction> = {}): ObjectAction => ({
+  id,
+  verb,
+  title: id,
+  perform: () => {},
+  ...extra,
+});
+const ACTIONS: ObjectAction[] = [
+  act('Open', 'open'),
+  act('Open in new tab', 'open', { alternate: true }),
+  act('Aggregate', 'aggregate'),
+  act('Schema', 'schema'),
+  act('Indexes', 'indexes'),
+  act('Export…', 'export'),
+  act('Import…', 'import'),
+  act('Rename…', 'rename'),
+  act('Drop collection…', 'delete', { destructive: true }),
+];
+
 function catalog(collections: number, idPrefix = ''): Command[] {
   const cmds: Command[] = [];
   for (let i = 0; i < 40; i++) {
@@ -30,15 +49,16 @@ function catalog(collections: number, idPrefix = ''): Command[] {
   for (let i = 0; i < collections; i++) {
     const db = `db${i % 50}`;
     const coll = `collection_${i}`;
-    cmds.push({
-      id: `${idPrefix}tab.open:c1:${db}:${coll}`,
-      title: `Open: ${db}.${coll}`,
-      matchText: `${db}.${coll}`,
-      subtitle: 'Production',
-      group: 'workspace',
-      hideWhenEmptyQuery: true,
-      perform: () => {},
-    });
+    // Collections are objects since X07 §13.4, with the actions the app gives them.
+    cmds.push(
+      objectRow({
+        id: `${idPrefix}tab.open:c1:${db}:${coll}`,
+        kind: 'collection',
+        name: `${db}.${coll}`,
+        subtitle: 'Production',
+        actions: ACTIONS,
+      }),
+    );
   }
   return cmds;
 }
@@ -131,6 +151,9 @@ describe.skipIf(underStryker || !PERF)('capped layout at 50,000 collections', ()
     ['collections', 'collection 42'],
     ['actions', 'o'],
     ['all', 'zzz'],
+    ['all', 'open'],
+    ['all', 'drop o'],
+    ['collections', 'open'],
   ] as Array<[Scope, string]>)('lays out %s %j within the frame', (scope, query) => {
     const times: number[] = [];
     for (let i = 0; i < RUNS; i++) {
