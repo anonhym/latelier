@@ -240,9 +240,12 @@ export interface PanelBodyProps {
   structureInitialCreate?: IndexCreateRequest | null;
   onStructureInitialCreateConsumed?: () => void;
   connectErrors: Record<string, ConnectErrorInfo>;
+  /** Loads that replace the query from outside (the palette's saved Open/Run), counted with this pane's own. */
+  externalLoadGen?: number;
 }
 
 export function PanelBody({
+  externalLoadGen = 0,
   panelPrefs,
   collectionTabActions,
   documentDialogs,
@@ -293,7 +296,8 @@ export function PanelBody({
   // it too: such a load re-derives the advanced row's open state, which a
   // same-tab `hasAdvanced` change alone misses when the row already had
   // values and was collapsed.
-  const [loadGen, bumpLoadGen] = React.useReducer((n: number) => n + 1, 0);
+  const [ownLoadGen, bumpLoadGen] = React.useReducer((n: number) => n + 1, 0);
+  const loadGen = ownLoadGen + externalLoadGen;
   const {
     prefsReady,
     refDrawerWidth, setRefDrawerWidth, commitRefDrawerWidth,

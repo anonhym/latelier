@@ -3,6 +3,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
+import { notifications } from '@mantine/notifications';
 import Workspace from '../../src/pages/Workspace';
 import {
   CommandPaletteRoot,
@@ -22,9 +23,10 @@ import type { CollectionInfo, DbInfo } from '@shared/ipc';
 import type { CollectionTab, ConnectionRuntime, SavedQuerySummary } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 
+// A name ending in `_view` is listed as a view.
 const coll = (name: string): CollectionInfo => ({
   name,
-  type: 'collection',
+  type: name.endsWith('_view') ? 'view' : 'collection',
   documentCount: 0,
   sizeBytes: 0,
   indexCount: 0,
@@ -70,14 +72,15 @@ const t1 = (over: Partial<CollectionTab> = {}) =>
   collectionTabFixture({ id: 't1', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true, ...over });
 const t2 = collectionTabFixture({ id: 't2', connectionId: 'c2', dbName: 'ordering', collection: 'carts', position: 1 });
 
-function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab } = {}) {
+function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab; server?: typeof SERVER } = {}) {
+  const server = opts.server ?? SERVER;
   statusListeners = [];
   const tabs = opts.tabs ?? [t1(), t2];
   const listDatabases = vi.fn(async ({ connectionId }: { connectionId: string }) =>
-    Object.keys(SERVER[connectionId] ?? {}).map(db),
+    Object.keys(server[connectionId] ?? {}).map(db),
   );
   const listCollections = vi.fn(async ({ connectionId, dbName }: { connectionId: string; dbName: string }) =>
-    (SERVER[connectionId]?.[dbName] ?? []).map(coll),
+    (server[connectionId]?.[dbName] ?? []).map(coll),
   );
   const savedList = vi.fn(async ({ connectionId }: { connectionId?: string }) =>
     SAVED.filter((s) => s.connectionId === connectionId),
@@ -138,7 +141,19 @@ function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab } = {}) {
       </PaletteContextProvider>
     </MemoryRouter>,
   );
-  return { listCollections, listDatabases, savedList, savedGet, savedDelete, setActive, close, setPinned, openCollection, find };
+  return {
+    listCollections,
+    listDatabases,
+    savedList,
+    savedGet,
+    savedDelete,
+    setActive,
+    close,
+    setPinned,
+    openCollection,
+    openAggregation,
+    find,
+  };
 }
 
 const input = () => screen.getByLabelText('Search commands');
@@ -176,6 +191,7 @@ async function listBoth(m: ReturnType<typeof mount>) {
 }
 
 afterEach(() => {
+  act(() => notifications.clean());
   uninstallAtelierMock();
   commandRegistry._resetForTests();
   _resetPaletteStoreForTests();
@@ -348,6 +364,54 @@ describe('Saved objects', () => {
     await waitFor(() => expect(tabRequested('runPipeline', 't1')).toBe(true));
   });
 
+  it('Run on a saved pipeline of a Connection that is not connected says so, opens it, and queues no run', async () => {
+    const m = mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    emit({ id: 'c1', status: 'disconnected' });
+    openPalette();
+    search('run region');
+    await waitFor(() => expect(rowsOf('saved')).toEqual([['Orders by region', 'shop.orders', 'Run']]));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(await screen.findByText('Connect to Production first, then run.')).toBeTruthy();
+    await waitFor(() => expect(m.openAggregation).toHaveBeenCalled());
+    expect(tabRequested('runPipeline', 't1')).toBe(false);
+  });
+
+  it('⌘↵ on a saved query of a Connection that is not connected says so, loads it, and runs nothing', async () => {
+    const m = mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    await waitFor(() => expect(m.find).toHaveBeenCalled());
+    emit({ id: 'c1', status: 'disconnected' });
+    const before = m.find.mock.calls.length;
+    openPalette();
+    search('last 7 days');
+    await waitFor(() => expect(rowsOf('saved')).toHaveLength(1));
+    fireEvent.keyDown(input(), { key: 'Enter', metaKey: true });
+    expect(await screen.findByText('Connect to Production first, then run.')).toBeTruthy();
+    await waitFor(() => expect(m.savedGet).toHaveBeenCalledWith({ id: 'q1' }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(m.find.mock.calls.length).toBe(before);
+  });
+
+  it('a saved Open into the same tab clears the complaint the replaced filter left', async () => {
+    mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    const field = screen.getByLabelText('Query filter');
+    fireEvent.change(field, { target: { value: '{ nope' } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(screen.queryAllByRole('alert').length).toBeGreaterThan(0));
+    const alertsBefore = screen.queryAllByRole('alert').map((a) => a.textContent);
+    openPalette();
+    search('last 7 days');
+    await waitFor(() => expect(rowsOf('saved')).toHaveLength(1));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(screen.getByDisplayValue('{"status":"open"}')).toBeTruthy());
+    const left = screen.queryAllByRole('alert').map((a) => a.textContent);
+    for (const text of alertsBefore) expect(left).not.toContain(text);
+  });
+
   it('Delete… asks the saved list’s own question, then deletes', async () => {
     const m = mount();
     await screen.findByTestId('nav-coll-shop-orders');
@@ -458,6 +522,32 @@ describe('the added commands’ gates', () => {
     expect(titles()[0]?.[1]).not.toBe('');
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(tabRequested('explain', 't1')).toBe(false);
+  });
+
+  it('Explain query is greyed when the focused Connection is not connected, and asks nothing', async () => {
+    mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    emit({ id: 'c1', status: 'disconnected' });
+    openPalette();
+    search('Explain query');
+    await waitFor(() => expect(titles()[0]).toEqual(['Explain query', 'Connect to Production first']));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(tabRequested('explain', 't1')).toBe(false);
+  });
+
+  it('Create index… is greyed with a view in front', async () => {
+    mount({
+      server: { ...SERVER, c1: { shop: ['orders', 'orders_view'] } },
+      tabs: [t1({ collection: 'orders_view' }), t2],
+    });
+    await screen.findByTestId('nav-coll-shop-orders_view');
+    openPalette();
+    search('Create index');
+    await waitFor(() =>
+      expect(titles()[0]).toEqual(['Create index…', "This is a view, so indexes can't be created here"]),
+    );
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(screen.queryByRole('dialog', { name: /New index/ })).toBeNull();
   });
 
   it('Explain query opens the plan for a valid filter', async () => {

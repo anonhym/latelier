@@ -406,6 +406,8 @@ function WorkspaceInner() {
   // auto-run its default `{}` query.
   const pendingSavedRef = React.useRef<{ tabId: string; payload: LegacySavedFindPayload; run: boolean } | null>(null);
   const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
+  // Bumped by each saved query the palette loads, added to PanelBody's own load counter.
+  const [savedLoadGen, setSavedLoadGen] = React.useState(0);
   React.useEffect(() => {
     if (!activeCollection) return;
     if (activeView !== 'documents') return;
@@ -1051,6 +1053,9 @@ function WorkspaceInner() {
         disabledReason: () => {
           const a = activeCollectionRef.current;
           if (!a) return null;
+          // The Connect pane stands in for the query bar: nothing would answer.
+          const conn = focusedConnectionRef.current;
+          if (isKnownNotConnected(conn)) return `Connect to ${conn?.name ?? 'the connection'} first`;
           if (queryRunner.isRunning(a.id)) return 'A query is running';
           return findProblem(a.state);
         },
@@ -1066,10 +1071,12 @@ function WorkspaceInner() {
         group: 'view',
         keywords: ['new', 'add', 'structure'],
         when: () => activeCollectionRef.current !== null,
+        // A view's Indexes section shows its note in place of `+ New index`.
+        disabledReason: () => (activeIsView ? "This is a view, so indexes can't be created here" : null),
         perform: () => openCreateIndex(null),
       },
     ],
-    [requestNavigatorDialog, openCreateIndex, queryRunner.isRunning],
+    [requestNavigatorDialog, openCreateIndex, queryRunner.isRunning, activeIsView],
   );
 
   // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row
@@ -1296,6 +1303,14 @@ function WorkspaceInner() {
   const openSaved = React.useCallback(
     async (saved: SavedQuerySummary, runIt: boolean) => {
       const t = tabsRef.current;
+      // A Connection that is not connected shows its Connect pane in the tab:
+      // a run asked of it would wait and fire on its own once connected. It
+      // opens, and says to connect first, as Export… does; nothing is queued.
+      const conn = connectionsRef.current.find((c) => c.id === saved.connectionId);
+      if (runIt && isKnownNotConnected(conn)) {
+        notify.info(`Connect to ${conn?.name ?? 'the connection'} first, then run.`);
+        runIt = false;
+      }
       if (saved.kind === 'aggregation') {
         const tab = await openSavedPipeline(t, saved);
         if (tab && runIt) requestTab('runPipeline', tab.id);
@@ -1311,7 +1326,7 @@ function WorkspaceInner() {
       pendingSavedRef.current = { tabId: tab.id, payload: full.payload as unknown as LegacySavedFindPayload, run: runIt };
       setPendingSavedTick((n) => n + 1);
     },
-    [tabsRef, setPendingSavedTick],
+    [tabsRef, connectionsRef, setPendingSavedTick],
   );
   // Applies the pending load once its tab is in the tab state, as the saved
   // list's Run here does, without the run unless asked.
@@ -1325,6 +1340,8 @@ function WorkspaceInner() {
     if ((tab.state.activeView ?? 'documents') !== 'documents') tabs.setActiveView(tab.id, 'documents');
     // The draft belongs to the filter being replaced: drop it with it.
     tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
+    // The saved list's `onLoaded`: clears the query bar's held complaints and reseeds the drawer.
+    setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
   }, [tabs, pendingSavedTick, run]);
   const removeSaved = React.useCallback(async (saved: SavedQuerySummary) => {
@@ -1483,6 +1500,7 @@ function WorkspaceInner() {
       />
 
       <PanelBody
+        externalLoadGen={savedLoadGen}
         panelPrefs={panelPrefs}
         collectionTabActions={collectionTabActions}
         documentDialogs={documentDialogs}
