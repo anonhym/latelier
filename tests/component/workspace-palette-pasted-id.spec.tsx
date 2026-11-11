@@ -18,7 +18,7 @@ import {
   collectionTabFixture,
 } from '../helpers/atelierMock';
 import type { IpcApi } from '@shared/ipc';
-import type { WorkspaceTab } from '@shared/types';
+import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 
 const HEX = '6650c1f2a9e4b31d2c8f0a17';
 const FILTER = JSON.stringify({ _id: { $oid: HEX } });
@@ -59,9 +59,9 @@ function mount(tabs: WorkspaceTab[]) {
   return { find };
 }
 
-const collectionTab = (queryRaw = BEFORE) => {
+const collectionTab = (queryRaw = BEFORE, filterDraft?: CollectionTabState['filterDraft']) => {
   const tab = collectionTabFixture({ id: 't1', dbName: 'shop', collection: 'orders', isActive: true });
-  return { ...tab, state: { ...tab.state, queryRaw } } as WorkspaceTab;
+  return { ...tab, state: { ...tab.state, queryRaw, filterDraft } } as WorkspaceTab;
 };
 
 function search(q: string) {
@@ -151,5 +151,32 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     expect(undo.disabled).toBe(false);
     fireEvent.click(undo);
     await waitFor(() => expect(filterBar().value).toBe(BEFORE));
+  });
+
+  it('Undo restores the drawer tree the tab had stored as a draft, switched-off row included', async () => {
+    const draft: CollectionTabState['filterDraft'] = {
+      queryRaw: BEFORE,
+      root: {
+        kind: 'group',
+        logic: '$and',
+        children: [
+          { kind: 'cond', field: 'status', op: '$eq', valType: 'string', value: 'paid' },
+          { kind: 'cond', field: 'offrow', op: '$eq', valType: 'string', value: 'x', disabled: true },
+        ],
+      },
+    };
+    mount([collectionTab(BEFORE, draft)]);
+    await screen.findByLabelText('Query filter');
+    expect(screen.queryByDisplayValue('offrow')).toBeTruthy();
+
+    search(HEX);
+    await within(screen.getByRole('dialog')).findByText('In the tab in front');
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
+    await waitFor(() => expect(filterBar().value).toBe(FILTER));
+    expect(screen.queryByDisplayValue('offrow')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo filter edit' }));
+    await waitFor(() => expect(filterBar().value).toBe(BEFORE));
+    expect(screen.queryByDisplayValue('offrow')).toBeTruthy();
   });
 });

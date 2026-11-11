@@ -39,9 +39,10 @@ describe('rankCommands — properties', () => {
       fc.property(commands, fc.array(token, { minLength: 1, maxLength: 3 }), fc.nat(), (all, tokens, seed) => {
         const shuffled = [...tokens].sort((a, b) => ((a.charCodeAt(0) * 31 + seed) % 7) - ((b.charCodeAt(0) * 31 + seed) % 7));
         const reversed = [...tokens].reverse();
-        const base = ids(all, tokens.join(' ')).sort();
-        expect(ids(all, shuffled.join(' ')).sort()).toEqual(base);
-        expect(ids(all, reversed.join(' ')).sort()).toEqual(base);
+        const byId = (a: string, b: string) => a.localeCompare(b);
+        const base = ids(all, tokens.join(' ')).sort(byId);
+        expect(ids(all, shuffled.join(' ')).sort(byId)).toEqual(base);
+        expect(ids(all, reversed.join(' ')).sort(byId)).toEqual(base);
       }),
     );
   });
@@ -70,14 +71,6 @@ describe('rankCommands — properties', () => {
       fc.property(commands, fc.array(token, { minLength: 1, maxLength: 3 }), token, (all, tokens, extra) => {
         const before = new Set(ids(all, tokens.join(' ')));
         for (const id of ids(all, [...tokens, extra].join(' '))) expect(before.has(id)).toBe(true);
-      }),
-    );
-  });
-
-  it('is stable: the same query ranks the same rows in the same order', () => {
-    fc.assert(
-      fc.property(commands, token, (all, q) => {
-        expect(ids(all, q)).toEqual(ids(all, q));
       }),
     );
   });

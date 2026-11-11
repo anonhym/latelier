@@ -220,8 +220,9 @@ describe('groupRows', () => {
   it('numbers rows in the order they are drawn, not the order they ranked', () => {
     const ranked = rankCommands(
       [
-        make({ id: 'gen', title: 'Run general', group: 'general' }),
-        make({ id: 'qry', title: 'Run query', group: 'query' }),
+        make({ id: 'qry-a', title: 'Run query a', group: 'query' }),
+        make({ id: 'gen', title: 'Run', group: 'general' }),
+        make({ id: 'qry-b', title: 'Run query b', group: 'query' }),
       ],
       'run',
       ctx,
@@ -229,9 +230,55 @@ describe('groupRows', () => {
     );
     const rows = groupRows(ranked).flatMap((g) => g.rows);
     expect(rows.map((r) => [r.cmd.id, r.index])).toEqual([
-      ['qry', 0],
-      ['gen', 1],
+      ['gen', 0],
+      ['qry-a', 1],
+      ['qry-b', 2],
     ]);
+  });
+
+  it('orders the groups by their best row on a typed query, so the first row drawn is the best match', () => {
+    // `rest` is a subsequence of the view row and exact for the collection.
+    const ranked = rankCommands(
+      [
+        make({ id: 'view', title: 'Show results as Tree', group: 'view' }),
+        make({ id: 'coll', title: 'Open: api.rest', matchText: 'api.rest', group: 'workspace' }),
+      ],
+      'rest',
+      ctx,
+      [],
+    );
+    expect(ranked.map((r) => r.cmd.id)).toEqual(['coll', 'view']);
+    const grouped = groupRows(ranked);
+    expect(grouped.map((g) => g.key)).toEqual(['workspace', 'view']);
+    expect(grouped[0]!.rows[0]!.index).toBe(0);
+  });
+
+  it('draws a recent query-group subsequence match below a workspace word-start match', () => {
+    // Recent, but a subsequence: it stays below the word start in the workspace group.
+    const stronger = rankCommands(
+      [
+        make({ id: 'q', title: 'Sxxxrxxxpxxx', group: 'query' }),
+        make({ id: 'w', title: 'Open: srp.tools', matchText: 'srp.tools', group: 'workspace' }),
+      ],
+      'srp',
+      ctx,
+      ['q'],
+    );
+    expect(stronger.map((r) => r.cmd.id)).toEqual(['w', 'q']);
+    expect(groupRows(stronger).map((g) => g.key)).toEqual(['workspace', 'query']);
+  });
+
+  it('keeps the fixed group order for an empty query', () => {
+    const ranked = rankCommands(
+      [
+        make({ id: 'g', title: 'A', group: 'general' }),
+        make({ id: 'q', title: 'B', group: 'query' }),
+      ],
+      '',
+      ctx,
+      [],
+    );
+    expect(groupRows(ranked).map((g) => g.key)).toEqual(['query', 'general']);
   });
 
   it('keeps a recent row in its own group on a typed query, where recency is only a tie-break', () => {
@@ -391,6 +438,41 @@ describe('rankCommands — match classes', () => {
     expect(rank(all, 'orders')).toEqual(['orders', 'archive', 'reorders']);
   });
 
+  it('treats a segment, not a word, as exact: orders_archive is a word start for orders', () => {
+    const all = [
+      make({ id: 'archive', title: 'Open: shop.orders_archive', matchText: 'shop.orders_archive' }),
+      make({ id: 'exact', title: 'Open: shop.orders', matchText: 'shop.orders' }),
+    ];
+    const rows = rankCommands(all, 'orders', ctx, []);
+    expect(rows.map((r) => [r.cmd.id, r.cls])).toEqual([
+      ['exact', 'exact'],
+      ['archive', 'wordStart'],
+    ]);
+  });
+
+  it('keeps exact above word start when orders_archive is in the MRU', () => {
+    const all = [
+      make({ id: 'archive', title: 'Open: shop.orders_archive', matchText: 'shop.orders_archive' }),
+      make({ id: 'exact', title: 'Open: shop.orders', matchText: 'shop.orders' }),
+    ];
+    expect(rank(all, 'orders', ['archive'])).toEqual(['exact', 'archive']);
+  });
+
+  it('keeps exact above word start when the exact match has the longer database name', () => {
+    const all = [
+      make({ id: 'archive', title: 'Open: db.orders_archive', matchText: 'db.orders_archive' }),
+      make({ id: 'exact', title: 'Open: warehouse_eu.orders', matchText: 'warehouse_eu.orders' }),
+    ];
+    expect(rank(all, 'orders')).toEqual(['exact', 'archive']);
+    expect(rank(all, 'orders', ['archive'])).toEqual(['exact', 'archive']);
+  });
+
+  it('does not end a segment at - or a case change', () => {
+    expect(rankCommands([make({ id: 'a', title: 'shop.orders-old' })], 'orders', ctx, [])[0]!.cls).toBe('wordStart');
+    expect(rankCommands([make({ id: 'a', title: 'shop.ordersOld' })], 'orders', ctx, [])[0]!.cls).toBe('wordStart');
+    expect(rankCommands([make({ id: 'a', title: 'shop:orders/x' })], 'orders', ctx, [])[0]!.cls).toBe('exact');
+  });
+
   it('ranks a word-start match above an initials match above a substring', () => {
     const all = [
       make({ id: 'sub', title: 'ahsox' }),
@@ -409,7 +491,7 @@ describe('rankCommands — word starts', () => {
   });
 
   it('a word starts at a lower-to-upper case change', () => {
-    expect(cls('orderItems', 'items')).toBe('exact');
+    expect(cls('orderItems', 'items')).toBe('wordStart');
     expect(cls('orderItems', 'ite')).toBe('wordStart');
     expect(cls('orderItems', 'oi')).toBe('initials');
   });
@@ -431,7 +513,7 @@ describe('rankCommands — word starts', () => {
   });
 
   it('a leading separator does not hide the first word', () => {
-    expect(cls('_id', 'id')).toBe('exact');
+    expect(cls('_id', 'id')).toBe('wordStart');
   });
 });
 
@@ -740,5 +822,63 @@ describe('rankCommands — hideWhenEmptyQuery', () => {
 
   it('shows it once there is a query', () => {
     expect(rank(all, 'orders')).toEqual(['ns']);
+  });
+});
+
+describe('rankCommands — corners the mutants found', () => {
+  const only = (title: string, q: string, extra: Partial<Command> = {}) =>
+    rankCommands([make({ id: 'a', title, ...extra })], q, ctx, [])[0];
+
+  it('lowercases around a character whose lower case is longer', () => {
+    expect(only('İSTANBUL.Orders', 'orders')?.cls).toBe('exact');
+  });
+
+  it('a whole match text that starts with a separator is exact', () => {
+    expect(only('.b', '.b')?.cls).toBe('exact');
+  });
+
+  it('marks the first word start when a token starts several words', () => {
+    expect(only('ord_ord', 'ord')?.ranges).toEqual([[0, 3]]);
+  });
+
+  it('does not read initials past the last word', () => {
+    expect(only('shop', 'ss')).toBeUndefined();
+    expect(only('shop', 'sh')?.cls).toBe('wordStart');
+  });
+
+  it('matches a two-character subsequence', () => {
+    expect(only('shop.orders', 'oe')?.cls).toBe('subsequence');
+  });
+
+  it.each(['→', ' ', '/', ':'])('ends a segment at %j', (sep) => {
+    expect(only(`x${sep}orders${sep}y`, 'orders')?.cls).toBe('exact');
+  });
+
+  it('gives empty-query rows no ranges and the right recent flag', () => {
+    const rows = rankCommands([make({ id: 'a' }), make({ id: 'b' })], '', ctx, ['a']);
+    expect(rows.map((r) => [r.recent, r.ranges])).toEqual([
+      [true, []],
+      [false, []],
+    ]);
+  });
+
+  it('gives a row built from the query no ranges and no recency', () => {
+    const [row] = rankCommands([make({ id: 'f', forQuery: () => rowFor('t') })], 'x', ctx, ['f']);
+    expect(row!.ranges).toEqual([]);
+    expect(row!.recent).toBe(false);
+  });
+
+  it('orders groups by best row even with a row built from the query first', () => {
+    const ranked = rankCommands(
+      [
+        make({ id: 'view', title: 'Show results as Tree', group: 'view' }),
+        make({ id: 'coll', title: 'Open: api.rest', matchText: 'api.rest', group: 'workspace' }),
+        make({ id: 'f', title: 'Find', group: 'query', forQuery: () => rowFor('Found') }),
+      ],
+      'rest',
+      ctx,
+      [],
+    );
+    expect(groupRows(ranked).map((g) => g.key)).toEqual(['pasted', 'workspace', 'view']);
   });
 });

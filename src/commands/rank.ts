@@ -66,8 +66,6 @@ interface Prepared {
   text: string;
   /** Offsets where a word starts. */
   starts: number[];
-  /** Where each of those words ends, exclusive. */
-  ends: number[];
   sub: string;
   kw: string;
   /** The command this was last matched to; a different object with the same id is checked by text. */
@@ -79,6 +77,16 @@ interface Prepared {
 }
 
 const SEPARATORS = new Set([' ', '.', '_', '-', ':', '/', '→']);
+// Segments end at these only: `_`, `-` and a case change start a word inside one.
+const SEGMENT_SEPARATORS = new Set([' ', '.', ':', '/', '→']);
+
+function isSegmentStart(text: string, at: number): boolean {
+  return at === 0 || SEGMENT_SEPARATORS.has(text.charAt(at - 1));
+}
+
+function isSegmentEnd(text: string, end: number): boolean {
+  return end === text.length || SEGMENT_SEPARATORS.has(text.charAt(end));
+}
 
 function isLower(c: string): boolean {
   return c !== c.toUpperCase();
@@ -118,16 +126,16 @@ export function prunePrepared(keep: (id: string) => boolean): void {
   for (const id of preparedById.keys()) if (!keep(id)) preparedById.delete(id);
 }
 
+let builds = 0;
+
+/** How many times a command's match text has been prepared from scratch, for tests and diagnostics. */
+export function preparationsBuilt(): number {
+  return builds;
+}
+
 /** How many ids have a cached preparation. */
 export function preparedCount(): number {
   return preparedById.size;
-}
-
-/** The end of the word starting at `start`: the first separator, or `limit` (the next word's start). */
-function wordEndAt(source: string, start: number, limit: number): number {
-  let j = start + 1;
-  while (j < limit && !SEPARATORS.has(source.charAt(j))) j++;
-  return j;
 }
 
 /**
@@ -153,22 +161,19 @@ function prepare(cmd: Command): Prepared {
     byId.cmd = cmd;
     return byId;
   }
+  builds++;
   const starts: number[] = [];
-  const ends: number[] = [];
   for (let i = 0; i < source.length; i++) {
     const c = source.charAt(i);
     if (SEPARATORS.has(c)) continue;
     const prev = i > 0 ? source.charAt(i - 1) : '';
     if (i === 0 || SEPARATORS.has(prev) || (isLower(prev) && isUpper(c))) {
       starts.push(i);
-      if (starts.length > 1) ends.push(wordEndAt(source, starts[starts.length - 2]!, i));
     }
   }
-  if (starts.length > 0) ends.push(wordEndAt(source, starts[starts.length - 1]!, source.length));
   const p: Prepared = {
     text: lowerKeepingLength(source),
     starts,
-    ends,
     sub: cmd.subtitle?.toLowerCase() ?? '',
     kw: (cmd.keywords ?? []).join(' ').toLowerCase(),
     cmd,
@@ -194,9 +199,8 @@ function matchToken(p: Prepared, token: string, out: Range[] | null): number {
     }
     let wordAt = -1;
     for (let i = first; i !== -1; i = text.indexOf(token, i + 1)) {
-      const k = p.starts.indexOf(i);
-      if (k === -1) continue;
-      if (p.ends[k] === i + len) {
+      if (!p.starts.includes(i)) continue;
+      if (isSegmentStart(text, i) && isSegmentEnd(text, i + len)) {
         out?.push([i, i + len]);
         return EXACT;
       }
@@ -392,11 +396,15 @@ const GROUP_PRIORITY: readonly CommandGroup[] = [
 
 /**
  * Bucket the ranked rows into header groups: a row built from the query first,
- * then Recent (empty query only), then the groups in `GROUP_PRIORITY` order.
+ * then Recent (empty query only), then the groups: in `GROUP_PRIORITY` order on
+ * an empty query, by their best row on a typed one.
  * Each row's `index` is its position in the displayed order, so the cursor
  * stays in lockstep with what is on screen.
  */
 export function groupRows(rows: RankedRow[]): RenderGroup[] {
+  // A typed query ranks rows across groups; the groups follow their best row,
+  // so the first row drawn is the best match. Only the empty query has a fixed order.
+  const typed = rows.some((row) => row.cls !== null);
   const queryRows: RankedRow[] = [];
   const recent: RankedRow[] = [];
   const byGroup = new Map<CommandGroup, RankedRow[]>();
@@ -417,6 +425,6 @@ export function groupRows(rows: RankedRow[]): RenderGroup[] {
   };
   push('pasted', QUERY_ROW_LABEL, queryRows);
   push('recent', RECENT_LABEL, recent);
-  for (const g of GROUP_PRIORITY) push(g, GROUP_LABEL[g], byGroup.get(g) ?? []);
+  for (const g of typed ? byGroup.keys() : GROUP_PRIORITY) push(g, GROUP_LABEL[g], byGroup.get(g) ?? []);
   return out;
 }

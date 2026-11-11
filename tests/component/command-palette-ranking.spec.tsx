@@ -95,7 +95,7 @@ describe('palette rows on a typed query', () => {
   it('reads the row’s name as one piece, not as highlighted fragments', async () => {
     mount(commands);
     search('run');
-    expect(await within(screen.getByRole('dialog')).findByRole('option', { name: /Run query/ })).toBeTruthy();
+    expect(await within(screen.getByRole('dialog')).findByRole('option', { name: 'Run query' })).toBeTruthy();
   });
 
   it('does not list a row that matches only through the prefix its family shares', async () => {

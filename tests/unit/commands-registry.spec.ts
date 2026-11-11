@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { commandRegistry } from '../../src/commands/registry';
-import { preparedCount, rankCommands } from '../../src/commands/rank';
+import { preparationsBuilt, preparedCount, rankCommands } from '../../src/commands/rank';
 import type { Command } from '../../src/commands/types';
 
 function makeCmd(id: string, perform: () => void = () => {}): Command {
@@ -92,5 +92,43 @@ describe('commandRegistry — prepared match text', () => {
     off();
     await Promise.resolve();
     expect(preparedCount()).toBe(before - 2);
+  });
+});
+
+describe('prepared match text — reuse', () => {
+  const base = (over: Partial<Command> = {}): Command => ({ ...makeCmd('r'), title: 'Alpha', ...over });
+  /** Prepares `first`, then `second` as a new object with the same id; true when nothing was built the second time. */
+  const built = (first: Partial<Command>, second: Partial<Command>): number => {
+    commandRegistry.add([base(first)])();
+    const before = preparationsBuilt();
+    commandRegistry.add([base(second)]);
+    return preparationsBuilt() - before;
+  };
+  const reused = (first: Partial<Command>, second: Partial<Command>): boolean => built(first, second) === 0;
+
+  it('reuses the preparation for a rebuilt command with the same text', () => {
+    expect(reused({ subtitle: 's', keywords: ['a', 'b'] }, { subtitle: 's', keywords: ['a', 'b'] })).toBe(true);
+    expect(reused({}, {})).toBe(true);
+    const shared = ['a'];
+    expect(reused({ keywords: shared }, { keywords: shared })).toBe(true);
+  });
+
+  it.each([
+    ['title', {}, { title: 'Beta' }],
+    ['matchText', { matchText: 'a' }, { matchText: 'b' }],
+    ['subtitle', { subtitle: 'one' }, { subtitle: 'two' }],
+    ['subtitle added', {}, { subtitle: 'two' }],
+    ['keyword text', { keywords: ['a', 'b'] }, { keywords: ['a', 'c'] }],
+    ['keyword count', { keywords: ['a'] }, { keywords: ['a', 'b'] }],
+    ['keywords added', {}, { keywords: ['a'] }],
+    ['keywords removed', { keywords: ['a'] }, {}],
+  ])('prepares again when the %s changed', (_name, first, second) => {
+    expect(built(first, second)).toBe(1);
+  });
+
+  it('does not prepare a row built from the query', () => {
+    const before = preparationsBuilt();
+    commandRegistry.add([base({ forQuery: () => null })]);
+    expect(preparationsBuilt()).toBe(before);
   });
 });

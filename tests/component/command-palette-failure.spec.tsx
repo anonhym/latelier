@@ -17,10 +17,24 @@ function ToggleButton() {
   return <button onClick={palette.toggle}>toggle</button>;
 }
 
+/** Whether the palette was still open at each moment a command ran. */
+const openAtPerform: boolean[] = [];
+
 function Register({ perform }: { perform: () => void | Promise<void> }) {
+  const palette = usePaletteApi();
   useRegisterCommands(
-    [{ id: 'test.export', title: 'Export collection…', group: 'general', perform }],
-    [perform],
+    [
+      {
+        id: 'test.export',
+        title: 'Export collection…',
+        group: 'general',
+        perform: () => {
+          openAtPerform.push(palette.isOpen());
+          return perform();
+        },
+      },
+    ],
+    [perform, palette],
   );
   return null;
 }
@@ -45,6 +59,7 @@ async function run() {
 }
 
 afterEach(() => {
+  openAtPerform.length = 0;
   // The notification store outlives a test.
   notifications.clean();
   commandRegistry._resetForTests();
@@ -62,6 +77,8 @@ describe('a command that fails', () => {
     expect(screen.getByText('The connection to Production was lost.')).toBeTruthy();
     expect(screen.getAllByText(/Couldn't run/)).toHaveLength(1);
     await waitFor(() => expect(screen.queryByLabelText('Search commands')).toBeNull());
+    // The palette was already closed when the command ran, so the toast follows it.
+    expect(openAtPerform).toEqual([false]);
   });
 
   it('toasts for a synchronous throw as well', async () => {
