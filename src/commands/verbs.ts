@@ -51,8 +51,10 @@ export interface ParsedVerb {
   typed: string;
   participle: string;
   destructive: boolean;
-  /** The tokens after the verb, lower case; empty for a verb typed alone. */
+  /** The other tokens, lower case; empty for a verb typed alone. */
   rest: string[];
+  /** Read from the last token rather than the first (`prod open`). */
+  trailing: boolean;
 }
 
 /**
@@ -66,7 +68,8 @@ export function parseVerb(query: string): ParsedVerb | null {
   let typed = tokens[0]!;
   let spec = lookup(typed);
   let rest = tokens.slice(1);
-  if (!spec) {
+  const trailing = !spec;
+  if (trailing) {
     // With one token the last is the first, which already missed.
     typed = tokens[tokens.length - 1]!;
     spec = lookup(typed);
@@ -79,6 +82,7 @@ export function parseVerb(query: string): ParsedVerb | null {
     participle: spec.participle,
     destructive: DESTRUCTIVE_VERBS.has(spec.verb),
     rest,
+    trailing,
   };
 }
 

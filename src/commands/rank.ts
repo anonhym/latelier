@@ -45,6 +45,12 @@ export interface RankedRow {
 export interface VerbQuery {
   verb: string;
   rest: string[];
+  /**
+   * The verb was the last word. It may as well end a name (`orders pipeline`,
+   * `weekly export`), so an object without its action is not hidden: it is
+   * matched on the whole query, as a command is.
+   */
+  trailing?: boolean;
 }
 
 /** A ranked row placed in the list: `index` is its position in the displayed order. */
@@ -421,7 +427,7 @@ function matchTyped({ trimmed, visible, recentAt, verb }: Prepass, onMatch: (key
       return;
     }
     // A verb in the query lists the objects that have it, matched on what follows.
-    if (verb && cmd.object && !verbAction(cmd, verb)) return;
+    if (verb && !verb.trailing && cmd.object && !verbAction(cmd, verb)) return;
     const p = prepare(cmd);
     let cls = EXACT;
     for (const token of tokensFor(cmd, tokens, verb)) {
@@ -444,9 +450,9 @@ function verbAction(cmd: Command, verb: VerbQuery | null): ObjectAction | undefi
   return cmd.object.actions.find((a) => a.verb === verb.verb);
 }
 
-/** Commands match the whole query; objects, under a verb, what follows it. */
+/** Commands match the whole query; objects with the verb's action, under a verb, the other tokens. */
 function tokensFor(cmd: Command, tokens: string[], verb: VerbQuery | null): string[] {
-  return verb && cmd.object ? verb.rest : tokens;
+  return verbAction(cmd, verb) ? verb!.rest : tokens;
 }
 
 /** The row a sort key names. */

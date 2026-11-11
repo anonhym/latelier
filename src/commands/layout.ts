@@ -256,7 +256,7 @@ export function layoutPalette(
     return { groups, entries, counts: countsOf(ranked.counts), hidden: 0, verb: null };
   }
 
-  const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest } : null;
+  const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest, trailing: parsed.trailing } : null;
   const single = scope !== 'all' || narrowed;
   const bucketOf = (kind: RowKind): string | null => {
     if (narrowed) return kind === 'connection' ? kind : null;

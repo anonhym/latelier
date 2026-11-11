@@ -40,6 +40,7 @@ describe('parseVerb', () => {
       participle: 'opened',
       destructive: false,
       rest: ['shop.or', 'x'],
+      trailing: false,
     });
   });
 
@@ -50,6 +51,7 @@ describe('parseVerb', () => {
       participle: 'deleted',
       destructive: true,
       rest: ['ord'],
+      trailing: false,
     });
     expect(parseVerb('go prod')?.verb).toBe('open');
     expect(parseVerb('unpin x')?.verb).toBe('pin');
@@ -72,6 +74,7 @@ describe('parseVerb', () => {
       participle: 'opened',
       destructive: false,
       rest: ['prod'],
+      trailing: true,
     });
     expect(parseVerb('shop ord drop')).toEqual({
       verb: 'delete',
@@ -79,6 +82,7 @@ describe('parseVerb', () => {
       participle: 'deleted',
       destructive: true,
       rest: ['shop', 'ord'],
+      trailing: true,
     });
   });
 
@@ -185,6 +189,34 @@ describe('a verb in the query', () => {
       expect(l.verb?.verb).toBe('open');
       expect(footerHints('all', true, conns[0]).left[0]).toEqual({ keys: '↵', label: 'Open' });
     }
+  });
+
+  it('lists `prod open` exactly as `open prod`', () => {
+    const strip = (q: string) =>
+      layoutPalette(all, q, ctx, [], 'all').entries.map((e) => [e.id, e.type === 'row' ? e.aside : null]);
+    expect(strip('prod open')).toEqual(strip('open prod'));
+  });
+
+  it('keeps an object whose name ends in the trailing verb, matched on the whole query with its default', () => {
+    const saved = obj('saved:1', 'saved', 'Orders pipeline', [act('Open', 'open'), act('Run', 'run')]);
+    const l = layoutPalette([...all, saved], 'orders pipeline', ctx, [], 'all');
+    const row = rows(l).find((e) => e.id === 'saved:1')!;
+    expect(row.row.action).toBeUndefined();
+    expect(row.aside).toBeNull();
+    expect(row.row.ranges).toEqual([
+      [0, 6],
+      [7, 15],
+    ]);
+    // A trailing verb an object lacks still has to match its name: the Connection is hidden.
+    expect(rows(layoutPalette(all, 'prod export', ctx, [], 'all')).map((e) => e.kind)).toEqual([
+      'collection',
+      'collection',
+    ]);
+  });
+
+  it('hides an object without the action under a leading verb, whatever its name', () => {
+    const saved = obj('saved:1', 'saved', 'Export orders', [act('Open', 'open')]);
+    expect(rows(layoutPalette([saved], 'export orders', ctx, [], 'all'))).toEqual([]);
   });
 
   it('still lists a command matching the whole query, the verb last', () => {
