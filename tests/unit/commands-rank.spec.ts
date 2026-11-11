@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { rankCommands, groupRows, displayText, RECENT_LABEL, QUERY_ROW_LABEL } from '../../src/commands/rank';
+import { rankCommands, rankCapped, groupRows, displayText, RECENT_LABEL, QUERY_ROW_LABEL } from '../../src/commands/rank';
+import { objectRow } from '../../src/commands/registry';
+import { parseVerb } from '../../src/commands/verbs';
 import { parsePastedObjectId } from '../../src/commands/pastedId';
 import type { Command, PaletteContext } from '../../src/commands/types';
 
@@ -315,12 +317,32 @@ const rank = (all: Command[], q: string, recent: string[] = []) => ids(rankComma
 describe('rankCommands — tokens', () => {
   it('matches every token, in any order', () => {
     const all = [
-      make({ id: 'prod', title: 'Open connection → Production' }),
-      make({ id: 'stg', title: 'Open connection → Staging' }),
+      make({ id: 'a', title: 'Run query', subtitle: 'Production' }),
+      make({ id: 'b', title: 'Run script', subtitle: 'Staging' }),
     ];
-    expect(rank(all, 'prod open')).toEqual(['prod']);
-    expect(rank(all, 'open prod')).toEqual(['prod']);
-    expect(rank(all, 'open  connection')).toEqual(['stg', 'prod']);
+    expect(rank(all, 'prod run')).toEqual(['a']);
+    expect(rank(all, 'run prod')).toEqual(['a']);
+    expect(rank(all, 'run  r')).toEqual(['a', 'b']);
+  });
+
+  it('lists a Connection object for its verb typed before or after its name', () => {
+    const conn = (name: string) =>
+      objectRow({
+        id: `connection.open:${name}`,
+        kind: 'connection',
+        name,
+        actions: [
+          { id: 'open', verb: 'open', title: 'Open', perform: () => {} },
+          { id: 'edit', verb: 'edit', title: 'Edit', perform: () => {} },
+        ],
+      });
+    const all = [conn('Production'), conn('Staging')];
+    for (const q of ['prod open', 'open prod', 'production open']) {
+      const verb = parseVerb(q)!;
+      const r = rankCapped(all, q, ctx, [], 5, (k) => k, { verb: verb.verb, rest: verb.rest });
+      const rows = r.buckets.flatMap((b) => b.rows);
+      expect(rows.map((row) => [row.cmd.id, row.action?.title])).toEqual([['connection.open:Production', 'Open']]);
+    }
   });
 
   it('finds shop.orders from "orders shop"', () => {

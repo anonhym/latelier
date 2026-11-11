@@ -59,10 +59,36 @@ describe('parseVerb', () => {
     expect(parseVerb('open')?.rest).toEqual([]);
   });
 
-  it('answers null when the first word is no verb', () => {
-    expect(parseVerb('orders drop')).toBeNull();
+  it('answers null when neither the first nor the last word is a verb', () => {
+    expect(parseVerb('orders drop shop')).toBeNull();
     expect(parseVerb('opens')).toBeNull();
     expect(parseVerb('')).toBeNull();
+  });
+
+  it('reads a trailing verb or alias, the tokens before it as the rest', () => {
+    expect(parseVerb(' Prod  Open ')).toEqual({
+      verb: 'open',
+      typed: 'open',
+      participle: 'opened',
+      destructive: false,
+      rest: ['prod'],
+    });
+    expect(parseVerb('shop ord drop')).toEqual({
+      verb: 'delete',
+      typed: 'drop',
+      participle: 'deleted',
+      destructive: true,
+      rest: ['shop', 'ord'],
+    });
+  });
+
+  it('prefers a leading verb to a trailing one', () => {
+    expect(parseVerb('open drop')).toMatchObject({ verb: 'open', typed: 'open', rest: ['drop'] });
+  });
+
+  it('never reads a single token as a trailing verb', () => {
+    // A verb alone is leading, with nothing after it.
+    expect(parseVerb('drop')).toMatchObject({ typed: 'drop', rest: [] });
   });
 
   it('knows every verb and alias of the table, each once', () => {
@@ -149,6 +175,21 @@ describe('a verb in the query', () => {
     expect(layoutPalette(all, 'export shop', ctx, [], 'all').entries.map((e) => e.id)).toEqual([
       'tab.open:c1:shop.orders',
     ]);
+  });
+
+  it('reads a trailing verb as a leading one: `prod open` lists Production with Open', () => {
+    for (const q of ['prod open', 'production open', 'open prod']) {
+      const l = layoutPalette(all, q, ctx, [], 'all');
+      const conns = rows(l).filter((e) => e.kind === 'connection');
+      expect(conns.map((e) => [e.id, e.row.action?.title])).toEqual([['connection.open:Production', 'Open']]);
+      expect(l.verb?.verb).toBe('open');
+      expect(footerHints('all', true, conns[0]).left[0]).toEqual({ keys: '↵', label: 'Open' });
+    }
+  });
+
+  it('still lists a command matching the whole query, the verb last', () => {
+    const l = layoutPalette([...all, command('caches.drop', 'Caches drop')], 'caches drop', ctx, [], 'all');
+    expect(rows(l).map((e) => e.id)).toEqual(['drop.cmd', 'caches.drop']);
   });
 
   it('still lists a command matching the whole query', () => {
