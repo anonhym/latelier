@@ -16,6 +16,7 @@ import {
   DbCollectionNavigator,
   type NavigatorDialogRequest,
   type NavigatorOpenInput,
+  type NavigatorRevealInput,
 } from './DbCollectionNavigator';
 import { useSettings } from '../SettingsContext';
 import { usePaletteApi } from '../../commands/CommandPalette';
@@ -50,6 +51,12 @@ export interface ShellSectionProps {
   /** A collection dialog to open from outside the navigator, and its reset. */
   navigatorDialogRequest: NavigatorDialogRequest | null;
   onNavigatorDialogHandled: () => void;
+  /**
+   * The row the navigator is to reveal, owned by Workspace so the palette's
+   * Reveal in navigator can ask for one too; null once it has landed.
+   */
+  navigatorRevealRequest: NavigatorRevealInput | null;
+  setNavigatorRevealRequest: (request: NavigatorRevealInput | null) => void;
 }
 
 export function ShellSection({
@@ -74,11 +81,12 @@ export function ShellSection({
   onOpenReferences,
   navigatorDialogRequest,
   onNavigatorDialogHandled,
+  navigatorRevealRequest,
+  setNavigatorRevealRequest,
 }: ShellSectionProps) {
   const T = themeVars;
   const { sidebarCollapsed, toggleSidebar, leftWidth, setLeftWidth, commitLeftWidth } = panelPrefs;
   const { openEditConnectionModal, requestDisconnect } = connectionDialogs;
-  const [revealRequest, setRevealRequest] = React.useState<NavigatorOpenInput | null>(null);
 
   const activate = (id: string) => {
     void activateTab({ tabs, connections, recordSessionEvent: hints.recordSessionEvent, openConnection }, id);
@@ -144,7 +152,7 @@ export function ShellSection({
       dbName: t.dbName,
       value: true,
     });
-    setRevealRequest({ connectionId: t.connectionId, dbName: t.dbName, collection: t.collection });
+    setNavigatorRevealRequest({ connectionId: t.connectionId, dbName: t.dbName, collection: t.collection });
   };
 
   return (
@@ -230,8 +238,8 @@ export function ShellSection({
                 }}
                 onOpenReferences={onOpenReferences}
                 data={navigatorData}
-                revealRequest={revealRequest}
-                onRevealHandled={() => setRevealRequest(null)}
+                revealRequest={navigatorRevealRequest}
+                onRevealHandled={() => setNavigatorRevealRequest(null)}
                 dialogRequest={navigatorDialogRequest}
                 onDialogRequestHandled={onNavigatorDialogHandled}
               />

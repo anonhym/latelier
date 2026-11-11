@@ -53,7 +53,7 @@ import { confirmDeleteSaved, openSavedPipeline } from './Workspace/savedActions'
 import { requestFilter, requestTab, type FilterRequest } from './Workspace/tabRequest';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './Workspace/legacyBuilder';
 import { usePaletteOpen } from '../commands/paletteOpenState';
-import type { NavigatorDialogRequest } from './Workspace/DbCollectionNavigator';
+import type { NavigatorDialogRequest, NavigatorRevealInput } from './Workspace/DbCollectionNavigator';
 import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
 import { useFeatureHint } from '../hints/useFeatureHint';
@@ -974,6 +974,19 @@ function WorkspaceInner() {
     },
     [panelPrefsRef],
   );
+  // The navigator's Reveal: a tab's "Reveal in sidebar" asks for a collection,
+  // the palette's Reveal in navigator for a database on its own.
+  const [navigatorRevealRequest, setNavigatorRevealRequest] = React.useState<NavigatorRevealInput | null>(null);
+  const { dispatch: navigatorDispatch } = navigatorData;
+  const revealDatabase = React.useCallback(
+    (connectionId: string, dbName: string) => {
+      if (panelPrefsRef.current.sidebarCollapsed) panelPrefsRef.current.toggleSidebar();
+      navigatorDispatch({ type: 'expandedConnSet', id: connectionId });
+      navigatorDispatch({ type: 'dbExpandedSet', connectionId, dbName, value: true });
+      setNavigatorRevealRequest({ connectionId, dbName });
+    },
+    [panelPrefsRef, navigatorDispatch],
+  );
 
   // One Collection object per collection, and one Database object per
   // database, of every connected Connection (X07 §13.5), from what the
@@ -998,7 +1011,13 @@ function WorkspaceInner() {
       for (const d of cache.dbs) {
         objects.push(
           // eslint-disable-next-line react-hooks/refs
-          databaseObject({ connectionId, db: d.name, connectionName: conn.name, requestDialog: requestNavigatorDialog }),
+          databaseObject({
+            connectionId,
+            db: d.name,
+            connectionName: conn.name,
+            requestDialog: requestNavigatorDialog,
+            reveal: revealDatabase,
+          }),
         );
         for (const x of ownGet(cache.colls, d.name) ?? []) {
           objects.push(
@@ -1025,7 +1044,7 @@ function WorkspaceInner() {
     return objects;
     // `openConnections` is a fresh array each render: key on what it says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openConnectionsKey, navigatorTree.caches, tabsRef, showStructure, requestNavigatorDialog, connectionsRef, queryRunner.isRunning, startQuery]);
+  }, [openConnectionsKey, navigatorTree.caches, tabsRef, showStructure, requestNavigatorDialog, revealDatabase, connectionsRef, queryRunner.isRunning, startQuery]);
   useRegisterObjects(namespaceObjects, [namespaceObjects]);
 
   // Commands mirroring a control that had none (X07 §13.5), each gated as
@@ -1537,6 +1556,8 @@ function WorkspaceInner() {
         onOpenReferences={() => setRefEditorOpen(true)}
         navigatorDialogRequest={navigatorDialogRequest}
         onNavigatorDialogHandled={clearNavigatorDialog}
+        navigatorRevealRequest={navigatorRevealRequest}
+        setNavigatorRevealRequest={setNavigatorRevealRequest}
       />
 
       <PanelBody

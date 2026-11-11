@@ -484,7 +484,28 @@ describe('Database objects and the collections of every connected Connection', (
     expect(rowsOf('database')).toEqual([]);
   });
 
-  it('a database’s Enter opens the navigator’s Create collection, and `drop` its Drop database', async () => {
+  it('a database’s Enter reveals it in a collapsed navigator: expanded, its row focused', async () => {
+    const m = mount();
+    await listBoth(m);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
+    openPalette();
+    search('ordering');
+    fireEvent.keyDown(input(), { key: 'Tab' });
+    await waitFor(() => expect(rowsOf('database')).toHaveLength(1));
+    const row = within(screen.getByRole('dialog', { name: 'Command palette' }))
+      .getAllByRole('option')
+      .find((o) => o.getAttribute('data-kind') === 'database')!;
+    fireEvent.click(row);
+
+    const dbRow = await screen.findByTestId('nav-db-ordering');
+    await waitFor(() => expect(screen.getByRole('tree').getAttribute('aria-activedescendant')).toBe(dbRow.id));
+    // Expanded: its collections are drawn under it.
+    expect(await screen.findByTestId('nav-coll-ordering-carts')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'New collection — ordering' })).toBeNull();
+  });
+
+  it('a database’s action list opens the navigator’s Create collection, and `drop` lists its Drop database', async () => {
     const m = mount();
     await listBoth(m);
     openPalette();
@@ -494,7 +515,9 @@ describe('Database objects and the collections of every connected Connection', (
     const row = within(screen.getByRole('dialog', { name: 'Command palette' }))
       .getAllByRole('option')
       .find((o) => o.getAttribute('data-kind') === 'database')!;
-    fireEvent.click(row);
+    fireEvent.mouseEnter(row);
+    fireEvent.keyDown(input(), { key: 'Enter', altKey: true });
+    fireEvent.click(await screen.findByRole('option', { name: /Create collection…/ }));
     expect(await screen.findByRole('dialog', { name: 'New collection — ordering' })).toBeTruthy();
 
     openPalette();
