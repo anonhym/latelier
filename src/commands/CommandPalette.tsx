@@ -36,6 +36,7 @@ import {
   type RowEntry,
   type Scope,
   type VerbEntry,
+  failureTitle,
 } from './layout';
 import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
@@ -260,6 +261,20 @@ function Switch({ checked }: { checked: boolean }) {
     </span>
   );
 }
+
+/** The failure toast's look, from its artboard: an error icon and a red border. */
+const FAILURE_TOAST = {
+  icon: (
+    <Svg size={18}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16h.01" />
+    </Svg>
+  ),
+  styles: {
+    root: { border: '1px solid var(--atelier-red-border)' },
+    icon: { background: 'transparent', color: 'var(--atelier-red)' },
+  },
+};
 
 const ACTION_TAG: React.CSSProperties = {
   fontSize: 'var(--atelier-fs-sm)',
@@ -765,6 +780,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       } catch (e) {
         notify.error(getErrorMessage(e, 'The command failed.'), {
           title: `Couldn't run "${title}"`,
+          ...FAILURE_TOAST,
         });
       }
     },
@@ -795,7 +811,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       return;
     }
     // Every action of an object bumps the object.
-    performAndClose(obj.id, action.perform, `${action.title} ${obj.name}`);
+    performAndClose(obj.id, action.perform, failureTitle(obj.kind, action));
   };
 
   const openActions = (obj: PaletteObject) => {
@@ -806,7 +822,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     if (!step) return;
     const { obj, action, step: s } = step;
     const choose = entry.type === 'field' ? () => s.chooseField(entry.field) : () => s.chooseStarter(entry.id);
-    performAndClose(obj.id, choose, `${action.title} ${obj.name}`);
+    performAndClose(obj.id, choose, failureTitle(obj.kind, action));
   };
   const closeStep = () => {
     setStep(null);

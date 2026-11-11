@@ -12,6 +12,7 @@ import {
   actionList,
   asideFor,
   cycleScope,
+  failureTitle,
   fieldStepHints,
   fieldStepList,
   footerHints,
@@ -23,7 +24,7 @@ import {
   type RowEntry,
 } from '../../src/commands/layout';
 import { objectRow } from '../../src/commands/registry';
-import type { Command, ObjectAction, PaletteContext, PaletteObject } from '../../src/commands/types';
+import type { Command, ObjectAction, ObjectKind, PaletteContext, PaletteObject } from '../../src/commands/types';
 
 const ctx: PaletteContext = { pathname: '/workspace', connectionId: 'c1' };
 
@@ -590,5 +591,74 @@ describe('the field step', () => {
     });
     expect(fieldStepHints(starter).left[0]).toEqual({ keys: '↵', label: 'Add "Last 7 days" to the filter (nothing runs)' });
     expect(fieldStepHints(undefined)).toEqual({ left: [{ keys: 'esc', label: 'Back to actions' }], right: [] });
+  });
+});
+
+describe('failureTitle', () => {
+  const title = (kind: ObjectKind, t: string, verb = 'x') =>
+    failureTitle(kind, { id: 'a', verb, title: t, perform: () => {} });
+
+  it('names the kind after the verb of every action the palette registers', () => {
+    expect(
+      (
+        [
+          ['collection', 'Open', 'open'],
+          ['collection', 'Open in new tab', 'open'],
+          ['collection', 'Query…', 'query'],
+          ['collection', 'Filter by field…', 'filter'],
+          ['collection', 'Aggregate', 'aggregate'],
+          ['collection', 'Schema', 'schema'],
+          ['collection', 'Indexes', 'indexes'],
+          ['collection', 'Export…', 'export'],
+          ['collection', 'Import…', 'import'],
+          ['collection', 'Rename…', 'rename'],
+          ['collection', 'Drop collection…', 'delete'],
+          ['database', 'Reveal in navigator', 'reveal'],
+          ['database', 'Create collection…', 'create'],
+          ['database', 'Drop database…', 'delete'],
+          ['connection', 'Open', 'open'],
+          ['connection', 'Edit', 'edit'],
+          ['connection', 'Disconnect', 'disconnect'],
+          ['connection', 'Delete…', 'delete'],
+          ['tab', 'Switch to', 'open'],
+          ['tab', 'Close', 'close'],
+          ['tab', 'Unpin', 'pin'],
+          ['saved', 'Open', 'open'],
+          ['saved', 'Run', 'run'],
+          ['saved', 'Delete…', 'delete'],
+        ] as const
+      ).map(([kind, t, verb]) => title(kind, t, verb)),
+    ).toEqual([
+      'Open collection',
+      'Open in new tab',
+      'Query collection…',
+      'Filter collection by field…',
+      'Aggregate collection',
+      'Open collection schema',
+      'Open collection indexes',
+      'Export collection…',
+      'Import collection…',
+      'Rename collection…',
+      'Drop collection…',
+      'Reveal database in navigator',
+      'Create collection…',
+      'Drop database…',
+      'Open connection',
+      'Edit connection',
+      'Disconnect connection',
+      'Delete connection…',
+      'Switch to tab',
+      'Close tab',
+      'Unpin tab',
+      'Open saved query',
+      'Run saved query',
+      'Delete saved query…',
+    ]);
+  });
+
+  it('reads a kind word only as a whole word, in any case', () => {
+    expect(title('collection', 'Tabulate')).toBe('Tabulate collection');
+    expect(title('collection', 'Copy to TAB')).toBe('Copy to TAB');
+    expect(title('tab', 'Go into')).toBe('Go tab into');
   });
 });

@@ -352,6 +352,42 @@ export function actionList(obj: PaletteObject, query: string, ctx: PaletteContex
   return out;
 }
 
+/** The kind an action acts on, as the failure toast names it. */
+const KIND_NOUN: Record<ObjectKind, string> = {
+  collection: 'collection',
+  database: 'database',
+  connection: 'connection',
+  tab: 'tab',
+  saved: 'saved query',
+};
+
+/** Words that already name what an action acts on: `Drop collection…`, `Open in new tab`. */
+const NOUN_WORD = /\b(collection|database|connection|tab)\b/i;
+
+/** Actions titled with a noun, not a verb: what they do is open it. */
+const NOUN_TITLED = new Set(['schema', 'indexes']);
+
+/**
+ * An object action's title as the failure toast names it (X07 §13.3,
+ * `Couldn't run "Export collection…"`): the title with the kind it acts on
+ * put after its verb. A title that names a kind already reads as it is.
+ */
+export function failureTitle(kind: ObjectKind, action: ObjectAction): string {
+  const { title } = action;
+  if (NOUN_WORD.test(title)) return title;
+  const noun = KIND_NOUN[kind];
+  if (NOUN_TITLED.has(action.verb)) return `Open ${noun} ${title.toLowerCase()}`;
+  const ellipsis = title.endsWith('…') ? '…' : '';
+  const base = title.slice(0, title.length - ellipsis.length);
+  const space = base.indexOf(' ');
+  // `Switch to` takes its noun after the preposition.
+  const named =
+    space === -1 || base.endsWith(' to')
+      ? `${base} ${noun}`
+      : `${base.slice(0, space)} ${noun}${base.slice(space)}`;
+  return named + ellipsis;
+}
+
 /** The action list's footer. */
 export const ACTION_LIST_HINTS: FooterHints = {
   left: [
