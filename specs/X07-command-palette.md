@@ -442,7 +442,7 @@ Recency is a tie-break inside a class, never a class of its own once a query is 
 
 **Highlight.** The ranker returns the matched character ranges with each row, and the row renders them emphasised.
 
-**Pasted `_id`.** When the whole query is 24 hexadecimal characters, alone or wrapped as `ObjectId("…")`, and a collection tab is in front, the first row is `Find _id <value> in <db>.<coll>`. Performing it sets that tab's filter to the `_id` and runs it, as one step of the builder's own undo history, so Undo puts the previous filter back. With no collection tab in front the row is absent.
+**Pasted `_id`.** When the whole query is 24 hexadecimal characters, alone or wrapped as `ObjectId("…")`, and a collection tab is in front, the first row is `Find _id <value> in <db>.<coll>`. Performing it sets that tab's filter to the `_id` and runs it, as one step of the builder's own undo history, so Undo puts the previous filter back. With no collection tab in front the row is absent, and it is listed in All only.
 
 **Failures.** Supersedes the "no toast" rule in §6 and the wording in §8: a `perform` that throws or rejects shows one error toast naming the command, in every build. The palette still closes first.
 
@@ -480,7 +480,7 @@ Connection objects appear in All only.
 - **Show more.** In All, the line under a capped kind reads `Show <n> more collections` (`… more saved`, `… more tabs`), in the accent colour.
 - **Row limit line.** Under a scope's list, fixed outside the scrolling area: `Showing the best 50 · keep typing to narrow <n> more`.
 - **Footer.** A bar of key hints for the highlighted row, changing with the state:
-  - object row: `↵ Open`, `⌘↵ Open in new tab` (only when it has an alternate), `⌥↵ Actions`; on an empty query in All also `⌘P Collections` at the right; in a single scope `⇧Tab All` at the right;
+  - object row: `↵ Open`, `⌘↵ Open in new tab` (only when it has an alternate), `⌥↵ Actions`; on an empty query in All also `⌘P Collections` at the right; in a single scope `⇧Tab <the scope Shift+Tab goes to>` at the right (`⇧Tab All` from Collections);
   - action list: `↵ Run action`, `esc Back to results`, `← Back, on an empty input`;
   - verb in the query: `↵ <action title>` with `(opens its confirm dialog)` for a destructive one, and `⌥↵ All actions`;
   - verb alone: `↵ Switch scope`, and `Keep typing a name: open shop.or` with the verb typed;
