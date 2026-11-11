@@ -530,6 +530,7 @@ export function PanelBody({
                       darkMode={dark}
                       sourceCount={null}
                       onPatch={patchAggregation}
+                      tabId={collection.tab.id}
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="structure" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>

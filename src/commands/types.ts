@@ -110,6 +110,8 @@ export interface PaletteObject {
   /** Shown as the row title and matched as the match text. */
   name: string;
   subtitle?: string;
+  /** What the row's tag reads, at its right (`Open tab`, `Query`); shown instead of `Recent`. */
+  tag?: string;
   keywords?: string[];
   /** The first action is the default, performed on Enter. */
   actions: ObjectAction[];

@@ -181,6 +181,29 @@ describe('asideFor', () => {
   });
 });
 
+describe('asideFor — an object’s own tag', () => {
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const tab = objectRow({ id: 'tab:t1', kind: 'tab', name: 'orders', tag: 'Open tab', actions: [act('Switch to', 'open')] });
+
+  it('shows the tag instead of Recent, and under RECENT where its kind has no tag', () => {
+    expect(asideFor(row(tab, true), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+    expect(asideFor(row(tab), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+    expect(asideFor(row(tab, true), 'tab', true)).toEqual({ type: 'tag', label: 'Open tab' });
+  });
+
+  it('gives way to the kind tag under RECENT and to a verb’s action', () => {
+    const tagged = { ...coll('o'), object: { ...coll('o').object!, tag: 'X' } };
+    expect(asideFor(row(tagged, true), 'collection', true)).toEqual({ type: 'tag', label: 'Collection' });
+    const action = act('Close', 'close');
+    expect(asideFor({ ...row(tab), action }, 'tab', false)).toEqual({ type: 'action', label: 'Close', destructive: false });
+  });
+
+  it('comes before a shortcut', () => {
+    const c = { ...tab, shortcut: '⌘1' };
+    expect(asideFor(row(c), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+  });
+});
+
 describe('layoutPalette — empty query in All', () => {
   it('lists RECENT, then the command groups in their fixed order, with no counts', () => {
     const all = [

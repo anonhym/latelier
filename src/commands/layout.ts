@@ -130,13 +130,14 @@ export interface Layout {
   verb: ParsedVerb | null;
 }
 
-/** The row's right-hand side: a switch, then a kind tag under RECENT, the shortcut, `Recent`. */
+/** The row's right-hand side: a switch, then a kind tag under RECENT, the object's tag, the shortcut, `Recent`. */
 export function asideFor(row: RankedRow, kind: RowKind, underRecent: boolean): Aside {
   const { cmd, action } = row;
   if (action) return { type: 'action', label: action.title, destructive: action.destructive === true };
   if (cmd.toggle) return { type: 'switch', checked: cmd.toggle.checked };
   const kindTag = RECENT_KIND_TAG[kind];
   if (underRecent && kindTag) return { type: 'tag', label: kindTag };
+  if (cmd.object?.tag) return { type: 'tag', label: cmd.object.tag };
   if (cmd.shortcut) return { type: 'key', keys: cmd.shortcut };
   if (row.recent && !underRecent) return { type: 'tag', label: 'Recent' };
   return null;

@@ -15,7 +15,7 @@ import { buildUpdateRequest, setAtSegments } from './Workspace/documentDiff';
 import { copyToClipboard } from '../utils/clipboard';
 import { BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
-import type { CollectionView } from '@shared/types';
+import type { CollectionView, SavedQuerySummary } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
 import { useReferenceRules } from '../features/references/useReferenceRules';
 import { useReferenceDrawer } from './Workspace/useReferenceDrawer';
@@ -47,7 +47,12 @@ import { useRegisterCommands } from '../commands/useRegisterCommands';
 import { useRegisterObjects } from '../commands/useRegisterObjects';
 import type { PaletteObject } from '../commands/types';
 import { collectionObject } from './Workspace/collectionObject';
-import { closeTabGuarded } from './Workspace/tabActions';
+import { databaseObject, isPaletteSaved, savedObject, tabObject } from './Workspace/paletteObjects';
+import { activateTab, closeTabGuarded, tabLabel } from './Workspace/tabActions';
+import { confirmDeleteSaved, openSavedPipeline } from './Workspace/savedActions';
+import { requestTab } from './Workspace/tabRequest';
+import { hydrateFindPayload, type LegacySavedFindPayload } from './Workspace/legacyBuilder';
+import { usePaletteOpen } from '../commands/paletteOpenState';
 import type { NavigatorDialogRequest } from './Workspace/DbCollectionNavigator';
 import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
@@ -205,6 +210,7 @@ function WorkspaceInner() {
   // initial Connections fetch have settled.
   const initialLoadPending = !prefsReady || connectionsLoading;
   const openConnections = connections.filter((c) => c.status === 'connected');
+  const openConnectionsKey = openConnections.map((c) => `${c.id}\u0000${c.name}`).join('\u0001');
   const anyConnectionOpen = openConnections.length > 0;
   // "New script"/new-tab picker need a Connection with no tab open to name one;
   // fall back to the sole open Connection when unambiguous, else stay inert.
@@ -935,15 +941,6 @@ function WorkspaceInner() {
     relists,
     navigatorTree.expanded,
   ]);
-  // A disconnected Connection's cache is a snapshot that can't be opened from.
-  const paletteCollections = React.useMemo(() => {
-    const c = focusedCache;
-    if (!focusedIsConnected || !c?.dbs) return [];
-    return c.dbs.flatMap((d) =>
-      (ownGet(c.colls, d.name) ?? []).map((x) => ({ db: d.name, coll: x.name, isView: x.type === 'view' })),
-    );
-  }, [focusedCache, focusedIsConnected]);
-
   // A collection dialog the navigator owns (Rename, Import, Drop), opened from
   // the palette. The navigator is unmounted while the sidebar is collapsed, so
   // the sidebar opens first: the dialog is the navigator's own.
@@ -958,31 +955,115 @@ function WorkspaceInner() {
     [panelPrefsRef],
   );
 
-  // One Collection object per collection of the focused Connection (X07
-  // §13.4). Each action calls what the navigator's menu or the tab calls.
-  const focusedName = focusedConnection?.name;
-  const collectionObjects = React.useMemo((): PaletteObject[] => {
-    const connectionId = focusedConnectionId;
-    if (!connectionId) return [];
+  // One Collection object per collection, and one Database object per
+  // database, of every connected Connection (X07 §13.5), from what the
+  // navigator has already listed: the sweep above lists the focused one, and
+  // the palette asks nothing for the others. A Connection that is not
+  // connected contributes nothing; its cache is a snapshot that can't be
+  // opened from. Each action calls what the navigator's menu or the tab calls.
+  const connectionsRef = useLatest(connections);
+  const namespaceObjects = React.useMemo((): PaletteObject[] => {
     // Read when an action runs, never during render.
     const tabs = () => tabsRef.current;
-    // eslint-disable-next-line react-hooks/refs
-    return paletteCollections.map(({ db, coll, isView }) =>
-      collectionObject({
-        connectionId,
-        db,
-        coll,
-        isView,
-        connectionName: focusedName,
-        tabs,
-        showStructure,
-        requestDialog: requestNavigatorDialog,
-        dormant: () => isKnownNotConnected(focusedConnectionRef.current),
-        running: queryRunner.isRunning,
-      }),
-    );
-  }, [paletteCollections, focusedConnectionId, focusedName, tabsRef, showStructure, requestNavigatorDialog, focusedConnectionRef, queryRunner.isRunning]);
-  useRegisterObjects(collectionObjects, [collectionObjects]);
+    const objects: PaletteObject[] = [];
+    for (const conn of openConnections) {
+      const cache = ownGet(navigatorTree.caches, conn.id);
+      if (!cache?.dbs) continue;
+      const connectionId = conn.id;
+      for (const d of cache.dbs) {
+        objects.push(
+          // eslint-disable-next-line react-hooks/refs
+          databaseObject({ connectionId, db: d.name, connectionName: conn.name, requestDialog: requestNavigatorDialog }),
+        );
+        for (const x of ownGet(cache.colls, d.name) ?? []) {
+          objects.push(
+            // eslint-disable-next-line react-hooks/refs
+            collectionObject({
+              connectionId,
+              db: d.name,
+              coll: x.name,
+              isView: x.type === 'view',
+              connectionName: conn.name,
+              tabs,
+              showStructure,
+              requestDialog: requestNavigatorDialog,
+              // This Connection, not the focused one: read when an action runs.
+              dormant: () => isKnownNotConnected(connectionsRef.current.find((c) => c.id === connectionId)),
+              running: queryRunner.isRunning,
+            }),
+          );
+        }
+      }
+    }
+    return objects;
+    // `openConnections` is a fresh array each render: key on what it says.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openConnectionsKey, navigatorTree.caches, tabsRef, showStructure, requestNavigatorDialog, connectionsRef, queryRunner.isRunning]);
+  useRegisterObjects(namespaceObjects, [namespaceObjects]);
+
+  // Commands mirroring a control that had none (X07 §13.5), each gated as
+  // that control is shown or disabled and calling that control's handler.
+  const scratchConnectionIdRef = useLatest(scratchConnectionId);
+  useRegisterCommands(
+    [
+      {
+        // The tab strip's `+ Script`, which names no Connection when none is
+        // focused and several are open.
+        id: 'tab.new.script',
+        title: 'New script tab',
+        group: 'workspace',
+        keywords: ['mongosh', 'shell', 'javascript'],
+        when: (ctx) => ctx.pathname === '/workspace',
+        disabledReason: () => (scratchConnectionIdRef.current ? null : 'Open a tab on the Connection first'),
+        perform: () => {
+          const connectionId = scratchConnectionIdRef.current;
+          if (connectionId) void tabsRef.current.openScript({ connectionId });
+        },
+      },
+      {
+        // The navigator's database menu's Create collection, on the tab's database.
+        id: 'collection.create',
+        title: 'Create collection…',
+        group: 'workspace',
+        keywords: ['new', 'add'],
+        when: () => activeCollectionRef.current !== null,
+        perform: () => {
+          const a = activeCollectionRef.current;
+          if (a) requestNavigatorDialog({ connectionId: a.connectionId, dbName: a.dbName, dialog: 'createCollection' });
+        },
+      },
+      {
+        // The Run menu's Explain › queryPlanner, disabled when Run is.
+        id: 'query.explain',
+        title: 'Explain query',
+        group: 'query',
+        keywords: ['plan', 'index', 'performance'],
+        when: () =>
+          activeCollectionRef.current !== null &&
+          (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
+        disabledReason: () => {
+          const a = activeCollectionRef.current;
+          if (!a) return null;
+          if (queryRunner.isRunning(a.id)) return 'A query is running';
+          return findProblem(a.state);
+        },
+        perform: () => {
+          const a = activeCollectionRef.current;
+          if (a) requestTab('explain', a.id);
+        },
+      },
+      {
+        // The Indexes section's `+ New index`.
+        id: 'index.create',
+        title: 'Create index…',
+        group: 'view',
+        keywords: ['new', 'add', 'structure'],
+        when: () => activeCollectionRef.current !== null,
+        perform: () => openCreateIndex(null),
+      },
+    ],
+    [requestNavigatorDialog, openCreateIndex, queryRunner.isRunning],
+  );
 
   // `⌘K`, paste a document's `_id`: filter the tab in front to it. The row
   // exists only for that query, and only with a collection tab in front.
@@ -1167,6 +1248,72 @@ function WorkspaceInner() {
     ],
     [refreshConnections],
   );
+
+  // One Tab object per open tab (X07 §13.5), with the tab strip's own
+  // handlers. Keyed on what the objects show, so a filter edit on a tab, which
+  // replaces the tab list, does not re-register them.
+  const tabObjectsKey = tabs.tabs
+    .map((tab) => [tab.id, tabLabel(tab), tab.connectionId, tab.kind === 'collection' ? tab.dbName : '', tab.pinned].join('\u0000'))
+    .join('\u0001');
+  const connectionNamesKey = connections.map((c) => `${c.id}\u0000${c.name}`).join('\u0001');
+  const tabObjects = React.useMemo(
+    (): PaletteObject[] =>
+      // eslint-disable-next-line react-hooks/refs
+      tabs.tabs.map((tab) =>
+        tabObject({
+          tab,
+          connectionName: connections.find((c) => c.id === tab.connectionId)?.name,
+          activate: (id) =>
+            activateTab(
+              {
+                tabs: tabsRef.current,
+                connections: connectionsRef.current,
+                recordSessionEvent: hints.recordSessionEvent,
+                openConnection,
+              },
+              id,
+            ),
+          close: (id) => closeTabGuarded(tabsRef.current, id),
+          setPinned: (id, pinned) => tabsRef.current.setPinned(id, pinned),
+        }),
+      ),
+    // Keyed on what the objects show, not on the tab list's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tabObjectsKey, connectionNamesKey, tabsRef, connectionsRef, hints.recordSessionEvent, openConnection],
+  );
+  useRegisterObjects(tabObjects, [tabObjects]);
+
+  // A saved query or pipeline (X07 §13.5): Open loads it into its
+  // collection's tab as the saved list's Run here does, Run runs it too; a
+  // pipeline opens as the saved list opens one.
+  const openSaved = React.useCallback(
+    async (saved: SavedQuerySummary, runIt: boolean) => {
+      const t = tabsRef.current;
+      if (saved.kind === 'aggregation') {
+        const tab = await openSavedPipeline(t, saved);
+        if (tab && runIt) requestTab('runPipeline', tab.id);
+        return;
+      }
+      const full = await api.saved.get({ id: saved.id });
+      const tab = await t.openCollection({
+        connectionId: saved.connectionId,
+        dbName: saved.dbName,
+        collection: saved.collection,
+        reuseExisting: true,
+      });
+      const patch = hydrateFindPayload(full.payload as unknown as LegacySavedFindPayload, tab.state.builder);
+      if ((tab.state.activeView ?? 'documents') !== 'documents') t.setActiveView(tab.id, 'documents');
+      // The draft belongs to the filter being replaced: drop it with it.
+      t.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
+      if (runIt) await run(patch, { ...tab, state: { ...tab.state, ...patch } });
+    },
+    [tabsRef, run],
+  );
+  const removeSaved = React.useCallback(async (saved: SavedQuerySummary) => {
+    if (!(await confirmDeleteSaved(saved))) return;
+    await api.saved.delete({ id: saved.id });
+    setSavedRefreshKey((n) => n + 1);
+  }, []);
 
   // Acts on an `openConnection` nav-state hint (from DetailPanel or the
   // command palette, both mounted where they can't reach this component
@@ -1381,8 +1528,58 @@ function WorkspaceInner() {
         savedCreateHint={savedCreateHint}
         runExecuteHint={runExecuteHint}
       />
+      <SavedPaletteObjects
+        connectionId={focusedConnectionId}
+        refreshKey={savedRefreshKey}
+        open={openSaved}
+        remove={removeSaved}
+      />
     </AppShell>
   );
+}
+
+/**
+ * One Saved object per saved query and pipeline of the focused Connection.
+ * The list is one local read each time the palette opens (X07 §13.7 rule 5),
+ * and again when a save or delete lands while it is open; never per
+ * keystroke, never while it is closed. Its own component, so the palette
+ * opening re-renders this and not the Workspace.
+ */
+function SavedPaletteObjects({
+  connectionId,
+  refreshKey,
+  open,
+  remove,
+}: {
+  connectionId: string | null;
+  refreshKey: number;
+  open: (saved: SavedQuerySummary, run: boolean) => Promise<void>;
+  remove: (saved: SavedQuerySummary) => Promise<void>;
+}) {
+  const paletteOpen = usePaletteOpen();
+  const [listed, setListed] = React.useState<{ connectionId: string; list: SavedQuerySummary[] } | null>(null);
+  React.useEffect(() => {
+    if (!paletteOpen || !connectionId) return;
+    let live = true;
+    api.saved.list({ connectionId }).then(
+      (list) => {
+        if (live) setListed({ connectionId, list: list.filter(isPaletteSaved) });
+      },
+      (err: unknown) => logFailure('listing saved queries for the palette', err),
+    );
+    return () => {
+      live = false;
+    };
+  }, [paletteOpen, connectionId, refreshKey]);
+  const objects = React.useMemo(
+    (): PaletteObject[] =>
+      listed && listed.connectionId === connectionId
+        ? listed.list.map((saved) => savedObject({ saved, open, remove }))
+        : [],
+    [listed, connectionId, open, remove],
+  );
+  useRegisterObjects(objects, [objects]);
+  return null;
 }
 
 export default function Workspace() {
