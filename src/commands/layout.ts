@@ -226,7 +226,7 @@ export function footerHints(scope: Scope, typed: boolean, entry: Entry | undefin
   const label = entry ? enterLabel(entry) : null;
   if (label) left.push({ keys: '↵', label });
   const right: KeyHint[] = [];
-  if (scope !== 'all') right.push({ keys: '⇧Tab', label: 'All' });
+  if (scope !== 'all') right.push({ keys: '⇧Tab', label: SCOPE_LABEL[cycleScope(scope, -1)] });
   else if (!typed) right.push({ keys: '⌘P', label: 'Collections' });
   return { left, right };
 }

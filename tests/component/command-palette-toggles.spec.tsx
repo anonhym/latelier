@@ -123,6 +123,33 @@ describe('a toggle', () => {
     await toggle();
     expect(recentHeader()).toBeTruthy();
   });
+  it('lets the cursor go back to the best row once the query changes', async () => {
+    mount();
+    await toggle();
+    fireEvent.click(option(/^Dark mode/));
+    await waitFor(() => expect(option(/^Dark mode/).getAttribute('aria-checked')).toBe('true'));
+    // The click put the cursor on the toggle; a new query is a new list.
+    fireEvent.change(input(), { target: { value: 'o' } });
+    await act(async () => {});
+    const first = ids()[0];
+    expect(option(/^Dark mode/).id).not.toBe(first);
+    expect(input().getAttribute('aria-activedescendant')).toBe(first);
+  });
+
+  it('enters the MRU behind a command performed later on the same open', async () => {
+    mount();
+    await toggle();
+    fireEvent.click(option(/^Dark mode/));
+    await waitFor(() => expect(option(/^Dark mode/).getAttribute('aria-checked')).toBe('true'));
+    fireEvent.change(input(), { target: { value: 'settings' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(set).toHaveBeenLastCalledWith(KEY, ['other', 'theme.toggle']));
+    await toggle();
+    fireEvent.change(input(), { target: { value: '' } });
+    const header = recentHeader()!;
+    const recent = within(header.parentElement!).getAllByRole('option').map((o) => o.querySelector('[data-title]')!.getAttribute('data-title'));
+    expect(recent).toEqual(['Open settings', 'Dark mode']);
+  });
 });
 
 describe('an unavailable command', () => {
@@ -133,6 +160,13 @@ describe('an unavailable command', () => {
     expect(row.getAttribute('aria-disabled')).toBe('true');
     expect(row.querySelector('[data-subtitle]')!.textContent).toBe('Type a filter first');
     expect(row.getAttribute('style')).toContain('--atelier-text-ghost');
+  });
+
+  it('shows no accent emphasis on a matched greyed row', async () => {
+    mount();
+    await toggle();
+    fireEvent.change(input(), { target: { value: 'copy' } });
+    expect(option(/^Copy MQL/).querySelector('[data-match]')).toBeNull();
   });
 
   it('does nothing on Enter or a click, keeps the palette open, and never enters the MRU', async () => {

@@ -305,9 +305,12 @@ describe('layoutPalette — a single scope', () => {
     expect(l.counts).toBeNull();
   });
 
-  it('never lists the row built from the query', () => {
+  it('never lists the row built from the query: it is in All only', () => {
     const pasted = cmd({ id: 'q', forQuery: (q) => ({ title: q, subtitle: '', emphasis: q, perform: () => {} }) });
-    expect(layoutPalette([pasted], 'abc', ctx, [], 'actions').entries).toEqual([]);
+    for (const scope of ['collections', 'actions', 'saved', 'tabs'] as const) {
+      expect(layoutPalette([pasted, coll('abc')], 'abc', ctx, [], scope).entries.some((e) => e.id === 'q')).toBe(false);
+    }
+    expect(layoutPalette([pasted], 'abc', ctx, [], 'all').entries.map((e) => e.id)).toEqual(['q']);
   });
 });
 
@@ -340,11 +343,12 @@ describe('footerHints', () => {
     expect(left(more)).toEqual([{ keys: '↵', label: 'Switch scope' }]);
   });
 
-  it('offers ⌘P on an empty query in All, and ⇧Tab back to All in a scope', () => {
+  it('offers ⌘P on an empty query in All, and in a scope ⇧Tab naming the scope it goes to', () => {
     expect(footerHints('all', false, undefined).right).toEqual([{ keys: '⌘P', label: 'Collections' }]);
     expect(footerHints('all', true, undefined).right).toEqual([]);
     expect(footerHints('collections', false, undefined).right).toEqual([{ keys: '⇧Tab', label: 'All' }]);
-    expect(footerHints('tabs', true, undefined).right).toEqual([{ keys: '⇧Tab', label: 'All' }]);
+    expect(footerHints('actions', true, undefined).right).toEqual([{ keys: '⇧Tab', label: 'Collections' }]);
+    expect(footerHints('tabs', true, undefined).right).toEqual([{ keys: '⇧Tab', label: 'Saved' }]);
   });
 });
 

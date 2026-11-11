@@ -882,3 +882,17 @@ describe('rankCommands — corners the mutants found', () => {
     expect(groupRows(ranked).map((g) => g.key)).toEqual(['pasted', 'workspace', 'view']);
   });
 });
+
+describe('initials ranges', () => {
+  it('emphasises the first letter of each word an initials match reads', () => {
+    const coll = make({ id: 'tab.open:c1:ops:retention_daily', title: 'Open: ops.retention_daily', matchText: 'ops.retention_daily' });
+    const [row] = rankCommands([coll], 'ord', ctx, []);
+    expect(row!.cls).toBe('initials');
+    expect(row!.ranges).toEqual([
+      [0, 1],
+      [4, 5],
+      [14, 15],
+    ]);
+  });
+});
+

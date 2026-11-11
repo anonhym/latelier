@@ -300,7 +300,8 @@ function RowView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { en
       ) : (
         <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span data-title={displayText(cmd)}>
-            <Highlighted text={displayText(cmd)} ranges={row.ranges} />
+            {/* A greyed row is all in the ghost colour: no accent emphasis. */}
+            <Highlighted text={displayText(cmd)} ranges={disabled === null ? row.ranges : []} />
           </span>
           {subtitle && (
             <span
@@ -417,16 +418,23 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   const optionId = (entry: Entry) => `${listId}-opt-${entry.id}`;
 
   // A new query or scope is a new list: the cursor goes back to the top.
-  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, `${scope}\u0000${query}`);
+  const listKey = `${scope}\u0000${query}`;
+  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey);
 
-  // A toggle keeps the cursor on its row even when re-registering moves it.
-  const followRef = React.useRef<string | null>(null);
+  // A toggle keeps the cursor on its row even when re-registering moves it,
+  // for as long as the list is the one it was toggled in: a new query or
+  // scope puts the cursor back on the best row.
+  const followRef = React.useRef<{ id: string; listKey: string } | null>(null);
   React.useEffect(() => {
-    const id = followRef.current;
-    if (id === null) return;
-    const at = entries.findIndex((e) => e.type === 'row' && e.id === id);
+    const follow = followRef.current;
+    if (follow === null) return;
+    if (follow.listKey !== listKey) {
+      followRef.current = null;
+      return;
+    }
+    const at = entries.findIndex((e) => e.type === 'row' && e.id === follow.id);
     if (at !== -1 && at !== safeCursor) setIndex(at);
-  }, [entries, safeCursor, setIndex]);
+  }, [entries, safeCursor, setIndex, listKey]);
   const setCursor = (index: number) => {
     followRef.current = null;
     setIndex(index);
@@ -488,12 +496,16 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     if (entry.disabled !== null) return;
     const { cmd } = entry;
     if (cmd.toggle) {
-      followRef.current = cmd.id;
+      followRef.current = { id: cmd.id, listKey };
       toggledRef.current.add(cmd.id);
       void run(cmd);
       return;
     }
     onClose();
+    // Toggles flipped on this open go in first, so the command performed now
+    // ends up the most recent.
+    for (const id of toggledRef.current) recordRecent(id);
+    toggledRef.current.clear();
     // A row built from the query is not a command to come back to.
     if (!cmd.forQuery) recordRecent(cmd.id);
     void run(cmd);

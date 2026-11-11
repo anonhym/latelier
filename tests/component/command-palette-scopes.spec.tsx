@@ -197,7 +197,7 @@ describe('a single scope', () => {
     expect(dialog().getByText('No matches for "orders"')).toBeTruthy();
   });
 
-  it('offers ⇧Tab back to All in the footer', () => {
+  it('offers ⇧Tab in the footer, naming the scope it goes to', () => {
     mount(many(2));
     open('orders');
     const footer = () => screen.getByRole('dialog').querySelector('[data-palette-footer]')!.textContent;
@@ -205,6 +205,8 @@ describe('a single scope', () => {
     expect(footer()).not.toContain('All');
     press('Tab');
     expect(footer()).toMatch(/Tab\s*All$/);
+    press('Tab');
+    expect(footer()).toMatch(/Tab\s*Collections$/);
   });
 });
 
