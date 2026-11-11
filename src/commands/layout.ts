@@ -49,6 +49,9 @@ export const KIND_LAYOUT: Record<
   action: { group: 'Actions', noun: 'actions', one: 'action', scope: 'actions' },
 };
 
+/** The order of the kinds' groups in All on a typed query, as the agreed artboards draw them. */
+export const KIND_ORDER: readonly RowKind[] = ['collection', 'database', 'tab', 'saved', 'connection', 'action'];
+
 /** The tag naming a row's kind under RECENT. */
 const RECENT_KIND_TAG: Partial<Record<RowKind, string>> = {
   collection: 'Collection',
@@ -130,13 +133,14 @@ export interface Layout {
   verb: ParsedVerb | null;
 }
 
-/** The row's right-hand side: a switch, then a kind tag under RECENT, the shortcut, `Recent`. */
+/** The row's right-hand side: a switch, then a kind tag under RECENT, the object's tag, the shortcut, `Recent`. */
 export function asideFor(row: RankedRow, kind: RowKind, underRecent: boolean): Aside {
   const { cmd, action } = row;
   if (action) return { type: 'action', label: action.title, destructive: action.destructive === true };
   if (cmd.toggle) return { type: 'switch', checked: cmd.toggle.checked };
   const kindTag = RECENT_KIND_TAG[kind];
   if (underRecent && kindTag) return { type: 'tag', label: kindTag };
+  if (cmd.object?.tag) return { type: 'tag', label: cmd.object.tag };
   if (cmd.shortcut) return { type: 'key', keys: cmd.shortcut };
   if (row.recent && !underRecent) return { type: 'tag', label: 'Recent' };
   return null;
@@ -267,7 +271,12 @@ export function layoutPalette(
   }
 
   if (ranked.fromQuery.length > 0) addGroup('pasted', QUERY_ROW_LABEL, ranked.fromQuery);
-  for (const bucket of ranked.buckets) {
+  // A fixed kind order on a typed query, so the groups do not reshuffle
+  // between keystrokes; each group keeps its rank order (X07 §13.2).
+  const byKind = [...ranked.buckets].sort(
+    (a, b) => KIND_ORDER.indexOf(a.key as RowKind) - KIND_ORDER.indexOf(b.key as RowKind),
+  );
+  for (const bucket of byKind) {
     const kind = bucket.key as RowKind;
     addMore(addGroup(kind, KIND_LAYOUT[kind].group, bucket.rows), kind, bucket.total - bucket.rows.length);
   }

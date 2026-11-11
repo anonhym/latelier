@@ -10,7 +10,7 @@ import { notify } from '../../theme/notifications';
 import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
 import { FieldsControl } from './FieldsControl';
 import { ExportDialog } from './ExportDialog';
-import { consumeExport, exportRequested, subscribeExport } from './exportRequest';
+import { consumeTabRequest, tabRequested, subscribeTabRequests } from './tabRequest';
 import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import { useFindExplain } from './useFindExplain';
 import { summarizeExplain } from '../../utils/explainSummary';
@@ -78,10 +78,10 @@ export function ResultBar() {
 
   // The palette's Export… on this tab: the palette has already checked the
   // tab has documents to export, so this only opens the dialog, once.
-  const requested = React.useSyncExternalStore(subscribeExport, () => exportRequested(meta.tabId));
+  const requested = React.useSyncExternalStore(subscribeTabRequests, () => tabRequested('export', meta.tabId));
   React.useEffect(() => {
     if (!requested) return;
-    consumeExport(meta.tabId);
+    consumeTabRequest('export', meta.tabId);
     // Acts on an external one-shot request, once.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setExportOpen(true);

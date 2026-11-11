@@ -5,6 +5,7 @@ import {
   ALL_CAP,
   HISTORY_CAP,
   KIND_LAYOUT,
+  KIND_ORDER,
   SCOPE_LABEL,
   SCOPES,
   SCOPE_CAP,
@@ -181,6 +182,29 @@ describe('asideFor', () => {
   });
 });
 
+describe('asideFor — an object’s own tag', () => {
+  const row = (c: Command, recent = false) => ({ cmd: c, recent, cls: null, ranges: [] });
+  const tab = objectRow({ id: 'tab:t1', kind: 'tab', name: 'orders', tag: 'Open tab', actions: [act('Switch to', 'open')] });
+
+  it('shows the tag instead of Recent, and under RECENT where its kind has no tag', () => {
+    expect(asideFor(row(tab, true), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+    expect(asideFor(row(tab), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+    expect(asideFor(row(tab, true), 'tab', true)).toEqual({ type: 'tag', label: 'Open tab' });
+  });
+
+  it('gives way to the kind tag under RECENT and to a verb’s action', () => {
+    const tagged = { ...coll('o'), object: { ...coll('o').object!, tag: 'X' } };
+    expect(asideFor(row(tagged, true), 'collection', true)).toEqual({ type: 'tag', label: 'Collection' });
+    const action = act('Close', 'close');
+    expect(asideFor({ ...row(tab), action }, 'tab', false)).toEqual({ type: 'action', label: 'Close', destructive: false });
+  });
+
+  it('comes before a shortcut', () => {
+    const c = { ...tab, shortcut: '⌘1' };
+    expect(asideFor(row(c), 'tab', false)).toEqual({ type: 'tag', label: 'Open tab' });
+  });
+});
+
 describe('layoutPalette — empty query in All', () => {
   it('lists RECENT, then the command groups in their fixed order, with no counts', () => {
     const all = [
@@ -295,6 +319,34 @@ describe('layoutPalette — typed query in All', () => {
       ['tab.open:c1:shop:orders2', { type: 'tag', label: 'Recent' }],
       ['tab.open:c1:shop:orders1', null],
     ]);
+  });
+});
+
+describe('layoutPalette — the kind order in All on a typed query', () => {
+  const obj = (kind: PaletteObject['kind'], name: string): Command =>
+    objectRow({ id: `${kind}:${name}`, kind, name, actions: [act('Open', 'open')] });
+
+  it('draws Collections, Databases, Tabs, Saved, Connections, Actions, whichever matches best', () => {
+    const all = [
+      cmd({ id: 'a', title: 'orders' }),
+      obj('connection', 'orders'),
+      obj('saved', 'orders'),
+      obj('tab', 'orders'),
+      obj('database', 'orders x'),
+      obj('collection', 'shop.reorders'),
+    ];
+    const l = layoutPalette(all, 'orders', ctx, [], 'all');
+    expect(l.groups.map((g) => g.key)).toEqual(['collection', 'database', 'tab', 'saved', 'connection', 'action']);
+    expect(KIND_ORDER).toEqual(['collection', 'database', 'tab', 'saved', 'connection', 'action']);
+    // The cursor's first row is the first drawn, not the best match.
+    expect(l.entries[0]!.id).toBe('collection:shop.reorders');
+  });
+
+  it('leaves out empty kinds and keeps rank order inside each group', () => {
+    const all = [obj('tab', 'reorders'), obj('tab', 'orders'), cmd({ id: 'a', title: 'orders' })];
+    const l = layoutPalette(all, 'orders', ctx, [], 'all');
+    expect(l.groups.map((g) => g.key)).toEqual(['tab', 'action']);
+    expect(ids(l.groups[0]!.entries)).toEqual(['tab:orders', 'tab:reorders']);
   });
 });
 

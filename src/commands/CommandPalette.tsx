@@ -37,6 +37,7 @@ import {
 import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
+import { _resetPaletteOpenForTests, setPaletteOpen } from './paletteOpenState';
 import type { ObjectAction, PaletteContext, PaletteObject } from './types';
 
 const MRU_CAP = 8;
@@ -54,6 +55,7 @@ const [paletteStore, paletteControls] = createSpotlight();
 // eslint-disable-next-line react-refresh/only-export-components
 export function _resetPaletteStoreForTests(): void {
   _resetPaletteOpenerForTests();
+  _resetPaletteOpenForTests();
   paletteStore.setState({
     opened: false,
     empty: false,
@@ -1116,6 +1118,7 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
   const paletteOpenedCount = hints.getSessionEventCount('palette', 'opened');
   const discoverHint = useFeatureHint('palette.discover', paletteOpenedCount === 0);
   const { opened } = useSpotlight(paletteStore);
+  React.useEffect(() => setPaletteOpen(opened), [opened]);
 
   const openPalette = React.useCallback(() => {
     hints.recordSessionEvent('palette', 'opened');

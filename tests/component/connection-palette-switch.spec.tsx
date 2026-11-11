@@ -111,8 +111,8 @@ function paletteRow(name: string): HTMLElement | null {
 }
 
 /**
- * Opens the palette, types `open <name>` and performs the first row: the
- * Connection object, with its Open action (X07 §13.4). Choosing one adds a
+ * Opens the palette, types `open <name>` and performs the Connection
+ * object's row, with its Open action (X07 §13.4). Choosing one adds a
  * server rather than replacing the one you were on (X16.4 §4.6).
  */
 async function openViaPalette(name: string) {
@@ -120,7 +120,14 @@ async function openViaPalette(name: string) {
   fireEvent.change(screen.getByLabelText('Search commands'), {
     target: { value: `open ${name}` },
   });
-  await waitFor(() => expect(paletteRow(name)?.getAttribute('aria-selected')).toBe('true'));
+  await waitFor(() => expect(paletteRow(name)).toBeTruthy());
+  // Tabs of that Connection, matched by their subtitle, are drawn above the
+  // Connections group (X07 §13.2): move down to the Connection's row.
+  const search = screen.getByLabelText('Search commands');
+  for (let i = 0; i < 10 && paletteRow(name)?.getAttribute('aria-selected') !== 'true'; i++) {
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+  }
+  expect(paletteRow(name)?.getAttribute('aria-selected')).toBe('true');
   // Keyboard nav is bound to the search input, not the option row
   // (combobox pattern — see CommandPalette.tsx) — Enter is fired where a
   // real keyboard user would have focus.

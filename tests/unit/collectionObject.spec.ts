@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectionObject } from '../../src/pages/Workspace/collectionObject';
-import { _resetExportRequestForTests, exportRequested } from '../../src/pages/Workspace/exportRequest';
+import { _resetTabRequestsForTests, tabRequested } from '../../src/pages/Workspace/tabRequest';
 import type { WorkspaceTabsState } from '../../src/state/workspaceTabs';
 import type { PaletteContext } from '../../src/commands/types';
 import { notify } from '../../src/theme/notifications';
@@ -42,7 +42,7 @@ function build(
 
 const input = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
 
-afterEach(() => _resetExportRequestForTests());
+afterEach(() => _resetTabRequestsForTests());
 
 describe('collectionObject', () => {
   it('keeps the v1 row id and names the collection', () => {
@@ -106,8 +106,8 @@ describe('collectionObject', () => {
     await onDocs.action('export').perform(ctx);
     expect(onDocs.tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
     expect(onDocs.tabs.setActiveView).not.toHaveBeenCalled();
-    expect(exportRequested('t9')).toBe(true);
-    _resetExportRequestForTests();
+    expect(tabRequested('export', 't9')).toBe(true);
+    _resetTabRequestsForTests();
 
     const unset = build(false, undefined);
     await unset.action('export').perform(ctx);
@@ -116,7 +116,7 @@ describe('collectionObject', () => {
     const onStructure = build(false, 'structure');
     await onStructure.action('export').perform(ctx);
     expect(onStructure.tabs.setActiveView).toHaveBeenCalledWith('t9', 'documents');
-    expect(exportRequested('t9')).toBe(true);
+    expect(tabRequested('export', 't9')).toBe(true);
   });
 
   describe('Export… decides from the tab as it stands, and queues nothing it cannot open', () => {
@@ -131,14 +131,14 @@ describe('collectionObject', () => {
 
     it('asks for the dialog on a settled result with documents', async () => {
       const { info } = await exportWith();
-      expect(exportRequested('t9')).toBe(true);
+      expect(tabRequested('export', 't9')).toBe(true);
       expect(info).not.toHaveBeenCalled();
     });
 
     it('says the query matched nothing on a settled result of 0 documents', async () => {
       const { info } = await exportWith(false, 'documents', false, { ...docs, documents: [] });
       expect(info).toHaveBeenCalledWith('The query matched no documents, so there is nothing to export.');
-      expect(exportRequested('t9')).toBe(false);
+      expect(tabRequested('export', 't9')).toBe(false);
     });
 
     it.each([
@@ -150,7 +150,7 @@ describe('collectionObject', () => {
       const { info } = await exportWith(false, 'documents', false, lastRun, running);
       expect(info).toHaveBeenCalledWith(RUN_FIRST);
       expect(info).toHaveBeenCalledTimes(1);
-      expect(exportRequested('t9')).toBe(false);
+      expect(tabRequested('export', 't9')).toBe(false);
     });
 
     it('on a dormant Connection, opens the tab and says to connect', async () => {
@@ -158,7 +158,7 @@ describe('collectionObject', () => {
       expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
       expect(info).toHaveBeenCalledWith('Connect to Production first, then export.');
       expect(info).toHaveBeenCalledTimes(1);
-      expect(exportRequested('t9')).toBe(false);
+      expect(tabRequested('export', 't9')).toBe(false);
       expect(tabs.setActiveView).not.toHaveBeenCalled();
     });
   });

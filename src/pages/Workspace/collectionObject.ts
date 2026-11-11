@@ -1,7 +1,7 @@
 import type { PaletteObject } from '../../commands/types';
 import type { WorkspaceTabsState } from '../../state/workspaceTabs';
 import type { NavigatorDialogRequest } from './DbCollectionNavigator';
-import { requestExport } from './exportRequest';
+import { requestTab } from './tabRequest';
 import { notify } from '../../theme/notifications';
 
 /**
@@ -67,7 +67,7 @@ export function collectionObject(args: {
           const run = tab.state.lastRun;
           if (!run || run.error || args.running(tab.id)) notify.info('Run the query, then choose Export again');
           else if (run.documents.length === 0) notify.info('The query matched no documents, so there is nothing to export.');
-          else requestExport(tab.id);
+          else requestTab('export', tab.id);
         },
       },
       {

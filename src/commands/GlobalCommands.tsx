@@ -7,6 +7,7 @@ import { AuditLogModal } from '../pages/AuditLogModal';
 import { ActivityLogModal } from '../pages/ActivityLogModal';
 import { ShortcutsModal } from './ShortcutsModal';
 import { useRegisterCommands } from './useRegisterCommands';
+import type { PaletteContext } from './types';
 
 /**
  * Registers commands available from every route: theme toggle, settings,
@@ -121,6 +122,18 @@ export function GlobalCommands() {
         keywords: ['restore', 'file', 'transfer', 'load'],
         perform: () => transfer.openImport(),
       },
+      // The Connection screen's own tabs, for the Connection in context: the
+      // one being managed, else the focused tab's.
+      ...(['Monitor', 'Users', 'Roles'] as const).map((tab) => ({
+        id: `${tab.toLowerCase()}.open`,
+        title: `Open ${tab.toLowerCase()}`,
+        group: 'connection' as const,
+        keywords: ['connection', 'server'],
+        when: (ctx: PaletteContext) => ctx.connectionId !== null,
+        perform: (ctx: PaletteContext) => {
+          if (ctx.connectionId) void navigate(`/connections/${ctx.connectionId}`, { state: { detailTab: tab } });
+        },
+      })),
     ],
     [navigate, isDark, toggleTheme, settings, transfer],
   );

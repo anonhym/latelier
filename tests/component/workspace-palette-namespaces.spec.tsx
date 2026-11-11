@@ -224,12 +224,19 @@ describe('palette namespace rows', () => {
     await waitFor(() =>
       expect(listCollections.mock.calls.map(([a]) => a.connectionId)).toContain('c2'),
     );
+    // Both connected, both listed now: one row per Connection.
     openPalette();
     search('shop.orders');
-    await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
+    await waitFor(() => expect(openRows()).toEqual(['shop.orders', 'shop.orders']));
     search('');
 
-    expect(openRows()).toEqual([]);
+    // Only c1's was opened, so only c1's is recent.
+    expect(
+      within(screen.getByRole('dialog'))
+        .queryAllByRole('option')
+        .filter((o) => o.id.includes('-opt-tab.open:'))
+        .map((o) => o.id.slice(o.id.indexOf('tab.open:'))),
+    ).toEqual(['tab.open:c1:shop:orders']);
   });
 
   it('does not match every namespace on the letters of “Open”', async () => {
@@ -244,7 +251,7 @@ describe('palette namespace rows', () => {
     expect(openRows()).toEqual([]);
   });
 
-  it('lists only the focused connection’s namespaces', async () => {
+  it('lists no namespaces of another connection the navigator never listed, and asks it for none', async () => {
     const { listCollections, listDatabases } = mount();
     await settled(listCollections);
 

@@ -55,7 +55,7 @@ import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } 
 import { clearFilterStep, peekFilterStep } from './filterStep';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
-import { legacyCompileFilter, type LegacyBuilderState, type LegacySavedFindPayload } from './legacyBuilder';
+import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
 import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
@@ -2081,83 +2081,9 @@ function BuilderPaneInner({
     });
   };
 
-  /**
-   * Hydrate a stored find payload (saved or recent) into a builder patch —
-   * the single call site for the W13-2 shim (spec §8). `queryRaw` when
-   * present, else the pre-W13 filter compiled from `builder.conditions` via
-   * the frozen `legacyCompileFilter`. Sort/limit/projection are copied
-   * explicitly into the shrunk `BuilderState` shape (§8.4) rather than
-   * passed through wholesale — the legacy `builder` also carries
-   * `conditions`/`logic`, which the live type no longer has room for.
-   *
-   * `payload` is typed against `LegacySavedFindPayload`, not the live
-   * `SavedFindPayload`, on purpose: if the live type's `queryRaw` is ever
-   * made required, an annotation borrowed from that type would let
-   * TypeScript "prove" the `??` fallback below unreachable and invite
-   * deleting it — reintroducing the exact data loss this shim exists to
-   * prevent for every find saved before `queryRaw` existed. On the wire,
-   * writes are checked per kind and reads are not, so a
-   * pre-`queryRaw` row really can arrive shaped like `LegacySavedFindPayload`
-   * despite the live `SavedQuery`/`RecentQuery` types claiming otherwise —
-   * that mismatch is exactly what this cast bridges.
-   */
-  const hydrateFindPayload = (
-    payload: LegacySavedFindPayload,
-  ): { builder: BuilderState; queryRaw: string } => {
-    // `payload.builder` is typed required, but this reads data straight off
-    // the wire (writes are checked per kind, reads are not, §8.3)
-    // — a row missing it entirely isn't ruled out. Fall back to an empty
-    // legacy builder (no conditions → `legacyCompileFilter` produces '{}')
-    // rather than throwing inside a click handler with no feedback.
-    const legacyBuilder: LegacyBuilderState = payload.builder ?? {
-      conditions: [],
-      logic: 'AND',
-      sort: state.builder.sort,
-      limit: state.builder.limit,
-      projection: state.builder.projection,
-    };
-    const { sort, limit, projection } = legacyBuilder;
-    // `projectionRaw` (W15 §9(b)) is saved and round-trips through SQLite,
-    // so it has to be read here too, not dropped: dropping it means "Run
-    // here" on a query saved with `{_id: 0}` runs with every field instead —
-    // the §11 fail-open, from a saved query. `LegacyBuilderState` is frozen
-    // and has no room for it, so TypeScript can't catch a drop here on its
-    // own — the cast reads it off the wire shape the same way the
-    // `queryRaw` fallback above does.
-    //
-    // Written explicitly, including when there is none: `onPatch` replaces
-    // the whole builder, so a payload with no raw projection has to *clear*
-    // one already on the tab, and clearing by omission is what caused this.
-    const projectionRaw = payload.builder
-      ? (payload.builder as { projectionRaw?: string }).projectionRaw
-      : state.builder.projectionRaw;
-    // W14 §9's find options, for the same reason: a collation changes which
-    // documents match, so dropping it reruns a different query. A payload
-    // without them clears the tab's, and so does a row with no builder at
-    // all, unlike the raw projection above: such a row predates the options,
-    // so the query it saved never had any.
-    const options = (payload.builder ?? {}) as Pick<
-      BuilderState,
-      'collation' | 'hint' | 'maxTimeMS' | 'readPreference'
-    >;
-    return {
-      builder: {
-        sort,
-        limit,
-        projection,
-        projectionRaw,
-        collation: options.collation,
-        hint: options.hint,
-        maxTimeMS: options.maxTimeMS,
-        readPreference: options.readPreference,
-      },
-      queryRaw: payload.queryRaw ?? legacyCompileFilter(legacyBuilder),
-    };
-  };
-
   const handleSavedRunHere = (saved: SavedQuery) => {
     if (saved.payload.kind === 'find') {
-      const patch = hydrateFindPayload(saved.payload as unknown as LegacySavedFindPayload);
+      const patch = hydrateFindPayload(saved.payload as unknown as LegacySavedFindPayload, state.builder);
       // The draft belongs to the filter being replaced: drop it with it.
       onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
@@ -2167,7 +2093,7 @@ function BuilderPaneInner({
 
   const handleRecentRunHere = (recent: RecentQuery) => {
     if (recent.payload.kind === 'find') {
-      const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload);
+      const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload, state.builder);
       onPatch({ ...patch, filterDraft: undefined });
       onRun(patch);
       onLoaded();
