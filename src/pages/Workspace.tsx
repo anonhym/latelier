@@ -985,7 +985,7 @@ function WorkspaceInner() {
       navigatorDispatch({ type: 'dbExpandedSet', connectionId, dbName, value: true });
       setNavigatorRevealRequest({ connectionId, dbName });
     },
-    [panelPrefsRef, navigatorDispatch],
+    [panelPrefsRef, navigatorDispatch, setNavigatorRevealRequest],
   );
 
   // One Collection object per collection, and one Database object per
