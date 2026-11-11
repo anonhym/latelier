@@ -101,6 +101,28 @@ export interface ObjectAction {
   alternate?: boolean;
   disabledReason?: (ctx: PaletteContext) => string | null;
   perform: (ctx: PaletteContext) => void | Promise<void>;
+  /**
+   * Opens a field step inside the palette instead of performing. Returns
+   * null when the step can't open here: `perform` runs instead.
+   */
+  fieldStep?: () => FieldStep | null;
+}
+
+/** A field the step lists: its path and the label of its dominant type. */
+export interface StepField {
+  path: string;
+  type: string;
+}
+
+/** A step listing a collection's sampled fields, then fixed starter rows (X07 §13.6). */
+export interface FieldStep {
+  /** The second chip: `Filter by field`. */
+  title: string;
+  /** Called once when the step opens. */
+  loadFields: () => Promise<StepField[]>;
+  starters: readonly { id: string; label: string }[];
+  chooseField: (field: StepField) => void | Promise<void>;
+  chooseStarter: (id: string) => void | Promise<void>;
 }
 
 export interface PaletteObject {

@@ -45,6 +45,7 @@ import {
   carryDisabled,
   isGroupNode,
   nodeAt,
+  andAtRoot,
   type GroupNode,
   type CondNode,
   type RawNode,
@@ -53,6 +54,7 @@ import {
 } from './filterTree';
 import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } from './filterHistory';
 import { clearFilterStep, peekFilterStep } from './filterStep';
+import { peekFilterRequest, subscribeTabRequests, takeFilterRequest } from './tabRequest';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
@@ -365,11 +367,33 @@ function insertRowKeepingFocus(
 
 /** Puts the caret in the field box of the row at `path` once it has rendered. */
 function focusRowFieldAfterRender(path: NodePath): void {
+  focusRowInputAfterRender(path, 'field');
+}
+
+/**
+ * Puts the caret in the row's field box, or its value box. A row whose value
+ * has no text box (a boolean's switch, a null) takes it in the field box.
+ */
+function focusRowInputAfterRender(path: NodePath, which: 'field' | 'value'): void {
   const key = pathKey(path);
   requestAnimationFrame(() => {
-    document
-      .querySelector<HTMLElement>(`[data-row-path="${key}"] input[placeholder="field"]`)
-      ?.focus();
+    const row = document.querySelector(`[data-row-path="${key}"]`);
+    const value =
+      which === 'value'
+        ? row?.querySelector<HTMLElement>('input[placeholder="value"], input[placeholder="add a value, Enter"]')
+        : null;
+    (value ?? row?.querySelector<HTMLElement>('input[placeholder="field"]'))?.focus();
+  });
+}
+
+/** The filter's first field box, or `+ Condition` when it has no row (the palette's Query…). */
+function focusFirstFieldAfterRender(): void {
+  requestAnimationFrame(() => {
+    const drawer = document.querySelector('[data-group-path="root"]');
+    (
+      drawer?.querySelector<HTMLElement>('[data-row-path] input[placeholder="field"]') ??
+      drawer?.querySelector<HTMLElement>('button[aria-label="Add condition"]')
+    )?.focus();
   });
 }
 
@@ -1804,6 +1828,32 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
     setReadOnly(false);
     commitRoot(nextRoot);
   };
+
+  // The palette's Query… and Filter by field… (X07 §13.6), taken as an edit
+  // of this drawer's own: one condition appended at the root, one step of
+  // its undo history, the filter already here kept, and nothing run.
+  const filterRequest = React.useSyncExternalStore(subscribeTabRequests, () => peekFilterRequest(meta.tabId));
+  React.useEffect(() => {
+    if (!filterRequest) return;
+    const request = takeFilterRequest(meta.tabId);
+    if (!request) return;
+    if (!request.node) {
+      focusFirstFieldAfterRender();
+      return;
+    }
+    if (readOnly) {
+      notify.error("Nothing added — the filter bar's text isn't valid JSON.");
+      return;
+    }
+    const next = andAtRoot(root, request.node);
+    // The request comes from outside React (the palette's store) and may be
+    // waiting when this drawer mounts, so it lands here, once.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    applyEdit(next);
+    focusRowInputAfterRender([next.children.length - 1], request.focus);
+    // Once per request: the edit reads this render's tree.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterRequest]);
 
   // Undo and redo commit through the same path as any edit, so the tree
   // they land on is printed, checked and written back like one.

@@ -5,6 +5,9 @@ import {
   tabRequested,
   requestTab,
   subscribeTabRequests,
+  requestFilter,
+  peekFilterRequest,
+  takeFilterRequest,
 } from '../../src/pages/Workspace/tabRequest';
 
 afterEach(() => _resetTabRequestsForTests());
@@ -63,5 +66,43 @@ describe('tab requests', () => {
     requestTab('export', 't1');
     _resetTabRequestsForTests();
     expect(tabRequested('export', 't1')).toBe(false);
+  });
+});
+
+describe('filter requests', () => {
+  const node = { kind: 'cond' as const, field: 'status', op: '$eq' as const, valType: 'string' as const, value: '' };
+
+  it('waits for its tab, which takes it once', () => {
+    expect(peekFilterRequest('t1')).toBeNull();
+    expect(takeFilterRequest('t1')).toBeNull();
+    const cb = vi.fn();
+    const off = subscribeTabRequests(cb);
+    requestFilter('t1', { node, focus: 'value' });
+    off();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(tabRequested('filter', 't1')).toBe(true);
+    expect(peekFilterRequest('t2')).toBeNull();
+    expect(takeFilterRequest('t2')).toBeNull();
+    expect(peekFilterRequest('t1')).toEqual({ node, focus: 'value' });
+    expect(takeFilterRequest('t1')).toEqual({ node, focus: 'value' });
+    expect(tabRequested('filter', 't1')).toBe(false);
+    expect(peekFilterRequest('t1')).toBeNull();
+    expect(takeFilterRequest('t1')).toBeNull();
+  });
+
+  it('a newer request replaces an older one, and a new request is a new object', () => {
+    requestFilter('t1', { node: null, focus: 'field' });
+    const first = peekFilterRequest('t1');
+    requestFilter('t1', { node: null, focus: 'field' });
+    expect(peekFilterRequest('t1')).not.toBe(first);
+    requestFilter('t2', { node, focus: 'field' });
+    expect(peekFilterRequest('t1')).toBeNull();
+    expect(takeFilterRequest('t2')).toEqual({ node, focus: 'field' });
+  });
+
+  it('resets for tests', () => {
+    requestFilter('t1', { node, focus: 'field' });
+    _resetTabRequestsForTests();
+    expect(peekFilterRequest('t1')).toBeNull();
   });
 });

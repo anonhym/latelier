@@ -16,7 +16,7 @@ import { commandRegistry } from '../../src/commands/registry';
 import { collectionObject } from '../../src/pages/Workspace/collectionObject';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { WorkspaceTabsState } from '../../src/state/workspaceTabs';
-import type { Command, ObjectAction, PaletteObject } from '../../src/commands/types';
+import type { Command, FieldStep, ObjectAction, PaletteObject } from '../../src/commands/types';
 
 const MRU_KEY = 'ui.commandPalette.mru';
 
@@ -299,6 +299,87 @@ describe('the action list', () => {
   });
 });
 
+describe('a field step', () => {
+  const withStep = (step: Partial<FieldStep>): PaletteObject => ({
+    ...orders,
+    actions: [
+      ...orders.actions.slice(0, 2),
+      action('shop.orders', 'filter-field', 'Filter by field…', 'filter', {
+        fieldStep: () => ({
+          title: 'Filter by field',
+          loadFields: async () => [{ path: 'status', type: 'String' }],
+          starters: [{ id: 'last7d', label: 'Last 7 days' }],
+          chooseField: (f) => performed(`field/${f.path}`),
+          chooseStarter: (id) => performed(`starter/${id}`),
+          ...step,
+        }),
+      }),
+    ],
+  });
+  const openStep = async () => {
+    open('filter orders');
+    press(search(), 'Enter');
+    return screen.findByLabelText('Filter fields');
+  };
+
+  it('a sample that rejects lists no fields, the starters still', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mount([withStep({ loadFields: () => Promise.reject(new Error('boom')) })]);
+    await openStep();
+    await waitFor(() => expect(dialog().getByRole('status').textContent).toBe('No fields sampled'));
+    expect(titles()).toEqual(['Last 7 days']);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('performs the chosen field or starter, closing the palette, with ↑↓ between them', async () => {
+    mount([withStep({})]);
+    const el = await openStep();
+    await waitFor(() => expect(titles()).toEqual(['status', 'Last 7 days']));
+    expect(cursorTitle()).toBe('status');
+    press(el, 'End');
+    expect(cursorTitle()).toBe('Last 7 days');
+    press(el, 'Home');
+    press(el, 'ArrowDown');
+    expect(cursorTitle()).toBe('Last 7 days');
+    press(el, 'ArrowUp');
+    press(el, 'Tab');
+    expect(cursorTitle()).toBe('status');
+    press(el, 'ArrowDown');
+    press(el, 'Enter');
+    await waitFor(() => expect(performed).toHaveBeenCalledWith('starter/last7d'));
+    await waitFor(() => expect(palette()).toBeNull());
+  });
+
+  it('a click chooses a row; ← on an empty input and the back button go back to the actions', async () => {
+    mount([withStep({})]);
+    let el = await openStep();
+    press(el, 'ArrowLeft');
+    expect(await screen.findByLabelText('Filter actions')).toBeTruthy();
+    fireEvent.change(filter(), { target: { value: 'field' } });
+    press(filter(), 'Enter');
+    el = await screen.findByLabelText('Filter fields');
+    // Typed text is not empty: ← stays.
+    fireEvent.change(el, { target: { value: 'sta' } });
+    press(el, 'ArrowLeft');
+    expect(screen.getByLabelText('Filter fields')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to actions' }));
+    expect(await screen.findByLabelText('Filter actions')).toBeTruthy();
+    fireEvent.change(filter(), { target: { value: 'field' } });
+    press(filter(), 'Enter');
+    await screen.findByLabelText('Filter fields');
+    await waitFor(() => expect(titles()).toEqual(['status', 'Last 7 days']));
+    fireEvent.click(dialog().getAllByRole('option')[0]!);
+    await waitFor(() => expect(performed).toHaveBeenCalledWith('field/status'));
+  });
+
+  it('performs the action when its step returns null', async () => {
+    mount([{ ...orders, actions: [action('shop.orders', 'filter-field', 'Filter by field…', 'filter', { fieldStep: () => null })] }]);
+    open('filter orders');
+    press(search(), 'Enter');
+    await waitFor(() => expect(performed).toHaveBeenCalledWith('shop.orders/filter-field'));
+  });
+});
+
 describe('destructive actions', () => {
   it('are never listed outside the action list without their verb', () => {
     mount();
@@ -355,6 +436,8 @@ describe('the MRU', () => {
       requestDialog: () => {},
       dormant: () => false,
       running: () => false,
+      sampleSchema: async () => [],
+      startQuery: () => {},
     });
     // The id a v1 `Open: shop.orders` row stored.
     expect(built.id).toBe('tab.open:c1:shop:orders');

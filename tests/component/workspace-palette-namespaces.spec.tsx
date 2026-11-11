@@ -562,6 +562,8 @@ describe('palette Collection actions', () => {
     expect(actionTitles()).toEqual([
       ['Open', false],
       ['Open in new tab', false],
+      ['Query…', false],
+      ['Filter by field…', false],
       ['Aggregate', false],
       ['Schema', false],
       ['Indexes', false],
