@@ -12,6 +12,8 @@ import {
   actionList,
   asideFor,
   cycleScope,
+  fieldStepHints,
+  fieldStepList,
   footerHints,
   layoutPalette,
   pushHistory,
@@ -476,6 +478,7 @@ describe('actionList', () => {
       act('Drop collection…', 'delete', { destructive: true }),
       act('Open in new tab', 'open', { alternate: true }),
       act('Rename…', 'rename', { disabledReason: (c) => (c.connectionId === 'c1' ? 'a view' : null) }),
+      act('Filter by field…', 'filter', { fieldStep: () => null }),
     ],
   });
 
@@ -485,7 +488,8 @@ describe('actionList', () => {
       ['Open', 0, '↵', 'reuses the open tab', null],
       ['Open in new tab', 1, '⌘↵', null, null],
       ['Rename…', 2, null, null, 'a view'],
-      ['Drop collection…', 3, null, 'asks to confirm', null],
+      ['Filter by field…', 3, null, '›', null],
+      ['Drop collection…', 4, null, 'asks to confirm', null],
     ]);
   });
 
@@ -526,5 +530,65 @@ describe('matchText', () => {
       [12, 15],
     ]);
     expect(matchText('Open', 'open x')).toBeNull();
+  });
+});
+
+describe('the field step', () => {
+  const fields = [
+    { path: 'status', type: 'String' },
+    { path: 'shipping.street', type: 'String' },
+    { path: 'total', type: 'Number' },
+    { path: 'lastUpdatedAt', type: 'Date' },
+  ];
+  const starters = [
+    { id: 'last7d', label: 'Last 7 days' },
+    { id: 'inList', label: 'One of a list' },
+  ];
+  const view = (r: ReturnType<typeof fieldStepList>) =>
+    [...r.fields, ...r.starters].map((e) => [e.type === 'field' ? e.field.path : e.label, e.index, e.ranges]);
+
+  it('lists the fields in sample order, then the starters, indexed as one list', () => {
+    expect(view(fieldStepList(fields, starters, ''))).toEqual([
+      ['status', 0, []],
+      ['shipping.street', 1, []],
+      ['total', 2, []],
+      ['lastUpdatedAt', 3, []],
+      ['Last 7 days', 4, []],
+      ['One of a list', 5, []],
+    ]);
+  });
+
+  it('filters both lists with the palette matcher, keeping each order', () => {
+    const r = fieldStepList(fields, starters, 'st');
+    expect(r.fields.map((e) => e.type)).toEqual(['field', 'field', 'field']);
+    expect(r.starters.map((e) => e.type)).toEqual(['starter', 'starter']);
+    expect(view(r)).toEqual([
+      ['status', 0, [[0, 2]]],
+      ['shipping.street', 1, [[9, 11]]],
+      ['lastUpdatedAt', 2, [[2, 4]]],
+      ['Last 7 days', 3, [[2, 4]]],
+      ['One of a list', 4, [[11, 13]]],
+    ]);
+    expect(view(fieldStepList(fields, starters, 'zzz'))).toEqual([]);
+  });
+
+  it('lists the starters alone while the sample loads', () => {
+    const r = fieldStepList(null, starters, '');
+    expect(r.fields).toEqual([]);
+    expect(view(r).map((e) => e[0])).toEqual(['Last 7 days', 'One of a list']);
+  });
+
+  it('names what Enter adds, and that esc goes back to the actions', () => {
+    const [field] = fieldStepList(fields, starters, '').fields;
+    const [starter] = fieldStepList(fields, starters, '').starters;
+    expect(fieldStepHints(field)).toEqual({
+      left: [
+        { keys: '↵', label: 'Add "status" to the filter (nothing runs)' },
+        { keys: 'esc', label: 'Back to actions' },
+      ],
+      right: [],
+    });
+    expect(fieldStepHints(starter).left[0]).toEqual({ keys: '↵', label: 'Add "Last 7 days" to the filter (nothing runs)' });
+    expect(fieldStepHints(undefined)).toEqual({ left: [{ keys: 'esc', label: 'Back to actions' }], right: [] });
   });
 });

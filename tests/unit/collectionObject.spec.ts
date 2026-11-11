@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { collectionObject } from '../../src/pages/Workspace/collectionObject';
+import { collectionObject, dominantType, fieldCondition } from '../../src/pages/Workspace/collectionObject';
 import { _resetTabRequestsForTests, tabRequested } from '../../src/pages/Workspace/tabRequest';
+import { FILTER_TEMPLATES } from '../../src/pages/Workspace/filterTemplates';
+import type { SchemaSampleEntry } from '@shared/types';
 import type { WorkspaceTabsState } from '../../src/state/workspaceTabs';
 import type { PaletteContext } from '../../src/commands/types';
 import { notify } from '../../src/theme/notifications';
@@ -24,6 +26,12 @@ function build(
   };
   const showStructure = vi.fn();
   const requestDialog = vi.fn();
+  const sampleSchema = vi.fn(async (): Promise<SchemaSampleEntry[]> => [
+    { path: 'status', frequency: 1, types: { null: 1, string: 5 } },
+    { path: 'tags', frequency: 1, types: { array: 3 } },
+    { path: 'odd', frequency: 1, types: { weird: 2 } },
+  ]);
+  const startQuery = vi.fn();
   const obj = collectionObject({
     connectionId: 'c1',
     db: 'shop',
@@ -35,9 +43,11 @@ function build(
     requestDialog,
     dormant: () => dormant,
     running: (id: string) => running && id === 't9',
+    sampleSchema,
+    startQuery,
   });
   const action = (id: string) => obj.actions.find((a) => a.id === id)!;
-  return { obj, tabs, showStructure, requestDialog, action };
+  return { obj, tabs, showStructure, requestDialog, action, sampleSchema, startQuery };
 }
 
 const input = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
@@ -56,6 +66,8 @@ describe('collectionObject', () => {
     expect(obj.actions.map((a) => [a.id, a.verb, a.title, !!a.alternate, !!a.destructive])).toEqual([
       ['open', 'open', 'Open', false, false],
       ['open-new-tab', 'open', 'Open in new tab', true, false],
+      ['query', 'query', 'Query…', false, false],
+      ['filter-field', 'filter', 'Filter by field…', false, false],
       ['aggregate', 'aggregate', 'Aggregate', false, false],
       ['schema', 'schema', 'Schema', false, false],
       ['indexes', 'indexes', 'Indexes', false, false],
@@ -68,8 +80,10 @@ describe('collectionObject', () => {
 
   it('disables the writing actions on a view only, with a reason', () => {
     const reasons = (isView: boolean) => build(isView).obj.actions.map((a) => a.disabledReason?.(ctx) ?? null);
-    expect(reasons(false)).toEqual(Array(9).fill(null));
+    expect(reasons(false)).toEqual(Array(11).fill(null));
     expect(reasons(true)).toEqual([
+      null,
+      null,
       null,
       null,
       null,
@@ -171,5 +185,119 @@ describe('collectionObject', () => {
     expect(requestDialog).toHaveBeenLastCalledWith({ ...input, dialog: 'rename' });
     await action('drop').perform(ctx);
     expect(requestDialog).toHaveBeenLastCalledWith({ ...input, dialog: 'drop' });
+  });
+
+  describe('Query… and Filter by field… (X07 §13.6)', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('Query… opens the collection reusing a tab and asks its drawer for the first field', async () => {
+      const { tabs, action, startQuery } = build(true);
+      await action('query').perform(ctx);
+      expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
+      expect(startQuery).toHaveBeenCalledWith('t9', { node: null, focus: 'field' });
+    });
+
+    it('lists the sampled fields with their dominant type, and the starters', async () => {
+      const { action, sampleSchema } = build();
+      const step = action('filter-field').fieldStep!()!;
+      expect(step.title).toBe('Filter by field');
+      expect(step.starters).toEqual(FILTER_TEMPLATES.map(({ id, label }) => ({ id, label })));
+      expect(sampleSchema).not.toHaveBeenCalled();
+      expect(await step.loadFields()).toEqual([
+        { path: 'status', type: 'String' },
+        { path: 'tags', type: 'Array' },
+        // A type with no label is shown as it is named.
+        { path: 'odd', type: 'weird' },
+      ]);
+      expect(sampleSchema).toHaveBeenCalledTimes(1);
+    });
+
+    it('a chosen field appends one condition typed as sampled, focus in its value', async () => {
+      const { action, startQuery, tabs } = build();
+      const step = action('filter-field').fieldStep!()!;
+      await step.loadFields();
+      await step.chooseField({ path: 'tags', type: 'Array' });
+      expect(tabs.openCollection).toHaveBeenCalledWith({ ...input, reuseExisting: true });
+      expect(startQuery).toHaveBeenCalledWith('t9', { node: fieldCondition('tags', 'array'), focus: 'value' });
+      // A field never sampled is typed as a string.
+      await step.chooseField({ path: 'unseen', type: 'String' });
+      expect(startQuery).toHaveBeenLastCalledWith('t9', {
+        node: { kind: 'cond', field: 'unseen', op: '$eq', valType: 'string', value: '' },
+        focus: 'value',
+      });
+    });
+
+    it('labels every sampled type', async () => {
+    const types = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'objectid', 'null', 'object', 'array', 'regex', 'binary', 'timestamp', 'undefined'];
+    const step = collectionObject({
+      connectionId: 'c1',
+      db: 'shop',
+      coll: 'orders',
+      isView: false,
+      connectionName: 'P',
+      tabs: () => ({}) as WorkspaceTabsState,
+      showStructure: () => {},
+      requestDialog: () => {},
+      dormant: () => false,
+      running: () => false,
+      sampleSchema: async () => types.map((t) => ({ path: t, frequency: 1, types: { [t]: 1 } })),
+      startQuery: () => {},
+    }).actions.find((a) => a.id === 'filter-field')!.fieldStep!()!;
+    expect((await step.loadFields()).map((f) => f.type)).toEqual([
+      'String', 'Number', 'Int64', 'Decimal128', 'Boolean', 'Date', 'ObjectId', 'Null', 'Object', 'Array', 'Regex', 'Binary', 'Timestamp', 'Undefined',
+    ]);
+  });
+
+  it('Filter by field… performed where its step is open is Query…', async () => {
+    const { action, startQuery } = build();
+    await action('filter-field').perform(ctx);
+    expect(startQuery).toHaveBeenCalledWith('t9', { node: null, focus: 'field' });
+  });
+
+  it('a starter appends its template row, focus in its field', async () => {
+      const { action, startQuery } = build();
+      const step = action('filter-field').fieldStep!()!;
+      await step.chooseStarter('notNull');
+      expect(startQuery).toHaveBeenCalledWith('t9', {
+        node: FILTER_TEMPLATES.find((t) => t.id === 'notNull')!.build(new Date()),
+        focus: 'field',
+      });
+      expect(() => step.chooseStarter('nope')).toThrow('No filter starter "nope"');
+    });
+
+    it('on a dormant Connection, opens no step, samples nothing and says to connect', async () => {
+      const info = vi.spyOn(notify, 'info').mockImplementation(() => '');
+      const { action, startQuery, sampleSchema, tabs } = build(false, 'documents', true);
+      expect(action('filter-field').fieldStep!()).toBeNull();
+      await action('filter-field').perform(ctx);
+      await action('query').perform(ctx);
+      expect(tabs.openCollection).toHaveBeenCalledTimes(2);
+      expect(info).toHaveBeenCalledWith('Connect to Production first, then query.');
+      expect(info).toHaveBeenCalledTimes(2);
+      expect(startQuery).not.toHaveBeenCalled();
+      expect(sampleSchema).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('dominantType', () => {
+  it('is the most counted type, the first listed on a tie, and empty for no types', () => {
+    expect(dominantType({ null: 1, string: 5, date: 2 })).toBe('string');
+    expect(dominantType({ date: 2, string: 2 })).toBe('date');
+    expect(dominantType({})).toBe('');
+  });
+});
+
+describe('fieldCondition', () => {
+  it('is a blank-valued condition with the operator its type takes', () => {
+    expect(fieldCondition('status', 'string')).toEqual({ kind: 'cond', field: 'status', op: '$eq', valType: 'string', value: '' });
+    expect(fieldCondition('tags', 'array')).toEqual({ kind: 'cond', field: 'tags', op: '$in', valType: 'array', value: '' });
+    expect(fieldCondition('at', 'date')).toMatchObject({ op: '$eq', valType: 'date' });
+    expect(fieldCondition('re', 'regex')).toMatchObject({ op: '$regex', valType: 'regex' });
+    expect(fieldCondition('unseen', undefined)).toMatchObject({ op: '$eq', valType: 'string' });
+  });
+
+  it('types a null-typed field as a string, so a value is still to type', () => {
+    expect(fieldCondition('gone', 'null')).toMatchObject({ op: '$eq', valType: 'string' });
   });
 });

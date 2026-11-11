@@ -72,7 +72,9 @@ const t1 = (over: Partial<CollectionTab> = {}) =>
   collectionTabFixture({ id: 't1', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true, ...over });
 const t2 = collectionTabFixture({ id: 't2', connectionId: 'c2', dbName: 'ordering', collection: 'carts', position: 1 });
 
-function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab; server?: typeof SERVER } = {}) {
+function mount(
+  opts: { tabs?: CollectionTab[]; opened?: CollectionTab; server?: typeof SERVER; savedQueryRaw?: string } = {},
+) {
   const server = opts.server ?? SERVER;
   statusListeners = [];
   const tabs = opts.tabs ?? [t1(), t2];
@@ -88,7 +90,7 @@ function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab; server?: 
   const savedGet = vi.fn(async ({ id }: { id: string }) => ({
     ...SAVED.find((s) => s.id === id)!,
     createdAt: '2026-11-11T10:00:00.000Z',
-    payload: { kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{"status":"open"}' },
+    payload: { kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw: opts.savedQueryRaw ?? '{"status":"open"}' },
   }));
   const savedDelete = vi.fn(async () => {});
   const setActive = vi.fn(async (id: string) => collectionTabFixture({ id }));
@@ -351,6 +353,26 @@ describe('Saved objects', () => {
     expect(after).toEqual(runIt ? [expect.objectContaining({ collection: 'customers', filter: '{"status":"open"}' })] : []);
     // Loaded into the new tab either way.
     expect(screen.getByDisplayValue('{"status":"open"}')).toBeTruthy();
+  });
+
+  it.each([
+    ['Enter', false, 0],
+    ['⌘↵', true, 1],
+  ])('%s on a saved `{}` into a restored tab off Documents runs only what was asked (run: %s)', async (_key, runIt, runs) => {
+    // Restored: `lastRun` is never persisted, so the switch to Documents would re-fire the auto-run.
+    const onStructure = t1({ state: { ...t1().state, activeView: 'structure' } });
+    const m = mount({ tabs: [onStructure, t2], savedQueryRaw: '{}' });
+    await screen.findByTestId('nav-coll-shop-orders');
+    openPalette();
+    search('last 7 days');
+    await waitFor(() => expect(rowsOf('saved')).toHaveLength(1));
+    fireEvent.keyDown(input(), { key: 'Enter', metaKey: runIt });
+    await waitFor(() => expect(m.savedGet).toHaveBeenCalledWith({ id: 'q1' }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    const onOrders = (m.find.mock.calls as unknown as [{ collection: string }][]).filter(([a]) => a.collection === 'orders');
+    expect(onOrders).toHaveLength(runs);
   });
 
   it('Run on a saved pipeline asks its Aggregation tab to run once it opens', async () => {

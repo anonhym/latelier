@@ -11,7 +11,7 @@ import {
   type VerbQuery,
 } from './rank';
 import { VERB_KINDS, capitalize, parseVerb, type ParsedVerb } from './verbs';
-import type { Command, ObjectAction, ObjectKind, PaletteContext, PaletteObject } from './types';
+import type { Command, ObjectAction, ObjectKind, PaletteContext, PaletteObject, StepField } from './types';
 
 // The palette's layout (X07 §13.3): scopes, capped groups, row tags, the
 // footer's key hints and the session's query history. Pure, so the component
@@ -322,6 +322,7 @@ export function actionList(obj: PaletteObject, query: string, ctx: PaletteContex
     let tag: string | null = null;
     if (action.destructive) tag = 'asks to confirm';
     else if (isDefault && obj.kind === 'collection') tag = 'reuses the open tab';
+    else if (action.fieldStep) tag = '›';
     out.push({
       action,
       index: out.length,
@@ -343,6 +344,46 @@ export const ACTION_LIST_HINTS: FooterHints = {
   ],
   right: [],
 };
+
+// ── Field step ───────────────────────────────────────────────────────────────
+
+export type FieldStepEntry =
+  | { type: 'field'; field: StepField; index: number; ranges: Range[] }
+  | { type: 'starter'; id: string; label: string; index: number; ranges: Range[] };
+
+/**
+ * The field step's rows (X07 §13.6): the sampled fields, then the starters,
+ * each filtered by `query` with the palette's matcher and kept in its own
+ * order (the sample's, the templates'). `fields` is null while the sample loads.
+ */
+export function fieldStepList(
+  fields: readonly StepField[] | null,
+  starters: readonly { id: string; label: string }[],
+  query: string,
+): { fields: FieldStepEntry[]; starters: FieldStepEntry[] } {
+  const out: { fields: FieldStepEntry[]; starters: FieldStepEntry[] } = { fields: [], starters: [] };
+  let index = 0;
+  for (const field of fields ?? []) {
+    const ranges = matchText(field.path, query);
+    if (ranges !== null) out.fields.push({ type: 'field', field, index: index++, ranges });
+  }
+  for (const { id, label } of starters) {
+    const ranges = matchText(label, query);
+    if (ranges !== null) out.starters.push({ type: 'starter', id, label, index: index++, ranges });
+  }
+  return out;
+}
+
+/** The field step's footer: what Enter adds, and the way back. */
+export function fieldStepHints(entry: FieldStepEntry | undefined): FooterHints {
+  const left: KeyHint[] = [];
+  if (entry) {
+    const name = entry.type === 'field' ? entry.field.path : entry.label;
+    left.push({ keys: '↵', label: `Add "${name}" to the filter (nothing runs)` });
+  }
+  left.push({ keys: 'esc', label: 'Back to actions' });
+  return { left, right: [] };
+}
 
 // ── Footer ───────────────────────────────────────────────────────────────────
 

@@ -50,7 +50,7 @@ import { collectionObject } from './Workspace/collectionObject';
 import { databaseObject, isPaletteSaved, savedObject, tabObject } from './Workspace/paletteObjects';
 import { activateTab, closeTabGuarded, tabLabel } from './Workspace/tabActions';
 import { confirmDeleteSaved, openSavedPipeline } from './Workspace/savedActions';
-import { requestTab } from './Workspace/tabRequest';
+import { requestFilter, requestTab, type FilterRequest } from './Workspace/tabRequest';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './Workspace/legacyBuilder';
 import { usePaletteOpen } from '../commands/paletteOpenState';
 import type { NavigatorDialogRequest } from './Workspace/DbCollectionNavigator';
@@ -70,7 +70,7 @@ import {
   isDefaultQueryState,
 } from './Workspace/builder';
 import type { SuggestionContext } from '../features/fieldSuggestions/types';
-import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
+import { getStructureEntries, invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
 
 const OK: UpdateFieldOutcome = { ok: true };
 /** Collection listings the palette sweep keeps in flight at once. */
@@ -400,17 +400,28 @@ function WorkspaceInner() {
   // (so a loaded saved query isn't clobbered), and never against a Dormant
   // Connection. Deps are deliberately just the landing triggers, not the
   // query sub-fields — depending on those would re-fire on every keystroke.
-  // A saved query the palette is loading into a tab (X07 §13.5). A tab just
-  // opened is not in the tab state until the render after `openCollection`
-  // settles, so the load waits for it there; until then the tab must not
-  // auto-run its default `{}` query.
-  const pendingSavedRef = React.useRef<{ tabId: string; payload: LegacySavedFindPayload; run: boolean } | null>(null);
+  // A saved query the palette is loading into a tab (X07 §13.5), or a query
+  // it is starting there (§13.6). A tab just opened is not in the tab state
+  // until the render after `openCollection` settles, so the load waits for it
+  // there; until then the tab must not auto-run its default `{}` query.
+  const pendingSavedRef = React.useRef<
+    | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean }
+    | { kind: 'filter'; tabId: string; request: FilterRequest }
+    | null
+  >(null);
   const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
+  // A tab the palette switched to Documents to start a query on: the switch
+  // re-fires the auto-run below, once, after the pending load has cleared.
+  const skipAutoRunRef = React.useRef<string | null>(null);
   // Bumped by each saved query the palette loads, added to PanelBody's own load counter.
   const [savedLoadGen, setSavedLoadGen] = React.useState(0);
   React.useEffect(() => {
     if (!activeCollection) return;
     if (activeView !== 'documents') return;
+    if (skipAutoRunRef.current === activeCollection.id) {
+      skipAutoRunRef.current = null;
+      return;
+    }
     if (activeCollection.state.lastRun) return;
     if (!isDefaultQueryState(activeCollection.state)) return;
     if (pendingSavedRef.current?.tabId === activeCollection.id) return;
@@ -971,6 +982,11 @@ function WorkspaceInner() {
   // connected contributes nothing; its cache is a snapshot that can't be
   // opened from. Each action calls what the navigator's menu or the tab calls.
   const connectionsRef = useLatest(connections);
+  // Query… and Filter by field…: the tab's drawer takes the request once the tab is in the state.
+  const startQuery = React.useCallback((tabId: string, request: FilterRequest) => {
+    pendingSavedRef.current = { kind: 'filter', tabId, request };
+    setPendingSavedTick((n) => n + 1);
+  }, [setPendingSavedTick]);
   const namespaceObjects = React.useMemo((): PaletteObject[] => {
     // Read when an action runs, never during render.
     const tabs = () => tabsRef.current;
@@ -999,6 +1015,8 @@ function WorkspaceInner() {
               // This Connection, not the focused one: read when an action runs.
               dormant: () => isKnownNotConnected(connectionsRef.current.find((c) => c.id === connectionId)),
               running: queryRunner.isRunning,
+              sampleSchema: () => getStructureEntries(connectionId, d.name, x.name),
+              startQuery,
             }),
           );
         }
@@ -1007,7 +1025,7 @@ function WorkspaceInner() {
     return objects;
     // `openConnections` is a fresh array each render: key on what it says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openConnectionsKey, navigatorTree.caches, tabsRef, showStructure, requestNavigatorDialog, connectionsRef, queryRunner.isRunning]);
+  }, [openConnectionsKey, navigatorTree.caches, tabsRef, showStructure, requestNavigatorDialog, connectionsRef, queryRunner.isRunning, startQuery]);
   useRegisterObjects(namespaceObjects, [namespaceObjects]);
 
   // Commands mirroring a control that had none (X07 §13.5), each gated as
@@ -1323,7 +1341,12 @@ function WorkspaceInner() {
         collection: saved.collection,
         reuseExisting: true,
       });
-      pendingSavedRef.current = { tabId: tab.id, payload: full.payload as unknown as LegacySavedFindPayload, run: runIt };
+      pendingSavedRef.current = {
+        kind: 'saved',
+        tabId: tab.id,
+        payload: full.payload as unknown as LegacySavedFindPayload,
+        run: runIt,
+      };
       setPendingSavedTick((n) => n + 1);
     },
     [tabsRef, connectionsRef, setPendingSavedTick],
@@ -1336,14 +1359,31 @@ function WorkspaceInner() {
     const tab = tabs.tabs.find((x) => x.id === pending.tabId);
     if (tab?.kind !== 'collection') return;
     pendingSavedRef.current = null;
+    if (pending.kind === 'filter') {
+      // The filter drawer takes the request as an edit of its own: shown, on
+      // its Filter tab, with nothing run.
+      if ((tab.state.activeView ?? 'documents') !== 'documents') {
+        skipAutoRunRef.current = tab.id;
+        tabs.setActiveView(tab.id, 'documents');
+      }
+      if (tab.state.activeBuilderTab !== 'Builder') tabs.patchCollectionState(tab.id, { activeBuilderTab: 'Builder' });
+      expandBuilder();
+      requestFilter(tab.id, pending.request);
+      return;
+    }
     const patch = hydrateFindPayload(pending.payload, tab.state.builder);
-    if ((tab.state.activeView ?? 'documents') !== 'documents') tabs.setActiveView(tab.id, 'documents');
+    // The switch would re-fire the auto-run: a saved `{}` would run on Open,
+    // and on Run once more, cancelling the explicit run below.
+    if ((tab.state.activeView ?? 'documents') !== 'documents') {
+      skipAutoRunRef.current = tab.id;
+      tabs.setActiveView(tab.id, 'documents');
+    }
     // The draft belongs to the filter being replaced: drop it with it.
     tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
     // The saved list's `onLoaded`: clears the query bar's held complaints and reseeds the drawer.
     setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
-  }, [tabs, pendingSavedTick, run]);
+  }, [tabs, pendingSavedTick, run, expandBuilder]);
   const removeSaved = React.useCallback(async (saved: SavedQuerySummary) => {
     if (!(await confirmDeleteSaved(saved))) return;
     await api.saved.delete({ id: saved.id });

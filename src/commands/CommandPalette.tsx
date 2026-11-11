@@ -19,6 +19,8 @@ import {
   SCOPE_LABEL,
   actionList,
   cycleScope,
+  fieldStepHints,
+  fieldStepList,
   footerHints,
   layoutPalette,
   pushHistory,
@@ -27,6 +29,7 @@ import {
   type ActionEntry,
   type Aside,
   type Entry,
+  type FieldStepEntry,
   type FooterHints,
   type KeyHint,
   type MoreEntry,
@@ -38,7 +41,7 @@ import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
 import { _resetPaletteOpenForTests, setPaletteOpen } from './paletteOpenState';
-import type { ObjectAction, PaletteContext, PaletteObject } from './types';
+import type { FieldStep, ObjectAction, PaletteContext, PaletteObject, StepField } from './types';
 
 const MRU_CAP = 8;
 const MRU_PREF_KEY = 'ui.commandPalette.mru';
@@ -469,6 +472,72 @@ function ActionRowView({ entry, id, isCursor, onActivate, onHover }: ActionRowPr
   );
 }
 
+const GROUP_HEAD: React.CSSProperties = {
+  padding: '10px 16px 4px',
+  fontSize: 'var(--atelier-fs-xs)',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: 'var(--atelier-text-muted)',
+};
+
+interface StepRowProps {
+  entry: FieldStepEntry;
+  id: string;
+  isCursor: boolean;
+  onActivate: (entry: FieldStepEntry) => void;
+  onHover: (index: number) => void;
+}
+
+/** A field step row: a field path in the monospace font with its type tag, or a starter's label. */
+function StepRowView({ entry, id, isCursor, onActivate, onHover }: StepRowProps) {
+  const field = entry.type === 'field' ? entry.field : null;
+  const text = entry.type === 'field' ? entry.field.path : entry.label;
+  return (
+    <UnstyledButton
+      id={id}
+      type="button"
+      role="option"
+      tabIndex={-1}
+      aria-selected={isCursor}
+      data-step-row={entry.type}
+      data-cursor={isCursor || undefined}
+      onClick={() => onActivate(entry)}
+      onMouseEnter={() => onHover(entry.index)}
+      style={{ ...ROW_STYLE, padding: '7px 16px', background: isCursor ? 'var(--atelier-accent-soft)' : 'transparent' }}
+    >
+      <span
+        data-title={text}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          ...(field ? { fontFamily: MONO, fontSize: 'var(--atelier-fs-sm)' } : null),
+        }}
+      >
+        <Highlighted text={text} ranges={entry.ranges} />
+      </span>
+      {field && (
+        <span
+          data-field-type
+          style={{
+            fontSize: 'var(--atelier-fs-xs)',
+            color: 'var(--atelier-text-muted)',
+            border: '1px solid var(--atelier-border-med)',
+            borderRadius: 'var(--atelier-radius-xs)',
+            padding: '0 6px',
+            flex: 'none',
+          }}
+        >
+          {field.type}
+        </span>
+      )}
+    </UnstyledButton>
+  );
+}
+
 const CHIP: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -551,6 +620,12 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   // The object whose action list is open, by id so a re-registration keeps it.
   const [actionsOfId, setActionsOfId] = React.useState<string | null>(null);
   const [actionQuery, setActionQuery] = React.useState('');
+  // The field step open over the action list (X07 §13.6), held as it was
+  // opened so a re-registration of its object does not sample again.
+  const [step, setStep] = React.useState<{ obj: PaletteObject; action: ObjectAction; step: FieldStep } | null>(null);
+  const [stepQuery, setStepQuery] = React.useState('');
+  // null while the sample loads.
+  const [stepFields, setStepFields] = React.useState<StepField[] | null>(null);
   // Where `↑` left the history; it holds while the input still shows that entry.
   const [historyAt, setHistoryAt] = React.useState(-1);
   // The query the palette reopened on is the newest entry, so `↑` from an
@@ -586,6 +661,32 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   const actionsKey = `${actionsOfId ?? ''}\u0000${actionQuery}`;
   const actionCursor = useRovingHighlight(actionEntries.length, actionsKey);
   const actionOptionId = (entry: ActionEntry) => `${listId}-act-${entry.action.id}`;
+
+  React.useEffect(() => {
+    if (!step) return undefined;
+    let live = true;
+    step.step.loadFields().then(
+      (fields) => {
+        if (live) setStepFields(fields);
+      },
+      (err: unknown) => {
+        // A sample that fails lists no fields; the starters still stand.
+        console.warn('[palette] could not sample fields', err);
+        if (live) setStepFields([]);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [step]);
+  const stepList = React.useMemo(
+    () => (step ? fieldStepList(stepFields, step.step.starters, stepQuery) : { fields: [], starters: [] }),
+    [step, stepFields, stepQuery],
+  );
+  const stepEntries = React.useMemo(() => [...stepList.fields, ...stepList.starters], [stepList]);
+  const stepCursor = useRovingHighlight(stepEntries.length, `${stepQuery}\u0000${stepFields === null}`);
+  const stepOptionId = (entry: FieldStepEntry) =>
+    `${listId}-step-${entry.type === 'field' ? `f-${entry.field.path}` : `s-${entry.id}`}`;
 
   // A toggle keeps the cursor on its row even when re-registering moves it,
   // for as long as the list is the one it was toggled in: a new query or
@@ -634,9 +735,15 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   }, []);
 
   const inActions = actionsOf !== null;
+  const inStep = step !== null;
   const cursorEntry = entries[safeCursor];
   const actionEntry = actionEntries[actionCursor.index];
-  const activeId = inActions
+  const stepEntry = stepEntries[stepCursor.index];
+  const activeId = inStep
+    ? stepEntry
+      ? stepOptionId(stepEntry)
+      : undefined
+    : inActions
     ? actionEntry
       ? actionOptionId(actionEntry)
       : undefined
@@ -676,6 +783,16 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
 
   const performAction = (obj: PaletteObject, action: ObjectAction) => {
     if (action.disabledReason?.(ctx)) return;
+    const opened = action.fieldStep?.();
+    if (opened) {
+      // Over the object's action list, so Escape goes back to it.
+      setActionsOfId(obj.id);
+      setActionQuery('');
+      setStepQuery('');
+      setStepFields(null);
+      setStep({ obj, action, step: opened });
+      return;
+    }
     // Every action of an object bumps the object.
     performAndClose(obj.id, action.perform, `${action.title} ${obj.name}`);
   };
@@ -684,6 +801,40 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
     setActionQuery('');
     setActionsOfId(obj.id);
   };
+  const chooseInStep = (entry: FieldStepEntry) => {
+    if (!step) return;
+    const { obj, action, step: s } = step;
+    const choose = entry.type === 'field' ? () => s.chooseField(entry.field) : () => s.chooseStarter(entry.id);
+    performAndClose(obj.id, choose, `${action.title} ${obj.name}`);
+  };
+  const closeStep = () => {
+    setStep(null);
+    setStepQuery('');
+  };
+  const onStepKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape' || ((e.key === 'ArrowLeft' || e.key === 'Backspace') && stepQuery === '')) {
+      e.preventDefault();
+      closeStep();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      stepCursor.move(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      stepCursor.move(-1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      stepCursor.setIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      stepCursor.setIndex(Math.max(0, stepEntries.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (stepEntry) chooseInStep(stepEntry);
+    }
+  };
+
   const closeActions = () => {
     setActionsOfId(null);
     setActionQuery('');
@@ -770,6 +921,10 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   // the palette answers is bound on it.
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
+    if (inStep) {
+      onStepKeyDown(e);
+      return;
+    }
     if (inActions) {
       onActionKeyDown(e);
       return;
@@ -832,7 +987,28 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
         color: 'var(--atelier-text-muted)',
       }}
     >
-      {actionsOf ? (
+      {step ? (
+        <>
+          <button
+            type="button"
+            aria-label="Back to actions"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={closeStep}
+            style={{ background: 'transparent', border: 0, color: 'inherit', padding: 0, display: 'flex', cursor: 'pointer' }}
+          >
+            <Svg>
+              <path d="M15 18l-6-6 6-6" />
+            </Svg>
+          </button>
+          <span data-object-chip style={CHIP}>
+            {step.obj.name}
+          </span>
+          <span data-step-chip style={CHIP}>
+            {step.step.title}
+          </span>
+        </>
+      ) : actionsOf ? (
         <>
           <button
             type="button"
@@ -858,18 +1034,23 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
         ref={inputRef}
         data-autofocus
         className="atelier-palette-input"
-        value={inActions ? actionQuery : query}
-        onChange={(e) => (inActions ? setActionQuery(e.currentTarget.value) : setQuery(e.currentTarget.value))}
-        placeholder={inActions ? 'Filter actions…' : 'Search collections, actions, tabs…'}
-        aria-label={inActions ? 'Filter actions' : 'Search commands'}
+        value={inStep ? stepQuery : inActions ? actionQuery : query}
+        onChange={(e) => {
+          const v = e.currentTarget.value;
+          if (inStep) setStepQuery(v);
+          else if (inActions) setActionQuery(v);
+          else setQuery(v);
+        }}
+        placeholder={inStep ? 'Filter fields…' : inActions ? 'Filter actions…' : 'Search collections, actions, tabs…'}
+        aria-label={inStep ? 'Filter fields' : inActions ? 'Filter actions' : 'Search commands'}
         role="combobox"
         aria-expanded
         aria-controls={listId}
         aria-autocomplete="list"
         aria-activedescendant={activeId}
-        // In the action list Escape goes back to the results; the modal's own
+        // In the action list and the field step Escape goes back one step; the modal's own
         // Escape listener skips an event from an element marked this way.
-        data-mantine-stop-propagation={inActions ? 'true' : undefined}
+        data-mantine-stop-propagation={inActions || inStep ? 'true' : undefined}
         onKeyDown={onKeyDown}
         spellCheck={false}
         autoComplete="off"
@@ -887,6 +1068,67 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       <Kbd>esc</Kbd>
     </div>
   );
+
+  if (step) {
+    const stepRows = (list: FieldStepEntry[]) =>
+      list.map((entry) => (
+        <StepRowView
+          key={stepOptionId(entry)}
+          entry={entry}
+          id={stepOptionId(entry)}
+          isCursor={entry.index === stepCursor.index}
+          onActivate={chooseInStep}
+          onHover={stepCursor.setIndex}
+        />
+      ));
+    const muted: React.CSSProperties = { ...ROW_STYLE, padding: '7px 16px', color: 'var(--atelier-text-muted)' };
+    // The fields group stays while it has a status to show, or a field that matches.
+    const showFields = stepFields === null || stepFields.length === 0 || stepList.fields.length > 0;
+    return (
+      <div>
+        {searchRow}
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={`Fields of ${step.obj.name}`}
+          style={{ maxHeight: 'min(460px, calc(100vh - 260px))', overflowY: 'auto', padding: '0 0 4px' }}
+        >
+          {showFields && (
+            <div role="group" aria-labelledby={`${listId}-grp-fields`}>
+              <div id={`${listId}-grp-fields`} style={GROUP_HEAD}>
+                Fields · sampled
+              </div>
+              {stepFields === null ? (
+                <div role="status" style={muted}>
+                  Sampling fields…
+                </div>
+              ) : stepFields.length === 0 ? (
+                <div role="status" style={muted}>
+                  No fields sampled
+                </div>
+              ) : (
+                stepRows(stepList.fields)
+              )}
+            </div>
+          )}
+          {!showFields && stepList.starters.length === 0 && (
+            <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-text-muted)' }}>
+              {`No matches for "${stepQuery.trim()}"`}
+            </div>
+          )}
+          {stepList.starters.length > 0 && (
+            <div role="group" aria-labelledby={`${listId}-grp-starters`}>
+              <div id={`${listId}-grp-starters`} style={GROUP_HEAD}>
+                Starters
+              </div>
+              {stepRows(stepList.starters)}
+            </div>
+          )}
+        </div>
+        <Footer hints={fieldStepHints(stepEntry)} />
+      </div>
+    );
+  }
 
   if (actionsOf) {
     const firstDestructive = actionEntries.findIndex((a) => a.action.destructive);
@@ -1051,17 +1293,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
             if (group.label === null) return <React.Fragment key={group.key}>{views}</React.Fragment>;
             return (
               <div key={group.key} role="group" aria-labelledby={`${listId}-grp-${group.key}`}>
-                <div
-                  id={`${listId}-grp-${group.key}`}
-                  style={{
-                    padding: '10px 16px 4px',
-                    fontSize: 'var(--atelier-fs-xs)',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    color: 'var(--atelier-text-muted)',
-                  }}
-                >
+                <div id={`${listId}-grp-${group.key}`} style={GROUP_HEAD}>
                   {group.label}
                 </div>
                 {views}
