@@ -18,9 +18,13 @@ function build(
   lastRun: unknown = docs,
   running = false,
 ) {
-  const tab = { id: 't9', state: { activeView, lastRun } };
+  const tab = { id: 't9', kind: 'collection', state: { activeView, lastRun } };
+  // The stored tab `openCollection` resolves to: results are never persisted,
+  // so it carries no `lastRun`; only the live tab state has it.
+  const stored = { id: 't9', state: { activeView } };
   const tabs = {
-    openCollection: vi.fn(async () => tab),
+    tabs: [tab],
+    openCollection: vi.fn(async () => stored),
     openAggregation: vi.fn(async () => tab),
     setActiveView: vi.fn(),
   };

@@ -155,7 +155,11 @@ export function collectionObject(args: {
         // settled result with documents exports. Anything else says why, once,
         // and queues nothing.
         perform: async () => {
-          const tab = await openReusing();
+          // The opened tab is the stored row, which never carries a result:
+          // the result lives in the live tab state.
+          const opened = await openReusing();
+          const live = tabs().tabs.find((t) => t.id === opened.id);
+          const tab = live?.kind === 'collection' ? live : opened;
           if (connectFirst('export')) return;
           if ((tab.state.activeView ?? 'documents') !== 'documents') tabs().setActiveView(tab.id, 'documents');
           const run = tab.state.lastRun;
