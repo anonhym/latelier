@@ -400,11 +400,18 @@ function WorkspaceInner() {
   // (so a loaded saved query isn't clobbered), and never against a Dormant
   // Connection. Deps are deliberately just the landing triggers, not the
   // query sub-fields — depending on those would re-fire on every keystroke.
+  // A saved query the palette is loading into a tab (X07 §13.5). A tab just
+  // opened is not in the tab state until the render after `openCollection`
+  // settles, so the load waits for it there; until then the tab must not
+  // auto-run its default `{}` query.
+  const pendingSavedRef = React.useRef<{ tabId: string; payload: LegacySavedFindPayload; run: boolean } | null>(null);
+  const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
   React.useEffect(() => {
     if (!activeCollection) return;
     if (activeView !== 'documents') return;
     if (activeCollection.state.lastRun) return;
     if (!isDefaultQueryState(activeCollection.state)) return;
+    if (pendingSavedRef.current?.tabId === activeCollection.id) return;
     if (isKnownNotConnected(focusedConnection)) return;
     void queryRunner.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1301,14 +1308,25 @@ function WorkspaceInner() {
         collection: saved.collection,
         reuseExisting: true,
       });
-      const patch = hydrateFindPayload(full.payload as unknown as LegacySavedFindPayload, tab.state.builder);
-      if ((tab.state.activeView ?? 'documents') !== 'documents') t.setActiveView(tab.id, 'documents');
-      // The draft belongs to the filter being replaced: drop it with it.
-      t.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
-      if (runIt) await run(patch, { ...tab, state: { ...tab.state, ...patch } });
+      pendingSavedRef.current = { tabId: tab.id, payload: full.payload as unknown as LegacySavedFindPayload, run: runIt };
+      setPendingSavedTick((n) => n + 1);
     },
-    [tabsRef, run],
+    [tabsRef, setPendingSavedTick],
   );
+  // Applies the pending load once its tab is in the tab state, as the saved
+  // list's Run here does, without the run unless asked.
+  React.useEffect(() => {
+    const pending = pendingSavedRef.current;
+    if (!pending) return;
+    const tab = tabs.tabs.find((x) => x.id === pending.tabId);
+    if (tab?.kind !== 'collection') return;
+    pendingSavedRef.current = null;
+    const patch = hydrateFindPayload(pending.payload, tab.state.builder);
+    if ((tab.state.activeView ?? 'documents') !== 'documents') tabs.setActiveView(tab.id, 'documents');
+    // The draft belongs to the filter being replaced: drop it with it.
+    tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
+    if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
+  }, [tabs, pendingSavedTick, run]);
   const removeSaved = React.useCallback(async (saved: SavedQuerySummary) => {
     if (!(await confirmDeleteSaved(saved))) return;
     await api.saved.delete({ id: saved.id });
@@ -1581,6 +1599,7 @@ function SavedPaletteObjects({
   useRegisterObjects(objects, [objects]);
   return null;
 }
+
 
 export default function Workspace() {
   const [dark, toggle] = useTheme();

@@ -191,7 +191,7 @@ describe('activateTab', () => {
     await activateTab(
       {
         tabs: { tabs: [collTab({ id: 't1', connectionId: 'c2' })], activeId, setActive },
-        connections: [{ id: 'c2', status } as never],
+        connections: [{ id: 'c0', status: 'disconnected' } as never, { id: 'c2', status } as never],
         recordSessionEvent,
         openConnection,
       },

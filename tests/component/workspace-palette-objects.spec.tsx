@@ -70,7 +70,7 @@ const t1 = (over: Partial<CollectionTab> = {}) =>
   collectionTabFixture({ id: 't1', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true, ...over });
 const t2 = collectionTabFixture({ id: 't2', connectionId: 'c2', dbName: 'ordering', collection: 'carts', position: 1 });
 
-function mount(opts: { tabs?: CollectionTab[] } = {}) {
+function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab } = {}) {
   statusListeners = [];
   const tabs = opts.tabs ?? [t1(), t2];
   const listDatabases = vi.fn(async ({ connectionId }: { connectionId: string }) =>
@@ -91,7 +91,12 @@ function mount(opts: { tabs?: CollectionTab[] } = {}) {
   const setActive = vi.fn(async (id: string) => collectionTabFixture({ id }));
   const close = vi.fn(async () => ({ newActiveId: null }));
   const setPinned = vi.fn(async (id: string) => collectionTabFixture({ id }));
-  const openCollection = vi.fn(async () => tabs[0]!);
+  let rows = tabs;
+  const openCollection = vi.fn(async () => {
+    const opened = opts.opened ?? tabs[0]!;
+    if (!rows.some((r) => r.id === opened.id)) rows = [...rows.map((r) => ({ ...r, isActive: false })), opened];
+    return opened;
+  });
   const openAggregation = vi.fn(async () => tabs[0]!);
   const find = vi.fn(async () => ({ documents: [], durationMs: 1 }));
   installAtelierMock({
@@ -103,7 +108,7 @@ function mount(opts: { tabs?: CollectionTab[] } = {}) {
       ],
     },
     tabs: {
-      list: async () => tabs,
+      list: async () => rows,
       setActive: setActive as never,
       close: close as never,
       setPinned: setPinned as never,
@@ -308,6 +313,30 @@ describe('Saved objects', () => {
     expect(m.find).toHaveBeenLastCalledWith(expect.objectContaining({ filter: '{"status":"open"}' }));
   });
 
+  it.each([
+    ['Enter', false],
+    ['⌘↵', true],
+  ])('%s on a collection with no tab open runs nothing but the saved query, if asked', async (_key, runIt) => {
+    // A fresh tab in its default state: the auto-run must not run `{}` over it.
+    const fresh = collectionTabFixture({ id: 't9', connectionId: 'c1', dbName: 'shop', collection: 'customers', isActive: true });
+    const m = mount({ opened: fresh });
+    await screen.findByTestId('nav-coll-shop-orders');
+    await waitFor(() => expect(m.find).toHaveBeenCalled());
+    const before = m.find.mock.calls.length;
+    openPalette();
+    search('last 7 days');
+    await waitFor(() => expect(rowsOf('saved')).toHaveLength(1));
+    fireEvent.keyDown(input(), { key: 'Enter', metaKey: runIt });
+    await waitFor(() => expect(m.openCollection).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    const after = (m.find.mock.calls.slice(before) as unknown as [{ filter: string; collection: string }][]).map(([a]) => a);
+    expect(after).toEqual(runIt ? [expect.objectContaining({ collection: 'customers', filter: '{"status":"open"}' })] : []);
+    // Loaded into the new tab either way.
+    expect(screen.getByDisplayValue('{"status":"open"}')).toBeTruthy();
+  });
+
   it('Run on a saved pipeline asks its Aggregation tab to run once it opens', async () => {
     mount();
     await screen.findByTestId('nav-coll-shop-orders');
@@ -399,6 +428,24 @@ describe('the added commands’ gates', () => {
       search(q);
       expect(titles().map(([t]) => t)).not.toContain(q.endsWith('query') ? q : `${q}…`);
     }
+  });
+
+  it('Create collection… and Create index… are listed with a collection tab in front, and open their drawers', async () => {
+    mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    openPalette();
+    search('Create collection');
+    await waitFor(() => expect(titles()[0]).toEqual(['Create collection…', '']));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(await screen.findByRole('dialog', { name: 'New collection — shop' })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'New collection — shop' }), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New collection — shop' })).toBeNull());
+
+    openPalette();
+    search('Create index');
+    await waitFor(() => expect(titles()[0]).toEqual(['Create index…', '']));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(await screen.findByRole('dialog', { name: 'New index — shop.orders' })).toBeTruthy();
   });
 
   it('Explain query is greyed with the filter’s problem, and asks the Run menu’s Explain otherwise', async () => {

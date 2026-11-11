@@ -107,6 +107,8 @@
     "src/pages/Workspace/collectionObject.ts",
     "src/pages/Workspace/tabRequest.ts",
     "src/pages/Workspace/paletteObjects.ts",
+    "src/pages/Workspace/tabActions.ts",
+    "src/pages/Workspace/savedActions.ts",
     "src/commands/pastedId.ts",
     "src/commands/shortcutLabel.ts",
     "electron/services/tabStateResults.ts",
