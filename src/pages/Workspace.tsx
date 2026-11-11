@@ -410,11 +410,18 @@ function WorkspaceInner() {
     | null
   >(null);
   const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
+  // A tab the palette switched to Documents to start a query on: the switch
+  // re-fires the auto-run below, once, after the pending load has cleared.
+  const skipAutoRunRef = React.useRef<string | null>(null);
   // Bumped by each saved query the palette loads, added to PanelBody's own load counter.
   const [savedLoadGen, setSavedLoadGen] = React.useState(0);
   React.useEffect(() => {
     if (!activeCollection) return;
     if (activeView !== 'documents') return;
+    if (skipAutoRunRef.current === activeCollection.id) {
+      skipAutoRunRef.current = null;
+      return;
+    }
     if (activeCollection.state.lastRun) return;
     if (!isDefaultQueryState(activeCollection.state)) return;
     if (pendingSavedRef.current?.tabId === activeCollection.id) return;
@@ -1355,7 +1362,10 @@ function WorkspaceInner() {
     if (pending.kind === 'filter') {
       // The filter drawer takes the request as an edit of its own: shown, on
       // its Filter tab, with nothing run.
-      if ((tab.state.activeView ?? 'documents') !== 'documents') tabs.setActiveView(tab.id, 'documents');
+      if ((tab.state.activeView ?? 'documents') !== 'documents') {
+        skipAutoRunRef.current = tab.id;
+        tabs.setActiveView(tab.id, 'documents');
+      }
       if (tab.state.activeBuilderTab !== 'Builder') tabs.patchCollectionState(tab.id, { activeBuilderTab: 'Builder' });
       expandBuilder();
       requestFilter(tab.id, pending.request);

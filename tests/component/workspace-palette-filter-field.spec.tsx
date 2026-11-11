@@ -347,6 +347,34 @@ describe('Filter by field…: choosing a row', () => {
   });
 });
 
+describe('a tab on another view with no result', () => {
+  // Results are not kept across a relaunch, so a restored tab has no run; the
+  // switch back to Documents must not set off the default `{}` run.
+  const onStructure = () => ordersTab({ queryRaw: '{}', filterDraft: undefined, activeView: 'structure' });
+
+  it('Filter by field… switches it to Documents and runs nothing', async () => {
+    const m = mount({ tabs: [onStructure()] });
+    await screen.findByTestId('nav-coll-shop-orders');
+    await runAction('shop.orders', 'Filter by field');
+    fireEvent.change(input(), { target: { value: 'exists' } });
+    await waitFor(() => expect(stepRows()).toEqual([['Exists and is not null', '']]));
+    key('Enter');
+    await waitFor(() => expect(screen.getByLabelText('Query filter')).toBeTruthy());
+    await waitFor(() => expect(document.querySelectorAll('[data-row-path]').length).toBe(1));
+    await settle();
+    expect(m.find).not.toHaveBeenCalled();
+  });
+
+  it('Query… switches it to Documents and runs nothing', async () => {
+    const m = mount({ tabs: [onStructure()] });
+    await screen.findByTestId('nav-coll-shop-orders');
+    await runAction('shop.orders', 'Query');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add condition' })));
+    await settle();
+    expect(m.find).not.toHaveBeenCalled();
+  });
+});
+
 describe('Query…', () => {
   it('opens the collection with focus in the builder’s first field, nothing run', async () => {
     const m = mount();

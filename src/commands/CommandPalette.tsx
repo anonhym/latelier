@@ -1082,6 +1082,8 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
         />
       ));
     const muted: React.CSSProperties = { ...ROW_STYLE, padding: '7px 16px', color: 'var(--atelier-text-muted)' };
+    // The fields group stays while it has a status to show, or a field that matches.
+    const showFields = stepFields === null || stepFields.length === 0 || stepList.fields.length > 0;
     return (
       <div>
         {searchRow}
@@ -1091,22 +1093,29 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
           aria-label={`Fields of ${step.obj.name}`}
           style={{ maxHeight: 'min(460px, calc(100vh - 260px))', overflowY: 'auto', padding: '0 0 4px' }}
         >
-          <div role="group" aria-labelledby={`${listId}-grp-fields`}>
-            <div id={`${listId}-grp-fields`} style={GROUP_HEAD}>
-              Fields · sampled
+          {showFields && (
+            <div role="group" aria-labelledby={`${listId}-grp-fields`}>
+              <div id={`${listId}-grp-fields`} style={GROUP_HEAD}>
+                Fields · sampled
+              </div>
+              {stepFields === null ? (
+                <div role="status" style={muted}>
+                  Sampling fields…
+                </div>
+              ) : stepFields.length === 0 ? (
+                <div role="status" style={muted}>
+                  No fields sampled
+                </div>
+              ) : (
+                stepRows(stepList.fields)
+              )}
             </div>
-            {stepFields === null ? (
-              <div role="status" style={muted}>
-                Sampling fields…
-              </div>
-            ) : stepFields.length === 0 ? (
-              <div role="status" style={muted}>
-                No fields sampled
-              </div>
-            ) : (
-              stepRows(stepList.fields)
-            )}
-          </div>
+          )}
+          {!showFields && stepList.starters.length === 0 && (
+            <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 'var(--atelier-fs-sm)', color: 'var(--atelier-text-muted)' }}>
+              {`No matches for "${stepQuery.trim()}"`}
+            </div>
+          )}
           {stepList.starters.length > 0 && (
             <div role="group" aria-labelledby={`${listId}-grp-starters`}>
               <div id={`${listId}-grp-starters`} style={GROUP_HEAD}>

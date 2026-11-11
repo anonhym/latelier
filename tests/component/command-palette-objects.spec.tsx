@@ -372,6 +372,21 @@ describe('a field step', () => {
     await waitFor(() => expect(performed).toHaveBeenCalledWith('field/status'));
   });
 
+  it('hides the fields group when no field matches, and says so when nothing does', async () => {
+    mount([withStep({})]);
+    const el = await openStep();
+    await waitFor(() => expect(titles()).toEqual(['status', 'Last 7 days']));
+    fireEvent.change(el, { target: { value: 'days' } });
+    expect(titles()).toEqual(['Last 7 days']);
+    expect(dialog().queryByText('Fields · sampled')).toBeNull();
+    fireEvent.change(el, { target: { value: 'zzz' } });
+    expect(titles()).toEqual([]);
+    expect(dialog().getByText('No matches for "zzz"')).toBeTruthy();
+    fireEvent.change(el, { target: { value: 'sta' } });
+    expect(dialog().getByText('Fields · sampled')).toBeTruthy();
+    expect(dialog().queryByText(/No matches/)).toBeNull();
+  });
+
   it('performs the action when its step returns null', async () => {
     mount([{ ...orders, actions: [action('shop.orders', 'filter-field', 'Filter by field…', 'filter', { fieldStep: () => null })] }]);
     open('filter orders');
