@@ -644,7 +644,7 @@ Registering, listing and unregistering 50,000 rows took 6.4 ms. Ranking is not w
 3. **Bounded rendering.** At most five rows per kind in All and 50 rows in a scope (§13.3), whatever the catalog holds. The ranker returns the total count for the `more` lines without materialising the rows behind it.
 4. **Ranking inside one frame.** The v2 ranker, on the probe above, takes no more than 16 ms at 50,000 collections for any query. Text that does not change between keystrokes (lower-cased match text, word starts, initials) is computed once per registration, not once per keystroke.
 5. **Local reads once per open.** The saved-query list is one local `saved:list` read when the palette opens, never per keystroke.
-6. **No regression in the app.** Before step 1 and after each of steps 1 to 4 (§13.9), the built app is measured against a 10,000-collection fixture: time from `⌘K` to the first painted list, and time from a keystroke to the next paint. A step whose numbers are worse than the step before it does not merge. The numbers go in the pull request.
+6. **No regression in the app.** Before step 1 and after each of steps 1 to 4 (§13.9), the built app is measured against a 10,000-collection fixture: time from `⌘K` to the first painted list, and time from a keystroke to the next paint. A step whose numbers are worse than the step before it does not merge. Worse means a median above the earlier one by more than their run-to-run spread, taken from runs of the two builds alternated on the same machine: back-to-back runs of one build differ by about a millisecond. The numbers go in the pull request.
 
 ### 13.8 Not in scope
 
@@ -698,7 +698,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - Opening the palette, typing and navigating in it send no request to a MongoDB server; only `Filter by field…` does, at most one schema sample.
 - With 10,000 collections cached, no query renders more than 50 result rows in a scope or five per kind in All.
 - The ranker stays within 16 ms at 50,000 collections on the §13.7 probe (`npm run perf:rank`; opt-in, since a 16 ms wall-clock assertion flakes under the full suite's load, which keeps a coarse guard).
-- The in-app measurements of §13.7 rule 6 are no worse after each step than before it.
+- The in-app measurements of §13.7 rule 6 are no worse after each step than before it, in the sense rule 6 gives worse.
 - Every row, scope and action is reachable and operable from the keyboard, and the highlighted row is announced through `aria-activedescendant` in the results and in the action list.
 
 ### 13.11 Test cases
