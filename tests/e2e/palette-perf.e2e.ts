@@ -224,10 +224,10 @@ test.describe('palette performance', () => {
       };
       fs.mkdirSync(path.dirname(OUT), { recursive: true });
       fs.writeFileSync(OUT, JSON.stringify(result, null, 2) + '\n');
-      console.log(
+      process.stdout.write(
         `palette-perf: open median ${result.openToFirstPaintMs.median}ms p90 ${result.openToFirstPaintMs.p90}ms | ` +
           `key "o" median ${result.keystrokeOMs.median}ms p90 ${result.keystrokeOMs.p90}ms | ` +
-          `"ord" 3rd key median ${result.sequenceOrdMs.ord.median}ms p90 ${result.sequenceOrdMs.ord.p90}ms -> ${OUT}`,
+          `"ord" 3rd key median ${result.sequenceOrdMs.ord.median}ms p90 ${result.sequenceOrdMs.ord.p90}ms -> ${OUT}\n`,
       );
     });
   });
