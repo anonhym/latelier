@@ -1143,6 +1143,11 @@ function WorkspaceInner() {
                 to: text,
                 from: { queryRaw: now.state.queryRaw, filterDraft: now.state.filterDraft },
               });
+              // The result shows on Documents only; the switch must not auto-run as well.
+              if ((now.state.activeView ?? 'documents') !== 'documents') {
+                skipAutoRunRef.current = now.id;
+                tabsRef.current.setActiveView(now.id, 'documents');
+              }
               const patch = { queryRaw: text, filterDraft: undefined };
               tabsRef.current.patchCollectionState(now.id, patch);
               void run(patch);

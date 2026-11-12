@@ -134,6 +134,21 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     expect((screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('switches a tab off Documents back to it, and runs the find once', async () => {
+    const tab = collectionTab();
+    const { find } = mount([{ ...tab, state: { ...tab.state, activeView: 'aggregation' } } as WorkspaceTab]);
+    await screen.findByRole('tab', { name: 'Aggregation', selected: true });
+    expect(screen.queryByLabelText('Query filter')).toBeNull();
+    search(HEX);
+    await within(screen.getByRole('dialog')).findByText('In the tab in front');
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter' });
+
+    await waitFor(() => expect(filterBar().value).toBe(FILTER));
+    expect(screen.getByRole('tab', { name: 'Documents', selected: true })).toBeTruthy();
+    await waitFor(() => expect(find).toHaveBeenCalledTimes(1));
+    expect(find.mock.calls[0]![0]).toMatchObject({ filter: FILTER });
+  });
+
   it('keeps the step for a drawer that was collapsed when the filter was replaced', async () => {
     const { find } = mount([collectionTab()]);
     await screen.findByLabelText('Query filter');
