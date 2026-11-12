@@ -1673,8 +1673,10 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       : initHistory(seed.root);
   });
   // Consumed by the render that read it, so it cannot reach a later drawer.
+  // Only that render: one that ran before the replacement landed, with the
+  // old text, would otherwise drop the step it is about to need.
   React.useEffect(() => {
-    clearFilterStep(meta.tabId);
+    if (peekFilterStep(meta.tabId, queryRaw)) clearFilterStep(meta.tabId);
   });
   const [readOnly, setReadOnly] = React.useState(seed.readOnly);
   const root = history.present;

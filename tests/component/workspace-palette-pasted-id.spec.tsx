@@ -192,7 +192,9 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     await waitFor(() => expect(filterBar().value).toBe(FILTER));
     expect(screen.queryByDisplayValue('offrow')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Undo filter edit' }));
+    const undo = screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
+    await waitFor(() => expect(undo.disabled).toBe(false));
+    fireEvent.click(undo);
     await waitFor(() => expect(filterBar().value).toBe(BEFORE));
     expect(screen.queryByDisplayValue('offrow')).toBeTruthy();
   });
