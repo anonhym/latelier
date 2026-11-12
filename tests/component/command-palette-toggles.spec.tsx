@@ -123,6 +123,13 @@ describe('a toggle', () => {
     await toggle();
     expect(recentHeader()).toBeTruthy();
   });
+  it('keeps the focus in the search input when its row is pressed', async () => {
+    mount();
+    await toggle();
+    // jsdom moves no focus on mousedown: a cancelled default is what keeps Chromium's input focused.
+    expect(fireEvent.mouseDown(option(/^Dark mode/))).toBe(false);
+  });
+
   it('lets the cursor go back to the best row once the query changes', async () => {
     mount();
     await toggle();

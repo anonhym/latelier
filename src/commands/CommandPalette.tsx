@@ -336,6 +336,8 @@ function RowView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { en
       type="button"
       role="option"
       tabIndex={-1}
+      // A click must leave focus in the search input, which owns the keyboard.
+      onMouseDown={(e) => e.preventDefault()}
       aria-selected={isCursor}
       aria-disabled={disabled === null ? undefined : true}
       aria-checked={cmd.toggle ? cmd.toggle.checked : undefined}
@@ -383,6 +385,7 @@ function MoreView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { e
       type="button"
       role="option"
       tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
       aria-selected={isCursor}
       data-more={entry.scope}
       data-cursor={isCursor || undefined}
@@ -411,6 +414,7 @@ function VerbView({ entry, id, isCursor, onActivate, onHover }: EntryProps & { e
       type="button"
       role="option"
       tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
       aria-selected={isCursor}
       data-verb={entry.target}
       data-cursor={isCursor || undefined}
@@ -453,6 +457,7 @@ function ActionRowView({ entry, id, isCursor, onActivate, onHover }: ActionRowPr
       type="button"
       role="option"
       tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
       aria-selected={isCursor}
       aria-disabled={disabled === null ? undefined : true}
       data-palette-action={action.id}
@@ -515,6 +520,7 @@ function StepRowView({ entry, id, isCursor, onActivate, onHover }: StepRowProps)
       type="button"
       role="option"
       tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
       aria-selected={isCursor}
       data-step-row={entry.type}
       data-cursor={isCursor || undefined}
