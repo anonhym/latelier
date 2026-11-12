@@ -55,6 +55,7 @@ function emit(runtime: ConnectionRuntime) {
 function mount(
   server: Record<string, Record<string, string[]>> = SERVER,
   extraTabs: ReturnType<typeof collectionTabFixture>[] = [],
+  { listOpened = false } = {},
 ) {
   statusListeners = [];
   const listDatabases = vi.fn(async ({ connectionId }: { connectionId: string }) =>
@@ -64,9 +65,13 @@ function mount(
     async ({ connectionId, dbName }: { connectionId: string; dbName: string }) =>
       (server[connectionId]?.[dbName] ?? []).map(coll),
   );
-  const openCollection = vi.fn(async (input: { connectionId: string; dbName: string; collection: string }) =>
-    collectionTabFixture({ id: 't-new', ...input, isActive: true }),
-  );
+  // With `listOpened`, the opened tab is listed from then on, as main lists it.
+  const opened: ReturnType<typeof collectionTabFixture>[] = [];
+  const openCollection = vi.fn(async (input: { connectionId: string; dbName: string; collection: string }) => {
+    const tab = collectionTabFixture({ id: 't-new', ...input, isActive: true });
+    if (listOpened) opened.splice(0, opened.length, tab);
+    return tab;
+  });
   installAtelierMock({
     conn: {
       list: async () => [
@@ -81,9 +86,10 @@ function mount(
           connectionId: 'c1',
           dbName: 'shop',
           collection: 'orders',
-          isActive: true,
+          isActive: opened.length === 0,
         }),
         ...extraTabs,
+        ...opened,
       ],
       setActive: async (id: string) => collectionTabFixture({ id }),
       openCollection: openCollection as never,
@@ -577,6 +583,20 @@ describe('palette Collection actions', () => {
     await waitFor(() =>
       expect(openCollection).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'crm', collection: 'leads' }),
     );
+  });
+
+  it.each(['Schema', 'Indexes'])('%s on a collection with no tab opens one on Structure', async (action) => {
+    const { listCollections, openCollection } = mount(SERVER, [], { listOpened: true });
+    await settled(listCollections);
+    openPalette();
+    search('leads');
+    await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', altKey: true });
+    fireEvent.change(screen.getByLabelText('Filter actions'), { target: { value: action } });
+    fireEvent.keyDown(screen.getByLabelText('Filter actions'), { key: 'Enter' });
+
+    await waitFor(() => expect(openCollection).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Structure', selected: true })).toBeTruthy());
   });
 
   it('disables the writing actions on a view, with a reason', async () => {

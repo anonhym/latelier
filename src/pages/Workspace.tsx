@@ -445,14 +445,26 @@ function WorkspaceInner() {
   // leave the schema below a long index list.
   const structureScrollRef = React.useRef<'Indexes' | 'Schema' | null>(null);
   const [structureScrollNonce, setStructureScrollNonce] = React.useState(0);
+  // A tab the palette has just opened is not in the tab state until the next
+  // render, and a view switch on an unknown tab is dropped: it waits for it.
+  const pendingStructureRef = React.useRef<{ tabId: string; section: 'Indexes' | 'Schema' } | null>(null);
   const showStructure = React.useCallback(
     (tabId: string, section: 'Indexes' | 'Schema') => {
+      if (!tabsRef.current.tabs.some((t) => t.id === tabId)) {
+        pendingStructureRef.current = { tabId, section };
+        return;
+      }
+      pendingStructureRef.current = null;
       structureScrollRef.current = section;
       setStructureScrollNonce((n) => n + 1);
       tabsRef.current.setActiveView(tabId, 'structure');
     },
     [tabsRef],
   );
+  React.useEffect(() => {
+    const pending = pendingStructureRef.current;
+    if (pending && tabs.tabs.some((t) => t.id === pending.tabId)) showStructure(pending.tabId, pending.section);
+  }, [tabs.tabs, showStructure]);
   React.useEffect(() => {
     const target = structureScrollRef.current;
     if (!target || activeView !== 'structure') return;
