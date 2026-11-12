@@ -15,7 +15,7 @@ import { buildUpdateRequest, setAtSegments } from './Workspace/documentDiff';
 import { copyToClipboard } from '../utils/clipboard';
 import { BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
-import type { CollectionView, SavedQuerySummary } from '@shared/types';
+import type { CollectionView, SavedQuerySummary, WorkspaceTab } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
 import { useReferenceRules } from '../features/references/useReferenceRules';
 import { useReferenceDrawer } from './Workspace/useReferenceDrawer';
@@ -408,6 +408,8 @@ function WorkspaceInner() {
     | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean }
     | { kind: 'filter'; tabId: string; request: FilterRequest }
     | { kind: 'rename'; tabId: string; savedId: string }
+    // `before` is the tab list the open was asked against: the run waits for a newer one.
+    | { kind: 'runPipeline'; tabId: string; savedId: string; before: WorkspaceTab[] }
     | null
   >(null);
   const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
@@ -1367,8 +1369,14 @@ function WorkspaceInner() {
         runIt = false;
       }
       if (saved.kind === 'aggregation') {
+        const before = t.tabs;
         const tab = await openSavedPipeline(t, saved);
-        if (tab && runIt) requestTab('runPipeline', tab.id);
+        // The open's stages land with the next render: a run asked now would
+        // run the pipeline the tab showed before.
+        if (tab && runIt) {
+          pendingSavedRef.current = { kind: 'runPipeline', tabId: tab.id, savedId: saved.id, before };
+          setPendingSavedTick((n) => n + 1);
+        }
         return;
       }
       const full = await api.saved.get({ id: saved.id });
@@ -1395,6 +1403,12 @@ function WorkspaceInner() {
     if (!pending) return;
     const tab = tabs.tabs.find((x) => x.id === pending.tabId);
     if (tab?.kind !== 'collection') return;
+    if (pending.kind === 'runPipeline') {
+      if (tabs.tabs === pending.before || tab.state.aggregation?.savedId !== pending.savedId) return;
+      pendingSavedRef.current = null;
+      requestTab('runPipeline', tab.id);
+      return;
+    }
     pendingSavedRef.current = null;
     if (pending.kind === 'rename') {
       // The Saved list's own inline rename, on the collection's Saved tab.

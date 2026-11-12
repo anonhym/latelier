@@ -73,7 +73,14 @@ const t1 = (over: Partial<CollectionTab> = {}) =>
 const t2 = collectionTabFixture({ id: 't2', connectionId: 'c2', dbName: 'ordering', collection: 'carts', position: 1 });
 
 function mount(
-  opts: { tabs?: CollectionTab[]; opened?: CollectionTab; server?: typeof SERVER; savedQueryRaw?: string } = {},
+  opts: {
+    tabs?: CollectionTab[];
+    opened?: CollectionTab;
+    server?: typeof SERVER;
+    savedQueryRaw?: string;
+    /** Whether the tab list shows the opened pipeline afterwards, as main lists it. */
+    listsOpenedPipeline?: boolean;
+  } = {},
 ) {
   const server = opts.server ?? SERVER;
   statusListeners = [];
@@ -108,7 +115,18 @@ function mount(
     if (!rows.some((r) => r.id === opened.id)) rows = [...rows.map((r) => ({ ...r, isActive: false })), opened];
     return opened;
   });
-  const openAggregation = vi.fn(async () => tabs[0]!);
+  const openAggregation = vi.fn(async ({ savedId }: { savedId?: string }) => {
+    if (opts.listsOpenedPipeline !== false) {
+      rows = rows.map((r, i) =>
+        i === 0 && r.kind === 'collection'
+          ? // The view is left alone, so the request stays to be read.
+            { ...r, state: { ...r.state, aggregation: { ...DEFAULT_AGGREGATION_TAB_STATE, savedId } } }
+          : r,
+      );
+    }
+    return tabs[0]!;
+  });
+  const tabsList = vi.fn(async () => rows);
   const find = vi.fn(async () => ({ documents: [], durationMs: 1 }));
   installAtelierMock({
     conn: {
@@ -119,7 +137,7 @@ function mount(
       ],
     },
     tabs: {
-      list: async () => rows,
+      list: tabsList as never,
       setActive: setActive as never,
       close: close as never,
       setPinned: setPinned as never,
@@ -161,6 +179,7 @@ function mount(
     setPinned,
     openCollection,
     openAggregation,
+    tabsList,
     find,
   };
 }
@@ -391,6 +410,18 @@ describe('Saved objects', () => {
     await waitFor(() => expect(rowsOf('saved')).toEqual([['Orders by region', 'shop.orders', 'Run']]));
     fireEvent.keyDown(input(), { key: 'Enter' });
     await waitFor(() => expect(tabRequested('runPipeline', 't1')).toBe(true));
+  });
+
+  it('asks no run while the tab still shows the pipeline it had before', async () => {
+    const m = mount({ listsOpenedPipeline: false });
+    await screen.findByTestId('nav-coll-shop-orders');
+    openPalette();
+    search('run region');
+    await waitFor(() => expect(rowsOf('saved')).toEqual([['Orders by region', 'shop.orders', 'Run']]));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(m.openAggregation).toHaveBeenCalled());
+    await waitFor(() => expect(m.tabsList.mock.calls.length).toBeGreaterThan(1));
+    expect(tabRequested('runPipeline', 't1')).toBe(false);
   });
 
   it('Run on a saved pipeline of a Connection that is not connected says so, opens it, and queues no run', async () => {
