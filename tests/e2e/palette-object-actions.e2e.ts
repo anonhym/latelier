@@ -79,3 +79,44 @@ test('palette: drop orders asks for confirmation, and Cancel keeps the collectio
     });
   });
 });
+
+/**
+ * X07 §13.4, W09 §8 — a saved query's `Rename…` opens its collection's Saved
+ * list with the entry in its rename input, focused once the palette has closed.
+ */
+test('palette: Rename… on a saved query renames it in the Saved list', async () => {
+  await withOpenOrders('Palette Rename Saved', ORDERS, 'banana-002', async (win) => {
+    // Seeded through the bridge: the Saved list is the surface under test, not the Save dialog.
+    const created = await win.evaluate(async () => {
+      const api = (window as unknown as {
+        atelier: {
+          conn: { list: () => Promise<{ id: string }[]> };
+          saved: { create: (input: unknown) => Promise<{ name: string }> };
+        };
+      }).atelier;
+      const [conn] = await api.conn.list();
+      const saved = await api.saved.create({
+        connectionId: conn!.id,
+        dbName: 'shop',
+        collection: 'orders',
+        kind: 'find',
+        name: 'Paid orders',
+        payload: { kind: 'find', builder: { conditions: [], logic: 'AND', projection: [], sort: '', limit: '50' }, queryRaw: '{}' },
+      });
+      return saved.name;
+    });
+    expect(created).toBe('Paid orders');
+
+    const { palette, search } = await openPalette(win);
+    await search.fill('rename paid');
+    await expect(palette.getByRole('option').first()).toContainText('Paid orders');
+    await win.keyboard.press('Enter');
+
+    await expect(palette).not.toBeVisible({ timeout: 4000 });
+    const field = win.getByLabel('New name for "Paid orders"');
+    await expect(field).toBeFocused({ timeout: 5000 });
+    await field.fill('Settled orders');
+    await win.keyboard.press('Enter');
+    await expect(win.getByRole('button', { name: 'Rename "Settled orders"' })).toBeVisible({ timeout: 5000 });
+  });
+});

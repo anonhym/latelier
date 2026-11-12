@@ -50,7 +50,7 @@ import { collectionObject } from './Workspace/collectionObject';
 import { databaseObject, isPaletteSaved, savedObject, tabObject } from './Workspace/paletteObjects';
 import { activateTab, closeTabGuarded, tabLabel } from './Workspace/tabActions';
 import { confirmDeleteSaved, openSavedPipeline } from './Workspace/savedActions';
-import { requestFilter, requestTab, type FilterRequest } from './Workspace/tabRequest';
+import { requestFilter, requestSavedRename, requestTab, type FilterRequest } from './Workspace/tabRequest';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './Workspace/legacyBuilder';
 import { usePaletteOpen } from '../commands/paletteOpenState';
 import type { NavigatorDialogRequest, NavigatorRevealInput } from './Workspace/DbCollectionNavigator';
@@ -407,6 +407,7 @@ function WorkspaceInner() {
   const pendingSavedRef = React.useRef<
     | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean }
     | { kind: 'filter'; tabId: string; request: FilterRequest }
+    | { kind: 'rename'; tabId: string; savedId: string }
     | null
   >(null);
   const [pendingSavedTick, setPendingSavedTick] = React.useState(0);
@@ -1395,6 +1396,17 @@ function WorkspaceInner() {
     const tab = tabs.tabs.find((x) => x.id === pending.tabId);
     if (tab?.kind !== 'collection') return;
     pendingSavedRef.current = null;
+    if (pending.kind === 'rename') {
+      // The Saved list's own inline rename, on the collection's Saved tab.
+      if ((tab.state.activeView ?? 'documents') !== 'documents') {
+        skipAutoRunRef.current = tab.id;
+        tabs.setActiveView(tab.id, 'documents');
+      }
+      if (tab.state.activeBuilderTab !== 'Saved') tabs.patchCollectionState(tab.id, { activeBuilderTab: 'Saved' });
+      expandBuilder();
+      requestSavedRename(tab.id, pending.savedId);
+      return;
+    }
     if (pending.kind === 'filter') {
       // The filter drawer takes the request as an edit of its own: shown, on
       // its Filter tab, with nothing run.
@@ -1420,6 +1432,26 @@ function WorkspaceInner() {
     setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
   }, [tabs, pendingSavedTick, run, expandBuilder]);
+  // Rename… opens the collection's Saved list with the entry in its rename
+  // input. A Connection that is not connected shows its Connect pane instead.
+  const renameSaved = React.useCallback(
+    async (saved: SavedQuerySummary) => {
+      const conn = connectionsRef.current.find((c) => c.id === saved.connectionId);
+      if (isKnownNotConnected(conn)) {
+        notify.info(`Connect to ${conn?.name ?? 'the connection'} first, then rename.`);
+        return;
+      }
+      const tab = await tabsRef.current.openCollection({
+        connectionId: saved.connectionId,
+        dbName: saved.dbName,
+        collection: saved.collection,
+        reuseExisting: true,
+      });
+      pendingSavedRef.current = { kind: 'rename', tabId: tab.id, savedId: saved.id };
+      setPendingSavedTick((n) => n + 1);
+    },
+    [connectionsRef, tabsRef, setPendingSavedTick],
+  );
   const removeSaved = React.useCallback(async (saved: SavedQuerySummary) => {
     if (!(await confirmDeleteSaved(saved))) return;
     await api.saved.delete({ id: saved.id });
@@ -1646,6 +1678,7 @@ function WorkspaceInner() {
         connectionId={focusedConnectionId}
         refreshKey={savedRefreshKey}
         open={openSaved}
+        rename={renameSaved}
         remove={removeSaved}
       />
     </AppShell>
@@ -1663,11 +1696,13 @@ function SavedPaletteObjects({
   connectionId,
   refreshKey,
   open,
+  rename,
   remove,
 }: {
   connectionId: string | null;
   refreshKey: number;
   open: (saved: SavedQuerySummary, run: boolean) => Promise<void>;
+  rename: (saved: SavedQuerySummary) => Promise<void>;
   remove: (saved: SavedQuerySummary) => Promise<void>;
 }) {
   const paletteOpen = usePaletteOpen();
@@ -1688,9 +1723,9 @@ function SavedPaletteObjects({
   const objects = React.useMemo(
     (): PaletteObject[] =>
       listed && listed.connectionId === connectionId
-        ? listed.list.map((saved) => savedObject({ saved, open, remove }))
+        ? listed.list.map((saved) => savedObject({ saved, open, rename, remove }))
         : [],
-    [listed, connectionId, open, remove],
+    [listed, connectionId, open, rename, remove],
   );
   useRegisterObjects(objects, [objects]);
   return null;

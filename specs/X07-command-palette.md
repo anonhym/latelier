@@ -580,7 +580,7 @@ This supersedes §4's "`⌘↵` is the same as Enter". On a command row both key
 | database   | Reveal in navigator · Create collection… · Drop database…                                                                                           |
 | collection | Open (reuses an open tab) · Open in new tab (alternate) · Query… · Filter by field… · Aggregate · Schema · Indexes · Export… · Import… · Rename… · Drop… |
 | tab        | Switch to · Close · Pin / Unpin                                                                                                                     |
-| saved      | Open · Run (alternate) · Delete…                                                                                                                    |
+| saved      | Open · Run (alternate) · Rename… · Delete…                                                                                                          |
 
 Each action calls the handler the same control calls elsewhere in the app; none is reimplemented for the palette. Actions that write are disabled, with a reason, on a view.
 
@@ -735,7 +735,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **`⌘P`** is free. The application menu (`electron/security/appMenu.ts`) has no Print item and no item bound to it, the only `globalShortcut` is a development-only reset, and nothing in the renderer listens for it.
 - **Disconnect** lives in `Workspace.tsx`'s `useConnectionDialogs`, which asks first when the Connection has open tabs. Connection objects register above `<Routes>`, so the action travels as a `disconnectConnectionId` route intent, the way open, edit and delete already do, and reaches that same handler and dialog.
 - **Initials against word starts.** Word start stays the stronger class (§13.2). A collection with a word starting with the query, such as `reports.sorted` for `so`, lists above `shop.orders`; recency breaks ties only inside a class.
-- **Saved `Rename…`.** Dropped from the Saved object: the app has no rename for a saved query or pipeline, and a new dialog was not part of the agreed design. Tracked as its own issue.
+- **Saved `Rename…`.** No dialog: it opens the collection's tab on Documents with its Saved list showing, and puts the entry in that list's own inline rename input (W09 §8). An open pipeline tab of that saved pipeline takes the new name. On a Connection that is not connected it says to connect first, as Export… does.
 - **Kind order in All.** Fixed, as the artboards draw it (§13.2, "Group order on a typed query"), so the layout does not reshuffle between keystrokes.
 - **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
 - **Reveal in navigator** for a database: `DbCollectionNavigator`'s reveal request accepts a database on its own, which it expands, scrolls to and focuses. The request lives in `Workspace.tsx`, so the palette and the tab menu share it. `reveal` is not a verb (§13.4), like `create`: under `open` it would list every database.

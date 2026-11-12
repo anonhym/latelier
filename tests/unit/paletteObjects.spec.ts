@@ -107,8 +107,9 @@ describe('tabObject', () => {
 describe('savedObject', () => {
   function build(s: SavedQuerySummary = saved()) {
     const open = vi.fn();
+    const rename = vi.fn();
     const remove = vi.fn();
-    return { obj: savedObject({ saved: s, open, remove }), open, remove };
+    return { obj: savedObject({ saved: s, open, rename, remove }), open, rename, remove };
   }
 
   it('lists a query or a pipeline with its namespace and kind tag', () => {
@@ -122,19 +123,23 @@ describe('savedObject', () => {
     expect(build(saved({ kind: 'aggregation' })).obj.tag).toBe('Pipeline');
   });
 
-  it('opens by default, runs as the alternate, deletes only as a destructive action', () => {
-    const { obj, open, remove } = build();
+  it('opens by default, runs as the alternate, renames, deletes only as a destructive action', () => {
+    const { obj, open, rename, remove } = build();
     expect(obj.actions.map((a) => [a.id, a.verb, a.title, !!a.alternate, !!a.destructive])).toEqual([
       ['open', 'open', 'Open', false, false],
       ['run', 'run', 'Run', true, false],
+      ['rename', 'rename', 'Rename…', false, false],
       ['delete', 'delete', 'Delete…', false, true],
     ]);
     void obj.actions[0]!.perform(ctx);
     expect(open).toHaveBeenLastCalledWith(saved(), false);
     void obj.actions[1]!.perform(ctx);
     expect(open).toHaveBeenLastCalledWith(saved(), true);
-    expect(remove).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
     void obj.actions[2]!.perform(ctx);
+    expect(rename).toHaveBeenCalledWith(saved());
+    expect(remove).not.toHaveBeenCalled();
+    void obj.actions[3]!.perform(ctx);
     expect(remove).toHaveBeenCalledWith(saved());
     expect(() => objectRow(obj)).not.toThrow();
   });

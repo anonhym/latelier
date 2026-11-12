@@ -6,7 +6,7 @@ vi.mock('../../src/utils/confirm', () => ({ confirmDestructive: (opts: never) =>
 vi.mock('../../src/theme/notifications', () => ({ notify: { error: (...a: unknown[]) => notifyError(...a) } }));
 
 const { closeTabGuarded } = await import('../../src/pages/Workspace/tabActions');
-const { confirmDeleteSaved, openSavedPipeline } = await import('../../src/pages/Workspace/savedActions');
+const { confirmDeleteSaved, openSavedPipeline, renameOpenPipelines } = await import('../../src/pages/Workspace/savedActions');
 
 afterEach(() => vi.clearAllMocks());
 
@@ -90,5 +90,23 @@ describe('savedActions', () => {
     expect(notifyError).toHaveBeenLastCalledWith('boom', { title: 'Could not open “Orders by region”' });
     await openSavedPipeline(fail('plain'), saved);
     expect(notifyError).toHaveBeenLastCalledWith('plain', { title: 'Could not open “Orders by region”' });
+  });
+});
+
+describe('renameOpenPipelines', () => {
+  it('renames only the pipeline tabs of that saved pipeline', () => {
+    const patchAggregationState = vi.fn();
+    const tabs = [
+      { id: 'a', kind: 'collection', state: { aggregation: { savedId: 's1' } } },
+      { id: 'b', kind: 'collection', state: { aggregation: { savedId: 's2' } } },
+      { id: 'c', kind: 'collection', state: {} },
+      { id: 'd', kind: 'script', state: {} },
+      { id: 'e', kind: 'collection', state: { aggregation: { savedId: 's1' } } },
+    ] as never;
+    renameOpenPipelines({ tabs, patchAggregationState }, 's1', 'Totals');
+    expect(patchAggregationState.mock.calls).toEqual([
+      ['a', { name: 'Totals' }],
+      ['e', { name: 'Totals' }],
+    ]);
   });
 });

@@ -16,6 +16,17 @@ export function confirmDeleteSaved(target: Pick<SavedQuerySummary, 'name'>): Pro
   });
 }
 
+/** Gives every open pipeline tab of saved pipeline `savedId` its new name. */
+export function renameOpenPipelines(
+  tabs: Pick<WorkspaceTabsState, 'tabs' | 'patchAggregationState'>,
+  savedId: string,
+  name: string,
+): void {
+  for (const t of tabs.tabs) {
+    if (t.kind === 'collection' && t.state.aggregation?.savedId === savedId) tabs.patchAggregationState(t.id, { name });
+  }
+}
+
 /**
  * Opens a saved pipeline on its collection's Aggregation view. Main loads the
  * stored stages and refuses a pipeline deleted since the list loaded: that

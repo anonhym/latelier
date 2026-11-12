@@ -1,12 +1,18 @@
 // One-shot requests to a collection tab, raised from outside it (the palette)
 // and honoured by the tab's own control, so the dialog or run is the one that
 // control opens: the ResultBar's Export dialog, the QueryBar's Explain, the
-// Aggregation tab's Run, the filter drawer's own append.
+// Aggregation tab's Run, the filter drawer's own append, the Saved list's rename.
 import type { FilterNode } from '@shared/types';
 
-export type TabRequestKind = 'export' | 'explain' | 'runPipeline' | 'filter';
+export type TabRequestKind = 'export' | 'explain' | 'runPipeline' | 'filter' | 'renameSaved';
 
-const pending: Record<TabRequestKind, string | null> = { export: null, explain: null, runPipeline: null, filter: null };
+const pending: Record<TabRequestKind, string | null> = {
+  export: null,
+  explain: null,
+  runPipeline: null,
+  filter: null,
+  renameSaved: null,
+};
 const listeners = new Set<() => void>();
 
 /** Asks tab `tabId` to act on `kind` once; replaces an older request of that kind. */
@@ -62,11 +68,33 @@ export function takeFilterRequest(tabId: string): FilterRequest | null {
   return request;
 }
 
+let renameSavedId: string | null = null;
+
+/** Asks tab `tabId`'s Saved list to put saved entry `savedId` in its rename input once. */
+export function requestSavedRename(tabId: string, savedId: string): void {
+  renameSavedId = savedId;
+  requestTab('renameSaved', tabId);
+}
+
+/** The saved entry tab `tabId`'s Saved list is asked to rename, left in place. */
+export function peekSavedRename(tabId: string): string | null {
+  return tabRequested('renameSaved', tabId) ? renameSavedId : null;
+}
+
+/** Clears tab `tabId`'s rename request, so it cannot fire twice. */
+export function consumeSavedRename(tabId: string): void {
+  if (!tabRequested('renameSaved', tabId)) return;
+  consumeTabRequest('renameSaved', tabId);
+  renameSavedId = null;
+}
+
 /** Test-only. */
 export function _resetTabRequestsForTests(): void {
   pending.export = null;
   pending.explain = null;
   pending.runPipeline = null;
   pending.filter = null;
+  pending.renameSaved = null;
   filterRequest = null;
+  renameSavedId = null;
 }

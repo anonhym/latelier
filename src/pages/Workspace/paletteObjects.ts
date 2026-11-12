@@ -49,6 +49,7 @@ export function savedObject(args: {
   saved: SavedQuerySummary;
   /** Loads it; with `run`, runs it too. */
   open: (saved: SavedQuerySummary, run: boolean) => void | Promise<void>;
+  rename: (saved: SavedQuerySummary) => void | Promise<void>;
   remove: (saved: SavedQuerySummary) => void | Promise<void>;
 }): PaletteObject {
   const { saved } = args;
@@ -61,6 +62,7 @@ export function savedObject(args: {
     actions: [
       { id: 'open', verb: 'open', title: 'Open', perform: () => args.open(saved, false) },
       { id: 'run', verb: 'run', title: 'Run', alternate: true, perform: () => args.open(saved, true) },
+      { id: 'rename', verb: 'rename', title: 'Rename…', perform: () => args.rename(saved) },
       { id: 'delete', verb: 'delete', title: 'Delete…', destructive: true, perform: () => args.remove(saved) },
     ],
   };

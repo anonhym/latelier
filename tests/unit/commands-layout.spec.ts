@@ -625,6 +625,7 @@ describe('failureTitle', () => {
           ['tab', 'Unpin', 'pin'],
           ['saved', 'Open', 'open'],
           ['saved', 'Run', 'run'],
+          ['saved', 'Rename…', 'rename'],
           ['saved', 'Delete…', 'delete'],
         ] as const
       ).map(([kind, t, verb]) => title(kind, t, verb)),
@@ -652,6 +653,7 @@ describe('failureTitle', () => {
       'Unpin tab',
       'Open saved query',
       'Run saved query',
+      'Rename saved query…',
       'Delete saved query…',
     ]);
   });

@@ -39,7 +39,7 @@ import type { IndexCreateRequest } from '../IndexesTab';
 import { QueryBar } from './QueryBar';
 import { ResultViewer } from './ResultViewer';
 import { BuilderPane } from './BuilderPane';
-import { openSavedPipeline } from './savedActions';
+import { openSavedPipeline, renameOpenPipelines } from './savedActions';
 import { ResizeHandle } from './ResizeHandle';
 import { DividerNotch } from './DividerNotch';
 import { MongoShellPane } from './MongoShellPane';
@@ -619,6 +619,7 @@ export function PanelBody({
                               void tabs.openScript({ connectionId: saved.connectionId });
                             }
                           }}
+                          onSavedRenamed={(saved, name) => renameOpenPipelines(tabs, saved.id, name)}
                           onOpenAsPipeline={(stages) => {
                             tabs
                               .openAggregation({

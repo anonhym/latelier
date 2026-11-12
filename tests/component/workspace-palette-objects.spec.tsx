@@ -93,6 +93,12 @@ function mount(
     payload: { kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw: opts.savedQueryRaw ?? '{"status":"open"}' },
   }));
   const savedDelete = vi.fn(async () => {});
+  const savedUpdate = vi.fn(async ({ id, patch }: { id: string; patch: { name?: string } }) => ({
+    ...SAVED.find((s) => s.id === id)!,
+    ...patch,
+    createdAt: '2026-11-11T10:00:00.000Z',
+    payload: {},
+  }));
   const setActive = vi.fn(async (id: string) => collectionTabFixture({ id }));
   const close = vi.fn(async () => ({ newActiveId: null }));
   const setPinned = vi.fn(async (id: string) => collectionTabFixture({ id }));
@@ -131,7 +137,7 @@ function mount(
       },
     },
     query: { find: find as never },
-    saved: { list: savedList as never, get: savedGet as never, delete: savedDelete as never },
+    saved: { list: savedList as never, get: savedGet as never, delete: savedDelete as never, update: savedUpdate as never },
   });
   render(
     <MemoryRouter initialEntries={['/workspace']}>
@@ -149,6 +155,7 @@ function mount(
     savedList,
     savedGet,
     savedDelete,
+    savedUpdate,
     setActive,
     close,
     setPinned,
@@ -445,6 +452,22 @@ describe('Saved objects', () => {
     expect(m.savedDelete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(m.savedDelete).toHaveBeenCalledWith({ id: 'q2' }));
+  });
+
+  it('Rename… opens the collection’s Saved list with the entry in its rename input', async () => {
+    const m = mount();
+    await screen.findByTestId('nav-coll-shop-orders');
+    openPalette();
+    search('rename region');
+    await waitFor(() => expect(rowsOf('saved')).toEqual([['Orders by region', 'shop.orders', 'Rename…']]));
+    fireEvent.keyDown(input(), { key: 'Enter' });
+
+    const field = (await screen.findByLabelText('New name for "Orders by region"')) as HTMLInputElement;
+    expect(field.value).toBe('Orders by region');
+    expect(screen.getByRole('tab', { name: 'Saved', selected: true })).toBeTruthy();
+    fireEvent.change(field, { target: { value: 'Region totals' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await waitFor(() => expect(m.savedUpdate).toHaveBeenCalledWith({ id: 'q2', patch: { name: 'Region totals' } }));
   });
 });
 

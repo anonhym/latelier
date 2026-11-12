@@ -89,6 +89,8 @@ interface BuilderPaneProps {
   savedRefreshKey: number;
   /** Opens an aggregation or script saved item as its own top-level tab. */
   onOpenInTab: (saved: SavedQuerySummary) => void;
+  /** Called once the Saved list has renamed one of its entries. */
+  onSavedRenamed: (saved: SavedQuerySummary, name: string) => void;
   /** Opens this query, as stages, in the collection's Aggregation view. */
   onOpenAsPipeline: (stages: Stage[]) => void;
   /**
@@ -2002,6 +2004,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
 function BuilderPaneInner({
   savedRefreshKey,
   onOpenInTab,
+  onSavedRenamed,
   onOpenAsPipeline,
   loadGen,
   onLoaded,
@@ -2271,6 +2274,8 @@ function BuilderPaneInner({
             refreshKey={savedRefreshKey}
             onRunHere={handleSavedRunHere}
             onOpenInTab={onOpenInTab}
+            tabId={meta.tabId}
+            onRenamed={onSavedRenamed}
           />
         </Tabs.Panel>
 
