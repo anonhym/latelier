@@ -618,6 +618,7 @@ export function ConnectionExpandedTable({
               th: {
                 fontSize: T.fsXs,
                 fontWeight: 600,
+                whiteSpace: 'nowrap',
                 color: T.textMuted,
                 padding: '8px 12px',
               },
