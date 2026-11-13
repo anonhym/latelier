@@ -1184,6 +1184,17 @@ describe('TableView — rendering and interaction', () => {
       expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
     });
 
+    it('a selected row keeps an opaque base under its translucent tint so cells never show through', () => {
+      const docs = [{ _id: 1, sku: 'a' }];
+      const { getByRole } = renderTable(docs);
+      fireEvent.click(getByRole('button', { name: 'Select document 1' }));
+      const actionsCell = getByRole('button', { name: 'Edit document 1' }).closest(
+        '[role="gridcell"]',
+      ) as HTMLElement;
+      expect(actionsCell.style.backgroundColor).toBe('var(--atelier-surface)');
+      expect(actionsCell.style.backgroundImage).toContain('var(--atelier-accent-soft)');
+    });
+
     it('focusing the Edit button on a non-active row makes the actions column visible', () => {
       const docs = [{ _id: 1, sku: 'a' }];
       const { getByRole } = renderTable(docs);
@@ -1194,7 +1205,7 @@ describe('TableView — rendering and interaction', () => {
       expect(actions.style.opacity).toBe('0');
       // The cell itself stays opaque so cells scrolled under the gutter are hidden.
       expect(actionsCell.style.opacity).toBe('');
-      expect(actionsCell.style.background).not.toBe('');
+      expect(actionsCell.style.backgroundColor).toBe('var(--atelier-surface)');
       fireEvent.focus(editBtn);
       expect(actions.style.opacity).toBe('1');
       fireEvent.blur(editBtn);

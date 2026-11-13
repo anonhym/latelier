@@ -955,7 +955,10 @@ function TableRowImpl({
             boxSizing: 'border-box',
             // Always opaque, like the header's actions cell: fading the
             // whole cell let the data cells slid under it show through.
-            background: rowBackground,
+            // The row tint can be translucent (a selected row), so paint it
+            // over an opaque base.
+            backgroundColor: 'var(--atelier-surface)',
+            backgroundImage: `linear-gradient(${rowBackground}, ${rowBackground})`,
             transform: `translateX(${actionsOffset}px)`,
           }}
           onFocus={() => setActionsFocused(true)}
