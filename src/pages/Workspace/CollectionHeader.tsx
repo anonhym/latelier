@@ -2,6 +2,10 @@ import React from 'react';
 import { Button, Group, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { api } from '../../api/atelier';
+import { useElementWidth } from '../../hooks/useElementWidth';
+
+/** Below this the counts would crowd the name; Structure's Statistics still has them. */
+const STATS_MIN_WIDTH = 480;
 
 interface CollectionHeaderProps {
   connectionId: string;
@@ -70,8 +74,13 @@ export function CollectionHeader({
     };
   }, [connectionId, dbName, collection, cacheKey, refreshSignal]);
 
+  // A count shows whole or not at all: "1…" would read as one document.
+  const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
+  const roomForStats = rowWidth === null || rowWidth >= STATS_MIN_WIDTH;
+
   return (
     <Group
+      ref={rowRef}
       gap={themeVars.gapSm}
       wrap="nowrap"
       style={{
@@ -99,16 +108,13 @@ export function CollectionHeader({
             {collection}
           </span>
         </Tooltip>
-        {(docCount !== null || indexCount !== null) && (
+        {roomForStats && (docCount !== null || indexCount !== null) && (
           <span
             style={{
               fontSize: T.fsXs,
               color: T.textMuted,
               marginLeft: 4,
-              minWidth: 0,
-              flexShrink: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              flexShrink: 0,
               whiteSpace: 'nowrap',
             }}
           >

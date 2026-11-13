@@ -61,18 +61,27 @@ function countIsCut(win: Page): Promise<boolean> {
 
 // Save, History and Run share the QUERY row with the filter: none of them may
 // clip, and a notice beside them must not squeeze the filter away.
-async function expectQueryRowWhole(win: Page, label: string) {
+async function expectQueryRowWhole(win: Page, label: string, withNotice = false) {
+  const actions = win.getByTestId('query-bar-actions');
+  if (withNotice) {
+    // A refused ⌘↵ puts its reason beside Run: the case that could squeeze the row.
+    await win.getByTestId('query-bar-input').focus();
+    await win.keyboard.press('ControlOrMeta+Enter');
+    await expect(actions.locator('[role="alert"]').first(), `${label}: notice`).toBeVisible();
+  }
   const row = await readBar(win, 'query-bar-actions');
   expect(row.clipped, `${label}: query row clipped`).toEqual([]);
   // A squeezed Mantine button keeps its box and clips its label inside it.
-  const cutLabels = await win.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('[data-testid="query-bar-actions"] [class*="Button-label"]')]
-      .filter((el) => el.scrollWidth > el.clientWidth + 1)
-      .map((el) => el.textContent),
+  const labels = await win.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="query-bar-actions"] [class*="Button-label"]')].map(
+      (el) => ({ text: el.textContent, cut: el.scrollWidth > el.clientWidth + 1 }),
+    ),
   );
-  expect(cutLabels, `${label}: query row labels cut`).toEqual([]);
+  // Run at least: a selector that matched nothing would pass the check below.
+  expect(labels.length, `${label}: query row labels found`).toBeGreaterThanOrEqual(1);
+  expect(labels.filter((l) => l.cut).map((l) => l.text), `${label}: query row labels cut`).toEqual([]);
   for (const name of ['Save', 'History']) {
-    await expect(win.getByTestId('query-bar-actions').getByRole('button', { name, exact: true }), `${label}: ${name}`).toBeInViewport();
+    await expect(actions.getByRole('button', { name, exact: true }), `${label}: ${name}`).toBeInViewport();
   }
   await expect(win.getByTestId('query-run-btn'), `${label}: Run`).toBeInViewport();
   const filter = await win.getByTestId('query-bar-input').boundingBox();
@@ -118,7 +127,7 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         expect(stale.clipped, `${width}: clipped when stale`).toEqual([]);
         expect(stale.left, `${width}: stale moved a control`).toEqual(fresh.left);
         expect(await countIsCut(win), `${width}: count cut when stale`).toBe(false);
-        await expectQueryRowWhole(win, `${width} stale`);
+        await expectQueryRowWhole(win, `${width} stale`, true);
         // From the default window up there is room to say it whole.
         const label = await win.getByTestId('result-count-stale').evaluate((el) => {
           const style = getComputedStyle(el);

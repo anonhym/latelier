@@ -524,9 +524,9 @@ function QueryBarInner({
       <div
         style={{
           display: 'grid',
-          // The actions take what they need up to just over half the row, so
-          // a notice beside them ellipsizes before it squeezes the filter.
-          gridTemplateColumns: '120px minmax(0, 1fr) fit-content(55%)',
+          // The actions take what they need up to half the row, so a notice
+          // beside them ellipsizes before it squeezes the filter.
+          gridTemplateColumns: '120px minmax(0, 1fr) fit-content(50%)',
         }}
       >
         <Tooltip
