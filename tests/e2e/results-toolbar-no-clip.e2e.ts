@@ -13,6 +13,7 @@ test.afterAll(stopAllMemoryServers);
  */
 const SIZES: Array<[number, number]> = [
   [900, 600],
+  [960, 640],
   [1024, 768],
   [1100, 800],
   [1280, 800],
@@ -58,6 +59,19 @@ function countIsCut(win: Page): Promise<boolean> {
   });
 }
 
+// Save, History and Run share the QUERY row with the filter: none of them may
+// clip, and a notice beside them must not squeeze the filter away.
+async function expectQueryRowWhole(win: Page, label: string) {
+  const row = await readBar(win, 'query-bar-actions');
+  expect(row.clipped, `${label}: query row clipped`).toEqual([]);
+  for (const name of ['Save', 'History']) {
+    await expect(win.getByTestId('query-bar-actions').getByRole('button', { name, exact: true }), `${label}: ${name}`).toBeInViewport();
+  }
+  await expect(win.getByTestId('query-run-btn'), `${label}: Run`).toBeInViewport();
+  const filter = await win.getByTestId('query-bar-input').boundingBox();
+  expect(filter!.width, `${label}: filter width`).toBeGreaterThanOrEqual(120);
+}
+
 // The memory server is shared across this file, so each test seeds its own database.
 let seeded = 0;
 
@@ -89,6 +103,7 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         expect(fresh.clipped, `${width}: clipped`).toEqual([]);
         expect(fresh.barHeight, `${width}: one row`).toBe(44);
         expect(await countIsCut(win), `${width}: count cut`).toBe(false);
+        await expectQueryRowWhole(win, `${width}`);
 
         await input.fill('{ bad:');
         await expect(win.getByTestId('result-count-stale')).toBeVisible();
@@ -96,6 +111,7 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         expect(stale.clipped, `${width}: clipped when stale`).toEqual([]);
         expect(stale.left, `${width}: stale moved a control`).toEqual(fresh.left);
         expect(await countIsCut(win), `${width}: count cut when stale`).toBe(false);
+        await expectQueryRowWhole(win, `${width} stale`);
         // From the default window up there is room to say it whole.
         const label = await win.getByTestId('result-count-stale').evaluate((el) => {
           const style = getComputedStyle(el);

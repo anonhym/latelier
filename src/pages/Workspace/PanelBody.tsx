@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, AppShell, Button, Group, Tabs } from '@mantine/core';
+import { AppShell, Button, Group, Tabs } from '@mantine/core';
 import {
   Group as PanelGroup,
   Panel,
@@ -63,18 +63,19 @@ import type { ReferenceDrawerState } from './useReferenceDrawer';
 const SUB_TABS: ReadonlyArray<{
   key: CollectionView;
   label: string;
-  icon: string;
+  icon: React.ReactNode;
 }> = [
-  { key: 'documents', label: 'Documents', icon: '⚡' },
-  { key: 'aggregation', label: 'Aggregation', icon: 'Σ' },
-  { key: 'structure', label: 'Structure', icon: '⚙' },
+  { key: 'documents', label: 'Documents', icon: I.doc },
+  { key: 'aggregation', label: 'Aggregation', icon: I.sum },
+  { key: 'structure', label: 'Structure', icon: I.schema },
 ];
 
 /**
  * The Documents / Aggregation / Structure strip. Mantine's `Tabs` gives it the
  * tablist pattern (arrow keys, Home/End, a single tab stop, aria-controls). It
  * must sit inside the same `<Tabs>` root as the `Tabs.Panel`s: Mantine only
- * sets a tab's `aria-controls` once its panel is mounted.
+ * sets a tab's `aria-controls` once its panel is mounted. It shares its row with
+ * the collection header, as a sibling: a tablist holds only tabs.
  */
 function SubTabStrip({ active }: { active: CollectionView }) {
   const T = themeVars;
@@ -82,11 +83,9 @@ function SubTabStrip({ active }: { active: CollectionView }) {
     <Tabs.List
       aria-label="Collection view"
       style={{
-        height: 26,
+        height: '100%',
         flexWrap: 'nowrap',
         alignItems: 'stretch',
-        borderBottom: `1px solid ${T.border}`,
-        background: T.surfaceRaised,
         flexShrink: 0,
         paddingLeft: 12,
       }}
@@ -98,7 +97,7 @@ function SubTabStrip({ active }: { active: CollectionView }) {
             key={t.key}
             value={t.key}
             leftSection={
-              <span aria-hidden="true" style={{ fontSize: T.fsXs, opacity: 0.7 }}>
+              <span aria-hidden="true" style={{ display: 'inline-flex', opacity: 0.7 }}>
                 {t.icon}
               </span>
             }
@@ -112,7 +111,8 @@ function SubTabStrip({ active }: { active: CollectionView }) {
               background: 'transparent',
               color: selected ? T.text : T.textMuted,
               border: 'none',
-              borderBottom: selected ? `2px solid ${T.accent}` : '2px solid transparent',
+              // Neutral: violet stays for the actions and the open tab group.
+              borderBottom: selected ? `2px solid ${T.text}` : '2px solid transparent',
               borderRadius: 0,
             }}
           >
@@ -297,6 +297,9 @@ export function PanelBody({
   // same-tab `hasAdvanced` change alone misses when the row already had
   // values and was collapsed.
   const [ownLoadGen, bumpLoadGen] = React.useReducer((n: number) => n + 1, 0);
+  // The header sits above every view, so it never remounts: it re-reads its
+  // counts on a view switch and after Structure changes an index.
+  const [structureChanges, bumpStructureChanges] = React.useReducer((n: number) => n + 1, 0);
   const loadGen = ownLoadGen + externalLoadGen;
   const {
     prefsReady,
@@ -317,6 +320,10 @@ export function PanelBody({
     patchSchema,
   } = collectionTabActions;
   const { setDeleteSelected } = documentDialogs;
+  // The builder only acts on Documents. Elsewhere its panel shuts to the rail
+  // without writing the saved pref, so Documents gets it back at its own width.
+  const onDocuments = collection?.view === 'documents';
+  const builderShut = builderCollapsed || !onDocuments;
   const {
     refStack, setRefStack,
     refDrawerPinned, setRefDrawerPinned,
@@ -422,7 +429,8 @@ export function PanelBody({
             onPatch={patchActiveScript}
           />
         ) : collection ? (
-            // Builder pane always renders; agg/structure views just dim it via overlay rather than unmounting.
+            // Off Documents the builder shuts to its rail but stays mounted (hidden),
+            // so its drafts and filter undo history survive the round trip.
             <CollectionWorkspaceProvider
               state={collection.tab.state}
               actions={collection.actions}
@@ -438,7 +446,27 @@ export function PanelBody({
                 id="collection-view"
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
               >
-              <SubTabStrip active={collection.view} />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 34,
+                  background: T.surfaceRaised,
+                  borderBottom: `1px solid ${T.border}`,
+                  flexShrink: 0,
+                  minWidth: 0,
+                }}
+              >
+                <SubTabStrip active={collection.view} />
+                <CollectionHeader
+                  connectionId={collection.tab.connectionId}
+                  dbName={collection.tab.dbName}
+                  collection={collection.tab.collection}
+                  onOpenReferences={() => setRefEditorOpen(true)}
+                  referenceRuleCount={referenceRules.rules.length}
+                  refreshSignal={`${documentDialogs.writeVersion}.${structureChanges}.${collection.view}`}
+                />
+              </div>
               <PanelGroup
                 key={`h-${String(prefsReady)}`}
                 orientation="horizontal"
@@ -458,21 +486,13 @@ export function PanelBody({
               >
                 <Panel
                   id="h-result"
-                  defaultSize={builderCollapsed ? undefined : asPercent(100 - innerHSplit)}
+                  defaultSize={builderShut ? undefined : asPercent(100 - innerHSplit)}
                   // A plain number is pixels: enough for the toolbar on two rows.
                   minSize={320}
                   style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
                 >
                   <Tabs.Panel value="documents" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
                     <>
-                      <CollectionHeader
-                        connectionId={collection.tab.connectionId}
-                        dbName={collection.tab.dbName}
-                        collection={collection.tab.collection}
-                        onOpenReferences={() => setRefEditorOpen(true)}
-                        referenceRuleCount={referenceRules.rules.length}
-                        refreshSignal={documentDialogs.writeVersion}
-                      />
                       <QueryBar
                         suggestionContext={collection.suggestionContext}
                         loadGen={loadGen}
@@ -546,6 +566,7 @@ export function PanelBody({
                       onPatch={patchSchema}
                       initialCreate={structureInitialCreate}
                       onInitialCreateConsumed={onStructureInitialCreateConsumed}
+                      onChanged={bumpStructureChanges}
                     />
                   </Tabs.Panel>
                 </Panel>
@@ -558,6 +579,8 @@ export function PanelBody({
                     zIndex: 2,
                   }}
                   aria-label="Resize Query Builder"
+                  // A drag off Documents would open a panel whose builder is hidden.
+                  disabled={!onDocuments}
                   onPointerDown={() => {
                     builderDividerUsed.current = true;
                   }}
@@ -570,13 +593,14 @@ export function PanelBody({
                 <Panel
                   id="h-builder"
                   panelRef={builderPanelRef}
-                  defaultSize={builderCollapsed ? BUILDER_COLLAPSED_PX : asPercent(innerHSplit)}
+                  defaultSize={builderShut ? BUILDER_COLLAPSED_PX : asPercent(innerHSplit)}
                   minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : asPercent(BUILDER_MIN_PCT)}
                   // Only once the toggle has asked for it: while open, a drag stops at
                   // the minimum. Otherwise it could collapse the panel without
                   // `builderCollapsed` knowing, leaving no way to reopen it. Workspace's
                   // sync effect does the collapse, a frame after this prop turns on.
-                  collapsible={builderCollapsed}
+                  // Off Documents the panel shuts too, without touching the pref.
+                  collapsible={builderShut}
                   collapsedSize={BUILDER_COLLAPSED_PX}
                   style={{ overflow: 'visible' }}
                 >
@@ -589,25 +613,27 @@ export function PanelBody({
                         position: 'relative',
                       }}
                     >
-                      <DividerNotch
-                        side="left"
-                        collapsed
-                        onClick={toggleBuilder}
-                        ariaLabel="Open Query Builder"
-                        buttonRef={notchRef}
-                      />
+                      {onDocuments && (
+                        <DividerNotch
+                          side="left"
+                          collapsed
+                          onClick={toggleBuilder}
+                          ariaLabel="Open Query Builder"
+                          buttonRef={notchRef}
+                        />
+                      )}
                     </div>
                   ) : (
-                    <div style={{ position: 'relative', height: '100%' }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          pointerEvents: collection.view === 'documents' ? undefined : 'none',
-                          opacity: collection.view === 'documents' ? 1 : 0.35,
-                          filter: collection.view === 'documents' ? undefined : 'saturate(0.6)',
-                        }}
-                        aria-hidden={collection.view !== 'documents'}
-                      >
+                    <div
+                      style={{
+                        position: 'relative',
+                        height: '100%',
+                        // Off Documents the panel is the bare rail: drawn like the collapsed one.
+                        ...(onDocuments ? null : { borderLeft: `1px solid ${T.border}`, background: T.surface }),
+                      }}
+                    >
+                      {/* Hidden, not unmounted, off Documents: see builderShut. */}
+                      <div style={{ height: '100%', display: onDocuments ? undefined : 'none' }}>
                         <BuilderPane
                           savedRefreshKey={collection.savedRefreshKey}
                           loadGen={loadGen}
@@ -636,43 +662,14 @@ export function PanelBody({
                           }}
                         />
                       </div>
-                      <DividerNotch
-                        side="left"
-                        collapsed={false}
-                        onClick={toggleBuilder}
-                        ariaLabel="Collapse Query Builder"
-                        buttonRef={notchRef}
-                      />
-                      {collection.view !== 'documents' && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            justifyContent: 'center',
-                            padding: '60px 16px 16px',
-                            pointerEvents: 'none',
-                          }}
-                        >
-                          <Alert
-                            color="gray"
-                            variant="light"
-                            style={{ maxWidth: 280, pointerEvents: 'auto' }}
-                            styles={{ message: { fontSize: T.fsSm, lineHeight: 1.5 } }}
-                          >
-                            The Query Builder only applies to the Documents
-                            view.{' '}
-                            <Button
-                              variant="subtle"
-                              size="compact-xs"
-                              onClick={() => selectActiveView('documents')}
-                              styles={{ root: { padding: 0, height: 'auto', fontSize: T.fsSm } }}
-                            >
-                              Switch to Documents
-                            </Button>
-                          </Alert>
-                        </div>
+                      {onDocuments && (
+                        <DividerNotch
+                          side="left"
+                          collapsed={false}
+                          onClick={toggleBuilder}
+                          ariaLabel="Collapse Query Builder"
+                          buttonRef={notchRef}
+                        />
                       )}
                     </div>
                   )}

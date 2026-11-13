@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Badge, Button, Group, Menu, Tooltip, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Badge, Button, Menu, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useShellSyntaxField } from './useShellSyntaxField';
@@ -27,6 +27,7 @@ import { useCollectionWorkspace } from './context';
 import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import { consumeTabRequest, subscribeTabRequests, tabRequested } from './tabRequest';
 import { useLatest } from '../../commands/useLatest';
+import { useElementWidth } from '../../hooks/useElementWidth';
 import { QueryExpandModal } from './QueryExpandModal';
 import { LIMIT_EXPLANATION } from './queryCaps';
 import type { BuilderState, CollectionTabState, ExplainVerbosity } from '@shared/types';
@@ -501,143 +502,21 @@ function QueryBarInner({
     { id: 'query-bar-run-refused', text: refusedRun },
   ].filter((n): n is { id: string; text: string; seq?: number } => !!n.text);
 
+  // Below this the labelled Save and History leave the filter too little room.
+  const [rootRef, rootWidth] = useElementWidth<HTMLDivElement>();
+  const compact = rootWidth !== null && rootWidth < 640;
+
   return (
     <div
+      ref={rootRef}
       style={{
         borderBottom: `1px solid ${T.border}`,
         background: T.surface,
         flexShrink: 0,
       }}
     >
-      {/* Top toolbar — Save · History · Run (split). W15 §7.1 deletes
-          "Set default": it wrote `query.default.<conn>.<db>.<coll>` and
-          nothing anywhere read it back. Saved queries already own "reuse this
-          query on this collection". This is now the one Save button in the
-          Documents view — the builder-drawer footer's copy was deleted, and
-          `saved.create`'s hint anchor moved here with it. */}
-      <Group gap={T.gapSm} wrap="nowrap" style={{ padding: '8px 12px' }}>
-        <Button
-          data-hint-anchor="saved.create"
-          variant="default"
-          size="compact-xs"
-          leftSection={I.save}
-          onClick={onSave}
-        >
-          Save
-        </Button>
-        <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
-          History
-        </Button>
-        {notices.map((n, i) =>
-          i === 0 ? (
-            <Notice key={`${n.id}-${n.seq}`} id={n.id} text={n.text} />
-          ) : (
-            <VisuallyHidden key={`${n.id}-${n.seq}`} id={n.id} role="alert">
-              {n.text}
-            </VisuallyHidden>
-          ),
-        )}
-        {/* Run sits at the right end, beside the drawer, so the
-            pointer's trip from a builder row to Run is short. */}
-        <span style={{ flex: 1 }} />
-        {willResetPage && (
-          <span
-            data-testid="page-reset-hint"
-            style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
-          >
-            Will jump to page 1 on run
-          </span>
-        )}
-        <span
-          aria-hidden="true"
-          style={{
-            width: 1,
-            alignSelf: 'stretch',
-            background: T.border,
-            margin: '0 2px',
-          }}
-        />
-
-        <Button.Group>
-          {isLoading ? (
-            <Tooltip label="Cancel" withArrow>
-              <Button
-                variant="outline"
-                color="red"
-                size="compact-xs"
-                onClick={onCancel}
-                data-testid="query-cancel-btn"
-              >
-                Cancel
-              </Button>
-            </Tooltip>
-          ) : (
-            <Tooltip
-              label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
-              withArrow
-            >
-              <Button
-                variant="filled"
-                size="compact-xs"
-                onClick={() => canRun && onRun()}
-                disabled={!canRun}
-                data-testid="query-run-btn"
-                data-hint-anchor="run.execute"
-                leftSection={I.play}
-                styles={{ root: { fontWeight: 700 } }}
-              >
-                Run
-              </Button>
-            </Tooltip>
-          )}
-          <Menu position="bottom-end" shadow="md" width={190}>
-            <Menu.Target>
-              <Tooltip label="Run options" withArrow>
-                <Button
-                  variant="filled"
-                  size="compact-xs"
-                  disabled={!canRun}
-                  aria-label="Run options"
-                  data-testid="query-run-options-btn"
-                  px={6}
-                >
-                  {I.chevD}
-                </Button>
-              </Tooltip>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item leftSection={I.play} onClick={() => canRun && onRun()}>
-                Run
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Label>Explain</Menu.Label>
-              <Menu.Item
-                leftSection={I.eye}
-                disabled={!canExplain}
-                onClick={() => onExplain('queryPlanner')}
-              >
-                queryPlanner
-              </Menu.Item>
-              <Menu.Item
-                leftSection={I.eye}
-                disabled={!canExplain}
-                onClick={() => onExplain('executionStats')}
-              >
-                executionStats
-              </Menu.Item>
-              <Menu.Item
-                leftSection={I.eye}
-                disabled={!canExplain}
-                onClick={() => onExplain('allPlansExecution')}
-              >
-                allPlansExecution
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        </Button.Group>
-      </Group>
-
-      {/* QUERY row — collapsible header + editable filter textarea. W13
+      {/* QUERY row — collapsible header, editable filter textarea, then the
+          query's actions. W13
           deletes the sync pill / "Re-sync builder" / "Accept builder" /
           "Builder disabled" column that used to sit to the right: the Filter
           drawer is a view of this same text now, not a competing compiled
@@ -645,8 +524,7 @@ function QueryBarInner({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '120px 1fr',
-          borderTop: `1px solid ${T.border}`,
+          gridTemplateColumns: '120px minmax(0, 1fr) auto',
         }}
       >
         <Tooltip
@@ -772,6 +650,168 @@ function QueryBarInner({
             </Button>
           </Tooltip>
           {autocomplete.popover}
+        </div>
+        {/* Save · History · Run (split), on the QUERY row itself rather than a
+            bar of their own. W15 §7.1 deletes "Set default": saved queries
+            already own "reuse this query on this collection". This is the one
+            Save button in the Documents view, so `saved.create`'s hint anchor
+            lives here. Notices sit first, so Run never moves when one shows. */}
+        <div
+          data-testid="query-bar-actions"
+          style={{
+            alignSelf: 'start',
+            display: 'flex',
+            alignItems: 'center',
+            gap: T.gapSm,
+            padding: '4px 8px',
+            minWidth: 0,
+          }}
+        >
+          {/* Capped: an auto track grows to its content, and a long complaint
+              would take the filter's room. The whole message is in the title. */}
+          {notices.length > 0 && (
+            <div style={{ display: 'flex', minWidth: 0, maxWidth: compact ? 140 : 280 }}>
+              {notices.map((n, i) =>
+                i === 0 ? (
+                  <Notice key={`${n.id}-${n.seq}`} id={n.id} text={n.text} />
+                ) : (
+                  <VisuallyHidden key={`${n.id}-${n.seq}`} id={n.id} role="alert">
+                    {n.text}
+                  </VisuallyHidden>
+                ),
+              )}
+            </div>
+          )}
+          {willResetPage && (
+            <span
+              data-testid="page-reset-hint"
+              style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
+            >
+              Will jump to page 1 on run
+            </span>
+          )}
+          {compact ? (
+            <>
+              <Tooltip label="Save" withArrow>
+                <ActionIcon
+                  data-hint-anchor="saved.create"
+                  variant="default"
+                  size={22}
+                  onClick={onSave}
+                  aria-label="Save"
+                >
+                  {I.save}
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="History" withArrow>
+                <ActionIcon variant="default" size={22} onClick={onHistory} aria-label="History">
+                  {I.clock}
+                </ActionIcon>
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Button
+                data-hint-anchor="saved.create"
+                variant="default"
+                size="compact-xs"
+                leftSection={I.save}
+                onClick={onSave}
+              >
+                Save
+              </Button>
+              <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
+                History
+              </Button>
+            </>
+          )}
+          <span
+            aria-hidden="true"
+            style={{
+              width: 1,
+              alignSelf: 'stretch',
+              background: T.border,
+              margin: '0 2px',
+            }}
+          />
+          {/* Run sits at the right end, beside the drawer, so the
+              pointer's trip from a builder row to Run is short. */}
+          <Button.Group>
+            {isLoading ? (
+              <Tooltip label="Cancel" withArrow>
+                <Button
+                  variant="outline"
+                  color="red"
+                  size="compact-xs"
+                  onClick={onCancel}
+                  data-testid="query-cancel-btn"
+                >
+                  Cancel
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip
+                label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
+                withArrow
+              >
+                <Button
+                  variant="filled"
+                  size="compact-xs"
+                  onClick={() => canRun && onRun()}
+                  disabled={!canRun}
+                  data-testid="query-run-btn"
+                  data-hint-anchor="run.execute"
+                  leftSection={I.play}
+                >
+                  Run
+                </Button>
+              </Tooltip>
+            )}
+            <Menu position="bottom-end" shadow="md" width={190}>
+              <Menu.Target>
+                <Tooltip label="Run options" withArrow>
+                  <Button
+                    variant="filled"
+                    size="compact-xs"
+                    disabled={!canRun}
+                    aria-label="Run options"
+                    data-testid="query-run-options-btn"
+                    px={6}
+                  >
+                    {I.chevD}
+                  </Button>
+                </Tooltip>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={I.play} onClick={() => canRun && onRun()}>
+                  Run
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Label>Explain</Menu.Label>
+                <Menu.Item
+                  leftSection={I.eye}
+                  disabled={!canExplain}
+                  onClick={() => onExplain('queryPlanner')}
+                >
+                  queryPlanner
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={I.eye}
+                  disabled={!canExplain}
+                  onClick={() => onExplain('executionStats')}
+                >
+                  executionStats
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={I.eye}
+                  disabled={!canExplain}
+                  onClick={() => onExplain('allPlansExecution')}
+                >
+                  allPlansExecution
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </Button.Group>
         </div>
       </div>
 

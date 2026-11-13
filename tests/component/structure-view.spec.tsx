@@ -28,9 +28,10 @@ const ID_INDEX: IndexInfo = {
   sizeBytes: 4096,
 };
 
-function renderStructure(state = DEFAULT_SCHEMA_TAB_STATE, onPatch = vi.fn()) {
+function renderStructure(state = DEFAULT_SCHEMA_TAB_STATE, onPatch = vi.fn(), onChanged = vi.fn()) {
   return {
     onPatch,
+    onChanged,
     ...render(
       <StructureView
         connectionId="c1"
@@ -38,6 +39,7 @@ function renderStructure(state = DEFAULT_SCHEMA_TAB_STATE, onPatch = vi.fn()) {
         collection="orders"
         state={state}
         onPatch={onPatch}
+        onChanged={onChanged}
       />,
     ),
   };
@@ -852,13 +854,11 @@ function collectionTab(overrides: Partial<CollectionTab> = {}): CollectionTab {
 }
 
 describe('Structure view — header count on return to Documents', () => {
-  // PanelBody only mounts `CollectionHeader` inside `view === 'documents'`
-  // (it dims-not-unmounts the builder pane for agg/structure, but the
-  // header itself is conditional). Leaving Structure and coming back to
-  // Documents therefore remounts it, which re-fetches `meta.collectionDetails`
-  // for free — no dedicated refresh signal needed. This proves that claim
-  // rather than assuming it.
-  it('re-fetches the header count after Structure → Documents, with no signal wired up', async () => {
+  // `CollectionHeader` sits on the sub-tab row and stays mounted across the
+  // three views, so nothing remounts it: PanelBody folds the active view into
+  // its refresh signal instead. A count changed elsewhere while Structure was
+  // showing still reads current on return to Documents.
+  it('re-fetches the header count after Structure → Documents', async () => {
     let docCount = 10;
     const collectionDetails = vi.fn(async () => ({
       name: 'coll',
@@ -936,15 +936,18 @@ describe('StructureView — the statistics header follows writes', () => {
       },
     });
 
-    renderStructure();
+    const { onChanged } = renderStructure();
     const stats = await screen.findByRole('region', { name: 'Statistics' });
     await waitFor(() => expect(within(stats).getByText('2 · 8.0 KB')).toBeTruthy());
+    expect(onChanged).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByText('+ New index'));
     await userEvent.type(await screen.findByLabelText('Field 1'), 'email');
     await userEvent.click(screen.getByText('Create index'));
 
     await waitFor(() => expect(within(stats).getByText('3 · 12.0 KB')).toBeTruthy());
+    // The collection header above the sub-tabs re-reads its index count on this.
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it('shows the new index count after an index is dropped', async () => {
