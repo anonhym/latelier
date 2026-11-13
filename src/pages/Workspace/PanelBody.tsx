@@ -472,8 +472,6 @@ export function PanelBody({
                   connectionId={collection.tab.connectionId}
                   dbName={collection.tab.dbName}
                   collection={collection.tab.collection}
-                  onOpenReferences={() => setRefEditorOpen(true)}
-                  referenceRuleCount={referenceRules.rules.length}
                   // Both counters only grow, so their sum moves whenever either does.
                   refreshSignal={documentDialogs.writeVersion + structureChanges}
                 />
@@ -510,7 +508,9 @@ export function PanelBody({
                         runShortcutRef={runShortcutRef}
                       />
                       <ResultViewer>
-                        <ResultViewer.Pagination />
+                        <ResultViewer.Pagination
+                          references={{ count: referenceRules.rules.length, onOpen: () => setRefEditorOpen(true) }}
+                        />
                         <ResultViewer.SelectionBar
                           onDeleteSelected={setDeleteSelected}
                           connectionLost={connectionLost}

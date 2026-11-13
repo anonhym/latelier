@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Group, Tooltip } from '@mantine/core';
+import { Group, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { api } from '../../api/atelier';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -11,8 +11,6 @@ interface CollectionHeaderProps {
   connectionId: string;
   dbName: string;
   collection: string;
-  onOpenReferences: () => void;
-  referenceRuleCount: number;
   /**
    * Re-reads the counts whenever it changes. PanelBody builds it from
    * `useDocumentDialogs`'s write-completion counter (once per finished
@@ -27,17 +25,14 @@ interface CollectionHeaderProps {
 /**
  * Breadcrumb header, on the sub-tab row beside Documents / Aggregation /
  * Structure, so it shows in all three. It fills what the tabs leave; the
- * breadcrumb ellipsizes before References gives way. The Tree|JSON|Table view
- * switch lives in `<ResultBar/>` alongside the pagination.
- * Insert lives in `<ResultBar/>`; References is also in the navigator's
- * collection context menu and the command palette.
+ * breadcrumb ellipsizes first. The Tree|JSON|Table view switch, Insert and
+ * References live in `<ResultBar/>`, References beside Fields; it is also in
+ * the navigator's collection context menu and the command palette.
  */
 export function CollectionHeader({
   connectionId,
   dbName,
   collection,
-  onOpenReferences,
-  referenceRuleCount,
   refreshSignal,
 }: CollectionHeaderProps) {
   const T = themeVars;
@@ -137,20 +132,6 @@ export function CollectionHeader({
         )}
       </Group>
 
-      <span style={{ flex: 1 }} />
-
-      {/* References — secondary action; collapses to icon + count */}
-      <Tooltip label={`Manage reference rules for this collection (${referenceRuleCount})`} withArrow>
-        <Button
-          data-hint-anchor="refs.configure"
-          variant="default"
-          size="compact-xs"
-          onClick={onOpenReferences}
-          style={{ flexShrink: 0 }}
-        >
-          References ({referenceRuleCount})
-        </Button>
-      </Tooltip>
     </Group>
   );
 }
