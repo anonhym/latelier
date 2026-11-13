@@ -1526,7 +1526,11 @@ describe('ConnectionSwitcher — expanded table', () => {
     await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
     const listbox = await screen.findByRole('listbox', { name: 'Connections' });
 
-    await userEvent.click(within(listbox).getByRole('button', { name: 'New connection' }));
+    // A listbox owns only options and groups: the button sits beside it.
+    // Scoped to the popover: the empty state's own CTA has the same name.
+    const add = within(listbox.parentElement as HTMLElement).getByRole('button', { name: 'New connection' });
+    expect(listbox.contains(add)).toBe(false);
+    await userEvent.click(add);
 
     await screen.findByRole('dialog', { name: 'New Connection' });
     await waitFor(() => expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull());

@@ -86,7 +86,7 @@ export function SuggestionPopover({
   );
   const { index: highlight, setIndex: setHighlight, move: moveHighlight } =
     useRovingHighlight(items.length);
-  const [pos, setPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = React.useState<{ top: number; left: number; width: number; inModal: boolean } | null>(null);
   const [panelPos, setPanelPos] = React.useState<{ top: number; left: number } | null>(null);
   const listboxRef = React.useRef<HTMLDivElement>(null);
   const panelId = React.useId();
@@ -127,7 +127,12 @@ export function SuggestionPopover({
     if (!el) return;
     const update = () => {
       const r = el.getBoundingClientRect();
-      setPos({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 180) });
+      setPos({
+        top: r.bottom + 2,
+        left: r.left,
+        width: Math.max(r.width, 180),
+        inModal: el.closest('.mantine-Modal-content') !== null,
+      });
     };
     update();
     window.addEventListener('resize', update);
@@ -336,11 +341,14 @@ export function SuggestionPopover({
     i = g.end;
   }
 
-  // Portaled to <body>: a `position: fixed` box inside a transformed
-  // ancestor (Mantine Modal content) is positioned against that ancestor, not
-  // the viewport, which pushed the list away from its input. The portal keeps
-  // the React tree (events, context) intact.
-  return createPortal(
+  // Inside a Mantine Modal the fixed boxes below are positioned against the
+  // Modal's transformed content, not the viewport (the list landed far from
+  // its input), so there — and only there — they are portaled to <body>. A
+  // blanket portal would break hosts inside a Mantine Popover dropdown (the
+  // Fields control): its click-outside handler checks the DOM path, and a
+  // portaled row is outside it, so pressing a suggestion would close the
+  // dropdown before the pick landed. The portal keeps the React tree intact.
+  const content = (
     <>
       <div
         // Positioning box for the list and the hint footer under it. The
@@ -422,7 +430,7 @@ export function SuggestionPopover({
           <OperatorDocPanel op={docOp} variant="side" id={panelId} />
         </div>
       )}
-    </>,
-    document.body,
+    </>
   );
+  return pos.inModal ? createPortal(content, document.body) : content;
 }

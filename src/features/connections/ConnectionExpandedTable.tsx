@@ -378,7 +378,20 @@ export function ConnectionExpandedTable({
                   flexShrink: 0,
                 }}
               />
-              <span style={{ fontWeight: 600, color: T.text }}>{c.name}</span>
+              {/* Capped so a very long name can't crush Host to nothing. */}
+              <span
+                title={c.name}
+                style={{
+                  fontWeight: 600,
+                  color: T.text,
+                  maxWidth: 240,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {c.name}
+              </span>
               {pinnedIds.has(c.id) && (
                 <span aria-hidden title="Pinned" style={{ display: 'flex', color: T.textMuted, flexShrink: 0 }}>
                   <IconPinFilled size={11} />

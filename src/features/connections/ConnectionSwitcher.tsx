@@ -367,8 +367,9 @@ export function ConnectionSwitcher({
   // the search field (ADR
   // 0001's "add-mode when zero connections exist"). Read at open time via
   // `connections.length`, not a separate prop — the Switcher already knows
-  // its own connection count, and this stays correct however it was opened
-  // (TitleBar trigger or the empty state's `variant="cta"` one).
+  // its own connection count, and this stays correct however it was opened.
+  // With zero Connections the empty state's `variant="cta"` is no longer a
+  // trigger (it is the add button), so the TitleBar trigger is the way in.
   const addMode = connections.length === 0;
   const optionId = (connectionId: string) => `${baseId}-opt-${connectionId}`;
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -823,26 +824,9 @@ export function ConnectionSwitcher({
                 query — otherwise a first-run user with no saved Connections is
                 told `No connections match ""`.
               */}
-              {connections.length === 0 ? (
-                <>
-                  <div>No connections yet</div>
-                  {onAdd && (
-                    <Button
-                      variant="light"
-                      size="compact-xs"
-                      mt="xs"
-                      onClick={() => {
-                        close();
-                        onAdd();
-                      }}
-                    >
-                      New connection
-                    </Button>
-                  )}
-                </>
-              ) : (
-                <>No connections match &quot;{query}&quot;</>
-              )}
+              {connections.length === 0
+                ? 'No connections yet'
+                : <>No connections match &quot;{query}&quot;</>}
             </div>
           ) : (
             filtered.map((c, i) => (
@@ -866,6 +850,22 @@ export function ConnectionSwitcher({
             ))
           )}
         </div>
+        {/* A sibling of the listbox, not a child: a listbox owns only
+            options and groups. */}
+        {connections.length === 0 && onAdd && (
+          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 14 }}>
+            <Button
+              variant="light"
+              size="compact-xs"
+              onClick={() => {
+                close();
+                onAdd();
+              }}
+            >
+              New connection
+            </Button>
+          </div>
+        )}
         {/*
           The footer is how the keyboard path is learned from the mouse path:
           a user who only ever clicks still reads it every time they open the
