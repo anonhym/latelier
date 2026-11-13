@@ -524,7 +524,9 @@ function QueryBarInner({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '120px minmax(0, 1fr) auto',
+          // The actions take what they need up to just over half the row, so
+          // a notice beside them ellipsizes before it squeezes the filter.
+          gridTemplateColumns: '120px minmax(0, 1fr) fit-content(55%)',
         }}
       >
         <Tooltip
@@ -667,10 +669,9 @@ function QueryBarInner({
             minWidth: 0,
           }}
         >
-          {/* Capped: an auto track grows to its content, and a long complaint
-              would take the filter's room. The whole message is in the title. */}
+          {/* The one part of this cell that gives way; the whole message is in its title. */}
           {notices.length > 0 && (
-            <div style={{ display: 'flex', minWidth: 0, maxWidth: compact ? 140 : 280 }}>
+            <div style={{ display: 'flex', flex: '0 1 auto', minWidth: 0, maxWidth: 280 }}>
               {notices.map((n, i) =>
                 i === 0 ? (
                   <Notice key={`${n.id}-${n.seq}`} id={n.id} text={n.text} />
@@ -682,136 +683,139 @@ function QueryBarInner({
               )}
             </div>
           )}
-          {willResetPage && (
-            <span
-              data-testid="page-reset-hint"
-              style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
-            >
-              Will jump to page 1 on run
-            </span>
-          )}
-          {compact ? (
-            <>
-              <Tooltip label="Save" withArrow>
-                <ActionIcon
+          {/* Never shrinks: a squeezed Mantine button clips its label, not its box. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: T.gapSm, flexShrink: 0 }}>
+            {willResetPage && (
+              <span
+                data-testid="page-reset-hint"
+                style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
+              >
+                Will jump to page 1 on run
+              </span>
+            )}
+            {compact ? (
+              <>
+                <Tooltip label="Save" withArrow>
+                  <ActionIcon
+                    data-hint-anchor="saved.create"
+                    variant="default"
+                    size={22}
+                    onClick={onSave}
+                    aria-label="Save"
+                  >
+                    {I.save}
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="History" withArrow>
+                  <ActionIcon variant="default" size={22} onClick={onHistory} aria-label="History">
+                    {I.clock}
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            ) : (
+              <>
+                <Button
                   data-hint-anchor="saved.create"
                   variant="default"
-                  size={22}
+                  size="compact-xs"
+                  leftSection={I.save}
                   onClick={onSave}
-                  aria-label="Save"
                 >
-                  {I.save}
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="History" withArrow>
-                <ActionIcon variant="default" size={22} onClick={onHistory} aria-label="History">
-                  {I.clock}
-                </ActionIcon>
-              </Tooltip>
-            </>
-          ) : (
-            <>
-              <Button
-                data-hint-anchor="saved.create"
-                variant="default"
-                size="compact-xs"
-                leftSection={I.save}
-                onClick={onSave}
-              >
-                Save
-              </Button>
-              <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
-                History
-              </Button>
-            </>
-          )}
-          <span
-            aria-hidden="true"
-            style={{
-              width: 1,
-              alignSelf: 'stretch',
-              background: T.border,
-              margin: '0 2px',
-            }}
-          />
-          {/* Run sits at the right end, beside the drawer, so the
-              pointer's trip from a builder row to Run is short. */}
-          <Button.Group>
-            {isLoading ? (
-              <Tooltip label="Cancel" withArrow>
-                <Button
-                  variant="outline"
-                  color="red"
-                  size="compact-xs"
-                  onClick={onCancel}
-                  data-testid="query-cancel-btn"
-                >
-                  Cancel
+                  Save
                 </Button>
-              </Tooltip>
-            ) : (
-              <Tooltip
-                label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
-                withArrow
-              >
-                <Button
-                  variant="filled"
-                  size="compact-xs"
-                  onClick={() => canRun && onRun()}
-                  disabled={!canRun}
-                  data-testid="query-run-btn"
-                  data-hint-anchor="run.execute"
-                  leftSection={I.play}
-                >
-                  Run
+                <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
+                  History
                 </Button>
-              </Tooltip>
+              </>
             )}
-            <Menu position="bottom-end" shadow="md" width={190}>
-              <Menu.Target>
-                <Tooltip label="Run options" withArrow>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 1,
+                alignSelf: 'stretch',
+                background: T.border,
+                margin: '0 2px',
+              }}
+            />
+            {/* Run sits at the right end, beside the drawer, so the
+                pointer's trip from a builder row to Run is short. */}
+            <Button.Group>
+              {isLoading ? (
+                <Tooltip label="Cancel" withArrow>
+                  <Button
+                    variant="outline"
+                    color="red"
+                    size="compact-xs"
+                    onClick={onCancel}
+                    data-testid="query-cancel-btn"
+                  >
+                    Cancel
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Tooltip
+                  label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
+                  withArrow
+                >
                   <Button
                     variant="filled"
                     size="compact-xs"
+                    onClick={() => canRun && onRun()}
                     disabled={!canRun}
-                    aria-label="Run options"
-                    data-testid="query-run-options-btn"
-                    px={6}
+                    data-testid="query-run-btn"
+                    data-hint-anchor="run.execute"
+                    leftSection={I.play}
                   >
-                    {I.chevD}
+                    Run
                   </Button>
                 </Tooltip>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item leftSection={I.play} onClick={() => canRun && onRun()}>
-                  Run
-                </Menu.Item>
-                <Menu.Divider />
-                <Menu.Label>Explain</Menu.Label>
-                <Menu.Item
-                  leftSection={I.eye}
-                  disabled={!canExplain}
-                  onClick={() => onExplain('queryPlanner')}
-                >
-                  queryPlanner
-                </Menu.Item>
-                <Menu.Item
-                  leftSection={I.eye}
-                  disabled={!canExplain}
-                  onClick={() => onExplain('executionStats')}
-                >
-                  executionStats
-                </Menu.Item>
-                <Menu.Item
-                  leftSection={I.eye}
-                  disabled={!canExplain}
-                  onClick={() => onExplain('allPlansExecution')}
-                >
-                  allPlansExecution
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </Button.Group>
+              )}
+              <Menu position="bottom-end" shadow="md" width={190}>
+                <Menu.Target>
+                  <Tooltip label="Run options" withArrow>
+                    <Button
+                      variant="filled"
+                      size="compact-xs"
+                      disabled={!canRun}
+                      aria-label="Run options"
+                      data-testid="query-run-options-btn"
+                      px={6}
+                    >
+                      {I.chevD}
+                    </Button>
+                  </Tooltip>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item leftSection={I.play} onClick={() => canRun && onRun()}>
+                    Run
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Label>Explain</Menu.Label>
+                  <Menu.Item
+                    leftSection={I.eye}
+                    disabled={!canExplain}
+                    onClick={() => onExplain('queryPlanner')}
+                  >
+                    queryPlanner
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={I.eye}
+                    disabled={!canExplain}
+                    onClick={() => onExplain('executionStats')}
+                  >
+                    executionStats
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={I.eye}
+                    disabled={!canExplain}
+                    onClick={() => onExplain('allPlansExecution')}
+                  >
+                    allPlansExecution
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Button.Group>
+          </div>
         </div>
       </div>
 

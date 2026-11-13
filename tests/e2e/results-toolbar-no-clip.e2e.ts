@@ -64,6 +64,13 @@ function countIsCut(win: Page): Promise<boolean> {
 async function expectQueryRowWhole(win: Page, label: string) {
   const row = await readBar(win, 'query-bar-actions');
   expect(row.clipped, `${label}: query row clipped`).toEqual([]);
+  // A squeezed Mantine button keeps its box and clips its label inside it.
+  const cutLabels = await win.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="query-bar-actions"] [class*="Button-label"]')]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent),
+  );
+  expect(cutLabels, `${label}: query row labels cut`).toEqual([]);
   for (const name of ['Save', 'History']) {
     await expect(win.getByTestId('query-bar-actions').getByRole('button', { name, exact: true }), `${label}: ${name}`).toBeInViewport();
   }
