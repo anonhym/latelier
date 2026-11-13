@@ -405,7 +405,9 @@ export function PanelBody({
               <div style={{ color: T.textMuted, marginBottom: 12 }}>
                 {anyConnectionOpen
                   ? 'Select a collection from the sidebar to get started.'
-                  : 'No connection is open. Select one to get started.'}
+                  : switcherProps.connections.length === 0
+                    ? 'No connections yet. Add one to get started.'
+                    : 'No connection is open. Select one to get started.'}
               </div>
               {anyConnectionOpen ? (
                 <Button variant="filled" size="xs" leftSection={I.plus} onClick={() => setNewTabOpen(true)}>

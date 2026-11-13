@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { themeVars } from '../../theme/themeVars';
 import { useRovingHighlight } from '../../hooks/useRovingHighlight';
 import { useHints } from '../../hints/HintsContext';
@@ -335,7 +336,11 @@ export function SuggestionPopover({
     i = g.end;
   }
 
-  return (
+  // Portaled to <body>: a `position: fixed` box inside a transformed
+  // ancestor (Mantine Modal content) is positioned against that ancestor, not
+  // the viewport, which pushed the list away from its input. The portal keeps
+  // the React tree (events, context) intact.
+  return createPortal(
     <>
       <div
         // Positioning box for the list and the hint footer under it. The
@@ -417,6 +422,7 @@ export function SuggestionPopover({
           <OperatorDocPanel op={docOp} variant="side" id={panelId} />
         </div>
       )}
-    </>
+    </>,
+    document.body,
   );
 }

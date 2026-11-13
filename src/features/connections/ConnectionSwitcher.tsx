@@ -112,6 +112,13 @@ export interface ConnectionSwitcherProps {
    * switcher").
    */
   variant?: 'title' | 'cta';
+  /**
+   * Opens the add-connection form. With it, the `cta` variant shows a filled
+   * "New connection" button instead of the picker while no Connection exists
+   * (a first-run user has nothing to pick), and the empty list offers the
+   * same action. Omitted: both fall back to the picker-only behaviour.
+   */
+  onAdd?: () => void;
 }
 
 /** `⌘E` / `Ctrl+E`: open the full Connections table. */
@@ -348,6 +355,7 @@ export function ConnectionSwitcher({
   onDelete,
   onExpand,
   variant = 'title',
+  onAdd,
 }: ConnectionSwitcherProps) {
   const T = themeVars;
   const [opened, setOpened] = React.useState(false);
@@ -616,6 +624,17 @@ export function ConnectionSwitcher({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened]);
 
+  // Not a popover trigger: with nothing to pick, the CTA is the add action
+  // itself, so it stays out of Popover.Target (which would stamp
+  // aria-haspopup / aria-expanded on it).
+  if (variant === 'cta' && connections.length === 0 && onAdd) {
+    return (
+      <Button ref={triggerRef} variant="filled" size="sm" leftSection={I.plus} onClick={onAdd}>
+        New connection
+      </Button>
+    );
+  }
+
   return (
     <Popover
       opened={opened}
@@ -804,9 +823,26 @@ export function ConnectionSwitcher({
                 query — otherwise a first-run user with no saved Connections is
                 told `No connections match ""`.
               */}
-              {connections.length === 0
-                ? 'No connections yet'
-                : <>No connections match &quot;{query}&quot;</>}
+              {connections.length === 0 ? (
+                <>
+                  <div>No connections yet</div>
+                  {onAdd && (
+                    <Button
+                      variant="light"
+                      size="compact-xs"
+                      mt="xs"
+                      onClick={() => {
+                        close();
+                        onAdd();
+                      }}
+                    >
+                      New connection
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>No connections match &quot;{query}&quot;</>
+              )}
             </div>
           ) : (
             filtered.map((c, i) => (

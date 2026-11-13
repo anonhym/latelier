@@ -1305,6 +1305,7 @@ function WorkspaceInner() {
     openEditConnectionModal,
     openDeleteConnectionModal,
     openConnectionTable,
+    openAddConnectionModal,
   } = connectionDialogs;
 
   // A full conn.list() refetch, not scoped to one Connection, registered
@@ -1573,6 +1574,7 @@ function WorkspaceInner() {
     onEdit: openEditConnectionModal,
     onDelete: openDeleteConnectionModal,
     onExpand: openConnectionTable,
+    onAdd: openAddConnectionModal,
   };
 
   // mode="static" (CSS grid), not the default "fixed" (position: fixed) —
