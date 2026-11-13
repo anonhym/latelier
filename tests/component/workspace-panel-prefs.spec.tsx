@@ -310,6 +310,33 @@ describe('workspace panel prefs (T4)', () => {
     expect(set.mock.calls.filter(([k]) => k === 'ui.workspace.builderCollapsed')).toEqual([]);
   });
 
+  it('a pointer or arrow key on the inert divider off Documents never commits a builder split on return', async () => {
+    const set = vi.fn(async (_k: string, v: unknown) => v);
+    installAtelierMock({
+      tabs: { list: async () => [tab()] },
+      conn: { list: async () => [connectionFixture({ id: 'c1' })] },
+      prefs: { set: set as never },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('tablist', { name: 'Query drawer' });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Aggregation/ }));
+    await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Query drawer' })).toBeNull());
+    const handle = screen.getByRole('separator', { name: 'Resize Query Builder' });
+    fireEvent.pointerDown(handle);
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+
+    // Coming back restores the drawer programmatically; none of that is the user's choice.
+    fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
+    await screen.findByRole('tablist', { name: 'Query drawer' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(set.mock.calls.filter(([k]) => k === 'ui.workspace.innerHSplit')).toEqual([]);
+  });
+
   it('a rejected prefs.set does not throw into the render', async () => {
     // The local click handler flips `sidebarCollapsed` synchronously
     // regardless of whether the write is `.catch()`-guarded, so that alone

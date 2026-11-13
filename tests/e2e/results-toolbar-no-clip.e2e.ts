@@ -151,6 +151,24 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
   });
 });
 
+test('the page-reset hint beside Run leaves the filter its room at 960', async () => {
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await expectConsoleClean(win, async () => {
+      await open(win);
+      await win.setViewportSize({ width: 960, height: 640 });
+      await win.waitForTimeout(300);
+      // 60 docs at 50 a page: page 2, then an edit that would send Run back to page 1.
+      await win.getByRole('button', { name: 'Next page', exact: true }).click();
+      await expect(win.getByTestId('result-bar')).toContainText('2 / 2', { timeout: 8000 });
+      await win.getByTestId('query-bar-input').fill('{"n":{"$gte":0}}');
+      await expect(win.getByTestId('page-reset-hint')).toBeVisible();
+      await expectQueryRowWhole(win, '960 page-reset hint');
+    });
+  });
+});
+
 test('right-hand controls and row buttons hold still when results change', async () => {
   await withApp(async (app) => {
     const win = await app.firstWindow();

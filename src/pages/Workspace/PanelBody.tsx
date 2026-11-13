@@ -298,7 +298,10 @@ export function PanelBody({
   // values and was collapsed.
   const [ownLoadGen, bumpLoadGen] = React.useReducer((n: number) => n + 1, 0);
   // The header sits above every view, so it never remounts: it re-reads its
-  // counts on a view switch and after Structure changes an index.
+  // counts after a document write and after Structure changes an index. Not on
+  // a view switch: each read is a server-side stats aggregation. An Aggregation
+  // `$out`/`$merge` into this collection leaves them stale until the next write.
+  // ponytail: no cheap "pipeline wrote here" signal exists; add one if that matters.
   const [structureChanges, bumpStructureChanges] = React.useReducer((n: number) => n + 1, 0);
   const loadGen = ownLoadGen + externalLoadGen;
   const {
@@ -340,6 +343,11 @@ export function PanelBody({
   // same rule as ⌘B in Workspace.tsx; React bubbles portal events here too.
   const runShortcutRef = React.useRef<(() => void) | null>(null);
   const builderDividerUsed = React.useRef(false);
+  // A view switch shuts or restores the drawer programmatically: whatever the
+  // divider flag held before it is not a choice about that layout.
+  React.useEffect(() => {
+    builderDividerUsed.current = false;
+  }, [collection?.view]);
   const handleRunShortcut = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) {
@@ -464,7 +472,8 @@ export function PanelBody({
                   collection={collection.tab.collection}
                   onOpenReferences={() => setRefEditorOpen(true)}
                   referenceRuleCount={referenceRules.rules.length}
-                  refreshSignal={`${documentDialogs.writeVersion}.${structureChanges}.${collection.view}`}
+                  // Both counters only grow, so their sum moves whenever either does.
+                  refreshSignal={documentDialogs.writeVersion + structureChanges}
                 />
               </div>
               <PanelGroup
@@ -581,13 +590,15 @@ export function PanelBody({
                   aria-label="Resize Query Builder"
                   // A drag off Documents would open a panel whose builder is hidden.
                   disabled={!onDocuments}
+                  // Only a live divider is a choice: off Documents a stray press would
+                  // mark the restore on return as the user's split.
                   onPointerDown={() => {
-                    builderDividerUsed.current = true;
+                    if (onDocuments) builderDividerUsed.current = true;
                   }}
                   // Capture: the library resizes in its own listener on this element,
                   // which runs before a bubbling React handler would.
                   onKeyDownCapture={(e) => {
-                    if (e.key !== 'Tab') builderDividerUsed.current = true;
+                    if (onDocuments && e.key !== 'Tab') builderDividerUsed.current = true;
                   }}
                 />
                 <Panel

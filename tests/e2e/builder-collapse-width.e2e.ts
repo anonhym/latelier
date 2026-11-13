@@ -109,6 +109,11 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     await subTabs.getByRole('tab', { name: /Aggregation/ }).click();
     await expect(drawer).toBeHidden();
     await expect(win.getByRole('button', { name: /Query Builder$/ })).toHaveCount(0);
+    // A stray press on the inert divider must not mark the restore below as the user's split.
+    const divider = win.getByRole('separator', { name: 'Resize Query Builder' });
+    await divider.dispatchEvent('pointerdown');
+    await divider.focus();
+    await win.keyboard.press('ArrowLeft');
     await subTabs.getByRole('tab', { name: /Documents/ }).click();
     await expect(drawer).toBeVisible();
     await win.waitForTimeout(300);

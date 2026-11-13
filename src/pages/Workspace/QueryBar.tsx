@@ -70,6 +70,9 @@ const FIND_OPTION_KEYS: readonly FindOptionKey[] = ['collation', 'hint', 'maxTim
 // copies of a sentence like this drift the first time someone edits one.
 const SKIP_EXPLANATION = 'Skip is driven by the page selector below the results';
 
+// W07 §3's rule, said beside Run before it applies.
+const PAGE_RESET_HINT = 'Will jump to page 1 on run';
+
 /**
  * Why the query can't run, or runs as something else, as a `role="alert"` line
  * in the gap beside Run. Never a strip of its own: that pushed the toolbar and
@@ -505,6 +508,9 @@ function QueryBarInner({
   // Below this the labelled Save and History leave the filter too little room.
   const [rootRef, rootWidth] = useElementWidth<HTMLDivElement>();
   const compact = rootWidth !== null && rootWidth < 640;
+  // The page-reset sentence is ~170px of the actions' minimum width, which the
+  // filter pays for: it turns into an icon sooner than Save and History do.
+  const hintCompact = rootWidth !== null && rootWidth < 800;
 
   return (
     <div
@@ -685,14 +691,29 @@ function QueryBarInner({
           )}
           {/* Never shrinks: a squeezed Mantine button clips its label, not its box. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: T.gapSm, flexShrink: 0 }}>
-            {willResetPage && (
-              <span
-                data-testid="page-reset-hint"
-                style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
-              >
-                Will jump to page 1 on run
-              </span>
-            )}
+            {/* Narrow, the sentence would take the filter's room: an icon keeps it
+                as a tooltip and, for a screen reader, as text. */}
+            {willResetPage &&
+              (hintCompact ? (
+                <Tooltip label={PAGE_RESET_HINT} withArrow>
+                  <span
+                    data-testid="page-reset-hint"
+                    style={{ display: 'inline-flex', color: T.textMuted }}
+                  >
+                    <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+                      {I.chevLL}
+                    </span>
+                    <VisuallyHidden>{PAGE_RESET_HINT}</VisuallyHidden>
+                  </span>
+                </Tooltip>
+              ) : (
+                <span
+                  data-testid="page-reset-hint"
+                  style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
+                >
+                  {PAGE_RESET_HINT}
+                </span>
+              ))}
             {compact ? (
               <>
                 <Tooltip label="Save" withArrow>

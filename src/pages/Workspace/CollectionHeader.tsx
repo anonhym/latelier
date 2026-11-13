@@ -16,12 +16,12 @@ interface CollectionHeaderProps {
   /**
    * Re-reads the counts whenever it changes. PanelBody builds it from
    * `useDocumentDialogs`'s write-completion counter (once per finished
-   * insert/edit/delete/delete-many), Structure's index changes and the active
-   * view. Not the query re-run itself: that would fire on every
-   * sort/filter/page re-run too, and `collectionDetails` runs a stats
-   * aggregation on the server, so it isn't free.
+   * insert/edit/delete/delete-many) and Structure's index changes. Not the
+   * query re-run or a view switch: that would fire on every sort/filter/page
+   * re-run too, and `collectionDetails` runs a stats aggregation on the
+   * server, so it isn't free.
    */
-  refreshSignal?: number | string;
+  refreshSignal?: number;
 }
 
 /**

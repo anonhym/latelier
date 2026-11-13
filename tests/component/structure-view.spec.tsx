@@ -853,13 +853,12 @@ function collectionTab(overrides: Partial<CollectionTab> = {}): CollectionTab {
   };
 }
 
-describe('Structure view — header count on return to Documents', () => {
+describe('Structure view — header count across view switches', () => {
   // `CollectionHeader` sits on the sub-tab row and stays mounted across the
-  // three views, so nothing remounts it: PanelBody folds the active view into
-  // its refresh signal instead. A count changed elsewhere while Structure was
-  // showing still reads current on return to Documents.
-  it('re-fetches the header count after Structure → Documents', async () => {
-    let docCount = 10;
+  // three views. Each read is a server-side stats aggregation, so a view
+  // switch alone must not repeat it.
+  it('does not re-read the header counts on a Documents ↔ Aggregation round trip', async () => {
+    const docCount = 10;
     const collectionDetails = vi.fn(async () => ({
       name: 'coll',
       type: 'collection' as const,
@@ -901,15 +900,17 @@ describe('Structure view — header count on return to Documents', () => {
       screen.getByText((_, el) => el?.textContent?.startsWith(`${n} docs in collection`) ?? false);
     await waitFor(() => expect(headerStats(10)).toBeTruthy());
 
-    await userEvent.click(screen.getByRole('tab', { name: /Structure/i }));
-    await screen.findByRole('region', { name: 'Statistics' });
-    docCount = 25;
-    const callsBeforeReturn = collectionDetails.mock.calls.length;
+    await waitFor(() => expect(collectionDetails).toHaveBeenCalled());
+    const callsBefore = collectionDetails.mock.calls.length;
 
+    await userEvent.click(screen.getByRole('tab', { name: /Aggregation/i }));
+    await screen.findByRole('button', { name: /Add stage/ });
     await userEvent.click(screen.getByRole('tab', { name: /Documents/i }));
+    await screen.findByTestId('query-bar-input');
+    await new Promise((r) => setTimeout(r, 50));
 
-    await waitFor(() => expect(headerStats(25)).toBeTruthy());
-    expect(collectionDetails.mock.calls.length).toBeGreaterThan(callsBeforeReturn);
+    expect(collectionDetails.mock.calls.length).toBe(callsBefore);
+    expect(headerStats(10)).toBeTruthy();
   });
 });
 
