@@ -15,7 +15,8 @@ interface SelectToggleProps {
 /**
  * Per-row selection checkbox shared by Table, Tree and JSON. A plain click
  * on a row/card only makes it the active row now; this (plus ⌘/Ctrl+click)
- * is the one visible way to add a row to the bulk-action selection.
+ * is the one visible way to add a row to the bulk-action selection. An
+ * unselected box is empty (a ghost-coloured check read as already checked).
  *
  * `aria-pressed` on a `<button>`, not a real `<input type="checkbox">` — the
  * toggle-button pattern — so it can sit inside a `role="group"`/`"row"`/
@@ -31,7 +32,7 @@ export function SelectToggle({ selected, docLabel, onToggle, tabIndex }: SelectT
         tabIndex={tabIndex}
         variant="default"
         size="sm"
-        c={selected ? 'var(--atelier-accent)' : 'var(--atelier-text-ghost)'}
+        c="var(--atelier-accent)"
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -40,13 +41,15 @@ export function SelectToggle({ selected, docLabel, onToggle, tabIndex }: SelectT
         aria-label={label}
         style={{
           flexShrink: 0,
-          ...(selected && {
-            background: 'var(--atelier-accent-soft)',
-            borderColor: 'var(--atelier-accent-border)',
-          }),
+          ...(selected
+            ? {
+                background: 'var(--atelier-accent-soft)',
+                borderColor: 'var(--atelier-accent-border)',
+              }
+            : { borderColor: 'var(--atelier-text-ghost)' }),
         }}
       >
-        {I.check}
+        {selected ? I.check : null}
       </ActionIcon>
     </Tooltip>
   );
