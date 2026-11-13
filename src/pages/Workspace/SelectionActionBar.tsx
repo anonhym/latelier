@@ -140,6 +140,11 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
           </Button>
         </>
       )}
+      {occupant === 'none' && (
+        <span data-testid="band-hint" style={{ color: T.textGhost }}>
+          {`Select rows with the checkbox or ⌘/Ctrl-click to copy${meta.isView ? '' : ' or delete'} them`}
+        </span>
+      )}
       {occupant === 'selection' && (
         <>
           <span data-testid="selection-bar-count" style={{ color: T.text, fontWeight: 600 }}>

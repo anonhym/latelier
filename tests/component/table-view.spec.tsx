@@ -138,7 +138,7 @@ function renderStatefulTable(initial: CollectionTabState) {
 }
 
 describe('TableView — rendering and interaction', () => {
-  it('derives columns from the first 50 docs, _id first, others alphabetized', () => {
+  it('derives columns from the first 50 docs, _id first, others in first-seen order', () => {
     const docs = [
       { _id: 1, zebra: 'z', apple: 'a' },
       { _id: 2, banana: 'b' },
@@ -154,9 +154,24 @@ describe('TableView — rendering and interaction', () => {
     const appleIdx = text.indexOf('apple');
     const bananaIdx = text.indexOf('banana');
     const zebraIdx = text.indexOf('zebra');
-    expect(idIdx).toBeLessThan(appleIdx);
+    // zebra is first seen before apple, banana in a later document.
+    expect(idIdx).toBeLessThan(zebraIdx);
+    expect(zebraIdx).toBeLessThan(appleIdx);
     expect(appleIdx).toBeLessThan(bananaIdx);
-    expect(bananaIdx).toBeLessThan(zebraIdx);
+  });
+
+  it('sizes a date column to fit a full ISO timestamp and _id and other columns as before', () => {
+    const docs = [
+      {
+        _id: 1,
+        createdAt: { $date: '2026-01-01T00:00:00.000Z' },
+        status: 'open',
+      },
+    ];
+    const { getByTestId } = renderTable(docs);
+    expect(getByTestId('table-header-createdAt').style.width).toBe('210px');
+    expect(getByTestId('table-header-_id').style.width).toBe('200px');
+    expect(getByTestId('table-header-status').style.width).toBe('160px');
   });
 
   it('renders cell values from documents', () => {
@@ -1174,12 +1189,16 @@ describe('TableView — rendering and interaction', () => {
       const { getByRole } = renderTable(docs);
       const editBtn = getByRole('button', { name: 'Edit document 1' }) as HTMLElement;
       const actionsCell = editBtn.closest('[role="gridcell"]') as HTMLElement;
+      const actions = within(actionsCell).getByTestId('table-row-actions');
 
-      expect(actionsCell.style.opacity).toBe('0');
+      expect(actions.style.opacity).toBe('0');
+      // The cell itself stays opaque so cells scrolled under the gutter are hidden.
+      expect(actionsCell.style.opacity).toBe('');
+      expect(actionsCell.style.background).not.toBe('');
       fireEvent.focus(editBtn);
-      expect(actionsCell.style.opacity).toBe('1');
+      expect(actions.style.opacity).toBe('1');
       fireEvent.blur(editBtn);
-      expect(actionsCell.style.opacity).toBe('0');
+      expect(actions.style.opacity).toBe('0');
     });
   });
 });

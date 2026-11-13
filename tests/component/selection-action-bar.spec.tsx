@@ -96,6 +96,30 @@ describe('SelectionActionBar', () => {
     expect(strip().style.boxSizing).toBe('border-box');
   });
 
+  it('with nothing else to say, the band holds a one-line hint naming how to select', () => {
+    const { container } = renderBar(vi.fn());
+    const hint = () => container.querySelector<HTMLElement>('[data-testid="band-hint"]');
+    expect(hint()?.textContent).toBe(
+      'Select rows with the checkbox or ⌘/Ctrl-click to copy or delete them',
+    );
+    selectFirstCard();
+    expect(hint()).toBeNull();
+  });
+
+  it('the hint gives way to Running… and keeps the band height', () => {
+    const { container } = renderBar(vi.fn(), { isLoading: true });
+    expect(container.querySelector('[data-testid="band-hint"]')).toBeNull();
+    expect(container.textContent).toContain('Running…');
+    expect(container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!.style.height).toBe('31px');
+  });
+
+  it('on a view the hint does not offer delete', () => {
+    const { container } = renderBar(vi.fn(), { isView: true });
+    expect(container.querySelector('[data-testid="band-hint"]')?.textContent).toBe(
+      'Select rows with the checkbox or ⌘/Ctrl-click to copy them',
+    );
+  });
+
   it('#106 — read-only still renders nothing at all, strip included', () => {
     const { container } = renderBar(vi.fn(), { isReadOnly: true });
     expect(container.querySelector('[data-testid="selection-bar"]')).toBeNull();
