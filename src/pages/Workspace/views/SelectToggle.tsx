@@ -1,5 +1,5 @@
 import { ActionIcon, Tooltip } from '@mantine/core';
-import { I } from '../../../icons';
+import { IconCheck } from '@tabler/icons-react';
 
 interface SelectToggleProps {
   selected: boolean;
@@ -31,8 +31,9 @@ export function SelectToggle({ selected, docLabel, onToggle, tabIndex }: SelectT
         type="button"
         tabIndex={tabIndex}
         variant="default"
-        size="sm"
-        c="var(--atelier-accent)"
+        size={16}
+        radius={4}
+        c="var(--atelier-accent-text)"
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -41,15 +42,16 @@ export function SelectToggle({ selected, docLabel, onToggle, tabIndex }: SelectT
         aria-label={label}
         style={{
           flexShrink: 0,
+          minWidth: 16,
+          minHeight: 16,
+          borderWidth: 1.5,
+          // Drawn as a checkbox, not a button: no fill while off, solid accent while on.
           ...(selected
-            ? {
-                background: 'var(--atelier-accent-soft)',
-                borderColor: 'var(--atelier-accent-border)',
-              }
-            : { borderColor: 'var(--atelier-text-ghost)' }),
+            ? { background: 'var(--atelier-accent)', borderColor: 'var(--atelier-accent)' }
+            : { background: 'transparent', borderColor: 'var(--atelier-text-ghost)' }),
         }}
       >
-        {selected ? I.check : null}
+        {selected ? <IconCheck size={12} stroke={3} /> : null}
       </ActionIcon>
     </Tooltip>
   );
