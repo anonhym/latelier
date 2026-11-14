@@ -229,9 +229,12 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       await win.waitForTimeout(150);
       expect(await scrolled()).toEqual([]);
 
-      // The wide layout comes back untouched: both panels, the Inspector at its default 400 px.
+      // The wide layout comes back untouched: the stored one, with the sidebar open and the
+      // Inspector closed (the narrow choice is forgotten). Opening it gives its default 400 px.
       await win.setViewportSize({ width: 1280, height: 800 });
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(win.getByRole('button', { name: 'Builder', exact: true })).toHaveAttribute('aria-pressed', 'false');
+      await openBuilder.click();
       await expect(win.getByRole('button', { name: 'Builder', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await win.waitForTimeout(300);
       const wide = await win.getByTestId('inspector').boundingBox();

@@ -52,8 +52,9 @@ test('autocomplete: focusing builder field input lists known fields; click fills
 
       // Add a condition row, focus its field input → popover opens on focus
       // (`BuilderPane.tsx:109` — onFocus={() => setFieldPopoverOpen(true)}).
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
-      const fieldInput = win.getByPlaceholder('field').first();
+      const fieldInput = win.getByPlaceholder('field', { exact: true }).first();
       await fieldInput.click();
 
       // Popover lists known fields. Pick `stockLevel` — unique enough to be
@@ -160,10 +161,10 @@ test('autocomplete: a value from an aggregation $match is offered in the builder
 
       await ws.tablist.getByRole('tab', { name: /Documents/ }).click();
       await win.getByRole('button', { name: 'Add condition' }).click();
-      await win.getByPlaceholder('field').first().fill('status');
+      await win.getByPlaceholder('field', { exact: true }).first().fill('status');
       // The field popover stays open over the value box until dismissed.
       await win.keyboard.press('Escape');
-      const value = win.getByPlaceholder('value').first();
+      const value = win.getByPlaceholder('value', { exact: true }).first();
       await value.click();
 
       const popover = win.getByRole('listbox', { name: 'Value suggestions' });

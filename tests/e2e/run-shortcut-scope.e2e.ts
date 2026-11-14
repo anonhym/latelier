@@ -20,6 +20,7 @@ const ORDERS = [
 test('⌘↵ runs right after dragging a result value into the builder', async () => {
   await withOpenOrders('Run Shortcut Target', ORDERS, 'banana-002', async (win, ws) => {
     await ws.viewTableButton.click();
+    await ws.openBuilder();
 
     const pendingCell = win.getByTitle(/Drag to add "status/).filter({ hasText: 'pending' });
     await expect(pendingCell).toBeVisible({ timeout: 8000 });

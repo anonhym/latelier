@@ -46,8 +46,9 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
       // driving the builder.
       await expect(win.getByText('banana-002')).toBeVisible({ timeout: 8000 });
 
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
-      await win.getByPlaceholder('field').first().fill('qty');
+      await win.getByPlaceholder('field', { exact: true }).first().fill('qty');
       // #128 — pick the field from the suggestions, as a person would: that
       // is what types the value as a number. A typed-only field keeps the
       // value a string, and `{"$gt":"3"}` matches nothing.
@@ -71,13 +72,13 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
 
       // Click-away.
       await op.fill('<');
-      await win.getByPlaceholder('field').first().click();
+      await win.getByPlaceholder('field', { exact: true }).first().click();
       await expect(op).toHaveValue('$lt');
 
       // The resolved operator is a real one, so the row compiles and runs.
       await op.fill('>');
       await op.press('Enter');
-      await win.getByPlaceholder('value').first().fill('3');
+      await win.getByPlaceholder('value', { exact: true }).first().fill('3');
       await expect(ws.queryBarTextarea).toHaveValue('{"qty":{"$gt":3}}');
       await ws.queryBarRunButton.click();
 

@@ -106,7 +106,7 @@ test('delete matching with {} goes through the red band naming the total and the
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('wipe', 'orders');
-      await expect(win.getByText('a', { exact: true }).first()).toBeVisible({ timeout: 8000 });
+      await expect(win.getByText('"a"', { exact: true }).first()).toBeVisible({ timeout: 8000 });
 
       await ws.resultOverflowMenuButton.click();
       await ws.deleteAllMatchingMenuItem.click();
