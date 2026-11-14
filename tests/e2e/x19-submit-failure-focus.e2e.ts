@@ -137,7 +137,7 @@ test('a failed rename keeps focus on the Rename button, and Tab stays inside the
 
       const ws = new WorkspacePage(win);
       await ws.waitForDb('shop');
-      await ws.dbRow('shop').click();
+      await ws.toggleDb('shop');
       await expect(ws.collectionRow('shop', 'placeholder')).toBeVisible({ timeout: 5000 });
 
       await ws.collectionRow('shop', 'placeholder').click({ button: 'right' });
@@ -191,7 +191,7 @@ test('a failed collection create keeps focus on the Create button, and Tab stays
 
       const ws = new WorkspacePage(win);
       await ws.waitForDb('shop');
-      await ws.dbRow('shop').click();
+      await ws.toggleDb('shop');
       await expect(ws.collectionRow('shop', 'orders')).toBeVisible({ timeout: 5000 });
 
       await ws.dbRow('shop').click({ button: 'right' });

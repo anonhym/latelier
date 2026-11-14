@@ -205,11 +205,25 @@ export class WorkspacePage {
     await expect(row).toBeVisible({ timeout: 1000 });
   }
 
+  /**
+   * Click a DB row, and return once its collection list has stopped reloading.
+   * An expand re-fetches a list the navigator already holds (cached earlier,
+   * possibly before a later seed landed), and the rows shift when the answer
+   * arrives. A click aimed at a row before then can land on its neighbour.
+   * The spinner is raised synchronously by the click, so "gone" means settled.
+   */
+  async toggleDb(dbName: string) {
+    await this.dbRow(dbName).click();
+    await expect(this.win.locator(`[data-testid="nav-db-spinner-${dbName}"]`)).toHaveCount(0, {
+      timeout: 10_000,
+    });
+  }
+
   /** Click a DB row, then a collection row, and wait for its tab to be active. */
   async openCollectionFromNavigator(dbName: string, collection: string) {
     await this.waitForDb(dbName);
     // Expand the DB if not already; clicking the row toggles expansion.
-    await this.dbRow(dbName).click();
+    await this.toggleDb(dbName);
     await expect(this.collectionRow(dbName, collection)).toBeVisible({ timeout: 5000 });
     // A double-click keeps the tab: a single click opens the preview tab,
     // which the next single click on another collection replaces, and specs
