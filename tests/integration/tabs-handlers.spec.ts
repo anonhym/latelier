@@ -474,6 +474,16 @@ describe('tabs:openServer — real service and SQLite', () => {
     if (!bad.ok) expect(bad.error.code).toBe('VALIDATION');
   });
 
+  it('keeps the section when the tabs are reloaded from the database', async () => {
+    const opened = await openServer(CONN);
+    if (!opened.ok) throw new Error('openServer failed');
+    await shim.invoke(IPC_CHANNELS.tabsUpdate, { id: opened.data.id, patch: { state: { section: 'monitor' } } });
+    const env = await shim.invoke<ServerTab[]>(IPC_CHANNELS.tabsList, undefined);
+    if (!env.ok) throw new Error(env.error.message);
+    const server = env.data.find((t) => t.kind === 'server');
+    expect(server?.state.section).toBe('monitor');
+  });
+
   it('is removed with its Connection', async () => {
     await openServer(CONN);
     tmp.db.prepare('DELETE FROM connections WHERE id = ?').run(CONN);
