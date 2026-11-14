@@ -263,6 +263,9 @@ describe('Welcome canvas (C03 §13.1)', () => {
       expect(['conn.parseUri', 'conn.test', 'conn.create']).toContain(channel);
     }
     expect(withPassword.has('conn.parseUri')).toBe(true);
+    // The renderer log is its own channel, named so a leak there reads as one. Palette history
+    // is fed only from the palette's own input, which the canvas never writes to.
+    expect(calls.filter((c) => c.channel === 'app.log' && (c.args.includes(URI) || c.args.includes(PASSWORD)))).toEqual([]);
   });
 
   it('the links open the form and the Import Wizard', async () => {
