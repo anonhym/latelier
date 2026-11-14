@@ -634,6 +634,20 @@ describe('useDocumentDialogs', () => {
       expect(run).toHaveBeenCalledWith(undefined, runnerTargetOf(t3));
     });
 
+    it('both tabs when the undo is run from the second tab, with the writing tab no longer focused', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t3 = tab({ id: 't3' });
+      const { result } = mountDialogs(run, 't3', t3, [t1, t3]);
+      act(() => result.current.handleDeleted('a1', 'Document deleted', targetOf(t1)));
+      run.mockClear();
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(run).toHaveBeenCalledWith(undefined, runnerTargetOf(t1));
+      expect(run).toHaveBeenCalledWith(undefined, runnerTargetOf(t3));
+    });
+
     it('the remaining tab once the writing tab has closed', async () => {
       installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
       const run = vi.fn(() => Promise.resolve());
