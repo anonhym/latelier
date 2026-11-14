@@ -32,17 +32,15 @@ describe('canvasHeaderLayout', () => {
 
 describe('statusCountLayout', () => {
   it.each([
-    [320, { count: 'full', planBadge: true }],
-    [319, { count: 'range', planBadge: true }],
-    [200, { count: 'range', planBadge: true }],
-    [199, { count: 'range', planBadge: false }],
-    [160, { count: 'range', planBadge: false }],
-    [159, { count: 'total', planBadge: false }],
+    [320, { planBadge: true }],
+    [200, { planBadge: true }],
+    [199, { planBadge: false }],
+    [160, { planBadge: false }],
   ])('at %i px', (width, expected) => {
     expect(statusCountLayout(width)).toEqual(expected);
   });
 
   it('with no measured width (no layout), gives room for everything', () => {
-    expect(statusCountLayout(null)).toEqual({ count: 'full', planBadge: true });
+    expect(statusCountLayout(null)).toEqual({ planBadge: true });
   });
 });

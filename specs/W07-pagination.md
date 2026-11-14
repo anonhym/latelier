@@ -82,7 +82,7 @@ In the result bar (already reserved by W05), right-aligned:
 
 > **Implemented.**
 
-- The pager of §2 moves from the result bar to the right end of the status bar ([W01 §14.6](./W01-workspace-shell.md)): `1–50 of 6 382  ‹ ›  50 / page`, with First and Last kept as controls. The status bar's count reads `{n} documents · {ms} ms · {a}–{b} of {n}` (W01 §14.6 holds the exact wording and its edge cases). Paging is about where the user is in the result, which is what the status bar states; in the toolbar it was one of eight controls of equal weight.
+- The pager of §2 moves from the result bar to the right end of the status bar ([W01 §14.6](./W01-workspace-shell.md)): `1–50 of 6 382  ‹ ›  50 / page`, with First and Last kept as controls. The status bar's count reads `{n} documents · {ms} ms`, without the range, which the pager's label holds as `{a}–{b} of {n}` (`{a}–{b}` while the total is uncounted, `0 of 0` when empty; W01 §14.6 holds the exact wording and its edge cases). Paging is about where the user is in the result, which is what the status bar states; in the toolbar it was one of eight controls of equal weight.
 - State and behaviour (§1, §3) are unchanged, including the page reset on the next run and its "Will jump to page 1 on run" hint, which stays beside Run.
 - Each pager button has a tooltip. A disabled one says why: `Already on the first page`, `No more results`.
 - The pager is absent on a script or server tab and on the Aggregation and Schema & indexes views.

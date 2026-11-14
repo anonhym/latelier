@@ -373,8 +373,8 @@ describe('ResultViewer compound', () => {
         <ResultViewer.Pagination />
       </ResultViewer>,
     );
-    // 100 / 10 = 10 pages — pager shows "1 / 10"
-    expect(container.querySelector('[data-testid="status-bar"]')!.textContent).toContain('1 / 10');
+    // 10 documents of 100 on the first page — the pager shows "1–10 of 100"
+    expect(container.querySelector('[data-testid="page-label"]')!.textContent).toBe('1–10 of 100');
   });
 
   it('individual Tree slot can be used without Body for custom composition', () => {
