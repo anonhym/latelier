@@ -1,4 +1,5 @@
 import { ejsonParse, ejsonStringify, isPlainDocument } from '../../utils/ejson';
+import { SELECTABLE_KINDS, kindOf, textOf, typeLabel, zeroValue } from './documentFieldTypes';
 
 /**
  * The Document Editor's save, as pure functions (W18 §5, ADR 0012).
@@ -284,6 +285,115 @@ export function buildUpdateRequest(original: Doc, draft: Doc): UpdateRequest | n
     idFilterJson: ejsonStringify({ _id: original._id }),
     updateJson: ejsonStringify(update),
   };
+}
+
+/** One line of the change strip (W18 §13.2): a path `diff` would send, and what it does to the value. */
+export interface ChangeEntry {
+  path: string;
+  kind: 'changed' | 'added' | 'removed';
+  before?: unknown;
+  after?: unknown;
+  /** Set when the value's BSON type differs from what was loaded. */
+  typeChange?: { from: string; to: string; cleared: boolean };
+}
+
+function typeChangeOf(before: unknown, after: unknown): ChangeEntry['typeChange'] {
+  const from = kindOf(before);
+  const to = kindOf(after);
+  if (from === to) return undefined;
+  // "Cleared" is read off the values, not replayed from the selector: the
+  // new value is the type's zero and prints differently from the old one.
+  // ponytail: a user who then types the zero value by hand still reads "cleared".
+  const cleared =
+    from !== 'null' &&
+    SELECTABLE_KINDS.includes(to as (typeof SELECTABLE_KINDS)[number]) &&
+    same(after, zeroValue(to as (typeof SELECTABLE_KINDS)[number])) &&
+    textOf(from, before) !== textOf(to, after);
+  return { from: typeLabel(from, before), to: typeLabel(to, after), cleared };
+}
+
+/**
+ * What Save will send, one entry per path of `diff(original, draft)` — built
+ * from that same diff so the list and the write cannot disagree.
+ */
+export function changeList(original: Doc, draft: Doc): ChangeEntry[] {
+  const d = diff(original, draft);
+  const entries: ChangeEntry[] = [];
+  for (const [path, after] of Object.entries(d.set)) {
+    const before = lookup(original, path);
+    entries.push(
+      before
+        ? { path, kind: 'changed', before: before.value, after, typeChange: typeChangeOf(before.value, after) }
+        : { path, kind: 'added', after },
+    );
+  }
+  for (const path of d.unset) entries.push({ path, kind: 'removed', before: lookup(original, path)?.value });
+  return entries;
+}
+
+/** Two update paths clash when they are the same or one sits under the other. */
+function touches(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`);
+}
+
+export type ChangedBy = 'both' | 'yours' | 'theirs';
+
+export interface ConflictRow {
+  path: string;
+  /** The draft's value at `path`; null when it is absent there. */
+  yours: { value: unknown } | null;
+  /** The server's current value at `path`; null when it is absent there. */
+  theirs: { value: unknown } | null;
+  changedBy: ChangedBy;
+}
+
+/**
+ * W18 §13.3: every path the user or the server changed since `original`.
+ * `both` = the same path (or one under the other) changed on both sides to
+ * different values — the only rows that need a choice. A path the user and
+ * the server changed to the same value is `yours`: nothing to decide.
+ */
+export function classifyConflict(original: Doc, draft: Doc, server: Doc): ConflictRow[] {
+  const pathsOf = (d: DocDiff) => [...Object.keys(d.set), ...d.unset];
+  const mine = pathsOf(diff(original, draft));
+  const theirs = pathsOf(diff(original, server));
+  const row = (path: string, changedBy: ChangedBy): ConflictRow => ({
+    path,
+    yours: lookup(draft, path),
+    theirs: lookup(server, path),
+    changedBy,
+  });
+  const rows: ConflictRow[] = [];
+  for (const p of mine) {
+    const clash = theirs.some((t) => touches(p, t));
+    const r = row(p, 'yours');
+    const differs = !r.yours || !r.theirs || !same(r.yours.value, r.theirs.value);
+    rows.push(clash && differs ? { ...r, changedBy: 'both' } : r);
+  }
+  for (const t of theirs) if (!mine.some((p) => touches(p, t))) rows.push(row(t, 'theirs'));
+  return rows;
+}
+
+/**
+ * The draft to save over `server` once the conflict is decided: the user's
+ * diff, minus every `both` path the user gave to the server. The caller makes
+ * `server` the new `original`, so the guards are fresh.
+ */
+export function resolveConflict(
+  original: Doc,
+  draft: Doc,
+  server: Doc,
+  choices: ReadonlyMap<string, 'mine' | 'theirs'>,
+): Doc {
+  const taken = new Set(
+    classifyConflict(original, draft, server)
+      .filter((r) => r.changedBy === 'both' && choices.get(r.path) === 'theirs')
+      .map((r) => r.path),
+  );
+  const d = diff(original, draft);
+  const set = emptyDiff().set;
+  for (const [path, value] of Object.entries(d.set)) if (!taken.has(path)) put(set as Doc, path, value);
+  return applyDiff(server, { set, unset: d.unset.filter((p) => !taken.has(p)) });
 }
 
 export type JsonDraftResult = { ok: true; doc: Doc } | { ok: false; error: string };

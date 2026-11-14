@@ -3,6 +3,8 @@ import { BSONRegExp, Double, Int32, Long, ObjectId } from 'bson';
 import {
   applyDiff,
   buildUpdateRequest,
+  changeList,
+  classifyConflict,
   deleteAtSegments,
   diff,
   getAtSegments,
@@ -10,6 +12,7 @@ import {
   isEmptyDiff,
   isUnsafeFieldName,
   parseJsonDraft,
+  resolveConflict,
   setAtSegments,
 } from '../../src/pages/Workspace/documentDiff';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../src/utils/ejson';
@@ -419,5 +422,150 @@ describe('parseJsonDraft', () => {
     expect(parseJsonDraft('{"_id":null}', undefined)).toEqual(refused);
     expect(parseJsonDraft('{"a":1}', null)).toEqual(refused);
     expect(parseJsonDraft('{"_id":null}', null).ok).toBe(true);
+  });
+});
+
+describe('changeList', () => {
+  const base = { _id: ID, status: 'pending', gone: true, qty: new Int32(5), o: { a: 1, b: 2 }, arr: [1, 2] };
+
+  it('is empty for an unchanged document', () => {
+    expect(changeList(base, ejsonParse(ejsonStringify(base)))).toEqual([]);
+  });
+
+  it('lists a changed, an added and a removed field', () => {
+    const draft: Record<string, unknown> = { ...base, status: 'shipped', note: 'call back' };
+    delete draft.gone;
+    expect(changeList(base, draft)).toEqual([
+      { path: 'status', kind: 'changed', before: 'pending', after: 'shipped', typeChange: undefined },
+      { path: 'note', kind: 'added', after: 'call back' },
+      { path: 'gone', kind: 'removed', before: true },
+    ]);
+  });
+
+  it('names a nested change by its dotted path and an array change as one whole-array entry', () => {
+    const list = changeList(base, { ...base, o: { a: 9, b: 2 }, arr: [1, 2, 3] });
+    expect(list.map((e) => [e.path, e.kind])).toEqual([
+      ['o.a', 'changed'],
+      ['arr', 'changed'],
+    ]);
+    expect(list[1]!.after).toEqual([1, 2, 3]);
+  });
+
+  it('has exactly one entry per path of the diff', () => {
+    const draft = { ...base, status: 'x', o: { a: 2 }, extra: 1 };
+    const d = diff(base, draft);
+    expect(changeList(base, draft)).toHaveLength(Object.keys(d.set).length + d.unset.length);
+  });
+
+  it('shows both types when the value keeps its text across a type change', () => {
+    const [e] = changeList(base, { ...base, qty: new Double(5) });
+    expect(e!.typeChange).toEqual({ from: 'Int32', to: 'Double', cleared: false });
+  });
+
+  it('marks a type change that fell back to the type zero as cleared', () => {
+    const [e] = changeList({ _id: ID, s: 'abc' }, { _id: ID, s: new Int32(0) });
+    expect(e!.typeChange).toEqual({ from: 'String', to: 'Int32', cleared: true });
+  });
+
+  it('does not call a null becoming a zero value cleared, nor a same-text conversion', () => {
+    expect(changeList({ _id: ID, n: null }, { _id: ID, n: new Int32(0) })[0]!.typeChange!.cleared).toBe(false);
+    expect(changeList({ _id: ID, s: '0' }, { _id: ID, s: new Int32(0) })[0]!.typeChange!.cleared).toBe(false);
+  });
+
+  it('reports no type change when the type stays', () => {
+    expect(changeList(base, { ...base, qty: new Int32(6) })[0]!.typeChange).toBeUndefined();
+  });
+});
+
+describe('classifyConflict', () => {
+  const original = { _id: ID, status: 'pending', qty: 5, note: 'a', o: { x: 1, y: 1 } };
+  const rowsOf = (draft: Record<string, unknown>, server: Record<string, unknown>) =>
+    classifyConflict(original, draft, server).map((r) => [r.path, r.changedBy]);
+
+  it('calls a path both sides changed to different values "both"', () => {
+    const rows = classifyConflict(original, { ...original, status: 'shipped' }, { ...original, status: 'cancelled' });
+    expect(rows).toEqual([
+      { path: 'status', yours: { value: 'shipped' }, theirs: { value: 'cancelled' }, changedBy: 'both' },
+    ]);
+  });
+
+  it('calls a path only the user changed "yours" and one only the server changed "theirs"', () => {
+    expect(rowsOf({ ...original, qty: 7 }, { ...original, note: 'b' })).toEqual([
+      ['qty', 'yours'],
+      ['note', 'theirs'],
+    ]);
+  });
+
+  it('shows a field the user removed as absent on their side', () => {
+    const draft: Record<string, unknown> = { ...original };
+    delete draft.note;
+    const [row] = classifyConflict(original, draft, { ...original, note: 'b' });
+    expect(row).toMatchObject({ path: 'note', yours: null, theirs: { value: 'b' }, changedBy: 'both' });
+  });
+
+  it('needs no choice when both sides arrived at the same value', () => {
+    expect(rowsOf({ ...original, qty: 7 }, { ...original, qty: 7 })).toEqual([['qty', 'yours']]);
+  });
+
+  it('counts a user path under a server path (and the reverse) as a clash', () => {
+    expect(rowsOf({ ...original, o: { x: 2, y: 1 } }, { ...original, o: 'flat' })).toEqual([['o.x', 'both']]);
+    expect(rowsOf({ ...original, o: 'flat' }, { ...original, o: { x: 2, y: 1 } })).toEqual([['o', 'both']]);
+  });
+
+  it('does not clash on sibling paths or on a shared name prefix', () => {
+    expect(rowsOf({ ...original, o: { x: 2, y: 1 } }, { ...original, o: { x: 1, y: 2 } })).toEqual([
+      ['o.x', 'yours'],
+      ['o.y', 'theirs'],
+    ]);
+    expect(rowsOf({ ...original, no: 1 }, { ...original, n: 1 })).toEqual([
+      ['no', 'yours'],
+      ['n', 'theirs'],
+    ]);
+  });
+
+  it('lists a server-only path once even when the user changed several others', () => {
+    expect(rowsOf({ ...original, qty: 7, status: 'x' }, { ...original, note: 'b' })).toEqual([
+      ['status', 'yours'],
+      ['qty', 'yours'],
+      ['note', 'theirs'],
+    ]);
+  });
+
+  it('is empty when nobody changed anything', () => {
+    expect(rowsOf(original, original)).toEqual([]);
+  });
+});
+
+describe('resolveConflict', () => {
+  const original = { _id: ID, status: 'pending', qty: 5, note: 'a' };
+  const draft = { ...original, status: 'shipped', qty: 7 };
+  const server = { ...original, status: 'cancelled', note: 'b' };
+  const pick = (status?: 'mine' | 'theirs') =>
+    plain(resolveConflict(original, draft, server, new Map(status ? [['status', status]] : [])));
+
+  it('Keep mine puts the user\'s value over the server\'s and keeps what only the server changed', () => {
+    expect(pick('mine')).toEqual({ _id: { $oid: ID.toHexString() }, status: 'shipped', qty: 7, note: 'b' });
+  });
+
+  it('Take theirs leaves the server\'s value, so nothing is written for that path', () => {
+    const merged = resolveConflict(original, draft, server, new Map([['status', 'theirs']]));
+    expect(plain(merged)).toMatchObject({ status: 'cancelled', qty: 7, note: 'b' });
+    expect(Object.keys(diff(server, merged).set)).toEqual(['qty']);
+  });
+
+  it('applies a "yours" path whatever the choices say', () => {
+    expect(pick('theirs')).toMatchObject({ qty: 7 });
+    const merged = resolveConflict(original, draft, server, new Map([['qty', 'theirs']]));
+    expect(plain(merged)).toMatchObject({ qty: 7 });
+  });
+
+  it('keeps a user removal unless the server\'s value was taken', () => {
+    const removed: Record<string, unknown> = { ...original };
+    delete removed.note;
+    const bumped = { ...original, note: 'b' };
+    const mine = resolveConflict(original, removed, bumped, new Map([['note', 'mine']]));
+    const theirs = resolveConflict(original, removed, bumped, new Map([['note', 'theirs']]));
+    expect('note' in mine).toBe(false);
+    expect(theirs.note).toBe('b');
   });
 });
