@@ -1,7 +1,11 @@
 import React from 'react';
 
 export interface RovingHighlight {
-  /** Always in `[0, count - 1]` (or `0` when `count` is `0`) — never names a row that isn't there. */
+  /**
+   * Always in `[0, count - 1]` (or `0` when `count` is `0`) — never names a row
+   * that isn't there. `-1` only when the caller's `initialIndex` is `-1` ("no row
+   * yet") and nothing has moved it.
+   */
   index: number;
   /** Jump straight to a row (click, hover, Home/End). */
   setIndex: (index: number) => void;
@@ -48,7 +52,8 @@ function clampedIndex(stored: Stored, count: number, resetKey: unknown, epoch: n
  * `initialIndex`: where the highlight stands until a setter moves it, and again
  * after a reset (a palette that must not start on an unavailable row). It is
  * read at render, so a list that settles into a different first row while
- * untouched follows it.
+ * untouched follows it. `-1` means no row: the first move down lands on the
+ * first row and the first move up on the last.
  */
 export function useRovingHighlight(count: number, resetKey?: unknown, initialIndex = 0): RovingHighlight {
   const [state, setState] = React.useState<Stored>({ raw: null, key: resetKey, epoch: 0 });
@@ -81,7 +86,9 @@ export function useRovingHighlight(count: number, resetKey?: unknown, initialInd
   const move = React.useCallback(
     (delta: number) => {
       if (count === 0) return 0;
-      const next = (clampedIndex(latest.current, count, resetKey, epoch, initialIndex) + delta + count) % count;
+      const from = clampedIndex(latest.current, count, resetKey, epoch, initialIndex);
+      // From "no row", up wraps to the last row as down from the top row would.
+      const next = ((from === -1 && delta < 0 ? 0 : from) + delta + count) % count;
       latest.current = { raw: next, key: resetKey, epoch };
       setState(latest.current);
       return next;

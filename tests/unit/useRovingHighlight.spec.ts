@@ -257,6 +257,18 @@ describe('useRovingHighlight', () => {
       expect(result.current.index).toBe(3);
     });
 
+    it('-1 is no row: down lands on the first, up on the last', () => {
+      const down = renderHook(() => useRovingHighlight(4, 'k', -1));
+      expect(down.result.current.index).toBe(-1);
+      act(() => { down.result.current.move(1); });
+      expect(down.result.current.index).toBe(0);
+      const up = renderHook(() => useRovingHighlight(4, 'k', -1));
+      act(() => { up.result.current.move(-1); });
+      expect(up.result.current.index).toBe(3);
+      // An empty list has no row to name.
+      expect(renderHook(() => useRovingHighlight(0, 'k', -1)).result.current.index).toBe(0);
+    });
+
     it('is left once a setter wrote, even index 0, and comes back with a new key', () => {
       const { result, rerender } = renderHook(({ key }) => useRovingHighlight(4, key, 2), {
         initialProps: { key: 'a' },

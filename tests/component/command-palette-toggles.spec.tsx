@@ -180,6 +180,9 @@ describe('an unavailable command', () => {
     mount();
     await toggle();
     fireEvent.change(input(), { target: { value: 'copy' } });
+    // Every row is greyed, so the cursor starts on none of them (X07 §14.3); the keys still reach it.
+    expect(input().getAttribute('aria-activedescendant')).toBeNull();
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
     expect(input().getAttribute('aria-activedescendant')).toBe(option(/^Copy MQL/).id);
     expect(screen.getByRole('dialog').querySelector('[data-palette-footer]')!.textContent).not.toContain('Run');
     fireEvent.keyDown(input(), { key: 'Enter' });

@@ -8,6 +8,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { CommandPaletteRoot, usePaletteApi, _resetPaletteStoreForTests } from '../../src/commands/CommandPalette';
 import { PaletteContextProvider } from '../../src/commands/PaletteContext';
+import { ConnectionPaletteCommands } from '../../src/commands/ConnectionPaletteCommands';
 import { commandRegistry } from '../../src/commands/registry';
 import { _resetPaletteCollectionsForTests } from '../../src/state/paletteCollections';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
@@ -66,6 +67,7 @@ function mount({ hold = false, state }: { hold?: boolean; state?: unknown } = {}
     <MemoryRouter initialEntries={[{ pathname: '/workspace', state }]}>
       <PaletteContextProvider>
         <CommandPaletteRoot>
+          <ConnectionPaletteCommands />
           <Workspace />
           <ToggleButton />
         </CommandPaletteRoot>
@@ -129,6 +131,36 @@ describe('a palette connect (Q11)', () => {
     const tree = await screen.findByRole('tree', { name: 'Databases and collections' });
     await waitFor(() => expect(document.activeElement).toBe(tree));
     expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+  });
+
+  it('takes the tree focus only after Mantine\'s focus return to the palette\'s opener has run', async () => {
+    // Open, choose the connection, close: Mantine returns focus to whatever
+    // holds it 10 ms after the close, so the tree must ask later than that.
+    const { connect } = mount();
+    const opener = screen.getByText('toggle');
+    opener.focus();
+    fireEvent.click(opener);
+    search('Staging');
+    const row = await waitFor(() => {
+      const found = within(dialog()).getAllByRole('option').find((o) => o.id.includes('connection.open:c2'));
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(row);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(connect).toHaveBeenCalledWith('c2');
+      const tree = screen.getByRole('tree', { name: 'Databases and collections' });
+      // Within Mantine's window the tree has not asked yet.
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(document.activeElement).not.toBe(tree);
+      await act(() => vi.advanceTimersByTimeAsync(400));
+      expect(document.activeElement).toBe(tree);
+      expect(tree.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c2');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not take the keyboard when no connect was asked for', async () => {

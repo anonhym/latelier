@@ -48,6 +48,9 @@ export interface NavigatorOpenInput {
   collection: string;
 }
 
+/** Past the 10 ms Mantine waits before it returns focus to a closed dialog's opener. */
+const TREE_FOCUS_DELAY_MS = 60;
+
 /** A row to reveal: a collection, a database on its own, or a Connection's root (no `dbName`). */
 export interface NavigatorRevealInput {
   connectionId: string;
@@ -769,6 +772,26 @@ export function DbCollectionNavigator({
   // already in flight): once that settles without the collection — dropped, or
   // the listing failed — the request is spent, so it never fires later.
   const pendingRevealRef = React.useRef<{ req: NavigatorRevealInput; listed: boolean } | null>(null);
+  // A Connection's root is revealed to be used with the keyboard, so the tree
+  // takes focus. The palette that asked for it is still closing: Mantine's
+  // focus return runs 10 ms after, and answers to whatever holds focus then.
+  // Waiting it out leaves the tree the last to ask, whichever came first.
+  const focusTimerRef = React.useRef<number | null>(null);
+  const focusTreeSoon = React.useCallback(() => {
+    if (focusTimerRef.current !== null) window.clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = window.setTimeout(() => {
+      focusTimerRef.current = null;
+      // A dialog that opened meanwhile keeps the keyboard.
+      if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')) return;
+      treeRef.current?.focus();
+    }, TREE_FOCUS_DELAY_MS);
+  }, []);
+  React.useEffect(
+    () => () => {
+      if (focusTimerRef.current !== null) window.clearTimeout(focusTimerRef.current);
+    },
+    [],
+  );
   const [revealListed, setRevealListed] = React.useState(0);
   React.useEffect(() => {
     if (!revealRequest) return;
@@ -802,8 +825,7 @@ export function DbCollectionNavigator({
       listRef.current?.scrollToRow({ index: idx, align: 'auto' });
       queueMicrotask(() => {
         setFocusedId(id);
-        // A Connection's root is revealed to be used with the keyboard: the tree takes focus.
-        if (dbName === undefined) treeRef.current?.focus();
+        if (dbName === undefined) focusTreeSoon();
         onRevealHandled?.();
       });
       return;
@@ -817,7 +839,7 @@ export function DbCollectionNavigator({
     if (req.collection !== undefined && ownGet(c?.colls ?? {}, dbName)?.some((x) => x.name === req.collection)) return;
     pendingRevealRef.current = null;
     queueMicrotask(() => onRevealHandled?.());
-  }, [rows, revealListed, onRevealHandled, caches, listRef]);
+  }, [rows, revealListed, onRevealHandled, caches, listRef, focusTreeSoon]);
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 26 });
 
   React.useEffect(() => {

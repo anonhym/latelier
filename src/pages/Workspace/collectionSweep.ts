@@ -6,7 +6,10 @@ import type { ConnectionCache } from './navigatorTreeReducer';
 /**
  * The Connection whose collections the palette sweeps and lists (X07 §14.5):
  * the Focused Tab's, or with no tab the most recently connected Open
- * Connection. Null when neither exists.
+ * Connection. Null when neither exists. A Focused Tab on a Dormant Connection
+ * names that Connection even though nothing of it is listed: the palette's
+ * "Collections in this connection" is then absent, not another Connection's,
+ * since the group names whose collections it holds.
  */
 export function sweepConnectionId(
   focusedConnectionId: string | null,

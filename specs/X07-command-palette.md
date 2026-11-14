@@ -742,7 +742,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 
 ## 14. Amendment — anchored palette, collections first
 
-> **Built.** Decided in the 2026-11-13 design review; the anchoring, empty query, unavailable rows, row icons and the sweep with no tab shipped in One Spine S8. `Loading collections…` takes the place of `No matches` in the list's empty state, so it shows when nothing at all matches while the sweep is in flight; the Collections scope also lists the Connection's collections on an empty query, which is what `Show <n> more collections` leads to. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
+> **Built.** Decided in the 2026-11-13 design review; the anchoring, empty query, unavailable rows, row icons and the sweep with no tab shipped in One Spine S8. `Loading collections…` takes the place of `No matches` in the list's empty state, so it shows when nothing at all matches while the sweep is in flight; the Collections scope also lists the Connection's collections on an empty query, which is what `Show <n> more collections` leads to. A Focused Tab on a Dormant Connection gives no Collections group, even while another Connection is open: the group names whose collections it holds. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
 
 ### 14.1 Anchoring
 

@@ -1,7 +1,7 @@
 // X07 §14: the anchored palette, the empty query's collections group, unavailable
 // rows and the kind icons.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '../helpers/render';
+import { render, screen, fireEvent, within, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import { CommandPaletteRoot, usePaletteApi, _resetPaletteStoreForTests } from '../../src/commands/CommandPalette';
 import { PaletteContextProvider } from '../../src/commands/PaletteContext';
@@ -92,6 +92,21 @@ describe('anchoring (X07 §14.1)', () => {
     expect(dialog().style.left).toBe(`${700 + 160 - 320}px`);
   });
 
+  it('follows the field when the window is resized while it is open', () => {
+    const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1600);
+    addField({ left: 700, width: 320, bottom: 33, height: 26 });
+    mount();
+    open();
+    expect(dialog().style.left).toBe('540px');
+    width.mockReturnValue(1200);
+    const field = document.querySelector('[data-palette-anchor]') as HTMLElement;
+    field.getBoundingClientRect = () => ({ left: 300, top: 0, right: 620, bottom: 33, width: 320, height: 26, x: 300, y: 0 }) as DOMRect;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(dialog().style.left).toBe('140px');
+  });
+
   it('opens centred when no field is drawn', () => {
     mount();
     open();
@@ -134,6 +149,44 @@ describe('collections in this connection (X07 §14.2)', () => {
   });
 });
 
+describe('the cursor when the list changes under it', () => {
+  const second: Command = { ...ok, id: 'ok2', title: 'Open preferences' };
+  const cursorTitle = () =>
+    within(dialog())
+      .getAllByRole('option')
+      .find((o) => o.getAttribute('aria-selected') === 'true')
+      ?.querySelector('[data-title]')
+      ?.getAttribute('data-title');
+
+  it('stays on the row the keys put it on when the collections group arrives above', () => {
+    mount([ok, second]);
+    open();
+    fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'ArrowDown' });
+    expect(cursorTitle()).toBe('Open preferences');
+    act(() => publishPaletteCollections({ connectionId: 'c1', pending: false }));
+    expect(within(dialog()).getByText('Collections in this connection')).toBeTruthy();
+    expect(cursorTitle()).toBe('Open preferences');
+  });
+
+  it('stays on the row the pointer put it on', () => {
+    mount([ok, second]);
+    open();
+    const row = within(dialog()).getAllByRole('option').find((o) => o.textContent?.includes('Open preferences'))!;
+    fireEvent.mouseEnter(row);
+    act(() => publishPaletteCollections({ connectionId: 'c1', pending: false }));
+    expect(cursorTitle()).toBe('Open preferences');
+  });
+
+  it('follows the first available row while untouched', () => {
+    mount([ok, second]);
+    open();
+    expect(cursorTitle()).toBe('Open settings');
+    act(() => publishPaletteCollections({ connectionId: 'c1', pending: false }));
+    // The collections group is now first: the untouched cursor is on its first row.
+    expect(cursorTitle()).toBe('shop.a');
+  });
+});
+
 describe('unavailable rows (X07 §14.3)', () => {
   it('starts the cursor on the first available row, and Arrow keys still reach the greyed one', () => {
     mount([off, ok], []);
@@ -152,15 +205,35 @@ describe('unavailable rows (X07 §14.3)', () => {
     expect(titles(groupNamed('Query'))).toEqual(['Open preferences', 'Explain query']);
   });
 
-  it('Enter on the greyed row does nothing', () => {
+  it('starts on no row when every row is greyed; the keys still reach them, Enter does nothing', () => {
     const run = vi.fn();
     mount([{ ...off, perform: run }], []);
     open();
+    const selected = () => within(dialog()).queryAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true');
     const input = screen.getByLabelText('Search commands');
-    // The only row is the greyed one, so the cursor starts on it.
+    expect(selected()).toHaveLength(0);
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(run).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeNull();
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(selected().map((o) => o.getAttribute('aria-disabled'))).toEqual(['true']);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('the empty state (X07 §14.5)', () => {
+  it('is announced from a live region that exists before it has text', () => {
+    mount([ok], []);
+    open();
+    const region = within(dialog()).getByRole('status');
+    expect(region.textContent).toBe('');
+    fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: 'zzzz-nothing' } });
+    // The same node, now with the text.
+    expect(within(dialog()).getByRole('status')).toBe(region);
+    expect(region.textContent).toBe('No matches for "zzzz-nothing"');
+    fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: '' } });
+    expect(region.textContent).toBe('');
   });
 });
 

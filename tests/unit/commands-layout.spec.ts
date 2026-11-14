@@ -489,6 +489,33 @@ describe('layoutPalette: collections in this connection (X07 §14.2)', () => {
     expect(big.hidden).toBe(4);
   });
 
+  it('reads each registry snapshot afresh, and the MRU afresh on the same one', () => {
+    const first = [...mine.slice(0, 3)];
+    expect(ids(layoutPalette(first, '', own, [], 'all').entries)).toEqual(
+      ['a', 'b', 'c'].map((n) => `tab.open:c1:shop:${n}`),
+    );
+    // A new snapshot (a registration changed): the cache of the old one is not reused.
+    const second = [...first, collOf('c1', '0first')];
+    expect(layoutPalette(second, '', own, [], 'all').entries[0]!.id).toBe('tab.open:c1:shop:0first');
+    // The same snapshot with another MRU, and another Connection.
+    expect(layoutPalette(second, '', own, ['tab.open:c1:shop:c'], 'all').groups[0]!.entries[0]!.id).toBe(
+      'tab.open:c1:shop:c',
+    );
+    expect(layoutPalette(second, '', own, ['tab.open:c1:shop:c'], 'collections').entries[0]!.id).toBe(
+      'tab.open:c1:shop:c',
+    );
+    const other = layoutPalette([...second, collOf('c2', 'x')], '', { ...own, collectionsConnectionId: 'c2' }, [], 'all');
+    expect(ids(other.entries)).toEqual(['tab.open:c2:shop:x']);
+  });
+
+  it('counts what Recent shows out of the Show more row, for a collection in the MRU twice', () => {
+    const recent = ['tab.open:c1:shop:a', 'tab.open:c1:shop:a', 'tab.open:c1:shop:b'];
+    const l = layoutPalette(mine, '', own, recent, 'all');
+    expect(l.groups[0]!.entries.map((e) => e.id)).toEqual(['tab.open:c1:shop:a', 'tab.open:c1:shop:b']);
+    // Eight in all, two under Recent: six left, five shown, one more.
+    expect((l.groups[1]!.entries[5] as MoreEntry).label).toBe('Show 1 more collection');
+  });
+
   it('falls back to the recent collections in Collections when none is listed for the Connection', () => {
     const l = layoutPalette([collOf('c2', 'zz')], '', own, ['tab.open:c2:shop:zz'], 'collections');
     expect(ids(l.entries)).toEqual(['tab.open:c2:shop:zz']);
@@ -523,9 +550,19 @@ describe('layoutPalette: unavailable rows (X07 §14.3)', () => {
     expect(recent.initialCursor).toBe(1);
   });
 
-  it('starts on a Show more row before an unavailable one, and on 0 when every row is unavailable', () => {
-    expect(layoutPalette([off('x'), off('z')], '', ctx, [], 'all').initialCursor).toBe(0);
-    expect(layoutPalette([], '', ctx, [], 'all').initialCursor).toBe(0);
+  it('starts on no row when every row is unavailable, and on a Show more row before an unavailable one', () => {
+    expect(layoutPalette([off('x'), off('z')], '', ctx, [], 'all').initialCursor).toBe(-1);
+    expect(layoutPalette([], '', ctx, [], 'all').initialCursor).toBe(-1);
+    const own: PaletteContext = { ...ctx, collectionsConnectionId: 'c1' };
+    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => coll(n));
+    const l = layoutPalette(
+      [...six.map((c) => ({ ...c, object: { ...c.object!, connectionId: 'c1' } })), off('x')],
+      '',
+      own,
+      [],
+      'all',
+    );
+    expect(l.initialCursor).toBe(0);
   });
 });
 
