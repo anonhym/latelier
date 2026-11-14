@@ -118,3 +118,122 @@ describe('formToConnectionInput', () => {
     expect(input).toMatchObject({ host: 'db.example.net', port: 27018, authMech: 'none' });
   });
 });
+
+const FULL_FORM: ConnectionFormState = {
+  name: 'Prod', color: '#112233', type: 'srv',
+  host: 'c0.example.net', port: '27018', defaultDb: 'shop',
+  authMech: 'scram256', authUsername: 'ana', authDatabase: 'users',
+  password: 'pw', hasPasswordStored: false, clearPassword: false,
+  tlsEnabled: true, tlsVerify: false, tlsCaPath: '/ca.pem', tlsClientCertPath: '/client.pem',
+  sshEnabled: true, sshHost: 'bastion', sshPort: '2222', sshUsername: 'root',
+  sshAuthMethod: 'password', sshPrivateKeyPath: '/id_rsa',
+  connectTimeoutMs: '1', socketTimeoutMs: '2', serverSelectionTimeoutMs: '3',
+  readPreference: 'nearest', maxPoolSize: '4', directConnection: true, appName: 'atelier',
+  readOnly: true,
+};
+
+describe('connection form state, in full', () => {
+  it('the empty form holds exactly these values', () => {
+    expect(CONNECTION_FORM_DEFAULTS).toEqual({
+      name: '', color: '#7c6af7', type: 'standard',
+      host: 'localhost', port: '27017', defaultDb: '',
+      authMech: 'default', authUsername: '', authDatabase: 'admin',
+      password: '', hasPasswordStored: false, clearPassword: false,
+      tlsEnabled: false, tlsVerify: true, tlsCaPath: '', tlsClientCertPath: '',
+      sshEnabled: false, sshHost: '', sshPort: '22', sshUsername: '',
+      sshAuthMethod: 'key', sshPrivateKeyPath: '',
+      connectTimeoutMs: '10000', socketTimeoutMs: '30000', serverSelectionTimeoutMs: '30000',
+      readPreference: 'primary', maxPoolSize: '100', directConnection: false, appName: '',
+      readOnly: false,
+    });
+  });
+
+  it('the tabs are these four, holding these fields', () => {
+    expect(CONNECTION_FORM_TABS).toEqual(['General', 'Authentication', 'TLS / SSH', 'Advanced']);
+    expect(CONNECTION_FORM_TAB_FIELDS).toEqual({
+      General: ['name', 'color', 'type', 'host', 'port', 'defaultDb', 'readOnly'],
+      Authentication: ['authMech', 'authUsername', 'authDatabase', 'password', 'hasPasswordStored', 'clearPassword'],
+      'TLS / SSH': [
+        'tlsEnabled', 'tlsVerify', 'tlsCaPath', 'tlsClientCertPath',
+        'sshEnabled', 'sshHost', 'sshPort', 'sshUsername', 'sshAuthMethod', 'sshPrivateKeyPath',
+      ],
+      Advanced: [
+        'connectTimeoutMs', 'socketTimeoutMs', 'serverSelectionTimeoutMs',
+        'readPreference', 'maxPoolSize', 'directConnection', 'appName',
+      ],
+    });
+  });
+
+  it('a form full of values saves every one of them', () => {
+    expect(formToConnectionInput(FULL_FORM)).toEqual({
+      name: 'Prod', color: '#112233', connectionType: 'srv',
+      host: 'c0.example.net', port: 27018, defaultDb: 'shop',
+      authMech: 'scram256', authUsername: 'ana', authDatabase: 'users', password: 'pw',
+      tls: { enabled: true, verify: false, caPath: '/ca.pem', clientCertPath: '/client.pem' },
+      ssh: {
+        enabled: true, host: 'bastion', port: 2222, username: 'root',
+        authMethod: 'password', privateKeyPath: '/id_rsa',
+      },
+      advanced: {
+        connectTimeoutMs: 1, socketTimeoutMs: 2, serverSelectionTimeoutMs: 3,
+        readPreference: 'nearest', maxPoolSize: 4, directConnection: true, appName: 'atelier',
+      },
+      readOnly: true,
+    });
+  });
+
+  it('empty or zero fields fall back to the defaults, and empty strings are left out', () => {
+    expect(
+      formToConnectionInput({
+        ...FULL_FORM,
+        port: '', defaultDb: '', authUsername: '', authDatabase: '', password: '',
+        tlsCaPath: '', tlsClientCertPath: '',
+        sshHost: '', sshPort: '', sshUsername: '', sshPrivateKeyPath: '',
+        connectTimeoutMs: '', socketTimeoutMs: '0', serverSelectionTimeoutMs: 'x', maxPoolSize: '', appName: '',
+      }),
+    ).toMatchObject({
+      port: 27017, defaultDb: undefined,
+      authUsername: undefined, authDatabase: undefined, password: undefined,
+      tls: { caPath: undefined, clientCertPath: undefined },
+      ssh: { host: undefined, port: 22, username: undefined, privateKeyPath: undefined },
+      advanced: {
+        connectTimeoutMs: 10_000, socketTimeoutMs: 30_000, serverSelectionTimeoutMs: 30_000,
+        maxPoolSize: 100, appName: undefined,
+      },
+    });
+  });
+
+  it('SSH off saves no tunnel details', () => {
+    expect(formToConnectionInput({ ...FULL_FORM, sshEnabled: false }).ssh).toEqual({ enabled: false });
+  });
+
+  it('a parsed URI that says everything replaces every field it names', () => {
+    const base = withValues({ type: 'standard', host: 'old', port: '1' });
+    const form = applyParsedUri(base, {
+      connectionType: 'srv', host: 'c0.example.net', port: 27018, defaultDb: 'shop',
+      authMech: 'scram256', authUsername: 'ana', authDatabase: 'users', password: 'pw',
+      tls: { enabled: true, verify: false },
+      advanced: {
+        connectTimeoutMs: 1, socketTimeoutMs: 2, serverSelectionTimeoutMs: 3,
+        readPreference: 'nearest', maxPoolSize: 4, directConnection: true, appName: 'atelier',
+      },
+    });
+    expect(form).toEqual({
+      ...base,
+      type: 'srv', host: 'c0.example.net', port: '27018', defaultDb: 'shop',
+      authMech: 'scram256', authUsername: 'ana', authDatabase: 'users', password: 'pw',
+      tlsEnabled: true, tlsVerify: false,
+      connectTimeoutMs: '1', socketTimeoutMs: '2', serverSelectionTimeoutMs: '3',
+      readPreference: 'nearest', maxPoolSize: '4', directConnection: true, appName: 'atelier',
+    });
+  });
+
+  it("a URI that names no advanced option keeps each of the form's own", () => {
+    const base = withValues({
+      connectTimeoutMs: '7', socketTimeoutMs: '8', serverSelectionTimeoutMs: '9',
+      readPreference: 'secondary', maxPoolSize: '10', directConnection: true, appName: 'mine',
+      tlsEnabled: true, tlsVerify: false,
+    });
+    expect(applyParsedUri(base, { advanced: {} as never, tls: {} as never })).toEqual(base);
+  });
+});

@@ -30,6 +30,7 @@
     "src/utils/contextMenuKey.ts",
     "src/state/connectionPins.ts",
     "src/features/connections/welcomeName.ts",
+    "src/features/connections/connectionFormState.ts",
     "src/state/closedTabs.ts",
     "src/pages/Workspace/scriptDestructiveScan.ts",
     "src/pages/Workspace/views/docFieldFlatten.ts",
