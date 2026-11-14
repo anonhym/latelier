@@ -113,6 +113,7 @@ export const cssVariablesResolver: CSSVariablesResolver = (theme) => {
     },
     dark: {
       ...darkLight,
+      '--mantine-color-body': 'var(--atelier-bg)',
       '--mantine-color-placeholder': 'var(--atelier-text-ghost)',
       '--mantine-color-default-color': 'var(--atelier-text)',
       '--mantine-color-disabled': 'transparent',

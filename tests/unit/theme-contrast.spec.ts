@@ -262,3 +262,34 @@ describe('active-row outline contrast against every plain row surface (WCAG 1.4.
     }
   }
 });
+
+describe('dark theme pass (X10 amendment)', () => {
+  const pct = (block: string, name: string) => Number.parseFloat(readVar(block, name));
+
+  it('keeps connection tints at or above 24% in dark, light unchanged', () => {
+    expect(pct(darkBlock, '--atelier-conn-tint')).toBeGreaterThanOrEqual(24);
+    expect(pct(darkBlock, '--atelier-conn-tint-active')).toBeGreaterThan(pct(darkBlock, '--atelier-conn-tint'));
+    expect(pct(lightBlock, '--atelier-conn-tint')).toBe(14);
+  });
+
+  it('paints the dark page body from the background token', () => {
+    const dark = cssVariablesResolver(mergeMantineTheme(DEFAULT_THEME, mantineTheme)).dark;
+    expect(dark['--mantine-color-body']).toBe('var(--atelier-bg)');
+  });
+
+  it('text on a connection-tinted chip clears 4.5:1 at the lit tint', () => {
+    const text = parseColor(readVar(darkBlock, '--atelier-text'));
+    const bg = surfaceRgb(darkBlock, '--atelier-bg');
+    const tint = pct(darkBlock, '--atelier-conn-tint-active') / 100;
+    for (const conn of ['#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#f59e0b']) {
+      const fill = blend({ ...parseColor(conn), a: tint }, bg);
+      expect(contrastRatio(text, fill)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('the medium border is visible against a panel (1.15:1 or more)', () => {
+    const surface = surfaceRgb(darkBlock, '--atelier-surface');
+    const med = blend(parseColor(readVar(darkBlock, '--atelier-border-med')), surface);
+    expect(contrastRatio(med, surface)).toBeGreaterThanOrEqual(1.15);
+  });
+});
