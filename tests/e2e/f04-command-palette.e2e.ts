@@ -21,11 +21,12 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
     await win.waitForLoadState('domcontentloaded');
 
     await expectConsoleClean(win, async () => {
-      // the Data View is the app's home now. Don't open the
-      // Connection Switcher popover first: its search field autofocuses, and
-      // Mantine's Spotlight hotkey does not fire while focus sits in another
-      // text field, so a stray popover open would silently swallow ⌘K.
-      await win.getByRole('button', { name: /^Connection:/ }).waitFor({ state: 'visible' });
+      // A launch with no Connection lands on the welcome canvas, whose
+      // Connection string field autofocuses. The global ⌘K handler ignores a
+      // keypress made in a text field off macOS, so take focus off it first.
+      const welcome = win.getByRole('textbox', { name: 'Connection string', exact: true });
+      await welcome.waitFor({ state: 'visible' });
+      await welcome.blur();
 
       // ── Open palette via ⌘K (Meta on macOS, Ctrl elsewhere) ──────────────
       // The search input carries a stable aria-label; the palette is the dialog
@@ -50,9 +51,9 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       await win.keyboard.press('Enter');
 
       // Palette closes; route navigated to /connections/new (we land on the
-      // form, not the list). The Test-connection button is the form anchor.
+      // form, not the list). The Test button is the form anchor.
       await expect(palette).not.toBeVisible({ timeout: 4000 });
-      await expect(win.getByRole('button', { name: /Test connection/i })).toBeVisible({
+      await expect(win.getByRole('button', { name: 'Test', exact: true })).toBeVisible({
         timeout: 5000,
       });
 
@@ -60,7 +61,8 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       // theme test — deliberately not reopening the Switcher popover, for
       // the same focus-stealing reason as above.
       await win.getByRole('button', { name: 'Cancel' }).click();
-      await win.getByRole('button', { name: /^Connection:/ }).waitFor({ state: 'visible' });
+      await welcome.waitFor({ state: 'visible' });
+      await welcome.blur();
 
       // ── Theme toggle via the palette ────────────────────────────────────
       // Capture the current theme via IPC so we can confirm the click flipped it.

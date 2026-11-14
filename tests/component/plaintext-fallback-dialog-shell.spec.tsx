@@ -44,8 +44,7 @@ async function openFallback(testId = 'plaintext-fallback-modal') {
   render(<ConnectionForm mode="create" onSaved={vi.fn()} onCancel={vi.fn()} />);
 
   await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-  await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-  await userEvent.click(screen.getByText('Auth'));
+  await userEvent.click(screen.getByText('Authentication'));
   await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
   await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
   await userEvent.type(await screen.findByPlaceholderText(/^••••••••$/), 'pw');

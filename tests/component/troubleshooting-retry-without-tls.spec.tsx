@@ -55,7 +55,10 @@ describe('NewConnection — Retry without TLS', () => {
       await screen.findByPlaceholderText(/My MongoDB Server/i),
       'My Conn',
     );
-    await userEvent.click(screen.getByText('Test connection'));
+    // An empty form has TLS off; this recipe is about a form that has it on.
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable TLS / SSL' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
 
     // Drawer open via the failure-pill help link.
     await userEvent.click(await screen.findByText(/Help me fix this/));
@@ -69,7 +72,7 @@ describe('NewConnection — Retry without TLS', () => {
 
     // Drawer auto-closed and the success pill is visible.
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByText(/Connection successful/)).toBeTruthy();
+    expect(screen.getByText('Connected · v7.0.0')).toBeTruthy();
   });
 
   it('keeps the drawer open when the second test still fails', async () => {
@@ -101,7 +104,10 @@ describe('NewConnection — Retry without TLS', () => {
       await screen.findByPlaceholderText(/My MongoDB Server/i),
       'My Conn',
     );
-    await userEvent.click(screen.getByText('Test connection'));
+    // An empty form has TLS off; this recipe is about a form that has it on.
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable TLS / SSL' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
 
     await userEvent.click(await screen.findByText(/Help me fix this/));
     const retry = await screen.findByText(/Retry without TLS/);

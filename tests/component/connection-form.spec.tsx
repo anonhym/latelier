@@ -61,8 +61,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
     fireEvent.click(screen.getByText(/^Save$/));
@@ -89,7 +88,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
 
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith('c1', expect.anything()));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('c1'));
@@ -116,7 +115,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
 
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
 
     await waitFor(() =>
       expect(updateSpy).toHaveBeenCalledWith(
@@ -148,11 +147,10 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     await userEvent.click(screen.getByRole('switch', { name: 'Read-only connection' }));
 
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
     fireEvent.click(screen.getByText(/^Save$/));
@@ -181,7 +179,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
 
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
 
     await waitFor(() =>
       expect(updateSpy).toHaveBeenCalledWith('c1', expect.objectContaining({ readOnly: true })),
@@ -204,7 +202,6 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     // Stay on General. The offending field (`password`) lives on the Auth tab,
     // so its error text is only reachable if the save handler jumps tabs for us
@@ -226,7 +223,7 @@ describe('ConnectionForm (host-agnostic, no router)', () => {
   });
 });
 
-// X59 — the General / Auth / TLS / SSH / Advanced strip was five bare
+// X59 — the General / Authentication / TLS / SSH / Advanced strip was bare
 // <button>s: no role, no aria-selected, no aria-controls, five separate
 // tab stops. Modelled on tests/component/drawer-tablist.spec.tsx:83-127,
 // which asserts the same shape for BuilderPane's Mantine-Tabs conversion.
@@ -242,7 +239,7 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
 
     const list = screen.getByRole('tablist', { name: 'Connection settings' });
     const tabs = within(list).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['General', 'Auth', 'TLS', 'SSH', 'Advanced']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['General', 'Authentication', 'TLS / SSH', 'Advanced']);
 
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
     for (const t of tabs.slice(1)) expect(t.getAttribute('aria-selected')).toBe('false');
@@ -272,7 +269,7 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
     fireEvent.keyDown(general, { key: 'ArrowRight' });
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Auth' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByRole('tab', { name: 'Authentication' }).getAttribute('aria-selected')).toBe('true');
       expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe('false');
     });
   });
@@ -286,7 +283,7 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
     await userEvent.keyboard('{ArrowRight}');
 
     await waitFor(() => {
-      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Auth' }));
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Authentication' }));
     });
     expect(document.activeElement).not.toBe(document.body);
   });
@@ -301,7 +298,7 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
     expect(screen.queryByRole('switch', { name: 'Enable TLS / SSL' })).toBeNull();
     expect(screen.queryByRole('switch', { name: 'SSH tunnel (coming soon)' })).toBeNull();
 
-    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
     await waitFor(() => {
       expect(screen.getByRole('switch', { name: 'Enable TLS / SSL' })).toBeTruthy();
     });
@@ -314,7 +311,7 @@ describe('X59 — ConnectionForm tab strip is a real tablist', () => {
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'Prod cluster');
 
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     await userEvent.click(screen.getByRole('tab', { name: 'General' }));
 
     await waitFor(() => {
@@ -453,38 +450,41 @@ describe('Toggle is a real control, not a div that happens to be clickable', () 
 });
 
 describe('ConnectionForm: TLS tab warns when transport security is weakened', () => {
-  async function openTlsTab(host: string, toggles: { off?: 'tls' | 'verify' } = {}) {
+  // An empty form is a local server with TLS off, so each case states the TLS it wants.
+  async function openTlsTab(host: string, tls: 'off' | 'on' | 'unverified') {
     installAtelierMock({});
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
-    await userEvent.type(await screen.findByPlaceholderText(/cluster\.mongodb\.net/i), host);
-    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
-    if (toggles.off === 'tls') {
+    const hostInput = await screen.findByLabelText(/^Hostname/);
+    await userEvent.clear(hostInput);
+    await userEvent.type(hostInput, host);
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
+    if (tls !== 'off') {
       await userEvent.click(await screen.findByRole('switch', { name: 'Enable TLS / SSL' }));
     }
-    if (toggles.off === 'verify') {
+    if (tls === 'unverified') {
       await userEvent.click(await screen.findByRole('switch', { name: 'Verify server certificate' }));
     }
   }
 
-  it('shows no warning by default (TLS on, verified)', async () => {
-    await openTlsTab('db.example.com');
-    await screen.findByRole('switch', { name: 'Enable TLS / SSL' });
+  it('shows no warning with TLS on and verified', async () => {
+    await openTlsTab('db.example.com', 'on');
+    expect(screen.getByRole('switch', { name: 'Enable TLS / SSL' }).getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByTestId('tls-warning')).toBeNull();
   });
 
   it('warns, as text in a status region, when Verify is turned off', async () => {
-    await openTlsTab('localhost', { off: 'verify' });
+    await openTlsTab('localhost', 'unverified');
     const warning = await screen.findByRole('status');
     expect(warning.textContent).toMatch(/Warning:.*impersonate this server and read your credentials/);
   });
 
   it('warns when TLS is off for a remote host', async () => {
-    await openTlsTab('db.example.com', { off: 'tls' });
+    await openTlsTab('db.example.com', 'off');
     expect((await screen.findByTestId('tls-warning')).textContent).toMatch(/cleartext/);
   });
 
   it.each(['localhost', '127.0.0.1', '::1'])('does not warn when TLS is off for %s', async (host) => {
-    await openTlsTab(host, { off: 'tls' });
+    await openTlsTab(host, 'off');
     await waitFor(() => {
       expect(screen.getByRole('switch', { name: 'Enable TLS / SSL' }).getAttribute('aria-checked')).toBe('false');
     });
@@ -498,14 +498,16 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
     tls: { enabled: true, verify: true, caPath: '/stored/ca.pem' },
   };
 
-  async function openTlsTab() {
-    await userEvent.click(await screen.findByText('TLS'));
+  // The path rows are drawn only while TLS is on, which an empty form is not.
+  async function openTlsTab({ enable = false } = {}) {
+    await userEvent.click(await screen.findByRole('tab', { name: 'TLS / SSH' }));
+    if (enable) await userEvent.click(await screen.findByRole('switch', { name: 'Enable TLS / SSL' }));
   }
 
   it('renders the path inputs read-only, each named after its label', async () => {
     installAtelierMock({});
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
-    await openTlsTab();
+    await openTlsTab({ enable: true });
     for (const name of ['CA Certificate', 'Client Certificate']) {
       const input = screen.getByRole('textbox', { name }) as HTMLInputElement;
       expect(input.readOnly).toBe(true);
@@ -515,7 +517,7 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
   it('typing into a path input changes nothing', async () => {
     installAtelierMock({});
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
-    await openTlsTab();
+    await openTlsTab({ enable: true });
     const input = screen.getByRole('textbox', { name: 'CA Certificate' }) as HTMLInputElement;
     await userEvent.type(input, '/typed/ca.pem');
     expect(input.value).toBe('');
@@ -525,7 +527,7 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
     const pickFile = vi.fn(async () => ({ path: '/picked/ca.pem' }));
     installAtelierMock({ app: { pickFile } });
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
-    await openTlsTab();
+    await openTlsTab({ enable: true });
     await userEvent.click(screen.getByRole('button', { name: 'Browse for CA Certificate' }));
     await waitFor(() =>
       expect((screen.getByRole('textbox', { name: 'CA Certificate' }) as HTMLInputElement).value).toBe('/picked/ca.pem'),
@@ -536,7 +538,7 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
   it('has no Clear button while a path is empty', async () => {
     installAtelierMock({});
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
-    await openTlsTab();
+    await openTlsTab({ enable: true });
     expect(screen.queryByRole('button', { name: /^Clear / })).toBeNull();
   });
 
@@ -562,7 +564,7 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
     render(<ConnectionForm mode="edit" connectionId="c1" onSaved={() => {}} onCancel={() => {}} />);
     await openTlsTab();
     await userEvent.click(await screen.findByRole('button', { name: 'Clear CA Certificate' }));
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     const patch = (updateSpy.mock.calls[0] as unknown as [string, { tls: { caPath?: string } }])[1];
     expect(patch.tls.caPath).toBeUndefined();
@@ -578,12 +580,11 @@ describe('ConnectionForm TLS file paths are chosen with Browse, not typed', () =
     installAtelierMock({ conn: { create: createSpy as never } });
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
-    await openTlsTab();
+    await openTlsTab({ enable: true });
     expect(await screen.findByText(/typed paths are not accepted/)).toBeTruthy();
   });
 });
@@ -608,14 +609,16 @@ describe('ConnectionForm fields are named by their visible label', () => {
   it('General tab: every field label finds its control', async () => {
     await mount();
     expect(byLabel('Name')).toBe(screen.getByPlaceholderText(/My MongoDB Server/i));
-    expect(byLabel('Hostname')).toBe(screen.getByPlaceholderText(/cluster\.mongodb\.net/i));
+    expect((byLabel('Hostname') as HTMLInputElement).value).toBe('localhost');
     expect(byLabel('Default database').tagName).toBe('INPUT');
     expect(byLabel('Connection type').tagName).toBe('SELECT');
-    // Port only renders for a standard (non-SRV) connection.
-    await userEvent.selectOptions(byLabel('Connection type'), 'standard');
-    expect(byLabel('Port').tagName).toBe('INPUT');
-    await userEvent.click(screen.getByText(/Paste URI/i));
-    expect(byLabel('Connection URI')).toBe(screen.getByPlaceholderText(/mongodb\+srv:\/\//i));
+    // Port only renders for a standard (non-SRV) connection, which an empty form is.
+    expect((byLabel('Port') as HTMLInputElement).value).toBe('27017');
+    await userEvent.selectOptions(byLabel('Connection type'), 'srv');
+    expect(screen.queryByLabelText(/^Port/)).toBeNull();
+    expect(byLabel('Hostname').getAttribute('placeholder')).toBe('cluster.mongodb.net');
+    // No click needed: the string field sits above the tabs.
+    expect(byLabel('Connection string')).toBe(screen.getByPlaceholderText('mongodb://localhost:27017'));
   });
 
   it('General tab: the colour swatches are a group named by their label', async () => {
@@ -626,7 +629,7 @@ describe('ConnectionForm fields are named by their visible label', () => {
 
   it('Auth tab: every field label finds its control', async () => {
     await mount();
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     expect(byLabel('Authentication mechanism').tagName).toBe('SELECT');
     expect(byLabel('Username').tagName).toBe('INPUT');
     expect(byLabel('Auth database').tagName).toBe('INPUT');
@@ -635,7 +638,8 @@ describe('ConnectionForm fields are named by their visible label', () => {
 
   it('TLS tab: the read-only path rows are named by their label, not an aria-label', async () => {
     await mount();
-    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable TLS / SSL' }));
     for (const label of ['CA Certificate', 'Client Certificate']) {
       const input = byLabel(label) as HTMLInputElement;
       expect(input.readOnly).toBe(true);
@@ -657,7 +661,6 @@ describe('ConnectionForm fields are named by their visible label', () => {
     });
     render(<ConnectionForm mode="create" onSaved={() => {}} onCancel={() => {}} />);
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     fireEvent.click(screen.getByText(/^Save$/));
 
     const password = await waitFor(() => byLabel('Password'));
@@ -673,7 +676,7 @@ describe('ConnectionForm fields are named by their visible label', () => {
     expect(byLabel('Name').getAttribute('aria-required')).toBe('true');
     expect(byLabel('Hostname').getAttribute('aria-required')).toBe('true');
     expect(byLabel('Default database').hasAttribute('aria-required')).toBe(false);
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     expect(byLabel('Username').getAttribute('aria-required')).toBe('true');
     expect(byLabel('Password').getAttribute('aria-required')).toBe('true');
     expect(byLabel('Auth database').hasAttribute('aria-required')).toBe(false);
@@ -681,7 +684,7 @@ describe('ConnectionForm fields are named by their visible label', () => {
 
   it('the password show/hide toggle is named for its action and flips the input type', async () => {
     await mount();
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     const password = byLabel('Password') as HTMLInputElement;
     expect(password.type).toBe('password');
     await userEvent.click(screen.getByRole('button', { name: 'Show password' }));
@@ -692,7 +695,7 @@ describe('ConnectionForm fields are named by their visible label', () => {
 
   it('shows the Show password tooltip when keyboard focus lands on the toggle', async () => {
     await mount();
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     fireEvent.focus(screen.getByRole('button', { name: 'Show password' }));
     const tip = await screen.findByRole('tooltip');
     expect(tip.textContent).toBe('Show password');
@@ -702,9 +705,195 @@ describe('ConnectionForm fields are named by their visible label', () => {
     await mount();
     expect(byLabel('Hostname').getAttribute('spellcheck')).toBe('false');
     expect(byLabel('Name').getAttribute('spellcheck')).toBe('false');
-    await userEvent.click(screen.getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     expect(byLabel('Username').getAttribute('spellcheck')).toBe('false');
     await userEvent.click(screen.getByRole('button', { name: 'Show password' }));
     expect(byLabel('Password').getAttribute('spellcheck')).toBe('false');
+  });
+});
+
+describe('ConnectionForm: connection string, tabs, footer and keys (C03 §13.2)', () => {
+  const PARSED = {
+    input: {
+      connectionType: 'srv',
+      host: 'cluster0.example.net',
+      authMech: 'scram256',
+      authUsername: 'ana',
+      password: 's3cret',
+      tls: { enabled: true, verify: true },
+    },
+    warnings: [],
+  };
+  const stringField = () => screen.getByLabelText('Connection string') as HTMLInputElement;
+  const hostField = () => screen.getByLabelText(/^Hostname/) as HTMLInputElement;
+  const helper = () => document.getElementById(stringField().getAttribute('aria-describedby')!)!.textContent;
+
+  async function mountCreate(conn: Record<string, unknown> = {}, onSaved = vi.fn()) {
+    installAtelierMock({ conn: conn as never });
+    render(<ConnectionForm mode="create" onSaved={onSaved} onCancel={() => {}} />);
+    await screen.findByPlaceholderText(/My MongoDB Server/i);
+    return onSaved;
+  }
+
+  it('shows the string field on open, above tabs that start on a local Standard server', async () => {
+    await mountCreate();
+    expect(stringField().value).toBe('');
+    expect(stringField().getAttribute('autocomplete')).toBe('off');
+    expect(stringField().getAttribute('spellcheck')).toBe('false');
+    expect(helper()).toBe('Paste a URI to fill the form');
+    expect((screen.getByLabelText('Connection type') as HTMLSelectElement).value).toBe('standard');
+    expect(hostField().value).toBe('localhost');
+    expect((screen.getByLabelText(/^Port/) as HTMLInputElement).value).toBe('27017');
+  });
+
+  it('a pasted URI fills the tabs and selects the matching type', async () => {
+    const parseUri = vi.fn(async () => PARSED);
+    await mountCreate({ parseUri });
+    await userEvent.click(stringField());
+    await userEvent.paste('mongodb+srv://ana:s3cret@cluster0.example.net');
+
+    await waitFor(() => expect(hostField().value).toBe('cluster0.example.net'));
+    expect(parseUri).toHaveBeenCalledExactlyOnceWith('mongodb+srv://ana:s3cret@cluster0.example.net');
+    expect((screen.getByLabelText('Connection type') as HTMLSelectElement).value).toBe('srv');
+    // The string stays in the field until the form is edited by hand.
+    expect(stringField().value).toBe('mongodb+srv://ana:s3cret@cluster0.example.net');
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
+    expect((screen.getByLabelText(/^Username/) as HTMLInputElement).value).toBe('ana');
+  });
+
+  it('a hand edit empties the string field and says so', async () => {
+    const parseUri = vi.fn(async () => PARSED);
+    await mountCreate({ parseUri });
+    await userEvent.click(stringField());
+    await userEvent.paste('mongodb+srv://cluster0.example.net');
+    await waitFor(() => expect(hostField().value).toBe('cluster0.example.net'));
+
+    await userEvent.type(hostField(), 'x');
+    expect(stringField().value).toBe('');
+    expect(helper()).toBe('Edited below — paste a URI to replace');
+    // Blurring the emptied field parses nothing more.
+    await userEvent.click(stringField());
+    await userEvent.tab();
+    expect(parseUri).toHaveBeenCalledTimes(1);
+  });
+
+  it('a string that does not parse says why under the field, without its credentials', async () => {
+    const parseUri = vi.fn(async (uri: string) => {
+      throw { code: 'VALIDATION', message: `cannot read ${uri} (user ana:hunter2)` };
+    });
+    await mountCreate({ parseUri });
+    await userEvent.type(stringField(), 'mongodb://ana:hunter2@{Enter}');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('cannot read ••• (user •••)');
+    expect(stringField().getAttribute('aria-invalid')).toBe('true');
+    // Typing again clears the reason.
+    await userEvent.type(stringField(), 'h');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a string typed and never applied fills the form before Save reads it', async () => {
+    const parseUri = vi.fn(async () => PARSED);
+    const create = vi.fn(async () => ({ id: 'new-id' }));
+    const onSaved = await mountCreate({ parseUri, create });
+    await userEvent.type(screen.getByPlaceholderText(/My MongoDB Server/i), 'X');
+    fireEvent.change(stringField(), { target: { value: 'mongodb+srv://ana:s3cret@cluster0.example.net' } });
+
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('new-id'));
+    expect(create).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ host: 'cluster0.example.net', connectionType: 'srv', authUsername: 'ana' }),
+    );
+  });
+
+  it('a string that does not parse holds Save back', async () => {
+    const parseUri = vi.fn(async () => {
+      throw { code: 'VALIDATION', message: 'URI must start with mongodb:// or mongodb+srv://' };
+    });
+    const create = vi.fn(async () => ({ id: 'new-id' }));
+    await mountCreate({ parseUri, create });
+    fireEvent.change(stringField(), { target: { value: 'localhost:27017' } });
+
+    fireEvent.click(screen.getByText(/^Save$/));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/must start with mongodb/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('a tab holding a non-default value carries a dot', async () => {
+    await mountCreate();
+    for (const tab of ['General', 'Authentication', 'TLS / SSH', 'Advanced']) {
+      expect(screen.queryByTestId(`tab-dot-${tab}`)).toBeNull();
+    }
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
+    // TLS and SSH share the panel.
+    expect(screen.getByRole('switch', { name: 'SSH tunnel (coming soon)' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable TLS / SSL' }));
+    expect(screen.getByTestId('tab-dot-TLS / SSH')).toBeTruthy();
+    expect(screen.queryByTestId('tab-dot-Advanced')).toBeNull();
+    // The dot is not part of the tab's name.
+    expect(screen.getByRole('tab', { name: 'TLS / SSH' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable TLS / SSL' }));
+    expect(screen.queryByTestId('tab-dot-TLS / SSH')).toBeNull();
+  });
+
+  it('a stored Connection shows its dots once loaded', async () => {
+    installAtelierMock({ conn: { get: async () => CANNED_CONNECTION } });
+    render(<ConnectionForm mode="edit" connectionId="c1" onSaved={() => {}} onCancel={() => {}} />);
+    expect(screen.queryByTestId('tab-dot-Authentication')).toBeNull();
+    await screen.findByTestId('tab-dot-Authentication');
+    expect(screen.getByTestId('tab-dot-TLS / SSH')).toBeTruthy();
+    expect(screen.queryByTestId('tab-dot-Advanced')).toBeNull();
+  });
+
+  it('the footer is Cancel, then Test, Save and Save & connect', async () => {
+    await mountCreate();
+    const footer = screen.getByRole('button', { name: 'Save & connect' }).parentElement!;
+    expect(within(footer).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Cancel', 'Test', 'Save', 'Save & connect',
+    ]);
+  });
+
+  it('Save & connect and ⌘↵ save and ask the host to connect; ⌘S saves only; ⌘⇧↵ tests', async () => {
+    const create = vi.fn(async () => ({ id: 'new-id' }));
+    const test = vi.fn(async () => ({ ok: true, serverVersion: '8.0.5', roundTripMs: 84 }));
+    const onSaved = await mountCreate({ create, test });
+    await userEvent.type(screen.getByPlaceholderText(/My MongoDB Server/i), 'X');
+
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true, shiftKey: true });
+    expect(await screen.findByText('Connected in 84 ms · v8.0.5')).toBeTruthy();
+    expect(test).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith('new-id'));
+
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith('new-id', { connect: true }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save & connect' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(3));
+    expect(onSaved).toHaveBeenLastCalledWith('new-id', { connect: true });
+    expect(test).toHaveBeenCalledTimes(1);
+  });
+
+  it('tests an unnamed form under its host, since a probe needs no name', async () => {
+    const test = vi.fn(async () => ({ ok: true, serverVersion: '8.0.5', roundTripMs: 84 }));
+    await mountCreate({ test });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+
+    await waitFor(() => expect(test).toHaveBeenCalledTimes(1));
+    expect(test).toHaveBeenCalledWith(expect.objectContaining({ name: 'localhost' }));
+  });
+
+  it('opens on Authentication with the password focused when asked to', async () => {
+    installAtelierMock({ conn: { get: async () => CANNED_CONNECTION } });
+    render(
+      <ConnectionForm mode="edit" connectionId="c1" initialFocus="password" onSaved={() => {}} onCancel={() => {}} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Authentication' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(/^Password/)));
   });
 });

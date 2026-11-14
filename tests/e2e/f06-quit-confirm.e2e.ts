@@ -201,7 +201,7 @@ test('quitting with text typed into a new connection form asks, naming the form'
     const win = await app.firstWindow();
     await win.waitForLoadState('domcontentloaded');
     const switcher = new WorkspacePage(win).switcher;
-    await switcher.waitVisible();
+    await switcher.waitWelcome();
     await switcher.openNew();
     const form = new NewConnectionPage(win);
     await form.waitVisible();

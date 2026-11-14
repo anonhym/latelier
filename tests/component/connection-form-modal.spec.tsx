@@ -96,7 +96,7 @@ describe('ConnectionFormModal', () => {
     installAtelierMock({});
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={vi.fn()} />);
     const dialog = await screen.findByRole('dialog', { name: 'New Connection' });
-    await userEvent.click(within(dialog).getByRole('tab', { name: 'Auth' }));
+    await userEvent.click(within(dialog).getByRole('tab', { name: 'Authentication' }));
     const general = within(dialog).getByRole('tab', { name: 'General' });
     await userEvent.click(general);
     expect(document.activeElement).toBe(general);
@@ -107,12 +107,12 @@ describe('ConnectionFormModal', () => {
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={vi.fn()} />);
     const dialog = await screen.findByRole('dialog', { name: 'New Connection' });
     const heights = new Set<string>();
-    for (const name of ['General', 'Auth', 'TLS', 'SSH', 'Advanced']) {
+    for (const name of ['General', 'Authentication', 'TLS / SSH', 'Advanced']) {
       await userEvent.click(within(dialog).getByRole('tab', { name }));
       heights.add(dialog.style.height);
     }
     expect([...heights]).toHaveLength(1);
-    expect([...heights][0]).toContain('654px');
+    expect([...heights][0]).toContain('700px');
   });
 
   it('create mode: saving calls conn.create and onSaved with the new id — does not call onClose itself', async () => {
@@ -124,8 +124,7 @@ describe('ConnectionFormModal', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
     fireEvent.click(screen.getByText(/^Save$/));
@@ -167,8 +166,7 @@ describe('ConnectionFormModal', () => {
 
     const modalNameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(modalNameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
     await userEvent.type(await screen.findByPlaceholderText(/^••••••••$/), 'pw');
@@ -197,7 +195,6 @@ describe('ConnectionFormModal', () => {
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     expect(screen.queryByText(/Password is required/i)).toBeNull();
 
     fireEvent.click(screen.getByText(/^Save$/));
@@ -205,9 +202,9 @@ describe('ConnectionFormModal', () => {
     await waitFor(() => expect(screen.getByText(/Password is required/i)).toBeTruthy());
   });
 
-  it('⌘↵ / ⌘S inside the modal do not leak to a window shortcut listener mounted underneath', async () => {
+  it('⌘⇧↵ / ⌘↵ / ⌘S inside the modal do not leak to a window shortcut listener mounted underneath', async () => {
     // Regression: hosting `ConnectionForm` in a modal over the Data
-    // View means its own ⌘↵/⌘S `window` listener (test probe / save) can now
+    // View means its own ⌘⇧↵/⌘↵/⌘S `window` listener (test probe / saves) can now
     // coexist with other window-level shortcut listeners already mounted
     // there — e.g. `AggregationTab`'s ⌘↵, which never checks
     // `defaultPrevented`. Simulate that listener directly on `window`, the
@@ -221,8 +218,12 @@ describe('ConnectionFormModal', () => {
       render(<ConnectionFormModal onSaved={vi.fn()} onClose={vi.fn()} />);
       await screen.findByPlaceholderText(/My MongoDB Server/i);
 
-      fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+      fireEvent.keyDown(window, { key: 'Enter', metaKey: true, shiftKey: true });
       await waitFor(() => expect(testSpy).toHaveBeenCalled());
+      expect(outsideHandler).not.toHaveBeenCalled();
+
+      outsideHandler.mockClear();
+      fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
       expect(outsideHandler).not.toHaveBeenCalled();
 
       outsideHandler.mockClear();

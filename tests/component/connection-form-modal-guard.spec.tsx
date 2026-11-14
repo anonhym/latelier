@@ -102,7 +102,6 @@ describe('ConnectionFormModal — unsaved-changes guard', () => {
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={onClose} />);
     const name = (await nameInput()) as HTMLInputElement;
     await userEvent.type(name, 'Half typed');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
 
     fireEvent.keyDown(document.body, { key: 'Escape' });
 
@@ -113,7 +112,7 @@ describe('ConnectionFormModal — unsaved-changes guard', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(((await nameInput()) as HTMLInputElement).value).toBe('Half typed');
     expect(
-      (screen.getByPlaceholderText(/cluster\.mongodb\.net/i) as HTMLInputElement).value,
+      (screen.getByLabelText(/^Hostname/) as HTMLInputElement).value,
     ).toBe('localhost');
   });
 
@@ -145,7 +144,7 @@ describe('ConnectionFormModal — unsaved-changes guard', () => {
     const onClose = vi.fn();
     render(<ConnectionFormModal onSaved={vi.fn()} onClose={onClose} />);
     await userEvent.type((await nameInput()) as HTMLInputElement, 'Prod cluster');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     const pw = (await screen.findByPlaceholderText(/^••••••••$/)) as HTMLInputElement;
     await userEvent.type(pw, 'hunter2');

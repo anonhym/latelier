@@ -15,10 +15,20 @@ import type {
   ConnectionInput,
   ConnectionUpdate,
   ProbeErrorCode,
-  ProbeResult,
 } from '@shared/types';
 import type { IpcError, PickFilePurpose } from '@shared/ipc';
 import { REPICK_LABEL } from './transferCopy';
+import { probeResultToText } from './connectionStatus';
+import { redactUriSecrets } from './welcomeName';
+import {
+  CONNECTION_FORM_DEFAULTS,
+  CONNECTION_FORM_TABS,
+  applyParsedUri,
+  formToConnectionInput,
+  tabHasNonDefault,
+  type ConnectionFormState,
+  type ConnectionFormTab,
+} from './connectionFormState';
 import { useTroubleshooting } from '../../troubleshooting/TroubleshootingContext';
 import {
   TLS_INLINE_EXPLAINER,
@@ -28,104 +38,13 @@ import {
 
 type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 
-type FormState = {
-  name: string;
-  color: string;
-  type: 'srv' | 'standard';
-  host: string;
-  port: string;
-  defaultDb: string;
-
-  authMech: 'default' | 'scram256' | 'scram1' | 'x509' | 'awsiam' | 'none';
-  authUsername: string;
-  authDatabase: string;
-  password: string;
-  hasPasswordStored: boolean;
-  clearPassword: boolean;
-
-  tlsEnabled: boolean;
-  tlsVerify: boolean;
-  tlsCaPath: string;
-  tlsClientCertPath: string;
-
-  sshEnabled: boolean;
-  sshHost: string;
-  sshPort: string;
-  sshUsername: string;
-  sshAuthMethod: 'key' | 'password';
-  sshPrivateKeyPath: string;
-
-  connectTimeoutMs: string;
-  socketTimeoutMs: string;
-  serverSelectionTimeoutMs: string;
-  readPreference: 'primary' | 'primaryPreferred' | 'secondary' | 'secondaryPreferred' | 'nearest';
-  maxPoolSize: string;
-  directConnection: boolean;
-  appName: string;
-
-  readOnly: boolean;
-};
+type FormState = ConnectionFormState;
+type NCTab = ConnectionFormTab;
 
 const COLORS = ['#7c6af7', '#1A5068', '#6B3A8A', '#B84C14', '#7A6820', '#4A4A4A'];
-const TABS_NC = ['General', 'Auth', 'TLS', 'SSH', 'Advanced'] as const;
-type NCTab = typeof TABS_NC[number];
-
-const INITIAL: FormState = {
-  name: '', color: '#7c6af7', type: 'srv',
-  host: '', port: '27017', defaultDb: '',
-  authMech: 'default', authUsername: '', authDatabase: 'admin',
-  password: '', hasPasswordStored: false, clearPassword: false,
-  tlsEnabled: true, tlsVerify: true, tlsCaPath: '', tlsClientCertPath: '',
-  sshEnabled: false, sshHost: '', sshPort: '22', sshUsername: '',
-  sshAuthMethod: 'key', sshPrivateKeyPath: '',
-  connectTimeoutMs: '10000', socketTimeoutMs: '30000', serverSelectionTimeoutMs: '30000',
-  readPreference: 'primary', maxPoolSize: '100', directConnection: false, appName: '',
-  readOnly: false,
-};
-
-function toInput(f: FormState): ConnectionInput {
-  return {
-    name: f.name,
-    color: f.color,
-    connectionType: f.type,
-    host: f.host,
-    port: Number(f.port) || 27017,
-    defaultDb: f.defaultDb || undefined,
-    authMech: f.authMech,
-    authUsername: f.authMech === 'none' ? undefined : f.authUsername || undefined,
-    authDatabase: f.authMech === 'none' ? undefined : f.authDatabase || undefined,
-    password: f.authMech === 'none' ? undefined : f.password || undefined,
-    tls: {
-      enabled: f.tlsEnabled,
-      verify: f.tlsVerify,
-      caPath: f.tlsCaPath || undefined,
-      clientCertPath: f.tlsClientCertPath || undefined,
-    },
-    ssh: f.sshEnabled
-      ? {
-          enabled: true,
-          host: f.sshHost || undefined,
-          port: Number(f.sshPort) || 22,
-          username: f.sshUsername || undefined,
-          authMethod: f.sshAuthMethod,
-          privateKeyPath: f.sshPrivateKeyPath || undefined,
-        }
-      : { enabled: false },
-    advanced: {
-      connectTimeoutMs: Number(f.connectTimeoutMs) || 10_000,
-      socketTimeoutMs: Number(f.socketTimeoutMs) || 30_000,
-      serverSelectionTimeoutMs: Number(f.serverSelectionTimeoutMs) || 30_000,
-      readPreference: f.readPreference,
-      maxPoolSize: Number(f.maxPoolSize) || 100,
-      directConnection: f.directConnection,
-      appName: f.appName || undefined,
-    },
-    readOnly: f.readOnly,
-  };
-}
 
 function toUpdate(f: FormState): ConnectionUpdate {
-  const base = toInput(f) as ConnectionUpdate;
+  const base = formToConnectionInput(f) as ConnectionUpdate;
   // In edit mode, password handling uses explicit presence signals.
   if (f.clearPassword) {
     base.clearPassword = true;
@@ -414,24 +333,82 @@ function FilePathRow({ purpose, label, value, onChange, placeholder }: {
 }
 
 
+/**
+ * The fastest way through the form, so it sits above the tabs where no click
+ * is needed to find it. Paste-to-fill, not two-way: a stored password never
+ * reaches the renderer, so a string rebuilt from the fields could not be
+ * complete, and a partial one pasted back would drop the credentials.
+ */
+function ConnectionStringField({ value, edited, error, onChange, onApply }: {
+  value: string;
+  /** A field below was edited after a URI was applied: the string no longer describes the form. */
+  edited: boolean;
+  error: string | null;
+  onChange: (v: string) => void;
+  onApply: (uri: string) => void;
+}) {
+  const T = themeVars;
+  const id = React.useId();
+  const helpId = `${id}-help`;
+  return (
+    <div style={{ padding: '14px 24px 10px' }}>
+      <Label htmlFor={id}>Connection string</Label>
+      <input
+        id={id}
+        data-testid="connection-form-uri"
+        type="text"
+        // A URI can carry a password: no history, no spell-check service.
+        autoComplete="off"
+        spellCheck={false}
+        aria-describedby={helpId}
+        aria-invalid={error ? true : undefined}
+        value={value}
+        placeholder="mongodb://localhost:27017"
+        onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => {
+          const pasted = e.clipboardData.getData('text');
+          if (!pasted) return;
+          // Applied as it lands, at the caret like any paste.
+          e.preventDefault();
+          const el = e.currentTarget;
+          const next = el.value.slice(0, el.selectionStart ?? el.value.length) + pasted + el.value.slice(el.selectionEnd ?? el.value.length);
+          onChange(next);
+          onApply(next);
+        }}
+        onKeyDown={(e) => {
+          // Plain Enter only: ⌘↵ and ⌘⇧↵ are the form's own.
+          if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return;
+          e.preventDefault();
+          onApply(value);
+        }}
+        onBlur={() => onApply(value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '6px 10px', border: `1px solid ${T.border}`,
+          borderRadius: T.rs, background: T.surfaceRaised,
+          color: T.text, fontSize: T.fsSm, fontFamily: 'ui-monospace, monospace', outline: 'none',
+        }}
+      />
+      <div
+        id={helpId}
+        role={error ? 'alert' : undefined}
+        style={{ marginTop: 4, fontSize: T.fsXs, color: error ? T.warn : T.textMuted }}
+      >
+        {error ?? (edited ? 'Edited below — paste a URI to replace' : 'Paste a URI to fill the form')}
+      </div>
+    </div>
+  );
+}
+
 function GeneralTab({
-  form, set, fieldErrors, onPasteUri, focusName,
+  form, set, fieldErrors, focusName,
 }: {
   form: FormState;
   set: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   fieldErrors: Record<string, string>;
-  onPasteUri: (uri: string) => void;
   focusName: boolean;
 }) {
   const T = themeVars;
-  const [showUri, setShowUri] = React.useState(false);
-  const [uriDraft, setUriDraft] = React.useState('');
-
-  const submitUri = () => {
-    if (!uriDraft.trim()) return;
-    onPasteUri(uriDraft);
-    setUriDraft('');
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapLg }}>
@@ -470,86 +447,64 @@ function GeneralTab({
 
       <div>
         <SectionDivider>Host</SectionDivider>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0 10px' }}>
-          <button
-            onClick={() => setShowUri((v) => !v)}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapSm, marginTop: 10 }}>
+          <div
             style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: T.fsXs, color: T.accentInk, fontFamily: 'inherit', padding: 0,
-              fontWeight: 600,
+              display: 'grid',
+              gridTemplateColumns: form.type === 'srv' ? '1fr' : '2fr 1fr',
+              gap: themeVars.gapSm,
             }}
           >
-            {showUri ? 'Use fields' : 'Paste URI'} {showUri ? I.chevD : I.chevR}
-          </button>
-        </div>
-
-        {showUri ? (
-          <Field label="Connection URI">
-            <div style={{ display: 'flex', gap: themeVars.gapXs }}>
+            <Field label="Hostname" required error={fieldErrors['host']}>
               <Input
-                value={uriDraft}
-                onChange={setUriDraft}
-                placeholder="mongodb+srv://user:pass@cluster.mongodb.net/db"
+                value={form.host}
+                onChange={(v) => set('host', v)}
+                placeholder={form.type === 'srv' ? 'cluster.mongodb.net' : 'localhost'}
               />
-              <Button size="compact-xs" variant="default" onClick={submitUri}>Apply</Button>
-            </div>
-          </Field>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapSm }}>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: form.type === 'srv' ? '1fr' : '2fr 1fr',
-                gap: themeVars.gapSm,
-              }}
-            >
-              <Field label="Hostname" required error={fieldErrors['host']}>
-                <Input value={form.host} onChange={(v) => set('host', v)} placeholder="cluster.mongodb.net" />
-              </Field>
-              {form.type !== 'srv' && (
-                <Field label="Port" error={fieldErrors['port']}>
-                  <Input
-                    value={form.port}
-                    onChange={(v) => set('port', v)}
-                    placeholder="27017"
-                  />
-                </Field>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
-              <Field label="Default database">
+            </Field>
+            {form.type !== 'srv' && (
+              <Field label="Port" error={fieldErrors['port']}>
                 <Input
-                  value={form.defaultDb}
-                  onChange={(v) => set('defaultDb', v)}
-                  placeholder="mydb"
+                  value={form.port}
+                  onChange={(v) => set('port', v)}
+                  placeholder="27017"
                 />
               </Field>
-              <Field label="Connection type">
-                <Select
-                  value={form.type}
-                  onChange={(v) => {
-                    const next = v as FormState['type'];
-                    set('type', next);
-                    if (next === 'srv') {
-                      // SRV uses DNS-discovered ports and always implies TLS.
-                      set('port', '');
-                      set('tlsEnabled', true);
-                    } else {
-                      if (form.port === '') set('port', '27017');
-                      // Only auto-disable TLS if the user hasn't configured certs.
-                      if (!form.tlsCaPath && !form.tlsClientCertPath) {
-                        set('tlsEnabled', false);
-                      }
-                    }
-                  }}
-                >
-                  <option value="srv">SRV (mongodb+srv://)</option>
-                  <option value="standard">Standard (mongodb://)</option>
-                </Select>
-              </Field>
-            </div>
+            )}
           </div>
-        )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: themeVars.gapSm }}>
+            <Field label="Default database">
+              <Input
+                value={form.defaultDb}
+                onChange={(v) => set('defaultDb', v)}
+                placeholder="mydb"
+              />
+            </Field>
+            <Field label="Connection type">
+              <Select
+                value={form.type}
+                onChange={(v) => {
+                  const next = v as FormState['type'];
+                  set('type', next);
+                  if (next === 'srv') {
+                    // SRV uses DNS-discovered ports and always implies TLS.
+                    set('port', '');
+                    set('tlsEnabled', true);
+                  } else {
+                    if (form.port === '') set('port', '27017');
+                    // Only auto-disable TLS if the user hasn't configured certs.
+                    if (!form.tlsCaPath && !form.tlsClientCertPath) {
+                      set('tlsEnabled', false);
+                    }
+                  }
+                }}
+              >
+                <option value="srv">SRV (mongodb+srv://)</option>
+                <option value="standard">Standard (mongodb://)</option>
+              </Select>
+            </Field>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -660,7 +615,7 @@ function AuthTab({ form, set, fieldErrors, isEdit, focusPassword }: {
       )}
       {form.authMech === 'x509' && (
         <div style={{ fontSize: T.fsSm, color: T.textMuted, lineHeight: 1.5 }}>
-          X.509 authentication uses the client certificate from the <strong>TLS</strong> tab.
+          X.509 authentication uses the client certificate from the <strong>TLS / SSH</strong> tab.
           Make sure TLS is enabled and the certificate path is set.
         </div>
       )}
@@ -830,7 +785,9 @@ function AdvancedTab({ form, set, fieldErrors }: {
 }
 
 
-function TestStatus({ state, errorMsg }: { state: TestState; errorMsg: string | null }) {
+const FOOTER_BUTTON = { flexShrink: 0 };
+
+function TestStatus({ state, message }: { state: TestState; message: string | null }) {
   const T = themeVars;
   if (state === 'idle') return null;
 
@@ -838,10 +795,10 @@ function TestStatus({ state, errorMsg }: { state: TestState; errorMsg: string | 
     color: string; bg: string; border: string; text: string;
   }> = {
     testing: { color: T.textMuted, bg: T.surfaceRaised, border: T.border, text: 'Testing connection…' },
-    ok: { color: T.accent, bg: T.accentSoft, border: T.accentBorder, text: 'Connection successful' },
+    ok: { color: T.accent, bg: T.accentSoft, border: T.accentBorder, text: message ?? 'Connected' },
     fail: {
       color: T.warn, bg: 'rgba(184,76,20,0.08)', border: 'rgba(184,76,20,0.25)',
-      text: errorMsg ?? 'Connection failed',
+      text: message ?? 'Connection failed',
     },
   };
   const c = palette[state];
@@ -851,6 +808,8 @@ function TestStatus({ state, errorMsg }: { state: TestState; errorMsg: string | 
       padding: '6px 12px', borderRadius: T.rs,
       background: c.bg, border: `1px solid ${c.border}`,
       color: c.color, fontSize: T.fsXs, maxWidth: 480,
+      // The status gives way, not the buttons: a long failure reason truncates.
+      minWidth: 0,
     }}>
       {state === 'testing' && (
         <span style={{
@@ -869,26 +828,6 @@ function TestStatus({ state, errorMsg }: { state: TestState; errorMsg: string | 
 }
 
 
-function probeResultToText(r: ProbeResult): string {
-  if (r.ok) return 'Connection successful';
-  switch (r.errorCode) {
-    case 'AUTH':
-      return 'Authentication failed — check username, password, and auth database.';
-    case 'NETWORK':
-      return 'Could not reach the server. Check host, port, and firewall.';
-    case 'TIMEOUT':
-      return 'Connection timed out. Check host reachability or raise the timeout.';
-    case 'TLS':
-      return 'TLS handshake failed. Verify certificates and server TLS support.';
-    case 'TLS_HANDSHAKE':
-      return "Server doesn't speak TLS on this port. Try toggling TLS off.";
-    case 'UNAUTHORIZED':
-      return 'The user lacks permission on the target database.';
-    default:
-      return r.errorMessage ?? 'Connection failed.';
-  }
-}
-
 function ipcIssuesToFieldErrors(err: IpcError): Record<string, string> {
   const out: Record<string, string> = {};
   const details = err.details as
@@ -906,10 +845,9 @@ function firstErrorTab(fieldErrors: Record<string, string>): NCTab | null {
   const keys = Object.keys(fieldErrors);
   if (keys.length === 0) return null;
   const k = keys[0]!;
-  if (k.startsWith('tls')) return 'TLS';
-  if (k.startsWith('ssh')) return 'SSH';
+  if (k.startsWith('tls') || k.startsWith('ssh')) return 'TLS / SSH';
   if (k.startsWith('advanced')) return 'Advanced';
-  if (k === 'authMech' || k === 'authUsername' || k === 'authDatabase' || k === 'password') return 'Auth';
+  if (k === 'authMech' || k === 'authUsername' || k === 'authDatabase' || k === 'password') return 'Authentication';
   return 'General';
 }
 
@@ -921,13 +859,14 @@ export type ConnectionFormProps = (
   | { mode: 'create'; connectionId?: undefined }
   | { mode: 'edit'; connectionId: string }
 ) & {
-  onSaved: (id: string) => void;
+  /** `connect`: the save came from Save & connect, so the host connects it too. */
+  onSaved: (id: string, opts?: { connect?: boolean }) => void;
   onCancel: () => void;
   /** ConnectionFormModal's Escape/backdrop bypass onCancel, so it needs this to know there's unsaved state. */
   onDirtyChange?: (dirty: boolean) => void;
   /** True inside ConnectionFormModal (which draws its own card) to drop this form's own chrome. */
   embedded?: boolean;
-  /** Start on the Auth tab with the password field focused (#396). */
+  /** Start on the Authentication tab with the password field focused (#396). */
   initialFocus?: 'password';
 };
 
@@ -956,9 +895,26 @@ function ConnectionFormImpl({
   }
   const help = useTroubleshooting();
 
-  const [tab, setTab] = React.useState<NCTab>(initialFocus === 'password' ? 'Auth' : 'General');
-  const formApi = useForm<FormState>({ mode: 'controlled', initialValues: INITIAL });
+  const [tab, setTab] = React.useState<NCTab>(initialFocus === 'password' ? 'Authentication' : 'General');
+  const formApi = useForm<FormState>({ mode: 'controlled', initialValues: CONNECTION_FORM_DEFAULTS });
   const form = formApi.values;
+  // The connection string lives here only, never in the form's values: it can
+  // carry a password, and nothing reads it back but the parse that fills the tabs.
+  const [uriDraft, setUriDraft] = React.useState('');
+  const [uriEdited, setUriEdited] = React.useState(false);
+  const [uriError, setUriError] = React.useState<string | null>(null);
+  // What the string field holds and what was last parsed from it, for callbacks that outlive a render.
+  const uriDraftRef = React.useRef('');
+  const uriAppliedRef = React.useRef('');
+  const uriSettledRef = React.useRef<Promise<boolean>>(Promise.resolve(true));
+  const changeUriDraft = (next: string) => {
+    uriDraftRef.current = next;
+    // New text owes a new parse, and an old failure no longer holds Save back.
+    uriAppliedRef.current = '';
+    uriSettledRef.current = Promise.resolve(true);
+    setUriDraft(next);
+    setUriError(null);
+  };
 
   // @mantine/form's own dirty tracking; the edit-mode hydrate below calls
   // resetDirty() once loaded, so a freshly-opened Edit reads clean.
@@ -968,6 +924,16 @@ function ConnectionFormImpl({
   }, [dirty, onDirtyChange]);
   const set = React.useCallback(
     <K extends keyof FormState>(k: K, v: FormState[K]) => {
+      // Every caller is a field edited by hand, so a string still in the
+      // field above no longer describes the form: it empties.
+      if (uriDraftRef.current !== '') {
+        uriDraftRef.current = '';
+        uriAppliedRef.current = '';
+        uriSettledRef.current = Promise.resolve(true);
+        setUriDraft('');
+        setUriError(null);
+        setUriEdited(true);
+      }
       // Mantine's setFieldValue overload uses FormPathValue<…> which doesn't
       // align with our generic key/value pair; cast through unknown.
       (formApi.setFieldValue as unknown as (k: string, v: unknown) => void)(
@@ -986,6 +952,8 @@ function ConnectionFormImpl({
   const [saving, setSaving] = React.useState(false);
   // The ⌘S listener closes over a stale `saving`; this ref gives it a live read.
   const savingRef = React.useRef(false);
+  // Which save is in flight, for the retry after the plaintext-fallback dialog.
+  const connectAfterSaveRef = React.useRef(false);
   const [testState, setTestState] = React.useState<TestState>('idle');
   const [testErrorMsg, setTestErrorMsg] = React.useState<string | null>(null);
   const [testFailure, setTestFailure] = React.useState<{
@@ -1065,33 +1033,22 @@ function ConnectionFormImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, connectionId]);
 
-  const handlePasteUri = async (uri: string) => {
+  // Resolves false when the string does not parse. Blur, Enter, Save and Test
+  // all ask; a string already applied is not parsed twice, they share its answer.
+  const applyUri = (uri: string): Promise<boolean> => {
+    if (!uri.trim() || uri === uriAppliedRef.current) return uriSettledRef.current;
+    uriAppliedRef.current = uri;
+    uriSettledRef.current = parseIntoForm(uri);
+    return uriSettledRef.current;
+  };
+
+  const parseIntoForm = async (uri: string): Promise<boolean> => {
     try {
       const { input, warnings, repick } = await api.conn.parseUri(uri);
-      formApi.setValues((f) => ({
-        ...f,
-        type: input.connectionType ?? f.type,
-        host: input.host ?? f.host,
-        port: input.port ? String(input.port) : f.port,
-        defaultDb: input.defaultDb ?? f.defaultDb,
-        authMech: input.authMech ?? f.authMech,
-        authUsername: input.authUsername ?? f.authUsername,
-        authDatabase: input.authDatabase ?? f.authDatabase,
-        password: input.password ?? f.password,
-        tlsEnabled: input.tls?.enabled ?? f.tlsEnabled,
-        tlsVerify: input.tls?.verify ?? f.tlsVerify,
-        connectTimeoutMs: input.advanced?.connectTimeoutMs
-          ? String(input.advanced.connectTimeoutMs) : f.connectTimeoutMs,
-        socketTimeoutMs: input.advanced?.socketTimeoutMs
-          ? String(input.advanced.socketTimeoutMs) : f.socketTimeoutMs,
-        serverSelectionTimeoutMs: input.advanced?.serverSelectionTimeoutMs
-          ? String(input.advanced.serverSelectionTimeoutMs) : f.serverSelectionTimeoutMs,
-        readPreference: input.advanced?.readPreference ?? f.readPreference,
-        maxPoolSize: input.advanced?.maxPoolSize
-          ? String(input.advanced.maxPoolSize) : f.maxPoolSize,
-        directConnection: input.advanced?.directConnection ?? f.directConnection,
-        appName: input.advanced?.appName ?? f.appName,
-      }));
+      // The field moved on while main was parsing: this answer is for text no longer there.
+      if (uriDraftRef.current !== uri) return true;
+      setUriEdited(false);
+      formApi.setValues(applyParsedUri(formApi.getValues(), input));
       // The paths are machine-local, so the fields stay empty and the user picks the files again.
       const files = (repick ?? []).map((f) => REPICK_LABEL[f]);
       const repickNote = files.length > 0 ? ` Still to do: ${files.join(', ')}.` : '';
@@ -1104,20 +1061,32 @@ function ConnectionFormImpl({
       } else {
         setToast(`URI applied.${repickNote}`);
       }
+      return true;
     } catch (err) {
-      notify.error(isIpcError(err) ? err.message : 'Could not parse URI', { title: 'URI parse failed' });
+      if (uriDraftRef.current !== uri) return true;
+      // Under the field, not a toast: it is about the text right above it.
+      setUriError(redactUriSecrets(isIpcError(err) ? err.message : 'Could not parse URI', uri));
+      return false;
     }
   };
 
   const handleTest = async (formOverride?: FormState): Promise<{ ok: boolean }> => {
+    // A string typed and not yet applied fills the form first; one that does
+    // not parse stops here, with its reason under the field.
+    if (!formOverride && !(await applyUri(uriDraftRef.current))) return { ok: false };
     setTestState('testing');
     setTestErrorMsg(null);
     setTestFailure(null);
-    const probeForm = formOverride ?? form;
+    const probeForm = formOverride ?? formApi.getValues();
     try {
-      const r = await api.conn.test(toInput(probeForm));
+      // A probe needs no name, but main validates the whole input: an unnamed
+      // form is tested under its host.
+      const r = await api.conn.test(
+        formToConnectionInput({ ...probeForm, name: probeForm.name.trim() || probeForm.host }),
+      );
       if (r.ok) {
         setTestState('ok');
+        setTestErrorMsg(probeResultToText(r));
         setTimeout(() => setTestState('idle'), 6000);
         return { ok: true };
       }
@@ -1134,22 +1103,30 @@ function ConnectionFormImpl({
     }
   };
 
-  const handleSave = async () => {
+  // `connect`: Save & connect. The host connects after the save, so a failed
+  // connect leaves the Connection saved and shows on its navigator root.
+  const handleSave = async (connect: boolean) => {
     if (savingRef.current) return;
     savingRef.current = true;
+    connectAfterSaveRef.current = connect;
+    // A plain save keeps the one-argument call its hosts were written against.
+    const saved = (id: string) => (connect ? onSaved(id, { connect: true }) : onSaved(id));
     try {
+      // As for Test: the string in the field is applied before the form is read.
+      if (!(await applyUri(uriDraftRef.current))) return;
+      const values = formApi.getValues();
       setSaving(true);
       formApi.clearErrors();
       if (isEdit && connectionId) {
-        const updated = await api.conn.update(connectionId, toUpdate(form));
+        const updated = await api.conn.update(connectionId, toUpdate(values));
         // The same id may now reach another server, with other validators
         // and other fields.
         invalidateSampleSchemaCache(updated.id);
         invalidateSchemaEnumCache(updated.id);
-        onSaved(updated.id);
+        saved(updated.id);
       } else {
-        const created = await api.conn.create(toInput(form));
-        onSaved(created.id);
+        const created = await api.conn.create(formToConnectionInput(values));
+        saved(created.id);
       }
     } catch (err) {
       if (isIpcError(err)) {
@@ -1190,7 +1167,7 @@ function ConnectionFormImpl({
       return;
     }
     setShowPlaintextModal(false);
-    await handleSave();
+    await handleSave(connectAfterSaveRef.current);
   };
 
   const disablePlaintextFallback = async () => {
@@ -1203,21 +1180,24 @@ function ConnectionFormImpl({
     }
   };
 
-  // Keyboard: ⌘↵ test, ⌘S save. Capture phase + stopPropagation so this always
+  // Keyboard: ⌘↵ save & connect (the primary action, as ⌘↵ is everywhere
+  // else), ⌘S save, ⌘⇧↵ test. Capture phase + stopPropagation so this always
   // wins over another window-level shortcut listener mounted underneath (e.g. a
   // host page's own ⌘↵ binding) when the form is hosted in a modal.
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        void handleTest();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        // No `!saving` gate on either save: this listener closes over a stale
+        // `saving` (see savingRef). handleSave's own savingRef guard blocks re-entry.
+        if (e.shiftKey) void handleTest();
+        else void handleSave(true);
+      } else if (e.key === 's') {
         e.preventDefault();
         e.stopPropagation();
-        // No `!saving` gate here: this listener closes over a stale `saving`
-        // (see savingRef). handleSave's own savingRef guard blocks re-entry.
-        void handleSave();
+        void handleSave(false);
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -1285,6 +1265,13 @@ function ConnectionFormImpl({
               fields at once instead of the one panel this file's other
               tests (and the "jump to first offending tab" error handling)
               expect to find alone in the document. */}
+          <ConnectionStringField
+            value={uriDraft}
+            edited={uriEdited}
+            error={uriError}
+            onChange={changeUriDraft}
+            onApply={(uri) => void applyUri(uri)}
+          />
           <Tabs
             value={tab}
             onChange={(v) => { if (v) { setFocusName(false); setTab(v as NCTab); } }}
@@ -1292,8 +1279,23 @@ function ConnectionFormImpl({
             style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
           >
             <Tabs.List aria-label="Connection settings" style={{ padding: '0 20px' }}>
-              {TABS_NC.map((t) => (
-                <Tabs.Tab key={t} value={t} styles={{ tab: { fontSize: T.fsSm } }}>
+              {CONNECTION_FORM_TABS.map((t) => (
+                <Tabs.Tab
+                  key={t}
+                  value={t}
+                  styles={{ tab: { fontSize: T.fsSm } }}
+                  // Says where the settings are without opening each tab. Hidden
+                  // from the tab's name, which stays the one word a locator asks for.
+                  rightSection={
+                    !loading && tabHasNonDefault(t, form) ? (
+                      <span
+                        aria-hidden
+                        data-testid={`tab-dot-${t}`}
+                        style={{ display: 'block', width: 5, height: 5, borderRadius: '50%', background: T.accent }}
+                      />
+                    ) : undefined
+                  }
+                >
                   {t}
                 </Tabs.Tab>
               ))}
@@ -1309,11 +1311,10 @@ function ConnectionFormImpl({
                       form={form}
                       set={set}
                       fieldErrors={fieldErrors}
-                      onPasteUri={(uri) => void handlePasteUri(uri)}
                       focusName={focusName}
                     />
                   </Tabs.Panel>
-                  <Tabs.Panel value="Auth">
+                  <Tabs.Panel value="Authentication">
                     <AuthTab
                       form={form}
                       set={set}
@@ -1322,11 +1323,21 @@ function ConnectionFormImpl({
                       focusPassword={initialFocus === 'password'}
                     />
                   </Tabs.Panel>
-                  <Tabs.Panel value="TLS">
-                    <TLSTab form={form} set={set} fieldErrors={fieldErrors} />
-                  </Tabs.Panel>
-                  <Tabs.Panel value="SSH">
-                    <SSHTab form={form} set={set} />
+                  <Tabs.Panel value="TLS / SSH">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapLg }}>
+                      <div>
+                        <SectionDivider>TLS</SectionDivider>
+                        <div style={{ marginTop: 10 }}>
+                          <TLSTab form={form} set={set} fieldErrors={fieldErrors} />
+                        </div>
+                      </div>
+                      <div>
+                        <SectionDivider>SSH tunnel</SectionDivider>
+                        <div style={{ marginTop: 10 }}>
+                          <SSHTab form={form} set={set} />
+                        </div>
+                      </div>
+                    </div>
                   </Tabs.Panel>
                   <Tabs.Panel value="Advanced">
                     <AdvancedTab form={form} set={set} fieldErrors={fieldErrors} />
@@ -1351,12 +1362,16 @@ function ConnectionFormImpl({
             background: T.surfaceRaised,
             ...(embedded ? {} : { borderRadius: `0 0 ${T.r} ${T.r}` }),
           }}>
-            <TestStatus state={testState} errorMsg={testErrorMsg} />
+            <Button variant="subtle" color="gray" size="compact-xs" onClick={onCancel} style={FOOTER_BUTTON}>
+              Cancel
+            </Button>
+            <TestStatus state={testState} message={testErrorMsg} />
             {testState === 'fail' && testFailure && (
               <Button
                 variant="subtle"
                 size="compact-xs"
                 c={T.accentInk}
+                style={FOOTER_BUTTON}
                 onClick={() =>
                   help.open(testFailure, {
                     retryWithoutTls: async () => {
@@ -1378,19 +1393,26 @@ function ConnectionFormImpl({
               </Button>
             )}
             <div style={{ flex: 1 }} />
-            <Button variant="subtle" color="gray" size="compact-xs" onClick={onCancel}>
-              Cancel
+            <Button variant="subtle" size="compact-xs" onClick={() => void handleTest()} leftSection={I.server} style={FOOTER_BUTTON}>
+              {testState === 'testing' ? 'Testing…' : 'Test'}
             </Button>
-            <Button variant="subtle" size="compact-xs" onClick={() => void handleTest()} leftSection={I.server}>
-              {testState === 'testing' ? 'Testing…' : 'Test connection'}
-            </Button>
+            <SubmitButton
+              variant="default"
+              size="compact-xs"
+              style={FOOTER_BUTTON}
+              onClick={() => void handleSave(false)}
+              submitting={saving}
+            >
+              Save
+            </SubmitButton>
             <SubmitButton
               variant="filled"
               size="compact-xs"
-              onClick={() => void handleSave()}
+              style={FOOTER_BUTTON}
+              onClick={() => void handleSave(true)}
               submitting={saving}
             >
-              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save'}
+              {saving ? 'Saving…' : 'Save & connect'}
             </SubmitButton>
           </div>
         </div>

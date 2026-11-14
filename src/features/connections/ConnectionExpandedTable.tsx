@@ -1,6 +1,8 @@
 import React from 'react';
-import { IconPin, IconPinFilled } from '@tabler/icons-react';
+import { IconDots, IconPin, IconPinFilled } from '@tabler/icons-react';
 import { Button, Checkbox, Group, Modal, Table, Text, TextInput, VisuallyHidden } from '@mantine/core';
+import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
+import { connectionRowMenu } from './connectionRowMenu';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api } from '../../api/atelier';
@@ -26,12 +28,12 @@ const COLUMN_HEADERS = ['Name', 'Host', 'Status', 'Last used', 'Actions'] as con
 // A fixed width for the trailing Actions column, reserved whether or not the
 // row is selected — see the comment on that `Table.Td` for why a shrink-to-
 // fit width caused a table-wide reflow on selection.
-const ACTIONS_COLUMN_WIDTH = 190;
+const ACTIONS_COLUMN_WIDTH = 150;
 const CHECK_COLUMN_WIDTH = 32;
 
 export interface ConnectionExpandedTableProps {
   connections: ConnectionSummary[];
-  /** The Switcher's search text at the moment `⌘E` / "Manage connections" was pressed. */
+  /** The Switcher's search text at the moment `⌘E` / "Manage all" was pressed. */
   initialQuery: string;
   /**
    * The Switcher trigger that opened this table — the TitleBar's compact
@@ -54,6 +56,8 @@ export interface ConnectionExpandedTableProps {
   onManage: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Drops a row's live client; the caller owns confirming and closing its tabs. Closes the table. */
+  onDisconnect: (id: string) => void;
   /** The full single-Connection form, from "+ New". Closes the table. */
   onAdd: () => void;
   /** The Import Wizard at its file source, from "Import". Closes the table. */
@@ -180,19 +184,19 @@ function ConnectionDetailRow({
 
 /**
  * the expanded surface the ADR 0001 prototype findings added: `⌘E` or
- * the popover footer's "Expand" button opens this in place of the popover
+ * the popover footer's "Manage all" button opens this in place of the popover
  * (never both — ADR 0001), for comparing similarly-named Connections or
  * reading/managing several in a row without the popover's 300px squeeze.
  *
  * Same search, same match semantics (name + host) as the popover — this is
  * the same tool at a larger size, not a different screen. Selecting a row
  * both reveals its detail inline (accordion-style, so the table keeps its
- * full width — no split panel) and renders Connect / Manage / Edit / Delete
- * on that row (replacing an earlier select-then-travel-to-a-footer
+ * full width — no split panel) and renders Connect, Pin and the row's `⋯`
+ * menu on that row (replacing an earlier select-then-travel-to-a-footer
  * design); there is no separate "selection" concept layered on top of
  * "expanded".
  *
- * Connect / Manage / Edit / Delete route back through `Workspace`'s existing
+ * Connect and the menu's actions route back through `Workspace`'s existing
  * handlers (`openConnection`, `openConnectionScreen`, `openEditConnectionModal`,
  * `openDeleteConnectionModal`) — the same ones the popover uses — rather than
  * parallel implementations, so the two surfaces can never disagree about
@@ -216,12 +220,12 @@ function ConnectionDetailRow({
  * `ConnectionSwitcher` does it for the popover: without it, closing lands a
  * keyboard user at `<body>`, the top of the Data View's tab order. Mantine
  * `Modal`'s own `returnFocus` can't help — by the time this mounts, the
- * popover's "Manage connections" button that would have been its target is already gone
+ * popover's "Manage all" button that would have been its target is already gone
  * (closing the popover is what opened this, per ADR 0001).
  *
  * This is wired to `Modal`'s own `onClose`, not a plain unmount effect,
- * because several actions here (Manage/Edit/Delete on a row, the footer's
- * Add / Import / Export) also unmount this table — straight into another
+ * because several actions here (a row's menu, the header's Add / Import,
+ * Export) also unmount this table — straight into another
  * modal or a navigation, in the same commit. An unmount-keyed effect would
  * fire there too and race that other surface's own focus claim (its
  * `FocusTrap`, if it's a modal) for a coin-flip winner; `onClose` only ever
@@ -237,6 +241,7 @@ export function ConnectionExpandedTable({
   onManage,
   onEdit,
   onDelete,
+  onDisconnect,
   onAdd,
   onImport,
   tabCountFor,
@@ -251,6 +256,7 @@ export function ConnectionExpandedTable({
   // (the row whose detail is open).
   const [checked, setChecked] = React.useState<ReadonlySet<string>>(new Set());
   const [stacked, setStacked] = React.useState<Stacked>(null);
+  const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
   // Paste URIs opens the app's one Import Wizard, which stacks on this table
   // without being part of it.
   const transfer = useConnectionTransfer();
@@ -318,7 +324,7 @@ export function ConnectionExpandedTable({
     const open = selectedId === c.id;
     const isHighlighted = i === highlightIndex;
     const presentation = STATUS_PRESENTATION[c.status];
-    // A click both commits the selection (what the footer acts on, and
+    // A click both commits the selection (what the row actions act on, and
     // whether the detail row is open) and moves the roving highlight to
     // match — so an arrow press right after a click continues from where
     // the mouse just was, instead of from wherever `⌘E` last left it.
@@ -453,10 +459,9 @@ export function ConnectionExpandedTable({
             </div>
           </Table.Td>
           <Table.Td style={{ color: T.textMuted, whiteSpace: 'nowrap' }}>{relativeTime(c.lastUsedAt, 'Never')}</Table.Td>
-          {/* The footer action bar is gone; the same four actions
-              (Connect / Manage / Edit / Delete) render here instead, on the
-              selected row only, matching the popover's own "act on the
-              highlighted row" grammar. `stopPropagation` on every click is
+          {/* Connect, Pin and the row's `⋯` render here, on the selected
+              row only, matching the popover's own "act on the highlighted
+              row" grammar. `stopPropagation` on every click is
               load-bearing: the `<tr>`'s own `onClick` is `toggle`, so without
               it, clicking Connect would also collapse the detail row
               underneath the modal that is opening.
@@ -492,14 +497,20 @@ export function ConnectionExpandedTable({
                 >
                   {pinnedIds.has(c.id) ? <IconPinFilled size={13} /> : <IconPin size={13} />}
                 </RowActionIcon>
-                <RowActionIcon label={`Manage ${c.name}`} onClick={() => onManage(c.id)}>
-                  {I.gear}
-                </RowActionIcon>
-                <RowActionIcon label={`Edit ${c.name}`} onClick={() => onEdit(c.id)}>
-                  {I.edit}
-                </RowActionIcon>
-                <RowActionIcon label={`Delete ${c.name}`} color="red" onClick={() => onDelete(c.id)}>
-                  {I.trash}
+                {/* The same menu as a Switcher row, so the two surfaces list the same actions. */}
+                <RowActionIcon
+                  label={`Actions for ${c.name}`}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setMenu({
+                      x: rect.left,
+                      y: rect.bottom,
+                      items: connectionRowMenu(c, { onManage, onEdit, onDisconnect, onDelete }),
+                      returnFocusTo: e.currentTarget,
+                    });
+                  }}
+                >
+                  <IconDots size={14} />
                 </RowActionIcon>
               </Group>
             )}
@@ -523,6 +534,7 @@ export function ConnectionExpandedTable({
   });
 
   return (
+    <>
     <Modal
       opened
       onClose={handleClose}
@@ -559,7 +571,7 @@ export function ConnectionExpandedTable({
               const next = e.currentTarget.value;
               setQuery(next);
               // A new search is a new list — a selection the search just
-              // hid would leave the footer acting on a Connection nobody
+              // hid would leave the row actions on a Connection nobody
               // can see. Checks the search hides are dropped for the same
               // reason: a batch action must never reach a hidden row.
               setSelectedId(null);
@@ -595,28 +607,63 @@ export function ConnectionExpandedTable({
           <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }} aria-live="polite">
             {filtered.length} of {connections.length}
           </Text>
+          {/* Beside the search, not under the table: creating a Connection is
+              the first thing an empty list is opened for. */}
+          <Button size="compact-xs" variant="light" onClick={onAdd}>
+            + New
+          </Button>
+          {/* The app's own menu, not Mantine's: that one returns focus to this
+              button on a timer, after the wizard it opened has taken it. */}
+          <Button
+            size="compact-xs"
+            variant="default"
+            aria-haspopup="menu"
+            rightSection={<span aria-hidden style={{ display: 'flex' }}>{I.chevD}</span>}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setMenu({
+                x: rect.left,
+                y: rect.bottom,
+                returnFocusTo: e.currentTarget,
+                items: [
+                  { kind: 'item', label: 'From a file…', onClick: onImport },
+                  // A Compass export is a file too: the wizard tells the two apart.
+                  { kind: 'item', label: 'From Compass…', onClick: onImport },
+                  { kind: 'item', label: 'Paste URIs…', onClick: () => transfer.openImport('paste') },
+                ],
+              });
+            }}
+          >
+            Import
+          </Button>
         </div>
 
-        {/* Always there, so the actions are discoverable before anything is
-            checked; they stay disabled until something is. */}
-        <Group gap="xs" role="toolbar" aria-label="Checked connections">
-          <Button size="compact-xs" variant="light" disabled={none} onClick={() => setStacked('export')}>
-            Export
-          </Button>
-          <Button size="compact-xs" variant="light" color="red" disabled={none} onClick={requestDeleteChecked}>
-            Delete
-          </Button>
-          {!none && (
-            <>
-              <Text size="xs" c="dimmed">
-                {checkedIds.length} checked
-              </Text>
-              <Button size="compact-xs" variant="subtle" onClick={() => setChecked(new Set())}>
-                Clear
-              </Button>
-            </>
-          )}
-        </Group>
+        {/* Drawn on the first check and gone with the last: it used to sit
+            disabled above the table whatever was checked. */}
+        {!none && (
+          <Group gap="xs" role="toolbar" aria-label="Checked connections">
+            <Button size="compact-xs" variant="light" onClick={() => setStacked('export')}>
+              Export
+            </Button>
+            <Button size="compact-xs" variant="light" color="red" onClick={requestDeleteChecked}>
+              Delete
+            </Button>
+            <Text size="xs" c="dimmed">
+              {checkedIds.length} checked
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => {
+                setChecked(new Set());
+                // The bar leaves with the checks; the keyboard goes back to the search.
+                searchRef.current?.focus();
+              }}
+            >
+              Clear
+            </Button>
+          </Group>
+        )}
 
         <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
           <Table
@@ -680,8 +727,7 @@ export function ConnectionExpandedTable({
                     colSpan={COLUMN_HEADERS.length + 1}
                     style={{ textAlign: 'center', color: T.textMuted, padding: 24 }}
                   >
-                    {/* "+ Add connection" is a permanent footer-left button
-                        below — this cell just names the state. */}
+                    {/* "+ New" is always in the header above — this cell just names the state. */}
                     {connections.length === 0
                       ? 'No connections yet'
                       : <>No connections match &quot;{query}&quot;</>}
@@ -694,30 +740,6 @@ export function ConnectionExpandedTable({
           </Table>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            borderTop: `1px solid ${T.border}`,
-            paddingTop: 10,
-          }}
-        >
-          {/* Always available, not only in the zero-connections empty
-              state (a first-run `⌘E` used to be a dead end otherwise: nothing
-              to select, so every footer action stayed disabled). */}
-          <Group gap="xs">
-            <Button size="compact-xs" variant="light" onClick={onAdd}>
-              + New
-            </Button>
-            <Button size="compact-xs" variant="subtle" onClick={() => transfer.openImport('paste')}>
-              Paste URIs
-            </Button>
-            <Button size="compact-xs" variant="subtle" onClick={onImport}>
-              Import
-            </Button>
-          </Group>
-        </div>
       </div>
       {stacked === 'export' && <ConnectionExportDialog ids={checkedIds} onClose={() => setStacked(null)} />}
       {stacked !== null && typeof stacked === 'object' && (
@@ -735,5 +757,9 @@ export function ConnectionExpandedTable({
         />
       )}
     </Modal>
+    {/* Beside the Modal, not inside it: the Modal's content is a transformed
+        box, which re-bases the menu's fixed anchor and hides the dropdown. */}
+    {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
   );
 }

@@ -6,7 +6,7 @@ import { getErrorMessage } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import type { WorkspaceTab, ConnectionSummary } from '@shared/types';
 import type { WorkspaceTabsState } from '../../state/workspaceTabs';
-import { ConnectionSwitcher, type ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
+import type { ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
 import { TitleBar } from './TitleBar';
 import { LocationBreadcrumb } from './LocationBreadcrumb';
 import { locationModel } from './locationModel';
@@ -160,6 +160,27 @@ export function ShellSection({
   };
 
   const location = locationModel(active, connections);
+  const openCollections = React.useMemo(() => tabs.tabs.filter((t) => t.kind === 'collection'), [tabs.tabs]);
+  const titleBarProps = {
+    sidebarCollapsed,
+    onToggleSidebar: toggleSidebar,
+    onOpenSettings: () => settings.open(),
+    onOpenPalette: palette.toggle,
+    shellOpen,
+    shellAvailable: !!focusedConnection,
+    onToggleShell: () => setShellOpen((v) => !v),
+  };
+
+  // Nothing saved: the welcome canvas fills the window (C03 §13.1). The title
+  // bar keeps the search field and Settings; there is no breadcrumb, tab strip
+  // or navigator around nothing.
+  if (!connectionsLoading && connections.length === 0) {
+    return (
+      <AppShell.Header withBorder={false} style={{ background: 'transparent' }}>
+        <TitleBar bare {...titleBarProps} />
+      </AppShell.Header>
+    );
+  }
 
   return (
     <>
@@ -169,12 +190,8 @@ export function ShellSection({
       >
         <TitleBar
           breadcrumb={
-            // Nothing saved: W01 §14.2 draws no breadcrumb because the welcome
-            // canvas fills the window. Until that canvas exists, the bare
-            // Switcher stays the title bar's way to add or import one.
-            !location ? (
-              !connectionsLoading && <ConnectionSwitcher {...switcherProps} />
-            ) : (
+            // No breadcrumb until the first list arrives, or with no Connection to name.
+            location && (
               <LocationBreadcrumb
                 model={location}
                 active={active}
@@ -189,13 +206,7 @@ export function ShellSection({
               />
             )
           }
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={toggleSidebar}
-          onOpenSettings={() => settings.open()}
-          onOpenPalette={palette.toggle}
-          shellOpen={shellOpen}
-          shellAvailable={!!focusedConnection}
-          onToggleShell={() => setShellOpen((v) => !v)}
+          {...titleBarProps}
         />
         <TabStrip
           tabs={tabs.tabs}
@@ -258,6 +269,9 @@ export function ShellSection({
                 }
                 onEditConnection={openEditConnectionModal}
                 onDisconnect={requestDisconnect}
+                openCollections={openCollections}
+                onOpenServer={switcherProps.onManage}
+                onAddConnection={switcherProps.onAdd}
                 onCollectionDropped={(connectionId, dbName, collection) => {
                   void tabs.closeForNamespace({ connectionId, dbName, collection });
                 }}
