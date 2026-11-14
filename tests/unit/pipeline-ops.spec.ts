@@ -15,6 +15,7 @@ import {
   nextStageId,
   removeStage,
   restoreStage,
+  runBlockedReason,
   setBody,
   setOp,
   stageSig,
@@ -428,6 +429,31 @@ describe('validatePipeline', () => {
     const v = validatePipeline(stages);
     expect(v.ok).toBe(true);
     expect(v.warnings).toEqual([{ id: 1, reason: 'unknown op: $fakeOp' }]);
+  });
+});
+
+describe('runBlockedReason', () => {
+  const reason = (stages: Stage[]) => runBlockedReason(stages, validatePipeline(stages));
+
+  it('is null when the pipeline validates', () => {
+    expect(reason([{ id: 1, op: '$match', body: '{}', enabled: true }])).toBeNull();
+  });
+
+  it('asks for a stage when there is none', () => {
+    expect(reason([])).toBe('Add a stage to run');
+  });
+
+  it('asks for a stage to be enabled when every stage is off', () => {
+    expect(reason([{ id: 1, op: '$match', body: '{}', enabled: false }])).toBe('Enable a stage to run');
+  });
+
+  it('names the first broken stage by its 1-based position, with the body problem', () => {
+    const stages: Stage[] = [
+      { id: 7, op: '$match', body: '{}', enabled: true },
+      { id: 3, op: '$sort', body: '', enabled: true },
+      { id: 9, op: '$limit', body: '', enabled: true },
+    ];
+    expect(reason(stages)).toBe('Fix stage 2 to run: body is empty');
   });
 });
 

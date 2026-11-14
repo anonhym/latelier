@@ -319,6 +319,21 @@ export function validatePipeline(stages: Stage[]): PipelineValidation {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+/**
+ * Why Run and Explain cannot start, in words for their tooltips and the
+ * preview column, or null when they can. It reads the same validation the
+ * buttons are disabled by, so the stated reason and the disabled state never
+ * disagree. "No enabled stages" covers two cases with different fixes: an empty
+ * pipeline needs a stage, an all-disabled one needs a stage switched back on.
+ */
+export function runBlockedReason(stages: Stage[], validation: PipelineValidation): string | null {
+  const first = validation.errors[0];
+  if (!first) return null;
+  if (first.id === -1) return stages.length === 0 ? 'Add a stage to run' : 'Enable a stage to run';
+  const index = stages.findIndex((s) => s.id === first.id);
+  return `Fix stage ${index + 1} to run: ${first.reason}`;
+}
+
 export function stageSummary(stage: Stage): string {
   const body = stage.body.trim();
   if (!body) return stage.op;
