@@ -116,5 +116,7 @@ describe('LocationBreadcrumb', () => {
       { connectionId: 'c1', dbName: 'shop', collection: 'users' },
       { newTab: true },
     );
+    // The keydown is consumed, so the item never clicks: the menu closes itself.
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
   });
 });

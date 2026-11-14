@@ -105,6 +105,8 @@ export function LocationBreadcrumb({
   // The database dropdown first lists databases; choosing one swaps the same
   // dropdown to that database's collections.
   const [pickedDb, setPickedDb] = React.useState<string | null>(null);
+  // Controlled, so a pick by ⌘↵ (whose keydown never becomes a click) still closes it.
+  const [openMenu, setOpenMenu] = React.useState<'database' | 'collection' | null>(null);
   const [filter, setFilter] = React.useState('');
 
   const collsOf = (db: string) => (cache ? ownGet(cache.colls, db) : undefined);
@@ -117,6 +119,7 @@ export function LocationBreadcrumb({
   };
 
   const pick = (db: string) => (name: string, newTab: boolean) => {
+    setOpenMenu(null);
     if (connectionId) onOpenCollection({ connectionId, dbName: db, collection: name }, { newTab });
   };
 
@@ -169,8 +172,10 @@ export function LocationBreadcrumb({
           <Menu
             key={seg.kind}
             position="bottom-start"
-            closeOnItemClick
-            onOpen={() => {
+            opened={openMenu === 'database'}
+            onChange={(opened) => {
+              setOpenMenu(opened ? 'database' : null);
+              if (!opened) return;
               setPickedDb(null);
               if (connectionId && !cache?.dbs && !cache?.dbsLoading) loadDbs(connectionId);
             }}
@@ -236,7 +241,10 @@ export function LocationBreadcrumb({
           <Menu
             key={seg.kind}
             position="bottom-start"
-            onOpen={() => {
+            opened={openMenu === 'collection'}
+            onChange={(opened) => {
+              setOpenMenu(opened ? 'collection' : null);
+              if (!opened) return;
               setFilter('');
               ensureColls(db);
             }}
