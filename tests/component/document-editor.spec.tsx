@@ -1419,15 +1419,49 @@ describe('DocumentEditor — keyboard order and row mode (W18 §13.1)', () => {
     await trapSettled();
     fireEvent.change(field('f0'), { target: { value: 'changed' } });
     field('f0').focus();
-    fireEvent.keyDown(field('f0'), { key: 'Escape' });
+    // jsdom does not fire the blur that leaving a focused control causes in a
+    // browser; dispatch it with the Escape so no trailing-blur guard goes untested.
+    act(() => {
+      fireEvent.keyDown(field('f0'), { key: 'Escape' });
+      fireEvent.blur(field('f0'));
+    });
     await settle();
     expect(document.activeElement).toBe(rowEl('f0'));
+    expect(field('f0').value).toBe('changed');
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
 
     fireEvent.keyDown(rowEl('f0'), { key: 'Escape' });
     expect(await screen.findByRole('dialog', { name: 'Discard changes?' })).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('Escape on a boolean Switch and on an expand control also goes up to the row, without closing', async () => {
+    const { onClose } = setup({ doc: { _id: { $oid: OID }, on: true, o: { k: 'v' } } });
+    await trapSettled();
+    const toggle = within(row('on')).getByRole('switch', { name: 'on' });
+    toggle.focus();
+    fireEvent.keyDown(toggle, { key: 'Escape' });
+    expect(document.activeElement).toBe(rowEl('on'));
+    const expand = within(row('o')).getByRole('button', { name: 'Collapse o' });
+    expand.focus();
+    fireEvent.keyDown(expand, { key: 'Escape' });
+    expect(document.activeElement).toBe(rowEl('o'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('⌫ on an array element keeps focus on a row, though removing it remounts its siblings', () => {
+    setup({ doc: { _id: { $oid: OID }, tags: ['a', 'b', 'c'] } });
+    const element = (i: number) => row('tags').querySelector(`[data-field="tags.${i}"] [data-field-row]`) as HTMLElement;
+    element(0).focus();
+    fireEvent.keyDown(element(0), { key: 'Backspace' });
+    // The next element, now one index lower.
+    expect(document.activeElement).toBe(element(0));
+    expect((document.activeElement as HTMLElement).closest('[data-field]')?.getAttribute('data-field')).toBe('tags.0');
+    expect(within(row('tags')).getByRole('textbox', { name: 'tags.0' })).toHaveProperty('value', 'b');
+    // And again, from the last element: the one above it.
+    fireEvent.keyDown(element(1), { key: 'Backspace' });
+    expect(document.activeElement).toBe(element(0));
   });
 
   it('Escape from a value of a clean document, then a second Escape, closes without a prompt', async () => {

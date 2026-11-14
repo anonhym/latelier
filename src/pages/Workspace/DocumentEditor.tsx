@@ -54,6 +54,7 @@ import {
   keyOf,
   purgeCollapsedUnder,
   purgeUnder,
+  rekeyAfterRemoval,
   rekeyMapAfterRemoval,
   rekeySetAfterRemoval,
 } from './editorRowKeys';
@@ -176,6 +177,8 @@ interface RowCtx {
   setErr: (e: string | null) => void;
   /** The "Edit in JSON" link on a read-only ("other" kind) row. */
   switchToJson: () => void;
+  /** Focus the row with this key once the next render has committed it (a removal remounts array siblings, so no DOM node survives to be focused now). */
+  focusRowAfterRender: (key: string | null) => void;
 }
 
 /** Whether some row nested under `segments` holds text that doesn't parse. */
@@ -315,12 +318,15 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
         if (!removable) return;
         e.preventDefault();
         // Focus a neighbour that survives the removal: the next row outside
-        // this one's own children, else the one above.
+        // this one's own children, else the one above. By key, after the
+        // render: removing an array element remounts its siblings, and a
+        // later one then sits one index lower.
         const rows = rowEls();
         const at = rows.indexOf(e.currentTarget);
         const item = e.currentTarget.parentElement;
         const survivor = rows.find((r, i) => i > at && !item?.contains(r)) ?? rows[at - 1];
-        survivor?.focus();
+        const survivorKey = survivor?.dataset.fieldRow ?? null;
+        ctx.focusRowAfterRender(survivorKey !== null && isArrayElement ? rekeyAfterRemoval(survivorKey, segments) : survivorKey);
         onRemove();
         return;
       }
@@ -352,7 +358,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
       <div
         ref={rowRef}
         tabIndex={-1}
-        data-field-row={dotted}
+        data-field-row={key}
         onKeyDown={onRowKeyDown}
         style={{
           display: 'flex',
@@ -987,7 +993,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
 
   // The default copy format is the readable one (W06 §8.6).
   const copyMine = () => {
-    void copyToClipboard(view === 'json' ? jsonText : ejsonStringifyReadable(draft, 2), 'Copied your version');
+    // The JSON view's text may still be Shell Syntax: commit it, then print the draft.
+    const mine = view === 'json' ? committedDraft() : draft;
+    if (mine) void copyToClipboard(ejsonStringifyReadable(mine, 2), 'Copied your version');
   };
 
   const goTo = async (delta: -1 | 1) => {
@@ -1176,6 +1184,15 @@ export function DocumentEditor(props: DocumentEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surfaceEl]);
 
+  // A removed row's neighbour, focused once the removal has rendered.
+  const focusRowKey = React.useRef<string | null>(null);
+  React.useLayoutEffect(() => {
+    const key = focusRowKey.current;
+    if (key === null) return;
+    focusRowKey.current = null;
+    surfaceEl?.querySelector<HTMLElement>(`[data-field-row="${CSS.escape(key)}"]`)?.focus();
+  });
+
   // After ‹ ›: the new document starts at its first value, scrolled to the top.
   // (The button just pressed may now be disabled, and would drop focus.)
   const movedFrom = React.useRef(index);
@@ -1239,6 +1256,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
       }),
     setErr,
     switchToJson,
+    focusRowAfterRender: (key) => {
+      focusRowKey.current = key;
+    },
   };
 
   return (
