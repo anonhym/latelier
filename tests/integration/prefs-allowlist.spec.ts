@@ -20,6 +20,7 @@ const ROUND_TRIPS: Array<[string, unknown]> = [
   ['ui.hints.dismissed', { dismissedIds: ['tabs.pin'], resetAt: '2026-01-01T00:00:00.000Z' }],
   ['ui.workspace.defaultPageSize', 50],
   ['ui.workspace.defaultView', 'Table'],
+  ['ui.workspace.copyFormat', 'canonical'],
   ['ui.editor.fontSize', 16],
   ['ui.workspace.leftWidth', 240],
   ['ui.workspace.refDrawerWidth', 320],
@@ -133,6 +134,9 @@ describe('prefs key allowlist and the main-confirmed plaintext switch', () => {
     const { appState, invoke } = setup();
     expectValidation(
       await invoke(IPC_CHANNELS.prefsSet, { key: 'ui.workspace.defaultView', value: 'Grid' }),
+    );
+    expectValidation(
+      await invoke(IPC_CHANNELS.prefsSet, { key: 'ui.workspace.copyFormat', value: 'relaxed' }),
     );
     expectValidation(await invoke(IPC_CHANNELS.prefsSet, { key: 'ui.editor.fontSize', value: 9 }));
     expectValidation(await invoke(IPC_CHANNELS.prefsSet, { key: 'ui.editor.fontSize', value: 21 }));
