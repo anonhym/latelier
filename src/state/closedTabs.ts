@@ -48,20 +48,29 @@ export function pushClosed(list: readonly ClosedTab[], entry: ClosedTab): Closed
 }
 
 /**
- * The newest entry whose Connection still exists, and the list without it.
- * Entries of a Connection that is gone are dropped on the way, newer or older:
- * there is nowhere to reopen them.
+ * The entries whose Connection still exists, in order. Those of a Connection
+ * that is gone are dropped: there is nowhere to reopen them.
  */
-export function takeClosed(
+export function liveClosed(
   list: readonly ClosedTab[],
   isLive: (connectionId: string) => boolean,
-): { entry: ClosedTab | null; rest: ClosedTab[] } {
-  const live = list.filter((e) => isLive(e.connectionId));
-  const [entry, ...rest] = live;
-  return { entry: entry ?? null, rest };
+): ClosedTab[] {
+  return list.filter((e) => isLive(e.connectionId));
 }
 
 /** `list` without `entry` (by identity): an Undo reopens that one, not the newest. */
 export function withoutClosed(list: readonly ClosedTab[], entry: ClosedTab): ClosedTab[] {
   return list.filter((e) => e !== entry);
+}
+
+/**
+ * The titles of the script tabs in `tabs` that hold source: what a bulk close
+ * (a disconnect) would take from the user. Blank scripts lose nothing.
+ */
+export function unsavedScriptTitles(tabs: readonly WorkspaceTab[]): string[] {
+  const titles: string[] = [];
+  for (const t of tabs) {
+    if (t.kind === 'script' && t.state.source.trim() !== '') titles.push(t.state.title || 'Script');
+  }
+  return titles;
 }

@@ -34,6 +34,7 @@ afterEach(() => {
 function installStore(initial: WorkspaceTab[]) {
   let rows = initial;
   let n = 100;
+  const fail: { list: boolean; listGate: Promise<void> | null } = { list: false, listGate: null };
   const openScript = vi.fn<IpcApi['tabs']['openScript']>(async (input) => {
     const tab = scriptTab(`t${++n}`, '', {
       connectionId: input.connectionId,
@@ -44,7 +45,11 @@ function installStore(initial: WorkspaceTab[]) {
   });
   installAtelierMock({
     tabs: {
-      list: async () => rows,
+      list: async () => {
+        if (fail.list) throw new Error('list failed');
+        if (fail.listGate) await fail.listGate;
+        return rows;
+      },
       close: async (id: string) => {
         rows = rows.filter((t) => t.id !== id);
         return { newActiveId: null };
@@ -52,7 +57,7 @@ function installStore(initial: WorkspaceTab[]) {
       openScript,
     },
   });
-  return { openScript, rows: () => rows };
+  return { openScript, rows: () => rows, fail };
 }
 
 async function mountHook() {
@@ -134,5 +139,100 @@ describe('useWorkspaceTabs — closed tabs (W01 §14.8)', () => {
     await act(() => result.current.close('t1'));
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     expect(result.current.closedCount).toBe(1);
+  });
+
+  it('keeps the entry when the reopen fails, so a retry still finds the source', async () => {
+    const { openScript } = installStore([scriptTab('t1', 'db.orders.find()')]);
+    const { result } = await mountHook();
+    await act(() => result.current.close('t1'));
+    openScript.mockRejectedValueOnce(new Error('main is busy'));
+
+    await act(async () => {
+      await expect(result.current.reopenClosed(live)).rejects.toThrow('main is busy');
+    });
+    expect(result.current.closedCount).toBe(1);
+
+    let again = false;
+    await act(async () => {
+      again = await result.current.reopenClosed(live);
+    });
+    expect(again).toBe(true);
+    expect(result.current.closedCount).toBe(0);
+  });
+
+  it('keeps the entry when Undo fails to reopen, and says so', async () => {
+    const { openScript } = installStore([scriptTab('t1', 'db.orders.find()')]);
+    const { result } = await mountHook();
+    await act(() => result.current.close('t1'));
+    openScript.mockRejectedValueOnce(new Error('main is busy'));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText(/main is busy/)).toBeTruthy();
+    expect(result.current.closedCount).toBe(1);
+  });
+
+  it('a second reopen while one is in flight does not open the tab twice', async () => {
+    const { openScript } = installStore([scriptTab('t1', 'db.orders.find()')]);
+    const { result } = await mountHook();
+    await act(() => result.current.close('t1'));
+
+    await act(async () => {
+      await Promise.all([result.current.reopenClosed(live), result.current.reopenClosed(live)]);
+    });
+    expect(openScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('Undo after ⌘⇧T already reopened the tab does nothing', async () => {
+    const { openScript } = installStore([scriptTab('t1', 'db.orders.find()')]);
+    const { result } = await mountHook();
+    await act(() => result.current.close('t1'));
+    const undo = await screen.findByRole('button', { name: 'Undo' });
+    await act(async () => void (await result.current.reopenClosed(live)));
+
+    fireEvent.click(undo);
+    await act(async () => {});
+    expect(openScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the tab as soon as main has closed it, not after the refresh that follows', async () => {
+    const { fail } = installStore([scriptTab('t1', 'db.orders.find()')]);
+    const { result } = await mountHook();
+    let release!: () => void;
+    fail.listGate = new Promise<void>((r) => {
+      release = r;
+    });
+    let closing!: Promise<void>;
+    act(() => {
+      closing = result.current.close('t1');
+    });
+    await waitFor(() => expect(result.current.closedCount).toBe(1));
+    release();
+    await act(() => closing);
+  });
+
+  it('a disconnect that closes a Connection’s tabs lets ⌘⇧T bring the scripts back', async () => {
+    const { openScript } = installStore([
+      scriptTab('t1', 'db.a.find()'),
+      scriptTab('t2', 'db.b.find()', { isActive: false }),
+      scriptTab('t3', 'other', { isActive: false, connectionId: 'c2' }),
+    ]);
+    const { result } = await mountHook();
+    await act(() => result.current.closeForConnection('c1'));
+    expect(result.current.closedCount).toBe(2);
+
+    await act(async () => void (await result.current.reopenClosed(live)));
+    await act(async () => void (await result.current.reopenClosed(live)));
+    const sources = openScript.mock.calls.map((c) => c[0].initialState!.source).sort((a, b) => a!.localeCompare(b!));
+    expect(sources).toEqual(['db.a.find()', 'db.b.find()']);
+  });
+
+  it('does not record a tab whose close failed', async () => {
+    installStore([scriptTab('t1', 'x')]);
+    const { result } = await mountHook();
+    (window.atelier!.tabs as { close: unknown }).close = vi.fn(async () => {
+      throw new Error('nope');
+    });
+    await act(() => result.current.closeForConnection('c1'));
+    expect(result.current.closedCount).toBe(0);
   });
 });

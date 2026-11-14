@@ -14,12 +14,18 @@ import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 export function ConnectionDisconnectDialog({
   name,
   tabCount,
+  unsavedScripts = [],
+  scriptsReopenable = false,
   onCancel,
   onConfirm,
   returnFocusTo,
 }: {
   name: string;
   tabCount: number;
+  /** Titles of the script tabs holding code, which the close takes with it. */
+  unsavedScripts?: readonly string[];
+  /** Whether the closed scripts can be brought back with Reopen closed tab. */
+  scriptsReopenable?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   /** See `ConnectionDeleteDialog`'s prop of the same name. */
@@ -44,6 +50,15 @@ export function ConnectionDisconnectDialog({
             ? `"${name}" has no open tabs. Disconnecting removes it from the navigator until you reconnect.`
             : `This closes ${tabCount} open tab${tabCount === 1 ? '' : 's'} and removes "${name}" from the navigator until you reconnect.`}
         </Text>
+        {unsavedScripts.length > 0 && (
+          <Text size="xs" lh={1.5} data-testid="disconnect-unsaved-scripts">
+            {unsavedScripts.length === 1 ? '1 script with code' : `${unsavedScripts.length} scripts with code`}:{' '}
+            {unsavedScripts.join(', ')}.{' '}
+            {scriptsReopenable
+              ? 'Reopen closed tab (⌘⇧T) brings them back.'
+              : 'They cannot be reopened afterwards.'}
+          </Text>
+        )}
         <Group justify="flex-end" gap="xs">
           <Button size="compact-xs" variant="subtle" onClick={close}>Cancel</Button>
           <Button size="compact-xs" variant="filled" onClick={onConfirm}>Disconnect</Button>

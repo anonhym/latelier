@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { CollectionTab, ScriptTab } from '@shared/types';
-import { CLOSED_TAB_CAP, closedTabOf, pushClosed, takeClosed, withoutClosed, type ClosedTab } from '../../src/state/closedTabs';
+import { CLOSED_TAB_CAP, closedTabOf, pushClosed, liveClosed, unsavedScriptTitles, withoutClosed, type ClosedTab } from '../../src/state/closedTabs';
 
 const script = (over: Partial<ScriptTab> = {}): ScriptTab =>
   ({
@@ -60,27 +60,23 @@ describe('pushClosed', () => {
   });
 });
 
-describe('takeClosed', () => {
-  it('takes the newest and leaves the rest in order', () => {
+describe('liveClosed', () => {
+  it('keeps the entries of a live Connection in order', () => {
     const a = entry(1);
     const b = entry(2);
-    const { entry: got, rest } = takeClosed([b, a], () => true);
-    expect(got).toBe(b);
-    expect(rest).toEqual([a]);
+    expect(liveClosed([b, a], () => true)).toEqual([b, a]);
   });
 
   it('drops entries of a Connection that no longer exists, newer or older', () => {
     const gone1 = entry(1, 'gone');
     const live = entry(2, 'c1');
     const gone2 = entry(3, 'gone');
-    const { entry: got, rest } = takeClosed([gone1, live, gone2], (id) => id === 'c1');
-    expect(got).toBe(live);
-    expect(rest).toEqual([]);
+    expect(liveClosed([gone1, live, gone2], (id) => id === 'c1')).toEqual([live]);
   });
 
-  it('answers null for an empty list or one with no live entry', () => {
-    expect(takeClosed([], () => true)).toEqual({ entry: null, rest: [] });
-    expect(takeClosed([entry(1, 'gone')], () => false)).toEqual({ entry: null, rest: [] });
+  it('answers an empty list for an empty list or one with no live entry', () => {
+    expect(liveClosed([], () => true)).toEqual([]);
+    expect(liveClosed([entry(1, 'gone')], () => false)).toEqual([]);
   });
 });
 
@@ -90,5 +86,17 @@ describe('withoutClosed', () => {
     const same = { ...a };
     expect(withoutClosed([a, same], a)).toEqual([same]);
     expect(withoutClosed([a, same], a)[0]).toBe(same);
+  });
+});
+
+describe('unsavedScriptTitles', () => {
+  it('names the scripts that hold source, in order, and skips blank scripts and other tabs', () => {
+    const tabs = [
+      script({ state: { title: 'Cleanup', source: 'db.a.drop()' } as ScriptTab['state'] }),
+      script({ state: { title: 'Empty', source: ' \n' } as ScriptTab['state'] }),
+      collection(),
+      script({ state: { title: '', source: '1' } as ScriptTab['state'] }),
+    ];
+    expect(unsavedScriptTitles(tabs)).toEqual(['Cleanup', 'Script']);
   });
 });

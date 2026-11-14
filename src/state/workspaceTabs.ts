@@ -18,7 +18,7 @@ import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
 import { keepsPreview, nextScriptTitle } from '../pages/Workspace/tabActions';
-import { closedTabOf, pushClosed, takeClosed, withoutClosed, type ClosedTab } from './closedTabs';
+import { closedTabOf, pushClosed, liveClosed, withoutClosed, type ClosedTab } from './closedTabs';
 
 /**
  * Global sticky-default prefs key (T0.5 / W07 §1). Stores the last page size
@@ -403,31 +403,39 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     setClosedCount(next.length);
   }, []);
   // Set below, once the opens it needs exist: `close`'s Undo calls it.
-  const reopenEntry = useRef<(entry: ClosedTab) => Promise<void>>(() => Promise.resolve());
+  const reopenAndForget = useRef<(entry: ClosedTab) => Promise<boolean>>(() => Promise.resolve(false));
+
+  const noteClosed = useCallback(
+    (closing: WorkspaceTab) => {
+      const entry = closedTabOf(closing);
+      setClosedList(pushClosed(closedList.current, entry));
+      return entry;
+    },
+    [setClosedList],
+  );
 
   const close = useCallback(
     async (id: string) => {
       keepTab(id);
       const closing = openTabsNow().find((t) => t.id === id);
       await api.tabs.close(id);
+      // Recorded the moment main has closed it, before the refresh: from here
+      // the renderer's copy of the source is the only one left.
+      const entry = closing ? noteClosed(closing) : null;
       await refresh();
-      if (!closing) return;
-      const entry = closedTabOf(closing);
-      setClosedList(pushClosed(closedList.current, entry));
       // A script is the one thing a user writes freehand and cannot get back.
-      if (entry.kind === 'script' && entry.state.source.trim() !== '') {
+      if (entry && entry.kind === 'script' && entry.state.source.trim() !== '') {
         notify.info('Script tab closed', {
           action: {
             label: 'Undo',
             onClick: () => {
-              setClosedList(withoutClosed(closedList.current, entry));
-              void reopenEntry.current(entry).catch((err) => notify.error(getErrorMessage(err, 'Could not reopen the script tab')));
+              void reopenAndForget.current(entry).catch((err) => notify.error(getErrorMessage(err, 'Could not reopen the script tab')));
             },
           },
         });
       }
     },
-    [refresh, keepTab, openTabsNow, setClosedList],
+    [refresh, keepTab, openTabsNow, noteClosed],
   );
 
   const closeForConnection = useCallback(async (connectionId: string) => {
@@ -449,12 +457,23 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     // tabs", where an emptiness check conflates them and re-fetches blind.
     const snapshot = tabsRef.current;
     const toClose = snapshot.filter((t) => t.connectionId === connectionId);
+    // With the edits the debounce has not flushed yet: that is the source to keep.
+    const latest = new Map(openTabsNow().map((t) => [t.id, t]));
     setTabs(snapshot.filter((t) => t.connectionId !== connectionId));
+    // A script with code is lost with its tab, so every tab main did close is
+    // recorded for ⌘⇧T (W01 §14.8), a failed close not being closed.
     await Promise.all(
-      toClose.map((t) => api.tabs.close(t.id).catch((err) => logFailure('closing a tab', err))),
+      toClose.map((t) =>
+        api.tabs.close(t.id).then(
+          () => {
+            noteClosed(latest.get(t.id) ?? t);
+          },
+          (err: unknown) => logFailure('closing a tab', err),
+        ),
+      ),
     );
     await refresh();
-  }, [refresh]);
+  }, [refresh, noteClosed, openTabsNow]);
 
   const closeForNamespace: WorkspaceTabsState['closeForNamespace'] = useCallback(
     async ({ connectionId, dbName, collection }) => {
@@ -774,19 +793,41 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     },
     [openScript, openCollection, setPinned, patchCollectionState],
   );
+
+  // An entry leaves the list only once its tab is open: a reopen that fails
+  // keeps the source for the next try. One at a time per entry, so a double
+  // ⌘⇧T or Undo clicked as well cannot open it twice; false when it is
+  // already being reopened or already back.
+  const reopening = useRef(new Set<ClosedTab>());
+  const reopenOne = useCallback(
+    async (entry: ClosedTab) => {
+      if (reopening.current.has(entry) || !closedList.current.includes(entry)) return false;
+      reopening.current.add(entry);
+      try {
+        await reopen(entry);
+        setClosedList(withoutClosed(closedList.current, entry));
+        return true;
+      } finally {
+        reopening.current.delete(entry);
+      }
+    },
+    [reopen, setClosedList],
+  );
   useEffect(() => {
-    reopenEntry.current = reopen;
-  }, [reopen]);
+    reopenAndForget.current = reopenOne;
+  }, [reopenOne]);
 
   const reopenClosed = useCallback(
     async (isLive: (connectionId: string) => boolean) => {
-      const { entry, rest } = takeClosed(closedList.current, isLive);
-      setClosedList(rest);
+      // Entries of a Connection that is gone are dropped here; the one taken
+      // stays listed until it is open.
+      const live = liveClosed(closedList.current, isLive);
+      setClosedList(live);
+      const entry = live.find((e) => !reopening.current.has(e));
       if (!entry) return false;
-      await reopen(entry);
-      return true;
+      return reopenOne(entry);
     },
-    [setClosedList, reopen],
+    [setClosedList, reopenOne],
   );
 
   return {

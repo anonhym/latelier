@@ -1,4 +1,5 @@
 import React from 'react';
+import { unsavedScriptTitles } from '../../state/closedTabs';
 import { api, isIpcError } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { disconnectConnection as disconnectWithNotify } from '../../features/connections/disconnectConnection';
@@ -19,7 +20,7 @@ export function useConnectionDialogs(deps: {
 }): {
   connectionFormTarget: 'new' | { id: string; focus?: 'password' } | null;
   deleteConnectionTarget: { id: string; name: string; tabCount: number } | null;
-  disconnectTarget: { id: string; name: string; tabCount: number } | null;
+  disconnectTarget: { id: string; name: string; tabCount: number; unsavedScripts: string[] } | null;
   disconnectReturnFocus: HTMLElement | null;
   connectionTable: { query: string; trigger: HTMLElement | null } | null;
   tableReturnFocus: HTMLElement | null;
@@ -69,7 +70,7 @@ export function useConnectionDialogs(deps: {
     { id: string; name: string; tabCount: number } | null
   >(null);
   const [disconnectTarget, setDisconnectTarget] = React.useState<
-    { id: string; name: string; tabCount: number } | null
+    { id: string; name: string; tabCount: number; unsavedScripts: string[] } | null
   >(null);
   // Dedicated field (not `tableReturnFocus`) so the navigator context menu's
   // return-focus target can't leak into the expanded table's dialogs.
@@ -95,8 +96,8 @@ export function useConnectionDialogs(deps: {
       // tabsRef loads over IPC one microtask after mount; refuse rather than
       // read an empty list as "no tabs" during that window.
       if (tabsRef.current.loading) return;
-      const tabCount = tabsRef.current.tabs.filter((t) => t.connectionId === id).length;
-      setDisconnectTarget({ id: conn.id, name: conn.name, tabCount });
+      const own = tabsRef.current.tabs.filter((t) => t.connectionId === id);
+      setDisconnectTarget({ id: conn.id, name: conn.name, tabCount: own.length, unsavedScripts: unsavedScriptTitles(own) });
       if (returnFocusTo) setDisconnectReturnFocus(returnFocusTo);
     },
     [connections, tabsRef],

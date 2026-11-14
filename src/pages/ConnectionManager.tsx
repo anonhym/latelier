@@ -7,6 +7,7 @@ import { ActionIcon, AppShell, Button, Tooltip } from '@mantine/core';
 import { useConnections } from '../state/connections';
 import { api, isIpcError } from '../api/atelier';
 import { logFailure } from '../utils/rendererLog';
+import { unsavedScriptTitles } from '../state/closedTabs';
 import { notify } from '../theme/notifications';
 import type { ConnectionSummary } from '@shared/types';
 import { invalidateSampleSchemaCache } from '../features/fieldSuggestions/sources/sampleSchemaSource';
@@ -99,21 +100,23 @@ export default function ConnectionManager() {
     { id: string; name: string; tabCount: number } | null
   >(null);
   const [disconnectTarget, setDisconnectTarget] = React.useState<
-    { id: string; name: string; tabCount: number } | null
+    { id: string; name: string; tabCount: number; unsavedScripts: string[] } | null
   >(null);
   const palette = usePaletteApi();
 
   // Shared by both dialogs' openers below (the header buttons and the
   // palette commands) — best-effort: a failed count still opens the dialog,
   // just naming zero rather than blocking the confirm on an IPC round trip.
-  const fetchTabCount = React.useCallback(async (id: string) => {
+  const fetchTabs = React.useCallback(async (id: string) => {
     try {
       const allTabs = await api.tabs.list();
-      return allTabs.filter((t) => t.connectionId === id).length;
-    } catch {
-      return 0;
+      return allTabs.filter((t) => t.connectionId === id);
+    } catch (err) {
+      logFailure('listing tabs for the confirmation', err);
+      return [];
     }
   }, []);
+  const fetchTabCount = React.useCallback(async (id: string) => (await fetchTabs(id)).length, [fetchTabs]);
 
   const selected = connections.find((c) => c.id === params.id) ?? null;
 
@@ -125,9 +128,9 @@ export default function ConnectionManager() {
   // Spec §4.6 — opens the confirm dialog; `confirmDisconnect` below
   // does the actual disconnect + tab close.
   const openDisconnectConfirm = React.useCallback(async (target: ConnectionSummary) => {
-    const tabCount = await fetchTabCount(target.id);
-    setDisconnectTarget({ id: target.id, name: target.name, tabCount });
-  }, [fetchTabCount]);
+    const own = await fetchTabs(target.id);
+    setDisconnectTarget({ id: target.id, name: target.name, tabCount: own.length, unsavedScripts: unsavedScriptTitles(own) });
+  }, [fetchTabs]);
 
   useRegisterCommands(
     [
@@ -253,6 +256,7 @@ export default function ConnectionManager() {
           <ConnectionDisconnectDialog
             name={disconnectTarget.name}
             tabCount={disconnectTarget.tabCount}
+            unsavedScripts={disconnectTarget.unsavedScripts}
             onCancel={closeDisconnectTarget}
             onConfirm={() => void confirmDisconnect()}
           />
