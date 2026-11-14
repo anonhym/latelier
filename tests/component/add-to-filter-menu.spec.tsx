@@ -436,7 +436,8 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       // An undefined-valued row has no `title` — it's no longer draggable,
       // so it no longer advertises "Drag to add". Select by field-name text
       // instead of the (absent) title.
-      const row = screen.getByText('ghost').closest('[draggable]');
+      // The collapsed preview also names the field, so take the occurrence that is a draggable row.
+      const row = screen.getAllByText('ghost').map((el) => el.closest('[draggable]')).find(Boolean);
       expect(row?.getAttribute('draggable')).toBe('false');
       fireEvent.contextMenu(row!);
 

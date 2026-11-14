@@ -48,7 +48,7 @@ describe('scrollMemory', () => {
   });
 
   it('refuses an offset that is negative or not a finite number', () => {
-    expect(() => rememberScroll('t1', 'Table', -1)).toThrow(RangeError);
+    expect(() => rememberScroll('t1', 'Table', -1)).toThrow(/finite number >= 0, got -1/);
     expect(() => rememberScroll('t1', 'Table', Number.NaN)).toThrow(RangeError);
     expect(() => rememberScroll('t1', 'Table', Number.POSITIVE_INFINITY)).toThrow(RangeError);
     expect(recallScroll('t1', 'Table')).toBe(0);

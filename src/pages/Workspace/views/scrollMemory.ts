@@ -12,6 +12,7 @@ export function rememberScroll(tabId: string, view: string, offset: number): voi
     throw new RangeError(`scroll offset must be a finite number >= 0, got ${offset}`);
   }
   // A view at the top is the default; storing it would only grow the map.
+  // Stryker disable next-line ConditionalExpression: storing 0 recalls as 0 too; this only keeps the map small
   if (offset === 0) offsets.delete(keyOf(tabId, view));
   else offsets.set(keyOf(tabId, view), offset);
 }

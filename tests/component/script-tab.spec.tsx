@@ -347,8 +347,8 @@ describe('ScriptTab', () => {
         onPatch={() => {}}
       />,
     );
-    // JsonView pretty-prints the doc inside a card
-    expect(container.textContent).toContain('"label"');
+    // JsonView writes the doc inside a card, in shell form
+    expect(container.textContent).toMatch(/label:\s*"singleton"/);
     expect(container.textContent).toContain('singleton');
   });
 });

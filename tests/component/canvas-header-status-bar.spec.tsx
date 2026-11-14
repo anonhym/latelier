@@ -131,7 +131,7 @@ describe('status bar', () => {
 describe('Expand document hint', () => {
   it.each([
     ['Tree', 'Expand document (Space)'],
-    ['Table', 'Expand document'],
+    ['Table', 'Expand document (⌥-click for every level)'],
   ] as const)('the %s view names its expand control on hover', (view, title) => {
     render(
       <CollectionWorkspaceProvider
