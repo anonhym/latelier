@@ -1,6 +1,6 @@
 # W11 — Mongo shell pane (REPL in a runner child)
 
-> **Status: Accepted.** §1–§7 shipped. §8, which renames the pane's entry point to "Console" and fixes its focus, clear and echo behaviour, is agreed and not built yet.
+> **Status: Implemented.** §1–§7 shipped. §8, which renames the pane's entry point to "Console" and fixes its focus, clear and echo behaviour, is built.
 
 ## Purpose
 
@@ -366,7 +366,7 @@ Behaviour:
 
 ## 8. Amendment — "Console", and the pane's small behaviours
 
-> **Accepted, not built.** It changes §4's renderer pane only.
+> It changes §4's renderer pane only.
 
 ### 8.1 The name
 

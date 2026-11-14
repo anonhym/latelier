@@ -35,8 +35,8 @@ export function TitleBar({
 }: TitleBarProps) {
   const T = themeVars;
   const shellTooltip = shellAvailable
-    ? 'Toggle Mongo shell pane'
-    : 'Open a connection to use the shell';
+    ? 'Interactive shell for the focused connection (⌃`)'
+    : 'Open a connection to use the Console';
   return (
     <Group
       gap={themeVars.gapSm}
@@ -123,7 +123,7 @@ export function TitleBar({
           leftSection={I.terminal}
           style={NO_DRAG}
         >
-          Shell
+          Console
         </Button>
       </Tooltip>
       <Tooltip label="Settings" withArrow>

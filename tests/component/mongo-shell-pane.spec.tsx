@@ -646,3 +646,154 @@ describe('MongoShellPane', () => {
     }));
   });
 });
+
+describe('MongoShellPane Console behaviours (W11 §8.2)', () => {
+  function install() {
+    let outputCb: ((evt: ShellOutputEvent) => void) | null = null;
+    const mshell = {
+      start: vi.fn<IpcApi['mshell']['start']>(async () => ({
+        sessionId: 's1',
+        connectionId: 'c1',
+        startedAt: new Date().toISOString(),
+      })),
+      write: vi.fn<IpcApi['mshell']['write']>(async () => undefined),
+      stop: vi.fn<IpcApi['mshell']['stop']>(async () => undefined),
+      list: async () => [],
+      onOutput: (cb: (evt: ShellOutputEvent) => void) => {
+        outputCb = cb;
+        return () => {
+          outputCb = null;
+        };
+      },
+    };
+    installAtelierMock({ mshell });
+    return {
+      mshell,
+      out: (data: string) => act(() => outputCb!({ sessionId: 's1', kind: 'stdout', data })),
+    };
+  }
+
+  async function readyInput(): Promise<HTMLInputElement> {
+    const input = (await screen.findByLabelText('Mongo shell input')) as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    return input;
+  }
+
+  const outputText = () => screen.getByTestId('mongo-shell-output').textContent ?? '';
+
+  it('moves focus into the input once the session is ready, when it was on the opening button', async () => {
+    install();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    try {
+      mount();
+      const input = await readyInput();
+      await waitFor(() => expect(document.activeElement).toBe(input));
+    } finally {
+      opener.remove();
+    }
+  });
+
+  it('does not take focus from a field the user moved to while the shell started', async () => {
+    install();
+    const other = document.createElement('input');
+    document.body.appendChild(other);
+    try {
+      mount();
+      other.focus();
+      await readyInput();
+      expect(document.activeElement).toBe(other);
+    } finally {
+      other.remove();
+    }
+  });
+
+  it('Escape in the input returns focus to where it was before the pane took it, and stops there', async () => {
+    install();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const parentKey = vi.fn();
+    try {
+      render(
+        <div onKeyDown={parentKey}>{paneElement()}</div>,
+      );
+      const input = await readyInput();
+      await waitFor(() => expect(document.activeElement).toBe(input));
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(document.activeElement).toBe(opener);
+      expect(parentKey).not.toHaveBeenCalled();
+    } finally {
+      opener.remove();
+    }
+  });
+
+  it('Escape with nowhere to return to just leaves the input', async () => {
+    install();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    mount();
+    const input = await readyInput();
+    opener.remove();
+    input.focus();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('Ctrl+L and the Clear button empty the output, keep the prompt, the session and the history', async () => {
+    const { mshell, out } = install();
+    mount();
+    const input = await readyInput();
+    await out('shop> ');
+    fireEvent.change(input, { target: { value: 'db.a.find()' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await out('[]\nshop> ');
+    expect(outputText()).toContain('db.a.find()');
+
+    fireEvent.keyDown(input, { key: 'l', ctrlKey: true });
+    expect(outputText()).toBe('shop> ');
+
+    await out('1\nshop> ');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(outputText()).toBe('shop> ');
+    expect(document.activeElement).toBe(input);
+
+    expect(mshell.stop).not.toHaveBeenCalled();
+    expect(mshell.start).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input.value).toBe('db.a.find()');
+  });
+
+  it('Ctrl+L does nothing with Cmd or Shift held', async () => {
+    const { out } = install();
+    mount();
+    const input = await readyInput();
+    await out('hello\n');
+    fireEvent.keyDown(input, { key: 'l', ctrlKey: true, metaKey: true });
+    fireEvent.keyDown(input, { key: 'l', ctrlKey: true, shiftKey: true });
+    expect(outputText()).toContain('hello');
+  });
+
+  it('echoes a command after the prompt the shell printed, as one prompt', async () => {
+    const { out } = install();
+    mount();
+    const input = await readyInput();
+    await out('shop> ');
+    fireEvent.change(input, { target: { value: 'db.orders.countDocuments({})' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(outputText()).toContain('shop> db.orders.countDocuments({})\n');
+    expect(outputText()).not.toContain('> >');
+  });
+
+  it('stands a bare prompt in for the echo when none is showing', async () => {
+    const { out } = install();
+    mount();
+    const input = await readyInput();
+    await out('still printing\n');
+    fireEvent.change(input, { target: { value: 'db.a.find()' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(outputText()).toContain('still printing\n> db.a.find()\n');
+  });
+});

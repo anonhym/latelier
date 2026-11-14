@@ -94,14 +94,14 @@ afterEach(() => {
 });
 
 describe('palette: shell and structure entries', () => {
-  it('"Shell" opens the Mongo shell pane and closes it again, the palette staying open on its row', async () => {
+  it('"Console" opens the Mongo shell pane and closes it again, the palette staying open on its row', async () => {
     const { start } = mount([collectionTab()]);
     await screen.findByLabelText('Close orders');
     expect(screen.queryByTestId('mongo-shell-pane')).toBeNull();
 
     fireEvent.click(screen.getByText('toggle'));
     fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: 'shell' } });
-    const row = () => within(screen.getByRole('dialog')).getByRole('option', { name: /^Shell/ });
+    const row = () => within(screen.getByRole('dialog')).getByRole('option', { name: /^Console/ });
     fireEvent.click(row());
 
     expect(await screen.findByTestId('mongo-shell-pane')).toBeTruthy();
@@ -190,13 +190,13 @@ describe('palette: shell and structure entries', () => {
     await screen.findByLabelText('Close Script');
     expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to schema']));
     expect(paletteTitles('go to')).not.toEqual(expect.arrayContaining(['Go to indexes']));
-    expect(paletteTitles('shell')).toContain('Shell');
+    expect(paletteTitles('shell')).toContain('Console');
   });
 
   it('offers no shell entry when no connection is focused', async () => {
     mount([]);
     await waitFor(() => expect(screen.getByText('toggle')).toBeTruthy());
-    expect(paletteTitles('shell')).not.toContain('Shell');
+    expect(paletteTitles('shell')).not.toContain('Console');
     expect(paletteTitles('schema')).not.toContain('Go to schema');
   });
 });

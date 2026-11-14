@@ -26,7 +26,7 @@ test('mongo shell ui: open pane, run a ping command, output renders', async () =
 
     await expectConsoleClean(win, async () => {
       // Insert a doc so the navigator surfaces a user DB; opening a collection
-      // tab is required for the Shell button to enable (the title-bar toggle
+      // tab is required for the Console button to enable (the title-bar toggle
       // only un-disables when `shellAvailable = !!shellConnection`, which is
       // the Focused Tab's Connection gated on there being an open tab).
       await seedActiveConnectionWithDocs(
@@ -40,14 +40,14 @@ test('mongo shell ui: open pane, run a ping command, output renders', async () =
       await ws.openCollectionFromNavigator('shop', 'orders');
 
       // Toggle the shell pane via the title-bar button.
-      // The button's accessible name is its visible text "Shell"; Mantine's
+      // The button's accessible name is its visible text "Console"; Mantine's
       // Tooltip surfaces the longer label via aria-describedby.
       // `exact` matters: this connection is named "Shell Target", and the
       // TitleBar's Connection name is itself a button (the Connection
       // Switcher trigger) sitting in the same title bar. Playwright's `name`
       // is a case-insensitive substring match by default, so without `exact`
       // this resolves to both buttons and fails strict mode.
-      await win.getByRole('button', { name: 'Shell', exact: true }).click();
+      await win.getByRole('button', { name: 'Console', exact: true }).click();
 
       // Shell input has a stable aria-label.
       const shellInput = win.locator('input[aria-label="Mongo shell input"]');
@@ -67,8 +67,21 @@ test('mongo shell ui: open pane, run a ping command, output renders', async () =
       await shellInput.fill('await db.runCommand({ ping: 1 })');
       await shellInput.press('Enter');
 
+      // The command is echoed after the REPL's own prompt: one prompt, not `shop> > …`.
+      const shellOut = win.getByTestId('mongo-shell-output');
+      await expect(shellOut).toContainText('shop> await db.runCommand({ ping: 1 })');
+      await expect(shellOut).not.toContainText('> >');
+
       // The output area renders `"ok": 1` once the result returns.
       await expect(win.getByText(/"ok":\s*1/).first()).toBeVisible({ timeout: 10000 });
+
+      // Ctrl+L clears the output and keeps the session going.
+      await expect(shellInput).toBeFocused();
+      await shellInput.press('Control+l');
+      await expect(shellOut).not.toContainText('"ok"');
+      await shellInput.fill('1 + 1');
+      await shellInput.press('Enter');
+      await expect(shellOut).toContainText('2', { timeout: 10000 });
     });
   });
 });

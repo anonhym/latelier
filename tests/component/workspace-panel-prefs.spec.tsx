@@ -251,7 +251,7 @@ describe('workspace panel prefs (T4)', () => {
 
     // Open the shell pane so its own split handle renders (Workspace.tsx
     // only mounts it while `shellOpen && focusedConnection`).
-    fireEvent.click(titleBar().getByRole('button', { name: 'Shell' }));
+    fireEvent.click(titleBar().getByRole('button', { name: 'Console' }));
     const shellHandle = await screen.findByRole('separator', { name: 'Resize shell pane' });
     fireEvent.keyDown(shellHandle, { key: 'ArrowUp' });
     await waitFor(() =>
