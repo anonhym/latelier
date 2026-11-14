@@ -278,8 +278,16 @@ describe('preview tab in the mounted Workspace', () => {
 
     fireEvent.click(await screen.findByTestId('nav-coll-db-bravo'));
     const strip = within(screen.getByRole('tablist', { name: 'Open tabs' }));
-    await waitFor(() => expect(strip.getAllByRole('tab').map((t) => t.getAttribute('aria-label'))).toEqual(['bravo — Prod']));
-    expect(strip.getByRole('tab').getAttribute('data-preview')).toBe('true');
+    // Italic is not the only cue: the accessible name and the tooltip say it.
+    await waitFor(() => expect(strip.getAllByRole('tab').map((t) => t.getAttribute('aria-label'))).toEqual(['bravo — Prod (preview)']));
+    const tab = strip.getByRole('tab', { name: 'bravo — Prod (preview)' });
+    expect(tab.getAttribute('data-preview')).toBe('true');
+    expect(tab.getAttribute('title')).toMatch(/Preview: the next single click replaces it/);
+
+    // An edit keeps it, and the cue goes.
+    fireEvent.doubleClick(tab);
+    await waitFor(() => expect(strip.getByRole('tab').getAttribute('aria-label')).toBe('bravo — Prod'));
+    expect(strip.getByRole('tab').getAttribute('title')).not.toMatch(/Preview/);
     expect(s.close).toHaveBeenCalledTimes(1);
   });
 });

@@ -324,11 +324,11 @@ export function TabStrip({
                   // style alone is too fragile for Playwright to assert on.
                   data-dormant={dormant || undefined}
                   data-preview={preview || undefined}
-                  title={
+                  title={`${
                     tab.kind === 'collection'
                       ? `${name} · ${tab.dbName}.${tab.collection}`
                       : `${name} · ${label}`
-                  }
+                  }${preview ? '\nPreview: the next single click replaces it' : ''}`}
                   draggable
                   onDragStart={() => {
                     onKeep(tab.id);
@@ -386,9 +386,8 @@ export function TabStrip({
                   // The Connection is in the name too: a tab that only says
                   // "orders" does not tell a screen-reader user which server
                   // the query would run against.
-                  aria-label={
-                    readOnly ? `${label} — ${name} (read-only)` : `${label} — ${name}`
-                  }
+                  // The italic label is a visual cue only; the name says "preview" too.
+                  aria-label={`${label} — ${name}${readOnly ? ' (read-only)' : ''}${preview ? ' (preview)' : ''}`}
                   tabIndex={active ? 0 : -1}
                   style={{
                     display: 'flex',
