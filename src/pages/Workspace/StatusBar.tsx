@@ -146,8 +146,9 @@ function ResultStatusContent() {
   const rangeLabel =
     start !== null && end !== null && docCount !== 0 ? `${start.toLocaleString()}–${end.toLocaleString()}` : null;
   // The merged forms drop words, never facts: the rest stays one hover away.
-  const countDetail = `${totalLabel} results${duration !== null ? ` · ${duration} ms` : ''}${
-    rangeLabel ? ` · showing ${rangeLabel}` : ''
+  const noun = (totalCount ?? docCount) === 1 && !hasMore ? 'document' : 'documents';
+  const countDetail = `${totalLabel} ${noun}${duration !== null ? ` · ${duration} ms` : ''}${
+    rangeLabel ? ` · ${rangeLabel} of ${totalLabel}` : ''
   }`;
 
   // Patch + re-run with the same override so `run` doesn't close over a stale `page`.
@@ -203,7 +204,7 @@ function ResultStatusContent() {
             >
               {countForm === 'full' && (
                 <>
-                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> results
+                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
                   {duration !== null && (
                     <>
                       {' · '}
@@ -211,8 +212,7 @@ function ResultStatusContent() {
                     </>
                   )}
                   {/* An empty page has no range: "1–0" reads as a bug. */}
-                  {' · '}
-                  <span>{rangeLabel ? `showing ${rangeLabel}` : 'nothing to show'}</span>
+                  {rangeLabel && <span>{` · ${rangeLabel} of ${totalLabel}`}</span>}
                 </>
               )}
               {countForm === 'range' &&
@@ -222,12 +222,12 @@ function ResultStatusContent() {
                   </>
                 ) : (
                   <>
-                    <CountFigure stale={isStale}>{totalLabel}</CountFigure> results
+                    <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
                   </>
                 ))}
               {countForm === 'total' && (
                 <>
-                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> results
+                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
                 </>
               )}
               {/* W01 §14.6: the duration is always shown, whatever else gives way. */}

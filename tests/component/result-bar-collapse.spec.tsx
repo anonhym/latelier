@@ -109,23 +109,23 @@ describe('ResultBar collapses by width alone', () => {
   });
 
   it.each([
-    [320, /60 results/, /showing 1–50/],
+    [320, /60 documents/, /1–50 of 60/],
     [200, /1–50 of 60/, /^$/],
-    [150, /60 results/, /^$/],
+    [150, /60 documents/, /^$/],
   ])('at a %i px count the count merges, with the rest in a tooltip', (width, shown, also) => {
     giveCountWidth(width);
     render(bar(barState()));
     const slot = screen.getByTestId('result-count-slot');
     expect(slot.textContent).toMatch(shown);
     if (also.source !== '^$') expect(slot.textContent).toMatch(also);
-    else expect(slot.querySelector('[title*="showing 1–50"]')).not.toBeNull();
+    else expect(slot.querySelector('[title*="1–50 of 60"]')).not.toBeNull();
   });
 
   it('the narrowest count keeps the noun and the duration, and marks a stale result with a dot', () => {
     giveCountWidth(150);
     render(bar(barState({ queryRaw: '{ bad:' })));
     const slot = screen.getByTestId('result-count-slot');
-    expect(slot.textContent).toBe('60 results · 2 ms');
+    expect(slot.textContent).toBe('60 documents · 2 ms');
     const dot = within(slot).getByRole('img', { name: 'Not current' });
     expect(dot.textContent).toBe('');
   });

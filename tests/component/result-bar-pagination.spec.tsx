@@ -274,12 +274,17 @@ describe('ResultBar - the limit that caps the results is visible beside the coun
 
   it('names an empty page instead of showing the range "1–0"', () => {
     renderBar({ page: 0, pageSize: 50, totalCount: 0, docCount: 0, durationMs: 5 });
-    expect(screen.queryByText(/showing/)).toBeNull();
-    expect(screen.getByText('nothing to show')).toBeTruthy();
+    const text = screen.getByTestId('result-count-slot').textContent;
+    expect(text).toBe('0 documents · 5 ms');
+  });
+
+  it('says "1 document" in the singular', () => {
+    renderBar({ page: 0, pageSize: 50, totalCount: 1, docCount: 1, durationMs: 5 });
+    expect(screen.getByTestId('result-count-slot').textContent).toBe('1 document · 5 ms · 1–1 of 1');
   });
 
   it('still shows the range for a page that has documents', () => {
     renderBar({ page: 0, pageSize: 50, totalCount: 3, docCount: 3, durationMs: 5 });
-    expect(screen.getByText('showing 1–3')).toBeTruthy();
+    expect(screen.getByText(/1–3 of 3/)).toBeTruthy();
   });
 });
