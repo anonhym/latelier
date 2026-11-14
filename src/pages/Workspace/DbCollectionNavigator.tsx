@@ -1489,6 +1489,7 @@ export function DbCollectionNavigator({
           onClose={closeImport}
           onImported={handleImported}
           onPartialImport={handleImported}
+          onUndone={handleImported}
         />
       )}
 

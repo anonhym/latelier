@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
 
@@ -28,6 +29,7 @@ function renderBar(o: { queryRaw?: string; isLoading?: boolean; isReadOnly?: boo
   const meta = emptyWorkspaceMeta({ isLoading: o.isLoading ?? false, isReadOnly: o.isReadOnly });
   render(
     <CollectionWorkspaceProvider state={makeState(o.queryRaw)} actions={actions} meta={meta}>
+      <StatusBar connection={null} />
       <ResultBar />
     </CollectionWorkspaceProvider>,
   );

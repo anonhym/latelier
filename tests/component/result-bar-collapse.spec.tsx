@@ -2,16 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
 
-/** jsdom has no layout: this gives the bar, and only the bar, a width. */
-function giveBarWidth(width: number) {
+/**
+ * jsdom has no layout: this gives the canvas header and the status bar's count
+ * their own widths, and nothing else one.
+ */
+function giveWidths(header: number, count = 1000) {
   const native = Element.prototype.getBoundingClientRect;
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: Element) {
-    return this.matches('[data-testid="result-bar"]') ? ({ width } as DOMRect) : native.call(this);
+    if (this.matches('[data-testid="result-bar"]')) return { width: header } as DOMRect;
+    if (this.matches('[data-testid="result-count-slot"]')) return { width: count } as DOMRect;
+    return native.call(this);
   });
 }
+const giveBarWidth = (width: number) => giveWidths(width);
+const giveCountWidth = (width: number) => giveWidths(1000, width);
 
 const RUN = { documents: new Array(50).fill({}), durationMs: 2, ranAt: '2026-01-01T00:00:00.000Z' };
 
@@ -36,6 +44,7 @@ function bar(state: CollectionTabState, isLoading = false) {
       actions={emptyWorkspaceActions()}
       meta={emptyWorkspaceMeta({ isLoading })}
     >
+      <StatusBar connection={null} />
       <ResultBar />
     </CollectionWorkspaceProvider>
   );
@@ -48,7 +57,7 @@ function controlForms() {
     const b = within(root).getByRole('button', { name });
     return `${b.getAttribute('aria-label') ?? b.textContent}:${b.classList.contains('mantine-ActionIcon-root') ? 'icon' : 'label'}`;
   };
-  return [form(/^Fields/), form(/^Insert document/), form(/^Documents/)];
+  return [form(/^Fields/), form(/^Insert document/)];
 }
 
 beforeEach(() => installAtelierMock());
@@ -59,8 +68,8 @@ afterEach(() => {
 
 describe('ResultBar collapses by width alone', () => {
   it.each([
-    [792, 'label'],
-    [686, 'icon'],
+    [400, 'label'],
+    [399, 'icon'],
   ])('at %i px every state keeps the same control forms', (width, form) => {
     giveBarWidth(width);
     const { rerender } = render(bar(barState()));
@@ -82,35 +91,37 @@ describe('ResultBar collapses by width alone', () => {
   });
 
   it('icon-only controls keep their accessible names', () => {
-    giveBarWidth(686);
+    giveBarWidth(399);
     render(bar(barState()));
     const root = screen.getByTestId('result-bar');
-    for (const name of ['Fields', 'Insert document', 'Documents']) {
+    for (const name of ['Fields', 'Insert document', 'More actions']) {
       const b = within(root).getByRole('button', { name });
       expect(b.querySelector('svg')).not.toBeNull();
     }
   });
 
   it('marks a changed Fields view on the icon, so it does not hide behind a click', () => {
-    giveBarWidth(686);
+    giveBarWidth(399);
     const { rerender } = render(bar(barState()));
     expect(screen.queryByTestId('fields-changed-mark')).toBeNull();
     rerender(bar(barState({ columnConfig: { hidden: ['a'] } })));
     expect(screen.getByTestId('fields-changed-mark')).toBeTruthy();
   });
 
-  it('Tree, JSON and Table keep their words at every width', () => {
-    giveBarWidth(520);
+  it('Table, Tree and JSON keep their words at every width, in that order', () => {
+    giveBarWidth(320);
     render(bar(barState()));
+    const views = within(screen.getByRole('radiogroup')).getAllByRole('radio').map((r) => r.getAttribute('value'));
+    expect(views).toEqual(['Table', 'Tree', 'JSON']);
     for (const view of ['Tree', 'JSON', 'Table']) expect(screen.getByText(view)).toBeTruthy();
   });
 
   it.each([
-    [1066, /60 results/, /showing 1–50/],
-    [792, /1–50 of 60/, /^$/],
-    [579, /60 results/, /^$/],
-  ])('at %i px the count merges, with the rest in a tooltip', (width, shown, also) => {
-    giveBarWidth(width);
+    [320, /60 results/, /showing 1–50/],
+    [200, /1–50 of 60/, /^$/],
+    [150, /60 results/, /^$/],
+  ])('at a %i px count the count merges, with the rest in a tooltip', (width, shown, also) => {
+    giveCountWidth(width);
     render(bar(barState()));
     const slot = screen.getByTestId('result-count-slot');
     expect(slot.textContent).toMatch(shown);
@@ -118,14 +129,14 @@ describe('ResultBar collapses by width alone', () => {
     else expect(slot.querySelector('[title*="showing 1–50"]')).not.toBeNull();
   });
 
-  it('the narrowest bar spends its room on "not current" rather than the noun', () => {
-    giveBarWidth(579);
+  it('the narrowest count spends its room on "not current" rather than the noun', () => {
+    giveCountWidth(150);
     render(bar(barState({ queryRaw: '{ bad:' })));
     expect(screen.getByTestId('result-count-slot').textContent).toBe('60· not current');
   });
 
-  it('everything that depends on the query sits in the flexible slot, not among the anchored controls', () => {
-    giveBarWidth(792);
+  it('everything that depends on the query sits in the status bar\'s flexible slot, not in the canvas header', () => {
+    giveCountWidth(320);
     render(
       bar(
         barState({
@@ -141,11 +152,17 @@ describe('ResultBar collapses by width alone', () => {
     expect(slot.contains(screen.getByTestId('result-count-stale'))).toBe(true);
     expect(slot.contains(screen.getByTestId('result-limit-cap'))).toBe(true);
     expect(slot.contains(screen.getByTestId('plan-badge'))).toBe(true);
+    expect(screen.getByTestId('status-bar').contains(slot)).toBe(true);
+    expect(screen.getByTestId('result-bar').contains(slot)).toBe(false);
   });
 
-  it('wraps rather than clips only at a width reachable by dragging the panes', () => {
-    giveBarWidth(460);
+  it('the canvas header is one 28px row at the narrowest pane, with no pager in it', () => {
+    giveBarWidth(320);
     render(bar(barState()));
-    expect(screen.getByTestId('result-bar').style.getPropertyValue('--group-wrap')).toBe('wrap');
+    const header = screen.getByTestId('result-bar');
+    expect(header.style.height).toBe('28px');
+    expect(header.style.getPropertyValue('--group-wrap')).toBe('nowrap');
+    expect(within(header).queryByRole('button', { name: 'Next page' })).toBeNull();
+    expect(within(screen.getByTestId('status-bar')).getByRole('button', { name: 'Next page' })).toBeTruthy();
   });
 });

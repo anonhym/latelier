@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within, act, emptyWorkspaceActions, emptyWor
 import { _resetTabRequestsForTests, tabRequested, requestTab } from '../../src/pages/Workspace/tabRequest';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { notify } from '../../src/theme/notifications';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
@@ -43,6 +44,7 @@ function renderBar(
   const meta = emptyWorkspaceMeta(metaOverrides);
   render(
     <CollectionWorkspaceProvider state={makeState(stateOverrides)} actions={actions} meta={meta}>
+      <StatusBar connection={null} />
       <ResultBar />
     </CollectionWorkspaceProvider>,
   );
@@ -50,7 +52,7 @@ function renderBar(
 }
 
 async function openExportDialog() {
-  const trigger = await screen.findByRole('button', { name: 'Documents' });
+  const trigger = await screen.findByRole('button', { name: 'More actions' });
   fireEvent.click(trigger);
   const item = await screen.findByRole('menuitem', { name: /Export…/ });
   fireEvent.click(item);
@@ -60,12 +62,12 @@ async function openExportDialog() {
 describe('ResultBar — Export', () => {
   it('is absent in a read-only provider, along with the rest of the Documents menu', () => {
     renderBar({}, { isReadOnly: true });
-    expect(screen.queryByRole('button', { name: 'Documents' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
   it('is disabled with no run yet (no Export…, matching Delete all matching)', async () => {
     renderBar({ lastRun: undefined });
-    const trigger = await screen.findByRole('button', { name: 'Documents' });
+    const trigger = await screen.findByRole('button', { name: 'More actions' });
     fireEvent.click(trigger);
     const item = await screen.findByRole('menuitem', { name: /Export…/ });
     expect((item as HTMLButtonElement).disabled).toBe(true);

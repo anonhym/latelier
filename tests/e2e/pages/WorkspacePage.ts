@@ -98,17 +98,17 @@ export class WorkspacePage {
   /** The QueryBar "Run options" chevron — opens the Run/Explain menu. */
   get queryBarRunOptionsButton() { return this.win.locator('[data-testid="query-run-options-btn"]'); }
 
-  /** ResultBar "Documents" menu trigger — hosts bulk/destructive document actions. */
-  get resultOverflowMenuButton() { return this.win.getByRole('button', { name: 'Documents' }); }
+  /** The canvas header's `⋯` menu trigger — hosts bulk and data actions. */
+  get resultOverflowMenuButton() { return this.win.getByRole('button', { name: 'More actions' }); }
 
-  /** "Delete all matching…" item inside the ResultBar "Documents" menu. */
+  /** "Delete matching…" item inside the canvas header's `⋯` menu. */
   get deleteAllMatchingMenuItem() {
-    return this.win.getByRole('menuitem', { name: /Delete all matching/ });
+    return this.win.getByRole('menuitem', { name: /Delete matching/ });
   }
 
-  /** "Update all matching…" item inside the ResultBar "Documents" menu. */
+  /** "Update matching…" item inside the canvas header's `⋯` menu. */
   get updateAllMatchingMenuItem() {
-    return this.win.getByRole('menuitem', { name: /Update all matching/ });
+    return this.win.getByRole('menuitem', { name: /Update matching/ });
   }
 
   // T0.4 — contextual bulk-action bar, visible once ≥1 result row is selected.

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -108,7 +108,7 @@ describe('Workspace pagination navigation', () => {
     // Wait for the Last button to become enabled (it gates on totalPages,
     // which only appears after count() resolves).
     const lastBtn = await screen.findByLabelText('Last page');
-    await waitFor(() => expect((lastBtn as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(lastBtn.getAttribute('aria-disabled')).toBeNull());
 
     fireEvent.click(lastBtn);
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(2));
@@ -119,7 +119,7 @@ describe('Workspace pagination navigation', () => {
     // closure bug used to surface. Without the fix the request would carry
     // skip=1250 from the previous render's closure.
     const firstBtn = await screen.findByLabelText('First page');
-    await waitFor(() => expect((firstBtn as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(firstBtn.getAttribute('aria-disabled')).toBeNull());
     fireEvent.click(firstBtn);
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(3));
@@ -170,7 +170,7 @@ describe('Workspace pagination navigation', () => {
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
 
     const nextBtn = await screen.findByLabelText('Next page');
-    await waitFor(() => expect((nextBtn as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(nextBtn.getAttribute('aria-disabled')).toBeNull());
     fireEvent.click(nextBtn);
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(2));
     expect(findSpy.mock.calls[1]?.[0]?.skip).toBe(50);
@@ -180,9 +180,44 @@ describe('Workspace pagination navigation', () => {
     expect(findSpy.mock.calls[2]?.[0]?.skip).toBe(100);
 
     const prevBtn = await screen.findByLabelText('Previous page');
-    await waitFor(() => expect((prevBtn as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(prevBtn.getAttribute('aria-disabled')).toBeNull());
     fireEvent.click(prevBtn);
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(4));
     expect(findSpy.mock.calls[3]?.[0]?.skip).toBe(50);
+  });
+});
+
+describe('the pager lives in the status bar', () => {
+  it('leaves with the Documents view and comes back on the same page', async () => {
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab({ state: { ...makeCollectionTab().state, page: 2 } })],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: {
+        list: async () => [
+          { id: 'c1', name: 'Local', color: '#1A6835', host: 'localhost', port: 27017, connectionType: 'standard', readOnly: false, status: 'connected' },
+        ],
+      },
+      query: {
+        find: async () => ({ documents: [{ _id: 1 }], durationMs: 1, hasMore: true }),
+        count: async () => ({ count: 1284 }),
+      },
+    });
+    mountWorkspace();
+    const statusBar = await screen.findByRole('contentinfo', { name: 'Status bar' });
+    // Drawn below the canvas by the grid, and after it for Tab and a screen
+    // reader too: the pager is reached once the results have been.
+    expect(screen.getByRole('main').compareDocumentPosition(statusBar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await waitFor(() => expect(within(statusBar).getByTestId('page-label').textContent).toMatch(/^3/));
+    expect(within(screen.getByTestId('result-bar')).queryByTestId('page-label')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Aggregation' }));
+    await waitFor(() => expect(within(statusBar).queryByTestId('page-label')).toBeNull());
+    expect(within(statusBar).getByTestId('status-connection').textContent).toMatch(/^Local · localhost/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Documents' }));
+    await waitFor(() => expect(within(statusBar).getByTestId('page-label').textContent).toMatch(/^3/));
   });
 });

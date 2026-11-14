@@ -2,6 +2,7 @@ import React from 'react';
 import type { IpcApi } from '@shared/ipc';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act, within } from '../helpers/render';
+import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
 import userEvent from '@testing-library/user-event';
 import { DarkCtx } from '../../src/ThemeContext';
 import { AggregationTab } from '../../src/pages/Workspace/Aggregation/AggregationTab';
@@ -637,6 +638,25 @@ describe('AggregationTab — field-suggestion sample after a write run', () => {
     expect(run.mock.calls[1]![0]).toMatchObject({ allowWrite: true });
     await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
     await waitFor(() => expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  // The `$out`/`$merge` target is parsed in main, so the renderer can't name
+  // it: every undo on the Connection goes, or ⌘Z could reach past the write.
+  it('a confirmed write run drops every undo on the Connection, even when it fails part-way', async () => {
+    const ns = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
+    recordUndo(ns, { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} });
+    const run = vi.fn(async (input: { allowWrite?: boolean }) => {
+      throw input.allowWrite ? { code: 'INTERNAL', message: 'merge failed' } : writeBlocked;
+    });
+    installAtelierMock({ agg: { run: run as never, cancel: async () => undefined } });
+    renderStatefulTab({ ...DEFAULT_AGGREGATION_TAB_STATE, stages: WRITE_STAGES });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(latestUndo(ns)).toBeDefined();
+    fireEvent.click(await screen.findByRole('button', { name: 'Proceed' }));
+
+    await waitFor(() => expect(latestUndo(ns)).toBeUndefined());
+    clearUndoStore();
   });
 
   it('is dropped even when the confirmed write run fails part-way', async () => {

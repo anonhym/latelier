@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState, ResultViewMode } from '@shared/types';
 
@@ -27,6 +28,7 @@ function renderBar(view: ResultViewMode) {
       actions={emptyWorkspaceActions()}
       meta={emptyWorkspaceMeta()}
     >
+      <StatusBar connection={null} />
       <ResultBar />
     </CollectionWorkspaceProvider>,
   );

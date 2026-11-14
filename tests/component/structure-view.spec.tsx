@@ -1092,9 +1092,9 @@ describe('Structure view — header count across view switches', () => {
       </MemoryRouter>,
     );
 
-    // Matched by the header's own text: Structure's statistics also print the count.
+    // Matched by the header's own test id: Schema & indexes' statistics also print the count.
     const headerStats = (n: number) =>
-      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.startsWith(`${n} docs in collection`));
+      screen.getAllByTestId('collection-figures').find((el) => el.textContent?.startsWith(`${n} documents`));
     await waitFor(() => expect(headerStats(10)).toBeTruthy());
 
     await waitFor(() => expect(collectionDetails).toHaveBeenCalled());

@@ -257,3 +257,11 @@ a { text-decoration: none; }
     scroll-behavior: auto !important;
   }
 }
+
+/* W06 §8.3: a row's selection checkbox shows on that row's hover and focus,
+   and on every row once anything is selected. Hidden by opacity, not display,
+   so it stays clickable and in the focus order, and no column ever moves. */
+[data-select-toggle]:not([aria-pressed='true']) { opacity: 0; }
+:is([role='row'], [role='treeitem']):hover [data-select-toggle],
+:is([role='row'], [role='treeitem']):focus-within [data-select-toggle],
+[data-has-selection] [data-select-toggle] { opacity: 1; }

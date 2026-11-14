@@ -128,11 +128,11 @@ describe('workspace doc dialogs (T2)', () => {
     });
     mount({ meta: { collectionDetails }, doc: { insert } });
 
-    // Matched by its own textContent ("N docs · 1 indexes") rather than a
+    // Matched by its own textContent ("N documents · 1 index") rather than a
     // bare digit — a bare "1" also matches pagination/row-count text
     // elsewhere in the mounted Workspace.
     const headerStats = (n: number) =>
-      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.startsWith(`${n} docs`));
+      screen.getByText((_, el) => el?.getAttribute('data-testid') === 'collection-figures' && el.textContent?.startsWith(`${n} document`));
 
     await screen.findByText(/widget/);
     await waitFor(() => expect(headerStats(1)).toBeTruthy());

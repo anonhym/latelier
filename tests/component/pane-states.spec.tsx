@@ -44,16 +44,19 @@ function Stateful({
   onRun,
   onClearFilter = noop,
   onQueryReplaced,
+  onInsert,
   meta,
 }: {
   initial: CollectionTabState;
   onRun?: (override?: Partial<CollectionTabState>) => void;
   onClearFilter?: () => void;
   onQueryReplaced?: () => void;
+  onInsert?: () => void;
   meta?: Partial<CollectionWorkspaceMeta>;
 }) {
   const [state, setState] = useState(initial);
   const actions = emptyWorkspaceActions({
+    ...(onInsert ? { openInsert: onInsert } : {}),
     patch: (p) => setState((s) => ({ ...s, ...p })),
     run: (override) => {
       onRun?.(override);
@@ -90,14 +93,18 @@ describe('one pane state for everything that is not rows', () => {
     expect(onClearFilter).toHaveBeenCalledTimes(1);
   });
 
-  it('an empty collection offers an import, and a view that takes no writes a re-run', () => {
-    const { unmount } = render(<Stateful initial={makeState({ lastRun: lastRun() })} />);
+  it('an empty collection offers Insert document and Import, and a view that takes no writes a re-run', async () => {
+    const onInsert = vi.fn();
+    const { unmount } = render(<Stateful initial={makeState({ lastRun: lastRun() })} onInsert={onInsert} />);
     expect(screen.getByTestId('pane-state').textContent).toContain('This collection is empty');
-    expect(screen.getByRole('button', { name: /import documents/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Import…' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Insert document' }));
+    expect(onInsert).toHaveBeenCalledOnce();
     unmount();
 
     render(<Stateful initial={makeState({ lastRun: lastRun() })} meta={{ isView: true }} />);
-    expect(screen.queryByRole('button', { name: /import documents/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Import…' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Insert document' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Run again' })).toBeTruthy();
   });
 

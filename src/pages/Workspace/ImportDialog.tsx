@@ -15,6 +15,7 @@ import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { offerUndo } from './offerUndo';
+import { forgetUndo, rerunCollection } from './undoStore';
 
 interface ImportDialogProps {
   connectionId: string;
@@ -30,6 +31,9 @@ interface ImportDialogProps {
    *  the host refreshes whatever lists it (same role as DocumentEditor's
    *  `onPartialInsert`). */
   onPartialImport: () => void;
+  /** Called after an Undo of the import, beside the re-run of every open tab
+   *  on the collection, for whatever else the host lists (the navigator's counts). */
+  onUndone?: () => void;
   /** Supplied when the opener is gone by first render (context menu). */
   returnFocusTo?: HTMLElement | null;
 }
@@ -78,6 +82,7 @@ export function ImportDialog({
   onClose,
   onImported,
   onPartialImport,
+  onUndone,
   returnFocusTo,
 }: ImportDialogProps) {
   const close = useDialogFocusReturn(onClose, returnFocusTo);
@@ -134,6 +139,8 @@ export function ImportDialog({
           : undefined;
       if (typeof insertedCount === 'number' && insertedCount > 0) {
         dropStaleSample();
+        // What landed has nothing to undo it: the older undo is no longer the last change.
+        forgetUndo({ connectionId, dbName, collection });
         onPartialImport();
       }
       throw err;
@@ -143,12 +150,22 @@ export function ImportDialog({
     setReport(result);
     onImported(result);
     // No toast when nothing landed — `result.auditId` is only set when
-    // something did (offerUndo no-ops on undefined either way). Undo removes
-    // the imported documents, so it drops the sample again.
-    offerUndo(`${plural(result.inserted, 'document')} imported from ${result.fileName}`, result.auditId, () => {
-      dropStaleSample();
-      onImported(result);
-    });
+    // something did. Nothing landed is no write, so the collection's older
+    // undo stays its newest. Undo removes the imported documents, so it drops
+    // the sample again, and re-runs every tab on the collection rather than
+    // `onImported`'s focused one: the toast outlives the dialog, and ⌘Z runs
+    // it from any tab on the collection.
+    const target = { connectionId, dbName, collection };
+    offerUndo(
+      `${plural(result.inserted, 'document')} imported from ${result.fileName}`,
+      result.auditId,
+      () => {
+        dropStaleSample();
+        rerunCollection(target);
+        onUndone?.();
+      },
+      result.inserted > 0 ? target : undefined,
+    );
   };
 
   const chooseAndImport = async () => {

@@ -1,6 +1,6 @@
 # W08 — Document write ops (insert, edit, delete)
 
-> **Status: Accepted.** §1–§9 shipped; the edit and insert drawers, and `doc:replace`, are superseded by [W18](./W18-document-editor.md)'s Document Editor. §10, the delete confirmation sized to what it deletes, is agreed and not built yet.
+> **Status: Implemented.** §1–§10 shipped; the edit and insert drawers, and `doc:replace`, are superseded by [W18](./W18-document-editor.md)'s Document Editor.
 
 ## Purpose
 
@@ -190,7 +190,7 @@ After any successful write:
 
 ## 10. Amendment — a delete confirmation sized to what it deletes
 
-> **Accepted, not built.** It refines §4. The rule it follows is the 2026-11-13 amendment to [ADR 0013](../docs/adr/0013-destructive-friction.md).
+> **Implemented.** It refines §4. The rule it follows is the 2026-11-13 amendment to [ADR 0013](../docs/adr/0013-destructive-friction.md).
 
 Deleting three hand-picked rows and deleting every document in a collection opened the same dialog: `Delete N matching documents?`, type the collection name. The selection case said "matching" although nothing was matched, the empty-filter case never said it was the whole collection, and neither named the database or the Connection. A guard that costs the same for the trivial case and the catastrophic one stops carrying information.
 

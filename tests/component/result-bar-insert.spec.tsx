@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
@@ -33,6 +34,7 @@ function renderBar(
   const meta = emptyWorkspaceMeta(metaOverrides);
   render(
     <CollectionWorkspaceProvider state={makeState()} actions={actions} meta={meta}>
+      <StatusBar connection={null} />
       <ResultBar references={references} />
     </CollectionWorkspaceProvider>,
   );

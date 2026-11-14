@@ -31,6 +31,7 @@ import { useQueryRunner } from './Workspace/useQueryRunner';
 import { recordFilterStep } from './Workspace/filterStep';
 import { parsePastedObjectId } from '../commands/pastedId';
 import type { RunnerTarget } from './Workspace/useQueryRunner';
+import { registerCollectionRerun, type UndoTarget } from './Workspace/undoStore';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useNavigatorData, useNavigatorStatusSync } from './Workspace/useNavigatorData';
 import { ownGet } from '../utils/ownProperty';
@@ -43,6 +44,7 @@ import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
 import { ShellSection } from './Workspace/ShellSection';
 import { PanelBody, type PanelBodyCollectionProps } from './Workspace/PanelBody';
+import { StatusBar } from './Workspace/StatusBar';
 import type { IndexCreateRequest } from './IndexesTab';
 import { useSettings } from './SettingsContext';
 import { useRegisterCommands } from '../commands/useRegisterCommands';
@@ -560,6 +562,25 @@ function WorkspaceInner() {
     },
     [tabsRef],
   );
+  const resolveNamespaceTargets = React.useCallback(
+    (ns: UndoTarget): RunnerTarget[] =>
+      tabsRef.current.tabs.flatMap((t) =>
+        t.kind === 'collection' &&
+        t.connectionId === ns.connectionId &&
+        t.dbName === ns.dbName &&
+        t.collection === ns.collection
+          ? (resolveRunnerTarget(t.id) ?? [])
+          : [],
+      ),
+    [resolveRunnerTarget, tabsRef],
+  );
+  React.useEffect(
+    () =>
+      registerCollectionRerun((ns) => {
+        for (const t of resolveNamespaceTargets(ns)) void run(undefined, t);
+      }),
+    [resolveNamespaceTargets, run],
+  );
   const activeIsView =
     activeCollection !== null &&
     isViewCollection(
@@ -581,6 +602,7 @@ function WorkspaceInner() {
     queryRunner,
     activeTabId: tabs.activeId,
     resolveRunnerTarget,
+    resolveNamespaceTargets,
     readOnly: focusedConnection?.readOnly ?? false,
     isView: activeIsView,
   });
@@ -663,10 +685,17 @@ function WorkspaceInner() {
           // would re-enable it against the stale value, and a second click
           // there would guard its compare-and-set on that stale value too.
           const refreshed = rerunEdited();
-          offerUndo('Field updated', auditId, () => {
-            invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
-            void rerunEdited();
-          });
+          // The undo is the collection's, and ⌘Z runs it from any tab on it:
+          // all of them re-run, whether or not the edited tab is still open.
+          offerUndo(
+            'Field updated',
+            auditId,
+            () => {
+              invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
+              for (const t of resolveNamespaceTargets(a)) void run(undefined, t);
+            },
+            a,
+          );
           return refreshed.then(() => OK);
         })
         .catch((e: unknown): UpdateFieldOutcome => {
@@ -675,7 +704,7 @@ function WorkspaceInner() {
           return { ok: false, message };
         });
     },
-    [activeCollectionRef, resolveRunnerTarget, run],
+    [activeCollectionRef, resolveNamespaceTargets, resolveRunnerTarget, run],
   );
   const workspaceActions = React.useMemo<CollectionWorkspaceActions>(
     () => ({
@@ -1610,6 +1639,8 @@ function WorkspaceInner() {
     <AppShell
       mode="static"
       header={{ height: 72 }}
+      // The status bar (W01 §14.6), drawn after PanelBody under the same condition.
+      footer={connections.length > 0 ? { height: 24 } : undefined}
       navbar={{
         // Manual width, not Mantine's `collapsed` flag: the title bar's
         // sidebar toggle is the expand affordance, so collapsed is no width.
@@ -1690,6 +1721,15 @@ function WorkspaceInner() {
         onStructureInitialCreateConsumed={onCreateIndexConsumed}
         connectErrors={navigatorTree.connectErrors}
       />
+
+      {/* After Main in the DOM, so Tab and a screen reader reach the results
+          before the pager; the grid draws it at the bottom either way. Not on
+          the welcome canvas: with nothing saved there is nothing to state. */}
+      {connections.length > 0 && (
+        <AppShell.Footer aria-label="Status bar">
+          <StatusBar connection={focusedConnection} />
+        </AppShell.Footer>
+      )}
 
       <FeatureHint
         id="startup.restore"

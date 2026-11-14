@@ -882,6 +882,7 @@ function TableRowImpl({
               onRowExpand(docId, !isExpanded);
             }}
             aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
+            title={isExpanded ? 'Collapse document' : 'Expand document'}
             style={{
               flexShrink: 0,
               transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',

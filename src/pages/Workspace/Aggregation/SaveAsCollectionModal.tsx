@@ -4,6 +4,7 @@ import { themeVars } from '../../../theme/themeVars';
 import { api, isIpcError } from '../../../api/atelier';
 import { confirmDestructive } from '../../../utils/confirm';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { forgetUndo } from '../undoStore';
 import { invalidateSchemaEnumCache } from '../../../features/fieldSuggestions/sources/schemaEnumSource';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../../components/SubmitButton';
@@ -118,6 +119,8 @@ export function SaveAsCollectionModal({
       // part-way. Harmless if nothing was written.
       invalidateSampleSchemaCache(connectionId, targetDb.trim(), targetColl.trim());
       invalidateSchemaEnumCache(connectionId, targetDb.trim(), targetColl.trim());
+      // The write recorded nothing to undo, so the target's older undo is no longer its last change.
+      forgetUndo({ connectionId, dbName: targetDb.trim(), collection: targetColl.trim() });
       setSaving(false);
     }
   };

@@ -599,7 +599,7 @@ describe('palette Collection actions', () => {
     );
   });
 
-  it.each(['Schema', 'Indexes'])('%s on a collection with no tab opens one on Structure', async (action) => {
+  it.each(['Schema', 'Indexes'])('%s on a collection with no tab opens one on Schema & indexes', async (action) => {
     const { listCollections, openCollection } = mount(SERVER, [], { listOpened: true });
     await settled(listCollections);
     openPalette();
@@ -610,7 +610,7 @@ describe('palette Collection actions', () => {
     fireEvent.keyDown(screen.getByLabelText('Filter actions'), { key: 'Enter' });
 
     await waitFor(() => expect(openCollection).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Structure', selected: true })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Schema & indexes', selected: true })).toBeTruthy());
   });
 
   it('disables the writing actions on a view, with a reason', async () => {

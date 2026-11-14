@@ -18,10 +18,11 @@ const MULTI_SELECT_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control'
 /**
  * (T0.4) — bulk actions on selected result rows. Selection was
  * previously a dead-ended cosmetic highlight; this wires "Delete selected"
- * to the shared DeleteConfirm count+token+type-to-confirm flow, scoped
- * to a `{_id:{$in:[...]}}` filter built from the selected rows.
+ * to the shared DeleteConfirm count+token flow, scoped to a
+ * `{_id:{$in:[...]}}` filter built from the selected rows. A selection of 20
+ * or fewer is checked by eye: no typing (W08 §10).
  */
-test('delete selected: bulk-selecting rows and confirming deletes only those rows', async () => {
+test('delete selected: three selected rows go after a plain confirm, with no typing', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -39,6 +40,7 @@ test('delete selected: bulk-selecting rows and confirming deletes only those row
             { sku: 'row-001', status: 'pending' },
             { sku: 'row-002', status: 'pending' },
             { sku: 'row-003', status: 'shipped' },
+            { sku: 'row-004', status: 'shipped' },
           ],
         },
       );
@@ -53,39 +55,39 @@ test('delete selected: bulk-selecting rows and confirming deletes only those row
       await expect(win.getByText('row-001')).toBeVisible({ timeout: 8000 });
       await expect(win.getByText('row-002')).toBeVisible();
       await expect(win.getByText('row-003')).toBeVisible();
+      await expect(win.getByText('row-004')).toBeVisible();
 
       // No selection yet — the bulk-action bar isn't rendered (AC1).
       await expect(ws.selectionBarCount).toHaveCount(0);
 
-      // ⌘/Ctrl+click two rows to bulk-select them (AC2).
-      await win.getByText('row-001').click({ modifiers: [MULTI_SELECT_MODIFIER] });
-      await win.getByText('row-002').click({ modifiers: [MULTI_SELECT_MODIFIER] });
-      await expect(ws.selectionBarCount).toHaveText('2 selected');
+      // ⌘/Ctrl+click three rows to bulk-select them (AC2).
+      for (const sku of ['row-001', 'row-002', 'row-003']) {
+        await win.getByText(sku).click({ modifiers: [MULTI_SELECT_MODIFIER] });
+      }
+      await expect(ws.selectionBarCount).toHaveText('3 selected');
 
-      // Delete selected opens the shared DeleteConfirm flow scoped to just
-      // the 2 selected rows (AC4) — same count+token+type-to-confirm path
-      // as "Delete all matching".
+      // The plain tier: named by namespace, the three ids listed, nothing to type.
       await ws.selectionBarDeleteButton.click();
-      await expect(win.getByText('Delete 2 matching documents?')).toBeVisible({
-        timeout: 5000,
-      });
+      const dialog = win.getByRole('dialog', { name: 'Delete 3 selected documents from shop.orders?' });
+      await expect(dialog).toBeVisible({ timeout: 5000 });
+      await expect(dialog.getByRole('list', { name: 'Documents to delete' }).getByRole('listitem')).toHaveCount(3);
+      await expect(dialog.getByRole('textbox')).toHaveCount(0);
+      // Enter on open lands on Cancel, never on Delete.
+      await win.keyboard.press('Enter');
+      await expect(dialog).toHaveCount(0);
+      await expect(win.getByText('row-001')).toBeVisible();
 
-      // Scope to the modal — the bulk-action bar's own "Delete" button is
-      // still on screen behind it and would otherwise collide with a bare
-      // role query.
-      const confirmDeleteBtn = win
-        .getByLabel('Delete 2 matching documents?')
-        .getByRole('button', { name: 'Delete', exact: true });
-      await expect(confirmDeleteBtn).toBeDisabled();
-      await win.getByPlaceholder('orders').fill('orders');
+      await ws.selectionBarDeleteButton.click();
+      const confirmDeleteBtn = dialog.getByRole('button', { name: 'Delete', exact: true });
       await expect(confirmDeleteBtn).toBeEnabled({ timeout: 5000 });
       await confirmDeleteBtn.click();
 
-      // Only the 2 selected rows are gone; the untouched row and the
+      // Only the 3 selected rows are gone; the untouched row and the
       // selection state both reset (AC4, AC6).
       await expect(win.getByText('row-001')).not.toBeVisible({ timeout: 8000 });
       await expect(win.getByText('row-002')).not.toBeVisible();
-      await expect(win.getByText('row-003')).toBeVisible();
+      await expect(win.getByText('row-003')).not.toBeVisible();
+      await expect(win.getByText('row-004')).toBeVisible();
       await expect(ws.selectionBarCount).toHaveCount(0);
     });
   });

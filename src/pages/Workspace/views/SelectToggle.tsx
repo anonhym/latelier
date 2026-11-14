@@ -40,6 +40,8 @@ export function SelectToggle({ selected, docLabel, onToggle, tabIndex }: SelectT
         }}
         aria-pressed={selected}
         aria-label={label}
+        // `index.css` shows it only on hover, focus, or while a selection exists.
+        data-select-toggle=""
         style={{
           flexShrink: 0,
           minWidth: 16,

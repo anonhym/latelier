@@ -13,7 +13,7 @@ test.afterAll(stopAllMemoryServers);
 
 /**
  * (W08/updateMany) — bulk update-by-query. The results overflow menu's
- * "Update all matching…" action scopes the same two-step confirm flow
+ * "Update matching…" action scopes the same two-step confirm flow
  * delete-all uses (type-collection-name + `doc:confirmUpdateMany` → token →
  * `doc:updateMany`) to the tab's *current* query filter, plus an explicit
  * Review step that counts and hashes the update body before the name gate

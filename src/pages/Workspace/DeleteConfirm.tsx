@@ -1,10 +1,11 @@
 import React from 'react';
-import { Alert, Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Button, Code, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
-import { buildIdFilter } from './views/docId';
+import { buildIdFilter, getDocIdText } from './views/docId';
+import { deleteTier, type DeleteSource } from './deleteMode';
 import { AUDIT_UNDO_DOC_LIMIT } from '../../utils/auditUndo';
 
 interface DeleteConfirmProps {
@@ -13,6 +14,12 @@ interface DeleteConfirmProps {
   collection: string;
   docs: unknown[];
   filter?: string;
+  /** How the documents were chosen; with the count it sizes the dialog (W08 §10). */
+  source: DeleteSource;
+  /** The Connection's name: always in the no-filter band, in the title only when `nameConnection`. */
+  connectionName: string;
+  /** More than one Connection is open, so the namespace alone is ambiguous. */
+  nameConnection?: boolean;
   /** The tab's collation (W14 §9), for a delete by the tab's filter.
    *  `confirmDeleteMany`/`deleteMany` send only the filter, so with a
    *  collation set they would delete a different set of documents than the
@@ -50,6 +57,9 @@ export function DeleteConfirm({
   collection,
   docs,
   filter,
+  source,
+  connectionName,
+  nameConnection = false,
   collation,
   hint,
   readOnly = false,
@@ -187,17 +197,26 @@ export function DeleteConfirm({
   const isCounting = isMulti && !optionBlocks && countState.status === 'pending';
   const countErr = countState.status === 'error' ? countState.message : null;
 
-  const title = isMulti
-    ? countState.status === 'ready'
-      ? `Delete ${countState.count.toLocaleString()} matching document${countState.count === 1 ? '' : 's'}?`
-      : 'Delete matching documents?'
-    : 'Delete document?';
+  // The tier follows how the documents were chosen, never the undo capture (ADR 0013).
+  const tier = source === 'document' ? null : deleteTier({ source, count: docs.length, filterJson: matchFilterJson });
+  const typed = tier === 'typed' || tier === 'typed-all';
+  const ns = `${dbName}.${collection}`;
+  const where = `${ns}${nameConnection ? ` on ${connectionName}` : ''}`;
+  const plural = (n: number, noun: string) => `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`;
+  const title =
+    source === 'selection'
+      ? `Delete ${plural(docs.length, 'selected document')} from ${where}?`
+      : isMulti
+        ? countState.status === 'ready'
+          ? `Delete ${plural(countState.count, 'matching document')} from ${where}?`
+          : `Delete matching documents from ${where}?`
+        : `Delete document from ${where}?`;
 
   const deleteDisabled =
     readOnly ||
     optionBlocks ||
     (isMulti &&
-      (!matchesCollectionName ||
+      ((typed && !matchesCollectionName) ||
         countState.status !== 'ready' ||
         countState.count === 0));
 
@@ -243,13 +262,47 @@ export function DeleteConfirm({
           </Alert>
         )}
 
+        {tier === 'typed-all' && (
+          <Alert color="red" variant="filled" role="alert" data-testid="delete-all-band">
+            {countState.status === 'ready'
+              ? `No filter — this deletes all ${plural(countState.count, 'document')} in ${ns} on ${connectionName}`
+              : `No filter — this deletes every document in ${ns} on ${connectionName}`}
+          </Alert>
+        )}
+
+        {tier === 'plain' && (
+          <Stack gap="var(--atelier-gap-xs)">
+            <Text size="xs" c="dimmed">
+              These documents, by <code>_id</code>:
+            </Text>
+            <ul aria-label="Documents to delete" style={{ margin: 0, paddingLeft: 18, maxHeight: 160, overflowY: 'auto' }}>
+              {docs.map((doc, i) => (
+                <li key={i} style={{ fontFamily: 'monospace', fontSize: 'var(--atelier-fs-xs)' }}>
+                  {getDocIdText(doc)}
+                </li>
+              ))}
+            </ul>
+          </Stack>
+        )}
+
+        {source === 'filter' && tier === 'typed' && (
+          <Stack gap="var(--atelier-gap-xs)">
+            <Text size="xs" c="dimmed">
+              The filter that will run:
+            </Text>
+            <Code block data-testid="delete-filter">
+              {matchFilterJson}
+            </Code>
+          </Stack>
+        )}
+
         {isCounting && (
           <Text size="xs" c="dimmed">
-            Counting matching documents…
+            {source === 'selection' ? 'Checking the selected documents…' : 'Counting matching documents…'}
           </Text>
         )}
 
-        {isMulti && (
+        {typed && (
           <Stack gap="var(--atelier-gap-xs)">
             <Text size="xs" c="dimmed">
               Type <strong>{collection}</strong> to confirm
@@ -272,9 +325,10 @@ export function DeleteConfirm({
         )}
 
         <Group justify="flex-end" gap="xs">
-          {/* A single document has no field to type in, so the dialog opens on
-              Cancel: the safe end of a destructive prompt, not on Close. */}
-          <Button variant="subtle" size="compact-xs" onClick={close} data-autofocus={isMulti ? undefined : true}>
+          {/* With no field to type in (one document, a small selection) the
+              dialog opens on Cancel: the safe end of a destructive prompt, so
+              Enter on open deletes nothing. */}
+          <Button variant="subtle" size="compact-xs" onClick={close} data-autofocus={typed ? undefined : true}>
             Cancel
           </Button>
           <SubmitButton
