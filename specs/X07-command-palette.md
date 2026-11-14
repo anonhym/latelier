@@ -1,6 +1,6 @@
 # X07 — Command palette
 
-> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13, which is implemented too; where §13 names a part of §1–§12, §13 is what ships.
+> **Status: Accepted.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is agreed and not built yet; where it names a part of §13, §14 is what ships.
 
 ## Purpose
 
@@ -739,3 +739,63 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **Kind order in All.** Fixed, as the artboards draw it (§13.2, "Group order on a typed query"), so the layout does not reshuffle between keystrokes.
 - **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
 - **Reveal in navigator** for a database: `DbCollectionNavigator`'s reveal request accepts a database on its own, which it expands, scrolls to and focuses. The request lives in `Workspace.tsx`, so the palette and the tab menu share it. `reveal` is not a verb (§13.4), like `create`: under `open` it would list every database.
+
+## 14. Amendment — anchored palette, collections first
+
+> **Accepted, not built.** Decided in the 2026-11-13 design review. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
+
+### 14.1 Anchoring
+
+- The palette opens **anchored under the title-bar search field** ([W01 §14.3](./W01-workspace-shell.md)), 640px wide, its top edge just below the bar, instead of floating centred over the window. The field is where the user clicked or looked; the list should grow from it.
+- On a screen with no title-bar search field (the connection form's page, a window narrower than the palette), it falls back to the centred position.
+- Everything else about the surface (scopes, rows, footer, action list, field step) is §13.3's.
+
+### 14.2 Empty query
+
+Supersedes §13.2's "Empty query" paragraph, including its rule that objects are not listed until the user types.
+
+In All, with nothing typed, the groups are, in order:
+
+1. **Recent**: five rows.
+2. **Collections in this connection**: five collections of the Focused Tab's Connection (or, with no tab, of the most recently connected Open Connection), then `Show <n> more collections`, which switches to the Collections scope as any capped group does. Ordered by the MRU, then by name. Absent when no Connection is open.
+3. The groups owned by the tab in front (`query`, `view`, `references`, `aggregation`), then `workspace`, `connection`, `navigation`, `general`, as before.
+
+Jumping to a collection is the commonest thing the palette is opened for, and it used to need either a typed character or knowing ⌘P.
+
+### 14.3 Unavailable rows
+
+Adds to §13.3's "Unavailable commands".
+
+- Within a group, rows with a `disabledReason` sort **after** every available row.
+- The cursor never starts on an unavailable row: it starts on the first available one. The palette used to open with the cursor on a greyed `Explain query — Can't parse this filter…`.
+- Arrow keys still reach an unavailable row, so its reason can be read; Enter on it still does nothing.
+
+### 14.4 Row icons and shortcuts
+
+- The leading icon is the row's **kind** icon for every row, commands included (a command glyph, not a chevron). A chevron on the left reads as "expandable"; `›` is used only at the right of a row that opens a second step.
+- Every command with a shortcut shows it as a key cap, including the ones added by [W01 §14.11](./W01-workspace-shell.md): `Focus filter ⌘L`, `Toggle sidebar ⌘B`, `Query builder ⌘⇧B`, `Go to documents ⌥1`, `Go to aggregation ⌥2`, `Go to schema & indexes ⌥3`, `Open collection… ⌘T`, `Reopen closed tab ⌘⇧T`.
+- The `query.drawer.toggle` toggle is titled `Query builder`; `shell.toggle` is titled `Console`.
+- A `Copy query as…` command joins the `query` group, with the same three targets as the Run menu ([W05 §9.5](./W05-query-bar.md)).
+
+### 14.5 Collections before any tab
+
+- The background sweep that lists a Connection's collections (§13.5, §13.7) runs for the Focused Tab's Connection and, **when no tab is open, for the most recently connected Open Connection**. It used to key off the Focused Tab alone, so right after connecting from the palette, `⌘P orders` answered "No matches" until the user expanded a database by hand.
+- While a sweep the query could match is still in flight, the Collections group shows a status row, `Loading collections…`, in place of `No matches for "…"`. "No matches" is shown only once the sweep has settled.
+
+### 14.6 Acceptance criteria
+
+- Opened from the workspace, the palette's top edge sits under the title bar, horizontally aligned with the search field; opened on the connection form's page, it is centred.
+- With an empty query and a Connection open, the second group lists five of its collections and a `Show <n> more collections` row.
+- With an empty query and no Connection open, there is no collections group.
+- The cursor's first row is never an unavailable one; unavailable rows are last in their group.
+- No row has a chevron as its leading icon.
+- Commands bound to ⌘L, ⌘B, ⌘⇧B, ⌥1–3, ⌘T and ⌘⇧T show their key caps.
+- After connecting from the palette with no tab open, typing a collection name lists it without touching the navigator.
+- While that Connection's collections are still loading, the palette says `Loading collections…`, not "No matches".
+
+### 14.7 Test cases
+
+- **Unit** (`commands-layout`): the empty-query group order with and without an Open Connection; the five-row cap and its `Show more` row; unavailable rows last; the initial cursor skipping an unavailable first row.
+- **Component**: the palette's position against a mounted search field, and the centred fallback; the collections group on an empty query; `Loading collections…` while the listing is pending and "No matches" after it settles empty; key caps on the new commands.
+- **Component** (`workspace-palette-*`): with no tab and one Open Connection, the sweep lists its databases and collections.
+- **E2E**: connect from the palette, press ⌘P, type a collection name, Enter; the tab opens with no navigator interaction.

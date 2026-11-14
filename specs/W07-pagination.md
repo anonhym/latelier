@@ -1,6 +1,6 @@
 # W07 — Pagination control
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§6 shipped. §7, which moves the pager into the status bar, is agreed and not built yet.
 
 ## Purpose
 
@@ -77,3 +77,23 @@ In the result bar (already reserved by W05), right-aligned:
 - **size-change-resets.spec.tsx**: change size 50→100 → page=0 → run called with limit=100.
 - **query-bar-run.spec.tsx**: change builder while page>0 → small hint visible.
 - **use-query-runner.spec.tsx**: Run of an edited query → skip=0; same query → page kept; page past the end → moves to the last page with results.
+
+## 7. Amendment — the pager lives in the status bar
+
+> **Accepted, not built.**
+
+- The pager of §2 moves from the result bar to the right end of the status bar ([W01 §14.6](./W01-workspace-shell.md)): `1–50 of 6 382  ‹ ›  50 / page`, with First and Last kept as controls. Paging is about where the user is in the result, which is what the status bar states; in the toolbar it was one of eight controls of equal weight.
+- State and behaviour (§1, §3) are unchanged, including the page reset on the next run and its "Will jump to page 1 on run" hint, which stays beside Run.
+- Each pager button has a tooltip. A disabled one says why: `Already on the first page`, `No more results`.
+- The pager is absent on a script or server tab and on the Aggregation and Schema & indexes views.
+
+### Acceptance criteria
+
+- The pager is in the status bar and nowhere in the canvas header.
+- Next, Previous, First, Last and the page-size menu behave as in §3.
+- Hovering a disabled pager button gives its reason.
+- Switching to Aggregation removes the pager from the status bar; switching back restores it with the same page.
+
+### Test cases
+
+- **Component** (`result-bar-pagination`, `workspace-pagination-nav`): the pager rendered in the status bar drives the same state; tooltips on enabled and disabled buttons; absent off Documents.

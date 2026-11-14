@@ -1,6 +1,6 @@
 # A02 — Pipeline outline + model
 
-> **Status: Implemented.**
+> **Status: Accepted.** The model, validation, persistence and stage counts (§1, §2, §4, §5) shipped and stand. §8 is agreed and not built yet: the outline component of §3 is removed, because the stages column of [A01 §9](./A01-aggregation-shell.md) is the outline.
 
 ## Purpose
 
@@ -132,3 +132,21 @@ Reuse existing `OP_COLOR` map (from `Aggregation.tsx`). Extend for `$replaceRoot
 - **click-selects.spec.tsx**: click a row → `api.tabs.update` called with new `activeStageId`.
 - **drag-reorder.spec.tsx**: simulate drag → reorder; persisted state mirrors new order.
 - **disabled-opacity.spec.tsx**: a disabled stage renders at 0.5 opacity and its count strikes through.
+
+## 8. Amendment — the outline component is removed
+
+> **Accepted, not built.** The design is [A01 §9](./A01-aggregation-shell.md).
+
+- §3's `PipelineOutline` panel is removed. For a short pipeline it drew the same list twice, 200px apart. The stages column is the outline: collapsed stage cards are one row each, numbered, in order.
+- What the outline did moves to the cards: "jump to stage" is selecting the card; the active marker is the card's selected state; the per-stage count of §5 is the card's footer; the source and output rows are the source chip and the `Output` row.
+- The model (§1), validation (§2) and persistence (§4) are untouched. `activeStageId` now means the selected card.
+
+### Acceptance criteria
+
+- No element named "Pipeline" outline is rendered; every stage appears once.
+- Each stage card shows its number, operator and, when known, its document count.
+- The selected card is the stage `activeStageId` names, and it survives a tab switch.
+
+### Test cases
+
+- **Component**: `pipeline-outline.spec.tsx` is retired; its cases (order, active stage, counts, jump) are asserted on the stage cards in `aggregation-tab.spec.tsx`.

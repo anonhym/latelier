@@ -1,6 +1,6 @@
 # X01 — Theme & window state persistence
 
-> **Status: Implemented.** Theme changes arrive on `prefs:theme-event`, not on the `prefs:watch` channel named here.
+> **Status: Accepted.** §1–§7 shipped; theme changes arrive on `prefs:theme-event`, not on the `prefs:watch` channel named here. §8, which takes the theme toggle out of the title bar, is agreed and not built yet.
 
 ## Purpose
 
@@ -123,3 +123,21 @@ On first start after upgrade, if `localStorage['ml-theme']` exists, migrate it t
 ### E2E
 - **theme-persist.e2e.ts**: toggle to dark → quit → relaunch → dark still applied. Pick System in Settings → quit → relaunch → still System.
 - **window-bounds.e2e.ts**: move + resize → quit → relaunch → same bounds.
+
+## 8. Amendment — the theme toggle leaves the title bar
+
+> **Accepted, not built.**
+
+- The sun/moon button is removed from the workspace title bar. A set-once preference does not earn a permanent slot in the bar that states where the user is ([W01 §14.2](./W01-workspace-shell.md)).
+- The theme is changed in Settings → Appearance (Light / Dark / System) and with the palette's `Dark mode` toggle. Both already exist and are unchanged.
+- §2–§5 (the stored key, the service, the IPC, the window state) are untouched.
+
+### Acceptance criteria
+
+- The title bar has no control named "Switch to dark theme" or "Switch to light theme".
+- Settings → Appearance and the palette's `Dark mode` toggle each still change the theme, and the choice still survives a relaunch.
+
+### Test cases
+
+- **Component**: the title bar renders no theme control; the palette's `Dark mode` toggle flips the theme.
+- **E2E** (`theme-persistence`): unchanged, through Settings.

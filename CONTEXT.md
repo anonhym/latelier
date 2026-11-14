@@ -20,16 +20,34 @@ _Avoid_: db (as a synonym for connection)
 A container of documents inside a Database. The unit a workspace tab is opened against.
 
 **Structure**:
-The view within a Collection tab showing the collection's *observed shape* (sampled schema) and its *access paths* (indexes) — as opposed to Documents, which shows contents. One stacked pane, not a set of tabs: the insight it exists to produce is the join between the two ("this field is filtered on, and nothing indexes it"). Replaces the former Schema view, which becomes a section within it.
-_Avoid_: schema (that is one section of it), info, overview (collides with the Connection Manager's tab of that name)
+The view within a Collection tab showing the collection's *observed shape* (sampled schema) and its *access paths* (indexes) — as opposed to Documents, which shows contents. One stacked pane, not a set of tabs: the insight it exists to produce is the join between the two ("this field is filtered on, and nothing indexes it"). Replaces the former Schema view, which becomes a section within it. Its label in the UI is "Schema & indexes"; Structure stays the name in code, in stored tab state and in this vocabulary.
+_Avoid_: schema (that is one section of it), info, overview (collides with the server tab's section of that name)
 
 **Data View** (a.k.a. **Workspace**):
 The tabbed, IDE-like screen where the user browses Databases/Collections and runs queries. It holds one navigator root per Open Connection, and one tab strip whose tabs may belong to different Connections.
 _Avoid_: editor, explorer
 
 **Connection Switcher**:
-A lightweight popup, reachable from within the Data View, that lists saved Connections and opens the full Connections table ("Manage connections"), where adding, importing and exporting live — the entry point that replaces bouncing out to a separate connections screen.
+A lightweight popup, opened from the first segment of the Location Bar, that lists saved Connections and opens the full Connections table ("Manage connections"), where adding, importing and exporting live — the entry point that replaces bouncing out to a separate connections screen.
 _Avoid_: database picker
+
+**Location Bar**:
+The breadcrumb in the title bar — Connection, Database, Collection — stating the Focused Tab's identity once. Each segment opens a list of its siblings; the first opens the Connection Switcher.
+_Avoid_: switcher pill, header breadcrumb
+
+**Status Bar**:
+The band along the bottom of the Data View: the Focused Tab's Connection, the last Run (count, duration, plan) and the pager.
+
+**Inspector**:
+The right-hand panel of a Collection tab, closed by default. It hosts the Query Builder and the query plan, one at a time. It never hosts document editing; that is the Document Editor.
+_Avoid_: drawer, side panel, builder pane
+
+**Server Tab**:
+The tab holding one Connection's server-level screens (Overview, Monitor, Collections, Users, Roles). At most one per Connection.
+_Avoid_: connection manager, detail screen
+
+**Preview Tab**:
+The single tab a plain click in the navigator reuses, drawn with an italic label until something keeps it (a double-click, an edit, a pin).
 
 **Open Connection**:
 A Connection with a live client, browsable in the Data View. Several Connections can be open at the same time, each with its own navigator root and its own tabs. Opening one is a deliberate action; so is closing one, which closes its tabs after a confirmation.
@@ -44,7 +62,7 @@ The one tab the Data View is showing. Its Connection, Database and Collection ar
 _Avoid_: active tab, selected tab
 
 **Tab Group**:
-The run of tabs in the tab strip that belong to one Connection, under a header filled with that Connection's colour. Clicking the header collapses or expands the group; the header is brighter when the group holds the Focused Tab. Groups are separated by a gap. A Tab Group is not a menu: it carries no Connection actions.
+The run of tabs in the tab strip that belong to one Connection. While tabs of two or more Connections are open, each group sits under a header filled with its Connection's colour; clicking the header collapses or expands the group, and the header is brighter when the group holds the Focused Tab. With one Connection's tabs open there is no header: each tab's colour stripe carries the Connection. Groups are separated by a gap. A Tab Group is not a menu: it carries no Connection actions.
 _Avoid_: chip, connection chip, tab section
 
 **Read-Only Connection**:
@@ -85,6 +103,10 @@ _Avoid_: strict JSON, EJSON (unqualified)
 
 **Relaxed EJSON**:
 Extended JSON v2 in relaxed form, where some types collapse to plain JSON values. The word "relaxed" belongs to this concept alone — never use it for Shell Syntax, which is a different idea entirely.
+
+**Readable EJSON**:
+Canonical EJSON with only the sentinels that re-parse to the identical BSON unwrapped (an Int32 as a plain number, a date as `{"$date": "<ISO>"}`). It is the default form of a copied document and of the Document Editor's JSON view. Unlike Relaxed EJSON it never loses a type or a digit.
+_Avoid_: relaxed JSON, pretty EJSON
 
 **Filter Bar**:
 The single-line text surface in the Data View that holds a find filter as Canonical EJSON. The text it holds is what the query actually runs.

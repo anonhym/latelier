@@ -1,6 +1,6 @@
 # W14 — Query bar advanced row: correctness, affordance, projection
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§9 shipped. §10 is agreed and not built yet: the option pills of [W05 §9](./W05-query-bar.md) replace the `QUERY` disclosure of §2 and move projection out of the Fields control of §4; the grid of §2 and §9 survives behind a per-tab "Keep options expanded".
 
 ## Purpose
 
@@ -470,3 +470,23 @@ collapsed badge counts set options and their problems (§2).
   the Copy code case in `query-composition-truthfulness`.
 - E2E `w14-find-options.e2e.ts`: set a case-insensitive collation, Run, and the
   mixed-case row shows with the count matching.
+
+## 10. Amendment — pills, and the grid behind a switch
+
+> **Accepted, not built.** Decided in the 2026-11-13 design review; the design is [W05 §9.2](./W05-query-bar.md).
+
+- §2's affordance, the word `QUERY` with a chevron as the disclosure for the options, is replaced by option pills. The disclosure looked like a caption, so sort, limit and hint, everyday needs, sat behind a control few users found.
+- §4 placed the projection editor in the Fields control in the result toolbar. It moves into the `Project` pill in the Filter Bar row, with the other options. The editor itself (a text field, Shell Syntax, the draft rule of §3) is unchanged.
+- The grid of §2 and §9 is kept behind a per-tab **Keep options expanded** switch. §1's resync rule (re-derive on tab switch or load, open on a quick-sort, never yank shut) applies to the grid only while that switch is on; with it off there is nothing to open or close, and a set option simply shows as a pill.
+- §5's accessible-name rules carry over: each pill's popover input is named by the option's visible label.
+
+### Acceptance criteria
+
+- With "Keep options expanded" off, no `QUERY` disclosure is drawn and each set option is a pill.
+- With it on, the grid of §2 and §9 is drawn for that tab with every input it had.
+- The collapsed-row badge of §2 ("n set · n errors") is gone; its information is the pills themselves.
+- Every option input, in a pill's popover or in the grid, keeps its accessible name and its Shell Syntax repair.
+
+### Test cases
+
+- **Component**: the per-tab switch (two tabs, one expanded, one not; a relaunch keeps each); a quick-sort from a table header shows as a `Sort` pill with the switch off and opens the grid row with it on; each option's popover input is reachable by its label.

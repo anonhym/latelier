@@ -1,6 +1,6 @@
 # W01 — Workspace shell + tab management
 
-> **Status: Implemented.** Aggregation is a sub-view of the collection tab (§5), not the separate tab kind §2 lists.
+> **Status: Accepted.** §1–§13 shipped, with Aggregation as a sub-view of the collection tab (§5), not the separate tab kind §2 lists. §14, the One Spine shell, is agreed and not built yet; where §14 names a part of §7, §10 or §11, §14 is what ships.
 
 ## Purpose
 
@@ -238,3 +238,149 @@ Format: `{connection.name} / {dbName} / {collection}  [· kind]` where kind is r
 ### E2E
 - **restore.e2e.ts**: open two tabs → quit app → relaunch → both tabs present, active tab unchanged.
 - **workspace-restore.e2e.ts**: tabs survive a quit and relaunch; with "Reopen tabs on launch" off, a relaunch starts with no tabs.
+
+## 14. Amendment — One Spine shell
+
+> **Accepted, not built.** It supersedes the parts of §7, §10 and §11 it names and leaves the rest standing.
+
+### 14.1 Why, and the bands
+
+A review of the shipped shell found the location stated in six places (Switcher pill, group chip, tab, navigator root, navigator row, sub-tab breadcrumb) while the database, the one thing that tells two `orders` tabs apart, showed once in small muted text. Six stacked bands took about 220px above the first document. The shell is rebuilt around one rule: one place per job, read top to bottom.
+
+| Band | Height | Holds |
+| --- | --- | --- |
+| Location bar (title bar) | 40 | sidebar toggle, breadcrumb, search field, Console, Settings |
+| Tab strip | 32 | tabs, `+ ▾` |
+| View header | 36 | Documents / Aggregation / Schema & indexes, collection figures |
+| Filter Bar row | 44 | [W05 §9](./W05-query-bar.md) |
+| Canvas header | 28 | [W06 §8](./W06-result-views.md) |
+| Status bar | 24 | connection, last run, pager |
+
+The navigator's default width is 240px. Above the first row that is 180px instead of about 220, with no hint row.
+
+### 14.2 Location bar
+
+Supersedes §10.
+
+- Left to right: the 70px traffic-light inset, a sidebar toggle (tooltip `Toggle sidebar ⌘B`; it replaces the edge notch), the breadcrumb, a drag spacer, the search field (§14.3), **Console** ([W11 §8](./W11-mongo-shell.md)), Settings. The theme toggle is gone from the bar ([X01 §8](./X01-theme-window-state.md)).
+- **Breadcrumb**: `● {connection} › {database} › {collection}`, inside `<nav aria-label="Location">`. Three buttons; the dot carries the Connection's colour and status; the last segment is weight 600. It states the Focused Tab's identity, once.
+  - The connection segment opens the Connection Switcher ([X16 §13](./X16-multi-connection.md)).
+  - The database segment lists that Connection's databases; choosing one lists its collections in the same dropdown.
+  - The collection segment lists the sibling collections with a filter box. Choosing one opens it under §5's reuse rule; ⌘-click or ⌘↵ opens a second tab.
+- A script tab reads `● {connection} › {tab label}`; a server tab `● {connection} › Server`.
+- **No tab, a Connection open**: `● {connection} › Choose a collection…`, naming the most recently connected Open Connection. The second segment opens the palette on its Collections scope. The bar never reads "Select a connection" while a Connection is open: the navigator already shows it connected, and the two must not disagree.
+- **No Connection open, some saved**: one segment, `Select a connection`, opening the Switcher.
+- **No saved Connection**: no breadcrumb; the welcome canvas ([C03 §13](./C03-new-connection-page.md)) fills the window.
+- The `{db} / {collection}` text beside the view tabs is removed. Its figures move to the view header (§14.5).
+
+### 14.3 Search field
+
+A 320×26 button drawn as an input: a magnifier, the placeholder `Search collections and actions`, a `⌘K` key cap at the right. Its accessible name is the placeholder. A click or ⌘K opens the palette anchored under it ([X07 §14](./X07-command-palette.md)). It replaces the two-glyph `⌘ K` button, which advertised the app's fastest path with the least text, and keeps that button's `palette.discover` hint anchor.
+
+### 14.4 Tab strip
+
+Supersedes §7's "Tab Groups" and "No + button" bullets.
+
+- A tab is: a 3px left stripe in its Connection's colour, a kind icon (collection; Σ while the tab shows Aggregation; script; server), the label, the dirty dot, the read-only marker, close.
+- **Label.** The collection name. When two open tabs would show the same label, each shows `database.collection` instead. A tab's tooltip always gives `connection · database.collection`.
+- **Script tabs** are titled `Script 1`, `Script 2`, … at open: one more than the highest number among the open scripts still carrying a default title. The title is stored like any other, so it stays put when another script closes, and the user can still rename it.
+- **Group chip.** Shown only while tabs of two or more Connections are open ([X16 §13](./X16-multi-connection.md)). With one Connection the stripe carries the colour and the chip's 90px go back to the tabs.
+- **`+ ▾`** at the end of the strip (accessible name `New tab`): `Open collection… ⌘T`, `New script`, `New aggregation on {collection}` (disabled without a collection tab in front). It replaces the `+ Script` text button, which was the strip's only way to make a tab and offered one kind of three.
+- The tab menu gains `Reopen closed tab` (§14.8).
+- The close control has a tooltip, `Close tab ⌘W`.
+
+### 14.5 View header
+
+Keeps the tablist semantics of §7's "Collection view strip" (`aria-label="Collection view"`, one tab stop, arrow keys) and changes what is drawn.
+
+- Labels in sentence case: **Documents**, **Aggregation**, **Schema & indexes**. The third was "Structure", a word nobody searches for; the palette already said "Go to schema" and "Go to indexes". The stored `activeView` value stays `structure`, so no tab state migrates.
+- `⌥1`, `⌥2`, `⌥3` select the three views, shown in each tab's tooltip.
+- At the right, muted: `{n} documents · {n} indexes`, then the data size when the server reports it. A figure the server did not report is left out, as today.
+
+### 14.6 Status bar
+
+A 24px band along the bottom of the window (`aria-label="Status bar"`), hidden on the welcome canvas.
+
+- **Left**: `● {connection} · {host} · v{version}` for the Focused Tab's Connection, with a `Read-only` badge when set. The version shows only while connected.
+- **Middle**, for a collection tab on Documents: the last run as `{n} documents · {duration} · {plan}`. The duration is always shown. The plan badge moves here from the result bar; activating it opens the plan in the Inspector ([W05 §9.7](./W05-query-bar.md)). While a query runs it reads `Running · {elapsed}`; after a cancel, `Cancelled after {elapsed}` for a few seconds. When the results are not current the count carries a warning dot.
+- **Right**: the pager ([W07 §7](./W07-pagination.md)).
+- On a script or server tab, and on the Aggregation and Schema & indexes views, the middle and right are empty.
+
+### 14.7 A Connection open, no tab
+
+The canvas shows a 560px column: `{connection} is connected`, up to eight of its collections by name (with document counts when the navigator already knows them) as rows that open a tab, and `Search collections ⌘P`. The old state told the user to "select a collection from the sidebar" above a button reading "Open a collection" that opened a modal: two instructions for one step.
+
+### 14.8 Reopen closed tab
+
+- The renderer keeps the last ten closed tabs of the session: kind, Connection, namespace and state.
+- `Reopen closed tab` (⌘⇧T, and the tab menu) reopens the newest one with its state. An entry whose Connection no longer exists is dropped.
+- Closing a script tab that holds any source shows an 8-second toast, `Script tab closed`, with **Undo**, which is the same reopen. A script is the one thing in the app a user writes freehand and cannot get back.
+- The list is not persisted: a relaunch starts it empty.
+- §11 listed ⌘⇧T as "open an aggregation tab"; that binding was never built and this replaces it.
+
+### 14.9 Preview tab
+
+- A single click on a navigator collection opens it in the **preview tab**, drawn with an italic label. The next single click on another collection replaces it, so browsing a database to find the right collection leaves one tab, not one per click.
+- The preview tab is **kept** (drawn upright, never replaced) by: a double-click or Enter on the navigator row, a double-click on the tab, any change to its state (filter, sort, options, view, a pipeline edit), pinning it, or dragging it.
+- ⌘-click opens a kept tab. Clicking a collection that already has a tab focuses that tab.
+- There is at most one preview tab. Which tab it is lives in renderer memory; after a relaunch every restored tab is kept.
+
+### 14.10 Restore and focus
+
+- After a launch restore, when the Focused Tab is a collection tab on Documents, its Connection is connected and its query can run, it runs once, whatever its filter. Other tabs stay lazy.
+- Focus then rests in that tab's filter editor rather than on `<body>`.
+- After a Connection is opened from the palette with no tab in front, focus moves to that Connection's root in the navigator.
+
+### 14.11 Keyboard
+
+Supersedes §11.
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘T` | Open collection (the §8 modal) |
+| `⌘⇧T` | Reopen closed tab |
+| `⌘W` | Close the Focused Tab |
+| `⌘1`…`⌘9` | Switch to the Nth tab on screen |
+| `⌘⌥→` / `⌘⌥←` | Next / previous tab |
+| `⌘K` / `⌘P` | Palette / palette on Collections |
+| `⌘B` | Toggle the sidebar |
+| `⌘⇧B` | Toggle the Query Builder (the Inspector's Filter tab) |
+| `⌘L` | Focus the filter |
+| `⌘↓` | From the filter, move to the first result row |
+| `Esc` | From the results, back to the filter |
+| `⌥1` / `⌥2` / `⌥3` | Documents / Aggregation / Schema & indexes |
+| `⌘E` | Manage connections |
+| `` ⌃` `` | Toggle the Console |
+
+- `⌘B` used to toggle the Query Builder. The sidebar takes it because that is what the key means in every editor the audience uses; the builder moves to `⌘⇧B`.
+- None of these fire while a dialog is open. `⌥1`–`⌥3` are ignored while focus is in a text field, where Option-digit types a character on several keyboard layouts.
+- Every shortcut is listed in the cheat sheet and shown in the tooltip of the control it drives.
+
+### 14.12 Server tab
+
+A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections, Users and Roles ([C05 §11](./C05-connection-manager-shell.md)). At most one per Connection.
+
+### 14.13 Acceptance criteria
+
+- The Focused Tab's Connection, database and collection each appear once in the title bar, as breadcrumb segments, and nowhere in the view header.
+- Each breadcrumb segment opens its list: the Switcher, the Connection's databases, the sibling collections.
+- With a Connection open and no tab, the bar reads `{connection} › Choose a collection…` and the canvas lists that Connection's collections.
+- With no saved Connection, the breadcrumb, tab strip, navigator and status bar are absent.
+- The search field opens the palette, by click and by ⌘K.
+- The title bar has no theme toggle.
+- Two open tabs on collections of the same name show `database.collection`; closing one returns the other to the bare name.
+- New script tabs are titled `Script 1`, `Script 2`; closing `Script 1` leaves `Script 2` named as it was.
+- The group chip is absent with one Connection's tabs open and present with two.
+- `+ ▾` offers Open collection, New script and New aggregation; the last is disabled without a collection tab.
+- The view tabs read Documents, Aggregation, Schema & indexes; a tab stored with `activeView: 'structure'` opens on Schema & indexes.
+- The status bar shows the Connection, the last run with its duration, and the pager; it shows `Running · {elapsed}` during a run.
+- ⌘⇧T reopens the most recently closed tab with its filter or source; the toast's Undo does the same for a script tab.
+- A single click on a second navigator collection replaces the preview tab; editing the filter keeps it.
+- After a relaunch the Focused Tab runs once and focus is in its filter.
+- ⌘B toggles the sidebar and ⌘⇧B the Query Builder; neither acts under an open dialog.
+
+### 14.14 Test cases
+
+- **Unit**: the tab label rule (bare name, `database.collection` on a clash, back again); the next script title; the closed-tab list (cap of ten, newest first, entries of a deleted Connection dropped); the breadcrumb model for each state (collection, script, server, no tab, no open Connection, none saved).
+- **Component**: breadcrumb segments and their dropdowns; the no-tab canvas; the group chip appearing with a second Connection; `+ ▾`; the view header labels and ⌥1–3 (ignored in a text field); the status bar's three regions and its running state; reopen from the menu, the key and the toast; the preview tab being replaced, and kept by an edit; ⌘B and ⌘⇧B, each inert under a dialog.
+- **E2E**: connect, open two same-named collections from two databases and read both tab labels; browse three collections by single click and end with one tab; close a script tab and reopen it with its source; relaunch and find the Focused Tab run and the filter focused.

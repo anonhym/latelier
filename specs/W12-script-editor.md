@@ -1,6 +1,6 @@
 # W12 — Script editor tab
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§7 shipped. §8 (an output panel visible from the start, labelled header fields, numbered titles, and a confirmation before a script that looks destructive) is agreed and not built yet.
 
 ## Purpose
 
@@ -516,3 +516,46 @@ tracked as a follow-up in GitHub Issues.
   types `db.users.insertOne({ name: "x" }); db.users.find().toArray();`,
   hits Cmd+Enter, asserts the document appears in the table and
   survives a relaunch.
+
+## 8. Amendment — visible output, plain labels, a guard for the obvious accident
+
+> **Accepted, not built.** It adds to §4 and leaves the service, the channels and the security model (§2, §3, §5) unchanged.
+
+### 8.1 Output panel
+
+- A script tab opens split: the editor above, the **output panel below at 30% of the height**, from the first render. It used to be a 30px strip reading "No output yet", invisible until a run.
+- Its empty text is `Output appears here · ⌘↵ to run`.
+- The resize handle and the stored `resultPanelHeight` work as before; a stored height wins over the default.
+
+### 8.2 Header
+
+- The fields are labelled **Database** and **Timeout** (they read `db:` and `timeout:`). The database placeholder stays `(use default)`.
+- A new script tab is titled `Script 1`, `Script 2`, … ([W01 §14.4](./W01-workspace-shell.md)); the title input still renames it.
+
+### 8.3 Closing
+
+Closing a script tab that holds source offers Undo, and ⌘⇧T reopens it ([W01 §14.8](./W01-workspace-shell.md)).
+
+### 8.4 Confirm a script that looks destructive
+
+The Documents view asks the user to type the collection name before a delete-all; a script running `deleteMany({})` ran at once. The two paths disagreed about how dangerous the same operation is.
+
+- Before Run, the source is scanned **as text** for: `deleteMany(` with an empty or missing filter, `.drop(`, and `dropDatabase(`.
+- A hit opens one confirmation naming the Connection and what was found (`This script calls deleteMany({}) on Local dev`), with `Run anyway` and Cancel. Cancel has initial focus.
+- A setting, **Confirm destructive scripts** (Settings, on by default, stored as `ui.scripts.confirmDestructive`), turns it off.
+- It is a courtesy, not a guard: a text scan cannot see a filter built at run time or a call made through a variable, and the spec does not claim it can. The Read-Only Connection handle (§5) stays the real enforcement.
+- The scan is a pure function over the source, with no nested-quantifier patterns, since the source is user-controlled.
+
+### 8.5 Acceptance criteria
+
+- A new script tab shows the output panel at about 30% height with its empty text before any run.
+- The header reads Database and Timeout.
+- Running `db.orders.deleteMany({})` opens the confirmation naming the Connection; Cancel runs nothing; `Run anyway` runs it.
+- `db.orders.deleteMany({ status: "x" })` and a `find` run with no confirmation.
+- With the setting off, nothing asks.
+
+### 8.6 Test cases
+
+- **Unit**: the scan — hits for `deleteMany({})`, `deleteMany()`, `deleteMany( { } )`, `.drop()`, `dropDatabase()`; no hit for a non-empty filter, for the words inside a string or a comment, or for `dropIndex(`; linear time on a long adversarial input.
+- **Component** (`script-tab`): the split layout and empty text; the labels; the confirmation's copy, initial focus and both outcomes; the setting off.
+- **E2E** (`x03-script-editor-ui`): a destructive script is confirmed before it runs.

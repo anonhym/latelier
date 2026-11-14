@@ -1,6 +1,6 @@
 # A05 — Pipeline output panel
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§6 shipped. §7 is agreed and not built yet: the panel becomes the preview column of [A01 §9](./A01-aggregation-shell.md), and its Copy, Save as…, Save as view… and Download become one `Export results ▾` menu.
 
 ## Purpose
 
@@ -79,3 +79,22 @@ The empty, not-run and failed states are the W06 pane states (`PaneState`), each
 - **download.spec.tsx**: click ⇩ → mocked `api.app.saveFile` called; file write channel receives payload.
 - **empty.spec.tsx**: `rows=[]` → empty placeholder.
 - **error.spec.tsx**: mock error → pane state with code, message and details; Run again calls the run.
+
+## 7. Amendment — the preview column and one Export menu
+
+> **Accepted, not built.** The design is [A01 §9.4](./A01-aggregation-shell.md).
+
+- The panel is the **preview column**, beside the stages rather than under them; stacked under them below 1100px or by its toggle. In the stacked arrangement §2's drag handle and `outputHeight` apply as before; side by side, the divider between the columns is what resizes.
+- It shows the selected stage's output or the full run's (A01 §9.4). §4's states (not run, running, empty, error) apply to whichever is shown.
+- §2's four actions become one menu, **`Export results ▾`**: `Copy` (the same Canonical EJSON array as §2), `Download…`, `Save to collection…` (was "Save as…"), `Create view…` (was "Save as view…"). The pipeline has its own Save; calling these "Save as" too gave one view two "Save as" that did different things.
+- The view switch is the Documents canvas's, in the order Table, Tree, JSON.
+
+### Acceptance criteria
+
+- The preview header has the view switch and one `Export results ▾`; no control in it is named "Save as".
+- Each of the four items does what its predecessor did, with the same disabled rules (nothing to copy with no rows; nothing while running).
+- Side by side, dragging the divider resizes the columns; stacked, the height handle works as in §2.
+
+### Test cases
+
+- **Component** (`output-panel`, `output-panel-readable-ejson`, `save-as-view-navigator-refresh`): the menu's items and disabled states; Copy's text unchanged; Create view still refreshing the navigator.

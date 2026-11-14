@@ -114,3 +114,13 @@ connection detail. The retirement of the old `/connections` list-sidebar screen 
 
 Open: whether the expanded table subsumes enough of `/connections/:id` that the deep screen
 should shrink to just Collections / Indexes / Users.
+
+## Amendment (2026-11-13) — the trigger is the breadcrumb; rows get one menu
+
+Two points of this ADR change. The Data View as home, the anchored popover, the search-first list and the expanded table all stand.
+
+**The trigger.** The Decision anchors the Switcher "off the connection name in the TitleBar" and shows `Select a connection ▾` whenever no Connection is open. The title bar now carries one breadcrumb, `● connection › database › collection`, and its first segment is the Switcher's trigger: the same popover on the same anchor, drawn as part of the location instead of as a pill beside it. With a Connection open and no tab in front, the segment names that Connection; `Select a connection` is kept for the one state it is true in (saved Connections, none open). The old fallback read "Select a connection" under a navigator showing one connected.
+
+**Row actions.** The 2026-07-25 prototype findings replaced the Decision's per-row `⋯` with inline icon actions on the highlighted row. In use that put four unlabelled 14px icons side by side, Delete next to Edit, in a control built for a quick flick. The row goes back to **one `⋯`** (Open server overview, Edit…, Disconnect, Copy connection string, Delete… last after a divider). The keyboard path the prototype added (`↑↓`, `⏎`, `⌘⏎`, `⌫`, `⌘E`) is kept; it was the part of that finding that earned its place.
+
+**The deep screen.** The open question at the end of the prototype findings is settled the other way round: the server-level screen (Overview, Monitor, Collections, Users, Roles) becomes a tab inside the Data View rather than a separate route, and `/connections/:id` redirects to it. Detail in [X16 §13](../../specs/X16-multi-connection.md), [W01 §14](../../specs/W01-workspace-shell.md) and [C05 §11](../../specs/C05-connection-manager-shell.md).

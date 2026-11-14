@@ -138,3 +138,13 @@ another's — a tab's Connection is a property of the tab, and dragging is not h
 change it. The alternative, letting the drop land anywhere and re-sorting the strip underneath
 the user, moves the tab somewhere other than where it was dropped. This is a rendering
 constraint; it does not reopen the no-migration decision.
+
+## Amendment (2026-11-13) — the Connection chip is conditional
+
+The Decision puts tabs "behind a named Connection chip". A review of the shipped shell found that with a single Connection open, which is how most sessions run, the chip states a name the title bar already carries and takes about 90px from the tabs.
+
+**Amended:** the chip is drawn only while tabs of two or more Connections are open. Every tab carries a stripe in its Connection's colour and its own read-only marker, so a tab's Connection is still visible when no chip is. Collapsing a group stays the chip's action and exists only while the chip does; a collapsed group expands when its chip goes away.
+
+Unchanged: identity lives on the tab, tabs group by Connection in one strip, and drag stays inside a group. Detail in [X16 §13](../../specs/X16-multi-connection.md).
+
+Considered and rejected: keeping the chip always and shrinking it to a dot. The stripe on each tab already is that dot, and a chip that is always there for one group is a control with nothing to collapse against.

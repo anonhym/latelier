@@ -1,6 +1,6 @@
 # W18 — Document Editor
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§12 shipped. §13 is agreed and not built yet: the editor stays this modal and gains a value-to-value Tab order, a visible change list, a per-field conflict table, exits for a deleted document, and previous/next document.
 
 ## Purpose
 
@@ -196,3 +196,90 @@ None new. `doc:updateOne` already returns `{ matchedCount, modifiedCount }`, whi
 - open from Table, Tree and JSON (button and `E`), edit a number and a nested field, save, see the re-run result and the updated header count;
 - insert many by pasting an array into the JSON view;
 - Quick Edit a boolean cell in Table.
+
+## 13. Amendment — keyboard order, visible changes, conflicts by field, previous and next
+
+> **Accepted, not built.** Decided in the 2026-11-13 design review. It supersedes §5c's Reload / Overwrite banner and adds to §1, §3 and §7. The container does not change: the Document Editor is this modal, opened the way §7 says. A side panel was considered for editing and declined; the right-hand Inspector hosts only the Query Builder and the query plan.
+
+### 13.1 One tab stop per field
+
+- In the Fields view, **Tab moves from one field's value to the next field's value**. A row used to take three stops (value, type, Remove), so passing eight fields took twenty-four presses.
+- An Object or Array row has no value input; its stop is its expand control.
+- **Escape in a value** moves focus to the row itself. On the row: `T` opens its type selector, `⌫` (or Delete) removes the field, Enter returns to the value, `↑` `↓` move between rows. A second Escape, from the row, is §7's Escape: it closes the editor through the dirty guard. An open suggestion popup still closes first.
+- The type selector and Remove stay clickable and named; they are out of the Tab order (`tabIndex={-1}`), not out of the accessibility tree.
+- `_id` ignores `T` and `⌫`.
+- The type column is wide enough for the longest type name. `Decimal128` used to be cut to `Decimal12`.
+
+### 13.2 The change list
+
+- While an edit is dirty, a strip above the footer reads `{n} changes` and expands to the list of what Save will send, built from the same `diff` that builds the request (§5a), so the list and the write cannot disagree:
+  - a changed value: `status: "pending" → "shipped"`;
+  - an added field: `note: + "call back"`;
+  - a removed field: `legacyFlag: removed`;
+  - a nested change by its dotted path; an array as one whole-array entry.
+- The header of the list names the operators that will be sent (`$set` 2 · `$unset` 1).
+- **Type changes are previewed.** When the type selector changes a field's type, the entry shows both types, `qty: 5 Int32 → 5 Double`, and says `value cleared` when the conversion was not lossless (§3). The same line shows under the row as soon as the type is changed.
+- Values are shown in the readable form and cut to one line; the full value is the entry's title.
+- There is no strip when creating a document: an insert sends the whole draft.
+
+### 13.3 A conflict, field by field
+
+Supersedes §5c's second bullet.
+
+When the compare-and-set matches nothing and the document still exists, the editor fetches it and shows a table in place of the Reload / Overwrite banner:
+
+| Field | Yours | Now on server | Changed by |
+| --- | --- | --- | --- |
+| `status` | `"shipped"` | `"cancelled"` | both |
+| `qty` | `7` | `5` | yours |
+| `updatedAt` | — | `2026-11-13T09:02:00Z` | theirs |
+
+- **both**: the user and the server changed the same path. The row carries a choice, `Keep mine` or `Take theirs`, and Save stays disabled until every such row has one.
+- **yours**: only the user changed it. It will be saved.
+- **theirs**: only the server changed it. It is already in the fresh copy and is listed so the user sees what moved; nothing to choose.
+- `Keep all mine` and `Take all theirs` set every **both** row at once.
+- Confirming makes the fetched document the new `original`, re-applies the user's diff minus the paths given to the server, and saves with fresh guards. A second concurrent change shows the table again.
+- The old banner offered all-or-nothing: Reload silently kept the user's value on every clashing path, Overwrite dropped every guard. Neither showed what the other writer had done.
+
+### 13.4 The document was deleted
+
+When the fetch finds no document, the editor says so and offers:
+
+- **Insert as new document**: sends the draft, with its original `_id`, as an insert.
+- **Copy my version**: copies the draft in the default copy format ([W06 §8.6](./W06-result-views.md)).
+- **Close**.
+
+The old state offered only Cancel, which threw the user's edits away with the document.
+
+### 13.5 Previous and next document
+
+- The header has `‹` and `›`, moving to the previous and next document of the result the editor was opened from, in the order the list shows them. They stop at the ends of the loaded page and do not page.
+- With unsaved edits, moving asks first: **Stay**, **Discard and go**, **Save and go** (⌘↵). Save and go saves through §5 and moves only if the save succeeded; a conflict keeps the editor on the current document.
+- The neighbour opens as it would from the list. The tab's query re-runs once, when the editor closes, not on every move.
+- They are absent when creating a document.
+
+### 13.6 The save shortcut is shown
+
+The Save button shows its key, `⌘↵`, as a key cap beside its label (formatted for the platform). The key cap is decoration: the button's accessible name stays `Save`, or `Insert N documents`.
+
+### 13.7 Acceptance criteria
+
+- Tab from a field's value lands on the next field's value; eight scalar fields take eight presses.
+- Escape in a value focuses the row; `T` then opens the type selector and `⌫` removes the field; a second Escape asks to discard when dirty.
+- The type selector shows `Decimal128` in full.
+- Changing two fields shows `2 changes`; expanding lists both with old and new values, and the request sent on Save has exactly those paths.
+- Changing a field's type shows both types before Save.
+- With one edited field changed underneath, the conflict table lists it as changed by both, Save is disabled until a choice is made, and `Take theirs` on it sends no write for that path.
+- A field only the server changed is listed as theirs and is not overwritten by the save.
+- When the document was deleted, `Insert as new document` inserts the draft and `Copy my version` puts it on the clipboard.
+- `›` opens the next document of the list; with unsaved edits it asks Stay / Discard and go / Save and go, and ⌘↵ there saves and moves.
+- `‹` is disabled on the first document and `›` on the last; neither is drawn when creating.
+- The Save button shows `⌘↵` and is still found by the name `Save`.
+
+### 13.8 Test cases
+
+- **Unit**: the change-list entries for a changed, added, removed, nested and array path and for a type change, from a `DocDiff`; the conflict classification (both / yours / theirs) from `original`, `draft` and the fetched document; the merged draft for each combination of choices.
+- **Property** (`*.property.spec.ts`, real `bson` constructors): for generated `original`, `draft` and `server` documents, resolving every conflict as `Keep mine` yields a draft whose diff against `server` contains every path of the user's diff, and resolving every one as `Take theirs` yields a diff with none of the both-changed paths; the change list has one entry per path of the diff.
+- **Component**: the Tab order across scalar, object and array rows; row mode (`T`, `⌫`, Enter, arrows, the two Escapes, with the trailing blur dispatched explicitly); the change strip following the diff; the conflict table with a mocked `matchedCount: 0` and a mocked fetch, including the disabled Save and the requests each choice sends; the deleted state's two exits; previous / next with the three-way guard; the key cap not changing the button's name.
+- **Integration**: a save after `Take theirs` on one path and `Keep mine` on another leaves the server's value on the first and the user's on the second.
+- **E2E**: edit a document by keyboard only, tabbing value to value, and save with ⌘↵; step through three documents with `›`, saving one on the way.

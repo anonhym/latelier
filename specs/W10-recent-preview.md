@@ -1,6 +1,6 @@
 # W10 — Recent queries + preview field preferences
 
-> **Status: Implemented.** The preview-field preferences in §2 were removed along with the picker.
+> **Status: Accepted.** §1–§5 shipped; the preview-field preferences in §2 were removed along with the picker. §6, which moves the Recent list out of the Query Builder into the Filter Bar's History popover, is agreed and not built yet.
 
 ## Purpose
 
@@ -143,3 +143,20 @@ A tiny `MaintenanceService` registered at startup runs every 24 hours (and once 
 - **recent-row.spec.tsx**: mock returns 3 rows → renders with correct summaries; "Run here" dispatches tab hydration + run.
 - **preview-default.spec.tsx**: fresh tab → first 50 docs provided → picker initialized with first 4 scalar fields.
 - **picker-persist.spec.tsx**: selecting a new field → `api.prefs.setPreviewFields` called with the new array.
+
+## 6. Amendment — one home for the Recent list
+
+> **Accepted, not built.** The design is [W05 §9.6](./W05-query-bar.md).
+
+- The Recent list leaves the Query Builder's tab row. Its one entry point is `History ▾` in the Filter Bar row, a 360px searchable popover.
+- ↑↓ move through the runs and show the highlighted one's query text; Enter loads it.
+- Recording, retention and the channels (§1, §3) are unchanged.
+
+### Acceptance criteria
+
+- The Query Builder has no Recent tab; `History ▾` lists this collection's recent runs, newest first.
+- A run can be read in the popover before it is loaded.
+
+### Test cases
+
+- **Component**: the popover's list, search and keyboard preview; loading a run replaces the filter and options as the tab did.

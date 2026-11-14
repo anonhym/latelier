@@ -1,6 +1,6 @@
 # X13 — Operation audit log & undo
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§12 shipped. §13, undo beyond the toast, is agreed and not built yet.
 
 ## Purpose
 
@@ -291,3 +291,26 @@ Three known ceilings, recorded so nobody mistakes them for oversights:
 - **Scripts and the shell are invisible.** A `scriptRun` that deletes 400 documents leaves no entry. Instrumenting `dbProxy` is the upgrade path if this ever stings.
 - **Partial `insertMany` can't be undone.** Making it undoable means pre-generating `_id`s before the call — a change to how insert works, and its own ticket.
 - **`updateOne` costs a Pre-image read** when audited, and its write carries the whole Pre-image in its filter so both images stay atomic with it (§5). `$eq` treats numerically equal values of different types (`1` and `1.0`) as equal, so a change between them goes unseen by the compare-and-set.
+
+## 13. Amendment — undo beyond the toast
+
+> **Accepted, not built.**
+
+Undo existed only as a button on an 8-second toast. Once the toast left, the only way back was the audit log.
+
+- **`⌘Z`** in the result area (focus on the results, not in a text field or a dialog) triggers the newest still-valid undo of the Focused Tab's collection: the same action the toast's button runs. In a text field ⌘Z stays the field's own undo.
+- **`Undo last change`** is an item in the canvas header's `⋯` menu ([W06 §8.1](./W06-result-views.md)), present while such an undo exists, naming what it reverses (`Undo: document updated`).
+- "Still valid" is §6's rule unchanged: the entry has captured data, has not been undone, and has not expired. When it is refused (the target changed underneath), the refusal is shown as it is from the toast.
+- Nothing is added to the main process: both entry points call the existing undo channel with the newest entry the renderer already holds for that tab.
+
+### Acceptance criteria
+
+- After a document update, with the toast gone, ⌘Z on the results reverts it and the list re-runs.
+- ⌘Z in the filter editor undoes typing, not the write.
+- `Undo last change` is present after a write and absent once it is undone or expired.
+- A refused undo reports why and removes the item.
+
+### Test cases
+
+- **Component**: ⌘Z on the results calls undo for the newest entry; ⌘Z inside a text field and under a dialog does not; the menu item's presence and label follow the entry's state.
+- **E2E**: edit a document, wait for the toast to leave, press ⌘Z, and read the original value.

@@ -1,6 +1,6 @@
 # X16 — Multi-connection Data View
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§12 shipped. §13 (the conditional group chip, the breadcrumb as the Switcher's trigger, the Switcher and Connections table rows) is agreed and not built yet; where it names a part of §4.4 or §4.6, §13 is what ships.
 
 ## Purpose
 
@@ -434,3 +434,57 @@ Fourteen files assert a single Active Connection and are reworked with this chan
 function is deleted here, so the spec is deleted with it rather than adapted — the invariant it
 protected (one call site for switching) stops existing when switching stops being a coordinated
 teardown.
+
+## 13. Amendment — the chip, the Switcher's trigger, and its rows
+
+> **Accepted, not built.** It supersedes the parts of §4.4 and §4.6 it names. The decision is recorded in the 2026-11-13 amendments to [ADR 0006](../docs/adr/0006-multi-connection-data-view.md) and [ADR 0001](../docs/adr/0001-data-view-home-connection-switcher.md).
+
+### 13.1 The group chip is conditional
+
+- The named chip of §4.4 is drawn only while tabs of **two or more Connections** are open. One Connection is the common case, and there the chip repeated a name the title bar already states and cost about 90px of the strip.
+- Without the chip, a tab's Connection still shows: every tab carries a stripe in its Connection's colour and its own read-only marker ([W01 §14.4](./W01-workspace-shell.md)).
+- Collapsing a group is the chip's action, so it exists only while the chip does. When the chip disappears (the second Connection's last tab closed), a collapsed group expands: tabs must never be hidden behind a control that is no longer drawn.
+- Grouping, the group order, and drag constrained inside a group are unchanged.
+
+### 13.2 The Switcher opens from the breadcrumb
+
+- The Switcher's trigger is the first segment of the title-bar breadcrumb ([W01 §14.2](./W01-workspace-shell.md)), not a separate pill. It is the same popover on the same anchor, drawn as part of the location.
+- With a Connection open and no tab in front, that segment names the most recently connected Open Connection. `Select a connection` remains only for the state it describes: saved Connections, none open.
+
+### 13.3 Switcher rows
+
+Supersedes the inline icon actions of §4.6's row content (the rest of that bullet, the version badge and pins, stands).
+
+- A row is `● {name} — {host} · v{version}`, with its status as text at the right: `Connected`, `Dormant`, or `Connect ↵` on the highlighted row of one that is not open.
+- The four unlabelled icons side by side (manage, disconnect, edit, delete) are replaced by **one `⋯`** on hover or focus, opening: `Open server overview`, `Edit…`, `Disconnect`, `Copy connection string`, then after a divider `Delete…`. Delete sat one slip of the pointer from Edit inside a control meant for quick switching; it keeps its type-the-name confirmation ([ADR 0013](../docs/adr/0013-destructive-friction.md)).
+- The keyboard path is unchanged: `↑↓`, `↵` connect, `⌘↵` manage, `⌫` disconnect, `⌘E` the table. Shift+F10 or the ContextMenu key opens the row's `⋯`.
+- Footer: `+ New connection` and `Manage all ⌘E`.
+
+### 13.4 The Connections table
+
+- Create actions move to the header row, beside the search: `+ New` and an `Import ▾` menu (`From a file…`, `From Compass…`, `Paste URIs…`). They were below the table, under the fold of attention.
+- The bulk bar (`Export`, `Delete`) is drawn only while at least one row is checked, instead of sitting disabled above the table.
+- Each row's actions collapse into the same `⋯` as the Switcher's.
+
+### 13.5 A Connection that stops answering
+
+§2's "drops on its own → Dormant" is the contract: a server that stops answering turns its Connection Dormant, in the title bar, the navigator and the status bar, within one heartbeat plus the pool's grace window, without waiting for the user's next query.
+
+### 13.6 Acceptance criteria
+
+- With tabs of one Connection open the strip draws no chip; opening a tab of a second Connection draws both chips.
+- Closing the second Connection's last tab removes the chips and expands a collapsed group.
+- Each tab shows its Connection's colour and, on a Read-Only Connection, the marker, with or without a chip.
+- The breadcrumb's first segment opens the Switcher; no other Switcher trigger is in the title bar.
+- A Switcher row shows no inline action icons; its `⋯` lists the five actions, Delete last after a divider.
+- Delete from the `⋯` opens the type-the-name confirmation.
+- The Connections table has `+ New` and `Import ▾` in its header; the bulk bar appears on the first check and leaves on the last uncheck.
+- Stopping a connected server turns its Connection Dormant with no user action.
+
+### 13.7 Test cases
+
+- **Component** (`workspace-tab-groups`): no chip with one Connection, chips with two, a collapsed group expanding when the chip leaves; the tab's stripe and read-only marker without a chip.
+- **Component** (`connection-switcher`): the trigger is the breadcrumb segment; a row has one `⋯` with the five items in order; `⌫`, `⌘↵` and `⌘E` still act; Delete opens its confirmation.
+- **Component** (Connections table): header `+ New` and `Import ▾`; the bulk bar's presence follows the checked set.
+- **Integration** (`mongo-pool`): a client whose server stops answering reports `disconnected` with a `lostReason` after the grace window, and recovers silently when the server returns inside it.
+- **E2E**: two Connections, tabs in each, close one side and watch the chip go.

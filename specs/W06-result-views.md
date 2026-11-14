@@ -1,6 +1,6 @@
 # W06 — Result views (Tree / JSON / Table)
 
-> **Status: Implemented.** The preview-fields picker in §2 was removed; the Fields control replaced it.
+> **Status: Accepted.** §1–§7 shipped; the preview-fields picker in §2 was removed and the Fields control replaced it. §8, the canvas (its header, the stale banner, row identity, absent cells, copy formats, menus, deep documents, error copy), is agreed and not built yet; where it names a part of §2–§5, §8 is what ships.
 
 ## Purpose
 
@@ -150,3 +150,133 @@ Each view is one tab stop (`role="tree"` for Tree and JSON, the grid for Table) 
 
 ### E2E
 - **view-swap.e2e.ts**: run query → Tree, click rows → switch to JSON → same docs → switch to Table → resize a column → reload app → width persisted.
+
+## 8. Amendment — the canvas
+
+> **Accepted, not built.** It supersedes the parts of §2–§5 it names and leaves the rest standing. Opening a document is unchanged: `E`, the row's Edit control and the menus open the Document Editor's modal ([W18](./W18-document-editor.md)); a row click does not open a side panel.
+
+### 8.1 Canvas header
+
+A 28px header replaces the result toolbar.
+
+- **Left**: the view switch, in the order `Table | Tree | JSON`. A new tab still opens on the stored default view; choosing a view makes it the default for tabs opened afterwards (the existing `ui.workspace.defaultView` preference, which Settings also shows). People who prefer Table used to switch on every open.
+- **Right**: `References` (icon and count; drawn when the collection has rules, or on hover and focus), a `⋯` menu, then `+ Insert`.
+- **`⋯`** (accessible name `More actions`) replaces the `Documents ▾` menu, whose name was also the name of the view. Two labelled groups: **Bulk actions** — `Update matching…`, `Delete matching…`; **Data** — `Export…`, `Import…`. A third item, `Undo last change`, appears while an undo is still valid ([X13 §13](./X13-operation-audit-log.md)).
+- **`+ Insert`** is a default (outline) button. Filled, it was the most prominent control in a read-mostly view, twenty pixels under Run.
+- The pager is in the status bar ([W07 §7](./W07-pagination.md)); projection is a pill in the Filter Bar row ([W05 §9.2](./W05-query-bar.md)).
+- The permanent selection hint row of §5 is removed.
+
+### 8.2 Results that are not current
+
+Supersedes §5's "the rows stay, dimmed, the count says not current".
+
+- A 28px warning strip at the top of the canvas: `These results are from the previous filter.` with a `Run ⌘↵` text button. When the query cannot run as written, the button is absent and the Filter Bar's error strip gives the reason.
+- While a query is running over earlier rows, the strip reads `Previous results`.
+- The rows stay at **full contrast**. At 45% opacity a stale table read as a disabled or broken one, and in the dark theme dimmed text over a dark surface fell below a readable contrast.
+- The status bar's count carries a warning dot.
+
+### 8.3 Selection
+
+- The checkbox column is drawn on row hover and focus, and stays for every row once anything is selected. ⌘/Ctrl-click still toggles a row.
+- With one or more rows selected, the selection bar is a floating pill at the bottom centre of the canvas: `{n} selected · Copy ▾ · Delete · ✕`. `Delete` is absent on a view.
+
+### 8.4 Row identity
+
+Supersedes §2's `shortId`.
+
+- A row's visible id is built from the `_id`'s **display value**, the text a table cell shows, never from its EJSON wrapper: an ObjectId as `…` and its last eight hex digits; a number, string or date as its display text, cut to twelve characters with an ellipsis; `(no _id)` when absent. An Int32 `_id: 1` used to read `{"$numberInt` on every row.
+- It is plain monospace in the neutral text colour. In the accent colour it read as a link.
+- The full id is the id's tooltip, with a copy control on hover.
+- The accessible names of the row's actions use the same readable id: `Edit document 1`, not `Edit document {"$numberInt`.
+
+### 8.5 Absent fields
+
+In Table, a field the document does not have is an empty cell with a faint centred `—` and the title `Field not present`. `null` stays `null`, and a BSON `undefined` value still reads `undefined`. Rendering absence as the word `undefined` made a sparse collection a grid of that word and hid the difference between "no such field" and a stored value.
+
+### 8.6 Copy
+
+- **One default for every "copy document" path** — the selection bar, a JSON card, `Copy document` in a menu, ⌘⇧C: **Readable EJSON** (`ejsonStringifyReadable`). It unwraps only what re-parses to the identical BSON, so what is pasted back means what was copied. The three paths used to give Canonical EJSON, a relaxed form and plain text for the same document.
+- **Copy as ▾** offers `EJSON (readable)`, `Canonical EJSON` and `mongosh`. The last choice becomes the default (a stored preference) and the menu always names the formats, so the clipboard never holds a form the UI did not name. bson's own relaxed mode is not offered: it rounds a 64-bit integer.
+- `Copy value` on a cell keeps copying the display text (an ISO date, the hex of an ObjectId).
+- **`⌘C`** copies the active cell's value in Table and the active document in Tree and JSON. **`⌘⇧C`** copies the active document in all three. A text selection, or focus in a text field, keeps the native copy.
+- Cell and document menus gain `Copy document` and `Copy _id`. A column header has a menu: `Copy field path`, `Sort ascending`, `Sort descending`, `Hide column`, `Add to filter`.
+- Menu copies share **one** toast (`Copied`, 1.5 seconds, replaced rather than stacked). The in-cell flash stays for the double-click copy.
+
+### 8.7 Menus
+
+- The cell, field, document and column-header menus render through the shared `ContextMenu`, as the navigator's do: `role="menu"`, `menuitem`s, arrow keys, Escape. They were groups of plain buttons under three implementations.
+- A right-click on a collapsed Tree row and on a column header opens that row's or column's menu.
+- A document's menu reads: `Copy document`, `Copy _id`, `Edit document` (`View document` on a view), `Duplicate document`, `Expand all`, `Collapse all`, `Delete`.
+- A row's hover controls are Edit and `⋯`. Delete is in the `⋯` menu and on `D`.
+
+### 8.8 Deep documents
+
+- `⌥`-click on a chevron, or `⌥→` on the active row or field, expands the whole subtree; `⌥←` collapses it.
+- `Expand all` and `Collapse all` are in the document's menu.
+- `→` on an expanded row moves to its first field; `←` on a field moves to its parent. Arrow keys used to expand a document and never enter it.
+
+### 8.9 Full value and Fields popovers
+
+- Opening either by mouse or keyboard moves focus into it, so Escape closes it and returns focus to its trigger, without bubbling. Opened by click, both used to ignore Escape.
+- The Full value viewer grows to 60vh and has a header (field path, type, length) with `Copy` and `Open in editor`, which opens the Document Editor on that field.
+
+### 8.10 Wide documents
+
+- The column picker has a filter box; choosing a field scrolls its column into view.
+- The `_id` column is sticky at the left.
+- Rendering only the visible columns is added if a profile of a wide collection shows it is needed; it is not assumed.
+
+### 8.11 JSON view
+
+- Cards render documents in **shell form** by default: `ObjectId("…")`, `ISODate("…")`, `NumberLong("…")`, plain numbers. A `Canonical EJSON` item in the view's `⋯` switches the display, per tab. This is display only; copying goes through §8.6 and names its format.
+- A card's actions show on hover, on focus within the card, and on the active card, not on every card at once.
+
+### 8.12 Tree and Table rows
+
+- Table rows are 30px; nested values are `{n}` / `[n]` chips.
+- A collapsed Tree row shows its first fields as aligned `key value` pairs.
+
+### 8.13 Scroll position
+
+Each tab remembers the scroll offset of each view for the session and restores it when the tab is shown again. It is not persisted across a relaunch.
+
+### 8.14 Empty collection
+
+The empty-collection state offers `Insert document` and `Import…`. It offered only Import, the heavier of the two.
+
+### 8.15 Error copy
+
+Supersedes the wording of §5's query-error and failed states; their actions stand.
+
+- The message is shown without the internal code prefix (`VALIDATION:`, `MONGO_ERROR:`, `NETWORK:`). The code and the raw message are under a `Details` disclosure.
+- One hint line follows, chosen by what failed: an unknown operator suggests the nearest real one (`Did you mean $gt?`, within an edit distance of two over the operator catalog); a refused connection reads `The server is not reachable.`; a socket timeout reads `Raise Socket timeout in the connection's Advanced tab.`
+
+### 8.16 Acceptance criteria
+
+- The view switch reads Table, Tree, JSON; choosing JSON in one tab makes the next new tab open on JSON.
+- The canvas header has no pager, no Fields button and no `Documents` menu; `⋯` holds the Bulk actions and Data groups.
+- `Insert` is not a filled button.
+- No hint row is drawn with nothing selected.
+- Results that are not current show the strip, at full row opacity, with Run in it when the query can run.
+- The checkbox column appears on hover and stays while a selection exists; the selection pill floats at the bottom centre.
+- A document with `_id: 1` shows `1` as its row id in every view, and its Edit control is named `Edit document 1`.
+- A field missing from a document shows `—` in Table; a `null` shows `null`.
+- The selection bar, a JSON card and `Copy document` put the same text on the clipboard for the same document, and that text parses back to the same BSON.
+- Choosing `Canonical EJSON` in Copy as makes it the default for the next copy and after a relaunch.
+- ⌘C on a focused cell copies its value; ⌘⇧C copies the document; with text selected the native copy runs.
+- Six menu copies leave one toast on screen.
+- The cell, field, document and header menus expose `role="menu"` and move with the arrow keys.
+- ⌥-click on a chevron expands every level below it; `→` on an expanded row enters its fields.
+- Escape closes a mouse-opened Full value or Fields popover; Full value has Copy and Open in editor.
+- The column picker finds a field by typing and scrolls to it; `_id` stays visible while scrolling sideways.
+- JSON cards show `ObjectId("…")` by default and Canonical EJSON after the switch.
+- Returning to a tab restores its scroll position.
+- An empty collection offers Insert document and Import.
+- A failed query shows no code prefix, shows a hint, and keeps the code under Details.
+
+### 8.17 Test cases
+
+- **Unit**: the row id for ObjectId, Int32, Int64, Decimal128, Double, Date, string, nested-object and missing `_id`s; the copy formatter in each format; the nearest-operator hint; the error-hint choice by code.
+- **Property** (`*.property.spec.ts`, real `bson` constructors): for a generated document, the readable and canonical copy texts each parse back to a document whose Canonical EJSON equals the original's; the mongosh text repairs through the Shell Syntax transform to the same Canonical EJSON, for the types that transform covers; the row id of a scalar `_id` never begins with `{"$`.
+- **Component**: the canvas header; the stale strip (with a stateful wrapper) and the unchanged row opacity; hover checkboxes and the floating pill; row ids and action names in Tree, Table and JSON; `—` cells; Copy as and its remembered choice; ⌘C / ⌘⇧C and the native-copy exception; the single toast; the four menus as `ContextMenu`; subtree expansion and entering fields; popover focus and Escape (render under a parent with its own key spy to prove the stop); the column picker's find; shell and canonical JSON display; scroll restore; empty-collection actions; error copy and Details.
+- **E2E**: copy a selected document and a JSON card and compare the clipboard; expand a six-level document with one ⌥-click; open a collection with integer ids and read distinct row ids.

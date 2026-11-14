@@ -1,6 +1,6 @@
 # W11 — Mongo shell pane (REPL in a runner child)
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§7 shipped. §8, which renames the pane's entry point to "Console" and fixes its focus, clear and echo behaviour, is agreed and not built yet.
 
 ## Purpose
 
@@ -363,3 +363,31 @@ Behaviour:
   `{ "ok": 1 }` payload appears in the output stream.
 - **x01-mongo-shell-ui.e2e.ts**: opens the shell from a `shop.orders`
   tab and asserts the prompt is `shop> `.
+
+## 8. Amendment — "Console", and the pane's small behaviours
+
+> **Accepted, not built.** It changes §4's renderer pane only.
+
+### 8.1 The name
+
+The app had two JavaScript surfaces, a title-bar button called **Shell** and tabs called **Script**, and nothing said which to use. The pane's button is renamed **Console**, with the tooltip `Interactive shell for the focused connection (⌃`)`; the palette's toggle is titled `Console`. The pane docks at the bottom of the main area, as it does today. Scripts stay tabs: a console is for one line at a time, a script is a file.
+
+### 8.2 Behaviour
+
+- **Focus.** When the session is ready, focus is in the input, including when the pane was opened by the button. It used to stay on the button.
+- **Escape** in the input returns focus to where it was before the pane took it.
+- **Clear.** `Ctrl+L` clears the output, and a `Clear` button sits beside Restart and Stop. Clearing keeps the session and its history.
+- **Echo.** A command is echoed as `shop> db.orders.countDocuments({})`: one prompt. It showed two, `shop> > …`.
+- `` ⌃` `` toggles the pane from anywhere in the workspace outside a dialog.
+
+### 8.3 Acceptance criteria
+
+- The title-bar button and the palette toggle read "Console".
+- Opening the pane puts focus in its input once the prompt appears; Escape hands it back.
+- `Ctrl+L` and Clear empty the output and leave ↑ history working.
+- An echoed command shows a single prompt.
+
+### 8.4 Test cases
+
+- **Component** (`mongo-shell-pane`): focus on ready after a button open; Escape returning focus; `Ctrl+L` and Clear; the echo format.
+- **E2E** (`x01-mongo-shell-ui`): open the Console from the title bar, run a command, read the single-prompt echo.

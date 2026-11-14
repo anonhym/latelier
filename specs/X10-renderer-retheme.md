@@ -1,6 +1,6 @@
 # X10 — Renderer re-theme
 
-> **Status: Implemented.** Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
+> **Status: Accepted.** The re-theme below shipped; the dark theme pass in the amendment at the end is agreed and not built yet. Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
 
 ## Purpose
 
@@ -65,3 +65,30 @@ Three options were on the table:
 - [X08](./X08-brand-identity.md) — brand identity rollout (precedes this; §3.6 deferred this work)
 - [X09](./X09-namespace-rename.md) — namespace rename (parallel rebrand work)
 - `branding/palette/tokens.css` (in the `atelier-brand` sibling repo) — source of truth for the violet/ghost/deep/navy values
+
+## Amendment — dark theme pass
+
+> **Accepted, not built.** It runs last, after every surface reworked by the One Spine amendments (W01 §14, W05 §9, W06 §8 and the rest) has landed, because it touches all of them.
+
+The dark theme was derived from the tokens and never reviewed on screen. Captures of the shipped build show the window body painted in the surface tone rather than the background tone, borders at 8% and 14% alpha doing the work of separating panels, and a connection tint of 14% that barely registers over a near-black background.
+
+### Rules
+
+- **Three stepped surfaces**, from the existing tokens: the canvas on `--atelier-bg`, panels (navigator, Inspector, the bars) on `--atelier-surface`, raised things (popovers, cards, the selected row) on `--atelier-surface-raised`. Panels are told apart by the surface step first and by a border second.
+- **Connection colour**: the tab and navigator stripe at full saturation; any tint mixed from it is at least 24% in dark. Light keeps its values.
+- **Results that are not current** are marked by the banner of [W06 §8.2](./W06-result-views.md), never by opacity, so dimming never stacks on text that is already low-contrast.
+- **Contrast**: every text and icon colour on its surface passes `src/theme/contrast.ts` at the size it is drawn, the 12px label on the accent fill included.
+- Dark is designed, not inverted: each reworked surface is captured in both themes at 1440×900 and reviewed before this is called done.
+
+### Acceptance criteria
+
+- In dark, the canvas, a panel and a popover are three distinguishable tones, in that order from darkest.
+- A tab's connection stripe is the Connection's colour unmixed; a group chip's tint is at least 24%.
+- No result row is drawn at reduced opacity in either theme.
+- The contrast check passes for every token pair the shell uses, in both themes.
+- Dark captures exist for: Documents (Table, Tree, JSON), a stale result, the Filter Bar with an error strip, the Inspector, Aggregation, Schema & indexes, a script tab, the Console, the palette, the Switcher, the Connections table, the connection form, the welcome canvas, the Document Editor with a conflict, and the status bar.
+
+### Test cases
+
+- **Unit** (`filled-button-contrast` and a token-pair table): each foreground/background pair the shell uses meets its ratio in both themes; the dark tint floor.
+- **E2E**: the dark captures above, each asserting the scheme attribute and the canvas, panel and raised tones by computed style.

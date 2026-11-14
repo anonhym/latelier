@@ -15,3 +15,11 @@ The old edit drawer made the user choose up front: Replace (whole document, whic
 - Reordering keys alone is not expressible, and saves nothing. `_id` never changes; it is immutable in MongoDB anyway.
 - The save is a compare-and-set on the fields it touches. The filter carries each changed field's value as loaded (`$exists: false` for an added field). If nothing matches, someone else changed one of those fields, and the user chooses between reloading (their edits merged onto the fresh copy) and overwriting. A change to a field they didn't touch never blocks the save.
 - Creating a document is not an edit: the Document Editor saves a new document whole, with `insertOne`.
+
+## Amendment (2026-11-13) — a conflict is resolved per field
+
+The save is unchanged: a diff, sent as `$set` / `$unset`, guarded by a compare-and-set on the fields it touches.
+
+What changes is the last Consequence above, "the user chooses between reloading … and overwriting". That choice was all-or-nothing and blind: Reload kept the user's value on every clashing field without showing the other writer's, and Overwrite dropped every guard. On a conflict the editor now fetches the document and lists, per field, the user's value, the server's value and who changed it. The user chooses per clashing field; a field only the server changed is kept as the server has it; the save is re-sent with fresh guards. When the document is gone, the user can insert their version as a new document or copy it, instead of only cancelling.
+
+Also settled on the same date: the Document Editor stays a modal. Moving editing into a right-hand panel beside the results was proposed and declined; the panel hosts the Query Builder and the query plan only. The editor's improvements (a value-to-value Tab order, a visible change list, previous and next document) land inside the modal. Detail in [W18 §13](../../specs/W18-document-editor.md).

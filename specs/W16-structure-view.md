@@ -1,6 +1,6 @@
 # W16 — Structure: the collection's shape and access paths
 
-> **Status: Implemented.**
+> **Status: Accepted.** §0–§15 shipped. §16 is agreed and not built yet: the view is named "Schema & indexes" in the UI and is laid out as a stat strip, section pills, one Refresh and a schema table with frequency bars.
 
 ## Purpose
 
@@ -1019,3 +1019,61 @@ the write grant. W02's Modify view is the channel's other caller.
   a view.
 - E2E, `w02-views-validation.e2e.ts`: Edit rules saves a `$jsonSchema` that the
   section then shows.
+
+## 16. Amendment — "Schema & indexes", and its layout
+
+> **Accepted, not built.** It supersedes §1's and §13's layout and leaves the plan badge (§3), create-this-index (§4), the schema depth of §14 and the validation rules of §15 as they are.
+
+### 16.1 The name
+
+The view is labelled **Schema & indexes** wherever the user reads it: the view tab, tooltips, the palette. "Structure" hid the two things people look for by name, and the palette already said "Go to schema" and "Go to indexes". Structure remains the domain term and the stored `activeView` value (`structure`), so nothing persisted changes.
+
+### 16.2 One Refresh
+
+- One `Refresh` at the top right of the view reloads the statistics, the index list and the validation rules together. Each section had its own, four buttons with the same name.
+- Schema sampling is **not** part of it. A sample costs the server a scan, which is why §14 keeps it explicit. Its button is renamed `Sample` (`Resample` once a sample is shown), so the page has one control called Refresh.
+
+### 16.3 Stat strip
+
+A 64px strip of five tiles, a 13px label over an 18px value: **Documents**, **Data size**, **Storage**, **Avg document**, **Indexes** (count, with total size). `Capped` is shown only when the collection is capped. It replaces a loose row of six label/value pairs. A figure the server did not report is `—`, as in §13.
+
+### 16.4 Section pills and order
+
+- Under the strip, pills name the sections and jump to them: `Indexes {n}` · `Schema {n} fields` · `Validation`. The pill of the section in view is marked as the page scrolls.
+- The sections follow that order: Indexes, Schema, Validation. Schema used to start below the fold, after Validation.
+- The palette's `Go to indexes` and `Go to schema` land on those sections.
+
+### 16.5 Indexes
+
+The table is unchanged. `+ New index` is a default (outline) button: this is a read view, and it has no filled control.
+
+### 16.6 Schema table
+
+- **Field** is indented by nesting depth instead of repeating the dotted prefix on every row.
+- **Types** are chips.
+- **Frequency** is an 80px bar with the percentage beside it. It was a bare `100%` text column.
+- Distinct and Range are unchanged.
+- A row has a menu: `Filter by this field` (adds it to the Documents filter, running nothing) and `Create index on this field` (opens the create drawer prefilled). Hidden on a view and on a Read-Only Connection, as the create drawer is.
+
+### 16.7 Validation
+
+With no rules, the section is one line: `No validation rules` and an `Add rules` action. With rules it is §15's editor.
+
+### 16.8 Acceptance criteria
+
+- The view tab, its tooltip and the palette read "Schema & indexes"; no visible text reads "Structure".
+- The view has exactly one control named Refresh; pressing it reloads statistics, indexes and validation and does not sample.
+- The schema's own button reads `Sample`, then `Resample`.
+- Five stat tiles are drawn; `Capped` only for a capped collection.
+- The pills jump to their sections and the one in view is marked; sections are ordered Indexes, Schema, Validation.
+- `+ New index` is not a filled button.
+- Nested fields are indented; Frequency shows a bar and a percentage.
+- A schema row's menu adds the field to the filter, or opens the create-index drawer on it.
+- A collection without validation rules shows the one-line state.
+
+### 16.9 Test cases
+
+- **Unit** (`schemaSummary`): the nesting depth and display name of each entry.
+- **Component** (`structure-view`): one Refresh and what it reloads; `Sample` / `Resample`; the tiles, including a missing figure and a capped collection; pills, order and the marked pill; the frequency bar's width for 0, 50 and 100%; the row menu's two actions and their absence on a view; the one-line validation state.
+- **Component** (`collection-subtabs`, palette specs): the renamed tab and `Go to …` landing on the sections.
+- **E2E** (`w16-collscan-create-index`, `w02-views-validation`): updated to the new name; create an index from a schema row.

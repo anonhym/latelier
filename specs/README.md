@@ -67,7 +67,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [W13](./W13-filter-tree-editor.md) | Filter tree editor (supersedes the W04 condition model + W05 sync machine) — *post-iteration-1* | renderer |
 | [W14](./W14-query-bar-advanced-row.md) | Query bar advanced row: correctness, affordance, projection — *post-iteration-1* | renderer |
 | [W15](./W15-query-composition.md) | Query composition audit — projection / sort / limit / skip and the drawer's role after W13 — *post-iteration-1* | renderer |
-| [W16](./W16-structure-view.md) | Structure view — indexes + schema in the collection tab, plan badge, create-this-index (amends C09; ADR 0003) — *post-iteration-1* | renderer + main |
+| [W16](./W16-structure-view.md) | Structure view, shown in the UI as "Schema & indexes" — indexes + schema in the collection tab, plan badge, create-this-index (amends C09; ADR 0003) — *post-iteration-1* | renderer + main |
 | [W17](./W17-edit-drawer-type-warning.md) | A field-type warning in the Update drawer — *post-iteration-1* | renderer |
 | [W18](./W18-document-editor.md) | Document Editor — one modal for editing and creating documents, saved as a diff (supersedes W08's drawers; ADR 0012) — *post-iteration-1* | renderer |
 

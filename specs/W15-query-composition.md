@@ -1,6 +1,6 @@
 # W15 — Query composition: the whole find, not just the filter
 
-> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open for the 1000-document cap and §1.2, whose pointer was shipped and then removed. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
+> **Status: Accepted.** §16 (the drawer becomes the Inspector's Filter tab, closed by default, without Saved and Recent) is agreed and not built yet. Tiers 1–2 and most of §13 shipped. Tier 3 is open for the 1000-document cap and §1.2, whose pointer was shipped and then removed. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
 
 ## Purpose
 
@@ -1026,3 +1026,24 @@ point it still listed §13 as unfiled a month after that work had shipped.
 The live mapping is GitHub Issues. Searching the repository for `W15` finds
 them; note that GitHub's search tokenizer drops `§` and the decimal, so
 `W15 §2.1` returns nothing — search the spec id alone and read down.
+
+## 16. Amendment — the drawer becomes the Inspector's Filter tab
+
+> **Accepted, not built.** The design is [W05 §9.7](./W05-query-bar.md).
+
+- The drawer of §1 and §13 is hosted by the **Inspector**, the right-hand panel that also shows the query plan. Its own content (the condition tree, the footer's Reset, Copy code and Open as pipeline) is unchanged.
+- It is **closed by default**: a profile that never chose starts with it closed, and a stored choice wins. Open by default it spent a fifth of the width on an empty state.
+- It opens from the labelled `Builder` button in the Filter Bar row and with ⌘⇧B, not from an edge notch. ⌘B now toggles the sidebar ([W01 §14.11](./W01-workspace-shell.md)).
+- Its **Saved** and **Recent** tabs are removed; those lists live in the Filter Bar row's popovers ([W09 §12](./W09-saved-queries.md), [W10 §6](./W10-recent-preview.md)). The drawer has one job again, as §1 argued it should.
+- §13's narrow-width rule (one side panel at a time below 1100px) applies to the Inspector as it did to the drawer.
+
+### Acceptance criteria
+
+- A fresh profile opens a collection with the Inspector closed.
+- The `Builder` button and ⌘⇧B open it on the Filter tab and move focus into it; pressing either again closes it.
+- The panel has no Saved or Recent tab.
+- Below 1100px, opening the Inspector closes the sidebar, and the reverse.
+
+### Test cases
+
+- **Component** (`workspace-panel-prefs`, `drawer-keyboard-path`, `drawer-tablist`): default closed with no stored value, open with a stored `false`; the toggle button's pressed state; ⌘⇧B, inert under a dialog; no Saved or Recent tab.

@@ -1,6 +1,6 @@
 # C05 — ConnectionManager deep detail screen
 
-> **Status: Implemented.** ADR 0001 retired its list sidebar; `/connections` now redirects to the workspace.
+> **Status: Accepted.** §1–§10 shipped; ADR 0001 retired the list sidebar and `/connections` redirects to the workspace. §11, which moves this screen into the Data View as a server tab, is agreed and not built yet.
 
 ## Purpose
 
@@ -112,3 +112,50 @@ Rendered by `DetailPanel`, next to the Connection's name/status:
 ### E2E
 - Reached via the Switcher's "Manage connection…" (`⌘↵` or the row's Manage icon) — see
   `conn-switcher-keyboard.e2e.ts` / the Switcher's own e2e coverage for that path.
+
+## 11. Amendment — the server screen becomes a tab
+
+> **Accepted, not built.** It supersedes §1 (routes), §5 (title bar) and the back link, and moves §6's header actions. Recorded in the 2026-11-13 amendment to [ADR 0001](../docs/adr/0001-data-view-home-connection-switcher.md).
+
+Monitoring and user management lived on a separate full-page route reached only through a Switcher icon or the palette, so they were in effect undiscoverable, and visiting them meant leaving the shell that says where you are.
+
+### 11.1 The server tab
+
+- A workspace tab of kind **`server`** ([W01 §14.12](./W01-workspace-shell.md)), one per Connection, labelled `Server`, with its Connection's stripe. The breadcrumb reads `● {connection} › Server`.
+- Its content is this screen's: **Overview, Monitor, Collections, Users, Roles**, the same components, as a section switch inside the tab. The section in view is tab state and survives a relaunch.
+- §6's header actions (Connect / Disconnect, Edit, Delete) sit in the Overview section's header.
+- A Dormant or disconnected Connection's server tab shows Overview with Connect; the other sections say they need a connection, as today.
+- Opening the server tab of a Connection that already has one focuses it.
+- Disconnecting or deleting the Connection closes its server tab with its other tabs ([X16 §4.6](./X16-multi-connection.md)).
+
+### 11.2 Entry points
+
+- The navigator's Connection root: a `Server` control on hover and focus, and `Server overview` in its menu ([W02 §16](./W02-db-collection-navigator.md)).
+- The Switcher's and the Connections table's row `⋯`: `Open server overview` ([X16 §13.3](./X16-multi-connection.md)); `⌘↵` on a Switcher row.
+- The palette's Connection object: `Open server overview`, replacing `Manage`.
+
+### 11.3 Routes
+
+- `/connections/:id` redirects to `/workspace` and opens that Connection's server tab. An unknown id lands on the workspace with §4's not-found message as a toast.
+- `/connections/new` and `/connections/:id/edit` are unchanged.
+
+### 11.4 Persistence and IPC
+
+- A migration adds `server` to the `workspace_tabs.kind` check. A server tab stores empty `db_name` and `collection`, as a script tab does, and `{ section }` as its state.
+- One new channel, `tabs:openServer({ connectionId })`, returning the tab; it reuses an existing server tab for that Connection. It carries no secret. It is wired through the whole contract: the shared types, the preload binding, the handler's schema and registration, and an integration test.
+
+### 11.5 Acceptance criteria
+
+- `Server` on a navigator root opens a tab labelled Server showing Overview, with Monitor, Collections, Users and Roles one click away.
+- Opening it twice leaves one server tab for that Connection.
+- The chosen section survives a tab switch and a relaunch.
+- Connect, Disconnect, Edit and Delete are reachable from Overview.
+- `/connections/:id` opens the workspace on that Connection's server tab; no full-page connection screen remains.
+- Disconnecting the Connection closes its server tab.
+
+### 11.6 Test cases
+
+- **Integration**: the migration keeps existing tabs and accepts a `server` row; `tabs:openServer` creates one tab and returns the same tab on a second call; closing a Connection's tabs includes it.
+- **Component** (`detail-panel`, `connection-detail`): the sections inside a tab; the section restored from state; header actions; the Dormant state.
+- **Component**: each entry point opens or focuses the tab; the route redirect.
+- **E2E** (`conn-detail-overview`, `conn-detail-roles`): reach Overview and Roles through the navigator's Server control.

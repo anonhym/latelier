@@ -1,6 +1,6 @@
 # W08 — Document write ops (insert, edit, delete)
 
-> **Status: Implemented.** Its edit and insert drawers, and `doc:replace`, are superseded by [W18](./W18-document-editor.md)'s Document Editor.
+> **Status: Accepted.** §1–§9 shipped; the edit and insert drawers, and `doc:replace`, are superseded by [W18](./W18-document-editor.md)'s Document Editor. §10, the delete confirmation sized to what it deletes, is agreed and not built yet.
 
 ## Purpose
 
@@ -187,3 +187,36 @@ After any successful write:
 - **crud.e2e.ts** (`w09-doc-edit-delete.e2e.ts`): Insert → row appears → Edit (Replace mode) → change a field → row updates → Delete → row gone.
 - **w09-doc-edit-delete.e2e.ts** (T0.3): Edit → Update fields ($set) mode → patch one field of a multi-field document → row shows the patched field changed **and** the untouched fields still present, proving `$set` semantics end-to-end.
 - **w09c-insert-many.e2e.ts** (T2.7): paste a 2-document JSON array into Insert → button reads "Insert 2 documents" → both new rows appear and the drawer closes.
+
+## 10. Amendment — a delete confirmation sized to what it deletes
+
+> **Accepted, not built.** It refines §4. The rule it follows is the 2026-11-13 amendment to [ADR 0013](../docs/adr/0013-destructive-friction.md).
+
+Deleting three hand-picked rows and deleting every document in a collection opened the same dialog: `Delete N matching documents?`, type the collection name. The selection case said "matching" although nothing was matched, the empty-filter case never said it was the whole collection, and neither named the database or the Connection. A guard that costs the same for the trivial case and the catastrophic one stops carrying information.
+
+Three tiers, decided by how the documents were chosen:
+
+| Chosen by | Dialog |
+| --- | --- |
+| **Selection**, 20 documents or fewer | Plain confirm: `Delete 3 selected documents from shop.orders?`, listing their ids. Cancel and Delete; Delete does not have initial focus. |
+| **Selection** of more than 20, or **a filter** | Type the collection name, as today. Titled `Delete {n} selected documents…` or `Delete {n} matching documents…`, with the filter shown as the Canonical EJSON that will run. |
+| **An empty filter** (`{}`) | The same, under a red band: `No filter — this deletes all {n} documents in shop.orders on {connection}`. |
+
+- Every tier names `database.collection`, and the Connection when more than one is open.
+- The "can be undone" line states a fact about the audit log's capture and never changes the tier.
+- A single-document delete keeps its plain confirm, and gains the namespace.
+- The count-before-commit token flow (§4) is unchanged for the two type-to-confirm tiers. The selection tier still deletes by the `_id` list of exactly the selected documents.
+
+### Acceptance criteria
+
+- Deleting 3 selected documents opens a confirm with no typing, naming the namespace and listing the three ids; Enter on open does not delete.
+- Deleting 21 selected documents asks for the collection name.
+- Delete matching with a non-empty filter asks for the collection name and shows the filter.
+- Delete matching with `{}` shows the red band with the total and the Connection's name, and asks for the collection name.
+- No dialog calls a selection "matching".
+
+### Test cases
+
+- **Unit** (`deleteMode`): the tier for a selection of 1, 20 and 21, a non-empty filter, `{}`, and a blank-but-whitespace filter.
+- **Component** (`delete-confirm`, `workspace-delete-modes`): each tier's title, body, the presence of the type-to-confirm input, initial focus, and the Connection name with two Connections open.
+- **E2E** (`t04-bulk-selected`, `w09b-doc-delete-all`): delete three selected rows without typing; delete all with `{}` through the red-band dialog.

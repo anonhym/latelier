@@ -1,6 +1,6 @@
 # W09 — Saved queries (repo + UI)
 
-> **Status: Implemented.** The "Saved for this collection" strip in §7 was removed.
+> **Status: Accepted.** §1–§11 shipped; the "Saved for this collection" strip in §7 was removed. §12, which moves the Saved list out of the Query Builder into the Filter Bar's popover, is agreed and not built yet.
 
 ## Purpose
 
@@ -172,3 +172,25 @@ From the workspace:
 
 ### E2E
 - **save-and-relaunch.e2e.ts**: save a find and an agg; quit; relaunch; Saved tab lists both; Run here works on each.
+
+## 12. Amendment — one home for the Saved list
+
+> **Accepted, not built.** The design is [W05 §9.6](./W05-query-bar.md).
+
+- The Saved list leaves the Query Builder's tab row. Its one entry point is the `☆` control in the Filter Bar row: saving the current query, and opening the list of saved ones in a 360px searchable popover.
+- The list keeps everything the tab had: load, load and run, inline rename (§8), delete with its confirmation (§9), the description line.
+- ↑↓ move through the entries and show the highlighted one's query text beside the list, so a query can be read before it is loaded; this replaces browsing the list beside the editor.
+- The palette's saved-query rows and their `Rename…` action open this popover instead of the builder's tab.
+- The repository, the channels and the save flows (§1–§6) are unchanged.
+
+### Acceptance criteria
+
+- The Query Builder has no Saved tab; the `☆` popover lists the collection's saved queries.
+- Rename, delete and load work from the popover as they did from the tab.
+- The highlighted entry's query text is readable before loading it.
+- The palette's `Rename…` on a saved query lands in the popover's inline rename input.
+
+### Test cases
+
+- **Component**: the popover's list, search, keyboard preview, rename and delete; the palette's Rename landing there.
+- **E2E** (`w10-saved-recent`): save a query, reopen it from the popover.

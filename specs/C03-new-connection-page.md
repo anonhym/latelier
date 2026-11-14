@@ -1,6 +1,6 @@
 # C03 — NewConnection page UI
 
-> **Status: Implemented.**
+> **Status: Accepted.** §1–§12 shipped. §13 is agreed and not built yet: a welcome canvas that connects from a pasted URI, a connection string field at the top of the form, a Standard / localhost default, and Save & connect.
 
 > **Note:** The form body described below now lives in the host-agnostic
 > `src/features/connections/ConnectionForm.tsx` (extracted from
@@ -189,3 +189,50 @@ Recap (from §4 Auth):
 
 ### E2E (Playwright + Electron + memory Mongo)
 - **create-test-save.e2e.ts**: click **+** on list → fill form against a known mongodb-memory-server → Test shows ok → Save → landed on list with new connection highlighted.
+
+## 13. Amendment — connect from a URI, and a shorter path through the form
+
+> **Accepted, not built.** The form is still the modal over the Data View ([ADR 0001](../docs/adr/0001-data-view-home-connection-switcher.md)); the model, the parser and the channels (C01, C02, C04) are unchanged. No new IPC channel.
+
+### 13.1 Welcome canvas
+
+With **no saved Connection**, the Data View shows a welcome canvas instead of an empty workbench. The first run used to draw the full chrome around nothing: a live filter box over an empty navigator, an enabled script button, a disabled shell button.
+
+- No tab strip, no navigator, no status bar. The title bar keeps the search field and Settings.
+- A centred 560px column: the wordmark (32px high); the headline `Connect to MongoDB`; a **URI field** (560×40, monospace, placeholder `mongodb://localhost:27017  or  mongodb+srv://…`) with a filled **Connect** button attached at its right; under it three quiet links, `Enter details manually` · `Import from Compass or a file` · `Paste several URIs`; and, while the system keychain is available, one muted line: `Passwords are encrypted with your system keychain and never leave this machine.`
+- **Connect** (the button, or Enter in the field):
+  1. parses the URI (`conn:parseUri`); a URI that does not parse shows the parser's reason under the field;
+  2. tests it (`conn:test`); a failure shows the reason under the field with `Troubleshoot`, which opens the troubleshooting drawer ([C11](./C11-troubleshooting.md)). Nothing is saved;
+  3. on success saves it (`conn:create`), named after its first host (`localhost`, `cluster0.example.net`), with ` 2`, ` 3` appended when that name is taken, then connects. The Data View opens on the connected, no-tab canvas ([W01 §14.7](./W01-workspace-shell.md)). The name can be changed later in the form.
+- **The URI field is a secret input.** A URI can carry a password, so its text lives only in the field's own component state. It is never written to a preference, a tab's state, the palette's history or the renderer log, and no message shown or logged echoes it: an error under the field is the parser's or the probe's reason, with any credentials removed. The field is emptied once the Connection is saved. It reaches the main process only through channels already tagged and allow-listed for plaintext secrets (`conn:parseUri`, `conn:test`, `conn:create`). `autoComplete="off"`, no spell-check.
+- The three links open what they name: the form (§13.2), the Import Wizard on a file ([C14](./C14-import-wizard.md)), the Import Wizard on pasted URIs.
+
+### 13.2 The form
+
+- **Connection string on top.** A full-width field labelled `Connection string`, with the helper `Paste a URI to fill the form`, is always visible above the tabs. It replaces the 12px `Paste URI ›` link that hid the fastest path. Pasting or typing a URI fills the tabs, as the link's field did. Once a field below is edited by hand, the string field empties and its helper reads `Edited below — paste a URI to replace`. The string is not rewritten from the fields: a stored password never reaches the renderer (§9), so a rebuilt string could not be complete, and a partial one pasted back would drop the credentials.
+- **Type is inferred from the URI.** An empty create form starts on **Standard**, host `localhost`, port `27017`. It started on SRV with a `cluster.mongodb.net` placeholder, so every local user's first step was changing the type.
+- **Tabs**: `General`, `Authentication`, `TLS / SSH`, `Advanced`. TLS and SSH share a tab; "Auth" is spelled out. A tab holding any non-default value carries a dot.
+- **Footer**: `Cancel` at the left; at the right `Test`, `Save`, and a filled **`Save & connect`**. The test result renders inline in the footer (`Connected in 84 ms · v8.0.5`). After a plain Save the user needed a second step to connect.
+- **Save & connect** saves as §6 does, then connects and closes the form. If the connect fails the Connection stays saved, and the failure shows on its navigator root as any failed connect does.
+- **Keys** (supersedes §8's second bullet): `⌘↵` is **Save & connect**, the form's primary action, as ⌘↵ is the primary action everywhere else in the app; `⌘S` is Save; `⌘⇧↵` is Test. `Esc` is Cancel, through the dirty guard.
+- The form can open on a named tab. An authentication failure's `Edit credentials…` opens it on Authentication ([W02 §16](./W02-db-collection-navigator.md)).
+
+### 13.3 Acceptance criteria
+
+- With no saved Connection the window shows the welcome canvas and no tab strip, navigator or status bar.
+- Entering `mongodb://localhost:27017` and pressing Enter saves a Connection named `localhost`, connects, and shows the connected canvas.
+- A second URI to the same host is saved as `localhost 2`.
+- A URI that fails its test shows the reason and `Troubleshoot`, and saves nothing.
+- A URI with a password never appears in a preference, in tab state, in the palette's history or in a log line, and the error under the field does not contain the password.
+- The three links open the form, the Import Wizard on a file, and the Import Wizard on pasted URIs.
+- The form shows the connection string field without any click; a pasted URI fills the tabs and selects the matching type.
+- An empty create form is Standard / `localhost` / `27017`.
+- The tabs read General, Authentication, TLS / SSH, Advanced; a tab with a non-default value has a dot.
+- `Save & connect` and ⌘↵ save and connect; ⌘S saves only; ⌘⇧↵ tests.
+
+### 13.4 Test cases
+
+- **Unit**: the Connection name derived from a URI's first host, and the suffix when taken; the tab-has-non-default-value rule.
+- **Component**: the welcome canvas for zero Connections and its absence with one; the Connect sequence against the mocked bridge (parse, test, create, connect), including a parse failure, a test failure and a name clash; the field emptied after success; no call to `prefs.set` or `tabs.update` carrying the URI; an error that omits the password; the three links.
+- **Component** (`connection-form`): the string field visible on open; paste fills tabs and type; a hand edit empties it; the default type; the merged tabs and the dot; the footer's three actions; ⌘↵, ⌘S, ⌘⇧↵; opening on Authentication.
+- **E2E**: first run → paste a URI → Enter → connected canvas → open a collection.

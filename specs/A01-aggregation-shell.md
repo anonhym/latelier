@@ -1,6 +1,6 @@
 # A01 — Aggregation shell + tab routing
 
-> **Status: Implemented.** Aggregation opens as a sub-view of the collection tab, not as a tab of its own.
+> **Status: Accepted.** §1–§8 shipped, with Aggregation as a sub-view of the collection tab, not a tab of its own. §9, the side-by-side layout (a stages column and a preview column, no outline, one Export menu), is agreed and not built yet; where it names a part of §2 or §4, §9 is what ships.
 
 ## Purpose
 
@@ -121,3 +121,61 @@ If `dirty: true` and user closes via `×` or `⌘W`:
 - **run-disables-buttons.spec.tsx**: when running, Save/Save as/Explain disabled; Run becomes Cancel (A04 cancellation).
 - **dirty-close-guard.spec.tsx**: modify stages → attempt close → dialog; Save→close; Cancel keeps tab.
 - **breadcrumb-dot.spec.tsx**: dirty adds a dot; save clears.
+
+## 9. Amendment — stages beside their preview
+
+> **Accepted, not built.** It supersedes §2's layout and the placement of §4's actions. The runner, save and explain behaviour (§4, A04, A06) is unchanged.
+
+The shipped view had a 200px outline that repeated the canvas beside it, a second toolbar with its own Save / Save as / Run / Explain / Copy, and an output panel with another "Save as…" and "Save as view…": two "Save as" with different meanings. With no stages, Run was disabled and nothing said why.
+
+### 9.1 Regions
+
+Below the view header ([W01 §14.5](./W01-workspace-shell.md)):
+
+| Region | Size at 1440×900 | Holds |
+| --- | --- | --- |
+| Pipeline bar | full width × 44 | `[name ● unsaved]` `[Save ▾]` … `[Explain]` `[Copy ▾]` `[▶ Run ⌘↵]` |
+| Stages column | 480 wide, resizable | source chip, stage cards, add stage |
+| Preview column | the rest | the output of the selected stage, or the final output |
+
+Below 1100px of window width, or by a toggle in the preview header, the two columns stack (stages above, preview below), which is the old arrangement.
+
+### 9.2 Pipeline bar
+
+- `Save ▾` holds **Save** and **Save as…** (§4's two actions under one control).
+- **Run** is the view's only filled button. Explain and `Copy ▾` (§4) are unchanged.
+- When Run or Explain is unavailable, its tooltip says why, and the preview column says it too (§9.5).
+
+### 9.3 Stages column
+
+- The column **is** the outline ([A02 §8](./A02-pipeline-outline.md)). Each stage is a card: a 32px header (`drag handle · {n} · {$op} ▾ · enabled switch · ⋯`), the body editor ([A03](./A03-stage-accordion.md)), and a footer `→ {n} documents` when a count is known ([A02 §5](./A02-pipeline-outline.md)).
+- A collapsed card is its 32px header, so a long pipeline still reads top to bottom as a list of stages.
+- The card's `⋯` holds Move up, Move down, Duplicate, Delete (A03 §3's actions).
+- Selecting a card (click its header, or ↑↓ in the column) selects that stage for the preview. A final `Output` row selects the whole pipeline.
+
+### 9.4 Preview column
+
+- It shows the result for the **selection**: the last output of "run up to this stage" for a selected stage ([A03 §2](./A03-stage-accordion.md)), or the last full run for `Output`. Selecting does not run anything: a stage never run shows `Run up to this stage ⇧⌘↵` as its action.
+- Its header matches the Documents canvas: the `Table | Tree | JSON` switch at the left ([W06 §8.1](./W06-result-views.md)), and at the right one **`Export results ▾`**: `Copy`, `Download…`, `Save to collection…`, `Create view…` ([A05 §7](./A05-output-panel.md)). There is no second "Save as".
+
+### 9.5 Empty pipeline
+
+- Under the source chip: `Add a first stage`, with chips `$match` `$group` `$sort` `$project` `$lookup` `$unwind` and `All stages…` (the full picker of A03 §4). A chip adds that stage with its default body.
+- The preview column shows a muted line, `Add a stage to run`, and Run's tooltip says the same.
+
+### 9.6 Acceptance criteria
+
+- No separate outline panel is drawn; the stages column lists every stage in order with its number and operator.
+- A collapsed stage card is one 32px row.
+- Selecting a stage that has been run up to shows that output in the preview; selecting `Output` shows the full run; selecting never starts a run.
+- The pipeline bar has one Save control with Save and Save as…; the preview header has one `Export results ▾` with four items; the words "Save as" appear in one menu only.
+- An empty pipeline shows the six starter chips and `All stages…`; a chip adds its stage.
+- With Run unavailable, both its tooltip and the preview column state the reason.
+- Below 1100px the columns stack.
+- Run is the only filled button in the view.
+
+### 9.7 Test cases
+
+- **Component** (`aggregation-tab`): the three regions; the Save menu; stage selection driving the preview without a run; the empty state's chips; the stated reason for a disabled Run; the stacked layout under 1100px.
+- **Component** (`output-panel`): `Export results ▾` and its four actions, each calling what Copy, Download, Save as… and Save as view… called.
+- **E2E** (`a01-aggregation-run`): build a pipeline from a starter chip, run it, run up to the first stage and read its preview, export the result.

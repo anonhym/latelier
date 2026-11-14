@@ -1,6 +1,6 @@
 # X14 — Shell Syntax input on the read-query surfaces
 
-> **Status: Implemented** (T1–T5). This spec now describes the application rather than
+> **Status: Accepted** (T1–T5 shipped; §11, which stops the live checks calling valid Shell Syntax invalid, is agreed and not built yet). This spec now describes the application rather than
 > proposing a change to it. T1 `src/utils/shellSyntax.ts`,
 > T2 Filter Bar, T3 sort and raw projection,
 > T4 aggregation stage bodies, T5 error feedback, plus
@@ -410,3 +410,35 @@ They were filed and cleared on the `feature/adr0004-completion` run.
 | ~~Lenient input on `EditDrawer` / `InsertDrawer`~~ | Shipped. The deferral rested on the consequence of a misread value, not on this transform; conversion happens in the box on blur, so the canonical text is on screen before the write |
 | ~~UX review §4.1 — canonical EJSON in what the drawers *display*~~ | Shipped as a lossless-subset renderer (bson's relaxed mode is not lossless), and extended to the aggregation output later |
 | ~~Symbolic operators in the Query Builder~~ | Not in this table originally, and filed nowhere else either — ADR 0004 recorded the design as a scope note. Shipped, then corrected: the resolution ran on blur only, so Enter left the symbol in place |
+
+## 11. Amendment — valid Shell Syntax is never called invalid
+
+> **Accepted, not built.** [ADR 0004](../docs/adr/0004-shell-syntax-input.md) is unchanged: stored query text is still Canonical EJSON, and the repair still happens at the input edge, on blur and on Run.
+
+**The defect.** §2 converts on blur and on Run, and never per keystroke. But the checks that run *while the user types* (the Run button's enabled state, the Query Builder's "Invalid text" banner) judge the uncommitted text with the strict rule. So typing `{status: 'shipped'}` or `{_id: ObjectId("…")}` disabled Run and showed "Invalid text. Showing last valid filter", although ⌘↵ then ran it. The app told users it did not support the syntax it supports.
+
+**The rule.** Every live check judges the text **as the transform would leave it**:
+
+- `unchanged` or `repaired` → the text is runnable. Run stays enabled, no banner, no error strip.
+- `failed` → as today: the gate closes and the reason is shown.
+
+While the uncommitted text is `repaired` (valid Shell Syntax, not yet Canonical EJSON), a muted note sits where the error strip would: `mongosh syntax — rewritten as EJSON when you run`. It is not an alert. The Query Builder shows the tree of the repaired text, not the last valid one.
+
+**What does not change.** `filterProblem` and `currentFilterJson` still judge committed text strictly; they are the choke point for the paths with no button, delete-all included (§2). The transform runs before them, never inside them. The delete confirmation still shows the Canonical EJSON it will run.
+
+The same rule applies to the sort and projection inputs (§3) and to stage bodies (§4), wherever a live check exists.
+
+### Acceptance criteria
+
+- Typing `{status: 'shipped'}`, `{_id: ObjectId("0123456789abcdef01234567")}`, `{createdAt: {$gt: ISODate("2026-02-01")}}` or `{status: /ship/i}` leaves Run enabled and shows no "invalid" message anywhere.
+- While such text is uncommitted, the note `mongosh syntax — rewritten as EJSON when you run` is shown, and the builder shows its conditions.
+- Running it sends Canonical EJSON and leaves Canonical EJSON in the editor, as before.
+- Text the transform refuses (`{a: 1 +}`) closes the gate and shows the refusal, as before.
+- `currentFilterJson` returns null for uncommitted Shell Syntax.
+
+### Test cases
+
+- **Unit**: a live-validity helper over `repairToCanonicalEjson`: runnable for `unchanged` and `repaired` documents, not for `failed`, not for a repaired non-document (`[1, 2]`).
+- **Property** (`*.property.spec.ts`): for a generated filter document built with real `bson` constructors, its mongosh rendering is live-valid and repairs to the document's Canonical EJSON.
+- **Component**: the four inputs above keep Run enabled and the builder populated; the note appears and is not `role="alert"`; a refused text shows the strip.
+- **E2E**: type a filter in Shell Syntax without leaving the editor and run it with the Run button.

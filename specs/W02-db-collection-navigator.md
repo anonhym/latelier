@@ -1,6 +1,6 @@
 # W02 — DB / collection navigator sidebar
 
-> **Status: Implemented.** [X16](./X16-multi-connection.md) supersedes §1b's single active connection. The status lists in §10 predate later work: some "Deferred" items have since shipped, others have not.
+> **Status: Accepted.** §1–§15 shipped; §16 (one selection style, labelled counts, the Server entry, the footer's Add connection, Escape in the filter, a credentials action on an authentication failure) is agreed and not built yet. [X16](./X16-multi-connection.md) supersedes §1b's single active connection. The status lists in §10 predate later work: some "Deferred" items have since shipped, others have not.
 
 > **Amended 2026-04-22.** v2 grows the action surface to match MongoDB Compass's parity features (context menus on every row type, destructive-action convention, optional hover action bar). Additions are gated behind new IPC channels (see §12) and new sub-specs (see §13). The amendment keeps multi-connection deferred.
 
@@ -549,6 +549,57 @@ These changes landed during the v2.2 iteration because they were blocking the na
 - **`serverStatsAvailable: boolean` on `ServerInfo`** (`shared/ipc.ts`, `electron/mongo/MongoPool.ts`, consumed by `src/pages/DetailPanel.tsx`). `serverStatus` failures no longer blow up `serverInfo` — the overview card now renders `—` for uptime / connections / ops when the role lacks the privilege, plus a one-line explainer. Stops the 15-second log spam.
 
 ---
+
+## 16. Amendment — One Spine navigator
+
+> **Accepted, not built.** It supersedes the parts of §1, §4, §7 and §8 it names.
+
+### 16.1 Layout
+
+- Default width 240px. The header is the filter (placeholder `Filter collections`, was `Filter…`) and one refresh.
+- Rows are 28px.
+- The collapse control leaves the panel's edge: the sidebar is toggled from the title bar and with ⌘B ([W01 §14](./W01-workspace-shell.md)). The notch was 8px wide and hard to find.
+- A 32px footer row holds `+ Add connection`, which opens the connection form.
+
+### 16.2 One selection style
+
+- **Filled, accent-soft**: the Focused Tab's collection. Nothing else is filled.
+- **A small dot**: a collection that has an open tab which is not the Focused Tab.
+- When a script or server tab is focused, no collection row is highlighted. The row used to keep an outlined highlight then, a third style nobody could name.
+- The keyboard focus ring is separate from all of the above and unchanged (§9).
+
+### 16.3 Counts
+
+The numbers beside a Connection and a database say what they count: their tooltip and accessible text read `2 databases`, `12 collections`. They were bare digits.
+
+### 16.4 The Connection root
+
+- The root shows `● {name}` and the read-only lock. On hover and focus it shows `Server`, which opens the Connection's server tab ([C05 §11](./C05-connection-manager-shell.md)), and `⋯`, its existing menu, which gains `Server overview`.
+- **An authentication failure** offers `Edit credentials…` as its primary action, opening the connection form on its Authentication tab ([C03 §13.2](./C03-new-connection-page.md)), with Retry second. Retrying the same wrong password fails the same way; the fix was two menus away. Other failures keep Retry first.
+
+### 16.5 The filter
+
+Escape in the filter clears its text; a second Escape, on an empty filter, blurs it. Escape used to do nothing.
+
+### 16.6 Opening a collection
+
+A single click opens the collection in the preview tab; a double-click or Enter opens a kept tab; ⌘-click opens a second tab ([W01 §14.9](./W01-workspace-shell.md)). §5's row matrix is otherwise unchanged.
+
+### 16.7 Acceptance criteria
+
+- With a collection tab focused, exactly one navigator row is filled; other open collections carry a dot.
+- With a script tab focused, no collection row is filled or outlined.
+- A database's count has the accessible text `{n} collections`.
+- The footer's `+ Add connection` opens the form.
+- The root's `Server` control opens that Connection's server tab.
+- A connect that fails on authentication shows `Edit credentials…` first, and it opens the form on Authentication; a network failure shows Retry first.
+- Escape clears a typed filter and a second Escape blurs it.
+- No collapse notch is drawn on the panel's edge.
+
+### 16.8 Test cases
+
+- **Component**: the selection styles for a focused collection, an open unfocused one and a focused script tab; the count's accessible text; the footer action; the `Server` control; the failure row's actions for an `AUTH` code and for a `NETWORK` code; the two Escapes in the filter.
+- **E2E**: connect with a wrong password, follow `Edit credentials…`, fix it, connect.
 
 ## Changelog
 

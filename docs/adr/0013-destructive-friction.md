@@ -20,3 +20,17 @@ Being reversible never moves an action down to the lighter tier by itself. An au
 - Delete-all-matching was already type-to-confirm; this ADR keeps it there and gives the reason a name — it destroys server data by filter, the harder tier by definition, independent of how many documents that turns out to be.
 - The "can/cannot be undone" copy the audit log adds to confirm dialogs (its own design work) states fact, it does not change which tier a dialog is on.
 - A future destructive surface is placed by asking one question first — does this destroy server data by filter/container, or irreversibly destroy local persisted data? — not by asking whether an undo mechanism happens to exist for it yet.
+
+## Amendment (2026-11-13) — a selection is not a filter
+
+The Decision puts "deleting all documents matching a filter" on the type-to-confirm tier, and the delete dialog applied that to every multi-document delete, including three rows the user had just ticked. The dialog was identical for those three rows and for `{}` over a whole collection.
+
+**Amended:** the tier follows how the documents were chosen, which is the blast radius the user can see.
+
+- **A selection of 20 documents or fewer** — rows the user picked one by one and can still see — takes a plain confirm that names the namespace and lists the ids. This is not a filter: nothing unseen can be caught by it.
+- **A selection of more than 20, or any filter**, stays type-to-confirm. Past twenty rows the user is no longer reading what they picked.
+- **An empty filter** stays type-to-confirm and says, in a red band, that it is every document in the collection, on which Connection.
+
+This does not reopen the rejected option. Reversibility still moves nothing: the threshold is a count of visibly chosen documents, not the audit log's undo bound, and it does not change when that bound does.
+
+Detail in [W08 §10](../../specs/W08-document-write-ops.md).
