@@ -38,6 +38,7 @@ import {
   type VerbEntry,
   failureTitle,
 } from './layout';
+import { measurePaletteAnchor, PALETTE_WIDTH } from './paletteAnchor';
 import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
@@ -188,9 +189,10 @@ const KIND_ICON: Record<RowKind, React.ReactNode> = {
       <path d="M6 3h12v18l-6-4-6 4z" />
     </Svg>
   ),
+  // A command glyph, never a chevron: a chevron on the left reads as "expandable" (X07 §14.4).
   action: (
     <Svg>
-      <path d="M9 18l6-6-6-6" />
+      <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
     </Svg>
   ),
 };
@@ -674,7 +676,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
 
   // A new query or scope is a new list: the cursor goes back to the top.
   const listKey = `${scope}\u0000${narrowed}\u0000${query}`;
-  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey);
+  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey, layout.initialCursor);
 
   const actionsOf = React.useMemo(
     () => (actionsOfId === null ? null : (all.find((c) => c.id === actionsOfId)?.object ?? null)),
@@ -725,16 +727,20 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       followRef.current = null;
       return;
     }
-    const at = entries.findIndex((e) => e.type === 'row' && e.id === follow.id);
+    const at = entries.findIndex((e) => e.id === follow.id);
     if (at !== -1 && at !== safeCursor) setIndex(at);
   }, [entries, safeCursor, setIndex, listKey]);
+  // A cursor the user put on a row stays on that row when the list changes
+  // under it (the collections group arriving above the rest, a toggle moving
+  // its row), by the row's id.
   const setCursor = (index: number) => {
-    followRef.current = null;
+    const id = entries[index]?.id;
+    followRef.current = id === undefined ? null : { id, listKey };
     setIndex(index);
   };
   const moveCursor = (delta: number) => {
-    followRef.current = null;
-    move(delta);
+    const id = entries[move(delta)]?.id;
+    followRef.current = id === undefined ? null : { id, listKey };
   };
   const switchScope = (next: Scope) => {
     followRef.current = null;
@@ -996,7 +1002,11 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   };
 
   const onlyFromQuery = entries.length > 0 && entries.every((e) => e.type === 'row' && e.row.fromQuery);
-  const emptyText = typed
+  // A sweep that could still produce a match is no reason to say "No matches" yet (X07 §14.5).
+  const loadingCollections = ctx.collectionsPending === true && (typed || scope === 'collections');
+  const emptyText = loadingCollections
+    ? 'Loading collections…'
+    : typed
     ? `No matches for "${query.trim()}"`
     : scope === 'all'
       ? 'No actions available here yet.'
@@ -1284,6 +1294,22 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
           {line.after}
         </div>
       )}
+      {/* Mounted before its text arrives, so the change is announced; hidden while it has none. */}
+      <div
+        role="status"
+        style={
+          entries.length === 0
+            ? {
+                padding: '24px 16px',
+                textAlign: 'center',
+                fontSize: 'var(--atelier-fs-sm)',
+                color: 'var(--atelier-text-muted)',
+              }
+            : VISUALLY_HIDDEN
+        }
+      >
+        {entries.length === 0 ? emptyText : null}
+      </div>
       <div
         id={listId}
         role="listbox"
@@ -1294,18 +1320,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
           padding: scope === 'all' && !narrowed ? '0 0 4px' : '4px 0',
         }}
       >
-        {entries.length === 0 ? (
-          <div
-            style={{
-              padding: '24px 16px',
-              textAlign: 'center',
-              fontSize: 'var(--atelier-fs-sm)',
-              color: 'var(--atelier-text-muted)',
-            }}
-          >
-            {emptyText}
-          </div>
-        ) : (
+        {entries.length === 0 ? null : (
           layout.groups.map((group) => {
             const views = group.entries.map((entry) => (
               <EntryView
@@ -1378,6 +1393,17 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
   const discoverHint = useFeatureHint('palette.discover', paletteOpenedCount === 0);
   const { opened } = useSpotlight(paletteStore);
   React.useEffect(() => setPaletteOpen(opened), [opened]);
+  // Measured when the palette opens, before the first paint, and again when
+  // the window is resized, which moves the field.
+  const [resizes, setResizes] = React.useState(0);
+  React.useEffect(() => {
+    if (!opened) return undefined;
+    const onResize = () => setResizes((n) => n + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [opened]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `resizes` only says the window changed size
+  const anchor = React.useMemo(() => (opened ? measurePaletteAnchor() : null), [opened, resizes]);
 
   const openPalette = React.useCallback(() => {
     hints.recordSessionEvent('palette', 'opened');
@@ -1519,10 +1545,12 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
             color: 'var(--atelier-text)',
             fontSize: 'var(--atelier-fs-md)',
             overflow: 'hidden',
+            // Under the title-bar search field (X07 §14.1); centred when there is none.
+            ...(anchor ? { position: 'fixed' as const, top: anchor.top, left: anchor.left, margin: 0 } : {}),
           },
           body: { padding: 0 },
         }}
-        size={640}
+        size={PALETTE_WIDTH}
         yOffset={80}
       >
         {/* Only mount palette content while opened — keeps registry memos and

@@ -32,6 +32,10 @@ export const SCOPE_LABEL: Record<Scope, string> = {
 /** Rows per kind in All, and rows in a single scope (X07 §13.7 rule 3). */
 export const ALL_CAP = 5;
 export const SCOPE_CAP = 50;
+/** Rows under Recent on an empty query (X07 §14.2). */
+export const RECENT_CAP = 5;
+/** The empty palette's second group (X07 §14.2). */
+export const CONNECTION_COLLECTIONS_LABEL = 'Collections in this connection';
 
 /**
  * Per kind: its group's label in All, the noun of its `Show <n> more` line, and
@@ -133,6 +137,16 @@ export interface Layout {
   hidden: number;
   /** The verb the query starts with, when it selects actions; null otherwise. */
   verb: ParsedVerb | null;
+  /**
+   * Where the cursor starts: the first entry that is not an unavailable row
+   * (X07 §14.3); -1, no cursor, when every entry is one.
+   */
+  initialCursor: number;
+}
+
+/** The first entry a cursor may start on: never a row that cannot run here. */
+function firstAvailable(entries: readonly Entry[]): number {
+  return entries.findIndex((e) => e.type !== 'row' || e.disabled === null);
 }
 
 /** The row's right-hand side: a switch, then a kind tag under RECENT, the object's tag, the shortcut, `Recent`. */
@@ -178,7 +192,9 @@ export function layoutPalette(
   const narrowed = connectionsOnly && scope === 'all';
   const groups: LayoutGroup[] = [];
   const entries: Entry[] = [];
-  const rowEntry = (row: RankedRow, underRecent: boolean): RowEntry => {
+  const disabledOf = (row: RankedRow): string | null =>
+    (row.cmd.object ? rowAction(row)!.disabledReason : row.cmd.disabledReason)?.(ctx) ?? null;
+  const rowEntry = (row: RankedRow, underRecent: boolean, disabled: string | null): RowEntry => {
     const kind = kindOf(row.cmd);
     return {
       type: 'row',
@@ -189,9 +205,13 @@ export function layoutPalette(
       kind,
       // The pasted `_id` row carries the Enter key cap, as its artboard draws it.
       aside: row.fromQuery ? { type: 'key', keys: '↵' } : asideFor(row, kind, underRecent),
-      disabled: (row.cmd.object ? rowAction(row)!.disabledReason : row.cmd.disabledReason)?.(ctx) ?? null,
+      disabled,
     };
   };
+  const finish = (layout: Omit<Layout, 'initialCursor'>): Layout => ({
+    ...layout,
+    initialCursor: firstAvailable(layout.entries),
+  });
   const addMore = (group: LayoutGroup, kind: RowKind, more: number) => {
     const { noun, one, scope: target } = KIND_LAYOUT[kind];
     if (more <= 0 || !target) return;
@@ -208,8 +228,16 @@ export function layoutPalette(
   };
   const addGroup = (key: string, label: string | null, rows: RankedRow[], underRecent = false): LayoutGroup => {
     const group: LayoutGroup = { key, label, entries: [] };
+    // Unavailable rows after every available one, each side in its own order (X07 §14.3).
+    const available: { row: RankedRow; disabled: null }[] = [];
+    const unavailable: { row: RankedRow; disabled: string }[] = [];
     for (const row of rows) {
-      const entry = rowEntry(row, underRecent);
+      const disabled = disabledOf(row);
+      if (disabled === null) available.push({ row, disabled });
+      else unavailable.push({ row, disabled });
+    }
+    for (const { row, disabled } of [...available, ...unavailable]) {
+      const entry = rowEntry(row, underRecent, disabled);
       group.entries.push(entry);
       entries.push(entry);
     }
@@ -218,10 +246,32 @@ export function layoutPalette(
   };
 
   if (scope === 'all' && !typed) {
+    let collectionsAdded = false;
+    const addCollections = (shownAsRecent: ReadonlySet<string>) => {
+      collectionsAdded = true;
+      const { rows, total } = collectionsOfConnection(all, ctx, recentIds, shownAsRecent, ALL_CAP);
+      if (total === 0) return;
+      const group = addGroup('connection-collections', CONNECTION_COLLECTIONS_LABEL, rows);
+      addMore(group, 'collection', total - ALL_CAP);
+    };
     for (const g of groupRows(rankCommands(all, query, ctx, recentIds))) {
-      addGroup(g.key, g.label, g.rows.map((r) => r.row), g.key === 'recent');
+      if (g.key !== 'recent' && !collectionsAdded) addCollections(new Set());
+      const rows = g.key === 'recent' ? g.rows.slice(0, RECENT_CAP) : g.rows;
+      addGroup(g.key, g.label, rows.map((r) => r.row), g.key === 'recent');
+      if (g.key === 'recent') addCollections(new Set(rows.map((r) => r.cmd.id)));
     }
-    return { groups, entries, counts: null, hidden: 0, verb: null };
+    if (!collectionsAdded) addCollections(new Set());
+    return finish({ groups, entries, counts: null, hidden: 0, verb: null });
+  }
+
+  // Collections on an empty query: the Connection's own, so `Show more` and ⌘P land on a list.
+  const own =
+    scope === 'collections' && !typed && !narrowed
+      ? collectionsOfConnection(all, ctx, recentIds, new Set(), SCOPE_CAP)
+      : null;
+  if (own && own.total > 0) {
+    addGroup(scope, null, own.rows);
+    return finish({ groups, entries, counts: null, hidden: Math.max(0, own.total - SCOPE_CAP), verb: null });
   }
 
   // A verb alone in All: a row per kind that has it, then the commands the word matches.
@@ -253,7 +303,7 @@ export function layoutPalette(
     for (const bucket of ranked.buckets) {
       addMore(addGroup(bucket.key, KIND_LAYOUT.action.group, bucket.rows), 'action', bucket.total - bucket.rows.length);
     }
-    return { groups, entries, counts: countsOf(ranked.counts), hidden: 0, verb: null };
+    return finish({ groups, entries, counts: countsOf(ranked.counts), hidden: 0, verb: null });
   }
 
   const verbQuery: VerbQuery | null = parsed ? { verb: parsed.verb, rest: parsed.rest, trailing: parsed.trailing } : null;
@@ -272,7 +322,7 @@ export function layoutPalette(
   if (single) {
     const bucket = ranked.buckets[0];
     if (bucket) addGroup(bucket.key, null, bucket.rows);
-    return { groups, entries, counts, hidden: bucket ? bucket.total - bucket.rows.length : 0, verb };
+    return finish({ groups, entries, counts, hidden: bucket ? bucket.total - bucket.rows.length : 0, verb });
   }
 
   if (ranked.fromQuery.length > 0) addGroup('pasted', QUERY_ROW_LABEL, ranked.fromQuery);
@@ -285,7 +335,71 @@ export function layoutPalette(
     const kind = bucket.key as RowKind;
     addMore(addGroup(kind, KIND_LAYOUT[kind].group, bucket.rows), kind, bucket.total - bucket.rows.length);
   }
-  return { groups, entries, counts, hidden: 0, verb };
+  return finish({ groups, entries, counts, hidden: 0, verb });
+}
+
+// Per registry snapshot (`all` is the registry's cached array, replaced when a
+// registration changes): each Connection's collections by name, and by id. The
+// sweep replaces the snapshot a step at a time while the palette is open, and
+// the context and the MRU change on their own; only the snapshot's change pays
+// for the filter and the sort.
+interface ConnectionCollections {
+  byName: Command[];
+  byId: Map<string, Command>;
+}
+const byConnectionCache = new WeakMap<Command[], Map<string, ConnectionCollections>>();
+
+function collectionsByName(all: Command[], connectionId: string): ConnectionCollections {
+  let perConnection = byConnectionCache.get(all);
+  if (!perConnection) byConnectionCache.set(all, (perConnection = new Map()));
+  let entry = perConnection.get(connectionId);
+  if (!entry) {
+    const byName = all
+      .filter((c) => c.object?.kind === 'collection' && c.object.connectionId === connectionId)
+      .sort((a, b) => a.object!.name.localeCompare(b.object!.name));
+    entry = { byName, byId: new Map(byName.map((c) => [c.id, c])) };
+    perConnection.set(connectionId, entry);
+  }
+  return entry;
+}
+
+/**
+ * The first `limit` collections of `ctx.collectionsConnectionId` as the empty
+ * palette lists them, and how many there are: those in the MRU first, newest
+ * first, then the rest by name; `exclude` (what Recent already shows) is left
+ * out of both. An object row carries no `when`, so none is read. Builds only
+ * the rows it returns, so the cost past the cached sort does not grow with the
+ * number of collections.
+ */
+function collectionsOfConnection(
+  all: Command[],
+  ctx: PaletteContext,
+  recentIds: string[],
+  exclude: ReadonlySet<string>,
+  limit: number,
+): { rows: RankedRow[]; total: number } {
+  const id = ctx.collectionsConnectionId;
+  if (!id) return { rows: [], total: 0 };
+  const { byName, byId } = collectionsByName(all, id);
+  const picked: Command[] = [];
+  const taken = new Set<string>();
+  for (const rid of recentIds) {
+    const cmd = byId.get(rid);
+    if (cmd && !exclude.has(rid) && !taken.has(rid)) {
+      taken.add(rid);
+      if (picked.length < limit) picked.push(cmd);
+    }
+  }
+  for (let i = 0; i < byName.length && picked.length < limit; i++) {
+    const cmd = byName[i]!;
+    if (!taken.has(cmd.id) && !exclude.has(cmd.id)) picked.push(cmd);
+  }
+  let excluded = 0;
+  for (const eid of exclude) if (byId.has(eid)) excluded++;
+  return {
+    rows: picked.map((cmd) => ({ cmd, recent: false, cls: null, ranges: [], subtitleRanges: [] })),
+    total: byName.length - excluded,
+  };
 }
 
 /**
