@@ -374,20 +374,21 @@ function PagerButton({
   onClick: () => void;
   icon: React.ReactNode;
 }) {
+  // Looks disabled but stays focusable (`data-disabled`, not `disabled`), so
+  // a keyboard user reaches it and the tooltip says why on focus.
   return (
-    <Tooltip label={enabled ? label : reason} withArrow openDelay={300}>
-      <span style={{ display: 'inline-flex' }}>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="sm"
-          onClick={() => enabled && onClick()}
-          disabled={!enabled}
-          aria-label={label}
-        >
-          {icon}
-        </ActionIcon>
-      </span>
+    <Tooltip label={enabled ? label : reason} withArrow openDelay={300} events={{ hover: true, focus: true, touch: false }}>
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="sm"
+        onClick={() => enabled && onClick()}
+        data-disabled={!enabled || undefined}
+        aria-disabled={!enabled || undefined}
+        aria-label={label}
+      >
+        {icon}
+      </ActionIcon>
     </Tooltip>
   );
 }

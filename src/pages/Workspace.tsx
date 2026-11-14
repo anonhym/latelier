@@ -42,6 +42,7 @@ import { useCollectionTabActions } from './Workspace/useCollectionTabActions';
 import { DialogStack } from './Workspace/DialogStack';
 import { ShellSection } from './Workspace/ShellSection';
 import { PanelBody, type PanelBodyCollectionProps } from './Workspace/PanelBody';
+import { StatusBar } from './Workspace/StatusBar';
 import type { IndexCreateRequest } from './IndexesTab';
 import { useSettings } from './SettingsContext';
 import { useRegisterCommands } from '../commands/useRegisterCommands';
@@ -1608,7 +1609,7 @@ function WorkspaceInner() {
     <AppShell
       mode="static"
       header={{ height: 72 }}
-      // The status bar (W01 §14.6), drawn by ShellSection under the same condition.
+      // The status bar (W01 §14.6), drawn after PanelBody under the same condition.
       footer={connections.length > 0 ? { height: 24 } : undefined}
       navbar={{
         // Manual width, not Mantine's `collapsed` flag: the title bar's
@@ -1690,6 +1691,15 @@ function WorkspaceInner() {
         onStructureInitialCreateConsumed={onCreateIndexConsumed}
         connectErrors={navigatorTree.connectErrors}
       />
+
+      {/* After Main in the DOM, so Tab and a screen reader reach the results
+          before the pager; the grid draws it at the bottom either way. Not on
+          the welcome canvas: with nothing saved there is nothing to state. */}
+      {connections.length > 0 && (
+        <AppShell.Footer aria-label="Status bar">
+          <StatusBar connection={focusedConnection} />
+        </AppShell.Footer>
+      )}
 
       <FeatureHint
         id="startup.restore"

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { act, fireEvent, render, screen, waitFor, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
@@ -91,23 +91,37 @@ describe('status bar', () => {
   it.each([
     ['First page', 'Already on the first page'],
     ['Previous page', 'Already on the first page'],
-  ])('a disabled %s says why', async (name, reason) => {
+  ])('a disabled %s says why on hover', async (name, reason) => {
     mount();
     const button = screen.getByRole('button', { name });
-    expect(button).toHaveProperty('disabled', true);
-    fireEvent.mouseEnter(button.parentElement!);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.mouseEnter(button);
     expect(await screen.findByText(reason)).toBeTruthy();
+  });
+
+  // `aria-disabled` rather than `disabled`, so a keyboard user reaches the
+  // button and hears why it does nothing.
+  it('a disabled pager button stays in the Tab order, says why on focus, and does nothing', async () => {
+    const { actions } = mount();
+    const button = screen.getByRole('button', { name: 'Previous page' });
+    expect(button).toHaveProperty('disabled', false);
+    act(() => button.focus());
+    expect(document.activeElement).toBe(button);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Already on the first page');
+    fireEvent.click(button);
+    expect(actions.patch).not.toHaveBeenCalled();
+    expect(actions.run).not.toHaveBeenCalled();
   });
 
   it.each(['Next page', 'Last page'])('a disabled %s on the last page says there are no more results', async (name) => {
     mount({ page: 2 });
-    fireEvent.mouseEnter(screen.getByRole('button', { name }).parentElement!);
+    fireEvent.mouseEnter(screen.getByRole('button', { name }));
     expect(await screen.findByText('No more results')).toBeTruthy();
   });
 
   it('an enabled pager button names itself', async () => {
     mount();
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Last page' }).parentElement!);
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Last page' }));
     expect((await screen.findByRole('tooltip')).textContent).toBe('Last page');
   });
 });
