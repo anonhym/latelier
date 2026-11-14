@@ -1,5 +1,8 @@
+import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { QueryBar } from '../../src/pages/Workspace/QueryBar';
+import { sortFieldPatch } from '../../src/pages/Workspace/builder';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState, TableColumnConfig } from '@shared/types';
@@ -318,5 +321,51 @@ describe('TableView — header column resize handle keyboard equivalent', () => 
 
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     expect(onColumnResize).toHaveBeenCalledWith('name', 60); // clamped, not 55
+  });
+});
+
+/**
+ * W14 §10 — a header quick-sort writes the same sort the options write, so it
+ * reads as a Sort pill while "Keep options expanded" is off, and as the grid's
+ * Sort field with it on. A stateful wrapper: both only move once the patch is
+ * back in props.
+ */
+describe('TableView quick-sort — shows in the Filter Bar row (W14 §10)', () => {
+  function Wired({ optionsExpanded }: { optionsExpanded: boolean }) {
+    const [state, setState] = React.useState<CollectionTabState>({ ...emptyState(), optionsExpanded });
+    const actions = React.useMemo(
+      () => ({
+        ...emptyWorkspaceActions(),
+        patch: (patch: Partial<CollectionTabState>) => setState((prev) => ({ ...prev, ...patch })),
+      }),
+      [],
+    );
+    return (
+      <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
+        <QueryBar suggestionContext={null} />
+        <TableView
+          documents={[{ _id: '1', name: 'a' }]}
+          onColumnResize={vi.fn()}
+          onSortField={(f) => actions.patch(sortFieldPatch(state, f))}
+          sort={state.builder.sort}
+        />
+      </CollectionWorkspaceProvider>
+    );
+  }
+  const clickHeader = () => fireEvent.click(within(screen.getByTestId('table-header-name')).getByRole('button'));
+
+  it('shows a Sort pill with the switch off, and no grid', () => {
+    const { container } = render(<Wired optionsExpanded={false} />);
+    clickHeader();
+    expect(screen.getByTestId('option-pill-sort').textContent).toBe('Sort: name ↑');
+    expect(container.querySelector('#query-bar-advanced')).toBeNull();
+  });
+
+  it("shows the grid's Sort field with the switch on, and no pill", () => {
+    const { container } = render(<Wired optionsExpanded />);
+    clickHeader();
+    const grid = container.querySelector('#query-bar-advanced') as HTMLElement;
+    expect((within(grid).getByTestId('query-bar-sort') as HTMLInputElement).value).toBe('{"name":1}');
+    expect(screen.queryByTestId('option-pill-sort')).toBeNull();
   });
 });
