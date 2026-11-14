@@ -126,11 +126,13 @@ describe('status bar', () => {
   });
 });
 
-describe('Expand document tooltips', () => {
+// A native title, not a Mantine Tooltip: a Tooltip mounts a floating-ui
+// instance per virtualised row, about five times a title's cost.
+describe('Expand document hint', () => {
   it.each([
     ['Tree', 'Expand document (Space)'],
     ['Table', 'Expand document'],
-  ] as const)('the %s view names its expand control on hover', async (view, tooltip) => {
+  ] as const)('the %s view names its expand control on hover', (view, title) => {
     render(
       <CollectionWorkspaceProvider
         state={state({ view, lastRun: { documents: [{ _id: 1, a: { b: 1 } }], durationMs: 1, ranAt: '2026-01-01T00:00:00.000Z' } })}
@@ -142,7 +144,6 @@ describe('Expand document tooltips', () => {
         </ResultViewer>
       </CollectionWorkspaceProvider>,
     );
-    fireEvent.mouseEnter(screen.getAllByRole('button', { name: 'Expand document' })[0]!);
-    expect((await screen.findByRole('tooltip')).textContent).toBe(tooltip);
+    expect(screen.getAllByRole('button', { name: 'Expand document' })[0]!.getAttribute('title')).toBe(title);
   });
 });

@@ -871,27 +871,26 @@ function TableRowImpl({
             onToggle={() => onToggleSelect(index)}
             tabIndex={buttonTabIndex}
           />
-          <Tooltip label={isExpanded ? 'Collapse document' : 'Expand document'} withArrow openDelay={400}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size={20}
-              tabIndex={buttonTabIndex}
-              c="var(--atelier-text-ghost)"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRowExpand(docId, !isExpanded);
-              }}
-              aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
-              style={{
-                flexShrink: 0,
-                transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                transition: 'transform 120ms',
-              }}
-            >
-              {I.chevD}
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={20}
+            tabIndex={buttonTabIndex}
+            c="var(--atelier-text-ghost)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRowExpand(docId, !isExpanded);
+            }}
+            aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
+            title={isExpanded ? 'Collapse document' : 'Expand document'}
+            style={{
+              flexShrink: 0,
+              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms',
+            }}
+          >
+            {I.chevD}
+          </ActionIcon>
         </div>
 
         {columns.map((col) => {
