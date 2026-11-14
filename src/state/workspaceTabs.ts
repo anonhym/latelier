@@ -78,6 +78,12 @@ export interface WorkspaceTabsState {
     collection: string;
     reuseExisting?: boolean;
     preview?: boolean;
+    /**
+     * Seeds a brand-new tab's state at creation in main, over the sticky
+     * defaults, so it never depends on a render. Ignored when the open lands
+     * on an existing tab.
+     */
+    initialState?: Partial<CollectionTabState>;
   }) => Promise<CollectionTab>;
   /**
    * Opens the collection's Aggregation view. With a `savedId`, a `name` or an
@@ -260,7 +266,16 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   }, [refresh]);
 
   const openCollectionTab = useCallback(
-    async (input: { connectionId: string; dbName: string; collection: string; reuseExisting?: boolean }) => {
+    async ({
+      initialState: given,
+      ...input
+    }: {
+      connectionId: string;
+      dbName: string;
+      collection: string;
+      reuseExisting?: boolean;
+      initialState?: Partial<CollectionTabState>;
+    }) => {
       // Seed brand-new tabs from the sticky page-size default. A `null`
       // (never-set) pref is deliberately omitted rather than coerced to a
       // number — `WorkspaceStateService.openCollection` falls back to
@@ -297,7 +312,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       } catch (err) {
         logFailure(`reading preference ${DEFAULT_VIEW_PREF_KEY}`, err);
       }
-      const initialState = Object.keys(seed).length > 0 ? seed : undefined;
+      const merged = { ...seed, ...given };
+      const initialState = Object.keys(merged).length > 0 ? merged : undefined;
       const tab = await api.tabs.openCollection({
         ...input,
         ...(initialState ? { initialState } : {}),
@@ -827,11 +843,11 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         dbName: entry.dbName,
         collection: entry.collection,
         reuseExisting: false,
+        initialState: entry.state,
       });
-      patchCollectionState(tab.id, entry.state);
       if (entry.pinned) await setPinned(tab.id, true);
     },
-    [openScript, openServer, openCollection, setPinned, patchCollectionState],
+    [openScript, openServer, openCollection, setPinned],
   );
 
   // An entry leaves the list only once its tab is open: a reopen that fails
