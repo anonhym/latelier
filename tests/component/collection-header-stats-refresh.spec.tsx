@@ -19,7 +19,7 @@ function renderHeader(refreshSignal: number | undefined) {
   );
 }
 
-const details = (stats?: { documentCount?: number; indexCount?: number }) => ({
+const details = (stats?: { documentCount?: number; indexCount?: number; sizeBytes?: number }) => ({
   name: 'orders',
   type: 'collection' as const,
   capped: false,
@@ -74,8 +74,16 @@ describe('CollectionHeader — stats refresh', () => {
     renderHeader(0);
 
     await waitFor(() => expect(screen.getByText('3')).toBeTruthy());
-    expect(screen.queryByText(/docs in collection/)).toBeNull();
+    expect(screen.queryByText(/documents?/)).toBeNull();
     expect(screen.queryByText('0')).toBeNull();
+  });
+
+  it('reads documents · indexes · size, each only when reported', async () => {
+    installAtelierMock({
+      meta: { collectionDetails: async () => details({ documentCount: 1, indexCount: 2, sizeBytes: 1536 }) },
+    });
+    renderHeader(0);
+    await waitFor(() => expect(screen.getByTestId('collection-figures').textContent).toBe('1 document · 2 indexes · 1.5 KB'));
   });
 
   it('shows no figures for a view', async () => {
@@ -90,7 +98,7 @@ describe('CollectionHeader — stats refresh', () => {
     renderHeader(0);
 
     await waitFor(() => expect(collectionDetails).toHaveBeenCalled());
-    expect(screen.queryByText(/docs in collection/)).toBeNull();
+    expect(screen.queryByText(/documents?/)).toBeNull();
     expect(screen.queryByText(/indexes/)).toBeNull();
   });
 

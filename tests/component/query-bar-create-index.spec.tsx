@@ -138,7 +138,7 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
 
     // Structure tab is now active.
     await waitFor(() => {
-      const tab = screen.getByRole('tab', { name: /Structure/ });
+      const tab = screen.getByRole('tab', { name: /Schema & indexes/ });
       expect(tab.getAttribute('aria-selected')).toBe('true');
     });
 

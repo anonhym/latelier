@@ -1,5 +1,7 @@
 import React from 'react';
-import { AppShell, Button, Group, Tabs } from '@mantine/core';
+import { AppShell, Button, Group, Tabs, Tooltip } from '@mantine/core';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 import {
   Group as PanelGroup,
   Panel,
@@ -62,18 +64,20 @@ import { useCollectionTabActions } from './useCollectionTabActions';
 import { useDocumentDialogs } from './useDocumentDialogs';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
 
+// The stored value stays `structure`: only the label changed, so no tab state migrates.
 const SUB_TABS: ReadonlyArray<{
   key: CollectionView;
   label: string;
   icon: React.ReactNode;
+  shortcut: string;
 }> = [
-  { key: 'documents', label: 'Documents', icon: I.doc },
-  { key: 'aggregation', label: 'Aggregation', icon: I.sum },
-  { key: 'structure', label: 'Structure', icon: I.schema },
+  { key: 'documents', label: 'Documents', icon: I.doc, shortcut: '⌥1' },
+  { key: 'aggregation', label: 'Aggregation', icon: I.sum, shortcut: '⌥2' },
+  { key: 'structure', label: 'Schema & indexes', icon: I.schema, shortcut: '⌥3' },
 ];
 
 /**
- * The Documents / Aggregation / Structure strip. Mantine's `Tabs` gives it the
+ * The Documents / Aggregation / Schema & indexes strip (W01 §14.5). Mantine's `Tabs` gives it the
  * tablist pattern (arrow keys, Home/End, a single tab stop, aria-controls). It
  * must sit inside the same `<Tabs>` root as the `Tabs.Panel`s: Mantine only
  * sets a tab's `aria-controls` once its panel is mounted. It shares its row with
@@ -95,8 +99,8 @@ function SubTabStrip({ active }: { active: CollectionView }) {
       {SUB_TABS.map((t) => {
         const selected = t.key === active;
         return (
+          <Tooltip key={t.key} label={`${t.label} ${formatShortcut(t.shortcut, isMacRenderer())}`} withArrow openDelay={400}>
           <Tabs.Tab
-            key={t.key}
             value={t.key}
             leftSection={
               <span aria-hidden="true" style={{ display: 'inline-flex', opacity: 0.7 }}>
@@ -107,8 +111,6 @@ function SubTabStrip({ active }: { active: CollectionView }) {
               padding: '0 11px',
               fontSize: T.fsXs,
               fontWeight: 600,
-              letterSpacing: 0.5,
-              textTransform: 'uppercase',
               whiteSpace: 'nowrap',
               background: 'transparent',
               color: selected ? T.text : T.textMuted,
@@ -120,6 +122,7 @@ function SubTabStrip({ active }: { active: CollectionView }) {
           >
             {t.label}
           </Tabs.Tab>
+          </Tooltip>
         );
       })}
     </Tabs.List>

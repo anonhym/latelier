@@ -114,7 +114,7 @@ test('Structure → Validation → Edit rules saves a $jsonSchema that the secti
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.tablist.getByRole('tab', { name: /Structure/ }).click();
+      await ws.tablist.getByRole('tab', { name: /Schema & indexes/ }).click();
 
       const validation = win.getByRole('region', { name: 'Validation' });
       await expect(validation.getByText('No validation rules')).toBeVisible({ timeout: 8000 });

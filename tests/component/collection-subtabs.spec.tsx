@@ -1,4 +1,4 @@
-// The Documents / Aggregation / Structure strip above a collection tab was
+// The Documents / Aggregation / Schema & indexes strip above a collection tab was
 // three hand-rolled buttons: arrow keys did nothing and no tab pointed at a
 // panel. It is Mantine's Tabs now, like the Query drawer's strip.
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -99,7 +99,7 @@ describe('collection view strip — keyboard and ARIA', () => {
 
     // Home and End only move focus (Mantine does not activate on them).
     fireEvent.keyDown(document.activeElement!, { key: 'End' });
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Structure' }));
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Schema & indexes' }));
     expect(selected('Documents')).toBe(true);
 
     fireEvent.keyDown(document.activeElement!, { key: 'Home' });
@@ -112,11 +112,20 @@ describe('collection view strip — keyboard and ARIA', () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       expect.stringMatching(/Documents/),
       expect.stringMatching(/Aggregation/),
-      expect.stringMatching(/Structure/),
+      expect.stringMatching(/Schema & indexes/),
     ]);
+    // Sentence case in the DOM and on screen: no CSS shouts the labels.
+    expect(tabs.map((t) => t.style.textTransform)).toEqual(['', '', '']);
     const reachable = tabs.filter((t) => t.getAttribute('tabindex') !== '-1');
     expect(reachable).toHaveLength(1);
     expect(reachable[0]!.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('each view names its ⌥-digit shortcut in its tooltip', async () => {
+    mount();
+    const list = await strip();
+    fireEvent.mouseEnter(within(list).getByRole('tab', { name: 'Schema & indexes' }));
+    expect(await screen.findByText(/^Schema & indexes (⌥|Alt\+)3$/)).toBeTruthy();
   });
 
   it('the selected tab points at a real tabpanel that points back at it', async () => {
@@ -134,8 +143,8 @@ describe('collection view strip — keyboard and ARIA', () => {
   it('clicking a tab changes the view', async () => {
     mount();
     await strip();
-    fireEvent.click(screen.getByRole('tab', { name: /Structure/ }));
-    await waitFor(() => expect(selected('Structure')).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: /Schema & indexes/ }));
+    await waitFor(() => expect(selected('Schema & indexes')).toBe(true));
     expect(screen.getByRole('region', { name: 'Indexes' })).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
     await waitFor(() => expect(selected('Documents')).toBe(true));

@@ -73,7 +73,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
 
       // The explain drawer closes and Structure becomes the active sub-tab.
       await expect(explainDrawer).not.toBeVisible({ timeout: 4000 });
-      await expect(win.getByRole('tab', { name: /Structure/ })).toHaveAttribute(
+      await expect(win.getByRole('tab', { name: /Schema & indexes/ })).toHaveAttribute(
         'aria-selected',
         'true',
       );
