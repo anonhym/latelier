@@ -22,7 +22,7 @@ test('test probe: failure shows error, valid host/port shows success', async () 
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
       await switcher.openNew();
 
       const form = new NewConnectionPage(win);

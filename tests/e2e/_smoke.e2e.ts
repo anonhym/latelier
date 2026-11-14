@@ -29,8 +29,9 @@ test('scaffolding boots, seeds a connection, and reflects it in the list', async
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
-      await expect(switcher.manageButton).toBeVisible();
+      // Zero connections: the welcome canvas is the boot anchor.
+      await switcher.waitWelcome();
+      await expect(switcher.welcomeField).toBeVisible();
 
       const seeded = await seedConnection(win, {
         ...baseConnInput(host, port),
@@ -41,6 +42,8 @@ test('scaffolding boots, seeds a connection, and reflects it in the list', async
       // The renderer's connection list is driven by `useConnections()`, which
       // refreshes on its own polling cadence. Poll the locator instead of
       // baking a sleep — toBeVisible already retries until the test timeout.
+      await switcher.waitVisible();
+      await expect(switcher.manageButton).toBeVisible();
       await expect(switcher.item('Smoke Target')).toBeVisible({ timeout: 10_000 });
     });
   });

@@ -1,6 +1,9 @@
 import React from 'react';
-import { IconPinFilled } from '@tabler/icons-react';
+import { IconDots, IconPinFilled } from '@tabler/icons-react';
 import { Button, Group, Kbd, Popover, Text, TextInput, VisuallyHidden } from '@mantine/core';
+import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
+import { isContextMenuKey } from '../../utils/contextMenuKey';
+import { connectionRowMenu } from './connectionRowMenu';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { STATUS_PRESENTATION, matchesConnectionQuery } from './connectionStatus';
@@ -45,26 +48,18 @@ import type { ConnectionSummary } from '@shared/types';
  * never sees those keys. Inside the dropdown the search field is the only
  * element that can hold a caret, and taking its arrows is the point.
  *
- * Two more affordances joined later, both plain click/Tab targets rather than
- * extensions to the arrow-key contract above: "Manage connections" (pinned
- * above the list, unaffected by search) and a per-row edit button that opens
- * the Connection form as a modal, prefilled.
+ * A row's other actions (server overview, edit, disconnect, copy the
+ * connection string, delete) sit behind one `⋯` on the highlighted row. They
+ * were four unlabelled icons side by side, Delete next to Edit, in a control
+ * built for a quick flick (ADR 0001, 2026-11-13 amendment). ⌘↵ and ⌫ keep
+ * their keyboard paths, and Shift+F10 or the ContextMenu key opens the menu.
  *
- * The remaining ADR 0001 actions — manage, disconnect, delete — joined as
- * the same kind of inline, highlighted-row-only icon buttons rather than the
- * per-row `⋯` menu the ADR originally specified (rejected by the prototype;
- * see the ADR's Prototype findings). Manage and disconnect already had a
- * keyboard path (⌘↵, ⌫); this gives them a pointer one too, and gives delete
- * — which has no keyboard shortcut, deliberately, since it's destructive and
- * asks for confirmation regardless — its only path.
- *
- * `⌘E` — and the "Manage connections" button that does the same — opens the
- * full Connections table: comparing two similarly-named Connections, reading
- * detail, managing several in a row, and the list-wide actions (add, import,
- * export) that would crowd this popover. It *closes* the popover rather than
- * stacking on it (ADR 0001: only one list of Connections is ever on screen),
- * so this reuses `close()`, the same as every other action here that leaves
- * the Switcher.
+ * The footer carries the two list-wide actions: `+ New connection`, and
+ * `Manage all` (`⌘E`), which opens the full Connections table: comparing two
+ * similarly-named Connections, reading detail, managing several in a row. It
+ * *closes* the popover rather than stacking on it (ADR 0001: only one list of
+ * Connections is ever on screen), so it reuses `close()`, the same as every
+ * other action here that leaves the Switcher.
  */
 export interface ConnectionSwitcherProps {
   connections: ConnectionSummary[];
@@ -92,7 +87,7 @@ export interface ConnectionSwitcherProps {
    */
   onDelete: (id: string) => void;
   /**
-   * `⌘E` / "Manage connections". Opens the expanded
+   * `⌘E` / "Manage all". Opens the expanded
    * Connections table. Closes the popover — the two are never on screen
    * together (ADR 0001). Carries the typed search along: expanding to tell
    * "Prod — US East" and "Prod — EU West" apart is exactly the scenario a
@@ -114,12 +109,7 @@ export interface ConnectionSwitcherProps {
    * switcher").
    */
   variant?: 'title' | 'cta';
-  /**
-   * Opens the add-connection form. With it, the `cta` variant shows a filled
-   * "New connection" button instead of the picker while no Connection exists
-   * (a first-run user has nothing to pick), and the empty list offers the
-   * same action. Omitted: both fall back to the picker-only behaviour.
-   */
+  /** Opens the add-connection form, from the footer's `+ New connection`. */
   onAdd?: () => void;
 }
 
@@ -135,10 +125,8 @@ function ConnectionRow({
   isHighlighted,
   onSelect,
   onHighlight,
-  onManage,
   onDisconnect,
-  onEdit,
-  onDelete,
+  onOpenMenu,
 }: {
   /** DOM id of this option — what `aria-activedescendant` points at. Not `conn.id`. */
   optionId: string;
@@ -148,15 +136,21 @@ function ConnectionRow({
   isHighlighted: boolean;
   onSelect: (id: string) => void;
   onHighlight: () => void;
-  onManage: (id: string) => void;
-  /** Raw prop, not the popover-closing wrapper — matches the ⌫ shortcut's "stays open" behavior. */
+  /** Cancels a connect in flight. Raw prop, not the popover-closing wrapper: the row's band is the feedback. */
   onDisconnect: (id: string) => void;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
+  /** Opens this row's `⋯` menu under `anchor`. */
+  onOpenMenu: (anchor: HTMLElement) => void;
 }) {
   const T = themeVars;
   const presentation = STATUS_PRESENTATION[conn.status];
   const descriptionId = `${optionId}-description`;
+  const statusText = isConnected
+    ? 'Connected'
+    : conn.status === 'connecting'
+      ? 'Connecting'
+      : isHighlighted
+        ? `Connect ${formatShortcut('↵', isMacRenderer())}`
+        : 'Dormant';
   return (
     <div
       id={optionId}
@@ -239,30 +233,25 @@ function ConnectionRow({
           flexShrink: 0,
         }}
       />
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* One line: `name — host · vX`. The name keeps its width; the host
+          gives way first. serverVersion is runtime-only and cleared on
+          disconnect, so a stale one can never show next to a dead connection. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: T.gapXs }}>
         <Text
           truncate
-          style={{ fontSize: T.fsSm, fontWeight: 600, color: T.text }}
+          style={{ fontSize: T.fsSm, fontWeight: 600, color: T.text, flexShrink: 0, maxWidth: '60%' }}
         >
           {conn.name}
         </Text>
         <Text
           truncate
-          style={{ fontSize: T.fsXs, color: T.textMuted, fontFamily: 'ui-monospace, monospace' }}
+          title={conn.status === 'connected' && conn.serverVersion ? `MongoDB ${conn.serverVersion}` : undefined}
+          style={{ fontSize: T.fsXs, color: T.textMuted, fontFamily: 'ui-monospace, monospace', minWidth: 0 }}
         >
-          {conn.host}
+          — {conn.host}
+          {conn.status === 'connected' && conn.serverVersion ? ` · v${conn.serverVersion}` : ''}
         </Text>
       </div>
-      {/* serverVersion is runtime-only and cleared on disconnect, so a stale
-          one can never show next to a dead connection. */}
-      {conn.status === 'connected' && conn.serverVersion && (
-        <span
-          title={`MongoDB ${conn.serverVersion}`}
-          style={{ fontSize: T.fsXs, color: T.textMuted, fontFamily: 'ui-monospace, monospace', flexShrink: 0 }}
-        >
-          v{conn.serverVersion}
-        </span>
-      )}
       {isPinned && (
         <span aria-hidden title="Pinned" style={{ display: 'flex', color: T.textMuted, flexShrink: 0 }}>
           <IconPinFilled size={11} />
@@ -277,42 +266,27 @@ function ConnectionRow({
           {I.lock}
         </span>
       )}
-      {isConnected && (
-        <span aria-label="Connected" style={{ display: 'flex', color: T.accent, flexShrink: 0 }}>
-          {I.check}
-        </span>
-      )}
-      {/*
-        Row actions. Rendered only on the highlighted row (ADR
-        0001: "inline icon actions on the highlighted row"), not on all nine —
-        besides matching the ADR, that keeps this to at most a handful of
-        extra tab stops at a time rather than one set per row. Real
-        `<button>`s, so each is a tab stop on its own: `role="option"` rows
-        are otherwise not (the search field owns keyboard input via
-        `aria-activedescendant`, see the file header), but that contract is
-        about the *row* competing with the roving highlight, not about every
-        descendant, and Mantine's `Popover` doesn't focus-trap, so Tab already
-        leaves the dropdown today — this adds stops before that exit, which is
-        how a keyboard-only user reaches these actions without a mouse. A
-        nested interactive element inside `role="option"` is outside what ARIA
-        guarantees screen readers expose in the listbox's own browse mode, so
-        this is a keyboard-first affordance, not a verified screen-reader one
-        — narrowing that gap is follow-up work, not blocking here.
-
-        Order — manage, disconnect, edit, delete — puts the destructive action
-        last and furthest from the others, on purpose: the four sit 20px apart
-        in a 300px popover, and delete is the one action here a stray click
-        should not land on by proximity alone.
-      */}
+      {/* Status as a word, not a tick: on the highlighted row of a
+          Connection that is not open it names what ↵ will do instead. */}
+      <span
+        data-testid="connection-row-status"
+        style={{
+          fontSize: T.fsXs,
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
+          color: isConnected ? T.accentInk : T.textMuted,
+        }}
+      >
+        {statusText}
+      </span>
       {/*
         X16 §4.3 — Cancel, and the one row action that is *not* gated on
-        the highlight. The highlighted-row rule (ADR 0001) exists to keep nine
-        rows from carrying four actions each; it assumes the user is already
-        looking at the row they mean. A connect that is hanging is the case
-        where they are not: only one row can be highlighted, the state is
-        transient, and the whole point of the action is that the app has locked
-        up on a host the user cannot reach. Cancel is the existing
-        `mongo:disconnect` for that id — no cancel channel exists.
+        the highlight. A connect that is hanging is the case where the user
+        is not already looking at the row they mean: only one row can be
+        highlighted, the state is transient, and the whole point of the
+        action is that the app has locked up on a host the user cannot
+        reach. Cancel is the existing `mongo:disconnect` for that id — no
+        cancel channel exists.
       */}
       {conn.status === 'connecting' && (
         <RowActionIcon
@@ -322,26 +296,19 @@ function ConnectionRow({
           {I.close}
         </RowActionIcon>
       )}
+      {/*
+        The row's other actions, behind one menu. Rendered only on the
+        highlighted row, so the list carries one extra tab stop rather than
+        one per row. A real `<button>`: `role="option"` rows are not tab
+        stops themselves (the search field owns keyboard input via
+        `aria-activedescendant`, see the file header), and Mantine's
+        `Popover` doesn't focus-trap, so Tab reaches it before leaving the
+        dropdown. Shift+F10 on the search field opens the same menu.
+      */}
       {isHighlighted && (
-        <>
-          <RowActionIcon label={`Manage ${conn.name}`} onClick={() => onManage(conn.id)}>
-            {I.gear}
-          </RowActionIcon>
-          {/* Matches the ⌫ shortcut: only rows with a client to drop (the
-              disconnect acceptance criterion). A connecting row already carries Cancel
-              above, which is the same call under the name that fits. */}
-          {presentation.live && conn.status !== 'connecting' && (
-            <RowActionIcon label={`Disconnect ${conn.name}`} onClick={() => onDisconnect(conn.id)}>
-              {I.plugOff}
-            </RowActionIcon>
-          )}
-          <RowActionIcon label={`Edit ${conn.name}`} onClick={() => onEdit(conn.id)}>
-            {I.edit}
-          </RowActionIcon>
-          <RowActionIcon label={`Delete ${conn.name}`} color="red" onClick={() => onDelete(conn.id)}>
-            {I.trash}
-          </RowActionIcon>
-        </>
+        <RowActionIcon label={`Actions for ${conn.name}`} onClick={(e) => onOpenMenu(e.currentTarget)}>
+          <IconDots size={14} />
+        </RowActionIcon>
       )}
     </div>
   );
@@ -362,21 +329,12 @@ export function ConnectionSwitcher({
   const T = themeVars;
   const [opened, setOpened] = React.useState(false);
   const [query, setQuery] = React.useState('');
+  const [rowMenu, setRowMenu] = React.useState<ContextMenuState | null>(null);
   const baseId = React.useId();
   const listboxId = `${baseId}-listbox`;
-  // with zero saved Connections there is nothing to search, so
-  // opening focuses "Manage connections" — the way to add one — instead of
-  // the search field (ADR
-  // 0001's "add-mode when zero connections exist"). Read at open time via
-  // `connections.length`, not a separate prop — the Switcher already knows
-  // its own connection count, and this stays correct however it was opened.
-  // With zero Connections the empty state's `variant="cta"` is no longer a
-  // trigger (it is the add button), so the TitleBar trigger is the way in.
-  const addMode = connections.length === 0;
   const optionId = (connectionId: string) => `${baseId}-opt-${connectionId}`;
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
-  const manageRef = React.useRef<HTMLButtonElement>(null);
   const wasOpenRef = React.useRef(false);
   const keyboardMoveRef = React.useRef(false);
 
@@ -493,6 +451,27 @@ export function ConnectionSwitcher({
     onDelete(id);
   };
 
+  // Every menu action leaves the Switcher: a click on the menu is already a
+  // click outside the popover, so the keyboard path closes it the same way.
+  const openRowMenu = (conn: ConnectionSummary, anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    setRowMenu({
+      x: rect.left,
+      y: rect.bottom,
+      items: connectionRowMenu(conn, {
+        onManage: handleManage,
+        onEdit: handleEdit,
+        onDisconnect: (id) => {
+          close();
+          onDisconnect(id);
+        },
+        onDelete: handleDelete,
+      }),
+      // Escape hands the keyboard back to the search field, where ↑↓ and ↵ live.
+      returnFocusTo: searchRef.current,
+    });
+  };
+
   const handleExpand = () => {
     // `close()` schedules `setQuery('')` — a state update, not a mutation —
     // so this closure's own `query` binding still holds what was typed until
@@ -519,6 +498,14 @@ export function ConnectionSwitcher({
    * right when we really did.
    */
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isContextMenuKey(e)) {
+      e.stopPropagation();
+      const row = highlighted && document.getElementById(optionId(highlighted.id));
+      if (!highlighted || !row) return;
+      e.preventDefault();
+      openRowMenu(highlighted, row);
+      return;
+    }
     switch (e.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
@@ -621,31 +608,17 @@ export function ConnectionSwitcher({
   // when `opened` flips back, so it cannot steal this focus afterwards.
   React.useLayoutEffect(() => {
     if (!opened) return;
-    (addMode ? manageRef : searchRef).current?.focus();
-    // Only a transition of `opened` re-claims focus; `addMode` changing while
-    // open (the last Connection removed) is handled by the body-only effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    searchRef.current?.focus();
   }, [opened]);
 
-  // Not a popover trigger: with nothing to pick, the CTA is the add action
-  // itself, so it stays out of Popover.Target (which would stamp
-  // aria-haspopup / aria-expanded on it).
-  if (variant === 'cta' && connections.length === 0 && onAdd) {
-    return (
-      <Button ref={triggerRef} variant="filled" size="sm" leftSection={I.plus} onClick={onAdd}>
-        New connection
-      </Button>
-    );
-  }
-
-  return (
+  const popover = (
     <Popover
       opened={opened}
       onChange={handleOpenChange}
       position="bottom-start"
       shadow="md"
       withinPortal
-      width={300}
+      width={380}
     >
       <Popover.Target>
         {variant === 'cta' ? (
@@ -743,7 +716,7 @@ export function ConnectionSwitcher({
         <div style={{ padding: 8, borderBottom: `1px solid ${T.border}` }}>
           <TextInput
             ref={searchRef}
-            autoFocus={!addMode}
+            autoFocus
             size="xs"
             aria-label="Search connections"
             placeholder="Search connections…"
@@ -771,43 +744,6 @@ export function ConnectionSwitcher({
             }}
           />
         </div>
-        {/*
-          "Manage connections". Pinned above the listbox, not filtered by
-          `query` and not part of the roving highlight: a search that matches
-          nothing must still lead somewhere a Connection can be created, and
-          folding it into the arrow-key contract would mean rewriting
-          `handleKeyDown`'s wrap-at-both-ends math to special-case a
-          non-Connection row. A plain tab-reachable button costs neither.
-          `onKeyDown` stopPropagation is load-bearing, not defensive: this
-          button sits inside `Popover.Dropdown`, whose own `onKeyDown` is
-          `handleKeyDown` below — without stopping it here, Tab-ing to this
-          button and pressing Enter would hit `handleKeyDown`'s Enter case
-          instead of this button's click, switching to whatever row is
-          highlighted (and closing its tabs) rather than opening the table.
-          ⌘E is let through: this button is where focus lands with zero
-          Connections, and the legend promises ⌘E works anywhere in here.
-        */}
-        <Button
-          variant="subtle"
-          size="compact-xs"
-          h={36}
-          ref={manageRef}
-          autoFocus={addMode}
-          onClick={handleExpand}
-          onKeyDown={(e) => {
-            if (!isExpandShortcut(e)) e.stopPropagation();
-          }}
-          leftSection={
-            <span aria-hidden style={{ display: 'flex' }}>
-              {I.expand}
-            </span>
-          }
-          fullWidth
-          justify="flex-start"
-          style={{ borderRadius: 0, borderBottom: `1px solid ${T.border}` }}
-        >
-          Manage connections
-        </Button>
         <div
           id={listboxId}
           role="listbox"
@@ -819,15 +755,7 @@ export function ConnectionSwitcher({
         >
           {filtered.length === 0 ? (
             <div style={{ padding: '18px 12px', fontSize: T.fsSm, color: T.textMuted, textAlign: 'center' }}>
-              {/*
-                `filtered` is empty both when a search matched nothing and when
-                there is nothing to search. Only the first case should name the
-                query — otherwise a first-run user with no saved Connections is
-                told `No connections match ""`.
-              */}
-              {connections.length === 0
-                ? 'No connections yet'
-                : <>No connections match &quot;{query}&quot;</>}
+              No connections match &quot;{query}&quot;
             </div>
           ) : (
             filtered.map((c, i) => (
@@ -839,10 +767,8 @@ export function ConnectionSwitcher({
                 isPinned={pinnedIds.has(c.id)}
                 isHighlighted={i === highlight}
                 onSelect={handleSelect}
-                onManage={handleManage}
                 onDisconnect={onDisconnect}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
+                onOpenMenu={(anchor) => openRowMenu(c, anchor)}
                 onHighlight={() => {
                   keyboardMoveRef.current = false;
                   setHighlightIndex(i);
@@ -851,45 +777,66 @@ export function ConnectionSwitcher({
             ))
           )}
         </div>
-        {/* A sibling of the listbox, not a child: a listbox owns only
-            options and groups. */}
-        {connections.length === 0 && onAdd && (
-          <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 14 }}>
+        {/*
+          The two list-wide actions. A sibling of the listbox, not a child (a
+          listbox owns only options and groups), not filtered by `query` and
+          not part of the roving highlight: a search that matches nothing must
+          still lead somewhere a Connection can be created. `onKeyDown`
+          stopPropagation is load-bearing: these buttons sit inside
+          `Popover.Dropdown`, whose own `onKeyDown` is `handleKeyDown` —
+          without it, Enter on a focused button would hit that handler's Enter
+          case and connect whatever row is highlighted instead of clicking the
+          button. ⌘E is let through: "Manage all" promises it on its face.
+        */}
+        <Group
+          gap={T.gapXs}
+          px={6}
+          py={5}
+          justify="space-between"
+          wrap="nowrap"
+          style={{ borderTop: `1px solid ${T.border}`, background: T.surfaceRaised }}
+        >
+          {onAdd ? (
             <Button
-              variant="light"
+              variant="subtle"
               size="compact-xs"
               onClick={() => {
                 close();
                 onAdd();
               }}
+              onKeyDown={(e) => {
+                if (!isExpandShortcut(e)) e.stopPropagation();
+              }}
             >
-              New connection
+              + New connection
             </Button>
-          </div>
-        )}
-        {/*
-          The footer is how the keyboard path is learned from the mouse path:
-          a user who only ever clicks still reads it every time they open the
-          Switcher. It stays in the accessibility tree — hiding keyboard help
-          from the users most likely to want it would be backwards — but named,
-          so it reads as a shortcut legend rather than loose strings trailing
-          the list.
-        */}
-        {/* Three entries, not six: the rest are taught by the row action
-            tooltips and the expanded table, not by rote memorization here. */}
-        <Group
-          gap={T.gapSm}
-          px={10}
-          py={7}
-          role="note"
-          aria-label="Keyboard shortcuts"
-          style={{ borderTop: `1px solid ${T.border}`, background: T.surfaceRaised }}
-        >
-          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}><Kbd>↑↓</Kbd> navigate</Text>
-          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}><Kbd>{formatShortcut('↵', isMacRenderer())}</Kbd> connect</Text>
-          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}><Kbd>{formatShortcut('⌘E', isMacRenderer())}</Kbd> manage</Text>
+          ) : (
+            <span />
+          )}
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-xs"
+            onClick={handleExpand}
+            onKeyDown={(e) => {
+              if (!isExpandShortcut(e)) e.stopPropagation();
+            }}
+            // The shortcut is shown, and announced as one, without becoming part of the name.
+            aria-keyshortcuts={isMacRenderer() ? 'Meta+E' : 'Control+E'}
+            rightSection={<Kbd size="xs" aria-hidden>{formatShortcut('⌘E', isMacRenderer())}</Kbd>}
+          >
+            Manage all
+          </Button>
         </Group>
       </Popover.Dropdown>
     </Popover>
+  );
+  return (
+    <>
+      {popover}
+      {/* Outside the dropdown in the React tree: the menu's own arrow keys
+          and Enter must not bubble into `handleKeyDown`. */}
+      {rowMenu && <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />}
+    </>
   );
 }

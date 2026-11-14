@@ -8,19 +8,26 @@ export class NewConnectionPage {
   }
 
   // Footer action buttons (always visible in footer bar)
-  get testButton() { return this.win.getByRole('button', { name: /Test connection/i }); }
-  get saveButton() { return this.win.getByRole('button', { name: /^Save/i }); }
+  get testButton() { return this.win.getByRole('button', { name: 'Test', exact: true }); }
+  // Plain `Save`: `Save & connect` sits beside it, so match the name exactly.
+  get saveButton() { return this.win.getByRole('button', { name: 'Save', exact: true }); }
+  get saveAndConnectButton() { return this.win.getByRole('button', { name: 'Save & connect', exact: true }); }
   get cancelButton() { return this.win.getByRole('button', { name: 'Cancel' }); }
 
   // General tab fields (by placeholder — inputs have no aria-label)
   get nameInput() { return this.win.getByPlaceholder('My MongoDB Server'); }
-  get hostnameInput() { return this.win.getByPlaceholder('cluster.mongodb.net'); }
-  get portInput() { return this.win.getByPlaceholder('27017'); }
+  get hostnameInput() { return this.win.getByPlaceholder('localhost', { exact: true }); }
+  get portInput() { return this.win.getByPlaceholder('27017', { exact: true }); }
 
-  // URI paste — button text toggles: "Paste URI" ↔ "Use fields"
-  get pasteUriToggle() { return this.win.getByRole('button', { name: /Paste URI|Use fields/i }); }
-  get uriInput() { return this.win.getByPlaceholder('mongodb+srv://user:pass@cluster.mongodb.net/db'); }
-  get applyUriButton() { return this.win.getByRole('button', { name: 'Apply' }); }
+  // The always-visible `Connection string` field above the tabs. It applies on
+  // paste, blur and Enter; there is no Apply button.
+  get uriInput() { return this.win.getByTestId('connection-form-uri'); }
+
+  /** Types a URI into the Connection string field and applies it with Enter. */
+  async applyUri(uri: string) {
+    await this.uriInput.fill(uri);
+    await this.uriInput.press('Enter');
+  }
 
   // Test result feedback area (role="alert" for errors, or inline text for success)
   get testStatus() { return this.win.locator('[role="alert"]').last(); }
@@ -30,7 +37,7 @@ export class NewConnectionPage {
   get backLink() { return this.win.getByRole('button', { name: /^(Data View|Connection)$/ }); }
 
   /**
-   * Click a form tab by name ('General' | 'Auth' | 'TLS' | 'SSH' | 'Advanced').
+   * Click a form tab by name ('General' | 'Authentication' | 'TLS / SSH' | 'Advanced').
    *
    * `role: 'tab'`, not `'button'`: X19/#59 made this strip a real tablist, so
    * the elements that used to answer to `getByRole('button')` no longer do.
@@ -48,7 +55,7 @@ export class NewConnectionPage {
 
   /** Select an auth mechanism option by visible text (e.g., 'None') */
   async selectAuthMechanism(text: string) {
-    await this.clickTab('Auth');
+    await this.clickTab('Authentication');
     await this.win.getByRole('combobox').first().selectOption({ label: text });
   }
 

@@ -31,7 +31,7 @@ describe('Inline explainers render in NewConnection', () => {
   it('TLS tab shows the TLS_INLINE_EXPLAINER under the toggle, regardless of toggle state', async () => {
     installAtelierMock({});
     renderNew();
-    await userEvent.click(screen.getByText('TLS'));
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
     // First snippet of the explainer.
     await waitFor(() =>
       expect(

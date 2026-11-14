@@ -1686,19 +1686,22 @@ function WorkspaceInner() {
     onAdd: openAddConnectionModal,
   };
 
+  const welcome = !connectionsLoading && connections.length === 0;
+
   // mode="static" (CSS grid), not the default "fixed" (position: fixed) —
   // the Electron viewport is exactly 100vh and inner panes rely on
   // flex + overflow: hidden, which fixed positioning doesn't tolerate.
   return (
     <AppShell
       mode="static"
-      header={{ height: 72 }}
+      // Nothing saved is the welcome canvas: a title bar, and no tab strip, navigator or status bar.
+      header={{ height: welcome ? 40 : 72 }}
       // The status bar (W01 §14.6), drawn after PanelBody under the same condition.
       footer={connections.length > 0 ? { height: 24 } : undefined}
       navbar={{
         // Manual width, not Mantine's `collapsed` flag: the title bar's
         // sidebar toggle is the expand affordance, so collapsed is no width.
-        width: sidebarCollapsed ? 0 : leftWidth,
+        width: welcome || sidebarCollapsed ? 0 : leftWidth,
         // Must be truthy or Mantine's static-mode navbar CSS vars never emit,
         // pushing the navbar below Main in grid auto-placement.
         breakpoint: 'xs',
@@ -1763,6 +1766,7 @@ function WorkspaceInner() {
         onSearchCollections={palette.openCollections}
         active={active}
         openConnection={openConnection}
+        onWelcomeSaved={(id) => void connectionDialogs.handleConnectionSaved(id, { connect: true })}
         activeScript={activeScript}
         collection={panelBodyCollection}
         dark={dark}

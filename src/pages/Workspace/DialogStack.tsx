@@ -297,6 +297,7 @@ export function DialogStack({
     manageFromExpandedTable,
     editFromExpandedTable,
     deleteFromExpandedTable,
+    disconnectFromExpandedTable,
     addFromExpandedTable,
     importFromExpandedTable,
     tabCountFor,
@@ -516,6 +517,7 @@ export function DialogStack({
           onDeleteMany={deleteConnections}
           onEdit={editFromExpandedTable}
           onDelete={deleteFromExpandedTable}
+          onDisconnect={disconnectFromExpandedTable}
         />
       )}
     </>

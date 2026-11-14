@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppShell, Button, Group, Tabs, Tooltip } from '@mantine/core';
+import { AppShell, Button, Tabs, Tooltip } from '@mantine/core';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
 import {
@@ -58,6 +58,7 @@ import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
 import { ONE_PANEL_BUILDER_PX } from './sidePanels';
 import { GENERIC_CONNECT_ERROR, type NavigatorData } from './useNavigatorData';
 import { ConnectedCanvas } from './ConnectedCanvas';
+import { WelcomeCanvas } from './WelcomeCanvas';
 import { mostRecentlyConnected } from './locationModel';
 import type { ConnectErrorInfo } from './navigatorTreeReducer';
 import { latestFailedConnection } from './resultPaneState';
@@ -239,6 +240,8 @@ export interface PanelBodyProps {
   onSearchCollections: () => void;
   active: WorkspaceTab | null;
   openConnection: (id: string) => void;
+  /** The welcome canvas saved a Connection: list it, then connect it. */
+  onWelcomeSaved: (id: string) => void;
   activeScript: ScriptTabType | null;
   collection: PanelBodyCollectionProps | null;
   dark: boolean;
@@ -271,6 +274,7 @@ export function PanelBody({
   onSearchCollections,
   active,
   openConnection,
+  onWelcomeSaved,
   activeScript,
   collection,
   dark,
@@ -415,6 +419,13 @@ export function PanelBody({
           <CenteredPane>
             <span>Loading workspace…</span>
           </CenteredPane>
+        ) : switcherProps.connections.length === 0 ? (
+          // Nothing saved: no workbench to show, so the pane is the way in.
+          <WelcomeCanvas
+            onSaved={onWelcomeSaved}
+            onEnterManually={() => switcherProps.onAdd?.()}
+            onImport={openImport}
+          />
         ) : tabs.tabs.length === 0 && failedConnection ? (
           <ConnectionPane
             conn={failedConnection}
@@ -436,18 +447,9 @@ export function PanelBody({
           <CenteredPane>
             <div style={{ textAlign: 'center', maxWidth: 320 }}>
               <div style={{ color: T.textMuted, marginBottom: 12 }}>
-                {switcherProps.connections.length === 0
-                  ? 'No connections yet. Add one to get started.'
-                  : 'No connection is open. Select one to get started.'}
+                No connection is open. Select one to get started.
               </div>
-              <Group gap="xs" justify="center">
-                <ConnectionSwitcher {...switcherProps} variant="cta" />
-                {switcherProps.connections.length === 0 && (
-                  <Button variant="default" size="xs" onClick={() => openImport()}>
-                    Import connections
-                  </Button>
-                )}
-              </Group>
+              <ConnectionSwitcher {...switcherProps} variant="cta" />
             </div>
           </CenteredPane>
         ) : active && isKnownNotConnected(focusedConnection) && !connectionLost ? (

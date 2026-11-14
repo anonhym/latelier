@@ -20,7 +20,7 @@ test.afterAll(stopAllMemoryServers);
  * Mantine `Table` inside a scroll container, with a four-button footer —
  * since jsdom never measures anything.
  */
-test('expanded table: opens from Manage connections, searches, selects a row, and connects', async () => {
+test('expanded table: opens from Manage all, searches, selects a row, and connects', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -59,21 +59,21 @@ test('expanded table: opens from Manage connections, searches, selects a row, an
 
     // no footer to disable: nothing is selected yet, so Connect isn't
     // rendered on any row.
-    await expect(switcher.expandedTableRowAction('Alpha Cluster', 'Connect')).toHaveCount(0);
+    await expect(switcher.expandedTableConnect('Alpha Cluster')).toHaveCount(0);
 
     await switcher.expandedTableSearch.fill('beta');
     await expect(switcher.expandedTableRow('Alpha Cluster')).toHaveCount(0);
     await expect(switcher.expandedTableRow('Beta Cluster')).toBeVisible();
 
     await switcher.expandedTableRow('Beta Cluster').click();
-    await expect(switcher.expandedTableRowAction('Beta Cluster', 'Connect')).toBeVisible();
+    await expect(switcher.expandedTableConnect('Beta Cluster')).toBeVisible();
     // Selecting reveals detail inline, in place — the table never narrows to
     // make room for it.
     await expect(switcher.expandedTableDialog.getByText(/Default DB/i)).toBeVisible({
       timeout: 5000,
     });
 
-    await switcher.expandedTableRowAction('Beta Cluster', 'Connect').click();
+    await switcher.expandedTableConnect('Beta Cluster').click();
 
     // Connect connects and closes the table, same destination the popover's
     // own row click reaches. X16.4 — it opens no tab, so the landing
@@ -129,7 +129,7 @@ test('expanded table: the column header stays visible once there are enough rows
     await expect(switcher.expandedTableRow('Connection 13')).toBeInViewport();
 
     // Regression: Mantine `Modal`'s own `returnFocus` can't restore focus to
-    // the popover's "Manage connections" button — it's already unmounted (closing the
+    // the popover's "Manage all" button — it's already unmounted (closing the
     // popover is what opened this table, per ADR 0001) — so without this
     // table returning focus itself, Escape would strand a keyboard user at
     // `<body>`, the top of the Data View's tab order.
@@ -173,7 +173,7 @@ test('expanded table: Edit hands focus to the Connection form, not back to the t
     await switcher.openExpandedTable();
 
     await switcher.expandedTableRow('Alpha Cluster').click();
-    await switcher.expandedTableRowAction('Alpha Cluster', 'Edit').click();
+    await switcher.expandedTableRowMenu('Alpha Cluster', 'Edit…');
 
     const formDialog = win.getByRole('dialog', { name: 'Edit Connection' });
     await expect(formDialog).toBeVisible({ timeout: 8000 });

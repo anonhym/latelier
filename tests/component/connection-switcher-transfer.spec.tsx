@@ -38,37 +38,49 @@ function mount(connections: ConnectionSummary[]) {
 async function openTable() {
   const titleBar = within(await screen.findByRole('banner'));
   await userEvent.click(await titleBar.findByRole('button', { name: /^Connection: / }));
-  await userEvent.click(await screen.findByRole('button', { name: 'Manage connections' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Manage all' }));
   return screen.findByRole('dialog', { name: 'Connections' });
 }
 
 const check = (table: HTMLElement, name: string) =>
   userEvent.click(within(table).getByRole('checkbox', { name: `Check ${name}` }));
 const toolbar = () => screen.getByRole('toolbar', { name: 'Checked connections' });
-/** The bar is always there; with nothing checked its actions are disabled and it shows no count. */
+/** The bulk bar exists only while something is checked; no disabled Export and Delete sit there otherwise. */
 const expectNoneChecked = () => {
-  for (const name of ['Export', 'Delete']) {
-    expect((within(toolbar()).getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('toolbar', { name: 'Checked connections' })).toBeNull();
+  for (const name of ['Export', 'Delete', 'Clear']) {
+    expect(within(screen.getByRole('dialog', { name: 'Connections' })).queryByRole('button', { name })).toBeNull();
   }
-  expect(within(toolbar()).queryByText(/checked/)).toBeNull();
-  expect(within(toolbar()).queryByRole('button', { name: 'Clear' })).toBeNull();
 };
+
+/** The table header's `Import ▾` menu: a file, Compass, or pasted URIs. */
+async function importFrom(table: HTMLElement, item: string) {
+  await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
 
 afterEach(uninstallAtelierMock);
 
 describe('Connections table: adding', () => {
-  it('stacks the Import Wizard on the table from Paste URIs', async () => {
+  it('stacks the Import Wizard on the table from Import ▾ Paste URIs…', async () => {
     mount([row('c1', 'Prod')]);
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await importFrom(table, 'Paste URIs…');
     expect(await screen.findByRole('dialog', { name: 'Import Connections' })).toBeTruthy();
     expect(screen.getByRole('dialog', { name: 'Connections' })).toBeTruthy();
   });
 
-  it('Import leaves the table for the Import Wizard', async () => {
+  it('Import ▾ From a file… and From Compass… leave the table for the Import Wizard', async () => {
     mount([row('c1', 'Prod')]);
     const table = await openTable();
+    expect(within(table).getByRole('button', { name: '+ New' })).toBeTruthy();
     await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+    expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual([
+      'From a file…',
+      'From Compass…',
+      'Paste URIs…',
+    ]);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'From Compass…' }));
     expect(await screen.findByRole('dialog', { name: 'Import Connections' })).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
   });
@@ -76,7 +88,7 @@ describe('Connections table: adding', () => {
   it('Escape closes only the dialog stacked on the table', async () => {
     mount([row('c1', 'Prod')]);
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await importFrom(table, 'Paste URIs…');
     await screen.findByRole('dialog', { name: 'Import Connections' });
 
     await userEvent.keyboard('{Escape}');
@@ -87,10 +99,22 @@ describe('Connections table: adding', () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull());
   });
+
+  it('Escape in the Import ▾ menu closes the menu and leaves the table', async () => {
+    mount([row('c1', 'Prod')]);
+    const table = await openTable();
+    await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+    await screen.findByRole('menu');
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'Connections' })).toBeTruthy();
+  });
 });
 
 describe('Connections table: checked rows', () => {
-  it('keeps Export and Delete in place but disabled until something is checked, and Clear empties it', async () => {
+  it('shows the bulk bar only while something is checked, and Clear removes it again', async () => {
     mount(THREE);
     const table = await openTable();
     expectNoneChecked();

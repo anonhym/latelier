@@ -21,14 +21,15 @@ export const STATIC_SHORTCUTS: ReadonlyArray<{
       { keys: '⌘1–9', title: 'Switch to the 1st to 9th tab' },
       { keys: '⌘⌥←', title: 'Previous tab' },
       { keys: '⌘⌥→', title: 'Next tab' },
-      { keys: '⌘E', title: 'Manage connections' },
+      { keys: '⌘E', title: 'Manage all' },
     ],
   },
   {
     section: 'In the connection form',
     items: [
-      { keys: '⌘S', title: 'Save connection' },
-      { keys: '⌘↵', title: 'Test connection' },
+      { keys: '⌘↵', title: 'Save & connect' },
+      { keys: '⌘S', title: 'Save' },
+      { keys: '⌘⇧↵', title: 'Test' },
     ],
   },
 ];

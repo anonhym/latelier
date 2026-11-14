@@ -25,7 +25,10 @@ export class ConnectionSwitcherPage {
   // matches two buttons.
   get trigger() { return this.win.getByRole('banner').getByRole('button', { name: /^Connection:/ }); }
   get listbox() { return this.win.locator('[role="listbox"][aria-label="Connections"]'); }
-  get manageButton() { return this.win.getByRole('button', { name: 'Manage connections' }); }
+  get manageButton() { return this.win.getByRole('button', { name: 'Manage all' }); }
+  // With no saved Connection the Data View is the welcome canvas (C03 §13.1):
+  // no title-bar Switcher, so its `Connection string` field is the anchor.
+  get welcomeField() { return this.win.getByTestId('welcome-canvas').getByRole('textbox', { name: 'Connection string', exact: true }); }
   // The search field renders role="combobox" (Mantine's Popover.Target
   // wrapper adds aria-haspopup="listbox"), not "textbox".
   get searchInput() { return this.win.getByRole('combobox', { name: 'Search connections' }); }
@@ -68,7 +71,7 @@ export class ConnectionSwitcherPage {
   }
 
   /**
-   * Opens the disconnect-confirmation dialog via the row's inline action icon,
+   * Opens the disconnect-confirmation dialog via the row's `⋯` menu,
    * which only renders on the highlighted row, so this hovers the row first
    * to highlight it. (Connect is just a plain row click — use `select(name)`
    * for that.) Spec §4.6 — Disconnect confirms first, naming the
@@ -76,9 +79,7 @@ export class ConnectionSwitcherPage {
    * dialog, same convention as `delete()` below.
    */
   async disconnect(name: string) {
-    await this.ensureOpen();
-    await this.item(name).hover();
-    await this.win.getByRole('button', { name: `Disconnect ${name}` }).click();
+    await this.rowMenuItem(name, 'Disconnect');
   }
 
   /**
@@ -96,11 +97,27 @@ export class ConnectionSwitcherPage {
     // 10s, not 5s: the first e2e spec pays the cold Electron boot + first-paint
     // cost on a loaded CI runner, which can exceed 5s. Resolves as soon as the
     // popover is open, so warm runs are unaffected.
+    //
+    // Needs a saved Connection: with none the welcome canvas is shown and
+    // there is no title-bar trigger, so zero-connection starts use `waitWelcome`.
+    await expect(this.trigger).toBeVisible({ timeout: 10_000 });
     await this.ensureOpen();
   }
 
-  /** The full form: the table's "+ New" (C13 §7). */
+  /** Zero-connection start: the welcome canvas is the boot anchor. */
+  async waitWelcome() {
+    await expect(this.welcomeField).toBeVisible({ timeout: 10_000 });
+  }
+
+  /**
+   * The full form: the welcome canvas's `Enter details manually` when no
+   * Connection is saved, else the table's "+ New" (C13 §7).
+   */
   async openNew() {
+    if (await this.welcomeField.isVisible()) {
+      await this.win.getByRole('button', { name: 'Enter details manually' }).click();
+      return;
+    }
     await this.openExpandedTable();
     await this.expandedTableDialog.getByRole('button', { name: '+ New', exact: true }).click();
     await expect(this.expandedTableDialog).toBeHidden();
@@ -119,22 +136,30 @@ export class ConnectionSwitcherPage {
   }
 
   /**
-   * Hovers a row (to reveal its inline action icons, which only render on
-   * the highlighted row) and clicks the named one. Closes the popover.
+   * Hovers a row (its `⋯` only renders on the highlighted row), opens the
+   * menu and clicks the named item. Menu labels are those of
+   * `connectionRowMenu`.
    */
-  private async rowAction(name: string, action: 'Manage' | 'Edit' | 'Delete') {
+  private async rowMenuItem(name: string, item: 'Open server overview' | 'Edit…' | 'Disconnect' | 'Delete…') {
     await this.ensureOpen();
     await this.item(name).hover();
-    await this.win.getByRole('button', { name: `${action} ${name}` }).click();
+    await this.win.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+    await this.win.getByRole('menuitem', { name: item, exact: true }).click();
+  }
+
+  /** A row action that closes the popover (`Manage` / `Edit` / `Delete`). */
+  private async rowAction(name: string, action: 'Manage' | 'Edit' | 'Delete') {
+    const item = { Manage: 'Open server overview', Edit: 'Edit…', Delete: 'Delete…' } as const;
+    await this.rowMenuItem(name, item[action]);
     await this.waitClosed();
   }
 
   /**
    * Opens the deep detail screen for a row (`/connections/:id`) via the
-   * Switcher's "Manage" row action. That screen is deep-link only — ADR 0001
+   * row menu's `Open server overview`. That screen is deep-link only — ADR 0001
    * retired the standalone list it used to sit in — so a Manage action is the
    * only route to it. This drives the popover's; the expanded Connections
-   * table has its own, reached via `expandedTableRowAction(name, 'Manage')`.
+   * table has its own, reached via `expandedTableRowMenu(name, 'Open server overview')`.
    */
   async manage(name: string) {
     await this.rowAction(name, 'Manage');
@@ -196,17 +221,23 @@ export class ConnectionSwitcherPage {
     return this.expandedTableDialog.locator('tr').filter({ hasText: connectionName });
   }
 
+  /** The selected row's `Connect` button in the expanded table. */
+  expandedTableConnect(connectionName: string) {
+    return this.expandedTableRow(connectionName).getByRole('button', { name: 'Connect', exact: true });
+  }
+
   /**
-   * A row action in the expanded table — the footer action bar is
-   * gone; Connect / Manage / Edit / Delete render on the selected row
-   * instead, scoped here the same way. Connect keeps a plain "Connect"
-   * label (the row it acts on is already named by its own cells); Manage /
-   * Edit / Delete carry the same row-action aria-labels the popover uses
-   * (`${label} ${connectionName}`).
+   * A row action in the expanded table: the selected row's `⋯` menu, the same
+   * one a Switcher row carries (`connectionRowMenu`).
    */
-  expandedTableRowAction(connectionName: string, label: 'Connect' | 'Manage' | 'Edit' | 'Delete') {
-    const name = label === 'Connect' ? 'Connect' : `${label} ${connectionName}`;
-    return this.expandedTableRow(connectionName).getByRole('button', { name, exact: true });
+  async expandedTableRowMenu(
+    connectionName: string,
+    item: 'Open server overview' | 'Edit…' | 'Disconnect' | 'Delete…',
+  ) {
+    await this.expandedTableRow(connectionName)
+      .getByRole('button', { name: `Actions for ${connectionName}`, exact: true })
+      .click();
+    await this.win.getByRole('menuitem', { name: item, exact: true }).click();
   }
 
   /**

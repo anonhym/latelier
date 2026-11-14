@@ -25,7 +25,7 @@ test('connect: status dot flips to connected, disconnect flips back', async () =
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
 
       // reviewed: this used to seed a decoy Connection first to avoid
       // racing a `connections[0]` "most recently created" fallback. That was
@@ -39,6 +39,8 @@ test('connect: status dot flips to connected, disconnect flips back', async () =
         ...baseConnInput(host, port),
         name: 'Toggle Target',
       });
+      // Zero connections showed the welcome canvas; with some saved, open the popover.
+      await switcher.waitVisible();
       await expect(switcher.item(name)).toBeVisible({ timeout: 8000 });
 
       // Initial state: never connected → 'unknown' dot.
@@ -48,7 +50,7 @@ test('connect: status dot flips to connected, disconnect flips back', async () =
       await switcher.select(name);
       await expectStatusDot(win, name, 'connected');
 
-      // Disconnect is the row's own inline action icon (hover to reveal it),
+      // Disconnect is in the row's `⋯` menu (hover to reveal it),
       // not a control on a separate detail screen.
       await switcher.disconnect(name);
 
