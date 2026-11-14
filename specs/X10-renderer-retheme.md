@@ -1,6 +1,6 @@
 # X10 — Renderer re-theme
 
-> **Status: Accepted.** The re-theme below shipped; the dark theme pass in the amendment at the end is agreed and not built yet. Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
+> **Status: Implemented.** The re-theme below shipped, and so did the dark theme pass in the amendment at the end. Promoted from [X08 §3.6 option 3](./X08-brand-identity.md) (full re-theme, originally deferred). Lands on the same branch as X08 + X09.
 
 ## Purpose
 
@@ -68,7 +68,7 @@ Three options were on the table:
 
 ## Amendment — dark theme pass
 
-> **Accepted, not built.** It runs last, after every surface reworked by the One Spine amendments (W01 §14, W05 §9, W06 §8 and the rest) has landed, because it touches all of them.
+> **Implemented.** It ran last, after every surface reworked by the One Spine amendments (W01 §14, W05 §9, W06 §8 and the rest) has landed, because it touches all of them.
 
 The dark theme was derived from the tokens and never reviewed on screen. Captures of the shipped build show the window body painted in the surface tone rather than the background tone, borders at 8% and 14% alpha doing the work of separating panels, and a connection tint of 14% that barely registers over a near-black background.
 
