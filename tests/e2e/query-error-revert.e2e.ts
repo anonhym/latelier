@@ -57,13 +57,18 @@ test('Run on a failing query shows the error, Revert restores the last valid que
       const idle = await layout(win);
       expect(idle.firstRow).toBeDefined();
 
-      // Typing something that cannot parse: rows stay, dimmed; nothing moves.
+      // Typing something that cannot parse: rows stay, dimmed. The strip (W05 §9.3)
+      // opens under the row on blur, so everything below it moves by exactly its height.
       await ws.queryBarTextarea.fill('{ bad:');
       await ws.queryBarTextarea.blur();
       await expect(win.locator('#query-bar-filter-error')).toBeVisible();
       await expect(win.getByTestId('result-count-stale')).toBeVisible();
       await expect(win.getByText('banana-002')).toBeVisible();
-      expect(await layout(win)).toEqual(idle);
+      const strip = await win.getByTestId('query-bar-strip').boundingBox();
+      const shifted = await layout(win);
+      expect(shifted.toolbar).toBeCloseTo(idle.toolbar! + strip!.height, 0);
+      expect(shifted.band).toBeCloseTo(idle.band! + strip!.height, 0);
+      expect(shifted.firstRow).toBeCloseTo(idle.firstRow! + strip!.height, 0);
 
       // Running: the band marks the rows left on screen as the previous ones, over no row.
       await ws.queryBarTextarea.fill('{"$where":"sleep(400)||true"}');
