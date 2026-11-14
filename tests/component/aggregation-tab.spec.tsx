@@ -1,7 +1,8 @@
 import React from 'react';
 import type { IpcApi } from '@shared/ipc';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act, within } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { DarkCtx } from '../../src/ThemeContext';
 import { AggregationTab } from '../../src/pages/Workspace/Aggregation/AggregationTab';
 import { notifications } from '@mantine/notifications';
@@ -12,6 +13,27 @@ import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions
 import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationTabState, AggStagePreview } from '@shared/types';
+
+// CodeMirror needs layout APIs jsdom lacks; an <input> stands in, forwarding
+// the props the stage card uses. Mod-Shift-Enter is claimed (preventDefault)
+// the way CodeMirror's keymap claims a handled key.
+vi.mock('../../src/components/ScriptEditor', () => ({
+  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel }: import('../../src/components/ScriptEditor').ScriptEditorProps) => (
+    <input
+      data-testid={testId}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => onBlur?.()}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter' && onRunAlt) {
+          e.preventDefault();
+          onRunAlt();
+        }
+      }}
+    />
+  ),
+}));
 
 // Spied so each write path can be checked for dropping the cached enum suggestions.
 vi.mock('../../src/features/fieldSuggestions/sources/schemaEnumSource', async (importOriginal) => ({
@@ -53,6 +75,18 @@ function renderStatefulTab(initial: AggregationTabState) {
     );
   }
   return render(<StatefulTab />);
+}
+
+/** Deletes stage `n` (1-based) through its card's `⋯` menu. */
+async function deleteStage(n: number) {
+  await userEvent.click(screen.getByRole('button', { name: `Actions for stage ${n}` }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+}
+
+/** Opens `Save ▾` and returns its item named `name`. */
+async function saveItem(name: 'Save' | 'Save as…') {
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  return screen.findByRole('menuitem', { name });
 }
 
 function opTrigger(index = 1) {
@@ -101,7 +135,7 @@ describe('AggregationTab — smoke', () => {
   it('mounts with the default empty pipeline state', () => {
     const { container } = renderTab();
     expect(container.textContent).toContain('orders');
-    expect(container.textContent).toContain('Pipeline output');
+    expect(screen.getByRole('region', { name: 'Preview' })).toBeTruthy();
   });
 
   it('renders existing stages from state', () => {
@@ -468,7 +502,7 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       dirty: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(await saveItem('Save'));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
     const payload = updateSpy.mock.calls[0]![0].patch.payload;
@@ -479,7 +513,7 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
   // `WorkspaceStateService.list` restores the stored stages of a saved-pipeline tab that is
   // clean and has none, on the footing that every edit leaves the tab dirty. Emptying the
   // pipeline by hand is the edit that would otherwise look the same as a never-loaded tab.
-  it('removing the last stage leaves a saved pipeline dirty, not clean and empty', () => {
+  it('removing the last stage leaves a saved pipeline dirty, not clean and empty', async () => {
     renderStatefulTab({
       ...DEFAULT_AGGREGATION_TAB_STATE,
       stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
@@ -488,7 +522,7 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
     });
     expect(screen.queryByLabelText('Unsaved changes')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete stage' }));
+    await deleteStage(1);
 
     expect(screen.getByLabelText('Unsaved changes')).toBeTruthy();
   });
@@ -516,7 +550,7 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       expect(opAt(0)).toMatch(/\$match/);
       expect(opAt(1)).toMatch(/\$sort/);
 
-      fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[0]!);
+      await deleteStage(1);
 
       // $match is gone; $sort shifted up to index 0.
       expect(opAt(0)).toMatch(/\$sort/);
@@ -545,13 +579,13 @@ describe('AggregationTab — Shell Syntax on the button-less run paths (X14 §4)
       });
 
       // Remove $match (index 0).
-      fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[0]!);
+      await deleteStage(1);
       await screen.findByRole('button', { name: 'Undo' });
 
       // Remove what is now index 1 ($limit) — only one Undo toast survives.
       // A non-zero index matters here: restoring at 0 instead of the
       // captured index would put $limit first instead of last.
-      fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[1]!);
+      await deleteStage(2);
       await waitFor(() => expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1));
 
       fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -975,11 +1009,10 @@ describe('AggregationTab — Copy menu (#23)', () => {
   });
 });
 
-// jsdom never blurs an element that goes `disabled`, and the e2e suite cannot
-// inject IPC latency, so the focus drop itself is unobservable here; what the
-// fix guarantees (and what is asserted) is that Save never takes the real
-// `disabled` attribute, which is what makes Chromium blur it.
-describe('AggregationTab — Save stays focusable when it goes inert', () => {
+// Save and Save as… live in one `Save ▾` menu (A01 §9.2). The trigger never
+// takes the real `disabled` attribute, which is what makes Chromium blur a
+// focused button; the inert state is the Save item's.
+describe('AggregationTab — the Save menu', () => {
   const savedState = {
     ...DEFAULT_AGGREGATION_TAB_STATE,
     stages: [{ id: 1, op: '$match', body: '{}', enabled: true }],
@@ -999,39 +1032,48 @@ describe('AggregationTab — Save stays focusable when it goes inert', () => {
     updatedAt: '',
   });
 
-  it('a clean pipeline: Save is aria-disabled, not disabled, and a click saves nothing', () => {
+  it('holds Save and Save as…, and its trigger is never disabled', async () => {
+    renderStatefulTab(savedState);
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const items = (await screen.findAllByRole('menuitem')).map((i) => i.textContent);
+    expect(items).toEqual(['Save', 'Save as…']);
+    // "Save as" is named once in the whole view.
+    expect(screen.getAllByText(/Save as/)).toHaveLength(1);
+  });
+
+  it('Save as… opens the save dialog', async () => {
+    renderStatefulTab(savedState);
+    fireEvent.click(await saveItem('Save as…'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('a clean pipeline: Save is unavailable, and a click saves nothing', async () => {
     const update = vi.fn<IpcApi['saved']['update']>(updateOk);
     installAtelierMock({ saved: { update } });
     renderStatefulTab(savedState);
 
-    const save = screen.getByRole('button', { name: 'Save' });
-    expect(save.hasAttribute('disabled')).toBe(false);
-    expect(save.getAttribute('aria-disabled')).toBe('true');
+    const save = await saveItem('Save');
+    expect(save.hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(save);
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('a successful save clears dirty without taking focus off the button', async () => {
+  it('a successful save clears dirty, and Save goes unavailable', async () => {
     const update = vi.fn<IpcApi['saved']['update']>(updateOk);
     installAtelierMock({ saved: { update } });
     renderStatefulTab({ ...savedState, dirty: true });
 
-    const save = screen.getByRole('button', { name: 'Save' });
-    expect(save.hasAttribute('aria-disabled')).toBe(false);
-    save.focus();
+    const save = await saveItem('Save');
+    expect(save.hasAttribute('disabled')).toBe(false);
     fireEvent.click(save);
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Save' }).getAttribute('aria-disabled')).toBe('true'),
-    );
-    const after = screen.getByRole('button', { name: 'Save' });
-    expect(after.hasAttribute('disabled')).toBe(false);
-    expect(document.activeElement).toBe(after);
+    await waitFor(() => expect(screen.queryByLabelText('Unsaved changes')).toBeNull());
+    expect((await saveItem('Save')).hasAttribute('disabled')).toBe(true);
   });
 });
-
 // The palette command reaches the same save as the button, so the button's
 // inert states (nothing changed, a run in flight) have to hold for it too.
 describe('AggregationTab — the "Save pipeline" palette command', () => {
@@ -1127,5 +1169,396 @@ describe('AggregationTab — a Run asked from outside (the palette’s saved pip
     act(() => requestTab('runPipeline', 't1'));
     await waitFor(() => expect(runSpy).toHaveBeenCalledTimes(1));
     expect(tabRequested('runPipeline', 't1')).toBe(false);
+  });
+});
+
+// ─── A01 §9: stages beside their preview ───────────────────────────────────
+
+const twoStages: AggregationTabState = {
+  ...DEFAULT_AGGREGATION_TAB_STATE,
+  stages: [
+    { id: 1, op: '$match', body: '{}', enabled: true },
+    { id: 2, op: '$group', body: '{"_id": "$a"}', enabled: true },
+  ],
+};
+
+const previewHeading = () => screen.getByTestId('preview-heading').textContent;
+const summary = (id: number) => document.querySelector<HTMLElement>(`[data-stage-summary="${id}"]`)!;
+
+/** A `matchMedia` that answers the one-panel width query only. */
+function stubNarrowWindow(narrow: boolean) {
+  const real = window.matchMedia;
+  vi.stubGlobal('matchMedia', (query: string) =>
+    query.startsWith('(max-width') ? ({ ...real(query), matches: narrow } as MediaQueryList) : real(query),
+  );
+}
+
+describe('AggregationTab — regions (A01 §9.1)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('draws a pipeline bar, a stages column and a preview column, and no outline', () => {
+    renderTab(twoStages);
+    expect(screen.getByTestId('pipeline-bar')).toBeTruthy();
+    const stagesColumn = screen.getByRole('region', { name: 'Stages' });
+    expect(screen.getByRole('region', { name: 'Preview' })).toBeTruthy();
+    expect(screen.queryByText('Pipeline', { exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Jump to stage/ })).toBeNull();
+    // Every stage appears once, in order, numbered.
+    const cards = within(stagesColumn).getAllByRole('group', { name: /^Stage \d/ });
+    expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual(['Stage 1: $match', 'Stage 2: $group']);
+  });
+
+  it('puts the preview beside the stages, sized by a keyboard-operable divider', () => {
+    stubNarrowWindow(false);
+    renderTab(twoStages);
+    const divider = screen.getByRole('separator', { name: 'Resize stages column' });
+    expect(divider.getAttribute('aria-valuenow')).toBe('480');
+    fireEvent.keyDown(divider, { key: 'ArrowRight' });
+    expect(divider.getAttribute('aria-valuenow')).toBe('490');
+    expect(screen.getByRole('region', { name: 'Stages' }).style.width).toBe('490px');
+    fireEvent.keyDown(divider, { key: 'Home' });
+    expect(divider.getAttribute('aria-valuenow')).toBe('320');
+    expect(screen.queryByRole('separator', { name: 'Resize output panel' })).toBeNull();
+  });
+
+  it('stacks the preview under the stages below 1100px, with no toggle and the height handle back', () => {
+    stubNarrowWindow(true);
+    renderTab(twoStages);
+    expect(screen.queryByRole('separator', { name: 'Resize stages column' })).toBeNull();
+    expect(screen.getByRole('separator', { name: 'Resize output panel' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Stack preview under stages' })).toBeNull();
+  });
+
+  it('stacks by the preview header toggle on a wide window, and goes back beside', () => {
+    stubNarrowWindow(false);
+    renderTab(twoStages);
+    const toggle = screen.getByRole('button', { name: 'Stack preview under stages' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole('separator', { name: 'Resize output panel' })).toBeTruthy();
+    expect(screen.queryByRole('separator', { name: 'Resize stages column' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stack preview under stages' }));
+    expect(screen.getByRole('separator', { name: 'Resize stages column' })).toBeTruthy();
+  });
+
+  it('Run is the view’s only filled button', () => {
+    const { container } = renderTab(twoStages);
+    const filled = [...container.querySelectorAll('button[data-variant="filled"]')];
+    expect(filled.map((b) => b.textContent)).toEqual([expect.stringMatching(/^Run/)]);
+  });
+});
+
+describe('AggregationTab — selection drives the preview (A01 §9.4)', () => {
+  const ran: AggregationTabState = {
+    ...twoStages,
+    lastRun: {
+      rows: [{ _id: 'final' }],
+      durationMs: 4,
+      ranAt: '2026-01-01T00:00:00.000Z',
+      stageCounts: { 1: 10, 2: 3 },
+      stageSamples: { 2: [{ _id: 'grouped' }] },
+    },
+  };
+
+  it('a selected stage that has been run up to shows its output, and Output shows the full run, with no run', () => {
+    const run = vi.fn();
+    const previewUpToStage = vi.fn();
+    installAtelierMock({ agg: { run, previewUpToStage } as never });
+    renderStatefulTab(ran);
+    expect(previewHeading()).toMatch(/^Output/);
+
+    fireEvent.click(summary(2));
+    expect(previewHeading()).toMatch(/^Stage 2 · \$group · 3 docs/);
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(preview.textContent).toContain('grouped');
+    expect(preview.textContent).not.toContain('final');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
+    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(preview.textContent).toContain('final');
+
+    expect(run).not.toHaveBeenCalled();
+    expect(previewUpToStage).not.toHaveBeenCalled();
+  });
+
+  it('a stage never run offers Run up to this stage, which fills the preview', async () => {
+    const previewUpToStage = vi.fn<IpcApi['agg']['previewUpToStage']>(async () => ({
+      stageId: 1,
+      sample: [{ _id: 'first-stage' }],
+      count: 1,
+    }));
+    installAtelierMock({ agg: { previewUpToStage } });
+    renderStatefulTab(ran);
+
+    fireEvent.click(summary(1));
+    expect(screen.getByText('This stage has not been run yet')).toBeTruthy();
+    expect(previewUpToStage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('first-stage'));
+    expect(previewUpToStage).toHaveBeenCalledTimes(1);
+    expect(previewUpToStage.mock.calls[0]![0].stages.map((s) => s.id)).toEqual([1]);
+  });
+
+  it('the selected card is the one activeStageId names, so it survives a remount', () => {
+    renderStatefulTab({ ...ran, activeStageId: 2 });
+    expect(summary(2).getAttribute('aria-expanded')).toBe('true');
+    expect(summary(1).getAttribute('aria-expanded')).toBe('false');
+    expect(previewHeading()).toMatch(/^Stage 2/);
+  });
+
+  it('each card shows its count, as the outline did', () => {
+    renderTab(ran);
+    expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).toContain('10');
+    expect(screen.getByRole('group', { name: 'Stage 2: $group' }).textContent).toContain('3');
+  });
+});
+
+describe('AggregationTab — Run unavailable says why (A01 §9.2, §9.5)', () => {
+  it('an empty pipeline: Run stays hoverable, its tooltip and the preview say "Add a stage to run"', async () => {
+    const run = vi.fn();
+    installAtelierMock({ agg: { run } as never });
+    renderTab();
+
+    const runButton = screen.getByRole('button', { name: 'Run' });
+    expect(runButton.hasAttribute('disabled')).toBe(false);
+    expect(runButton.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(runButton);
+    expect(run).not.toHaveBeenCalled();
+
+    fireEvent.focus(runButton);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Add a stage to run');
+    expect(within(screen.getByRole('region', { name: 'Preview' })).getByText('Add a stage to run')).toBeTruthy();
+  });
+
+  it('Explain says the same reason', async () => {
+    renderTab({ ...twoStages, stages: [{ id: 1, op: '$match', body: '', enabled: true }] });
+    const explain = screen.getByRole('button', { name: 'Explain' });
+    expect(explain.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.focus(explain);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Fix stage 1 to run: body is empty');
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(within(preview).getByText('Fix stage 1 to run: body is empty')).toBeTruthy();
+  });
+
+  it('a runnable pipeline: Run is plainly enabled and its tooltip names the shortcut', async () => {
+    renderTab(twoStages);
+    const runButton = screen.getByRole('button', { name: 'Run' });
+    expect(runButton.hasAttribute('aria-disabled')).toBe(false);
+    fireEvent.focus(runButton);
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/^Run the pipeline \(/);
+    expect(screen.queryByTestId('run-blocked-reason')).toBeNull();
+  });
+
+  it('a starter chip adds its stage and Run becomes available', () => {
+    renderStatefulTab(DEFAULT_AGGREGATION_TAB_STATE);
+    fireEvent.click(screen.getByRole('button', { name: '$group' }));
+    expect(screen.getByRole('group', { name: 'Stage 1: $group' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Run' }).hasAttribute('aria-disabled')).toBe(false);
+  });
+});
+
+// ─── Review follow-ups: previews, staleness, keys ─────────────────────────
+
+describe('AggregationTab — a stage preview is not a run', () => {
+  afterEach(() => notifications.clean());
+
+  const preview = (sample: unknown[], count: number) =>
+    vi.fn<IpcApi['agg']['previewUpToStage']>(async (input) => ({
+      stageId: input.stages[input.stages.length - 1]!.id,
+      sample,
+      count,
+    }));
+
+  it('a preview with no run before it is fresh, and leaves the Output row with nothing to show', async () => {
+    installAtelierMock({ agg: { previewUpToStage: preview([{ _id: 'p' }], 1) } });
+    renderStatefulTab(DEFAULT_AGGREGATION_TAB_STATE);
+    fireEvent.click(screen.getByRole('button', { name: '$match' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('"p"'));
+    expect(screen.queryByTitle('Stage edited after last run')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Output/ }).textContent).toBe('Output');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
+    expect(screen.getByText('Run the pipeline to see output')).toBeTruthy();
+    expect(screen.queryByText('The pipeline returned no documents')).toBeNull();
+  });
+
+  it('after a run, editing stage 2 and previewing it again reads fresh', async () => {
+    installAtelierMock({
+      agg: {
+        run: (async () => ({
+          rows: [{ _id: 'r' }],
+          durationMs: 1,
+          stageCounts: { 1: 2, 2: 1 },
+          stageSamples: { 1: [{ _id: 'a' }], 2: [{ _id: 'r' }] },
+          hasMore: false,
+        })) as never,
+        previewUpToStage: preview([{ _id: 'again' }], 1),
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 · \$group · 1 docs$/));
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-2'), { target: { value: '{"_id": "$b"}' } });
+    await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('again'));
+    expect(screen.queryByTitle('Stage edited after last run')).toBeNull();
+  });
+
+  it('editing stage 1 after a run makes stage 2 read stale too', async () => {
+    installAtelierMock({
+      agg: {
+        run: (async () => ({
+          rows: [{ _id: 'r' }],
+          durationMs: 1,
+          stageCounts: { 1: 2, 2: 1 },
+          stageSamples: { 1: [{ _id: 'a' }], 2: [{ _id: 'r' }] },
+          hasMore: false,
+        })) as never,
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 · \$match · 2 docs$/));
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{"a": 1}' } });
+
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'Stage 2: $group' }).textContent).toContain('⚠'),
+    );
+  });
+});
+
+describe('AggregationTab — a late preview never overwrites a newer result (#778)', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it('a preview that lands after a Run leaves the Run’s output in place', async () => {
+    const late = deferred<AggStagePreview>();
+    installAtelierMock({
+      agg: {
+        previewUpToStage: () => late.promise,
+        run: (async () => ({
+          rows: [{ _id: 'from-run' }],
+          durationMs: 1,
+          stageCounts: { 1: 1, 2: 1 },
+          stageSamples: { 1: [], 2: [] },
+          hasMore: false,
+        })) as never,
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Output · 1 docs/));
+
+    await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'stale-preview' }], count: 9 }));
+
+    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('from-run');
+    expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).not.toContain('9');
+  });
+
+  it('a preview that lands after the tab changed is dropped', async () => {
+    const late = deferred<AggStagePreview>();
+    installAtelierMock({ agg: { previewUpToStage: () => late.promise } });
+    const onPatch = vi.fn();
+    const props = {
+      connectionId: 'c1',
+      dbName: 'app',
+      darkMode: false,
+      sourceCount: 1,
+      onPatch,
+    };
+    const state = { ...twoStages, activeStageId: 1 };
+    const { rerender } = render(<AggregationTab {...props} collection="orders" tabId="a" state={state} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+
+    rerender(<AggregationTab {...props} collection="users" tabId="b" state={state} />);
+    await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'from-tab-a' }], count: 1 }));
+
+    expect(screen.getByRole('region', { name: 'Preview' }).textContent).not.toContain('from-tab-a');
+    expect(onPatch.mock.calls.some(([p]) => 'lastRun' in (p as object))).toBe(false);
+  });
+});
+
+describe('AggregationTab — keys', () => {
+  afterEach(() => notifications.clean());
+
+  it('⇧⌘↵ runs up to the selected stage with focus outside its editor', async () => {
+    const previewUpToStage = vi.fn<IpcApi['agg']['previewUpToStage']>(async () => ({ stageId: 2, sample: [], count: 0 }));
+    installAtelierMock({ agg: { previewUpToStage } });
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    summary(2).focus();
+
+    fireEvent.keyDown(summary(2), { key: 'Enter', metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(previewUpToStage).toHaveBeenCalledTimes(1));
+    expect(previewUpToStage.mock.calls[0]![0].stages.map((s) => s.id)).toEqual([1, 2]);
+  });
+
+  it('⇧⌘↵ in the stage editor runs once, not twice', async () => {
+    const previewUpToStage = vi.fn<IpcApi['agg']['previewUpToStage']>(async () => ({ stageId: 1, sample: [], count: 0 }));
+    installAtelierMock({ agg: { previewUpToStage } });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+
+    fireEvent.keyDown(screen.getByTestId('stage-body-editor-1'), { key: 'Enter', metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(previewUpToStage).toHaveBeenCalled());
+    expect(previewUpToStage).toHaveBeenCalledTimes(1);
+  });
+
+  it('⇧⌘↵ with Output selected runs nothing', () => {
+    const previewUpToStage = vi.fn();
+    installAtelierMock({ agg: { previewUpToStage } as never });
+    renderStatefulTab(twoStages);
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true, shiftKey: true });
+    expect(previewUpToStage).not.toHaveBeenCalled();
+  });
+
+  it('⌘↵ and ⌘E on a pipeline that cannot run say why', async () => {
+    renderTab();
+    // The preview column already states it once; the key adds a notice.
+    const shown = () => screen.getAllByText('Add a stage to run').length;
+    expect(shown()).toBe(1);
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(shown()).toBe(2));
+    act(() => notifications.clean());
+    await waitFor(() => expect(shown()).toBe(1));
+    fireEvent.keyDown(window, { key: 'e', metaKey: true });
+    await waitFor(() => expect(shown()).toBe(2));
+  });
+});
+
+describe('AggregationTab — the stages divider drag', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('starts without selecting text, and an unmount mid-drag leaves no window listener', () => {
+    stubNarrowWindow(false);
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const { unmount } = renderTab(twoStages);
+    const divider = screen.getByRole('separator', { name: 'Resize stages column' });
+
+    const notPrevented = fireEvent.mouseDown(divider, { clientX: 100 });
+    expect(notPrevented).toBe(false);
+
+    unmount();
+    expect(remove.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['mousemove', 'mouseup']));
   });
 });

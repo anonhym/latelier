@@ -2257,8 +2257,7 @@ export const CLASS_COLOR: Record<OperatorClass, { bg: string; text: string }> = 
  * bump lifts the swatch against a dark surface. The text colours are dark
  * inks chosen for a light surface, so dark mode mixes each 40/60 with white:
  * the worst badge on any dark surface goes from 1.1:1 to 6.1:1 and keeps its
- * hue. Shared by `classColor` and stage-pill colouring in StageAccordion /
- * PipelineOutline.
+ * hue. Shared by `classColor` and stage-pill colouring in StageAccordion.
  */
 export function brightenBadgeForDark(
   base: { bg: string; text: string },

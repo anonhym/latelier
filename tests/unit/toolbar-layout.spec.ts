@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { outputBarActions, resultBarLayout } from '../../src/pages/Workspace/toolbarLayout';
+import { resultBarLayout } from '../../src/pages/Workspace/toolbarLayout';
 
 describe('resultBarLayout', () => {
   it.each([
@@ -54,22 +54,10 @@ describe('resultBarLayout', () => {
   it('takes the width and nothing else', () => {
     expect(resultBarLayout.length).toBe(1);
     expect(resultBarLayout(null, true)).toEqual(resultBarLayout(null));
-    expect(outputBarActions.length).toBe(1);
   });
 });
 
-describe('outputBarActions', () => {
-  it.each([
-    [760, 'labels'],
-    [759, 'icons'],
-    [592, 'icons'],
-    [520, 'icons'],
-    [519, 'menu'],
-    [423, 'menu'],
-  ])('at %i px is %s', (width, expected) => {
-    expect(outputBarActions(width)).toBe(expected);
-  });
-
+describe('resultBarLayout with References', () => {
   // The References button shifts every step by its own width: labelled above the
   // icon step, an icon below it.
   it.each([
@@ -90,9 +78,5 @@ describe('outputBarActions', () => {
       const { count, iconControls } = resultBarLayout(w, true);
       if (iconControls) expect(count).not.toBe('full');
     }
-  });
-
-  it('with no measured width, shows labels', () => {
-    expect(outputBarActions(null)).toBe('labels');
   });
 });

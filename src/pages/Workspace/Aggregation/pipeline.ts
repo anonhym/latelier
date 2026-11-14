@@ -231,6 +231,23 @@ export function stageSig(stage: Stage): string {
   return `${stage.op} ${stage.body}`;
 }
 
+/**
+ * What each stage's output depends on: the enabled stages up to and including
+ * it. A count or sample taken under one signature is stale once the stage's
+ * signature differs, so an edit to stage 1 makes stage 2's preview stale too,
+ * while an edit to a disabled stage changes nothing. `pipeline` is the whole
+ * pipeline's, for the Output row.
+ */
+export function pipelineSigs(stages: Stage[]): { byStage: Record<number, string>; pipeline: string } {
+  const byStage: Record<number, string> = {};
+  const parts: string[] = [];
+  for (const s of stages) {
+    if (s.enabled) parts.push(stageSig(s));
+    byStage[s.id] = parts.join('\u0000');
+  }
+  return { byStage, pipeline: parts.join('\u0000') };
+}
+
 export function toggleEnabled(state: PipelineState, id: number): PipelineState {
   return {
     ...state,
@@ -317,6 +334,21 @@ export function validatePipeline(stages: Stage[]): PipelineValidation {
     }
   }
   return { ok: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Why Run and Explain cannot start, in words for their tooltips and the
+ * preview column, or null when they can. It reads the same validation the
+ * buttons are disabled by, so the stated reason and the disabled state never
+ * disagree. "No enabled stages" covers two cases with different fixes: an empty
+ * pipeline needs a stage, an all-disabled one needs a stage switched back on.
+ */
+export function runBlockedReason(stages: Stage[], validation: PipelineValidation): string | null {
+  const first = validation.errors[0];
+  if (!first) return null;
+  if (first.id === -1) return stages.length === 0 ? 'Add a stage to run' : 'Enable a stage to run';
+  const index = stages.findIndex((s) => s.id === first.id);
+  return `Fix stage ${index + 1} to run: ${first.reason}`;
 }
 
 export function stageSummary(stage: Stage): string {
