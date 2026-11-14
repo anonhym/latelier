@@ -1,5 +1,5 @@
 import { isRecord, toDisplayValue } from '../../../utils/displayValue';
-import { childKey, rootKey } from './fieldPathKey';
+import { childKey, pathCoversSubtree, rootKey } from './fieldPathKey';
 
 export interface FlatFieldRow {
   /** Same `path` key `FieldNode` (`DocFieldTree.tsx`) uses for expansion
@@ -107,4 +107,17 @@ export function allExpandablePaths(doc: Record<string, unknown>, docId: string):
     out.push(p, ...expandablePathsBelow(child, p));
   }
   return out;
+}
+
+/**
+ * The nearest earlier row whose path covers this one's: its parent field.
+ * `-1` for a top-level field (its parent is the document row).
+ */
+export function parentRowIndex(rows: readonly FlatFieldRow[], index: number): number {
+  const path = rows[index]?.path;
+  if (path === undefined) return -1;
+  for (let i = index - 1; i >= 0; i--) {
+    if (pathCoversSubtree(rows[i].path, path)) return i;
+  }
+  return -1;
 }

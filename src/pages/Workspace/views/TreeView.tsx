@@ -26,6 +26,7 @@ import { useCopyFormat } from './useCopyFormat';
 import { useDocMenu } from './useDocMenu';
 import { docMenuItems, fieldMenuItems } from './menuItems';
 import { allExpandablePaths } from './docFieldFlatten';
+import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useDeepPaths } from './useDeepPaths';
@@ -170,6 +171,7 @@ interface DocRowProps {
   onSelect: (doc: unknown) => void;
   onToggleSelect: (index: number) => void;
   toggleDeepPath: (path: string) => void;
+  setDeepPaths: (paths: string[], expanded: boolean) => void;
   handleCopy: (path: string, value: unknown) => void;
   handleOpenMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
@@ -202,6 +204,7 @@ function DocRowImpl({
   onSelect,
   onToggleSelect,
   toggleDeepPath,
+  setDeepPaths,
   handleCopy,
   handleOpenMenu,
   onRefHover,
@@ -231,8 +234,13 @@ function DocRowImpl({
       onToggleSelect(index);
       onSelect(doc);
     } else {
-      onRowExpand(docId, !isExpanded);
+      toggleDoc(e.altKey);
     }
+  };
+  // `⌥` flips the document and every nested field below it together.
+  const toggleDoc = (subtree: boolean) => {
+    if (subtree && isRecord(doc)) setDeepPaths(allExpandablePaths(doc, docId), !isExpanded);
+    onRowExpand(docId, !isExpanded);
   };
 
   return (
@@ -317,7 +325,7 @@ function DocRowImpl({
           c="var(--atelier-text-ghost)"
           onClick={(e) => {
             e.stopPropagation();
-            onRowExpand(docId, !isExpanded);
+            toggleDoc(e.altKey);
           }}
           aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
           title={`${isExpanded ? 'Collapse document' : 'Expand document'} (Space)`}
@@ -394,6 +402,7 @@ function DocRowImpl({
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
+          onSetPaths={setDeepPaths}
           copiedPath={copiedPath}
           onCopy={handleCopy}
           onOpenMenu={handleOpenMenu}
@@ -589,6 +598,26 @@ export function TreeView({
         onDeleteDoc(documents[roving.activeIndex]);
         return;
       }
+      // → opens the active document and then enters its fields; ← closes it.
+      // ⌥ does the document and every field below it (W06 §8.8).
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        const doc = documents[roving.activeIndex];
+        const docId = getFullDocId(doc);
+        const open = !!ownGet(expandedRows, docId);
+        const paths = isRecord(doc) ? allExpandablePaths(doc, docId) : [];
+        if (e.key === 'ArrowLeft') {
+          if (!open) return;
+          if (e.altKey) setDeepPathsExpanded(paths, false);
+          onRowExpand(docId, false);
+          return;
+        }
+        if (e.altKey) setDeepPathsExpanded(paths, true);
+        if (!open) onRowExpand(docId, true);
+        else enterFields(roving.rowId(roving.activeIndex));
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -601,7 +630,7 @@ export function TreeView({
     // `roving` is a fresh object every render — depend on the members this
     // actually reads instead (same as `TableView`'s `handleGridKeyDown`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete, copyFormat, handleOpenRowMenu, listRef],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, expandedRows, onRowExpand, setDeepPathsExpanded, onEditDoc, onDeleteDoc, canDelete, copyFormat, handleOpenRowMenu, listRef],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh
@@ -624,6 +653,7 @@ export function TreeView({
       onSelect,
       onToggleSelect: selection.toggle,
       toggleDeepPath,
+      setDeepPaths: setDeepPathsExpanded,
       handleCopy,
       handleOpenMenu,
       onRefHover,
@@ -648,6 +678,7 @@ export function TreeView({
       handleOpenRowMenu,
       onSelect,
       toggleDeepPath,
+      setDeepPathsExpanded,
       handleCopy,
       handleOpenMenu,
       onRefHover,

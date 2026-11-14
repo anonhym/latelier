@@ -6,7 +6,12 @@ import { DRAGGED_FIELD_MIME, type DraggedField } from '../builder';
 import type { ReferenceRule } from '@shared/types';
 import { ReferenceChip } from '../../../features/references/ReferenceChip';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { flattenVisibleFieldRows, type FlatFieldRow } from './docFieldFlatten';
+import {
+  expandablePathsBelow,
+  flattenVisibleFieldRows,
+  parentRowIndex,
+  type FlatFieldRow,
+} from './docFieldFlatten';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { childKey, pathCoversSubtree, rootKey } from './fieldPathKey';
 import { TYPE_HUES, TYPE_THEMED } from '../typeColors';
@@ -80,6 +85,8 @@ interface FieldNodeProps {
   fieldPath: string;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  /** Expands or collapses a whole subtree at once (`⌥`-click on a chevron). */
+  onSetPaths?: (paths: string[], expanded: boolean) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
   // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` before
@@ -122,6 +129,7 @@ function FieldNodeImpl({
   fieldPath,
   expandedPaths,
   onToggle,
+  onSetPaths,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -161,6 +169,11 @@ function FieldNodeImpl({
   }, [isExpanded, dv.type, value]);
 
   const rowClickable = isExpandable;
+
+  // `⌥`-click flips this field and everything below it together.
+  const toggleSubtree = () =>
+    onSetPaths?.([path, ...expandablePathsBelow(value, path)], !isExpanded);
+  const toggleFor = (altKey: boolean) => (altKey && onSetPaths ? toggleSubtree() : onToggle(path));
 
   // A doc field can legitimately hold JS `undefined` (BSON's deprecated
   // Undefined type round-trips to it via EJSON `{$undefined:true}`), and
@@ -205,9 +218,9 @@ function FieldNodeImpl({
         // Enter/Space handler dead code (a keydown can only ever target an
         // element that can hold real focus): deleted, in favour of the
         // tree-level handling in `DocFieldTree` below.
-        onClick={() => {
+        onClick={(e) => {
           onActivate(path);
-          if (rowClickable) onToggle(path);
+          if (rowClickable) toggleFor(e.altKey);
         }}
         id={rowId(path)}
         role="treeitem"
@@ -291,9 +304,10 @@ function FieldNodeImpl({
                   c={isCopied ? '#fff' : 'var(--atelier-text-ghost)'}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onToggle(path);
+                    toggleFor(e.altKey);
                   }}
                   aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                  title="⌥-click for every level below"
                   style={{
                     flexShrink: 0,
                     transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -376,6 +390,7 @@ function FieldNodeImpl({
             fieldPath={`${fieldPath}.${k}`}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
+            onSetPaths={onSetPaths}
             copiedPath={copiedPath}
             onCopy={onCopy}
             onOpenMenu={onOpenMenu}
@@ -403,6 +418,7 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
     prev.fieldPath !== next.fieldPath ||
     prev.depth !== next.depth ||
     prev.onToggle !== next.onToggle ||
+    prev.onSetPaths !== next.onSetPaths ||
     prev.onCopy !== next.onCopy ||
     prev.onOpenMenu !== next.onOpenMenu ||
     prev.refsByField !== next.refsByField ||
@@ -472,6 +488,8 @@ export interface DocFieldTreeProps {
   docId: string;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  /** Expands or collapses several paths at once — `⌥`-click, `⌥→`, `⌥←`. */
+  onSetPaths?: (paths: string[], expanded: boolean) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
   // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
@@ -508,6 +526,7 @@ export function DocFieldTree({
   docId,
   expandedPaths,
   onToggle,
+  onSetPaths,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -634,6 +653,32 @@ export function DocFieldTree({
         });
         return;
       }
+      // Tree keys (W06 §8.8). → opens a collapsed field, then enters an
+      // expanded one; ← closes it, then climbs to the parent field, and from
+      // a top-level field to the document row. ⌥ does the whole subtree.
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        if (!activeRow) return;
+        e.preventDefault();
+        const rowIndex = roving.activeIndex;
+        const open = expandedPaths.has(activeRow.path);
+        const subtree = [activeRow.path, ...expandablePathsBelow(activeRow.value, activeRow.path)];
+        if (e.key === 'ArrowRight') {
+          if (!activeRow.expandable) return;
+          if (e.altKey) onSetPaths?.(subtree, true);
+          else if (!open) onToggle(activeRow.path);
+          else roving.setActiveIndex(rowIndex + 1);
+          return;
+        }
+        if (activeRow.expandable && open) {
+          if (e.altKey) onSetPaths?.(subtree, false);
+          else onToggle(activeRow.path);
+          return;
+        }
+        const parent = parentRowIndex(flatRows, rowIndex);
+        if (parent >= 0) roving.setActiveIndex(parent);
+        else containerRef.current?.parentElement?.closest<HTMLElement>('[role="tree"], [role="grid"]')?.focus();
+        return;
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -647,7 +692,7 @@ export function DocFieldTree({
     // `roving` itself is a fresh object every render; depend on the one
     // function this actually calls instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, activeRow, onToggle, onOpenMenu, fullValuePath],
+    [roving.onKeyDown, roving.activeIndex, activeRow, flatRows, expandedPaths, onToggle, onSetPaths, onOpenMenu, fullValuePath],
   );
 
   return (
@@ -699,6 +744,7 @@ export function DocFieldTree({
           fieldPath={field}
           expandedPaths={expandedPaths}
           onToggle={onToggle}
+          onSetPaths={onSetPaths}
           copiedPath={copiedPath}
           onCopy={onCopy}
           onOpenMenu={handleOpenMenu}

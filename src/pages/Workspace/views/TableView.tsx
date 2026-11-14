@@ -32,6 +32,7 @@ import { SelectToggle } from './SelectToggle';
 import { FullValuePopover } from './FullValuePopover';
 import { docMenuItems, fieldMenuItems, headerMenuItems } from './menuItems';
 import { allExpandablePaths } from './docFieldFlatten';
+import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useCopyFormat } from './useCopyFormat';
@@ -696,6 +697,7 @@ interface TableRowProps {
   ) => void;
   onRowExpand: (docId: string, expanded: boolean) => void;
   toggleDeepPath: (path: string) => void;
+  setDeepPaths: (paths: string[], expanded: boolean) => void;
   handleCopyField: (path: string, value: unknown) => void;
   handleOpenFieldMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
@@ -745,6 +747,7 @@ function TableRowImpl({
   onContextMenu,
   onRowExpand,
   toggleDeepPath,
+  setDeepPaths,
   handleCopyField,
   handleOpenFieldMenu,
   onRefHover,
@@ -875,10 +878,12 @@ function TableRowImpl({
             c="var(--atelier-text-ghost)"
             onClick={(e) => {
               e.stopPropagation();
+              // `⌥` flips the document and every nested field below it together.
+              if (e.altKey && isRecord(doc)) setDeepPaths(allExpandablePaths(doc, docId), !isExpanded);
               onRowExpand(docId, !isExpanded);
             }}
             aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
-            title={isExpanded ? 'Collapse document' : 'Expand document'}
+            title={`${isExpanded ? 'Collapse document' : 'Expand document'} (⌥-click for every level)`}
             style={{
               flexShrink: 0,
               transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -1038,6 +1043,7 @@ function TableRowImpl({
             docId={docId}
             expandedPaths={deepPaths}
             onToggle={toggleDeepPath}
+            onSetPaths={setDeepPaths}
             copiedPath={fieldCopiedPath}
             onCopy={handleCopyField}
             onOpenMenu={handleOpenFieldMenu}
@@ -1549,6 +1555,31 @@ export function TableView({
         onDeleteDoc(documents[roving.activeIndex]);
         return;
       }
+      // W06 §8.8 — → on an expanded row enters its fields; ⌥→ / ⌥← open and
+      // close the whole document. A plain arrow on a collapsed row is left to
+      // the grid's own horizontal scroll.
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && documents.length > 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        const doc = documents[roving.activeIndex];
+        const id = getFullDocId(doc);
+        const open = !!ownGet(expandedRows, id);
+        const paths = isRecord(doc) ? allExpandablePaths(doc, id) : [];
+        if (e.altKey) {
+          e.preventDefault();
+          setDeepPathsExpanded(paths, e.key === 'ArrowRight');
+          handleRowExpand(id, e.key === 'ArrowRight');
+          return;
+        }
+        if (e.key === 'ArrowRight' && open) {
+          e.preventDefault();
+          enterFields(roving.rowId(roving.activeIndex));
+          return;
+        }
+        if (e.key === 'ArrowLeft' && open) {
+          e.preventDefault();
+          handleRowExpand(id, false);
+          return;
+        }
+      }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -1559,7 +1590,7 @@ export function TableView({
     // `roving` itself is a fresh object every render (see `handleSelect`
     // above) — depend on the members this actually reads instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, onDeleteDoc, canDelete, openDocMenu, columns, copyFormat],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, onDeleteDoc, canDelete, openDocMenu, columns, copyFormat, expandedRows, handleRowExpand, setDeepPathsExpanded],
   );
 
   const rowProps = React.useMemo<TableRowProps>(
@@ -1581,6 +1612,7 @@ export function TableView({
       onContextMenu: handleContextMenu,
       onRowExpand: handleRowExpand,
       toggleDeepPath,
+      setDeepPaths: setDeepPathsExpanded,
       handleCopyField,
       handleOpenFieldMenu,
       onRefHover,
@@ -1611,6 +1643,7 @@ export function TableView({
       handleContextMenu,
       handleRowExpand,
       toggleDeepPath,
+      setDeepPathsExpanded,
       handleCopyField,
       handleOpenFieldMenu,
       onRefHover,
@@ -1768,7 +1801,8 @@ export function TableView({
                         x: e.clientX,
                         y: e.clientY,
                         field: col.field,
-                        returnFocusTo: e.currentTarget,
+                        // The header cell itself is not focusable; its sort button is.
+                        returnFocusTo: e.currentTarget.querySelector<HTMLElement>('button'),
                       });
                     }
                   : undefined
@@ -1781,7 +1815,7 @@ export function TableView({
                       setHeaderMenu({
                         ...anchorFromRect(e.currentTarget.getBoundingClientRect()),
                         field: col.field,
-                        returnFocusTo: e.currentTarget,
+                        returnFocusTo: e.target instanceof HTMLElement ? e.target : null,
                       });
                     }
                   : undefined
