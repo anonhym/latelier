@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Button, Group, Modal, NativeSelect, SegmentedControl, Switch, Text, Textarea, TextInput } from '@mantine/core';
+import { ActionIcon, Button, Group, Kbd, Modal, NativeSelect, SegmentedControl, Switch, Text, Textarea, TextInput, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
@@ -11,13 +11,17 @@ import { refusalMessage } from '../../utils/shellSyntax';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { classifyInsertPayload, type InsertPayloadClassification } from '../../utils/insertPayload';
 import { ScriptEditor } from '../../components/ScriptEditor';
+import { copyToClipboard } from '../../utils/clipboard';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
 import { getStructureEntries } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import {
-  applyDiff,
   buildUpdateRequest,
+  changeList,
+  classifyConflict,
   deleteAtSegments,
   diff,
   getAtSegments,
@@ -25,9 +29,15 @@ import {
   isEmptyDiff,
   isUnsafeFieldName,
   parseJsonDraft,
+  resolveConflict,
   setAtSegments,
+  typeChangeOf,
+  typeChangeText,
   type DocDiff,
 } from './documentDiff';
+import { DocumentChangeStrip } from './DocumentChangeStrip';
+import { DeletedDocumentPanel, DocumentConflictPanel, type ConflictChoice } from './DocumentConflictPanel';
+import { confirmMove } from './confirmMove';
 import {
   SELECTABLE_KINDS,
   TYPE_LABEL,
@@ -73,6 +83,12 @@ interface EditModeProps extends DocumentEditorBaseProps {
    * exactly.
    */
   focusPath?: string;
+  /**
+   * W18 §13.5 — the documents of the result the editor was opened from, in
+   * the order the list shows them; the ‹ › buttons walk it. Absent or not
+   * containing `doc`: no previous/next.
+   */
+  siblings?: readonly unknown[];
 }
 
 interface InsertModeProps extends DocumentEditorBaseProps {
@@ -144,6 +160,8 @@ interface RowCtx {
   connectionId: string;
   dbName: string;
   collection: string;
+  /** What the editor loaded: the type preview under a row compares against it. */
+  original: Doc;
   draft: Doc;
   changes: DocDiff;
   texts: ReadonlyMap<string, string>;
@@ -185,8 +203,21 @@ const INDENT = 16;
 /** How far the Add-field/Add-item row sits in from the rows it adds to, so it reads as belonging to that level. */
 const ADD_ROW_OFFSET = 16;
 
+/**
+ * W18 §13.1 — Escape in a value hands focus to the row. Mantine's own Escape
+ * (a capture-phase `window` listener) reads this marker off the event target
+ * and stands down, so this Escape never reaches the dismiss path; the next
+ * one, from the row, does.
+ */
+const VALUE_STOP = { 'data-mantine-stop-propagation': 'true' } as const;
+
+const ROW_SELECTOR = '[data-field-row]';
+
 function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
   const T = themeVars;
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  const valueRef = React.useRef<HTMLElement | null>(null);
+  const typeRef = React.useRef<HTMLSelectElement>(null);
   const found = getAtSegments(ctx.draft, segments);
   if (!found) return null; // removed by a sibling edit in the same render pass
   const value = found.value;
@@ -219,6 +250,14 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
   // nested under it holds text that doesn't parse — collapsing must never
   // hide the only explanation for why Save is disabled.
   const isCollapsed = ctx.collapsed.has(key) && !hasPendingErrorUnder(ctx, segments);
+
+  // The type preview (W18 §13.2): shown under the row as soon as the selector
+  // changes the type, before anything is saved.
+  // Not for an array element or anything under one: removing a sibling shifts
+  // the indexes, so "the same address" would compare two different values.
+  const loaded = safeAddress === dotted ? getAtSegments(ctx.original, segments) : null;
+  const typeChange = loaded ? typeChangeOf(loaded.value, value) : undefined;
+  const typeNote = loaded && typeChange ? typeChangeText(loaded.value, value, typeChange) : null;
 
   const text = ctx.texts.get(key) ?? (hasValueControl ? textOf(kind, value) : '');
   const parsedText = hasValueControl && ctx.texts.has(key) ? parseAs(kind, ctx.texts.get(key)!) : null;
@@ -255,11 +294,66 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
     ctx.setErr(null);
   };
 
+  // Row mode (W18 §13.1): the row itself holds focus, and a key acts on it.
+  // Only keys pressed on the row count — the same keys typed in a value or
+  // the type selector bubble through here and must be left alone.
+  const rowEls = () => Array.from(rowRef.current?.closest('[data-testid="document-editor-fields-body"]')?.querySelectorAll<HTMLElement>(ROW_SELECTOR) ?? []);
+  const onRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case 't':
+      case 'T': {
+        const select = typeRef.current;
+        if (!select) return;
+        e.preventDefault();
+        select.focus();
+        if (typeof select.showPicker === 'function') select.showPicker();
+        return;
+      }
+      case 'Backspace':
+      case 'Delete': {
+        if (!removable) return;
+        e.preventDefault();
+        // Focus a neighbour that survives the removal: the next row outside
+        // this one's own children, else the one above.
+        const rows = rowEls();
+        const at = rows.indexOf(e.currentTarget);
+        const item = e.currentTarget.parentElement;
+        const survivor = rows.find((r, i) => i > at && !item?.contains(r)) ?? rows[at - 1];
+        survivor?.focus();
+        onRemove();
+        return;
+      }
+      case 'Enter':
+        e.preventDefault();
+        valueRef.current?.focus();
+        return;
+      case 'ArrowDown':
+      case 'ArrowUp': {
+        e.preventDefault();
+        const rows = rowEls();
+        rows[rows.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+        return;
+      }
+    }
+  };
+  // Escape in a value or the expand control: up to the row, consumed here.
+  const onValueKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    rowRef.current?.focus();
+  };
+
   return (
     // The listitem wraps the row and its children, so a nested list stays
     // inside an item rather than becoming a bare child of the parent list.
     <div role="listitem" data-field={dotted} data-edited={edited || undefined}>
       <div
+        ref={rowRef}
+        tabIndex={-1}
+        data-field-row={dotted}
+        onKeyDown={onRowKeyDown}
         style={{
           display: 'flex',
           alignItems: 'flex-start',
@@ -277,6 +371,9 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
               size="xs"
               aria-expanded={!isCollapsed}
               aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dotted}`}
+              ref={valueRef as React.Ref<HTMLButtonElement>}
+              {...VALUE_STOP}
+              onKeyDown={onValueKeyDown}
               onClick={() => ctx.toggleCollapsed(key)}
               style={{ fontSize: T.fsXs }}
             >
@@ -309,6 +406,9 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
           ) : kind === 'boolean' ? (
             <Switch
               aria-label={dotted}
+              ref={valueRef as React.Ref<HTMLInputElement>}
+              {...VALUE_STOP}
+              onKeyDown={onValueKeyDown}
               checked={value === true}
               onChange={(e) => {
                 const { checked } = e.currentTarget;
@@ -320,6 +420,9 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
           ) : kind === 'string' ? (
             <Textarea
               aria-label={dotted}
+              ref={valueRef as React.Ref<HTMLTextAreaElement>}
+              {...VALUE_STOP}
+              onKeyDown={onValueKeyDown}
               value={text}
               onChange={(e) => editText(e.currentTarget.value)}
               error={rowError}
@@ -334,6 +437,9 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
           ) : (
             <TextInput
               aria-label={dotted}
+              ref={valueRef as React.Ref<HTMLInputElement>}
+              {...VALUE_STOP}
+              onKeyDown={onValueKeyDown}
               value={text}
               onChange={(e) => editText(e.currentTarget.value)}
               error={rowError}
@@ -345,16 +451,26 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
               inputWrapperOrder={['label', 'input', 'description', 'error']}
             />
           )}
+          {typeNote && (
+            <Text size="xs" c="dimmed" mt={2} ff="monospace" data-testid="document-editor-type-change">
+              {typeNote}
+            </Text>
+          )}
           {warning && (
             <Text size="xs" c="dimmed" mt={2} data-testid="document-editor-type-warning">
               {`Field "${warning.field}" is usually ${warning.expectedType} (${warning.percent}% of sampled documents). This value is ${warning.actualType}.`}
             </Text>
           )}
         </div>
-        <div style={{ width: 110, flexShrink: 0, paddingTop: 2 }}>
+        {/* Wide enough for the longest type name, "Decimal128" (W18 §13.1). */}
+        <div style={{ width: 136, flexShrink: 0, paddingTop: 2 }}>
           {hasTypeSelector ? (
             <NativeSelect
               aria-label={`${dotted} type`}
+              ref={typeRef}
+              // Out of the Tab order, not out of the tree (W18 §13.1): `T` on
+              // the row opens it, and a click still works.
+              tabIndex={-1}
               value={kind}
               // A bare JS number isn't a selectable target — bson infers its
               // saved type, not this selector — so it gets a disabled
@@ -381,6 +497,7 @@ function FieldRow({ ctx, segments }: { ctx: RowCtx; segments: string[] }) {
               variant="subtle"
               color="red"
               aria-label={`Remove ${dotted}`}
+              tabIndex={-1}
               onClick={onRemove}
               px={4}
             >
@@ -525,6 +642,15 @@ function RowsList({ ctx, parentSegments }: { ctx: RowCtx; parentSegments: readon
   );
 }
 
+/** Where `doc` sits in `list`: the same object, else the same `_id`; -1 when neither. */
+function indexOfDoc(list: readonly unknown[], doc: unknown): number {
+  const at = list.indexOf(doc);
+  if (at >= 0) return at;
+  const idOf = (d: unknown) => JSON.stringify((d as { _id?: unknown } | null)?._id);
+  const id = idOf(doc);
+  return id === undefined ? -1 : list.findIndex((d) => idOf(d) === id);
+}
+
 /** `{ doc }` from a committed Fields-shaped draft, or `{ docs }` from a
  * top-level array — only reachable in `mode: 'insert'` (§6). */
 type JsonCommit = { kind: 'doc'; doc: Doc } | { kind: 'array'; docs: unknown[] };
@@ -533,6 +659,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const { connectionId, dbName, collection, onClose, mode } = props;
   const onSaved = props.mode === 'edit' ? props.onSaved : undefined;
   const focusPath = props.mode === 'edit' ? props.focusPath : undefined;
+  const siblings = props.mode === 'edit' ? props.siblings : undefined;
   const onInserted = props.mode === 'insert' ? props.onInserted : undefined;
   const onPartialInsert = props.mode === 'insert' ? props.onPartialInsert : undefined;
 
@@ -546,7 +673,18 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const [texts, setTexts] = React.useState<ReadonlyMap<string, string>>(() => new Map());
   const [collapsed, setCollapsed] = React.useState<ReadonlySet<string>>(() => new Set());
   const [err, setErr] = React.useState<string | null>(null);
-  const [conflict, setConflict] = React.useState<'changed' | 'deleted' | null>(null);
+  // W18 §13.3/§13.4: `changed` carries the server's current copy, `deleted`
+  // means the fetch found nothing.
+  const [conflict, setConflict] = React.useState<{ kind: 'changed'; server: Doc } | { kind: 'deleted' } | null>(null);
+  const [choices, setChoices] = React.useState<ReadonlyMap<string, ConflictChoice>>(() => new Map());
+  // W18 §13.5 — the documents ‹ › walk, and where in them this one sits. The
+  // list is a copy: a save updates its own entry, so stepping back to a
+  // document just saved shows what was saved, not what the page loaded.
+  const [list, setList] = React.useState<readonly unknown[]>(() => siblings ?? []);
+  const [index, setIndex] = React.useState(() => (props.mode === 'edit' ? indexOfDoc(siblings ?? [], props.doc) : -1));
+  // Set by a successful write: closing then reports it, once, so the tab's
+  // query re-runs when the editor closes and not on every move.
+  const savedRef = React.useRef<{ auditId: string | undefined } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [filterText, setFilterText] = React.useState('');
 
@@ -565,6 +703,12 @@ export function DocumentEditor(props: DocumentEditorProps) {
   // "differs from what the draft started as", the same thing it means in
   // `mode: 'edit'`.
   const changes = React.useMemo(() => diff(original, draft), [original, draft]);
+  const changeEntries = React.useMemo(() => (mode === 'edit' ? changeList(original, draft) : []), [mode, original, draft]);
+  const conflictRows = React.useMemo(
+    () => (conflict?.kind === 'changed' ? classifyConflict(original, draft, conflict.server) : []),
+    [conflict, original, draft],
+  );
+  const choicesPending = conflictRows.some((r) => r.changedBy === 'both' && !choices.has(r.path));
   const rowErrors = React.useMemo(() => {
     const out = new Map<string, string>();
     for (const [key, text] of texts) {
@@ -662,15 +806,21 @@ export function DocumentEditor(props: DocumentEditorProps) {
     (view === 'json' && jsonText !== ejsonStringifyReadable(draft, 2));
 
   const close = useDialogFocusReturn(onClose);
+  // Every way out of an edit goes through here, so a document saved on the
+  // way (Save and go) is reported when the editor closes, whichever way that is.
+  const finish = () => {
+    if (savedRef.current) onSaved?.(savedRef.current.auditId);
+    close();
+  };
 
   const requestClose = async () => {
-    if (!isDirty) return close();
+    if (!isDirty) return finish();
     const discard = await confirmDestructive({
       title: 'Discard changes?',
       body: 'This closes the editor and loses what you typed.',
       confirmLabel: 'Discard',
     });
-    if (discard) close();
+    if (discard) finish();
   };
 
   // W17 — read-only: nothing here feeds the save, and nothing disables it.
@@ -686,31 +836,60 @@ export function DocumentEditor(props: DocumentEditorProps) {
   }, [connectionId, dbName, collection]);
   const entriesByPath = React.useMemo(() => new Map(structureEntries.map((e) => [e.path, e])), [structureEntries]);
 
-  const sendEdit = async (guarded: boolean) => {
-    // Same guard as the Save button's `disabled`: ⌘↵ calls sendEdit()
-    // directly, bypassing the button, so a deleted document must be checked
-    // here too.
-    if (busy || conflict === 'deleted') return;
-    let nextDraft = draft;
+  /**
+   * The draft as it stands, ready to send. The JSON view's own text is
+   * committed first (a refusal returns null, and `jsonLiveError` already says
+   * why); in Fields, a row whose text does not parse blocks the save.
+   */
+  const committedDraft = (): Doc | null => {
     if (view === 'json') {
       const result = commitJson();
-      if (!result || result.kind !== 'doc') return; // refused; jsonLiveError already shows why
-      nextDraft = result.doc;
+      if (!result || result.kind !== 'doc') return null;
       setDraft(result.doc);
-    } else if (rowErrors.size > 0) {
-      return;
+      return result.doc;
     }
+    return rowErrors.size > 0 ? null : draft;
+  };
+
+  /** What a write changed, for the list ‹ › walks and for the close that reports it. */
+  const recordSaved = (auditId: string | undefined, saved: Doc) => {
+    savedRef.current = { auditId };
+    if (index < 0) return;
+    // The list holds canonical sentinels, as `find` delivers them.
+    const stored = JSON.parse(ejsonStringify(saved)) as unknown;
+    setList((l) => l.map((d, i) => (i === index ? stored : d)));
+  };
+
+  /** W18 §13.3 — the guarded write matched nothing: look at what is on the server now. */
+  const loadConflict = async () => {
+    try {
+      const res = await api.query.findOne({
+        connectionId,
+        dbName,
+        collection,
+        filter: ejsonStringify({ _id: original._id }),
+      });
+      if (res.document === null) {
+        setConflict({ kind: 'deleted' });
+        return;
+      }
+      setChoices(new Map());
+      setConflict({ kind: 'changed', server: revive(res.document) });
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Could not load the current version of this document'));
+    }
+  };
+
+  /** One guarded write of `next` over `base`. True: it landed, or there was nothing to send. */
+  const writeEdit = async (base: Doc, next: Doc): Promise<boolean> => {
     let request;
     try {
-      request = buildUpdateRequest(original, nextDraft);
+      request = buildUpdateRequest(base, next);
     } catch (e) {
       setErr(getErrorMessage(e, 'Cannot save this document'));
-      return;
+      return false;
     }
-    if (request === null) {
-      close();
-      return;
-    }
+    if (request === null) return true;
     setBusy(true);
     setErr(null);
     try {
@@ -718,23 +897,120 @@ export function DocumentEditor(props: DocumentEditorProps) {
         connectionId,
         dbName,
         collection,
-        filterJson: guarded ? request.filterJson : request.idFilterJson,
+        filterJson: request.filterJson,
         updateJson: request.updateJson,
       });
-      // Unguarded, the filter is `_id` alone: nothing matching means the
-      // document is gone, not that someone changed it.
-      if (res.matchedCount === 0) setConflict(guarded ? 'changed' : 'deleted');
-      else {
-        onSaved?.(res.auditId);
-        // Through the focus-returning wrapper, so a save hands focus back
-        // to whatever opened the editor, like Cancel does.
-        close();
+      if (res.matchedCount === 0) {
+        await loadConflict();
+        return false;
       }
+      recordSaved(res.auditId, next);
+      return true;
     } catch (e) {
       setErr(getErrorMessage(e, 'Save failed'));
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * W18 §13.3 — the table is answered. The server's copy becomes the new
+   * `original`, the user's diff goes back on top minus the paths given to the
+   * server, and the write carries fresh guards. A second concurrent change
+   * lands in `writeEdit` again and shows the table again.
+   */
+  const confirmConflict = async (server: Doc, mine: Doc): Promise<boolean> => {
+    const resolved = resolveConflict(original, mine, server, choices);
+    setOriginal(server);
+    setDraft(resolved);
+    setChoices(new Map());
+    setConflict(null);
+    const kept = diff(server, resolved);
+    setTexts((m) => {
+      const next = new Map<string, string>();
+      for (const [key, text] of m) {
+        const segments = decodeKey(key);
+        if (segments && isEdited(kept, editAddress(resolved, segments))) next.set(key, text);
+      }
+      return next;
+    });
+    if (view === 'json') setJsonText(ejsonStringifyReadable(resolved, 2));
+    const ok = await writeEdit(server, resolved);
+    // Nothing left to send (everything went to the server): the list still
+    // shows the old copy, so the close has to re-run the query.
+    if (ok && !savedRef.current) savedRef.current = { auditId: undefined };
+    return ok;
+  };
+
+  // Same guard as the Save button's `disabled`: ⌘↵ calls this directly,
+  // bypassing the button.
+  const saveBlocked =
+    (view === 'fields' ? rowErrors.size > 0 : jsonLiveError !== null) ||
+    conflict?.kind === 'deleted' ||
+    (conflict?.kind === 'changed' && choicesPending);
+
+  /** True when the edit is saved (or there was nothing to save). */
+  const trySave = async (): Promise<boolean> => {
+    if (busy || saveBlocked) return false;
+    const next = committedDraft();
+    if (!next) return false;
+    if (conflict?.kind !== 'changed') return writeEdit(original, next);
+    // JSON text committed just now can have added a clash the table has not
+    // shown yet: it gets its own choice before anything is sent.
+    const clashes = classifyConflict(original, next, conflict.server);
+    if (clashes.some((r) => r.changedBy === 'both' && !choices.has(r.path))) return false;
+    return confirmConflict(conflict.server, next);
+  };
+
+  const sendEdit = async () => {
+    if (await trySave()) finish();
+  };
+
+  /** W18 §13.4 — "Insert as new document": the draft, with its original `_id`, as an insert. */
+  const insertAsNew = async () => {
+    if (busy) return;
+    const next = committedDraft();
+    if (!next) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.doc.insert({ connectionId, dbName, collection, docJson: ejsonStringify(next) });
+      savedRef.current = { auditId: undefined };
+      finish();
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Insert failed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The default copy format is the readable one (W06 §8.6).
+  const copyMine = () => {
+    void copyToClipboard(view === 'json' ? jsonText : ejsonStringifyReadable(draft, 2), 'Copied your version');
+  };
+
+  const goTo = async (delta: -1 | 1) => {
+    const target = index + delta;
+    if (busy || target < 0 || target >= list.length) return;
+    if (isDirty) {
+      const choice = await confirmMove({ canSave: !saveBlocked });
+      if (choice === 'stay') return;
+      // Moves only if the save went through; a conflict keeps this document.
+      if (choice === 'save' && !(await trySave())) return;
+    }
+    const next = revive(list[target]);
+    setIndex(target);
+    setOriginal(next);
+    setDraft(next);
+    setTexts(new Map());
+    setCollapsed(new Set());
+    setErr(null);
+    setConflict(null);
+    setChoices(new Map());
+    setFilterText('');
+    setView('fields');
+    setJsonText('');
   };
 
   // W18 §6 — Insert sends the whole draft; there is no diff for a document
@@ -789,58 +1065,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     }
   };
 
-  const handleSave = () => (mode === 'edit' ? sendEdit(true) : sendInsert());
-
-  const reload = async () => {
-    if (busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      // `changes` (the outer diff) reflects only `draft` — in the JSON view,
-      // text typed since the last commit point lives in `jsonText` alone.
-      // Committing it first, and diffing from that, is what keeps a JSON
-      // edit made after a failed Save from being silently dropped here.
-      let baseChanges = changes;
-      if (view === 'json') {
-        const committed = commitJson();
-        if (!committed || committed.kind !== 'doc') return; // refused; jsonLiveError already shows why, text kept
-        setDraft(committed.doc);
-        baseChanges = diff(original, committed.doc);
-      }
-      const res = await api.query.findOne({
-        connectionId,
-        dbName,
-        collection,
-        filter: ejsonStringify({ _id: original._id }),
-      });
-      if (res.document === null) {
-        setConflict('deleted');
-        return;
-      }
-      const fresh = revive(res.document);
-      // The user's edits win over the server's on a path both changed; that
-      // path stays in the diff, so the next Save guards it again.
-      const merged = applyDiff(fresh, baseChanges);
-      setOriginal(fresh);
-      setDraft(merged);
-      // The JSON view's own buffer is a separate draft (W18 §4) — refresh it
-      // too, or Reload's merge would be invisible behind stale text.
-      if (view === 'json') setJsonText(ejsonStringifyReadable(merged, 2));
-      setTexts((m) => {
-        const next = new Map<string, string>();
-        for (const [key, text] of m) {
-          const segments = decodeKey(key);
-          if (segments && isEdited(baseChanges, editAddress(merged, segments))) next.set(key, text);
-        }
-        return next;
-      });
-      setConflict(null);
-    } catch (e) {
-      setErr(getErrorMessage(e, 'Reload failed'));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const handleSave = () => (mode === 'edit' ? sendEdit() : sendInsert());
 
   // ⌘↵ only: ⌘S is deliberately not a save key. PanelBody's own ⌘↵ (Run)
   // already skips events from inside a dialog.
@@ -951,6 +1176,17 @@ export function DocumentEditor(props: DocumentEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surfaceEl]);
 
+  // After ‹ ›: the new document starts at its first value, scrolled to the top.
+  // (The button just pressed may now be disabled, and would drop focus.)
+  const movedFrom = React.useRef(index);
+  React.useEffect(() => {
+    if (movedFrom.current === index) return;
+    movedFrom.current = index;
+    const body = surfaceEl?.querySelector<HTMLElement>('[data-testid="document-editor-fields-body"]');
+    body?.scrollTo?.({ top: 0 });
+    body?.querySelector<HTMLElement>('input:not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly])')?.focus();
+  }, [index, surfaceEl]);
+
   // W18 §6 — the Insert button label, live off the uncommitted JSON buffer:
   // an array shows its count before Save is even pressed, and stays current
   // as the user keeps editing (never off a value captured at an earlier
@@ -984,6 +1220,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
     connectionId,
     dbName,
     collection,
+    original,
     draft,
     changes,
     texts,
@@ -1044,7 +1281,40 @@ export function DocumentEditor(props: DocumentEditorProps) {
           }}
         >
           <Group justify="space-between" align="center">
-            <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
+            <Group gap={themeVars.gapXs} align="center">
+              {mode === 'edit' && index >= 0 && (
+                <>
+                  <Tooltip label="Previous document" withArrow>
+                    <ActionIcon
+                      type="button"
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label="Previous document"
+                      disabled={index === 0 || busy}
+                      onClick={() => void goTo(-1)}
+                    >
+                      ‹
+                    </ActionIcon>
+                  </Tooltip>
+                  <Text size="xs" c="dimmed" aria-live="polite">{`${index + 1} of ${list.length}`}</Text>
+                  <Tooltip label="Next document" withArrow>
+                    <ActionIcon
+                      type="button"
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label="Next document"
+                      disabled={index === list.length - 1 || busy}
+                      onClick={() => void goTo(1)}
+                    >
+                      ›
+                    </ActionIcon>
+                  </Tooltip>
+                </>
+              )}
+              <Text size="xs" c="dimmed" ff="monospace">{`${dbName}.${collection}`}</Text>
+            </Group>
             <SegmentedControl
               size="xs"
               aria-label="View"
@@ -1099,25 +1369,18 @@ export function DocumentEditor(props: DocumentEditorProps) {
             </div>
           )}
 
-          {conflict === 'changed' && (
-            <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.warnSoft, color: themeVars.warnText }}>
-              This document changed since you opened it. Reload puts your edits on top of the current version;
-              Overwrite saves them over it.
-              <Group gap={themeVars.gapXs} mt={6}>
-                <Button size="compact-xs" variant="default" onClick={() => void reload()}>
-                  Reload
-                </Button>
-                <Button size="compact-xs" variant="default" color="red" onClick={() => void sendEdit(false)}>
-                  Overwrite
-                </Button>
-              </Group>
-            </div>
+          <DocumentChangeStrip entries={changeEntries} />
+          {conflict?.kind === 'changed' && (
+            <DocumentConflictPanel
+              rows={conflictRows}
+              choices={choices}
+              onChoose={(path, choice) => setChoices((m) => new Map(m).set(path, choice))}
+              onChooseAll={(choice) =>
+                setChoices(new Map(conflictRows.filter((r) => r.changedBy === 'both').map((r) => [r.path, choice])))
+              }
+            />
           )}
-          {conflict === 'deleted' && (
-            <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
-              This document was deleted since you opened it. There is nothing left to save to.
-            </div>
-          )}
+          {conflict?.kind === 'deleted' && <DeletedDocumentPanel busy={busy} onInsert={() => void insertAsNew()} onCopy={copyMine} />}
           {err && (
             <div role="alert" style={{ fontSize: themeVars.fsSm, padding: '6px 8px', borderRadius: themeVars.rs, background: themeVars.redSoft, color: themeVars.redText }}>
               {err}
@@ -1126,12 +1389,19 @@ export function DocumentEditor(props: DocumentEditorProps) {
         </div>
         <Group justify="flex-end" gap={themeVars.gapSm} pt={8} style={{ flex: 'none', borderTop: `1px solid ${themeVars.border}` }}>
           <Button size="compact-sm" variant="default" onClick={() => void requestClose()}>
-            Cancel
+            {conflict?.kind === 'deleted' ? 'Close' : 'Cancel'}
           </Button>
           <SubmitButton
             size="compact-sm"
             submitting={busy}
-            disabled={(view === 'fields' ? rowErrors.size > 0 : jsonLiveError !== null) || conflict === 'deleted'}
+            disabled={saveBlocked}
+            aria-keyshortcuts={isMacRenderer() ? 'Meta+Enter' : 'Control+Enter'}
+            // A key cap, not part of the name: the button stays `Save` (W18 §13.6).
+            rightSection={
+              <Kbd size="xs" aria-hidden="true">
+                {formatShortcut('⌘↵', isMacRenderer())}
+              </Kbd>
+            }
             onClick={() => void handleSave()}
           >
             {submitLabel}
