@@ -1,316 +1,175 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ConnectionManager from '../../src/pages/ConnectionManager';
+import { ServerTab } from '../../src/pages/Workspace/ServerTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
+import type { ConnectionSummary, ServerSection, ServerTab as ServerTabType } from '@shared/types';
 
-// Spied so the write can be checked for dropping the cached enum suggestions.
-vi.mock('../../src/features/fieldSuggestions/sources/schemaEnumSource', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/schemaEnumSource')>()),
-  invalidateSchemaEnumCache: vi.fn(),
-}));
-import type { ConnectionSummary } from '@shared/types';
+// The server screen is a tab in the Data View (C05 §11): what remains of the
+// old `/connections/:id` page is the redirect and the tab's own content.
 
-function renderDetail(initial: string) {
-  return render(
-    <MemoryRouter initialEntries={[initial]}>
-      <Routes>
-        <Route path="/connections/:id" element={<ConnectionManager />} />
-        <Route path="/workspace" element={<div>workspace-route</div>} />
-      </Routes>
-    </MemoryRouter>,
-  );
-}
-
-function summary(overrides: Partial<ConnectionSummary>): ConnectionSummary {
+function summary(overrides: Partial<ConnectionSummary> = {}): ConnectionSummary {
   return {
-    id: 'id',
-    name: 'Test',
+    id: 'a',
+    name: 'Alpha',
     color: '#1A6835',
     host: 'localhost',
     port: 27017,
     connectionType: 'standard',
     readOnly: false,
-    status: 'unknown',
+    status: 'connected',
     ...overrides,
   };
 }
 
-describe('ConnectionManager deep detail screen', () => {
-  afterEach(() => {
-  vi.mocked(invalidateSchemaEnumCache).mockClear();
-    uninstallAtelierMock();
+function tabOf(section: ServerSection = 'overview'): ServerTabType {
+  return {
+    id: 's1',
+    kind: 'server',
+    connectionId: 'a',
+    dbName: '',
+    collection: '',
+    position: 0,
+    isActive: true,
+    openedAt: '2026-01-01T00:00:00.000Z',
+    pinned: false,
+    state: { section },
+  };
+}
+
+const serverInfoStub = async () => ({
+  version: '7.0.5',
+  uptimeSeconds: 1,
+  connectionsCurrent: 1,
+  connectionsAvailable: 1,
+  opcountersPerSec: 1,
+  databaseCount: 1,
+  dataSizeBytes: 1,
+  storageSizeBytes: 1,
+  indexCount: 1,
+  topology: 'Single' as const,
+  serverStatsAvailable: true,
+});
+
+function mountTab(opts: {
+  connection?: ConnectionSummary | null;
+  section?: ServerSection;
+  status?: 'connected' | 'connecting' | 'disconnected';
+  disconnect?: ReturnType<typeof vi.fn>;
+}) {
+  const onSection = vi.fn();
+  const onDelete = vi.fn();
+  const onDisconnect = vi.fn();
+  const onClose = vi.fn();
+  installAtelierMock({
+    mongo: {
+      status: async (id) => ({ id, status: opts.status ?? 'connected' }),
+      onStatus: () => () => {},
+      serverInfo: serverInfoStub,
+      ...(opts.disconnect ? { disconnect: opts.disconnect as never } : {}),
+    },
+  });
+  render(
+    <MemoryRouter>
+      <ServerTab
+        tab={tabOf(opts.section)}
+        connection={opts.connection === undefined ? summary() : opts.connection}
+        onSection={onSection}
+        onDelete={onDelete}
+        onDisconnect={onDisconnect}
+        onClose={onClose}
+      />
+    </MemoryRouter>,
+  );
+  return { onSection, onDelete, onDisconnect, onClose };
+}
+
+const selected = (name: string) => screen.getByRole('button', { name }).style.fontWeight === '600';
+
+afterEach(() => {
+  uninstallAtelierMock();
+  vi.restoreAllMocks();
+});
+
+describe('server tab content', () => {
+  it('names the Connection and offers all five sections, the stored one selected', async () => {
+    mountTab({ section: 'users' });
+    expect((await screen.findAllByText('Alpha')).length).toBeGreaterThanOrEqual(1);
+    for (const name of ['Overview', 'Monitor', 'Collections', 'Users', 'Roles']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+    expect(selected('Users')).toBe(true);
+    expect(selected('Overview')).toBe(false);
   });
 
-  it('renders the connection named by the route param', async () => {
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha' })] },
-    });
-    renderDetail('/connections/a');
-    const alphas = await screen.findAllByText('Alpha');
-    expect(alphas.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows a loading state, not "not found", while the connection list is still resolving', async () => {
-    let resolveList: (rows: ConnectionSummary[]) => void = () => {};
-    // `useConnections()` kicks off its first `conn.list()` from a
-    // `queueMicrotask` inside a mount effect, not synchronously during
-    // render — so the mock's `list` factory isn't actually invoked (and
-    // `resolveList` isn't assigned) until after `render()` returns. This
-    // promise is what lets the test wait for that real invocation instead
-    // of resolving a stale no-op closure and leaving the real fetch hanging.
-    let listCalled: () => void = () => {};
-    const listCalledPromise = new Promise<void>((resolve) => { listCalled = resolve; });
-    installAtelierMock({
-      conn: {
-        list: () => {
-          listCalled();
-          return new Promise((resolve) => { resolveList = resolve; });
-        },
-      },
-    });
-    renderDetail('/connections/does-not-exist');
-    // Before conn.list() resolves, the id genuinely can't be judged missing
-    // yet — the not-found copy must not appear.
-    expect(screen.queryByText(/no longer exists/i)).toBeNull();
-    await listCalledPromise;
-    resolveList([summary({ id: 'a', name: 'Alpha' })]);
-    await waitFor(() => {
-      expect(screen.getByText(/no longer exists/i)).toBeTruthy();
-    });
-  });
-
-  it('shows a not-found state and back affordance for an id with no match once the list has resolved', async () => {
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha' })] },
-    });
-    renderDetail('/connections/does-not-exist');
-    await waitFor(() => {
-      expect(screen.getByText(/no longer exists/i)).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Back to Data View/i }));
-    await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
-  });
-
-  it('the TitleBar back affordance returns to the Data View', async () => {
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha' })] },
-    });
-    renderDetail('/connections/a');
+  it('reports a section click to the tab state, leaving the stored section to the tab', async () => {
+    const { onSection } = mountTab({ section: 'overview' });
     await screen.findAllByText('Alpha');
-    fireEvent.click(screen.getByRole('button', { name: /Data View/i }));
-    await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Roles' }));
+    expect(onSection).toHaveBeenCalledExactlyOnceWith('s1', 'roles');
+    // The tab owns the section: with the state unchanged, Overview stays selected.
+    expect(selected('Overview')).toBe(true);
   });
 
-  it('deleting the connection navigates back to the Data View', async () => {
-    const del = vi.fn(async (id: string) => ({ id }));
-    installAtelierMock({
-      conn: {
-        list: async () => [summary({ id: 'a', name: 'Alpha' })],
-        delete: del,
-      },
-    });
-    renderDetail('/connections/a');
+  it('puts Edit, Delete and Disconnect in the Overview header only', async () => {
+    const { onDelete, onDisconnect } = mountTab({ section: 'overview' });
     await screen.findAllByText('Alpha');
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    // opening the dialog now fetches the tab count first
-    // (`api.tabs.list()`), so it's async: `findByRole`, not `getByRole`.
-    const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(/Delete "Alpha"/i)).toBeTruthy();
-    // docs/adr/0013 — the confirm button stays disabled until the
-    // connection name is typed back.
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Confirm connection name' }), {
-      target: { value: 'Alpha' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(del).toHaveBeenCalledWith('a'));
-    await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
-    expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('a');
-  });
-
-  /**
-   * docs/adr/0013 — deleting a connection irreversibly drops its saved
-   * queries and history, so it sits on the type-to-confirm tier, not a
-   * plain two-button confirm.
-   *
-   * MUTATION TARGET — replace `matches` with `true` in
-   * `ConnectionDeleteDialog` and this goes red: Delete stays clickable
-   * (and callable) with nothing typed.
-   */
-  it('keeps Delete disabled until the connection name is typed back', async () => {
-    const del = vi.fn(async (id: string) => ({ id }));
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha' })], delete: del },
-    });
-    renderDetail('/connections/a');
-    await screen.findAllByText('Alpha');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    const dialog = await screen.findByRole('alertdialog');
-    const confirmButton = within(dialog).getByRole('button', { name: 'Delete' });
-    const input = within(dialog).getByRole('textbox', { name: 'Confirm connection name' });
-
-    expect(confirmButton.hasAttribute('disabled')).toBe(true);
-
-    fireEvent.change(input, { target: { value: 'Alp' } });
-    expect(confirmButton.hasAttribute('disabled')).toBe(true);
-
-    fireEvent.change(input, { target: { value: 'Alpha' } });
-    expect(confirmButton.hasAttribute('disabled')).toBe(false);
-
-    fireEvent.click(confirmButton);
-    await waitFor(() => expect(del).toHaveBeenCalledWith('a'));
-  });
-
-  // X16 §4.6 — this screen has no `useWorkspaceTabs()`
-  // (`ConnectionManager` owns the confirm + tab count itself, per
-  // CLAUDE.md's one-call-site rule), so the whole round trip goes through
-  // `api.tabs.list()`/`api.tabs.close()` rather than the renderer's tab
-  // state.
-  const serverInfoStub = async () => ({
-    version: '7.0.5',
-    uptimeSeconds: 1,
-    connectionsCurrent: 1,
-    connectionsAvailable: 1,
-    opcountersPerSec: 1,
-    databaseCount: 1,
-    dataSizeBytes: 1,
-    storageSizeBytes: 1,
-    indexCount: 1,
-    topology: 'Single' as const,
-    serverStatsAvailable: true,
-  });
-
-  it('the Disconnect button opens a confirmation naming the Connection and its tab count, before disconnecting anything', async () => {
-    const disconnect = vi.fn(async (id: string) => ({ id }));
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha', status: 'connected' })] },
-      mongo: {
-        status: async (id) => ({ id, status: 'connected' }),
-        disconnect,
-        serverInfo: serverInfoStub,
-      },
-      tabs: {
-        list: async () => [
-          { id: 't1', kind: 'collection', connectionId: 'a', dbName: 'db', collection: 'orders', position: 0, isActive: true, openedAt: '2026-01-01T00:00:00.000Z', pinned: false, state: { view: 'Tree', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}', page: 0, pageSize: 50, activeBuilderTab: 'Builder' } },
-        ] as never,
-      },
-    });
-    renderDetail('/connections/a');
-    await screen.findAllByText('Alpha');
-
+    expect(onDelete).toHaveBeenCalledWith('a');
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
-
-    const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText(/Disconnect "Alpha"/i)).toBeTruthy();
-    expect(within(dialog).getByText(/closes 1 open tab\b/)).toBeTruthy();
-    expect(disconnect).not.toHaveBeenCalled();
+    expect(onDisconnect).toHaveBeenCalledWith('a');
   });
 
-  it('confirming Disconnect calls api.mongo.disconnect and closes that Connection\'s tabs', async () => {
-    const disconnect = vi.fn(async (id: string) => ({ id }));
-    const close = vi.fn(async () => ({ newActiveId: null }));
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha', status: 'connected' })] },
-      mongo: {
-        status: async (id) => ({ id, status: 'connected' }),
-        disconnect,
-        serverInfo: serverInfoStub,
-      },
-      tabs: {
-        list: async () => [
-          { id: 't1', kind: 'collection', connectionId: 'a', dbName: 'db', collection: 'orders', position: 0, isActive: true, openedAt: '2026-01-01T00:00:00.000Z', pinned: false, state: { view: 'Tree', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}', page: 0, pageSize: 50, activeBuilderTab: 'Builder' } },
-        ] as never,
-        close: close as never,
-      },
-    });
-    renderDetail('/connections/a');
+  it('draws no header actions on the other sections', async () => {
+    mountTab({ section: 'monitor' });
     await screen.findAllByText('Alpha');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
-    const dialog = await screen.findByRole('alertdialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
-
-    await waitFor(() => expect(disconnect).toHaveBeenCalledWith('a'));
-    await waitFor(() => expect(close).toHaveBeenCalledWith('t1'));
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
-    // Unlike Delete, this screen stays put — Disconnect doesn't navigate away.
-    expect(screen.queryByText('workspace-route')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull();
   });
 
-  it('cancelling the Disconnect confirmation disconnects nothing and closes no tabs', async () => {
-    const disconnect = vi.fn(async (id: string) => ({ id }));
-    const close = vi.fn(async () => ({ newActiveId: null }));
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha', status: 'connected' })] },
-      mongo: {
-        status: async (id) => ({ id, status: 'connected' }),
-        disconnect,
-        serverInfo: serverInfoStub,
-      },
-      tabs: {
-        list: async () => [
-          { id: 't1', kind: 'collection', connectionId: 'a', dbName: 'db', collection: 'orders', position: 0, isActive: true, openedAt: '2026-01-01T00:00:00.000Z', pinned: false, state: { view: 'Tree', builder: { projection: [], sort: '', limit: '' }, queryRaw: '{}', page: 0, pageSize: 50, activeBuilderTab: 'Builder' } },
-        ] as never,
-        close: close as never,
-      },
-    });
-    renderDetail('/connections/a');
-    await screen.findAllByText('Alpha');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
-    const dialog = await screen.findByRole('alertdialog');
-    fireEvent.click(within(dialog).getByText('Cancel'));
-
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
-    expect(disconnect).not.toHaveBeenCalled();
-    expect(close).not.toHaveBeenCalled();
+  it('offers Connect on Overview for a Dormant Connection, and no Disconnect', async () => {
+    mountTab({ connection: summary({ status: 'unknown' }), status: 'disconnected' });
+    expect(await screen.findByRole('button', { name: 'Connect' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull();
   });
 
-  // Regression — the sibling surface this ticket must NOT touch: "Cancel
-  // connection" (shown while `isConnecting`) stays wired to the raw
-  // `disconnectConnection` helper with no confirmation.
-  it('"Cancel connection" while connecting still disconnects immediately, with no confirmation dialog', async () => {
+  it('"Cancel connection" while connecting disconnects at once, with no confirmation', async () => {
     const disconnect = vi.fn(async (id: string) => ({ id }));
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha', status: 'unknown' })] },
-      mongo: {
-        status: async (id) => ({ id, status: 'connecting' }),
-        disconnect,
-      },
-    });
-    renderDetail('/connections/a');
-    await screen.findAllByText('Alpha');
-
-    const cancelBtn = await screen.findByRole('button', { name: 'Cancel connection' });
-    fireEvent.click(cancelBtn);
-
+    mountTab({ connection: summary({ status: 'unknown' }), status: 'connecting', disconnect });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel connection' }));
     await waitFor(() => expect(disconnect).toHaveBeenCalledWith('a'));
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  // sister of the TabStrip case: the breadcrumb's second segment must
-  // never read the bare literal "Connection" for a Connection missing from
-  // the list, since a user can legitimately name a Connection that.
-  it('breadcrumb shows the resolved Connection\'s real name, not a state label', async () => {
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Connection' })] },
-    });
-    renderDetail('/connections/a');
-    await waitFor(() => {
-      expect(within(screen.getByRole('banner')).getByText('Connection')).toBeTruthy();
-    });
+  it('says the Connection no longer exists when it cannot be resolved', async () => {
+    const { onClose } = mountTab({ connection: null });
+    expect(await screen.findByText(/no longer exists/i)).toBeTruthy();
+    // The tab is the only thing left to leave: the action closes it.
+    expect(screen.queryByRole('button', { name: 'Back to Data View' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close tab' }));
+    expect(onClose).toHaveBeenCalledExactlyOnceWith('s1');
   });
+});
 
-  it('breadcrumb reads "(unresolved connection)", not "Connection", once the list has resolved without a match', async () => {
-    installAtelierMock({
-      conn: { list: async () => [summary({ id: 'a', name: 'Alpha' })] },
-    });
-    renderDetail('/connections/does-not-exist');
-    await waitFor(() => {
-      const banner = within(screen.getByRole('banner'));
-      expect(banner.getByText('(unresolved connection)')).toBeTruthy();
-      expect(banner.queryByText('Connection')).toBeNull();
-    });
+describe('/connections/:id', () => {
+  function Intent() {
+    const state = useLocation().state as { openServer?: unknown } | null;
+    return <div data-testid="intent">{JSON.stringify(state?.openServer ?? null)}</div>;
+  }
+
+  it('redirects to the Data View carrying the open-server intent, and no full-page screen remains', async () => {
+    render(
+      <MemoryRouter initialEntries={['/connections/a']}>
+        <Routes>
+          <Route path="/connections/:id" element={<ConnectionManager />} />
+          <Route path="/workspace" element={<Intent />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('intent').textContent).toBe('{"connectionId":"a"}'));
+    expect(screen.queryByRole('button', { name: /Data View/i })).toBeNull();
   });
 });

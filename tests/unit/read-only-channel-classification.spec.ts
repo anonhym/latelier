@@ -152,6 +152,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.tabsOpenAggregation,
   IPC_CHANNELS.tabsOpenDefault,
   IPC_CHANNELS.tabsOpenScript,
+  IPC_CHANNELS.tabsOpenServer,
   IPC_CHANNELS.tabsUpdate,
   IPC_CHANNELS.tabsClose,
   IPC_CHANNELS.tabsSetActive,

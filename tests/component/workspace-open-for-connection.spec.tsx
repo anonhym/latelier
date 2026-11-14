@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, titleBar, waitFor, act } from '../helpers/render';
+import { render, screen, titleBar, waitFor, act, fireEvent } from '../helpers/render';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
+import ConnectionManager from '../../src/pages/ConnectionManager';
+import { notify } from '../../src/theme/notifications';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ConnectionSummary, CollectionTab } from '@shared/types';
+import type { ConnectionSummary, CollectionTab, ServerTab } from '@shared/types';
 
 const now = '2026-07-31T12:00:00.000Z';
 
@@ -212,5 +214,132 @@ describe('"Open workspace" / openConnectionId nav-state', () => {
         collection: 'orders',
       }),
     );
+  });
+});
+
+function serverTab(overrides: Partial<ServerTab> = {}): ServerTab {
+  return {
+    id: 's1',
+    kind: 'server',
+    connectionId: 'c1',
+    dbName: '',
+    collection: '',
+    position: 0,
+    isActive: true,
+    openedAt: now,
+    pinned: false,
+    state: { section: 'overview' },
+    ...overrides,
+  };
+}
+
+const serverMongo = {
+  status: async (id: string) => ({ id, status: 'connected' as const }),
+  onStatus: () => () => {},
+  serverInfo: async () => ({
+    version: '7.0.5',
+    uptimeSeconds: 1,
+    connectionsCurrent: 1,
+    connectionsAvailable: 1,
+    opcountersPerSec: 1,
+    databaseCount: 1,
+    dataSizeBytes: 1,
+    storageSizeBytes: 1,
+    indexCount: 1,
+    topology: 'Single' as const,
+    serverStatsAvailable: true,
+  }),
+};
+
+describe('server tab (C05 §11)', () => {
+  it('an openServer route intent opens that Connection\'s server tab on the section named', async () => {
+    const openServer = vi.fn(async (input: { connectionId: string }) => serverTab({ connectionId: input.connectionId }));
+    const update = vi.fn(async () => serverTab({ state: { section: 'users' } }));
+    installAtelierMock({
+      tabs: { list: async () => [], openServer: openServer as never, update: update as never },
+      conn: { list: async () => CONNECTIONS },
+      mongo: serverMongo,
+    });
+
+    render(app([{ pathname: '/workspace', state: { openServer: { connectionId: 'c9', section: 'users' } } }]));
+
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c9' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('s1', { state: { section: 'users' } }));
+  });
+
+  it('an unknown id opens no tab and says the connection no longer exists', async () => {
+    const openServer = vi.fn(async () => serverTab());
+    const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
+    installAtelierMock({
+      tabs: { list: async () => [], openServer: openServer as never },
+      conn: { list: async () => CONNECTIONS },
+      mongo: serverMongo,
+    });
+
+    render(app([{ pathname: '/workspace', state: { openServer: { connectionId: 'gone' } } }]));
+
+    await waitFor(() => expect(error).toHaveBeenCalledWith('This connection no longer exists.'));
+    expect(openServer).not.toHaveBeenCalled();
+  });
+
+  it('a server tab shows its sections inside the workspace, labelled Server, on the section it stored', async () => {
+    const update = vi.fn(async () => serverTab({ state: { section: 'monitor' } }));
+    installAtelierMock({
+      tabs: {
+        list: async () => [serverTab({ state: { section: 'roles' } })],
+        update: update as never,
+      },
+      conn: { list: async () => CONNECTIONS },
+      mongo: serverMongo,
+    });
+
+    render(app([{ pathname: '/workspace', state: null }]));
+
+    const roles = await screen.findByRole('button', { name: 'Roles' });
+    expect(roles.style.fontWeight).toBe('600');
+    for (const name of ['Overview', 'Monitor', 'Collections', 'Users']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+    expect(screen.getByLabelText('Close Server')).toBeTruthy();
+    expect(titleBar().getByText('Server')).toBeTruthy();
+    // Edit, Disconnect and Delete belong to Overview.
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Monitor' }).style.fontWeight).toBe('600'));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('s1', { state: { section: 'monitor' } }));
+  });
+
+  it('a Dormant Connection\'s server tab shows Overview with Connect', async () => {
+    installAtelierMock({
+      tabs: { list: async () => [serverTab()] },
+      conn: { list: async () => [conn({ id: 'c1', name: 'Prod', status: 'unknown' })] },
+      mongo: { ...serverMongo, status: async (id: string) => ({ id, status: 'disconnected' as const }) },
+    });
+
+    render(app([{ pathname: '/workspace', state: null }]));
+
+    expect(await screen.findByRole('button', { name: 'Connect' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Overview' }).style.fontWeight).toBe('600');
+  });
+
+  it('/connections/:id redirects to the Data View with the open-server intent', async () => {
+    const openServer = vi.fn(async (input: { connectionId: string }) => serverTab({ connectionId: input.connectionId }));
+    installAtelierMock({
+      tabs: { list: async () => [], openServer: openServer as never },
+      conn: { list: async () => CONNECTIONS },
+      mongo: serverMongo,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/connections/c1']}>
+        <Routes>
+          <Route path="/workspace" element={<Workspace />} />
+          <Route path="/connections/:id" element={<ConnectionManager />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c1' }));
   });
 });

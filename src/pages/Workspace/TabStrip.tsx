@@ -318,7 +318,7 @@ export function TabStrip({
               const closeLabel = `Close ${
                 tab.kind === 'script'
                   ? tab.state.title || 'script'
-                  : tab.collection ? label : 'tab'
+                  : tab.kind === 'server' || tab.collection ? label : 'tab'
               }`;
               return (
                 <div
@@ -430,7 +430,9 @@ export function TabStrip({
                   <span aria-hidden style={{ display: 'flex', color: T.textMuted }}>
                     {tab.kind === 'script'
                       ? I.code
-                      : tab.state.activeView === 'aggregation'
+                      : tab.kind === 'server'
+                        ? I.server
+                        : tab.state.activeView === 'aggregation'
                         ? I.sum
                         : I.coll}
                   </span>

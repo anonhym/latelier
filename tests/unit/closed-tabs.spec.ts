@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { CollectionTab, ScriptTab } from '@shared/types';
+import type { CollectionTab, ScriptTab, ServerTab } from '@shared/types';
 import { CLOSED_TAB_CAP, closedTabOf, pushClosed, liveClosed, unsavedScriptTitles, withoutClosed, type ClosedTab } from '../../src/state/closedTabs';
 
 const script = (over: Partial<ScriptTab> = {}): ScriptTab =>
@@ -31,6 +31,13 @@ describe('closedTabOf', () => {
   it('keeps a script\'s source and title and drops the last run', () => {
     const e = closedTabOf(script());
     expect(e).toEqual({ kind: 'script', connectionId: 'c1', pinned: false, state: { title: 'Script 1', source: 'db.a.find()' } });
+  });
+
+  it('keeps a server tab\'s section and pin, and nothing else', () => {
+    const server = { id: 'v', kind: 'server', connectionId: 'c1', dbName: '', collection: '', pinned: true, state: { section: 'roles' } } as ServerTab;
+    const e = closedTabOf(server);
+    expect(e).toEqual({ kind: 'server', connectionId: 'c1', pinned: true, state: { section: 'roles' } });
+    expect(e.state).not.toBe(server.state);
   });
 
   it('keeps a collection tab\'s namespace, pin and query state and drops both result payloads', () => {

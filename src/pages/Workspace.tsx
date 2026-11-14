@@ -20,7 +20,7 @@ import { CODE_LANGS } from '../utils/driverCode';
 import { copyQueryAsCode } from './Workspace/copyQueryCode';
 import { BUILDER_DEFAULT_PX, BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
-import type { CollectionView, SavedQuerySummary, WorkspaceTab } from '@shared/types';
+import type { CollectionView, SavedQuerySummary, ServerSection, WorkspaceTab } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
 import { useReferenceRules } from '../features/references/useReferenceRules';
 import { useReferenceDrawer } from './Workspace/useReferenceDrawer';
@@ -1469,13 +1469,16 @@ function WorkspaceInner() {
     [tabsRef],
   );
 
-  const openConnectionScreen = React.useCallback(
-    (id: string) => {
-      // The dialogs hook ignores the result; navigate's promise only settles the transition.
-      void navigate(`/connections/${id}`);
+  // C05 §11: the server screen is a tab, one per Connection.
+  const openServerTab = React.useCallback(
+    (id: string, section?: ServerSection) => {
+      tabsRef.current.openServer({ connectionId: id, section }).catch((err: unknown) => {
+        notify.error(isIpcError(err) ? err.message : String(err), { title: 'Could not open the server overview' });
+      });
     },
-    [navigate],
+    [tabsRef],
   );
+  const openConnectionScreen = React.useCallback((id: string) => openServerTab(id), [openServerTab]);
 
   const connectionDialogs = useConnectionDialogs({
     connections,
@@ -1673,6 +1676,7 @@ function WorkspaceInner() {
         deleteConnectionId?: string;
         editConnectionId?: string;
         disconnectConnectionId?: string;
+        openServer?: { connectionId: string; section?: ServerSection };
       }
     | null;
   const openConnectionId = navState?.openConnectionId ?? null;
@@ -1722,6 +1726,20 @@ function WorkspaceInner() {
     openEditConnectionModal(editConnectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editConnectionId, connectionsLoading]);
+  // The palette's server actions and `/connections/:id` hand over the same
+  // way. An id that matches no saved Connection lands here as C05 §11.3's
+  // not-found toast.
+  const openServerIntent = navState?.openServer ?? null;
+  React.useEffect(() => {
+    if (!openServerIntent || connectionsLoading || tabs.loading) return;
+    void navigate(location.pathname, { replace: true, state: null });
+    if (!connections.some((c) => c.id === openServerIntent.connectionId)) {
+      notify.error('This connection no longer exists.');
+      return;
+    }
+    openServerTab(openServerIntent.connectionId, openServerIntent.section);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openServerIntent, connectionsLoading, tabs.loading]);
   // `requestDisconnect` counts the Connection's open tabs to word its dialog,
   // and refuses while the tabs are still loading: wait for them too.
   React.useEffect(() => {

@@ -81,6 +81,8 @@ import type {
   ScriptRunResultWire,
   ScriptTab,
   ScriptTabState,
+  ServerTab,
+  ServerTabState,
   ShellOutputEvent,
   ShellSessionInfo,
   ValidationAction,
@@ -561,9 +563,10 @@ export interface IpcApi {
       connectionId: string;
       initialState?: Partial<ScriptTabState>;
     }) => Promise<ScriptTab>;
+    openServer: (input: { connectionId: string }) => Promise<ServerTab>;
     update: (
       id: string,
-      patch: { state: Partial<CollectionTabState> | Partial<ScriptTabState> },
+      patch: { state: Partial<CollectionTabState> | Partial<ScriptTabState> | Partial<ServerTabState> },
     ) => Promise<WorkspaceTab>;
     close: (id: string) => Promise<{ newActiveId: string | null }>;
     setActive: (id: string) => Promise<{ id: string }>;
@@ -748,6 +751,7 @@ export const IPC_CHANNELS = {
   tabsOpenAggregation: 'tabs:openAggregation',
   tabsOpenDefault:     'tabs:openDefault',
   tabsOpenScript:      'tabs:openScript',
+  tabsOpenServer:      'tabs:openServer',
   tabsUpdate:          'tabs:update',
   tabsClose:           'tabs:close',
   tabsSetActive:       'tabs:setActive',

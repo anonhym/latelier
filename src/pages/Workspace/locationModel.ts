@@ -7,6 +7,8 @@ export type LocationSegment =
   | { kind: 'database'; label: string }
   | { kind: 'collection'; label: string }
   | { kind: 'script'; label: string }
+  /** A Connection's server tab: `{connection} › Server`. */
+  | { kind: 'server'; label: string }
   /** A Connection is open with no tab in front; opens the palette on Collections. */
   | { kind: 'choose'; label: string };
 
@@ -45,6 +47,9 @@ export function locationModel(
   const connection = connections.find((c) => c.id === active.connectionId) ?? null;
   if (active.kind === 'script') {
     return { connection, segments: [{ kind: 'script', label: tabLabel(active) }] };
+  }
+  if (active.kind === 'server') {
+    return { connection, segments: [{ kind: 'server', label: tabLabel(active) }] };
   }
   return {
     connection,

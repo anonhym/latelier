@@ -6,6 +6,8 @@ import type {
   CollectionView,
   ScriptTab,
   ScriptTabState,
+  ServerTab,
+  ServerTabState,
   Stage,
   WorkspaceTab,
 } from '@shared/types';
@@ -13,6 +15,7 @@ import {
   DEFAULT_AGGREGATION_TAB_STATE,
   DEFAULT_COLLECTION_TAB_STATE,
   DEFAULT_SCRIPT_TAB_STATE,
+  DEFAULT_SERVER_TAB_STATE,
 } from '@shared/defaults';
 import type { WorkspaceTabRepo, WorkspaceTabRow } from '../db/repositories/WorkspaceTabRepo.ts';
 import { NotFoundError, ValidationError } from '../errors.ts';
@@ -51,7 +54,7 @@ export interface OpenScriptInput {
 }
 
 export interface TabStatePatch {
-  state: Partial<CollectionTabState> | Partial<ScriptTabState>;
+  state: Partial<CollectionTabState> | Partial<ScriptTabState> | Partial<ServerTabState>;
 }
 
 export class WorkspaceStateService {
@@ -75,8 +78,8 @@ export class WorkspaceStateService {
     let count = 0;
     const unreadable: string[] = [];
     for (const row of this.repo.list()) {
-      // Every kind but `script` reads back as a collection tab (`rowToTab`).
-      if (row.kind === 'script') continue;
+      // Script and server rows carry no pipeline.
+      if (row.kind === 'script' || row.kind === 'server') continue;
       let state: unknown;
       try {
         state = JSON.parse(row.state_json);
@@ -304,6 +307,34 @@ export class WorkspaceStateService {
   }
 
   /**
+   * Open (or focus) a Connection's server tab (C05 §11). One per Connection;
+   * `db_name` / `collection` are empty, as for a script tab.
+   */
+  openServer(input: { connectionId: string }): ServerTab {
+    const existing = this.repo.findMatching(input.connectionId, 'server', '', '');
+    if (existing) {
+      this.repo.setActiveExclusive(existing.id);
+      return rowToServerTab({ ...existing, is_active: 1 });
+    }
+    const id = randomUUID();
+    const row: WorkspaceTabRow = {
+      id,
+      connection_id: input.connectionId,
+      kind: 'server',
+      db_name: '',
+      collection: '',
+      state_json: serializeTabState({ ...DEFAULT_SERVER_TAB_STATE }),
+      position: this.repo.nextPosition(),
+      is_active: 1,
+      opened_at: new Date().toISOString(),
+      pinned: 0,
+    };
+    this.repo.insert(row);
+    this.repo.setActiveExclusive(id);
+    return rowToServerTab(row);
+  }
+
+  /**
    * Open the default collection for a connection — caller resolves `dbName`
    * and `collection` beforehand (via `meta:listDatabases` / `listCollections`).
    * If none supplied and no existing tab matches, creates a placeholder tab
@@ -449,14 +480,31 @@ function normalizeActiveView(raw: unknown): CollectionView {
 
 function mergeState(
   currentJson: string,
-  patch: Partial<CollectionTabState> | Partial<ScriptTabState>,
+  patch: Partial<CollectionTabState> | Partial<ScriptTabState> | Partial<ServerTabState>,
 ): string {
   const current = parseState<Record<string, unknown>>(currentJson);
   return serializeTabState({ ...current, ...patch });
 }
 
 function rowToTab(row: WorkspaceTabRow): WorkspaceTab {
-  return row.kind === 'script' ? rowToScriptTab(row) : rowToCollectionTab(row);
+  if (row.kind === 'script') return rowToScriptTab(row);
+  if (row.kind === 'server') return rowToServerTab(row);
+  return rowToCollectionTab(row);
+}
+
+function rowToServerTab(row: WorkspaceTabRow): ServerTab {
+  return {
+    id: row.id,
+    kind: 'server',
+    connectionId: row.connection_id,
+    dbName: row.db_name,
+    collection: row.collection,
+    position: row.position,
+    isActive: row.is_active === 1,
+    openedAt: row.opened_at,
+    pinned: row.pinned === 1,
+    state: { ...DEFAULT_SERVER_TAB_STATE, ...parseState<ServerTabState>(row.state_json) },
+  };
 }
 
 function rowToScriptTab(row: WorkspaceTabRow): ScriptTab {

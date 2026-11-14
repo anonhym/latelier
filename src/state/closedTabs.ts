@@ -1,4 +1,4 @@
-import type { CollectionTabState, ScriptTabState, WorkspaceTab } from '@shared/types';
+import type { CollectionTabState, ScriptTabState, ServerTabState, WorkspaceTab } from '@shared/types';
 
 /**
  * The tabs closed this session, newest first (W01 §14.8). Renderer memory
@@ -13,7 +13,8 @@ interface ClosedBase {
 }
 export type ClosedTab =
   | (ClosedBase & { kind: 'collection'; dbName: string; collection: string; state: CollectionTabState })
-  | (ClosedBase & { kind: 'script'; state: ScriptTabState });
+  | (ClosedBase & { kind: 'script'; state: ScriptTabState })
+  | (ClosedBase & { kind: 'server'; state: ServerTabState });
 
 /**
  * What reopening needs from `tab`. A run's result is left behind: it is never
@@ -25,6 +26,9 @@ export function closedTabOf(tab: WorkspaceTab): ClosedTab {
     delete state.lastResult;
     delete state.lastError;
     return { kind: 'script', connectionId: tab.connectionId, pinned: tab.pinned, state };
+  }
+  if (tab.kind === 'server') {
+    return { kind: 'server', connectionId: tab.connectionId, pinned: tab.pinned, state: { ...tab.state } };
   }
   const state: CollectionTabState = { ...tab.state };
   delete state.lastRun;

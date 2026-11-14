@@ -6,8 +6,8 @@ import { openListedCell } from './listedCell.ts';
 import type { Logger } from '../../log.ts';
 
 // SQLite still allows the legacy 'aggregation' literal for rows that haven't
-// been migrated yet. Runtime inserts use 'collection' or 'script' (W12).
-type StoredTabKind = 'collection' | 'aggregation' | 'script';
+// been migrated yet. Runtime inserts use 'collection', 'script' (W12) or 'server'.
+type StoredTabKind = 'collection' | 'aggregation' | 'script' | 'server';
 
 /**
  * Shape of a row in the `workspace_tabs` table. Keys mirror SQL columns exactly.

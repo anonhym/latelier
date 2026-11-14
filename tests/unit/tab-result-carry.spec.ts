@@ -7,6 +7,7 @@ import type {
   CollectionTab,
   LastRun,
   ScriptTab,
+  ServerTab,
 } from '../../shared/types';
 
 const now = '2026-04-21T12:00:00.000Z';
@@ -133,6 +134,24 @@ describe('carryResultFields', () => {
     const s = script('a');
     expect(carryResultFields([coll('a', { lastRun: run })], [s])[0]).toBe(s);
     expect(carryResultFields([script('a')], [s])[0]).toBe(s);
+  });
+
+  it('returns a server tab as listed', () => {
+    const server = (section: 'overview' | 'roles'): ServerTab => ({
+      id: 'v',
+      kind: 'server',
+      connectionId: 'c',
+      dbName: '',
+      collection: '',
+      position: 0,
+      isActive: false,
+      openedAt: now,
+      pinned: false,
+      state: { section },
+    });
+    const listed = server('roles');
+    const [out] = carryResultFields([server('overview')], [listed]);
+    expect(out).toBe(listed);
   });
 
   it('drops tabs that are no longer listed and keeps the listed order', () => {

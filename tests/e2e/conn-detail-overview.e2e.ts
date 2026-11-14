@@ -36,11 +36,9 @@ test('detail overview tab: server info cards render after connecting', async () 
       await expect(switcher.item(name)).toBeVisible({ timeout: 8000 });
       await expectStatusDot(win, name, 'connected');
 
-      // reviewed: the deep detail screen (`/connections/:id`) is
-      // reached only via "Manage" (ADR 0001) and is still live — it is
-      // the only place these server-info cards render, so this stays pointed
-      // at it rather than the retired bare `/connections` list.
-      await switcher.manage(name);
+      // The server tab is where these server-info cards render, reached
+      // through the navigator's `Server` control (C05 §11).
+      await new WorkspacePage(win).openServerFromNavigator(name);
 
       // The Overview tab is active by default. Cards mount only after
       // `api.mongo.serverInfo` resolves, so we want assertions specific to the

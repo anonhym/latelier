@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { locationModel, mostRecentlyConnected } from '../../src/pages/Workspace/locationModel';
-import type { CollectionTab, ConnectionSummary, ScriptTab } from '@shared/types';
+import type { CollectionTab, ConnectionSummary, ScriptTab, ServerTab } from '@shared/types';
 
 const conn = (id: string, over: Partial<ConnectionSummary> = {}): ConnectionSummary => ({
   id,
@@ -66,6 +66,15 @@ describe('locationModel', () => {
     expect(locationModel(script('a', 'Script 2'), [a])).toEqual({
       connection: a,
       segments: [{ kind: 'script', label: 'Script 2' }],
+    });
+  });
+
+  it('reads connection and Server for a server tab', () => {
+    const a = conn('a');
+    const server = { id: 'v', kind: 'server', connectionId: 'a', dbName: '', collection: '', state: { section: 'users' } } as ServerTab;
+    expect(locationModel(server, [a])).toEqual({
+      connection: a,
+      segments: [{ kind: 'server', label: 'Server' }],
     });
   });
 

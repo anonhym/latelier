@@ -45,6 +45,17 @@ export function ConnectionPaletteCommands() {
   const objects: PaletteObject[] = connections.map((conn) => {
     const actions: ObjectAction[] = [
       { id: 'open', verb: 'open', title: 'Open', perform: intent('openConnectionId', conn.id) },
+      {
+        id: 'server',
+        verb: 'open',
+        alternate: true,
+        title: 'Open server overview',
+        perform: () =>
+          navigate('/workspace', {
+            state: { openServer: { connectionId: conn.id } },
+            replace: location.pathname === '/workspace',
+          }),
+      },
       { id: 'edit', verb: 'edit', title: 'Edit', perform: intent('editConnectionId', conn.id) },
     ];
     // The navigator's Connection menu offers Disconnect on the same condition.

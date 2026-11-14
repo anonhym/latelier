@@ -44,7 +44,6 @@ test('monitor tab: profile All, run a query, see it in the profile tail', async 
       await prof.getByRole('button', { name: 'Apply' }).click();
       await expect(prof.getByText(/^Current: All/)).toBeVisible({ timeout: 8000 });
 
-      await win.getByRole('button', { name: 'Open workspace' }).click();
       await ws.openCollectionFromNavigator('shop', 'orders');
       await expect(win.getByText('monitor-a').first()).toBeVisible({ timeout: 8000 });
 

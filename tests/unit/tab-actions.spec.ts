@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { keepsPreview, nextScriptTitle, tabLabel } from '../../src/pages/Workspace/tabActions';
-import type { CollectionTab, ScriptTab, WorkspaceTab } from '@shared/types';
+import type { CollectionTab, ScriptTab, ServerTab, WorkspaceTab } from '@shared/types';
 
 const coll = (id: string, dbName: string, collection: string): CollectionTab =>
   ({ id, kind: 'collection', connectionId: 'c1', dbName, collection, state: {} }) as CollectionTab;
 
 const script = (id: string, title: string | undefined): ScriptTab =>
   ({ id, kind: 'script', connectionId: 'c1', state: { title } }) as unknown as ScriptTab;
+
+describe('tabLabel for a server tab', () => {
+  it('reads Server whatever the Connection, and never qualifies it', () => {
+    const server = { id: 'v', kind: 'server', connectionId: 'c1', dbName: '', collection: '', state: { section: 'overview' } } as ServerTab;
+    const clash = coll('a', 'shop', 'Server');
+    expect(tabLabel(server)).toBe('Server');
+    expect(tabLabel(server, [server, clash])).toBe('Server');
+  });
+});
 
 describe('tabLabel with the open tabs', () => {
   it('keeps the bare collection name while no other tab shows it', () => {

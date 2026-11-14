@@ -31,7 +31,7 @@ test('detail roles tab: create a custom role and see it listed', async () => {
       await switcher.waitVisible();
       await expect(switcher.item(name)).toBeVisible({ timeout: 8000 });
       await expectStatusDot(win, name, 'connected');
-      await switcher.manage(name);
+      await new WorkspacePage(win).openServerFromNavigator(name);
 
       await win.getByRole('button', { name: 'Roles', exact: true }).click();
       // The tab opens on admin, where a fresh server has no custom roles.

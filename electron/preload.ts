@@ -282,6 +282,7 @@ const api: IpcApi = {
     openAggregation: (input) => call(IPC_CHANNELS.tabsOpenAggregation, input),
     openDefault: (input) => call(IPC_CHANNELS.tabsOpenDefault, input),
     openScript: (input) => call(IPC_CHANNELS.tabsOpenScript, input),
+    openServer: (input) => call(IPC_CHANNELS.tabsOpenServer, input),
     update: (id, patch) => call(IPC_CHANNELS.tabsUpdate, { id, patch }),
     close: (id) => call(IPC_CHANNELS.tabsClose, { id }),
     setActive: (id) => call(IPC_CHANNELS.tabsSetActive, { id }),

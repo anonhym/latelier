@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { themeVars } from '../theme/themeVars';
 import { I } from '../icons';
 import { Button, Table, UnstyledButton, VisuallyHidden } from '@mantine/core';
@@ -12,7 +12,7 @@ import type {
   DbInfo,
   ServerInfo,
 } from '@shared/ipc';
-import type { ConnectionRuntime, ConnectionSummary } from '@shared/types';
+import type { ConnectionRuntime, ConnectionSummary, ServerSection } from '@shared/types';
 import { UsersTab } from './UsersTab';
 import { RolesTab } from './RolesTab';
 import { MonitorTab } from './MonitorTab';
@@ -24,6 +24,8 @@ import { humanBytes } from '../utils/humanBytes';
 
 const TABS = ['Overview', 'Monitor', 'Collections', 'Users', 'Roles'] as const;
 type Tab = typeof TABS[number];
+const toSection = (tab: Tab): ServerSection => tab.toLowerCase() as ServerSection;
+const toTab = (section: ServerSection): Tab => TABS.find((t) => toSection(t) === section) ?? 'Overview';
 
 function humanDuration(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '—';
@@ -549,25 +551,26 @@ function CollectionsTab({ conn, runtime }: {
   );
 }
 
-export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
+export function DetailPanel({ selected, loading, onDelete, onDisconnect, section, onSectionChange, onCloseTab }: {
   selected: ConnectionSummary | null;
   // Also null for one beat on first mount before the IPC round-trip resolves; loading distinguishes that from a dead id.
   loading: boolean;
   onDelete: (id: string) => void;
   onDisconnect: (id: string) => void;
+  /** The section in view, owned by the server tab's state; unset keeps it in local state. */
+  section?: ServerSection;
+  onSectionChange?: (section: ServerSection) => void;
+  /** Set when a server tab hosts the panel: the dead-connection state closes that tab rather than leaving for the Data View. */
+  onCloseTab?: () => void;
 }) {
   const T = themeVars;
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = React.useState<Tab>('Overview');
-  // A tab asked for on arrival (the palette's Open monitor, users, roles),
-  // again on each new arrival, as clicking that tab does.
-  const location = useLocation();
-  const askedTab = (location.state as { detailTab?: unknown } | null)?.detailTab;
-  React.useEffect(() => {
-    // Acts on an arrival's one-shot request.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (TABS.includes(askedTab as Tab)) setActiveTab(askedTab as Tab);
-  }, [askedTab, location.key]);
+  const [localTab, setLocalTab] = React.useState<Tab>('Overview');
+  const activeTab = section ? toTab(section) : localTab;
+  const setActiveTab = (tab: Tab) => {
+    setLocalTab(tab);
+    onSectionChange?.(toSection(tab));
+  };
   const [runtime, setRuntime] = React.useState<ConnectionRuntime | null>(null);
 
   React.useEffect(() => {
@@ -608,9 +611,13 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
           <div style={{ marginBottom: 16, fontSize: T.fsMd, color: T.textMuted }}>
             This connection no longer exists.
           </div>
-          <Button variant="filled" size="xs" leftSection={I.chevL} onClick={() => navigate('/workspace')}>
-            Back to Data View
-          </Button>
+          {onCloseTab ? (
+            <Button variant="filled" size="xs" onClick={onCloseTab}>Close tab</Button>
+          ) : (
+            <Button variant="filled" size="xs" leftSection={I.chevL} onClick={() => navigate('/workspace')}>
+              Back to Data View
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -655,7 +662,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
+          {activeTab === 'Overview' && <div style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
             <Button variant="subtle" size="compact-xs" leftSection={I.edit} onClick={() => navigate(`/connections/${selected.id}/edit`)}>
               Edit
             </Button>
@@ -678,13 +685,7 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect }: {
                 Disconnect
               </Button>
             )}
-            <Button variant="filled" size="compact-xs" leftSection={I.open} onClick={() => {
-              void api.conn.touchUsed(selected.id);
-              void navigate('/workspace', { state: { openConnectionId: selected.id } });
-            }}>
-              Open workspace
-            </Button>
-          </div>
+          </div>}
         </div>
 
         <div style={{ display: 'flex', gap: 0 }}>

@@ -49,6 +49,8 @@ import { ResizeHandle } from './ResizeHandle';
 import { Inspector, type InspectorTab, type PlanRequest } from './Inspector';
 import { MongoShellPane } from './MongoShellPane';
 import { ScriptTab } from './ScriptTab';
+import { ServerTab } from './ServerTab';
+import { closeTabGuarded } from './tabActions';
 import { CollectionHeader } from './CollectionHeader';
 import {
   CollectionWorkspaceProvider,
@@ -508,6 +510,16 @@ export function PanelBody({
               <ConnectionSwitcher {...switcherProps} variant="cta" />
             </div>
           </CenteredPane>
+        ) : active?.kind === 'server' ? (
+          // Before the dormant pane: a server tab's Overview is where a dormant Connection reconnects.
+          <ServerTab
+            tab={active}
+            connection={switcherProps.connections.find((c) => c.id === active.connectionId) ?? null}
+            onSection={(id, section) => tabs.patchServerState(id, { section })}
+            onDelete={switcherProps.onDelete}
+            onDisconnect={switcherProps.onDisconnect}
+            onClose={(id) => void closeTabGuarded(tabs, id)}
+          />
         ) : active && isKnownNotConnected(focusedConnection) && !connectionLost ? (
           // Never render the result grid off a stale cache while the tab's own connection is dormant.
           <ConnectionPane

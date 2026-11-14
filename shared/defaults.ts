@@ -8,6 +8,7 @@ import type {
   CollectionTabState,
   SchemaTabState,
   ScriptTabState,
+  ServerTabState,
 } from './types';
 
 // Deep-freeze the shared default objects to prevent accidental in-place
@@ -56,6 +57,8 @@ export const SCHEMA_SAMPLE_MAX = 200;
 export const DEFAULT_SCHEMA_TAB_STATE: SchemaTabState = deepFreeze({
   sampleSize: 100,
 });
+
+export const DEFAULT_SERVER_TAB_STATE: ServerTabState = deepFreeze({ section: 'overview' });
 
 export const DEFAULT_SCRIPT_TAB_STATE: ScriptTabState = deepFreeze({
   title: 'Script',
