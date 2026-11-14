@@ -11,6 +11,7 @@ import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { formatDocsForCopy } from '../../../utils/copyFormat';
 import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useCollectionWorkspace } from '../context';
@@ -19,6 +20,8 @@ import { getDocId } from './docId';
 import { SelectToggle } from './SelectToggle';
 import { DocActionsPopup } from './RowActionsMenu';
 import { useDocMenu } from './useDocMenu';
+import { useCopyFormat } from './useCopyFormat';
+import { copyShortcutOf } from './copyShortcut';
 
 interface JsonViewProps {
   documents: unknown[];
@@ -494,6 +497,7 @@ export function JsonView({ documents }: JsonViewProps) {
   const selectedIndices = selection.indices;
   const toggleSelect = selection.toggle;
   const [copiedIdx, setCopiedIdx] = React.useState<number | null>(null);
+  const [copyFormat] = useCopyFormat();
   const [collapsedKeys, setCollapsedKeys] = React.useState<Set<string>>(() => new Set());
   // Collapse keys are `${docKey}:${node.id}`, where node.id is assigned in
   // token order over the *redacted* JSON — hiding or showing a field shifts
@@ -516,15 +520,14 @@ export function JsonView({ documents }: JsonViewProps) {
   }, []);
 
   const copyDoc = React.useCallback((doc: unknown, idx: number) => {
-    const text = ejsonStringifyReadable(doc, 2);
     // The badge is the success feedback, so it waits for the write to
     // resolve. A failure toasts and leaves no badge behind.
-    void copyToClipboard(text).then((ok) => {
+    void copyToClipboard(formatDocsForCopy([doc], copyFormat)).then((ok) => {
       if (!ok) return;
       setCopiedIdx(idx);
       setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1200);
     });
-  }, []);
+  }, [copyFormat]);
 
   // "More actions" per-card menu — Duplicate only, since Edit/Delete already
   // have their own always-visible buttons on the card.
@@ -552,6 +555,11 @@ export function JsonView({ documents }: JsonViewProps) {
       if (e.target !== e.currentTarget) return;
       if (documents.length === 0) return;
       const doc = documents[roving.activeIndex];
+      if (copyShortcutOf(e) !== null) {
+        e.preventDefault();
+        copyDoc(doc, roving.activeIndex);
+        return;
+      }
       if (isContextMenuKey(e)) {
         e.preventDefault();
         // The active card may have been scrolled out and unmounted: open
@@ -585,7 +593,7 @@ export function JsonView({ documents }: JsonViewProps) {
     // `roving` itself is a fresh object every render; depend on the members
     // this actually reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, listRef, handleOpenRowMenu, onEditDoc, onDeleteDoc, canDelete],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, listRef, handleOpenRowMenu, onEditDoc, onDeleteDoc, canDelete, copyDoc],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh

@@ -21,6 +21,9 @@ import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
 import { SelectToggle } from './SelectToggle';
 import { DocActionsPopup } from './RowActionsMenu';
+import { DocIdLabel } from './DocIdLabel';
+import { copyDocument, copyShortcutOf } from './copyShortcut';
+import { useCopyFormat } from './useCopyFormat';
 import { useDocMenu } from './useDocMenu';
 import { FieldActionsMenu } from './FieldActionsMenu';
 import { useAddToFilter } from './useAddToFilter';
@@ -321,18 +324,7 @@ function DocRowImpl({
           {I.chevD}
         </ActionIcon>
 
-        <span
-          style={{
-            fontFamily: 'monospace',
-            fontSize: 'var(--atelier-fs-xs)',
-            color: 'var(--atelier-accent-ink)',
-            fontWeight: 600,
-            flexShrink: 0,
-            minWidth: 68,
-          }}
-        >
-          {shortId}
-        </span>
+        <DocIdLabel doc={doc} />
 
         <CollapsedRowPreview
           doc={doc}
@@ -509,6 +501,7 @@ export function TreeView({
   // row strip, not from inside an expanded field). Declared here, ahead of
   // handleOpenMenu below, so both open handlers can close the other menu.
   const { docMenu, docMenuRef, openDocMenu, closeDocMenu } = useDocMenu();
+  const [copyFormat] = useCopyFormat();
 
   const handleOpenMenu = React.useCallback(
     ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
@@ -571,6 +564,12 @@ export function TreeView({
       // mirrored on DocRow itself; that copy went when the rows stopped
       // being focusable, so this is now the only one.
       if (e.target !== e.currentTarget) return;
+      if (copyShortcutOf(e) !== null) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        void copyDocument(documents[roving.activeIndex], copyFormat);
+        return;
+      }
       if (isEditKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
@@ -596,7 +595,7 @@ export function TreeView({
     // `roving` is a fresh object every render — depend on the members this
     // actually reads instead (same as `TableView`'s `handleGridKeyDown`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete],
+    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete, copyFormat],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh
