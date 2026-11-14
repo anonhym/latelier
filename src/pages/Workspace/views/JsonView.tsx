@@ -550,7 +550,7 @@ export function JsonView({ documents }: JsonViewProps) {
   // scroll has to happen in the same handler that moves the index, so the
   // row `aria-activedescendant` names is mounted.
   const listRef = useListRef(null);
-  const scrollMemory = useScrollMemory('JSON');
+  const { listKey, ...scrollMemory } = useScrollMemory('JSON');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'json-row-',
@@ -660,6 +660,7 @@ export function JsonView({ documents }: JsonViewProps) {
         role="tree"
         aria-label="Documents"
         listRef={listRef}
+        key={listKey}
         {...scrollMemory}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}

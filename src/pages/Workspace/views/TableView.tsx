@@ -1318,7 +1318,7 @@ export function TableView({
   // Declared here rather than beside `roving` below, which also uses it:
   // the actions offset reads the grid element too.
   const listRef = useListRef(null);
-  const scrollMemory = useScrollMemory('Table');
+  const { listKey, ...scrollMemory } = useScrollMemory('Table');
   const [actionsOffset, setActionsOffset] = React.useState(0);
   const [detail, setDetail] = React.useState({ left: 0, width: 0 });
   const { left: detailLeft, width: detailWidth } = detail;
@@ -2020,6 +2020,7 @@ export function TableView({
         aria-owns="table-header-row"
         // #20 — the grid is the widget's only tab stop; see `roving` above.
         listRef={listRef}
+        key={listKey}
         {...scrollMemory}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
