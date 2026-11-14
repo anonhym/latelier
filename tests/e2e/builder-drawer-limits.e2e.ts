@@ -111,7 +111,7 @@ test('the shell pane cannot be dragged shorter than 10% of the column', async ()
     await win.setViewportSize({ width: 1600, height: 900 });
     await open(win);
 
-    await win.getByRole('banner').getByRole('button', { name: /Shell/ }).click();
+    await win.getByRole('banner').getByRole('button', { name: /Console/ }).click();
     const handle = win.getByRole('separator', { name: 'Resize shell pane' });
     await expect(handle).toBeVisible();
     const box = await handle.boundingBox();
