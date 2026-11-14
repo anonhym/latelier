@@ -205,6 +205,9 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   // The tabs the last list returned, pending patches applied. `tabsRef` only
   // catches up after a render, too late for an open straight after another.
   const listed = useRef<readonly WorkspaceTab[]>([]);
+  // Opens run one at a time, so each reads the preview and the open tabs as
+  // the one before left them, whatever order main answers in.
+  const openChain = useRef<Promise<unknown>>(Promise.resolve());
 
   const refresh = useCallback(async () => {
     try {
@@ -287,26 +290,33 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   );
 
   const openCollection: WorkspaceTabsState['openCollection'] = useCallback(
-    async ({ preview, ...input }) => {
-      if (!preview) {
-        const tab = await openCollectionTab(input);
-        keepTab(tab.id);
+    ({ preview, ...input }) => {
+      const run = async (): Promise<CollectionTab> => {
+        if (!preview) {
+          const tab = await openCollectionTab(input);
+          keepTab(tab.id);
+          return tab;
+        }
+        const before = new Set(listed.current.map((t) => t.id));
+        const tab = await openCollectionTab({ ...input, reuseExisting: true });
+        // Landing on a tab that was already open focuses it and leaves the
+        // preview where it was.
+        if (before.has(tab.id)) return tab;
+        const replaced = previewRef.current;
+        setPreview(tab.id);
+        // The new tab is already in front, so closing the old one never
+        // hands focus to a neighbour first.
+        if (replaced && listed.current.some((t) => t.id === replaced)) {
+          await api.tabs.close(replaced);
+          await refresh();
+        }
         return tab;
-      }
-      const before = new Set(listed.current.map((t) => t.id));
-      const tab = await openCollectionTab({ ...input, reuseExisting: true });
-      // Landing on a tab that was already open focuses it and leaves the
-      // preview where it was.
-      if (before.has(tab.id)) return tab;
-      const replaced = previewRef.current;
-      setPreview(tab.id);
-      // The new tab is already in front, so closing the old one never
-      // hands focus to a neighbour first.
-      if (replaced && listed.current.some((t) => t.id === replaced)) {
-        await api.tabs.close(replaced);
-        await refresh();
-      }
-      return tab;
+      };
+      const result = openChain.current.then(run, run);
+      // The caller still gets the rejection through `result`; only the next
+      // link must not inherit it.
+      openChain.current = result.catch(() => undefined);
+      return result;
     },
     [openCollectionTab, keepTab, setPreview, refresh],
   );

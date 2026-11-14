@@ -193,6 +193,34 @@ it('two quick single clicks on different collections still leave one preview', a
   expect(labels(hook.result.current.tabs)).toEqual(['users']);
 });
 
+it('quick single clicks resolve in click order even when the first open answers last', async () => {
+  const s = store();
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const realOpen = s.api.openCollection as unknown as (i: { collection: string }) => Promise<CollectionTab>;
+  installAtelierMock({
+    tabs: {
+      ...s.api,
+      openCollection: (async (input: { collection: string }) => {
+        if (input.collection === 'orders') await gate;
+        return realOpen(input);
+      }) as never,
+    },
+  });
+  const hook = renderHook(() => useWorkspaceTabs());
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+
+  await act(async () => {
+    const first = hook.result.current.openCollection({ ...ns('orders'), preview: true });
+    const second = hook.result.current.openCollection({ ...ns('users'), preview: true });
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    await Promise.all([first, second]);
+  });
+  expect(labels(hook.result.current.tabs)).toEqual(['users']);
+  expect(hook.result.current.previewId).toBe(hook.result.current.tabs[0]!.id);
+});
+
 describe('script titles', () => {
   it('numbers new scripts at open, one past the highest default title open', async () => {
     const { hook, openScript } = await mount();
