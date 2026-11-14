@@ -1,4 +1,5 @@
-import { isEjsonDocument, isExactSentinel } from './ejson';
+import { ejsonParse, isEjsonDocument, isExactSentinel } from './ejson';
+import { toMongoshLiteral } from './copyFormat';
 import { parseJsonKeepingBigInts } from './bigIntJson';
 
 /**
@@ -7,9 +8,10 @@ import { parseJsonKeepingBigInts } from './bigIntJson';
  *
  * Inputs are Canonical EJSON text. That is not shell syntax: pasted into
  * mongosh, `{"$oid": "…"}` reads as an unknown query operator, and a bare
- * `9007199254740993` rounds. So each exact sentinel travels as a string
- * literal through the language's own EJSON parser, which keeps its BSON type,
- * and everything else is a plain literal.
+ * `9007199254740993` rounds. mongosh gets its own literals (`ObjectId("…")`,
+ * `ISODate("…")`, unquoted keys; W05 §9.5); for Node.js and Python each exact
+ * sentinel travels as a string literal through the language's own EJSON
+ * parser, which keeps its BSON type, and everything else is a plain literal.
  *
  * Only the sentinel, never the whole document: the drivers' parsers revive
  * looser shapes than the app does — bson's EJSON.parse turns
@@ -126,6 +128,8 @@ function plainNumber(obj: Record<string, unknown>): string | null {
 const parse = (text: string): unknown => parseJsonKeepingBigInts(text);
 
 const jsArg = (text: string): string => literal(parse(text), JS);
+/** A clause as mongosh source: the app's shell literals, on one line. */
+const shellArg = (text: string): string => toMongoshLiteral(ejsonParse(text), 'inline');
 const pyArg = (text: string): string => literal(parse(text), PY);
 
 /** The direction words a find sort accepts (`builder.ts`'s SORT_DIRECTIONS). */
@@ -158,12 +162,12 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   if (limit <= 0) throw new Error(`findCode: limit must be positive, got ${limit}`);
 
   if (lang === 'mongosh') {
-    let code = `db.getCollection(${str(collection)}).find(${jsArg(filter)}`;
-    if (projection) code += `, ${jsArg(projection)}`;
+    let code = `db.getCollection(${str(collection)}).find(${shellArg(filter)}`;
+    if (projection) code += `, ${shellArg(projection)}`;
     code += ')';
-    if (sort) code += `.sort(${jsArg(sort)})`;
-    if (collation) code += `.collation(${jsArg(collation)})`;
-    if (hint) code += `.hint(${isKeyPattern(hint) ? jsArg(hint) : str(hint)})`;
+    if (sort) code += `.sort(${shellArg(sort)})`;
+    if (collation) code += `.collation(${shellArg(collation)})`;
+    if (hint) code += `.hint(${isKeyPattern(hint) ? shellArg(hint) : str(hint)})`;
     if (skip > 0) code += `.skip(${skip})`;
     return `${code}.limit(${limit})`;
   }
@@ -193,7 +197,7 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
     return withEjsonImport(lines);
   }
 
-  const lines = ['from bson import json_util', '', `query = ${pyArg(filter)}`];
+  const lines = ['', `query = ${pyArg(filter)}`];
   const args = ['query'];
   if (projection) {
     lines.push(`projection = ${pyArg(projection)}`);
@@ -215,7 +219,13 @@ export function findCode(lang: CodeLang, input: FindCodeInput): string {
   if (skip > 0) args.push(`skip=${skip}`);
   args.push(`limit=${limit}`);
   lines.push(`cursor = db[${str(collection)}].find(${args.join(', ')})`);
-  return lines.join('\n');
+  return withJsonUtilImport(lines);
+}
+
+/** Prefixes the bson import only when the snippet actually calls `json_util.`. */
+function withJsonUtilImport(lines: string[]): string {
+  const body = lines.join('\n');
+  return body.includes('json_util.') ? `from bson import json_util\n${body}` : body.replace(/^\n/, '');
 }
 
 /** Prefixes the bson import only when the snippet actually calls `EJSON.`. */
@@ -227,7 +237,7 @@ function withEjsonImport(lines: string[]): string {
 export function aggregateCode(lang: CodeLang, input: AggregateCodeInput): string {
   const { collection, pipelineJson } = input;
   if (lang === 'mongosh') {
-    return `db.getCollection(${str(collection)}).aggregate(${jsArg(pipelineJson)})`;
+    return `db.getCollection(${str(collection)}).aggregate(${shellArg(pipelineJson)})`;
   }
   if (lang === 'node') {
     return withEjsonImport([
@@ -235,10 +245,9 @@ export function aggregateCode(lang: CodeLang, input: AggregateCodeInput): string
       `const cursor = db.collection(${str(collection)}).aggregate(pipeline);`,
     ]);
   }
-  return [
-    'from bson import json_util',
+  return withJsonUtilImport([
     '',
     `pipeline = ${pyArg(pipelineJson)}`,
     `cursor = db[${str(collection)}].aggregate(pipeline)`,
-  ].join('\n');
+  ]);
 }

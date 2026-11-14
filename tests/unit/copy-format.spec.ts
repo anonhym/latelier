@@ -223,6 +223,14 @@ describe('toMongoshLiteral', () => {
     );
   });
 
+  it('has a one-line layout for embedding in a call', () => {
+    expect(toMongoshLiteral({}, 'inline')).toBe('{}');
+    expect(toMongoshLiteral([], 'inline')).toBe('[]');
+    expect(toMongoshLiteral({ a: [1, { b: null }], c: {}, d: new ObjectId('64b7f0c2a1b2c3d4e5f60718') }, 'inline')).toBe(
+      '{ a: [1, { b: null }], c: {}, d: ObjectId("64b7f0c2a1b2c3d4e5f60718") }',
+    );
+  });
+
   it('keeps a $date that is not a date as an object', () => {
     expect(toMongoshLiteral(JSON.parse('{"x":{"$date":"not a date"}}'))).not.toContain('ISODate');
   });
