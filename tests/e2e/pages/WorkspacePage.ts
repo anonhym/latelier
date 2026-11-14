@@ -49,6 +49,11 @@ export class WorkspacePage {
    * hover or focus, so the root is hovered first. Opens the Connection's server tab.
    */
   async openServerFromNavigator(connectionName: string) {
+    // An open Switcher popover covers the navigator's hover-revealed button.
+    if (await this.switcher.listbox.isVisible()) {
+      await this.switcher.trigger.click();
+      await expect(this.switcher.listbox).toHaveCount(0);
+    }
     await this.win.locator('[data-testid="nav-connection"]').filter({ hasText: connectionName }).hover();
     await this.win.getByRole('button', { name: `Server overview for ${connectionName}` }).click();
   }

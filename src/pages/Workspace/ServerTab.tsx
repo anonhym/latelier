@@ -6,12 +6,14 @@ import { DetailPanel } from '../DetailPanel';
  * Monitor, Collections, Users and Roles, with the section in view kept in the
  * tab's own state so it survives a tab switch and a relaunch.
  */
-export function ServerTab({ tab, connection, onSection, onDelete, onDisconnect }: {
+export function ServerTab({ tab, connection, onSection, onDelete, onDisconnect, onClose }: {
   tab: ServerTabType;
   connection: ConnectionSummary | null;
   onSection: (id: string, section: ServerSection) => void;
   onDelete: (id: string) => void;
   onDisconnect: (id: string) => void;
+  /** Closes this tab; offered when its Connection no longer exists. */
+  onClose: (id: string) => void;
 }) {
   return (
     <DetailPanel
@@ -22,6 +24,7 @@ export function ServerTab({ tab, connection, onSection, onDelete, onDisconnect }
       onDisconnect={onDisconnect}
       section={tab.state.section}
       onSectionChange={(section) => onSection(tab.id, section)}
+      onCloseTab={() => onClose(tab.id)}
     />
   );
 }

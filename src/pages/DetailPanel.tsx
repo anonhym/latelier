@@ -551,7 +551,7 @@ function CollectionsTab({ conn, runtime }: {
   );
 }
 
-export function DetailPanel({ selected, loading, onDelete, onDisconnect, section, onSectionChange }: {
+export function DetailPanel({ selected, loading, onDelete, onDisconnect, section, onSectionChange, onCloseTab }: {
   selected: ConnectionSummary | null;
   // Also null for one beat on first mount before the IPC round-trip resolves; loading distinguishes that from a dead id.
   loading: boolean;
@@ -560,6 +560,8 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect, section
   /** The section in view, owned by the server tab's state; unset keeps it in local state. */
   section?: ServerSection;
   onSectionChange?: (section: ServerSection) => void;
+  /** Set when a server tab hosts the panel: the dead-connection state closes that tab rather than leaving for the Data View. */
+  onCloseTab?: () => void;
 }) {
   const T = themeVars;
   const navigate = useNavigate();
@@ -609,9 +611,13 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect, section
           <div style={{ marginBottom: 16, fontSize: T.fsMd, color: T.textMuted }}>
             This connection no longer exists.
           </div>
-          <Button variant="filled" size="xs" leftSection={I.chevL} onClick={() => navigate('/workspace')}>
-            Back to Data View
-          </Button>
+          {onCloseTab ? (
+            <Button variant="filled" size="xs" onClick={onCloseTab}>Close tab</Button>
+          ) : (
+            <Button variant="filled" size="xs" leftSection={I.chevL} onClick={() => navigate('/workspace')}>
+              Back to Data View
+            </Button>
+          )}
         </div>
       </div>
     );

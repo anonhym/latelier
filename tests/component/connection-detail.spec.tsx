@@ -61,6 +61,7 @@ function mountTab(opts: {
   const onSection = vi.fn();
   const onDelete = vi.fn();
   const onDisconnect = vi.fn();
+  const onClose = vi.fn();
   installAtelierMock({
     mongo: {
       status: async (id) => ({ id, status: opts.status ?? 'connected' }),
@@ -77,10 +78,11 @@ function mountTab(opts: {
         onSection={onSection}
         onDelete={onDelete}
         onDisconnect={onDisconnect}
+        onClose={onClose}
       />
     </MemoryRouter>,
   );
-  return { onSection, onDelete, onDisconnect };
+  return { onSection, onDelete, onDisconnect, onClose };
 }
 
 const selected = (name: string) => screen.getByRole('button', { name }).style.fontWeight === '600';
@@ -143,8 +145,12 @@ describe('server tab content', () => {
   });
 
   it('says the Connection no longer exists when it cannot be resolved', async () => {
-    mountTab({ connection: null });
+    const { onClose } = mountTab({ connection: null });
     expect(await screen.findByText(/no longer exists/i)).toBeTruthy();
+    // The tab is the only thing left to leave: the action closes it.
+    expect(screen.queryByRole('button', { name: 'Back to Data View' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close tab' }));
+    expect(onClose).toHaveBeenCalledExactlyOnceWith('s1');
   });
 });
 

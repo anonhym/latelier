@@ -50,6 +50,7 @@ import { Inspector, type InspectorTab, type PlanRequest } from './Inspector';
 import { MongoShellPane } from './MongoShellPane';
 import { ScriptTab } from './ScriptTab';
 import { ServerTab } from './ServerTab';
+import { closeTabGuarded } from './tabActions';
 import { CollectionHeader } from './CollectionHeader';
 import {
   CollectionWorkspaceProvider,
@@ -517,6 +518,7 @@ export function PanelBody({
             onSection={(id, section) => tabs.patchServerState(id, { section })}
             onDelete={switcherProps.onDelete}
             onDisconnect={switcherProps.onDisconnect}
+            onClose={(id) => void closeTabGuarded(tabs, id)}
           />
         ) : active && isKnownNotConnected(focusedConnection) && !connectionLost ? (
           // Never render the result grid off a stale cache while the tab's own connection is dormant.

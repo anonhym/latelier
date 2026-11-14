@@ -78,7 +78,7 @@ export class WorkspaceStateService {
     let count = 0;
     const unreadable: string[] = [];
     for (const row of this.repo.list()) {
-      // Every kind but `script` reads back as a collection tab (`rowToTab`).
+      // Script and server rows carry no pipeline.
       if (row.kind === 'script' || row.kind === 'server') continue;
       let state: unknown;
       try {
