@@ -16,7 +16,7 @@ import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
-import { Button, Group, Select, TextInput, Tooltip } from '@mantine/core';
+import { Button, Group, Select, Text, TextInput, Tooltip } from '@mantine/core';
 import { ScriptEditor } from '../../components/ScriptEditor';
 import { PaneState } from '../../components/PaneState';
 import { ejsonStringify } from '../../utils/ejson';
@@ -156,7 +156,16 @@ function ScriptTabInner({ tab, defaultDb, connectionName, onPatch }: ScriptTabPr
       if (hits.length > 0) {
         const ok = await confirmDestructive({
           title: 'Run this script?',
-          body: `This script calls ${hits.join(', ')} on ${connectionName ?? 'this Connection'}.`,
+          body: (
+            <>
+              <Text size="sm">
+                This script calls {hits.join(', ')} on {connectionName ?? 'this Connection'}.
+              </Text>
+              <Text size="xs" c="dimmed" mt="xs">
+                This is a check of the script's text, not a guarantee: a call built at run time is not seen.
+              </Text>
+            </>
+          ),
           confirmLabel: 'Run anyway',
           focusCancel: true,
         });

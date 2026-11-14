@@ -642,6 +642,7 @@ describe('ScriptTab destructive-script confirmation (W12 §8.4)', () => {
     fireEvent.click(screen.getByTestId('script-run-btn'));
     const dialog = await screen.findByRole('dialog');
     expect(dialog.textContent).toContain('This script calls deleteMany({}) on Local dev');
+    expect(dialog.textContent).toContain('a check of the script\'s text, not a guarantee');
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
     await waitFor(() => expect(document.activeElement).toBe(cancel));
     fireEvent.click(cancel);

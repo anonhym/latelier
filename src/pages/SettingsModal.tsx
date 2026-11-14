@@ -390,8 +390,9 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                   Confirm destructive scripts
                 </Text>
                 <Text id="confirm-destructive-description" size="xs" c="dimmed">
-                  Ask before a script runs that calls deleteMany with no filter, drop, or dropDatabase. A
-                  text check only: it cannot see a filter built at run time.
+                  Ask before a script runs that calls deleteMany with no filter (also inside bulkWrite),
+                  drop, dropCollection or dropDatabase. A text check only, not a guarantee: it cannot see a
+                  filter built at run time.
                 </Text>
               </Stack>
               <Switch
