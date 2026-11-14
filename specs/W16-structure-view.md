@@ -1,6 +1,6 @@
 # W16 — Structure: the collection's shape and access paths
 
-> **Status: Accepted.** §0–§15 shipped. §16 is built except the tab label rename ("Schema & indexes" in the UI), which ships with the view-header slice: stat strip, sticky section pills, one Refresh, Sample/Resample, frequency bars, a schema row menu and the one-line validation state.
+> **Status: Implemented.** §0–§15 shipped. §16 is built except the tab label rename ("Schema & indexes" in the UI), which ships with the view-header slice: stat strip, sticky section pills, one Refresh, Sample/Resample, frequency bars, a schema row menu and the one-line validation state.
 
 ## Purpose
 
@@ -1022,7 +1022,7 @@ the write grant. W02's Modify view is the channel's other caller.
 
 ## 16. Amendment — "Schema & indexes", and its layout
 
-> **Accepted, not built.** It supersedes §1's and §13's layout and leaves the plan badge (§3), create-this-index (§4), the schema depth of §14 and the validation rules of §15 as they are.
+> **Built.** It supersedes §1's and §13's layout and leaves the plan badge (§3), create-this-index (§4), the schema depth of §14 and the validation rules of §15 as they are.
 
 ### 16.1 The name
 

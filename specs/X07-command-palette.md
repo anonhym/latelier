@@ -1,6 +1,6 @@
 # X07 — Command palette
 
-> **Status: Accepted.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is built, except the key caps and titles §14.4 gives to commands other work adds (they come with those commands, from `Command.shortcut`, and the `Copy query as…` command); where it names a part of §13, §14 is what ships.
+> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is built, except the key caps and titles §14.4 gives to commands other work adds (they come with those commands, from `Command.shortcut`, and the three `Copy query as mongosh`, `Copy query as Node.js` and `Copy query as Python` commands); where it names a part of §13, §14 is what ships.
 
 ## Purpose
 
@@ -775,7 +775,7 @@ Adds to §13.3's "Unavailable commands".
 - The leading icon is the row's **kind** icon for every row, commands included (a command glyph, not a chevron). A chevron on the left reads as "expandable"; `›` is used only at the right of a row that opens a second step.
 - Every command with a shortcut shows it as a key cap, including the ones added by [W01 §14.11](./W01-workspace-shell.md): `Focus filter ⌘L`, `Toggle sidebar ⌘B`, `Query builder ⌘⇧B`, `Go to documents ⌥1`, `Go to aggregation ⌥2`, `Go to schema & indexes ⌥3`, `Open collection… ⌘T`, `Reopen closed tab ⌘⇧T`.
 - The `query.drawer.toggle` toggle is titled `Query builder`; `shell.toggle` is titled `Console`.
-- A `Copy query as…` command joins the `query` group, with the same three targets as the Run menu ([W05 §9.5](./W05-query-bar.md)).
+- Three commands, `Copy query as mongosh`, `Copy query as Node.js` and `Copy query as Python`, join the `query` group, with the same three targets as the Run menu ([W05 §9.5](./W05-query-bar.md)).
 
 ### 14.5 Collections before any tab
 

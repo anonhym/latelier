@@ -1,6 +1,6 @@
 # X14 — Shell Syntax input on the read-query surfaces
 
-> **Status: Accepted** (T1–T5 shipped; §11, which stops the live checks calling valid Shell Syntax invalid, is agreed and not built yet). This spec now describes the application rather than
+> **Status: Accepted.** T1–T5 and §11 shipped. This spec now describes the application rather than
 > proposing a change to it. T1 `src/utils/shellSyntax.ts`,
 > T2 Filter Bar, T3 sort and raw projection,
 > T4 aggregation stage bodies, T5 error feedback, plus

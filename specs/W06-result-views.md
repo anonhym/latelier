@@ -1,6 +1,6 @@
 # W06 — Result views (Tree / JSON / Table)
 
-> **Status: Accepted.** §1–§7 shipped; the preview-fields picker in §2 was removed and the Fields control replaced it. §8, the canvas (its header, the stale banner, row identity, absent cells, copy formats, menus, deep documents, error copy), is agreed and not built yet; where it names a part of §2–§5, §8 is what ships.
+> **Status: Accepted.** §1–§8 shipped
 
 ## Purpose
 

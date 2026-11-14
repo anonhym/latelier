@@ -1,6 +1,6 @@
 # W09 — Saved queries (repo + UI)
 
-> **Status: Accepted.** §1–§11 shipped; the "Saved for this collection" strip in §7 was removed. §12, which moves the Saved list out of the Query Builder into the Filter Bar's popover, is agreed and not built yet.
+> **Status: Accepted.** §1–§12 shipped
 
 ## Purpose
 
