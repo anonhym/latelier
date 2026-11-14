@@ -61,10 +61,8 @@ test('add Connections from pasted strings, with typed credentials, then batch-de
     });
 
     const switcher = new WorkspacePage(win).switcher;
-    await switcher.openExpandedTable();
-    const table = switcher.expandedTableDialog;
-    await table.getByRole('button', { name: 'Import', exact: true }).click();
-    await win.getByRole('menuitem', { name: 'Paste URIs…', exact: true }).click();
+    // No Connection is saved, so the welcome canvas (C03 §13.1) is the entry to the wizard.
+    await win.getByRole('button', { name: 'Paste several URIs' }).click();
 
     const wizard = wizardDialog(win);
     await wizard.getByRole('textbox', { name: 'Or paste connection strings' }).fill(
@@ -94,7 +92,9 @@ test('add Connections from pasted strings, with typed credentials, then batch-de
     await wizard.getByRole('button', { name: 'Done' }).click();
     await expect(wizard).toBeHidden();
 
-    // The table stayed open underneath, and now lists both.
+    // Both are listed in the Connections table.
+    await switcher.openExpandedTable();
+    const table = switcher.expandedTableDialog;
     await expect(table.getByText(`${host} (2)`, { exact: true })).toBeVisible();
     const typed = await win.evaluate(async (name) => {
       const api = (window as unknown as { atelier: Atelier }).atelier;
