@@ -28,6 +28,7 @@ const SET_SCHEMAS = new Map<string, z.ZodType>([
   ],
   ['ui.workspace.defaultPageSize', finite],
   ['ui.workspace.defaultView', z.enum(['Table', 'Tree', 'JSON'])],
+  ['ui.workspace.copyFormat', z.enum(['readable', 'canonical', 'mongosh'])],
   ['ui.editor.fontSize', z.number().int().min(10).max(20)],
   ['ui.workspace.leftWidth', finite],
   ['ui.workspace.refDrawerWidth', finite],

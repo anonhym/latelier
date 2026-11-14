@@ -753,11 +753,9 @@ describe('ConnectionSwitcher — add/edit', () => {
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     await waitFor(() => expect(connect).toHaveBeenCalledWith('new1'));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New Connection' })).toBeNull());
-    // X16.4 — the new Connection is *connected* (asserted above), not
-    // named in the TitleBar: opening a Connection opens no tab, and the
-    // trigger names the Focused Tab's Connection. With still no tab open, it
-    // names none.
-    expect(titleBar().getByRole('button', { name: 'Connection: none selected' })).toBeTruthy();
+    // Opening a Connection opens no tab: the breadcrumb still asks for a
+    // collection.
+    expect(titleBar().getByRole('button', { name: 'Choose a collection…' })).toBeTruthy();
     expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
   });
 

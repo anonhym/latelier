@@ -1,22 +1,19 @@
 import React from 'react';
-import { ActionIcon, Button, Group, Tooltip } from '@mantine/core';
+import { ActionIcon, Button, Group, Tooltip, UnstyledButton } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
 
 interface TitleBarProps {
-  dark: boolean;
-  toggle: () => void;
-  connectionName: string | null;
   /**
-   * Renders in place of the plain Connection-name span. A slot rather
-   * than threading `connections`/`onSwitch`/status props through TitleBar —
-   * The Switcher keeps growing new affordances, and a slot stops TitleBar's
-   * prop list growing every time. Falls back to the plain `connectionName`
-   * span when omitted.
+   * The location breadcrumb. A slot rather than threading the Switcher's and
+   * the navigator's props through TitleBar: the breadcrumb owns its dropdowns.
+   * Omitted when no Connection is saved.
    */
-  connectionSlot?: React.ReactNode;
+  breadcrumb?: React.ReactNode;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
   onOpenSettings: () => void;
   onOpenPalette: () => void;
   shellOpen: boolean;
@@ -24,11 +21,12 @@ interface TitleBarProps {
   onToggleShell: () => void;
 }
 
+const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
+
 export function TitleBar({
-  dark,
-  toggle,
-  connectionName,
-  connectionSlot,
+  breadcrumb,
+  sidebarCollapsed,
+  onToggleSidebar,
   onOpenSettings,
   onOpenPalette,
   shellOpen,
@@ -44,7 +42,7 @@ export function TitleBar({
       gap={themeVars.gapSm}
       wrap="nowrap"
       style={{
-        height: 46,
+        height: 40,
         padding: '0 14px',
         borderBottom: `1px solid ${T.border}`,
         background: T.surface,
@@ -53,45 +51,67 @@ export function TitleBar({
       } as React.CSSProperties}
     >
       <div style={{ width: 70, flexShrink: 0 }} />
-      <Group
-        gap={themeVars.gapXs}
-        wrap="nowrap"
-        style={{
-          minWidth: 0,
-          WebkitAppRegion: 'drag',
-        } as React.CSSProperties}
-      >
-        {connectionSlot ? (
-          // Only the interactive switcher opts out of dragging; the plain
-          // breadcrumb text below stays part of the window's drag area.
-          <div
-            style={{ display: 'flex', flex: 1, minWidth: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            {connectionSlot}
-          </div>
-        ) : (
-          <span style={{ fontSize: T.fsSm, color: T.textMuted }}>
-            {connectionName ?? '—'}
-          </span>
-        )}
-      </Group>
-      {/* Plain drag spacer, not a no-drag Group — the Connection Switcher
-          used to sit in a flex:1 no-drag Group, which made the whole
-          middle of the bar (not just the button) undraggable. */}
-      <div style={{ flex: 1 }} />
-      <Tooltip label={`Search actions (${formatShortcut('⌘K', isMacRenderer())})`} withArrow>
-        <Button
-          variant="default"
-          size="compact-xs"
-          onClick={onOpenPalette}
-          data-hint-anchor="palette.discover"
-          aria-label="Search actions"
-          leftSection={I.cmd}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      <Tooltip label="Toggle sidebar" withArrow>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="md"
+          onClick={onToggleSidebar}
+          aria-label="Toggle sidebar"
+          aria-pressed={!sidebarCollapsed}
+          style={NO_DRAG}
         >
-          K
-        </Button>
+          {I.sidebar}
+        </ActionIcon>
       </Tooltip>
+      {breadcrumb && (
+        // Only the breadcrumb's own buttons opt out of dragging; the bar
+        // around them stays part of the window's drag area.
+        <div style={{ display: 'flex', flex: '0 1 auto', minWidth: 0, ...NO_DRAG }}>{breadcrumb}</div>
+      )}
+      {/* Plain drag spacer, not a no-drag Group — a flex:1 no-drag box
+          made the whole middle of the bar undraggable. */}
+      <div style={{ flex: 1 }} />
+      {/* A button drawn as an input: it opens the palette, it takes no text. */}
+      <UnstyledButton
+        onClick={onOpenPalette}
+        data-hint-anchor="palette.discover"
+        aria-label="Search collections and actions"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: T.gapSm,
+          width: 320,
+          minWidth: 120,
+          flexShrink: 1,
+          height: 26,
+          padding: '0 8px',
+          border: `1px solid ${T.borderMed}`,
+          borderRadius: 6,
+          background: T.bg,
+          color: T.textMuted,
+          fontSize: T.fsSm,
+          ...NO_DRAG,
+        }}
+      >
+        <span aria-hidden style={{ display: 'flex' }}>{I.search}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Search collections and actions
+        </span>
+        <kbd
+          aria-hidden
+          style={{
+            fontFamily: 'inherit',
+            fontSize: T.fsXs,
+            padding: '0 5px',
+            border: `1px solid ${T.borderMed}`,
+            borderRadius: 4,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {formatShortcut('⌘K', isMacRenderer())}
+        </kbd>
+      </UnstyledButton>
       <Tooltip label={shellTooltip} withArrow>
         <Button
           variant={shellOpen ? 'light' : 'default'}
@@ -101,7 +121,7 @@ export function TitleBar({
           disabled={!shellAvailable}
           aria-pressed={shellOpen}
           leftSection={I.terminal}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          style={NO_DRAG}
         >
           Shell
         </Button>
@@ -112,20 +132,9 @@ export function TitleBar({
           size="md"
           onClick={onOpenSettings}
           aria-label="Open settings"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          style={NO_DRAG}
         >
           {I.gear}
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label={dark ? 'Switch to light theme' : 'Switch to dark theme'} withArrow>
-        <ActionIcon
-          variant="default"
-          size="md"
-          onClick={toggle}
-          aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          {dark ? I.sun : I.moon}
         </ActionIcon>
       </Tooltip>
     </Group>

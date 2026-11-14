@@ -104,7 +104,7 @@ describe('workspace panel prefs (T4)', () => {
     // text — its disappearance is what actually proves `prefsReady` flipped,
     // rather than the collapsed-navbar affordance merely being the default.
     await waitFor(() => expect(screen.queryByText('Loading workspace…')).toBeNull());
-    expect(screen.getByRole('button', { name: 'Open navigator' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.queryByRole('separator', { name: 'Resize navigator' })).toBeNull();
   });
 
@@ -169,7 +169,7 @@ describe('workspace panel prefs (T4)', () => {
     await waitFor(() => expect(screen.queryByText('Loading workspace…')).toBeNull());
     // Defaults: navigator open (not collapsed), so the resize handle renders.
     expect(screen.getByRole('separator', { name: 'Resize navigator' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Collapse navigator' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('dragging the navigator resize handle writes ui.workspace.leftWidth', async () => {
@@ -272,7 +272,7 @@ describe('workspace panel prefs (T4)', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() =>
       expect(set).toHaveBeenCalledWith('ui.workspace.sidebarCollapsed', true),
     );
@@ -364,11 +364,11 @@ describe('workspace panel prefs (T4)', () => {
         </MemoryRouter>,
       );
 
-      fireEvent.click(await screen.findByRole('button', { name: 'Collapse navigator' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Toggle sidebar' }));
 
       // The toggle itself still took effect locally.
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Open navigator' })).toBeTruthy(),
+        expect(screen.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-pressed')).toBe('false'),
       );
       // Let the rejected write's microtask actually run before checking.
       await new Promise((resolve) => setTimeout(resolve, 0));

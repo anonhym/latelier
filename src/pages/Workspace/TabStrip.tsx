@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Menu, Tooltip, UnstyledButton } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { ContextMenu } from '../../components/ContextMenu';
@@ -8,6 +8,8 @@ import { groupTabsByConnection } from './tabGroups';
 import { tabLabel } from './tabActions';
 import { isDormant } from '../../state/connections';
 import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 
 interface TabStripProps {
   tabs: WorkspaceTab[];
@@ -15,10 +17,17 @@ interface TabStripProps {
    *  isn't in this list still render — the list loads asynchronously. */
   connections: ConnectionSummary[];
   activeId: string | null;
+  /** The preview tab, drawn italic until something keeps it (W01 §14.9). */
+  previewId: string | null;
+  onKeep: (id: string) => void;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
   onOpenNewScript: () => void;
+  /** `+ ▾` → Open collection…: the §8 picker. */
+  onOpenCollectionPicker: () => void;
+  /** `+ ▾` → New aggregation on the Focused Tab's collection. */
+  onNewAggregation: (tabId: string) => void;
   onTogglePin: (id: string) => void;
   /** Close `ids` as one action (Close others / Close to the right); `keepId` is the tab the menu was opened on. */
   onCloseMany: (ids: string[], keepId: string) => void;
@@ -54,10 +63,14 @@ export function TabStrip({
   tabs,
   connections,
   activeId,
+  previewId,
+  onKeep,
   onActivate,
   onClose,
   onReorder,
   onOpenNewScript,
+  onOpenCollectionPicker,
+  onNewAggregation,
   onTogglePin,
   onCloseMany,
   onReveal,
@@ -155,6 +168,9 @@ export function TabStrip({
   };
 
   const menuTab = menu ? tabs.find((t) => t.id === menu.tabId) : null;
+  const activeTab = tabs.find((t) => t.id === activeId);
+  const activeCollectionTab = activeTab?.kind === 'collection' ? activeTab : null;
+  const mac = isMacRenderer();
 
   const groups = React.useMemo(
     () =>
@@ -164,6 +180,18 @@ export function TabStrip({
       })),
     [tabs, connections],
   );
+
+  // X16 §13.1 — the chip is drawn only while two or more Connections have
+  // tabs, and collapsing is the chip's action: when it goes, so does every
+  // collapse, so no tab is ever hidden behind a control that is not drawn.
+  const showChips = groups.length >= 2;
+  // Adjusted during render, not in an effect, so no frame shows the
+  // collapsed group without its chip.
+  const [chipsShown, setChipsShown] = React.useState(showChips);
+  if (chipsShown !== showChips) {
+    setChipsShown(showChips);
+    if (!showChips) setCollapsedGroups(new Set());
+  }
 
   // Bulk closes read the strip's on-screen (grouped) order, never the stored
   // one, and leave pinned tabs alone. A collapsed group's tabs are not on
@@ -192,7 +220,7 @@ export function TabStrip({
       // itself a roving-tabindex stop — the tabs are.
       tabIndex={-1}
       style={{
-        height: 34,
+        height: 32,
         display: 'flex',
         alignItems: 'stretch',
         borderBottom: `1px solid ${T.border}`,
@@ -230,15 +258,14 @@ export function TabStrip({
               display: 'flex',
               alignItems: 'stretch',
               // The divider between groups.
-              borderRight: `2px solid ${T.borderMed}`,
-              marginRight: 8,
+              ...(showChips ? { borderRight: `2px solid ${T.borderMed}`, marginRight: 8 } : {}),
             }}
           >
             {/* The Tab Group header: the name is the identity, the filled colour
                 is the second cue — two Connections can share a palette
                 family. One button, so a click anywhere on it toggles the
                 group. Lit when the group holds the Focused Tab. */}
-            <button
+            {showChips && <button
               type="button"
               onClick={() => toggleGroupCollapsed(connectionId)}
               aria-expanded={!collapsed}
@@ -275,16 +302,18 @@ export function TabStrip({
               </span>
               <span>{name}</span>
               {readOnly && <ReadOnlyBadge />}
-            </button>
+            </button>}
             {!collapsed && groupTabs.map((tab) => {
               const active = tab.id === activeId;
               const over =
                 dragOverId === tab.id && dragId !== tab.id && sameGroup(dragId, tab.id);
-              const label = tabLabel(tab);
+              const label = tabLabel(tab, tabs);
+              const preview = tab.id === previewId;
+              // Follows the label, so two same-named tabs' close buttons differ too.
               const closeLabel = `Close ${
                 tab.kind === 'script'
                   ? tab.state.title || 'script'
-                  : tab.collection || 'tab'
+                  : tab.collection ? label : 'tab'
               }`;
               return (
                 <div
@@ -294,8 +323,17 @@ export function TabStrip({
                   // e2e-reliable signal for "Dormant" — the inline muted
                   // style alone is too fragile for Playwright to assert on.
                   data-dormant={dormant || undefined}
+                  data-preview={preview || undefined}
+                  title={`${
+                    tab.kind === 'collection'
+                      ? `${name} · ${tab.dbName}.${tab.collection}`
+                      : `${name} · ${label}`
+                  }${preview ? '\nPreview: the next single click replaces it' : ''}`}
                   draggable
-                  onDragStart={() => setDragId(tab.id)}
+                  onDragStart={() => {
+                    onKeep(tab.id);
+                    setDragId(tab.id);
+                  }}
                   onDragOver={(e) => {
                     e.preventDefault();
                     setDragOverId(tab.id);
@@ -309,6 +347,7 @@ export function TabStrip({
                     handleDrop(tab.id);
                   }}
                   onClick={() => onActivate(tab.id)}
+                  onDoubleClick={() => onKeep(tab.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
@@ -347,9 +386,8 @@ export function TabStrip({
                   // The Connection is in the name too: a tab that only says
                   // "orders" does not tell a screen-reader user which server
                   // the query would run against.
-                  aria-label={
-                    readOnly ? `${label} — ${name} (read-only)` : `${label} — ${name}`
-                  }
+                  // The italic label is a visual cue only; the name says "preview" too.
+                  aria-label={`${label} — ${name}${readOnly ? ' (read-only)' : ''}${preview ? ' (preview)' : ''}`}
                   tabIndex={active ? 0 : -1}
                   style={{
                     display: 'flex',
@@ -367,13 +405,10 @@ export function TabStrip({
                     // otherwise imply is current.
                     color: dormant ? T.textGhost : active ? T.text : T.textMuted,
                     borderRight: `1px solid ${T.border}`,
-                    // Connection colour on every tab, dim until it is the
-                    // Focused Tab.
-                    borderBottom: active
-                      ? `2px solid ${connection?.color ?? T.accent}`
-                      : over
-                        ? `2px solid ${T.accentBorder}`
-                        : `2px solid color-mix(in srgb, ${groupColor} 35%, transparent)`,
+                    // The Connection's colour on every tab, chip or not.
+                    borderLeft: `3px solid ${groupColor}`,
+                    boxShadow: over ? `inset 0 -2px 0 ${T.accentBorder}` : undefined,
+                    fontWeight: active ? 500 : undefined,
                     opacity: dragId === tab.id ? 0.6 : dormant ? 0.6 : 1,
                   }}
                 >
@@ -387,9 +422,16 @@ export function TabStrip({
                       </span>
                     </Tooltip>
                   )}
-                  {tab.kind === 'script' && <span style={{ fontSize: T.fsXs }}>⌥</span>}
-                  <span>{label}</span>
+                  <span aria-hidden style={{ display: 'flex', color: T.textMuted }}>
+                    {tab.kind === 'script'
+                      ? I.code
+                      : tab.state.activeView === 'aggregation'
+                        ? I.sum
+                        : I.coll}
+                  </span>
+                  <span style={preview ? { fontStyle: 'italic' } : undefined}>{label}</span>
                   {readOnly && <ReadOnlyBadge />}
+                  <Tooltip label={`Close tab ${formatShortcut('⌘W', mac)}`} withArrow openDelay={400}>
                   <ActionIcon
                     variant="subtle"
                     color="gray"
@@ -410,28 +452,47 @@ export function TabStrip({
                   >
                     {I.close}
                   </ActionIcon>
+                  </Tooltip>
                 </div>
               );
             })}
           </div>
         );
       })}
-      <Tooltip label="New script tab" withArrow>
-        <UnstyledButton
-          onClick={onOpenNewScript}
-          aria-label="New script tab"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: themeVars.gapXs,
-            padding: '0 10px',
-            color: T.textMuted,
-            fontSize: T.fsXs,
-          }}
-        >
-          + Script
-        </UnstyledButton>
-      </Tooltip>
+      <Menu position="bottom-start">
+        <Menu.Target>
+          <UnstyledButton
+            aria-label="New tab"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: themeVars.gapXs,
+              padding: '0 10px',
+              color: T.textMuted,
+              fontSize: T.fsSm,
+              flexShrink: 0,
+            }}
+          >
+            <span aria-hidden style={{ display: 'flex' }}>{I.plus}</span>
+            <span aria-hidden style={{ display: 'flex' }}>{I.chevD}</span>
+          </UnstyledButton>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            onClick={onOpenCollectionPicker}
+            rightSection={<span style={{ color: T.textMuted }}>{formatShortcut('⌘T', mac)}</span>}
+          >
+            Open collection…
+          </Menu.Item>
+          <Menu.Item onClick={onOpenNewScript}>New script</Menu.Item>
+          <Menu.Item
+            disabled={!activeCollectionTab}
+            onClick={() => activeCollectionTab && onNewAggregation(activeCollectionTab.id)}
+          >
+            {activeCollectionTab ? `New aggregation on ${activeCollectionTab.collection}` : 'New aggregation'}
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
 
       {menu && menuTab && (
         <ContextMenu

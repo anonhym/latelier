@@ -650,12 +650,9 @@ describe(' "Add to filter" on the field-tree context menu', () => {
     it('is not offered on a cell whose value is undefined — nothing there to add', () => {
       const { actions } = mount({ doc: { _id: DOC._id, ghost: undefined } });
 
-      // The cell for an undefined value has no `title` (that's what gates
-      // draggability), so it's found by its rendered content instead — the
-      // literal string "undefined" `String(display)` renders. `getByText`
-      // resolves to the data cell, not the "ghost" column header, since
-      // only the cell's own text is "undefined".
-      fireEvent.contextMenu(screen.getByText('undefined'));
+      // An absent field's cell reads `—` and carries the title `Field not
+      // present` rather than the drag title (that's what gates draggability).
+      fireEvent.contextMenu(screen.getByTitle('Field not present'));
 
       expect(screen.queryByText('Add to filter')).toBeNull();
       expect(actions.patch).not.toHaveBeenCalled();

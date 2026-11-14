@@ -1,4 +1,9 @@
 import React from 'react';
+import { copyToClipboard } from '../../../utils/clipboard';
+import { formatDocsForCopy } from '../../../utils/copyFormat';
+import { isRecord } from '../../../utils/displayValue';
+import { getDocIdText } from './docId';
+import { useCopyFormat } from './useCopyFormat';
 import type { DocMenuState } from './useDocMenu';
 
 /**
@@ -50,8 +55,32 @@ export function RowActionsMenu({
   isView,
   onClose,
 }: RowActionsMenuProps) {
+  const [copyFormat] = useCopyFormat();
+  const hasId = isRecord(doc) && doc._id !== undefined && doc._id !== null;
   return (
     <>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          void copyToClipboard(formatDocsForCopy([doc], copyFormat), 'Document copied to the clipboard.');
+          onClose();
+        }}
+        style={itemStyle}
+      >
+        Copy document
+      </button>
+      {hasId && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            void copyToClipboard(getDocIdText(doc), 'Document id copied to the clipboard.');
+            onClose();
+          }}
+          style={itemStyle}
+        >
+          Copy _id
+        </button>
+      )}
       <button
         onClick={() => {
           onEdit(doc);

@@ -388,6 +388,7 @@ export function DialogStack({
           collection={editing.target.collection}
           doc={editing.doc}
           focusPath={editing.focusPath}
+          siblings={editing.siblings}
           onClose={closeEditor}
           onSaved={handleDocSaved}
         />

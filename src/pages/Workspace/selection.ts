@@ -49,13 +49,3 @@ export function buildDeleteSelectedFilterJson(docs: unknown[]): string | null {
   if (ids.length === 0) return null;
   return ejsonStringify({ _id: { $in: ids } });
 }
-
-/**
- * Serialize selected documents for "Copy selected" — a bare EJSON object for
- * a single doc (matches the existing per-card copy in JsonView), a JSON
- * array for multiple. Preserves BSON sentinels via `ejsonStringify`.
- */
-export function serializeSelectedForClipboard(docs: unknown[]): string {
-  if (docs.length === 1) return ejsonStringify(docs[0], 2);
-  return ejsonStringify(docs, 2);
-}

@@ -54,6 +54,7 @@ export class ConnectionService {
         defaultDb: row.default_db ?? undefined,
         status: runtime.status === 'disconnected' ? 'unknown' : runtime.status,
         serverVersion: runtime.serverVersion,
+        connectedAt: runtime.connectedAt,
         readOnly: row.read_only === 1,
         lostReason: runtime.lostReason,
       };

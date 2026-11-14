@@ -107,7 +107,7 @@ describe('selection bar', () => {
         <ResultViewer.Json />
       </ResultViewer>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Select document 99439011' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select document …99439011' }));
     expect(screen.getByTestId('selection-bar-copy')).toBeTruthy();
     expect(!!screen.queryByTestId('selection-bar-delete')).toBe(hasDelete);
   });
