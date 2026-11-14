@@ -74,8 +74,10 @@ export function useRunClock(tabId: string): RunClock | null {
 }
 
 /** Test-only. */
+// Stryker disable all: the spec's own teardown; nothing in the app calls it.
 export function _resetRunClocksForTests(): void {
   for (const tabId of [...stops.keys()]) stopTimer(tabId);
   clocks.clear();
   startedAt.clear();
 }
+// Stryker restore all
