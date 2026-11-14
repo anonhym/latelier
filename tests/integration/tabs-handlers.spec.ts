@@ -474,6 +474,18 @@ describe('tabs:openServer — real service and SQLite', () => {
     if (!bad.ok) expect(bad.error.code).toBe('VALIDATION');
   });
 
+  it('refuses a section on a collection tab', async () => {
+    const col = await shim.invoke<{ id: string }>(IPC_CHANNELS.tabsOpenCollection, {
+      connectionId: CONN,
+      dbName: 'db',
+      collection: 'c',
+    });
+    if (!col.ok) throw new Error('openCollection failed');
+    const env = await shim.invoke(IPC_CHANNELS.tabsUpdate, { id: col.data.id, patch: { state: { section: 'roles' } } });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+  });
+
   it('keeps the section when the tabs are reloaded from the database', async () => {
     const opened = await openServer(CONN);
     if (!opened.ok) throw new Error('openServer failed');

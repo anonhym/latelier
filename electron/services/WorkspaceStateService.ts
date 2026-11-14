@@ -364,6 +364,11 @@ export class WorkspaceStateService {
   update(id: string, patch: TabStatePatch): WorkspaceTab {
     const row = this.repo.findById(id);
     if (!row) throw new NotFoundError(`workspace tab ${id} not found`);
+    // `section` belongs to the server tab alone; on any other kind it would sit in
+    // the stored state unread.
+    if (row.kind !== 'server' && 'section' in patch.state) {
+      throw new ValidationError(`'section' applies to server tabs only, not ${row.kind} tabs`);
+    }
     let serialized: string;
     try {
       serialized = mergeState(row.state_json, patch.state);
