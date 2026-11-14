@@ -87,10 +87,17 @@ test('dark captures: welcome canvas, connection form, palette (no Connection)', 
       await expect(win.getByTestId('welcome-canvas')).toHaveCSS('background-color', await tokenColour(win, '--atelier-bg'));
       await expectDarkTones(win, 'welcome canvas');
 
-      await win.keyboard.press(MAC ? 'Meta+K' : 'Control+K');
+      // The global shortcut ignores a keypress made in a text field off macOS, and the
+      // first one after a cold launch can be lost (as in f04): release the field, and press
+      // again only while the palette is closed.
+      await ws.switcher.welcomeField.blur();
       const search = win.locator('input[aria-label="Search commands"]');
-      await expect(search).toBeVisible({ timeout: 4000 });
-      await expectDarkTones(win, 'palette', { raised: win.getByRole('dialog').filter({ has: search }) });
+      const palette = win.getByRole('dialog').filter({ has: search });
+      await expect(async () => {
+        if (!(await palette.isVisible())) await win.keyboard.press(MAC ? 'Meta+K' : 'Control+K');
+        await expect(palette).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 8000 });
+      await expectDarkTones(win, 'palette', { panel: palette });
       await win.keyboard.press('Escape');
       await expect(search).toHaveCount(0);
 
@@ -115,11 +122,11 @@ test('dark captures: Switcher, Connections table (Connection, no tab)', async ()
 
       await ws.switcher.waitVisible();
       await expect(ws.switcher.item('Dark Beta')).toBeVisible({ timeout: 8000 });
-      await expectDarkTones(win, 'Switcher', { raised: ws.switcher.listbox });
+      await expectDarkTones(win, 'Switcher', { raised: win.locator('.mantine-Popover-dropdown').filter({ has: ws.switcher.listbox }) });
 
       await ws.switcher.openExpandedTable();
       await expect(ws.switcher.expandedTableRow('Dark Beta')).toBeVisible();
-      await expectDarkTones(win, 'Connections table', { raised: ws.switcher.expandedTableDialog });
+      await expectDarkTones(win, 'Connections table', { panel: ws.switcher.expandedTableDialog });
     });
   });
 });
@@ -167,8 +174,10 @@ test('dark captures: Documents (Table, Tree, JSON), stale result and error strip
       await expectDarkTones(win, 'stale result', { panel: statusBar });
       await expect(win.locator('#query-bar-filter-error')).toBeVisible();
       await expectDarkTones(win, 'Filter Bar error strip', { panel: ws.navigator });
+      // The rows on screen stay the previous query's until a run replaces them.
       await ws.queryBarTextarea.fill('{status: "paid"}');
       await ws.queryBarTextarea.blur();
+      await ws.queryBarRunButton.click();
       await expect(win.getByTestId('band-stale')).toHaveCount(0);
 
       // Inspector (the Plan tab).
