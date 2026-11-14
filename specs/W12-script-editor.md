@@ -540,8 +540,8 @@ Closing a script tab that holds source offers Undo, and ⌘⇧T reopens it ([W01
 
 The Documents view asks the user to type the collection name before a delete-all; a script running `deleteMany({})` ran at once. The two paths disagreed about how dangerous the same operation is.
 
-- Before Run, the source is scanned **as text** for: `deleteMany(` with an empty or missing filter, `.drop(`, and `dropDatabase(`.
-- A hit opens one confirmation naming the Connection and what was found (`This script calls deleteMany({}) on Local dev`), with `Run anyway` and Cancel. Cancel has initial focus.
+- Before Run, the source is scanned **as text** for: `deleteMany(` with an empty or missing filter, a `bulkWrite` operation `deleteMany`/`deleteOne` with an empty filter, `.drop(`, `dropCollection(` and `dropDatabase(`. Comments, string literals and regular expressions are skipped; code inside a template literal's `${}` is read.
+- A hit opens one confirmation naming the Connection and what was found (`This script calls deleteMany({}) on Local dev`), with `Run anyway` and Cancel, and a line saying it is a check of the script's text, not a guarantee. Cancel has initial focus.
 - A setting, **Confirm destructive scripts** (Settings, on by default, stored as `ui.scripts.confirmDestructive`), turns it off.
 - It is a courtesy, not a guard: a text scan cannot see a filter built at run time or a call made through a variable, and the spec does not claim it can. The Read-Only Connection handle (§5) stays the real enforcement.
 - The scan is a pure function over the source, with no nested-quantifier patterns, since the source is user-controlled.

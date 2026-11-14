@@ -193,7 +193,7 @@ export class ShellService {
       dbName,
       banner:
         `L'Atelier shell (isolated process). Connected to ${input.connectionId}. ` +
-        'Type help() for hints.',
+        'Type help() for hints. Lines run as you enter them: the destructive-script check covers Scripts only.',
     };
     handle.postMessage(request);
 

@@ -5,6 +5,7 @@ import { themeVars } from '../theme/themeVars';
 import { AppShell } from '@mantine/core';
 import { type PanelImperativeHandle } from 'react-resizable-panels';
 import { useWorkspaceTabs } from '../state/workspaceTabs';
+import { reopenClosedTab } from './Workspace/reopenClosedTab';
 import { useConnections, isConnectionActive, isKnownNotConnected } from '../state/connections';
 import { setFocusedConnectionId as publishFocusedConnectionId } from '../state/focusedConnection';
 import { publishPaletteCollections } from '../state/paletteCollections';
@@ -450,13 +451,11 @@ function WorkspaceInner() {
   const focusedConnectionRef = useLatest(focusedConnection);
   // W01 §14.8: reopens the newest closed tab whose Connection still exists.
   const knownConnectionsRef = useLatest(connections);
-  const reopenClosedTab = React.useCallback(async () => {
-    try {
-      await tabsRef.current.reopenClosed((id) => knownConnectionsRef.current.some((c) => c.id === id));
-    } catch (err) {
-      notify.error(getErrorMessage(err, 'Could not reopen the tab'));
-    }
-  }, [tabsRef, knownConnectionsRef]);
+  const connectionsLoadingRef = useLatest(connectionsLoading);
+  const reopenClosed = React.useCallback(
+    () => reopenClosedTab(tabsRef.current, knownConnectionsRef.current, connectionsLoadingRef.current),
+    [tabsRef, knownConnectionsRef, connectionsLoadingRef],
+  );
 
   // "Go to Indexes" / "Go to Schema" from the palette: the Structure view may
   // not be mounted yet when the command runs, so the scroll waits for the
@@ -837,7 +836,7 @@ function WorkspaceInner() {
         shortcut: '⌘⇧T',
         keywords: ['undo', 'closed', 'restore'],
         when: () => tabsRef.current.closedCount > 0,
-        perform: () => void reopenClosedTab(),
+        perform: () => void reopenClosed(),
       },
       {
         id: 'tab.pin.toggle',
@@ -1266,7 +1265,11 @@ function WorkspaceInner() {
       } else if (e.key.toLowerCase() === 't') {
         e.preventDefault();
         // ⇧ held: the key reads 'T'. ⌘⇧T reopens, ⌘T opens (W01 §14.8).
-        if (e.shiftKey) void reopenClosedTab();
+        // A dialog's own focus keeps ⌘⇧T: reopening behind it would be missed.
+        if (e.shiftKey) {
+          const origin = e.target instanceof HTMLElement ? e.target : null;
+          if (!origin?.closest('[role="dialog"], [role="alertdialog"]')) void reopenClosed();
+        }
         else setNewTabOpen(true);
       } else if (e.key === 'b') {
         // A dialog has no ⌘B handler, so the event bubbles here — must not
@@ -1302,7 +1305,7 @@ function WorkspaceInner() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosedTab, focusedConnectionRef]);
+  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosed, focusedConnectionRef]);
 
   const handlePick = async (input: {
     connectionId: string;

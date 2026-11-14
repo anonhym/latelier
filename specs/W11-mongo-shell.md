@@ -379,6 +379,7 @@ The app had two JavaScript surfaces, a title-bar button called **Shell** and tab
 - **Clear.** `Ctrl+L` clears the output, and a `Clear` button sits beside Restart and Stop. Clearing keeps the session and its history.
 - **Echo.** A command is echoed as `shop> db.orders.countDocuments({})`: one prompt. It showed two, `shop> > …`.
 - `` ⌃` `` toggles the pane from anywhere in the workspace outside a dialog.
+- The pane's greeting says that the destructive-script check ([W12 §8.4](./W12-script-editor.md)) covers Scripts only: a line typed here runs at once.
 
 ### 8.3 Acceptance criteria
 

@@ -43,7 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount(initial: WorkspaceTab[]) {
+function mount(initial: WorkspaceTab[], connGate?: Promise<void>) {
   let rows = initial;
   const openScript = vi.fn<IpcApi['tabs']['openScript']>(async (input) => {
     const tab = { ...scriptTab('t-new', '', true), state: { title: 'Script', source: '', maxTimeMs: 60_000, ...input.initialState } };
@@ -60,7 +60,12 @@ function mount(initial: WorkspaceTab[]) {
       },
       openScript,
     },
-    conn: { list: async () => [conn] },
+    conn: {
+      list: async () => {
+        if (connGate) await connGate;
+        return [conn];
+      },
+    },
     mshell: { start, write: async () => undefined, stop: async () => undefined, list: async () => [], onOutput: () => () => {} },
   });
   render(
@@ -109,6 +114,53 @@ describe('Reopening a closed tab (W01 §14.8)', () => {
     expect(disabled(item)).toBe(false);
     await userEvent.click(item);
     await waitFor(() => expect(openScript).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('⌘⇧T edge cases', () => {
+  it('says so when nothing was closed', async () => {
+    const { openScript } = mount([scriptTab('t1', 'x')]);
+    await screen.findByLabelText('Close Script 1');
+    fireEvent.keyDown(window, { key: 'T', metaKey: true, shiftKey: true });
+    expect(await screen.findByText('No closed tab to reopen')).toBeTruthy();
+    expect(openScript).not.toHaveBeenCalled();
+  });
+
+  it('while connections are still loading, says so and keeps the closed tab for later', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { openScript } = mount([scriptTab('t1', 'db.orders.find()')], gate);
+    await userEvent.click(await screen.findByLabelText('Close Script 1'));
+    await waitFor(() => expect(screen.queryByLabelText('Close Script 1')).toBeNull());
+
+    fireEvent.keyDown(window, { key: 'T', metaKey: true, shiftKey: true });
+    expect(await screen.findByText(/Connections are still loading/)).toBeTruthy();
+    expect(openScript).not.toHaveBeenCalled();
+
+    await act(async () => release());
+    fireEvent.keyDown(window, { key: 'T', metaKey: true, shiftKey: true });
+    await waitFor(() => expect(openScript).toHaveBeenCalledTimes(1));
+    expect(openScript.mock.calls[0]![0].initialState!.source).toBe('db.orders.find()');
+  });
+
+  it('is left alone inside a dialog, like ⌘B', async () => {
+    const { openScript } = mount([scriptTab('t1', 'x')]);
+    await userEvent.click(await screen.findByLabelText('Close Script 1'));
+    await waitFor(() => expect(screen.queryByLabelText('Close Script 1')).toBeNull());
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const field = document.createElement('input');
+    dialog.appendChild(field);
+    document.body.appendChild(dialog);
+    try {
+      fireEvent.keyDown(field, { key: 'T', metaKey: true, shiftKey: true });
+      await act(async () => {});
+      expect(openScript).not.toHaveBeenCalled();
+    } finally {
+      dialog.remove();
+    }
   });
 });
 
