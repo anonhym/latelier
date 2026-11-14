@@ -1,6 +1,6 @@
-// W15 §13.6 — the query drawer was reachable only by Tabbing to a
-// 14×36px notch. These pin the two routes that replace that, and the guard
-// that keeps them from firing into a pane the user cannot see.
+// W15 §13.6, W05 §9.7 — the Inspector's Builder toggle: the palette entry and
+// ⌘⇧B, and the guard that keeps them from firing into a pane the user cannot
+// see. ⌘B is the sidebar's (W01 §14.11).
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
@@ -59,10 +59,14 @@ function ToggleButton() {
   return <button onClick={palette.toggle}>toggle</button>;
 }
 
-function renderWorkspace(activeView: CollectionView = 'documents') {
+function renderWorkspace(activeView: CollectionView = 'documents', builderCollapsed?: boolean) {
   installAtelierMock({
     tabs: { list: async () => [collectionTab(activeView)] },
     conn: { list: async () => [conn()] },
+    prefs: {
+      get: (async (key: string) =>
+        key === 'ui.workspace.builderCollapsed' && builderCollapsed !== undefined ? builderCollapsed : null) as never,
+    },
   });
   return render(
     <MemoryRouter initialEntries={['/workspace']}>
@@ -82,15 +86,25 @@ afterEach(() => {
   _resetPaletteStoreForTests();
 });
 
-describe('the query drawer has a palette entry', () => {
-  it('offers a toggle whose switch shows the drawer’s state', async () => {
+const toggleButton = () => screen.getByRole('button', { name: 'Builder' });
+
+describe('the Query builder has a palette entry', () => {
+  it('offers a toggle whose switch shows the Inspector’s state, off for a fresh profile', async () => {
     renderWorkspace();
     await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
 
     fireEvent.click(screen.getByText('toggle'));
-    // The drawer starts expanded, so the switch is on.
-    const row = screen.getByRole('option', { name: /^Query drawer/ });
-    expect(row.getAttribute('aria-checked')).toBe('true');
+    const row = screen.getByRole('option', { name: /^Query builder/ });
+    expect(row.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('is on when the stored choice opened the Inspector', async () => {
+    renderWorkspace('documents', false);
+    await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
+    await screen.findByRole('tablist', { name: 'Inspector view' });
+
+    fireEvent.click(screen.getByText('toggle'));
+    expect(screen.getByRole('option', { name: /^Query builder/ }).getAttribute('aria-checked')).toBe('true');
   });
 
   it('is withheld in the aggregation view, where the builder is shut and hidden', async () => {
@@ -98,54 +112,70 @@ describe('the query drawer has a palette entry', () => {
     await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
 
     fireEvent.click(screen.getByText('toggle'));
-    expect(screen.queryByRole('option', { name: /^Query drawer/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /^Query builder/ })).toBeNull();
   });
 });
 
-describe('⌘B toggles the drawer', () => {
-  it('collapses the drawer and moves focus to the notch', async () => {
+describe('⌘⇧B toggles the Inspector', () => {
+  it('opens on Filter and puts focus on the selected tab', async () => {
     renderWorkspace();
     await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
-    await screen.findByRole('button', { name: 'Collapse Query Builder' });
+    expect(screen.queryByRole('tablist', { name: 'Inspector view' })).toBeNull();
 
-    fireEvent.keyDown(window, { key: 'b', metaKey: true });
+    fireEvent.keyDown(window, { key: 'B', metaKey: true, shiftKey: true });
 
-    // Focus must not be left where it was, or the shortcut changes the layout
-    // out from under the user and the next Tab continues from nowhere useful.
-    const notch = await screen.findByRole('button', { name: 'Open Query Builder' });
-    await waitFor(() => expect(document.activeElement).toBe(notch));
+    const filter = await screen.findByRole('tab', { name: 'Filter' });
+    expect(filter.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(filter));
   });
 
-  it('expands again and puts focus on the drawer tablist', async () => {
+  it('closes again and puts focus back on the Builder button', async () => {
+    renderWorkspace('documents', false);
+    await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
+    await screen.findByRole('tablist', { name: 'Inspector view' });
+
+    fireEvent.keyDown(window, { key: 'B', metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Inspector view' })).toBeNull());
+    // Focus must not be left where it was, or the shortcut changes the layout
+    // out from under the user and the next Tab continues from nowhere useful.
+    await waitFor(() => expect(document.activeElement).toBe(toggleButton()));
+    expect(toggleButton().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('is the Builder button’s own shortcut', async () => {
     renderWorkspace();
     await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
-    await screen.findByRole('button', { name: 'Collapse Query Builder' });
 
-    fireEvent.keyDown(window, { key: 'b', metaKey: true });
-    await screen.findByRole('button', { name: 'Open Query Builder' });
-
-    fireEvent.keyDown(window, { key: 'b', metaKey: true });
-
-    // The roving tablist is the landing target.
-    await waitFor(() => {
-      const focused = document.activeElement as HTMLElement | null;
-      expect(focused?.getAttribute('role')).toBe('tab');
-      expect(focused?.getAttribute('aria-selected')).toBe('true');
-    });
+    fireEvent.click(toggleButton());
+    expect(await screen.findByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
+    expect(toggleButton().getAttribute('aria-pressed')).toBe('true');
   });
 
   it('does nothing in the aggregation view', async () => {
-    renderWorkspace('aggregation');
+    renderWorkspace('aggregation', false);
     await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
-    // Off Documents the drawer is shut with no notch to reopen it.
     await screen.findByRole('tab', { name: /Aggregation/ });
-    expect(screen.queryByRole('button', { name: /Query Builder$/ })).toBeNull();
+
+    fireEvent.keyDown(window, { key: 'B', metaKey: true, shiftKey: true });
+
+    // The stored state never flipped: Documents still shows the Inspector open.
+    fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
+    expect(await screen.findByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
+  });
+});
+
+describe('⌘B toggles the sidebar, not the builder', () => {
+  it('leaves the Inspector alone', async () => {
+    renderWorkspace('documents', false);
+    await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
+    await screen.findByRole('tablist', { name: 'Inspector view' });
+    const sidebar = () => screen.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-pressed');
+    const before = sidebar();
 
     fireEvent.keyDown(window, { key: 'b', metaKey: true });
 
-    // The stored state never flipped: Documents still shows the drawer open.
-    fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
-    expect(await screen.findByRole('button', { name: 'Collapse Query Builder' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Open Query Builder' })).toBeNull();
+    await waitFor(() => expect(sidebar()).not.toBe(before));
+    expect(screen.getByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
   });
 });

@@ -62,24 +62,29 @@ const UNLITERAL_PATTERN = /[/\n\r\u2028\u2029]/;
  * fractional doubles and dates, so this module keeps no second copy of those
  * rules.
  */
-export function toMongoshLiteral(value: unknown): string {
-  return printNode(JSON.parse(ejsonStringifyReadable(value)) as unknown, '');
+export function toMongoshLiteral(value: unknown, layout: 'indented' | 'inline' = 'indented'): string {
+  return printNode(JSON.parse(ejsonStringifyReadable(value)) as unknown, layout === 'indented' ? '' : null);
 }
 
-function printNode(node: unknown, indent: string): string {
+/**
+ * `indent` is the current line's indentation, or null for the one-line layout a
+ * snippet embeds in a call (`{ a: 1, b: [2, 3] }`).
+ */
+function printNode(node: unknown, indent: string | null): string {
   if (node === null || typeof node !== 'object') return JSON.stringify(node);
-  const inner = `${indent}  `;
+  const inner = indent === null ? null : `${indent}  `;
   if (Array.isArray(node)) {
     if (node.length === 0) return '[]';
-    return `[\n${node.map((n) => `${inner}${printNode(n, inner)}`).join(',\n')}\n${indent}]`;
+    const items = node.map((n) => printNode(n, inner));
+    return inner === null ? `[${items.join(', ')}]` : `[\n${items.map((i) => `${inner}${i}`).join(',\n')}\n${indent}]`;
   }
   const obj = node as Record<string, unknown>;
   const constructed = printConstructor(obj);
   if (constructed !== null) return constructed;
   const entries = Object.entries(obj);
   if (entries.length === 0) return '{}';
-  const lines = entries.map(([k, v]) => `${inner}${printKey(k)}: ${printNode(v, inner)}`);
-  return `{\n${lines.join(',\n')}\n${indent}}`;
+  const fields = entries.map(([k, v]) => `${printKey(k)}: ${printNode(v, inner)}`);
+  return inner === null ? `{ ${fields.join(', ')} }` : `{\n${fields.map((f) => `${inner}${f}`).join(',\n')}\n${indent}}`;
 }
 
 // A plain `__proto__:` in an object literal sets the prototype and drops the

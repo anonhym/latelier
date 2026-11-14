@@ -287,9 +287,9 @@ describe(' History works with the builder drawer collapsed', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'History' }));
 
     expect(await screen.findByRole('textbox', { name: 'Search recent queries' })).toBeTruthy();
-    // The drawer has one tab, and it did not move.
-    const drawerTabs = within(screen.getByRole('tablist', { name: 'Query drawer' })).getAllByRole('tab');
-    expect(drawerTabs.map((tab) => tab.textContent)).toEqual(['Filter']);
+    // The Inspector's two tabs, and they did not move.
+    const drawerTabs = within(screen.getByRole('tablist', { name: 'Inspector view' })).getAllByRole('tab');
+    expect(drawerTabs.map((tab) => tab.textContent)).toEqual(['Filter', 'Plan']);
     expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();
   });
 });
@@ -534,40 +534,40 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
   });
 });
 
-// ─── X15 T5 — the ⌘B guard survives portaling ─────────────────────────
+// ─── X15 T5 — the ⌘⇧B guard survives portaling ─────────────────────────
 //
-// `Workspace.tsx`'s window-level ⌘B handler skips the toggle when the event
+// `Workspace.tsx`'s window-level ⌘⇧B handler skips the toggle when the event
 // originates inside `[role="dialog"]` (a review finding — ⌘B inside a
 // modal toggled the builder *behind* it and pulled focus out). SaveModal and
 // NewTabPicker used to satisfy that check through the normal tree; they now
 // render in Mantine's portal on `document.body`. `closest` walks the DOM, not
 // React's tree, so the ancestry still holds — these two tests are the proof,
 // and the first is the positive control without which the second passes even
-// if ⌘B were wired to nothing at all.
-describe('X15 T5 — ⌘B does not reach the builder from inside a dialog', () => {
-  it('control: ⌘B from outside a dialog does toggle the builder', async () => {
+// if ⌘⇧B were wired to nothing at all.
+describe('X15 T5 — ⌘⇧B does not reach the builder from inside a dialog', () => {
+  it('control: ⌘⇧B from outside a dialog does toggle the builder', async () => {
     mountWith(makeState());
     await screen.findByRole('tab', { name: 'Filter' });
 
-    fireEvent.keyDown(document.body, { key: 'b', metaKey: true });
+    fireEvent.keyDown(document.body, { key: 'B', metaKey: true, shiftKey: true });
 
     // Collapsed means BuilderPane is unmounted, so its tab strip goes with it.
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull());
   });
 
-  it('⌘B from inside the portaled SaveModal leaves the builder alone', async () => {
+  it('⌘⇧B from inside the portaled SaveModal leaves the builder alone', async () => {
     mountWith(makeState());
 
     fireEvent.click(await screen.findByRole('button', { name: /^Save$/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Save query' });
 
-    fireEvent.keyDown(within(dialog).getByLabelText(/Name/), { key: 'b', metaKey: true });
+    fireEvent.keyDown(within(dialog).getByLabelText(/Name/), { key: 'B', metaKey: true, shiftKey: true });
 
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole('tab', { name: 'Filter' })).not.toBeNull();
   });
 
-  it('⌘B from inside the portaled NewTabPicker leaves the builder alone', async () => {
+  it('⌘⇧B from inside the portaled NewTabPicker leaves the builder alone', async () => {
     mountWith(makeState());
     await screen.findByRole('tab', { name: 'Filter' });
 
@@ -575,7 +575,7 @@ describe('X15 T5 — ⌘B does not reach the builder from inside a dialog', () =
     fireEvent.keyDown(document.body, { key: 't', metaKey: true });
     const dialog = await screen.findByRole('dialog', { name: 'Open collection' });
 
-    fireEvent.keyDown(within(dialog).getByLabelText('Database'), { key: 'b', metaKey: true });
+    fireEvent.keyDown(within(dialog).getByLabelText('Database'), { key: 'B', metaKey: true, shiftKey: true });
 
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole('tab', { name: 'Filter' })).not.toBeNull();

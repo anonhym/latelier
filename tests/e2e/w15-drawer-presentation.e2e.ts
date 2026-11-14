@@ -80,8 +80,8 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
       await expect(bar).toHaveValue('{}');
 
       // ── Saved and Recent live in the row's popovers, not in the strip ─
-      const strip = win.getByRole('tablist', { name: 'Query drawer' });
-      await expect(strip.getByRole('tab')).toHaveCount(1);
+      const strip = win.getByRole('tablist', { name: 'Inspector view' });
+      await expect(strip.getByRole('tab')).toHaveCount(2);
       await expect(strip.getByRole('tab', { name: 'Filter' })).toHaveAttribute('aria-selected', 'true');
 
       await win.getByTestId('filter-bar-row').getByRole('button', { name: 'History' }).click();

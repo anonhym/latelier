@@ -159,7 +159,7 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     await waitFor(() => expect(find).toHaveBeenCalledTimes(1));
     find.mockClear();
     // Ctrl+B collapses the query drawer.
-    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'B', ctrlKey: true, shiftKey: true });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Undo filter edit' })).toBeNull());
 
     search(HEX);
@@ -169,7 +169,7 @@ describe('palette: a pasted _id with a collection tab in front', () => {
     expect(filterBar().value).toBe(FILTER);
 
     // Expanding the drawer afterwards still has the old filter one Undo away.
-    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'B', ctrlKey: true, shiftKey: true });
     const undo = (await screen.findByRole('button', { name: 'Undo filter edit' })) as HTMLButtonElement;
     expect(undo.disabled).toBe(false);
     fireEvent.click(undo);

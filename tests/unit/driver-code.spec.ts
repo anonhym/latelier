@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EJSON, Long, ObjectId } from 'bson';
+import { Double, EJSON, Long, ObjectId } from 'bson';
 import { aggregateCode, CODE_LANGS, findCode, type FindCodeInput } from '../../src/utils/driverCode';
 import { compileFindOptions, emptyBuilder } from '../../src/pages/Workspace/builder';
 
@@ -37,7 +37,16 @@ function runJs(code: string): { method: string; args: unknown[] } {
   // A snippet is a script, not an expression: run it as a function body. The
   // block lets the Node snippet's own `const { EJSON }` shadow the global
   // mongosh provides. Only this file's fixed test inputs ever reach it.
-  new Function('db', 'require', 'EJSON', `{\n${code}\n}`)(db, require, EJSON);
+  // mongosh's own constructors, which its output calls instead of EJSON.parse.
+  const shell = {
+    ObjectId: (hex: string) => new ObjectId(hex),
+    ISODate: (iso: string) => new Date(iso),
+    NumberLong: (digits: string) => Long.fromString(digits),
+    Double: (n: number) => new Double(n),
+  };
+  new Function('db', 'require', 'EJSON', 'ObjectId', 'ISODate', 'NumberLong', 'Double', `{\n${code}\n}`)(
+    db, require, EJSON, shell.ObjectId, shell.ISODate, shell.NumberLong, shell.Double,
+  );
   return { method: calls[0]!.method, args: [calls[0]!.args, ...calls.slice(1).map((c) => [c.method, ...c.args])] };
 }
 
@@ -45,7 +54,7 @@ const ej = (json: string) => `EJSON.parse(${JSON.stringify(json)}, { relaxed: fa
 const OID_SENTINEL = '{"$oid":"64b7f0c2a1b2c3d4e5f60718"}';
 
 describe('findCode', () => {
-  it('mongosh: a document without a sentinel is a plain literal', () => {
+  it('mongosh: a document without a sentinel is a plain literal with unquoted keys', () => {
     expect(
       findCode('mongosh', {
         ...base,
@@ -54,26 +63,41 @@ describe('findCode', () => {
         skip: 100,
       }),
     ).toBe(
-      'db.getCollection("users").find({"status":"active"}, {"_id":1,"name":1})' +
-        '.sort({"createdAt":-1}).skip(100).limit(20)',
+      'db.getCollection("users").find({ status: "active" }, { _id: 1, name: 1 })' +
+        '.sort({ createdAt: -1 }).skip(100).limit(20)',
     );
   });
 
-  it('mongosh: a sentinel goes through EJSON.parse on its own, keeping the type', () => {
+  it('mongosh: an ObjectId is the ObjectId() literal, keeping the type', () => {
     const code = findCode('mongosh', { ...base, filter: OID });
-    expect(code).toBe(`db.getCollection("users").find({"_id":${ej(OID_SENTINEL)}}).limit(20)`);
+    expect(code).toBe('db.getCollection("users").find({ _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") }).limit(20)');
     const [findArgs] = runJs(code).args as [unknown[]];
     expect((findArgs[0] as { _id: unknown })._id).toBeInstanceOf(ObjectId);
   });
 
-  it('finds a sentinel anywhere: beside other values, in an array, past a null', () => {
+  it('mongosh: constructors anywhere: beside other values, in an array, past a null', () => {
     expect(findCode('mongosh', { ...base, filter: '{"a":null,"b":[1,"x",{"$numberLong":"5"}],"c":{"$date":{"$numberLong":"0"}}}' })).toBe(
-      `db.getCollection("users").find({"a":null,"b":[1,"x",${ej('{"$numberLong":"5"}')}],"c":${ej('{"$date":{"$numberLong":"0"}}')}}).limit(20)`,
+      'db.getCollection("users").find({ a: null, b: [1, "x", NumberLong("5")], c: ISODate("1970-01-01T00:00:00.000Z") }).limit(20)',
     );
     // A `$oid` key beside another key is a sub-document, not a sentinel.
     expect(findCode('mongosh', { ...base, filter: '{"a":{"$oid":"x","b":1}}' })).toBe(
-      'db.getCollection("users").find({"a":{"$oid":"x","b":1}}).limit(20)',
+      'db.getCollection("users").find({ a: { $oid: "x", b: 1 } }).limit(20)',
     );
+  });
+
+  it('mongosh: a sentinel the shell has no literal for goes through EJSON.parse, at any depth', () => {
+    const re = '{"$regularExpression":{"pattern":"a/b","options":""}}';
+    expect(findCode('mongosh', { ...base, filter: `{"n":${re}}` })).toBe(
+      `db.getCollection("users").find({ n: ${ej(re)} }).limit(20)`,
+    );
+    expect(findCode('mongosh', { ...base, filter: `{"n":{"$in":[${re},{"$oid":"64b7f0c2a1b2c3d4e5f60718"}]}}` })).toBe(
+      `db.getCollection("users").find({ n: { $in: [${ej(re)}, ObjectId("64b7f0c2a1b2c3d4e5f60718")] } }).limit(20)`,
+    );
+    expect(findCode('mongosh', { ...base, filter: re })).toBe(`db.getCollection("users").find(${ej(re)}).limit(20)`);
+    const code = '{"$code":"function(){}"}';
+    const out = findCode('mongosh', { ...base, filter: `{"f":${code}}` });
+    expect(out).toBe(`db.getCollection("users").find({ f: ${ej(code)} }).limit(20)`);
+    expect(((runJs(out).args as [unknown[]])[0][0] as { f: unknown }).f).toEqual(EJSON.parse(code, { relaxed: false }));
   });
 
   it('writes an int32 and a fractional double bare, which every driver sends as that type', () => {
@@ -88,7 +112,7 @@ describe('findCode', () => {
   it('a bare integer beyond 2^53 reaches every driver as the exact Long', () => {
     const filter = '{"n":9007199254740993}';
     const mongosh = findCode('mongosh', { ...base, filter });
-    expect(mongosh).toContain(ej('{"$numberLong":"9007199254740993"}'));
+    expect(mongosh).toContain('NumberLong("9007199254740993")');
     const [args] = runJs(mongosh).args as [unknown[]];
     expect((args[0] as { n: Long }).n.toString()).toBe('9007199254740993');
 
@@ -101,9 +125,10 @@ describe('findCode', () => {
   it('a Long sentinel string is unchanged', () => {
     const long = '{"$numberLong":"9223372036854775807"}';
     const filter = `{"n":${long}}`;
-    for (const lang of ['node', 'python', 'mongosh'] as const) {
+    for (const lang of ['node', 'python'] as const) {
       expect(findCode(lang, { ...base, filter })).toContain(JSON.stringify(long));
     }
+    expect(findCode('mongosh', { ...base, filter })).toContain('NumberLong("9223372036854775807")');
   });
 
   it('node: one literal per document, and the find options', () => {
@@ -139,11 +164,11 @@ describe('findCode', () => {
 
   it('node and mongosh spell null, true, false and -0 as JavaScript', () => {
     const filter = '{"a":null,"b":true,"c":[false,-0]}';
-    for (const lang of ['node', 'mongosh'] as const) {
-      const [args] = runJs(findCode(lang, { ...base, filter })).args as [unknown[]];
-      expect(args[0]).toEqual({ a: null, b: true, c: [false, -0] });
-      expect(Object.is((args[0] as { c: number[] }).c[1], -0)).toBe(true);
-    }
+    const [args] = runJs(findCode('node', { ...base, filter })).args as [unknown[]];
+    expect(args[0]).toEqual({ a: null, b: true, c: [false, -0] });
+    expect(Object.is((args[0] as { c: number[] }).c[1], -0)).toBe(true);
+    // mongosh has no bare -0 that survives as a Double: it says so.
+    expect(findCode('mongosh', { ...base, filter })).toContain('{ a: null, b: true, c: [false, Double(-0)] }');
   });
 
   it('node: omits absent options', () => {
@@ -157,8 +182,6 @@ describe('findCode', () => {
       findCode('python', { ...base, projection: '{"name":1}', sort: '{"age":-1}', skip: 50, limit: 10 }),
     ).toBe(
       [
-        'from bson import json_util',
-        '',
         'query = {"status":"active"}',
         'projection = {"name":1}',
         'sort = list({"age":-1}.items())',
@@ -166,6 +189,15 @@ describe('findCode', () => {
       ].join('\n'),
     );
     expect(findCode('python', base).split('\n').at(-1)).toBe('cursor = db["users"].find(query, limit=20)');
+  });
+
+  it('python imports json_util only when a sentinel needs it', () => {
+    expect(findCode('python', base)).not.toContain('import');
+    expect(findCode('python', { ...base, sort: '{"a":1}' })).not.toContain('json_util');
+    const withOid = findCode('python', { ...base, filter: OID });
+    expect(withOid.split('\n').slice(0, 2)).toEqual(['from bson import json_util', '']);
+    expect(aggregateCode('python', { collection: 'c', pipelineJson: '[{"$limit":5}]' })).not.toContain('import');
+    expect(aggregateCode('python', { collection: 'c', pipelineJson: `[{"$match":${OID}}]` })).toContain('from bson import json_util');
   });
 
   it('escapes quotes and backslashes in keys, values and the collection name', () => {
@@ -187,8 +219,8 @@ describe('findCode', () => {
     it('mongosh chains .collation() and .hint(), an index name as a string', () => {
       const code = findCode('mongosh', { ...base, sort: '{"a":1}', collation: CI, hint: '_id_' });
       expect(code).toBe(
-        'db.getCollection("users").find({"status":"active"}).sort({"a":1})' +
-          `.collation(${CI}).hint("_id_").limit(20)`,
+        'db.getCollection("users").find({ status: "active" }).sort({ a: 1 })' +
+          '.collation({ locale: "en", strength: 2 }).hint("_id_").limit(20)',
       );
       expect(runJs(code).args).toEqual([
         [{ status: 'active' }],
@@ -200,7 +232,7 @@ describe('findCode', () => {
     });
 
     it('a hint opening with a brace is a key pattern, in every language', () => {
-      expect(findCode('mongosh', { ...base, hint: '{"a":1,"b":-1}' })).toContain('.hint({"a":1,"b":-1})');
+      expect(findCode('mongosh', { ...base, hint: '{"a":1,"b":-1}' })).toContain('.hint({ a: 1, b: -1 })');
       const [args] = runJs(findCode('node', { ...base, hint: '{"a":1}' })).args as [unknown[]];
       expect(args[1]).toEqual({ hint: { a: 1 }, limit: 20 });
       expect(findCode('python', { ...base, hint: '{"a":1,"b":-1}' })).toContain(
@@ -226,7 +258,7 @@ describe('findCode', () => {
       it.each(['{"a":1}', `'{"a":1}'`, '"{\\"a\\":1}"'])('%s is the key pattern {a: 1}', (typed) => {
         const hint = hintAs(typed);
         expect(hint).toBe('{"a":1}');
-        expect(findCode('mongosh', { ...base, hint })).toContain('.hint({"a":1})');
+        expect(findCode('mongosh', { ...base, hint })).toContain('.hint({ a: 1 })');
         const [args] = runJs(findCode('node', { ...base, hint })).args as [unknown[]];
         expect(args[1]).toEqual({ hint: { a: 1 }, limit: 20 });
         expect(findCode('python', { ...base, hint })).toContain('hint = list({"a":1}.items())');
@@ -253,8 +285,6 @@ describe('findCode', () => {
     it('python passes both as keyword arguments', () => {
       expect(findCode('python', { ...base, collation: CI, hint: 'name_1' })).toBe(
         [
-          'from bson import json_util',
-          '',
           'query = {"status":"active"}',
           `collation = ${CI}`,
           'hint = "name_1"',
@@ -293,7 +323,7 @@ describe('a "__proto__" key survives the JS literal', () => {
       expect(Object.getOwnPropertyDescriptor(args[0], '__proto__')?.value).toEqual({ $eq: 1 });
       expect(Object.keys((args[0] as { a: object }).a)).toEqual(['__proto__']);
     }
-    expect(findCode('python', { ...base, filter }).split('\n')[2]).toBe('query = {"__proto__":{"$eq":1},"a":{"__proto__":2}}');
+    expect(findCode('python', { ...base, filter }).split('\n')[0]).toBe('query = {"__proto__":{"$eq":1},"a":{"__proto__":2}}');
   });
 });
 
@@ -319,7 +349,7 @@ describe('only exact sentinels are revived', () => {
   });
 
   it('python spells null, true and false its own way', () => {
-    expect(findCode('python', { ...base, filter: '{"a":null,"b":true,"c":[false,1.5,-0]}' }).split('\n')[2]).toBe(
+    expect(findCode('python', { ...base, filter: '{"a":null,"b":true,"c":[false,1.5,-0]}' }).split('\n')[0]).toBe(
       'query = {"a":None,"b":True,"c":[False,1.5,-0.0]}',
     );
   });
@@ -330,19 +360,18 @@ describe('only exact sentinels are revived', () => {
   const OVERFLOW = '{"a":1e400,"b":[-1e400]}';
 
   it('python spells an overflowing number as a float, in a find and an aggregate', () => {
-    expect(findCode('python', { ...base, filter: OVERFLOW }).split('\n')[2]).toBe(
+    expect(findCode('python', { ...base, filter: OVERFLOW }).split('\n')[0]).toBe(
       `query = {"a":float('inf'),"b":[float('-inf')]}`,
     );
-    expect(aggregateCode('python', { collection: 'c', pipelineJson: `[{"$match":${OVERFLOW}}]` }).split('\n')[2]).toBe(
+    expect(aggregateCode('python', { collection: 'c', pipelineJson: `[{"$match":${OVERFLOW}}]` }).split('\n')[0]).toBe(
       `pipeline = [{"$match":{"a":float('inf'),"b":[float('-inf')]}}]`,
     );
   });
 
-  it('mongosh and node keep Infinity, which JavaScript reads as the Double', () => {
-    for (const lang of ['mongosh', 'node'] as const) {
-      const [args] = runJs(findCode(lang, { ...base, filter: OVERFLOW })).args as [unknown[]];
-      expect(args[0]).toEqual({ a: Infinity, b: [-Infinity] });
-    }
+  it('node keeps Infinity, which JavaScript reads as the Double; mongosh says Double()', () => {
+    const [args] = runJs(findCode('node', { ...base, filter: OVERFLOW })).args as [unknown[]];
+    expect(args[0]).toEqual({ a: Infinity, b: [-Infinity] });
+    expect(findCode('mongosh', { ...base, filter: OVERFLOW })).toContain('{ a: Double(Infinity), b: [Double(-Infinity)] }');
   });
 });
 
@@ -363,7 +392,7 @@ describe('aggregateCode', () => {
 
   it('mongosh', () => {
     const code = aggregateCode('mongosh', { collection: 'orders', pipelineJson });
-    expect(code).toBe(`db.getCollection("orders").aggregate([{"$match":{"_id":${ej(OID_SENTINEL)}}},{"$limit":5}])`);
+    expect(code).toBe('db.getCollection("orders").aggregate([{ $match: { _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") } }, { $limit: 5 }])');
     const [args] = runJs(code).args as [unknown[]];
     expect((args[0] as [{ $match: { _id: unknown } }])[0].$match._id).toBeInstanceOf(ObjectId);
   });

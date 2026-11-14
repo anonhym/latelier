@@ -41,7 +41,7 @@ function bar(state: CollectionTabState, isLoading = false) {
   return (
     <CollectionWorkspaceProvider
       state={state}
-      actions={emptyWorkspaceActions()}
+      actions={emptyWorkspaceActions({ openPlan: vi.fn() })}
       meta={emptyWorkspaceMeta({ isLoading })}
     >
       <StatusBar connection={null} />

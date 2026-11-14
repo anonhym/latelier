@@ -33,7 +33,9 @@ import type { UseReferenceRulesResult } from '../../features/references/useRefer
 import {
   asPercent,
   BUILDER_COLLAPSED_PX,
-  BUILDER_MIN_PCT,
+  BUILDER_DEFAULT_PX,
+  BUILDER_MAX_PX,
+  BUILDER_MIN_PX,
   isUserChosenBuilderSplit,
 } from './panelSizes';
 import { AggregationTab } from './Aggregation/AggregationTab';
@@ -44,7 +46,7 @@ import { ResultViewer } from './ResultViewer';
 import { BuilderPane } from './BuilderPane';
 import { openSavedPipeline, renameOpenPipelines } from './savedActions';
 import { ResizeHandle } from './ResizeHandle';
-import { DividerNotch } from './DividerNotch';
+import { Inspector, type InspectorTab, type PlanRequest } from './Inspector';
 import { MongoShellPane } from './MongoShellPane';
 import { ScriptTab } from './ScriptTab';
 import { CollectionHeader } from './CollectionHeader';
@@ -247,7 +249,6 @@ export interface PanelBodyProps {
   dark: boolean;
   builderPanelRef: React.RefObject<PanelImperativeHandle | null>;
   toggleBuilder: () => void;
-  notchRef: React.RefObject<HTMLButtonElement | null>;
   /** See `IndexCreateRequest` — scoped to `collection`'s own tab by the caller (`Workspace.tsx`) before it reaches here. */
   structureInitialCreate?: IndexCreateRequest | null;
   onStructureInitialCreateConsumed?: () => void;
@@ -280,7 +281,6 @@ export function PanelBody({
   dark,
   builderPanelRef,
   toggleBuilder,
-  notchRef,
   structureInitialCreate,
   onStructureInitialCreateConsumed,
   connectErrors,
@@ -334,7 +334,7 @@ export function PanelBody({
   const {
     prefsReady,
     refDrawerWidth, setRefDrawerWidth, commitRefDrawerWidth,
-    innerHSplit, commitInnerHSplit,
+    innerHSplit, innerHSplitStored, commitInnerHSplit,
     shellSplit, commitShellSplit,
     builderCollapsed,
     onePanelOnly,
@@ -354,6 +354,34 @@ export function PanelBody({
   // without writing the saved pref, so Documents gets it back at its own width.
   const onDocuments = collection?.view === 'documents';
   const builderShut = builderCollapsed || !onDocuments;
+
+  // The Inspector (W05 §9.7): which tab shows, and what Plan explains. The
+  // plan belongs to the tab it was asked for, so another tab never shows it.
+  const [inspectorTab, setInspectorTab] = React.useState<InspectorTab>('filter');
+  const [planRequest, setPlanRequest] = React.useState<PlanRequest | null>(null);
+  const collectionTabId = collection?.tab.id;
+  const expandInspector = collection?.actions.expandBuilder;
+  const openPlan = React.useCallback<NonNullable<CollectionWorkspaceActions['openPlan']>>(
+    (request) => {
+      if (!collectionTabId) return;
+      setPlanRequest((prev) => ({ ...request, tabId: collectionTabId, seq: (prev?.seq ?? 0) + 1 }));
+      setInspectorTab('plan');
+      expandInspector?.();
+    },
+    [collectionTabId, expandInspector],
+  );
+  // Closed, it opens on Filter again, whichever tab it was last on.
+  const [wasCollapsed, setWasCollapsed] = React.useState(builderCollapsed);
+  if (wasCollapsed !== builderCollapsed) {
+    setWasCollapsed(builderCollapsed);
+    if (builderCollapsed) setInspectorTab('filter');
+  }
+  const plan = planRequest?.tabId === collectionTabId ? planRequest : null;
+  const shownInspectorTab: InspectorTab = plan ? inspectorTab : 'filter';
+  const providerActions = React.useMemo(
+    () => (collection ? { ...collection.actions, openPlan } : null),
+    [collection?.actions, openPlan], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const {
     refStack, setRefStack,
     refDrawerPinned, setRefDrawerPinned,
@@ -375,6 +403,30 @@ export function PanelBody({
   React.useEffect(() => {
     builderDividerUsed.current = false;
   }, [collection?.view]);
+  // W01 §14.11: ⌘↓ moves from the filter into the rows, Esc from the rows back.
+  // The view's root is the one tab stop of its widget, so focusing it lands on
+  // the first row; a dialog (whose events bubble here through its portal) and
+  // a field being edited in a row keep their own keys.
+  const handleResultsLoop = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (!onDocuments || e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target || target.closest('[role="dialog"], [role="alertdialog"]')) return;
+    const viewRoot = '[role="tree"][aria-label="Documents"], [role="grid"][aria-label="Documents"]';
+    if (e.key === 'ArrowDown' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      const root = e.currentTarget.querySelector<HTMLElement>(viewRoot);
+      if (!root) return;
+      e.preventDefault();
+      root.focus();
+    } else if (
+      e.key === 'Escape' &&
+      !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey &&
+      target.closest(viewRoot) &&
+      !target.closest('input, textarea, select, [contenteditable="true"]')
+    ) {
+      e.preventDefault();
+      document.getElementById('query-bar-filter')?.focus();
+    }
+  };
   const handleRunShortcut = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) {
@@ -385,6 +437,10 @@ export function PanelBody({
     // Also stops a focused Run button's native Enter activation from running twice.
     e.preventDefault();
     run();
+  };
+  const handlePanelKeys = (e: React.KeyboardEvent<HTMLElement>) => {
+    handleRunShortcut(e);
+    handleResultsLoop(e);
   };
 
   return (
@@ -471,7 +527,7 @@ export function PanelBody({
             // so its drafts and filter undo history survive the round trip.
             <CollectionWorkspaceProvider
               state={collection.tab.state}
-              actions={collection.actions}
+              actions={providerActions ?? collection.actions}
               meta={collection.meta}
             >
               <Tabs
@@ -508,7 +564,7 @@ export function PanelBody({
                 key={`h-${String(prefsReady)}`}
                 orientation="horizontal"
                 style={{ flex: 1, overflow: 'hidden' }}
-                onKeyDown={handleRunShortcut}
+                onKeyDown={handlePanelKeys}
                 onLayoutChanged={(layout) => {
                   // Only the divider is a choice to store. Layouts also change when a
                   // window crosses the one-panel width, and the drawer passes through
@@ -624,7 +680,7 @@ export function PanelBody({
                     position: 'relative',
                     zIndex: 2,
                   }}
-                  aria-label="Resize Query Builder"
+                  aria-label="Resize inspector"
                   // A drag off Documents would open a panel whose builder is hidden.
                   disabled={!onDocuments}
                   // Only a live divider is a choice: off Documents a stray press would
@@ -641,8 +697,16 @@ export function PanelBody({
                 <Panel
                   id="h-builder"
                   panelRef={builderPanelRef}
-                  defaultSize={builderShut ? BUILDER_COLLAPSED_PX : asPercent(innerHSplit)}
-                  minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : asPercent(BUILDER_MIN_PCT)}
+                  defaultSize={
+                    builderShut
+                      ? BUILDER_COLLAPSED_PX
+                      : innerHSplitStored
+                        ? asPercent(innerHSplit)
+                        : BUILDER_DEFAULT_PX
+                  }
+                  // Pixels (W05 §9.7): 320 to 640, whatever the window.
+                  minSize={onePanelOnly ? ONE_PANEL_BUILDER_PX : BUILDER_MIN_PX}
+                  maxSize={onePanelOnly ? undefined : BUILDER_MAX_PX}
                   // Only once the toggle has asked for it: while open, a drag stops at
                   // the minimum. Otherwise it could collapse the panel without
                   // `builderCollapsed` knowing, leaving no way to reopen it. Workspace's
@@ -658,19 +722,8 @@ export function PanelBody({
                         height: '100%',
                         borderLeft: `1px solid ${T.border}`,
                         background: T.surface,
-                        position: 'relative',
                       }}
-                    >
-                      {onDocuments && (
-                        <DividerNotch
-                          side="left"
-                          collapsed
-                          onClick={toggleBuilder}
-                          ariaLabel="Open Query Builder"
-                          buttonRef={notchRef}
-                        />
-                      )}
-                    </div>
+                    />
                   ) : (
                     <div
                       style={{
@@ -682,34 +735,35 @@ export function PanelBody({
                     >
                       {/* Hidden, not unmounted, off Documents: see builderShut. */}
                       <div style={{ height: '100%', display: onDocuments ? undefined : 'none' }}>
-                        <BuilderPane
-                          loadGen={loadGen}
-                          onLoaded={bumpLoadGen}
-                          onOpenAsPipeline={(stages) => {
-                            tabs
-                              .openAggregation({
-                                connectionId: collection.tab.connectionId,
-                                dbName: collection.tab.dbName,
-                                collection: collection.tab.collection,
-                                initialState: { stages, activeStageId: null, dirty: true },
-                              })
-                              .catch((e: unknown) =>
-                                notify.error(getErrorMessage(e, String(e)), {
-                                  title: 'Could not open the pipeline',
-                                }),
-                              );
+                        <Inspector
+                          tab={shownInspectorTab}
+                          onTabChange={(next) => {
+                            if (next === 'plan' && !plan) openPlan({ verbosity: 'queryPlanner' });
+                            else setInspectorTab(next);
                           }}
-                        />
+                          onClose={toggleBuilder}
+                          plan={plan}
+                        >
+                          <BuilderPane
+                            loadGen={loadGen}
+                            onLoaded={bumpLoadGen}
+                            onOpenAsPipeline={(stages) => {
+                              tabs
+                                .openAggregation({
+                                  connectionId: collection.tab.connectionId,
+                                  dbName: collection.tab.dbName,
+                                  collection: collection.tab.collection,
+                                  initialState: { stages, activeStageId: null, dirty: true },
+                                })
+                                .catch((e: unknown) =>
+                                  notify.error(getErrorMessage(e, String(e)), {
+                                    title: 'Could not open the pipeline',
+                                  }),
+                                );
+                            }}
+                          />
+                        </Inspector>
                       </div>
-                      {onDocuments && (
-                        <DividerNotch
-                          side="left"
-                          collapsed={false}
-                          onClick={toggleBuilder}
-                          ariaLabel="Collapse Query Builder"
-                          buttonRef={notchRef}
-                        />
-                      )}
                     </div>
                   )}
                 </Panel>

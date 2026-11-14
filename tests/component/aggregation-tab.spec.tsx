@@ -1012,14 +1012,12 @@ describe('AggregationTab — Copy menu (#23)', () => {
     expect(onPatch).not.toHaveBeenCalled();
   });
 
-  it('copies a driver snippet that keeps an ObjectId through EJSON.parse', async () => {
+  it('copies a mongosh snippet with an ObjectId() literal and unquoted keys', async () => {
     renderTab(pipelineState('{ _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") }'));
     await copyAs('mongosh');
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toBe(
-      'db.getCollection("orders").aggregate([{"$match":{"_id":EJSON.parse(' +
-        JSON.stringify('{"$oid":"64b7f0c2a1b2c3d4e5f60718"}') +
-        ', { relaxed: false })}}])',
+      'db.getCollection("orders").aggregate([{ $match: { _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") } }])',
     );
   });
 

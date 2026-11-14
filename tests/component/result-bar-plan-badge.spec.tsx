@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   render,
@@ -11,9 +12,11 @@ import {
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { useFindExplain } from '../../src/pages/Workspace/useFindExplain';
+import { Inspector, type PlanRequest } from '../../src/pages/Workspace/Inspector';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState } from '@shared/types';
+import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 
 afterEach(() => {
   uninstallAtelierMock();
@@ -41,21 +44,48 @@ function makeState(plan: unknown, queryRaw = '{"status":"a"}', sort = ''): Colle
   };
 }
 
-function renderBar(plan: unknown, queryRaw?: string, sort?: string) {
-  const openCreateIndex = vi.fn();
-  const explain = vi.fn(async () => ({ plan: collscanPlan, verbosity: 'queryPlanner' }));
-  installAtelierMock({ query: { explain } });
-  render(
-    <CollectionWorkspaceProvider
-      state={makeState(plan, queryRaw, sort)}
-      actions={emptyWorkspaceActions({ openCreateIndex })}
-      meta={emptyWorkspaceMeta()}
-    >
+// What PanelBody does with `openPlan`: the Inspector, on its Plan tab, over the same provider.
+function Host({
+  state,
+  openCreateIndex,
+  openPlan,
+}: {
+  state: CollectionTabState;
+  openCreateIndex: () => void;
+  openPlan: (request: Parameters<NonNullable<CollectionWorkspaceActions['openPlan']>>[0]) => void;
+}) {
+  const [plan, setPlan] = React.useState<PlanRequest | null>(null);
+  const actions = React.useMemo(
+    () =>
+      emptyWorkspaceActions({
+        openCreateIndex,
+        openPlan: (request) => {
+          openPlan(request);
+          setPlan({ ...request, tabId: 't1', seq: 1 });
+        },
+      }),
+    [openCreateIndex, openPlan],
+  );
+  return (
+    <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
       <StatusBar connection={null} />
       <ResultBar />
-    </CollectionWorkspaceProvider>,
+      {plan && (
+        <Inspector tab="plan" onTabChange={() => {}} onClose={() => setPlan(null)} plan={plan}>
+          {null}
+        </Inspector>
+      )}
+    </CollectionWorkspaceProvider>
   );
-  return { explain, openCreateIndex };
+}
+
+function renderBar(plan: unknown, queryRaw?: string, sort?: string) {
+  const openCreateIndex = vi.fn();
+  const openPlan = vi.fn();
+  const explain = vi.fn(async () => ({ plan: collscanPlan, verbosity: 'queryPlanner' }));
+  installAtelierMock({ query: { explain } });
+  render(<Host state={makeState(plan, queryRaw, sort)} openCreateIndex={openCreateIndex} openPlan={openPlan} />);
+  return { explain, openCreateIndex, openPlan };
 }
 
 describe('ResultBar plan badge', () => {
@@ -104,13 +134,28 @@ describe('ResultBar plan badge', () => {
     expect(screen.queryByTestId('plan-badge')).toBeNull();
   });
 
-  it('opens the explain drawer on the plan it already holds, without asking the server', async () => {
-    const { explain } = renderBar(ixscanPlan);
+  it('opens the Inspector on the plan it already holds, without asking the server', async () => {
+    const { explain, openPlan } = renderBar(ixscanPlan);
     fireEvent.click(screen.getByTestId('plan-badge'));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
-    await waitFor(() => expect(dialog.textContent).toContain('status_1'));
+    expect(openPlan).toHaveBeenCalledWith({ verbosity: 'queryPlanner', plan: ixscanPlan, stale: false });
+    const inspector = await screen.findByTestId('inspector');
+    await waitFor(() => expect(inspector.textContent).toContain('status_1'));
     expect(explain).not.toHaveBeenCalled();
+  });
+
+  it('is not drawn where nothing can host the plan', () => {
+    installAtelierMock({});
+    render(
+      <CollectionWorkspaceProvider
+        state={makeState(ixscanPlan)}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
+      >
+        <StatusBar connection={null} />
+      </CollectionWorkspaceProvider>,
+    );
+    expect(screen.queryByTestId('plan-badge')).toBeNull();
   });
 
   it('marks the badge "(not current)" while the query above is unrunnable', () => {
@@ -134,8 +179,9 @@ describe('ResultBar plan badge', () => {
     renderBar(collscanPlan, 'not json');
     fireEvent.click(screen.getByTestId('plan-badge'));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Explain plan (not current)' });
-    await waitFor(() => expect(dialog.textContent).toContain('COLLSCAN'));
+    const inspector = await screen.findByTestId('inspector');
+    expect(inspector.textContent).toContain('This plan is not current');
+    await waitFor(() => expect(inspector.textContent).toContain('COLLSCAN'));
     expect(screen.queryByTestId('explain-create-index')).toBeNull();
   });
 
@@ -143,7 +189,7 @@ describe('ResultBar plan badge', () => {
     renderBar(collscanPlan);
     fireEvent.click(screen.getByTestId('plan-badge'));
 
-    await screen.findByRole('dialog', { name: 'Explain plan' });
+    await screen.findByTestId('inspector');
     await waitFor(() => expect(screen.getByTestId('explain-create-index')).toBeTruthy());
   });
 

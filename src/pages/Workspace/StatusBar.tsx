@@ -10,8 +10,6 @@ import { notify } from '../../theme/notifications';
 import { STATUS_PRESENTATION } from '../../features/connections/connectionStatus';
 import { DEFAULT_PAGE_SIZE_PREF_KEY, PAGE_SIZE_OPTIONS } from '../../state/workspaceTabs';
 import { useCollectionWorkspace } from './context';
-import { ExplainDrawer } from './Aggregation/ExplainDrawer';
-import { useFindExplain } from './useFindExplain';
 import { summarizeExplain } from '../../utils/explainSummary';
 import { compileFindOptions } from './builder';
 import { formatElapsed, runProblem, stripText } from './optionPills';
@@ -101,10 +99,6 @@ function ResultStatusContent() {
   const hasMore = state.lastRunHasMore;
   const isLoading = meta.isLoading;
   const isReadOnly = !!meta.isReadOnly;
-  const [planOpen, setPlanOpen] = React.useState(false);
-  // The plan badge's drawer re-fetches only when the verbosity changes, and
-  // then asks about the committed filter text, like any other read surface.
-  const { runExplain, onCreateIndex } = useFindExplain(() => state.queryRaw);
 
   // W06 §8.2 — `lastRun` keeps describing the query the user has since edited
   // away, or one that can no longer run. The same rule as the band above the
@@ -285,13 +279,15 @@ function ResultStatusContent() {
           </Tooltip>
         )}
 
-        {planLabel !== null && layout.planBadge && (
+        {planLabel !== null && layout.planBadge && actions.openPlan && (
           <UnstyledButton
             type="button"
             data-testid="plan-badge"
             aria-label={`Query plan: ${planLabel}${isStale ? ' (not current)' : ''}`}
             title={planLabel}
-            onClick={() => setPlanOpen(true)}
+            // The Inspector's Plan tab (W05 §9.7), which re-fetches only when the
+            // verbosity changes, and then asks about the committed filter text.
+            onClick={() => actions.openPlan?.({ verbosity: 'queryPlanner', plan: lastRun?.plan, stale: isStale })}
             style={{
               fontSize: T.fsXs,
               padding: '0 6px',
@@ -359,18 +355,6 @@ function ResultStatusContent() {
           />
         </Tooltip>
       </Group>
-
-      {planOpen && (
-        <ExplainDrawer
-          onClose={() => setPlanOpen(false)}
-          initialPlan={lastRun?.plan}
-          initialVerbosity="queryPlanner"
-          runExplain={runExplain}
-          stale={isStale}
-          // A suggestion built from the query now on screen would not be about the plan being read.
-          onCreateIndex={isStale ? undefined : onCreateIndex}
-        />
-      )}
     </>
   );
 }

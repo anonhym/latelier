@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   asPercent,
   BUILDER_COLLAPSED_PX,
+  BUILDER_DEFAULT_PX,
+  BUILDER_MAX_PX,
   BUILDER_MIN_PCT,
+  BUILDER_MIN_PX,
   isUserChosenBuilderSplit,
 } from '../../src/pages/Workspace/panelSizes';
+import { ONE_PANEL_BUILDER_PX } from '../../src/pages/Workspace/sidePanels';
 
 /**
  * Hardening for a real regression. The drawer's actual defect was `expand()` restoring the rail
@@ -58,5 +62,17 @@ describe('asPercent', () => {
   it('turns a percent into the string a Panel reads as percent', () => {
     expect(asPercent(BUILDER_MIN_PCT)).toBe('15%');
     expect(typeof asPercent(26)).toBe('string');
+  });
+});
+
+// W05 §9.7 — the Inspector is 320 to 640 px, 400 until someone resizes it, and
+// no mode lays it out narrower than that minimum.
+describe('the Inspector width', () => {
+  it('opens at 400 px, inside 320 to 640', () => {
+    expect([BUILDER_MIN_PX, BUILDER_DEFAULT_PX, BUILDER_MAX_PX]).toEqual([320, 400, 640]);
+  });
+
+  it('is never narrower than its minimum, even as the one panel showing', () => {
+    expect(ONE_PANEL_BUILDER_PX).toBeGreaterThanOrEqual(BUILDER_MIN_PX);
   });
 });

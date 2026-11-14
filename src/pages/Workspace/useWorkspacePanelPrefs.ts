@@ -23,6 +23,8 @@ export function useWorkspacePanelPrefs(): {
   setRefDrawerWidth: React.Dispatch<React.SetStateAction<number>>;
   commitRefDrawerWidth: (v: number) => void;
   innerHSplit: number;
+  /** A split was chosen (stored or dragged); until then the Inspector opens at its default pixel width. */
+  innerHSplitStored: boolean;
   commitInnerHSplit: (v: number) => void;
   shellSplit: number;
   commitShellSplit: (v: number) => void;
@@ -37,6 +39,7 @@ export function useWorkspacePanelPrefs(): {
   // Pixels, not a percentage: a plain flex column resized via the bespoke ResizeHandle, not a react-resizable-panels Panel.
   const [refDrawerWidth, setRefDrawerWidth] = React.useState(380);
   const [innerHSplit, setInnerHSplit] = React.useState(BUILDER_DEFAULT_PCT);
+  const [innerHSplitStored, setInnerHSplitStored] = React.useState(false);
   const [shellSplit, setShellSplit] = React.useState(25);
   // Panels render with default sizes immediately; the key flip on ready re-mounts with persisted sizes, avoiding a layout shift.
   const [prefsReady, setPrefsReady] = React.useState(false);
@@ -60,7 +63,10 @@ export function useWorkspacePanelPrefs(): {
         if (!active) return;
         if (typeof l === 'number') setLeftWidth(l);
         if (typeof rdw === 'number') setRefDrawerWidth(rdw);
-        if (typeof ihs === 'number') setInnerHSplit(ihs);
+        if (typeof ihs === 'number') {
+          setInnerHSplit(ihs);
+          setInnerHSplitStored(true);
+        }
         if (typeof ss === 'number') setShellSplit(ss);
         if (typeof collapsed === 'boolean') setSidebarCollapsed(collapsed);
         if (typeof builderC === 'boolean') setBuilderCollapsed(builderC);
@@ -110,6 +116,7 @@ export function useWorkspacePanelPrefs(): {
 
   const commitInnerHSplit = React.useCallback((v: number) => {
     setInnerHSplit(v);
+    setInnerHSplitStored(true);
     persistPref('ui.workspace.innerHSplit', v);
   }, []);
 
@@ -134,6 +141,7 @@ export function useWorkspacePanelPrefs(): {
     setRefDrawerWidth,
     commitRefDrawerWidth,
     innerHSplit,
+    innerHSplitStored,
     commitInnerHSplit,
     shellSplit,
     commitShellSplit,

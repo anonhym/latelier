@@ -5,8 +5,11 @@
  */
 export const ONE_PANEL_BELOW_PX = 1100;
 
-/** The drawer's width while it is the one panel showing. */
-export const ONE_PANEL_BUILDER_PX = 277;
+/**
+ * The Inspector's width while it is the one panel showing: its minimum, so a
+ * condition row never has to lay out narrower than it does beside the results.
+ */
+export const ONE_PANEL_BUILDER_PX = 320;
 
 export type SidePanel = 'navigator' | 'builder';
 

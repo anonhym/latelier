@@ -15,6 +15,7 @@ import {
 } from 'bson';
 import { ejsonParse, ejsonStringify } from '../../src/utils/ejson';
 import { formatDocsForCopy, toMongoshLiteral } from '../../src/utils/copyFormat';
+import { findCode } from '../../src/utils/driverCode';
 import { repairToCanonicalEjson } from '../../src/utils/shellSyntax';
 import { getDocId } from '../../src/pages/Workspace/views/docId';
 
@@ -156,6 +157,24 @@ describe('copy formats: every format parses back to the same BSON values', () =>
           const evaluated = runInNewContext(`(${toMongoshLiteral(source)})`, shell);
           expect(canonicalOf(evaluated)).toBe(canonicalOf(d));
         }
+      }),
+    );
+  });
+
+  it('the filter inside a mongosh find repairs to the canonical EJSON it was made from', () => {
+    const prefix = 'db.getCollection("c").find(';
+    const suffix = ').limit(1)';
+    fc.assert(
+      fc.property(shellDoc, (d) => {
+        const code = findCode('mongosh', { collection: 'c', filter: canonicalOf(d), skip: 0, limit: 1 });
+        expect(code.startsWith(prefix) && code.endsWith(suffix)).toBe(true);
+        const literal = code.slice(prefix.length, code.length - suffix.length);
+        // One line, so it sits inside the call.
+        expect(literal).not.toContain('\n');
+        const outcome = repairToCanonicalEjson(literal);
+        expect(outcome.kind === 'repaired' || outcome.kind === 'unchanged').toBe(true);
+        const text = outcome.kind === 'repaired' ? outcome.text : literal;
+        expect(canonicalOf(ejsonParse(text))).toBe(canonicalOf(d));
       }),
     );
   });

@@ -1,6 +1,6 @@
 // The Documents / Aggregation / Schema & indexes strip above a collection tab was
 // three hand-rolled buttons: arrow keys did nothing and no tab pointed at a
-// panel. It is Mantine's Tabs now, like the Query drawer's strip.
+// panel. It is Mantine's Tabs now, like the Inspector's strip.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';

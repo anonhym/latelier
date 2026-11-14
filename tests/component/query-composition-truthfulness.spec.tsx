@@ -334,7 +334,7 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
     const { findSpy } = mountWith(makeState({ queryRaw: '\u00a0{"status":"active"}\u00a0' }));
 
     await copyAs('mongosh');
-    expect(copiedText()).toBe('db.getCollection("users").find({"status":"active"}).limit(50)');
+    expect(copiedText()).toBe('db.getCollection("users").find({ status: "active" }).limit(50)');
 
     fireEvent.click(screen.getByTestId('query-run-btn'));
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
@@ -354,8 +354,8 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
     await copyAs('mongosh');
 
     expect(copiedText()).toBe(
-      'db.getCollection("users").find({"status":"active"}, {"_id":1,"name":1})' +
-        '.sort({"createdAt":-1}).skip(100).limit(20)',
+      'db.getCollection("users").find({ status: "active" }, { _id: 1, name: 1 })' +
+        '.sort({ createdAt: -1 }).skip(100).limit(20)',
     );
 
     // The same values, from the other end of the app: the copied command and
@@ -398,13 +398,13 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
 
   it('an ObjectId filter copies as code that keeps the ObjectId (#23)', async () => {
     // Canonical EJSON pasted raw into mongosh reads `$oid` as an unknown
-    // query operator, so the sentinel goes through EJSON.parse instead.
+    // query operator, so mongosh gets the ObjectId() literal instead.
     const oid = '{"$oid":"64b7f0c2a1b2c3d4e5f60718"}';
     mountWith(makeState({ queryRaw: `{"_id":${oid}}` }));
 
     await copyAs('mongosh');
     expect(copiedText()).toBe(
-      `db.getCollection("users").find({"_id":EJSON.parse(${JSON.stringify(oid)}, { relaxed: false })}).limit(50)`,
+      'db.getCollection("users").find({ _id: ObjectId("64b7f0c2a1b2c3d4e5f60718") }).limit(50)',
     );
 
     await copyAs('Python');
@@ -433,7 +433,7 @@ describe('W15 §1.1 — Copy code reproduces the query as run', () => {
 
     await copyAs('mongosh');
     expect(copiedText()).toBe(
-      'db.getCollection("users").find({}).collation({"locale":"en","strength":2}).hint("_id_").limit(50)',
+      'db.getCollection("users").find({}).collation({ locale: "en", strength: 2 }).hint("_id_").limit(50)',
     );
   });
 
@@ -563,7 +563,7 @@ describe('W15 §1.1 — Copy code refuses a query that will not run', () => {
     await clickCopy();
 
     expect(writeTextMock().mock.calls).toHaveLength(1);
-    expect(copiedText()).toContain('.sort({"createdAt":-1})');
+    expect(copiedText()).toContain('.sort({ createdAt: -1 })');
   });
 });
 

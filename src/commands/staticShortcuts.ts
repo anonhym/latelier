@@ -22,6 +22,9 @@ export const STATIC_SHORTCUTS: ReadonlyArray<{
       { keys: '⌘⌥←', title: 'Previous tab' },
       { keys: '⌘⌥→', title: 'Next tab' },
       { keys: '⌘E', title: 'Manage all' },
+      { keys: '⌘↓', title: 'From the filter, move to the first result row' },
+      { keys: 'Esc', title: 'From the results, back to the filter' },
+      { keys: 'Esc', title: 'Close the Inspector' },
     ],
   },
   {
