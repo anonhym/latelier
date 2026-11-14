@@ -14,6 +14,7 @@ import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { deriveColumns, orderFields } from './views/tableColumns';
+import { requestColumnScroll } from './views/columnScroll';
 import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { projectionProblem } from './builder';
@@ -151,6 +152,11 @@ export function FieldsControl() {
   const config = state.columnConfig;
   const [newPath, setNewPath] = React.useState('');
   const [opened, setOpened] = React.useState(false);
+  const [find, setFind] = React.useState('');
+  // Stable, so it runs once per mount of the dropdown and not on every render.
+  const focusFindOnMount = React.useCallback((el: HTMLInputElement | null) => {
+    if (el) window.setTimeout(() => el.focus(), 0);
+  }, []);
   const canFetch = !meta.isReadOnly;
   const projection = useProjectionDraft();
   const projRawError = projectionProblem(state.builder);
@@ -171,6 +177,14 @@ export function FieldsControl() {
     () => orderFields(derived, config?.order),
     [derived, config?.order],
   );
+  // The find box narrows what the list draws; every row keeps its place in
+  // the full order, which the move buttons and drag reorder by.
+  const shownFields = React.useMemo(() => {
+    const needle = find.trim().toLowerCase();
+    return orderedFields
+      .map((field, index) => ({ field, index }))
+      .filter(({ field }) => field.toLowerCase().includes(needle));
+  }, [orderedFields, find]);
   const hidden = React.useMemo(() => new Set(config?.hidden ?? []), [config?.hidden]);
   const computed = config?.computed ?? [];
   // Names known without asking the server: the fields in hand, plus any the
@@ -323,6 +337,7 @@ export function FieldsControl() {
   // skip the input's blur when the dropdown unmounts under it.
   const close = () => {
     setOpened(false);
+    setFind('');
     setAnnouncement('');
     projection.commit();
   };
@@ -378,7 +393,11 @@ export function FieldsControl() {
         onKeyDown={(e) => {
           // `defaultPrevented`: an open suggestion list took this Escape to
           // close itself — the next one closes the control.
-          if (e.key === 'Escape' && !e.defaultPrevented) close();
+          if (e.key === 'Escape' && !e.defaultPrevented) {
+            // Stopped here so the key does not also reach whatever sits behind the control.
+            e.stopPropagation();
+            close();
+          }
         }}
       >
         <div id="fields-show-heading" style={sectionHeadingStyle}>Show in results</div>
@@ -388,8 +407,31 @@ export function FieldsControl() {
             No fields available
           </div>
         ) : (
+          <>
+          <TextInput
+            size="xs"
+            aria-label="Find a field"
+            placeholder="Find a field"
+            value={find}
+            // Focus moves in a tick after open: Mantine records the element to
+            // return focus to in an effect after the open commit, and focusing
+            // first would make this input that element.
+            ref={focusFindOnMount}
+            onChange={(e) => setFind(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || shownFields.length === 0) return;
+              e.preventDefault();
+              if (isTableView) requestColumnScroll(shownFields[0].field);
+            }}
+            mb={4}
+          />
+          {shownFields.length === 0 && (
+            <div style={{ padding: '4px 8px', fontSize: T.fsSm, color: T.textMuted }}>
+              No field matches
+            </div>
+          )}
           <Stack gap={T.gapXs} style={{ maxHeight: 260, overflowY: 'auto', minWidth: 200 }}>
-            {orderedFields.map((field, index) => (
+            {shownFields.map(({ field, index }) => (
               <div
                 key={field}
                 draggable
@@ -429,6 +471,16 @@ export function FieldsControl() {
                   onChange={() => toggleHidden(field)}
                   style={{ flex: 1 }}
                 />
+                {isTableView && !hidden.has(field) && (
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    aria-label={`Scroll to ${field}`}
+                    onClick={() => requestColumnScroll(field)}
+                  >
+                    {I.arrowR}
+                  </ActionIcon>
+                )}
                 <ActionIcon
                   size="xs"
                   variant="subtle"
@@ -452,6 +504,7 @@ export function FieldsControl() {
               </div>
             ))}
           </Stack>
+          </>
         )}
         {/* Outside the reorderable list on purpose: these rows have no data
             to show or hide, and keeping them out of `orderedFields` leaves

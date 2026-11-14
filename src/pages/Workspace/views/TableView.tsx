@@ -33,6 +33,7 @@ import { FullValuePopover } from './FullValuePopover';
 import { docMenuItems, fieldMenuItems, headerMenuItems } from './menuItems';
 import { allExpandablePaths } from './docFieldFlatten';
 import { enterFields } from './enterFields';
+import { onColumnScrollRequest, scrollLeftToReveal } from './columnScroll';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useCopyFormat } from './useCopyFormat';
@@ -150,6 +151,13 @@ interface TableCellProps {
   rule?: ReferenceRule;
   /** `-1` takes every control in the cell out of the Tab order (a cell of a row that is not the roving row). */
   tabIndex?: number;
+  /**
+   * Set on the pinned `_id` cell: how far the table has scrolled, which the
+   * cell cancels with a transform, and the row colour it paints over what
+   * slides underneath.
+   */
+  stickyLeft?: number;
+  stickyBackground?: string;
   /** Set when the chip belongs to a nested path of an object cell: the chip acts on this path and value instead of the cell's. */
   refPath?: string;
   refValue?: unknown;
@@ -181,6 +189,8 @@ function TableCell({
   isCopied,
   rule,
   tabIndex,
+  stickyLeft,
+  stickyBackground,
   refPath,
   refValue,
   onCopyCell,
@@ -399,7 +409,16 @@ function TableCell({
         whiteSpace: 'nowrap',
         textOverflow: 'ellipsis',
         cursor: draggable ? 'grab' : 'default',
-        background: isCopied ? 'var(--atelier-accent)' : undefined,
+        background: isCopied
+          ? 'var(--atelier-accent)'
+          : stickyLeft !== undefined
+            ? `linear-gradient(${stickyBackground}, ${stickyBackground}), var(--atelier-surface)`
+            : undefined,
+        // Native `position: sticky` does not reach across react-window's
+        // `List` (see `actionsOffset`), so the pinned `_id` follows the scroll
+        // by transform, above the cells that slide under it.
+        transform: stickyLeft !== undefined ? `translateX(${stickyLeft}px)` : undefined,
+        zIndex: stickyLeft !== undefined ? 1 : undefined,
         // #83 — keep the flash inside the padding: the #60 active-row outline is the
         // same accent, inset 2px, and would vanish into a full-cell flash.
         backgroundClip: isCopied ? 'content-box' : undefined,
@@ -719,6 +738,8 @@ interface TableRowProps {
   // Hand-computed pin for the actions column — see `TableView`'s own
   // `actionsOffset` for why native `position: sticky` can't be used here.
   actionsOffset: number;
+  /** The first column is `_id`, which stays at the left while the rest scrolls. */
+  stickyId: boolean;
   // The visible slice of the scroll container, in row coordinates. The
   // expanded detail is laid out at `left`/`width` this describes so it stays
   // in view under horizontal scroll instead of scrolling away with the cells.
@@ -760,6 +781,7 @@ function TableRowImpl({
   onEditDoc,
   onOpenRowMenu,
   actionsOffset,
+  stickyId,
   detailLeft,
   detailWidth,
 }: RowComponentProps<TableRowProps>) {
@@ -931,6 +953,8 @@ function TableRowImpl({
               isCopied={isCopied}
               rule={rule}
               tabIndex={buttonTabIndex}
+              stickyLeft={stickyId && col === columns[0] ? detailLeft : undefined}
+              stickyBackground={rowBackground}
               onCopyCell={onCopyCell}
               onContextMenu={(e, payload) => onContextMenu(e, { doc, ...payload })}
               onRefHover={onRefHover}
@@ -1240,6 +1264,31 @@ export function TableView({
       ACTIONS_WIDTH +
       columns.reduce((sum, c) => sum + (ownGet(widths, c.field) ?? DEFAULT_COLUMN_WIDTH), 0),
     [columns, widths],
+  );
+
+  // `_id` stays at the left while the other columns scroll under it, as long
+  // as it is still the first column (a user reorder can move it).
+  const stickyId = columns[0]?.kind === 'field' && columns[0].field === '_id';
+
+  // The column picker's "find a field" asks for a column to be scrolled to.
+  React.useEffect(
+    () =>
+      onColumnScrollRequest((field) => {
+        const el = tableWrapperRef.current;
+        const at = columns.findIndex((c) => c.field === field);
+        if (!el || at < 0) return;
+        const widthOf = (c: ResolvedColumn) => ownGet(widths, c.field) ?? DEFAULT_COLUMN_WIDTH;
+        const left = at === 0 ? 0 : GUTTER_WIDTH + columns.slice(0, at).reduce((sum, c) => sum + widthOf(c), 0);
+        el.scrollLeft = scrollLeftToReveal({
+          scrollLeft: el.scrollLeft,
+          clientWidth: el.clientWidth,
+          left,
+          right: GUTTER_WIDTH + columns.slice(0, at + 1).reduce((sum, c) => sum + widthOf(c), 0),
+          leftObstruction: stickyId && at > 0 ? GUTTER_WIDTH + widthOf(columns[0]) : 0,
+          rightObstruction: ACTIONS_WIDTH,
+        });
+      }),
+    [columns, widths, stickyId],
   );
 
   // The sticky actions column can't use native `position: sticky; right: 0`:
@@ -1627,6 +1676,7 @@ export function TableView({
       onEditDoc,
       onOpenRowMenu: handleOpenRowMenu,
       actionsOffset,
+      stickyId,
       detailLeft,
       detailWidth,
     }),
@@ -1658,6 +1708,7 @@ export function TableView({
       onEditDoc,
       handleOpenRowMenu,
       actionsOffset,
+      stickyId,
       detailLeft,
       detailWidth,
     ],
@@ -1839,6 +1890,14 @@ export function TableView({
                 color: dir ? 'var(--atelier-accent-ink)' : 'var(--atelier-text-muted)',
                 fontSize: 'var(--atelier-fs-xs)',
                 position: 'relative',
+                // The pinned `_id` follows the scroll, as its cells do.
+                ...(stickyId && col === columns[0]
+                  ? {
+                      transform: `translateX(${detailLeft}px)`,
+                      zIndex: 2,
+                      background: 'var(--atelier-surface)',
+                    }
+                  : {}),
                 userSelect: 'none',
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
