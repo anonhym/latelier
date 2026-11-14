@@ -500,6 +500,8 @@ export function DialogStack({
         <ConnectionDisconnectDialog
           name={disconnectTarget.name}
           tabCount={disconnectTarget.tabCount}
+          unsavedScripts={disconnectTarget.unsavedScripts}
+          scriptsReopenable
           onCancel={closeDisconnectConnectionModal}
           onConfirm={confirmDisconnectConnection}
           returnFocusTo={disconnectReturnFocus}

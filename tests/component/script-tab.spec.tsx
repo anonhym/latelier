@@ -7,6 +7,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
   expectSeparatorClampedAtBounds,
   expectSeparatorResizesPanel,
 } from '../helpers/render';
@@ -62,11 +63,12 @@ function tab(over: Partial<ScriptTabModel> = {}): ScriptTabModel {
 }
 
 describe('ScriptTab', () => {
-  it('renders the title and "no output yet" placeholder before any run', () => {
+  it('renders the title and the empty output text before any run', () => {
     installAtelierMock();
     render(<ScriptTab tab={tab()} onPatch={() => {}} />);
     expect(screen.getByDisplayValue('My script')).toBeTruthy();
-    expect(screen.getByText(/No output yet/i)).toBeTruthy();
+    expect(screen.getByText(/Output appears here · .* to run/)).toBeTruthy();
+    expect(screen.queryByText(/No output yet/i)).toBeNull();
   });
 
   it('names the editor region for screen readers', () => {
@@ -175,7 +177,7 @@ describe('ScriptTab', () => {
     expect(screen.getByRole('button', { name: 'Run again' })).toBeTruthy();
   });
 
-  it('says so when a run returns no value and prints nothing, and offers to run again', () => {
+  it('says so when a run returns no value and prints nothing, and offers to run again', async () => {
     const run = vi.fn<IpcApi['script']['run']>(async () => ({ valueJson: null, printBuffer: '', durationMs: 4 }));
     installAtelierMock({ script: { run, cancel: async () => undefined } });
     render(
@@ -183,7 +185,7 @@ describe('ScriptTab', () => {
         tab={tab({
           state: {
             title: 'My script',
-            source: 'db.orders.drop()',
+            source: 'db.orders.insertOne({})',
             resultPanelHeight: 240,
             lastResult: { valueJson: null, printBuffer: '', durationMs: 4 },
           },
@@ -193,7 +195,7 @@ describe('ScriptTab', () => {
     );
     expect(screen.getByText('The script returned nothing')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Run again' }));
-    expect(run).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
   it('Cancel button posts script.cancel with the in-flight token', async () => {
@@ -584,5 +586,120 @@ describe('ScriptTab — completion database', () => {
     await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'smoke' }));
     rerender(<ScriptTab tab={tab()} defaultDb="other" onPatch={() => {}} />);
     await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ connectionId: 'c1', dbName: 'other' }));
+  });
+});
+
+describe('ScriptTab layout (W12 §8.1, §8.2)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const unsized = () =>
+    tab({ state: { title: 'My script', source: '1 + 2', maxTimeMs: 60_000 } });
+
+  it('opens the output panel at 30% of the tab height before any run', () => {
+    installAtelierMock();
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 1000 } as DOMRect);
+    render(<ScriptTab tab={unsized()} onPatch={() => {}} />);
+    expect(screen.getByRole('separator', { name: 'Resize result panel' }).getAttribute('aria-valuenow')).toBe('300');
+  });
+
+  it('lets a stored height win over the 30% default', () => {
+    installAtelierMock();
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 1000 } as DOMRect);
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    expect(screen.getByRole('separator', { name: 'Resize result panel' }).getAttribute('aria-valuenow')).toBe('240');
+  });
+
+  it('labels the header fields Database and Timeout', () => {
+    installAtelierMock();
+    render(<ScriptTab tab={tab()} onPatch={() => {}} />);
+    expect(screen.getByText('Database')).toBeTruthy();
+    expect(screen.getByText('Timeout')).toBeTruthy();
+    expect(screen.queryByText('db:')).toBeNull();
+    expect(screen.queryByText('timeout:')).toBeNull();
+    expect(screen.getByPlaceholderText('(use default)')).toBeTruthy();
+  });
+});
+
+describe('ScriptTab destructive-script confirmation (W12 §8.4)', () => {
+  function setup(source: string, pref: boolean | null = null) {
+    const run = vi.fn<IpcApi['script']['run']>(async () => ({ valueJson: '1', printBuffer: '', durationMs: 1 }));
+    installAtelierMock({
+      script: { run, cancel: async () => undefined },
+      prefs: { get: async () => pref } as Partial<IpcApi['prefs']> as IpcApi['prefs'],
+    });
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 's', source, maxTimeMs: 60_000, resultPanelHeight: 240 } })}
+        connectionName="Local dev"
+        onPatch={() => {}}
+      />,
+    );
+    return run;
+  }
+
+  it('names the Connection and the call, focuses Cancel, and runs nothing on Cancel', async () => {
+    const run = setup('db.orders.deleteMany({})');
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('This script calls deleteMany({}) on Local dev');
+    expect(dialog.textContent).toContain('a check of the script\'s text, not a guarantee');
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    fireEvent.click(cancel);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('runs the script after Run anyway', async () => {
+    const run = setup('db.orders.deleteMany({})');
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Run anyway' }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+  });
+
+  it('asks on Cmd+Enter in the editor too, once for a double press', async () => {
+    const run = setup('db.dropDatabase()');
+    const editor = screen.getByTestId('script-editor').querySelector<HTMLElement>('.cm-content')!;
+    fireEvent.keyDown(editor, { key: 'Enter', metaKey: true });
+    fireEvent.keyDown(editor, { key: 'Enter', metaKey: true });
+    const dialogs = await screen.findAllByRole('dialog');
+    expect(dialogs).toHaveLength(1);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('runs a narrowed deleteMany and a find without asking', async () => {
+    const run = setup('db.orders.deleteMany({ status: "x" }); db.orders.find()');
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('asks nothing when the setting is off', async () => {
+    const run = setup('db.orders.deleteMany({})', false);
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('still asks when the setting cannot be read', async () => {
+    const run = vi.fn<IpcApi['script']['run']>(async () => ({ valueJson: '1', printBuffer: '', durationMs: 1 }));
+    installAtelierMock({
+      script: { run, cancel: async () => undefined },
+      prefs: {
+        get: async () => {
+          throw new Error('disk');
+        },
+      } as Partial<IpcApi['prefs']> as IpcApi['prefs'],
+    });
+    render(
+      <ScriptTab
+        tab={tab({ state: { title: 's', source: 'db.a.drop()', maxTimeMs: 60_000, resultPanelHeight: 240 } })}
+        onPatch={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(run).not.toHaveBeenCalled();
   });
 });

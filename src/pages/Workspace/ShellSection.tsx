@@ -11,6 +11,7 @@ import { TitleBar } from './TitleBar';
 import { LocationBreadcrumb } from './LocationBreadcrumb';
 import { locationModel } from './locationModel';
 import { TabStrip } from './TabStrip';
+import { reopenClosedTab } from './reopenClosedTab';
 import { activateTab, closeTabGuarded } from './tabActions';
 import { ResizeHandle } from './ResizeHandle';
 import {
@@ -213,6 +214,8 @@ export function ShellSection({
             if (!scratchConnectionId) return;
             void tabs.openScript({ connectionId: scratchConnectionId });
           }}
+          canReopen={tabs.closedCount > 0}
+          onReopen={() => void reopenClosedTab(tabs, connections, connectionsLoading)}
           onActivate={activate}
           onClose={(id) => void closeTabGuarded(tabs, id)}
           onReorder={(ids) => void tabs.reorder(ids)}

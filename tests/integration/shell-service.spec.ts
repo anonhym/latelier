@@ -152,6 +152,8 @@ describe('ShellService (runner child)', () => {
     const banner = events.map((e) => e.data ?? '').join('');
     expect(banner).toMatch(/L'Atelier shell/);
     expect(banner).toMatch(/conn-1/);
+    // The Console runs a line at once; the script confirmation does not apply to it.
+    expect(banner).toMatch(/destructive-script check covers Scripts only/);
   });
 
   it('reuses the live session for the same connection', async () => {

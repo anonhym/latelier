@@ -24,6 +24,9 @@ interface TabStripProps {
   onClose: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
   onOpenNewScript: () => void;
+  /** W01 §14.8: whether a closed tab can be brought back, and bringing it back. */
+  canReopen: boolean;
+  onReopen: () => void;
   /** `+ ▾` → Open collection…: the §8 picker. */
   onOpenCollectionPicker: () => void;
   /** `+ ▾` → New aggregation on the Focused Tab's collection. */
@@ -69,6 +72,8 @@ export function TabStrip({
   onClose,
   onReorder,
   onOpenNewScript,
+  canReopen,
+  onReopen,
   onOpenCollectionPicker,
   onNewAggregation,
   onTogglePin,
@@ -533,6 +538,13 @@ export function TabStrip({
                 onClick: () => onCloseMany(bulkTargets.right, menu.tabId),
                 disabled: bulkTargets.right.length === 0,
                 disabledTitle: 'No unpinned tabs to the right',
+              },
+              {
+                kind: 'item',
+                label: 'Reopen closed tab',
+                onClick: onReopen,
+                disabled: !canReopen,
+                disabledTitle: 'No closed tab to reopen',
               },
               ...(menuTab.kind === 'collection'
                 ? [

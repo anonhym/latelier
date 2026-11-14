@@ -587,7 +587,7 @@ describe('The database a Shell or Script tab starts on', () => {
   }
 
   async function openShell() {
-    await userEvent.click(await within(screen.getByRole('banner')).findByRole('button', { name: 'Shell' }));
+    await userEvent.click(await within(screen.getByRole('banner')).findByRole('button', { name: 'Console' }));
   }
 
   it("opens the Shell on a collection tab's own database", async () => {

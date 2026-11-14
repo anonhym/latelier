@@ -41,6 +41,8 @@ export function confirmDestructive(opts: {
   /** The destructive verb — "Delete", "Discard", "Reset". Never "OK". */
   confirmLabel: string;
   cancelLabel?: string;
+  /** Put initial focus on Cancel, so a stray Enter never confirms. */
+  focusCancel?: boolean;
 }): Promise<boolean> {
   return new Promise((resolve) => {
     modals.openConfirmModal({
@@ -48,6 +50,7 @@ export function confirmDestructive(opts: {
       children: opts.body,
       labels: { confirm: opts.confirmLabel, cancel: opts.cancelLabel ?? 'Cancel' },
       confirmProps: { color: 'red' },
+      cancelProps: opts.focusCancel ? { 'data-autofocus': true } : undefined,
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
       onClose: () => resolve(false),

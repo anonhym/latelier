@@ -59,6 +59,16 @@ function shellReducer(_: StartState, action: ShellAction): StartState {
   }
 }
 
+/**
+ * The REPL's own prompt (`shop> `) when it is the last line of the output, else
+ * ''. Plain string work: the buffer holds up to MAX_BUFFER_BYTES of
+ * program-controlled text, so no backtracking pattern runs over it.
+ */
+function trailingPrompt(buffer: string): string {
+  const tail = buffer.slice(buffer.lastIndexOf('\n') + 1);
+  return tail.endsWith('> ') ? tail : '';
+}
+
 function placeholderFor(kind: StartState['kind'], busy: boolean): string {
   switch (kind) {
     case 'ready':   return busy ? 'running… Ctrl+C to interrupt' : '';
@@ -88,6 +98,10 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
   const keepBufferRef = React.useRef(false);
   const outputRef = React.useRef<HTMLPreElement | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  // Where focus was when the pane opened (the title-bar button, the palette's
+  // trigger, an editor): Escape in the input hands focus back there.
+  const [returnFocusTo] = React.useState<Element | null>(() => document.activeElement);
   // Whether the user was scrolled to (or near) the bottom before the most
   // recent buffer change. Read in the auto-scroll effect below, so new
   // output only pulls the view down when the user hasn't scrolled up to
@@ -129,6 +143,24 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
     });
     return unsubscribe;
   }, [append]);
+
+  // Focus the input each time a session becomes ready — the first one, a
+  // Restart, an Interrupt — so the user can type at once, also when the pane
+  // was opened by the button (which keeps focus until told otherwise). Only
+  // taken from the body, the pane itself or where focus was when the pane
+  // opened: a user who has moved on to another field keeps it.
+  React.useEffect(() => {
+    if (state.kind !== 'ready') return;
+    const active = document.activeElement;
+    if (
+      active === null ||
+      active === document.body ||
+      active === returnFocusTo ||
+      rootRef.current?.contains(active)
+    ) {
+      inputRef.current?.focus();
+    }
+  }, [state.kind, returnFocusTo]);
 
   // Auto-scroll to bottom on new output, but only if the user was already
   // pinned to the bottom before this change landed. Otherwise they're
@@ -173,7 +205,6 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
         }
         sessionIdRef.current = info.sessionId;
         dispatch({ type: 'ready', sessionId: info.sessionId });
-        queueMicrotask(() => inputRef.current?.focus());
       } catch (err) {
         if (cancelled) return;
         dispatch({
@@ -224,8 +255,11 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
     // input should always surface the command's echo and its output.
     stickToBottomRef.current = true;
     // The REPL doesn't echo stdin — paint what the user typed locally so
-    // they see their own command in the transcript.
-    append(`> ${line}\n`);
+    // they see their own command in the transcript. The REPL has already
+    // printed its prompt (`shop> `) at the end of the buffer, so the command
+    // follows it; without one (typed while a call is still running) a bare
+    // prompt stands in.
+    append(trailingPrompt(buffer) ? `${line}\n` : `> ${line}\n`);
     setPending((n) => n + 1);
     // Any line can write anywhere on the Connection, unseen by the renderer,
     // so no collection's older undo there is its last change any more.
@@ -296,12 +330,19 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
     setRestartNonce((n) => n + 1);
   };
 
+  // Keeps the session, its history and the prompt the REPL last printed.
+  const clearOutput = () => {
+    setBuffer((prev) => trailingPrompt(prev));
+    stickToBottomRef.current = true;
+  };
+
   const handleRestart = () => {
     setRestartNonce((n) => n + 1);
   };
 
   return (
     <div
+      ref={rootRef}
       data-testid="mongo-shell-pane"
       style={{
         height: height ?? '100%',
@@ -338,6 +379,18 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
             </Button>
           </>
         )}
+        <Tooltip label="Clear output (Ctrl+L)" withArrow>
+          <Button
+            variant="default"
+            size="compact-xs"
+            onClick={() => {
+              clearOutput();
+              inputRef.current?.focus();
+            }}
+          >
+            Clear
+          </Button>
+        </Tooltip>
         <Tooltip label="Restart shell" withArrow>
           <Button
             variant="default"
@@ -435,6 +488,15 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
             ) {
               e.preventDefault();
               void handleInterrupt();
+            } else if (e.key === 'l' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+              e.preventDefault();
+              clearOutput();
+            } else if (e.key === 'Escape') {
+              // Hands focus back; the workspace's own Escape handling must not also run.
+              e.preventDefault();
+              e.stopPropagation();
+              if (returnFocusTo instanceof HTMLElement && returnFocusTo.isConnected) returnFocusTo.focus();
+              else e.currentTarget.blur();
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               navigateHistory('up');

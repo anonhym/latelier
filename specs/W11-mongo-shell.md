@@ -1,6 +1,6 @@
 # W11 — Mongo shell pane (REPL in a runner child)
 
-> **Status: Accepted.** §1–§7 shipped. §8, which renames the pane's entry point to "Console" and fixes its focus, clear and echo behaviour, is agreed and not built yet.
+> **Status: Implemented.** §1–§7 shipped. §8, which renames the pane's entry point to "Console" and fixes its focus, clear and echo behaviour, is built.
 
 ## Purpose
 
@@ -366,7 +366,7 @@ Behaviour:
 
 ## 8. Amendment — "Console", and the pane's small behaviours
 
-> **Accepted, not built.** It changes §4's renderer pane only.
+> It changes §4's renderer pane only.
 
 ### 8.1 The name
 
@@ -379,6 +379,7 @@ The app had two JavaScript surfaces, a title-bar button called **Shell** and tab
 - **Clear.** `Ctrl+L` clears the output, and a `Clear` button sits beside Restart and Stop. Clearing keeps the session and its history.
 - **Echo.** A command is echoed as `shop> db.orders.countDocuments({})`: one prompt. It showed two, `shop> > …`.
 - `` ⌃` `` toggles the pane from anywhere in the workspace outside a dialog.
+- The pane's greeting says that the destructive-script check ([W12 §8.4](./W12-script-editor.md)) covers Scripts only: a line typed here runs at once.
 
 ### 8.3 Acceptance criteria
 
