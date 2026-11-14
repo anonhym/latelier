@@ -145,6 +145,39 @@ describe('a query the server refused', () => {
     expect(screen.queryByText('recovered')).toBeNull();
   });
 
+  it('says the message first and keeps the code under Details, closed', () => {
+    render(<Stateful initial={failing()} />);
+
+    const alert = screen.getByRole('alert');
+    const details = screen.getByText('Details').closest('details')!;
+    expect(details.open).toBe(false);
+    expect(alert.contains(details)).toBe(true);
+    // Outside Details the message stands alone, with no code in front of it.
+    const said = screen.getByText(REFUSED.message);
+    expect(details.contains(said)).toBe(false);
+    expect(said.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alert.textContent!.replace(details.textContent!, '')).not.toContain(REFUSED.code);
+    expect(screen.getByTestId('error-details').textContent).toBe(`${REFUSED.code}: ${REFUSED.message}`);
+  });
+
+  it.each([
+    ['a mistyped operator', { code: 'MONGO_OP', message: 'unknown operator: $gte1' }, 'Did you mean $gte?'],
+    ['a refused connection', { code: 'NETWORK', message: 'connect ECONNREFUSED 127.0.0.1:27017' }, 'The server is not reachable.'],
+    [
+      'a socket that timed out',
+      { code: 'NETWORK', message: 'connection 3 to db:27017 timed out' },
+      "Raise Socket timeout in the connection's Advanced tab.",
+    ],
+  ])('adds what to do about %s', (_what, error, hint) => {
+    render(<Stateful initial={failing({ lastRun: lastRun({ error }) })} />);
+    expect(screen.getByTestId('error-hint').textContent).toBe(hint);
+  });
+
+  it('adds nothing when the message is all there is to say', () => {
+    render(<Stateful initial={failing()} />);
+    expect(screen.queryByTestId('error-hint')).toBeNull();
+  });
+
   it('Revert restores the last valid query, runs it, and reports the wholesale load', async () => {
     const onRun = vi.fn();
     const onQueryReplaced = vi.fn();
@@ -220,10 +253,11 @@ describe('the fixed band', () => {
     expect(band.style.height).toBe('31px');
   });
 
-  it('says a re-run is running and offers Cancel', async () => {
+  it('marks the rows as the previous results while a re-run is running, and offers Cancel', async () => {
     const { band, cancel } = renderBand(withRows, { isLoading: true });
     expect(band.style.height).toBe('31px');
-    expect(screen.getByRole('status').textContent).toBe('Running…');
+    // "Running" and how long are the status bar's to say.
+    expect(screen.getByRole('status').textContent).toBe('Previous results');
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(cancel).toHaveBeenCalledTimes(1);

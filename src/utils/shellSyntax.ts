@@ -1,4 +1,5 @@
 import { parseExpressionAt, type AnyNode, type Expression } from 'acorn';
+import { isEjsonDocument } from './ejson';
 
 /**
  * Shell Syntax → Canonical EJSON, as a *text* transform.
@@ -182,6 +183,28 @@ export function repairOnCommit(
     return { text: outcome.text, outcome };
   }
   return { text, outcome };
+}
+
+export interface LiveValidity {
+  /** The text as the transform would leave it; the text as typed when it refuses. */
+  text: string;
+  /** Valid Shell Syntax that is not Canonical EJSON yet. */
+  repaired: boolean;
+  /** A document the transform accepts, so a Run would send it. */
+  runnable: boolean;
+}
+
+/**
+ * X14 §11 — what a check that runs while the user types judges: the text as
+ * the transform would leave it, not the uncommitted text itself. Judging the
+ * latter called `{status: 'shipped'}` invalid although ⌘↵ then ran it.
+ */
+export function liveValidity(text: string): LiveValidity {
+  const outcome = repairToCanonicalEjson(text);
+  // Text the transform refuses is never JSON, so it falls out as not runnable.
+  const repaired = outcome.kind === 'repaired';
+  const live = repaired ? outcome.text : text;
+  return { text: live, repaired, runnable: isEjsonDocument(live) };
 }
 
 /**

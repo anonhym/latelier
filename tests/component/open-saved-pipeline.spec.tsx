@@ -89,11 +89,17 @@ describe('opening a saved pipeline from the Saved list', () => {
     );
   }
 
+  /** The saved pipeline's Open button, in the Filter Bar row's Saved popover. */
+  async function openButton(): Promise<HTMLElement> {
+    fireEvent.click(await screen.findByRole('button', { name: 'Saved queries' }, SLOW_MOUNT));
+    return screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' });
+  }
+
   it('asks main to open it by its saved id', async () => {
     const open = vi.fn<IpcApi['tabs']['openAggregation']>(async () => TAB as never);
     mount(open);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' }, SLOW_MOUNT));
+    fireEvent.click(await openButton());
 
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith({
@@ -112,7 +118,7 @@ describe('opening a saved pipeline from the Saved list', () => {
       throw Object.assign(new Error('saved query 7d1c4e0a-uuid not found'), { code: 'NOT_FOUND' });
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' }, SLOW_MOUNT));
+    fireEvent.click(await openButton());
 
     await waitFor(() =>
       expect(error).toHaveBeenCalledWith('It no longer exists.', { title: 'Could not open “Top spenders”' }),
@@ -127,7 +133,7 @@ describe('opening a saved pipeline from the Saved list', () => {
       });
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' }, SLOW_MOUNT));
+    fireEvent.click(await openButton());
 
     await waitFor(() =>
       expect(error).toHaveBeenCalledWith(

@@ -41,7 +41,9 @@ export function useWorkspacePanelPrefs(): {
   // Panels render with default sizes immediately; the key flip on ready re-mounts with persisted sizes, avoiding a layout shift.
   const [prefsReady, setPrefsReady] = React.useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
-  const [builderCollapsed, setBuilderCollapsed] = React.useState(false);
+  // W15 §16: closed unless a stored choice says otherwise. Open, it spent a
+  // fifth of the width on an empty state for a profile that never asked for it.
+  const [builderCollapsed, setBuilderCollapsed] = React.useState(true);
 
   React.useEffect(() => {
     let active = true;

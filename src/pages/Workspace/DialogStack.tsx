@@ -234,8 +234,6 @@ export interface DialogStackProps {
   queryBarSaveOpen: boolean;
   setQueryBarSaveOpen: (open: boolean) => void;
   setSavedRefreshKey: React.Dispatch<React.SetStateAction<number>>;
-  expandBuilder: () => void;
-  patchActiveCollection: (patch: Record<string, unknown>) => void;
   refsConfigureHint: UseFeatureHintResult;
   tabsPinHint: UseFeatureHintResult;
   savedCreateHint: UseFeatureHintResult;
@@ -258,8 +256,6 @@ export function DialogStack({
   queryBarSaveOpen,
   setQueryBarSaveOpen,
   setSavedRefreshKey,
-  expandBuilder,
-  patchActiveCollection,
   refsConfigureHint,
   tabsPinHint,
   savedCreateHint,
@@ -351,8 +347,6 @@ export function DialogStack({
           onSaved={() => {
             setSavedRefreshKey((k) => k + 1);
             setQueryBarSaveOpen(false);
-            expandBuilder();
-            patchActiveCollection({ activeBuilderTab: 'Saved' });
           }}
         />
       )}

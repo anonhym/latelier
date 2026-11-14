@@ -247,6 +247,21 @@ a { text-decoration: none; }
   .stage-preview { width: auto; height: 200px; border-left: none; border-top: 1px solid var(--atelier-border); }
 }
 
+/* W05 §9.5: two pixels of motion along the Filter Bar row's bottom edge while
+   a find is in flight. Laid over the edge, so it takes no room of its own. */
+.query-running-bar { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; }
+.query-running-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--atelier-accent);
+  animation: query-running 1.2s ease-in-out infinite;
+}
+@keyframes query-running {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
 /* 0.01ms, not 0: animationend / transitionend listeners still fire. !important
    beats the inline `animation: spin …` on the connection and navigator spinners. */
 @media (prefers-reduced-motion: reduce) {
@@ -256,6 +271,8 @@ a { text-decoration: none; }
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Still, the running bar is the full width: a shortened sweep would park it at one end. */
+  .query-running-bar::after { width: 100%; animation: none; }
 }
 
 /* W06 §8.3: a row's selection checkbox shows on that row's hover and focus,

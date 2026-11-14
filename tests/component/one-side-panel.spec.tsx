@@ -30,7 +30,13 @@ async function mount() {
 const prefsSet = vi.fn(async () => undefined);
 beforeEach(() => {
   prefsSet.mockClear();
-  installAtelierMock({ prefs: { get: async () => undefined, set: prefsSet } as never });
+  // Both panels stored open: the builder's own default is closed.
+  installAtelierMock({
+    prefs: {
+      get: async (key: string) => (key === 'ui.workspace.builderCollapsed' ? false : undefined),
+      set: prefsSet,
+    } as never,
+  });
 });
 afterEach(() => {
   uninstallAtelierMock();

@@ -107,7 +107,7 @@ describe('Filter Bar — inline reason for refused input (X14 §5)', () => {
     // The transform's own reason, verbatim — not a message this file invented.
     expect(msg).toContain('"active" is a bare word');
     // …with the offset rendered as a 1-based line and column.
-    expect(msg).toMatch(/^Line 1, column 10: /);
+    expect(msg).toMatch(/^⚠ Line 1, column 10: /);
   });
 
   it('locates a refusal many lines into a multi-line filter', async () => {
@@ -115,7 +115,7 @@ describe('Filter Bar — inline reason for refused input (X14 §5)', () => {
     await typeAndBlur('{\n  "a": 1,\n  "b": 2,\n  "c": broken\n}');
 
     await waitFor(() => expect(filterNotice()).not.toBeNull());
-    expect(filterNotice()!.textContent).toMatch(/^Line 4, column 8: /);
+    expect(filterNotice()!.textContent).toMatch(/^⚠ Line 4, column 8: /);
   });
 
   it('names the regex flag it cannot keep, rather than dropping it', async () => {
@@ -187,7 +187,7 @@ describe('Result strip and grid — a stale count must not read as current (X14 
     expect(grid()).toBeNull();
   });
 
-  it('marks the count not current and dims the grid while the filter is refused', async () => {
+  it('marks the count not current and says so above the rows, undimmed, while the filter is refused', async () => {
     setup();
     await screen.findByTestId('query-bar-input');
     expect(await screen.findByText('139')).toBeTruthy();
@@ -195,14 +195,21 @@ describe('Result strip and grid — a stale count must not read as current (X14 
     await typeAndBlur('{status: active}');
 
     await waitFor(() => expect(staleMarker()).not.toBeNull());
-    expect(staleMarker()!.textContent).toMatch(/not current/i);
+    // A dot beside the count, named for a screen reader; the sentence is the
+    // band's, above the rows.
+    expect(staleMarker()!.getAttribute('role')).toBe('img');
+    expect(staleMarker()!.getAttribute('aria-label')).toBe('Not current');
+    expect(screen.getByTestId('band-stale').textContent).toContain('These results are from the previous filter.');
+    // Nothing to run yet: the filter in the bar cannot.
+    expect(screen.queryByTestId('band-run')).toBeNull();
     // The number is still on screen — it describes a real earlier query — but
     // it is no longer presented as the answer to what is in the box.
     expect(screen.getByText('139')).toBeTruthy();
-    // …and the rows it describes are dimmed rather than hidden or made inert.
+    // …and the rows it describes stay readable: marked, not dimmed, hidden or
+    // made inert (W06 §8.2).
     const body = grid() as HTMLElement;
     expect(body).not.toBeNull();
-    expect(Number(body.style.opacity)).toBeLessThan(1);
+    expect(body.style.opacity).toBe('');
     expect(body.style.pointerEvents).toBe('');
   });
 
@@ -222,11 +229,7 @@ describe('Result strip and grid — a stale count must not read as current (X14 
   // the same marker — otherwise a stale count survives a broken sort.
   it('marks the count stale for a refused sort too, not only a refused filter', async () => {
     setup();
-    await screen.findByTestId('query-bar-input');
-    const trigger = document.querySelector('[aria-controls="query-bar-advanced"]');
-    if (trigger && trigger.getAttribute('aria-expanded') !== 'true') {
-      fireEvent.click(trigger);
-    }
+    fireEvent.click(await screen.findByTestId('option-pill-sort'));
 
     const sort = (await screen.findByTestId('query-bar-sort')) as HTMLInputElement;
     fireEvent.change(sort, { target: { value: '{name: /^acme/gi}' } });

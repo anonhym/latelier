@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { refusalMessage, repairOnCommit, repairToCanonicalEjson, type RepairOutcome } from '../../src/utils/shellSyntax';
+import {
+  liveValidity,
+  refusalMessage,
+  repairOnCommit,
+  repairToCanonicalEjson,
+  type RepairOutcome,
+} from '../../src/utils/shellSyntax';
 import { ejsonParse, ejsonStringify } from '../../src/utils/ejson';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -684,5 +690,29 @@ describe('acorn position suffix and regex flag order', () => {
 
   it('keeps that order for three flags', () => {
     expect(mustRepair('{a: /x/smi}')).toContain('"options":"ims"');
+  });
+});
+
+describe('liveValidity', () => {
+  it('leaves Canonical EJSON as typed and runnable', () => {
+    expect(liveValidity('{"a":1}')).toEqual({ text: '{"a":1}', repaired: false, runnable: true });
+  });
+
+  it('reads repairable Shell Syntax as the transform would leave it', () => {
+    const live = liveValidity('{ _id: ObjectId("507f1f77bcf86cd799439011") }');
+    expect(live.repaired).toBe(true);
+    expect(live.runnable).toBe(true);
+    expect(ejsonParse(live.text)).toEqual(ejsonParse('{"_id":{"$oid":"507f1f77bcf86cd799439011"}}'));
+  });
+
+  it('keeps text the transform refuses as typed, and not runnable', () => {
+    expect(liveValidity('{ a: b }')).toEqual({ text: '{ a: b }', repaired: false, runnable: false });
+    expect(liveValidity('{ a: ')).toEqual({ text: '{ a: ', repaired: false, runnable: false });
+  });
+
+  it('is not runnable when the text is not a document, repaired or not', () => {
+    expect(liveValidity('[1]')).toMatchObject({ repaired: false, runnable: false });
+    expect(liveValidity('5')).toMatchObject({ runnable: false });
+    expect(liveValidity("['a']")).toMatchObject({ repaired: true, runnable: false });
   });
 });

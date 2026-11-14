@@ -8,7 +8,6 @@ import { useCollectionWorkspace } from './context';
 import { api } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { DEFAULT_VIEW_PREF_KEY } from '../../state/workspaceTabs';
-import { FieldsControl } from './FieldsControl';
 import { ExportDialog } from './ExportDialog';
 import { consumeTabRequest, tabRequested, subscribeTabRequests } from './tabRequest';
 import { ImportDialog } from './ImportDialog';
@@ -23,15 +22,15 @@ const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
 /**
  * The canvas header (W06 §8.1), a 28px row above the results:
  *
- *   [Table|Tree|JSON]                     Fields · References · ⋯ · + Insert
+ *   [Table|Tree|JSON]                              References · ⋯ · + Insert
  *
  * The count, plan badge and pager are the status bar's (`ResultStatus`,
  * portalled from here so they read the same tab). Reads everything off the
  * collection-workspace context, so any provider can render it.
  */
 interface ResultBarProps {
-  /** Reference rules sit beside Fields: both shape how this collection's
-   * documents read. Only the workspace tab passes it; previews have no rules. */
+  /** Reference rules shape how this collection's documents read. Only the
+   * workspace tab passes it; previews have no rules. */
   references?: { count: number; onOpen: () => void };
 }
 
@@ -99,10 +98,6 @@ export function ResultBar({ references }: ResultBarProps = {}) {
       <ResultStatus />
 
       <Group gap={layout.iconControls ? 6 : 8} wrap="nowrap" style={{ flexShrink: 0, marginLeft: 'auto' }}>
-        {/* Fields control — one control for all three views; each view reads
-            the same per-tab `columnConfig`. */}
-        <FieldsControl iconOnly={layout.iconControls} />
-
         {references && (
           <Tooltip label={`Manage reference rules for this collection (${references.count})`} withArrow>
             {layout.iconControls ? (

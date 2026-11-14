@@ -427,7 +427,15 @@ function WorkspaceInner() {
   const skipAutoRunRef = React.useRef<string | null>(null);
   // Bumped by each saved query the palette loads, added to PanelBody's own load counter.
   const [savedLoadGen, setSavedLoadGen] = React.useState(0);
+  // W01 §14.10 — the tab in front when the launch restore lands runs once,
+  // whatever its filter, and the focus then rests in its filter editor rather
+  // than on <body>. `undefined` until the restore has landed, then that tab's
+  // id until it has run; every other tab stays lazy.
+  const restoredTabRef = React.useRef<string | null | undefined>(undefined);
+  const focusFilterRef = React.useRef(false);
   React.useEffect(() => {
+    if (tabs.loading) return;
+    if (restoredTabRef.current === undefined) restoredTabRef.current = activeCollection?.id ?? null;
     if (!activeCollection) return;
     if (activeView !== 'documents') return;
     if (skipAutoRunRef.current === activeCollection.id) {
@@ -435,12 +443,29 @@ function WorkspaceInner() {
       return;
     }
     if (activeCollection.state.lastRun) return;
-    if (!isDefaultQueryState(activeCollection.state)) return;
+    // A restored query is the user's own, so it runs only against a
+    // Connection known to be connected and only when it can run as written.
+    const restored =
+      restoredTabRef.current === activeCollection.id &&
+      focusedConnection?.status === 'connected' &&
+      findProblem(activeCollection.state) === null;
+    if (!restored && !isDefaultQueryState(activeCollection.state)) return;
     if (pendingSavedRef.current?.tabId === activeCollection.id) return;
     if (isKnownNotConnected(focusedConnection)) return;
+    if (restoredTabRef.current === activeCollection.id) {
+      restoredTabRef.current = null;
+      focusFilterRef.current = true;
+    }
     void queryRunner.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCollection?.id, activeView, queryRunner.run, focusedConnection]);
+  }, [tabs.loading, activeCollection?.id, activeView, queryRunner.run, focusedConnection]);
+  // After the run above, once the Filter Bar is on screen. Only from <body>:
+  // a dialog or a field the user already reached keeps the focus.
+  React.useEffect(() => {
+    if (!focusFilterRef.current || initialLoadPending) return;
+    focusFilterRef.current = false;
+    if (document.activeElement === document.body) document.getElementById('query-bar-filter')?.focus();
+  }, [initialLoadPending, tabs.loading, activeCollection?.id, activeView, focusedConnection]);
 
   // Refs let palette-command perform() closures see fresh values without
   // re-registering on every state tick.
@@ -1497,13 +1522,12 @@ function WorkspaceInner() {
     }
     pendingSavedRef.current = null;
     if (pending.kind === 'rename') {
-      // The Saved list's own inline rename, on the collection's Saved tab.
+      // The Saved list's own inline rename, in the Filter Bar row's popover,
+      // which opens on the request.
       if ((tab.state.activeView ?? 'documents') !== 'documents') {
         skipAutoRunRef.current = tab.id;
         tabs.setActiveView(tab.id, 'documents');
       }
-      if (tab.state.activeBuilderTab !== 'Saved') tabs.patchCollectionState(tab.id, { activeBuilderTab: 'Saved' });
-      expandBuilder();
       requestSavedRename(tab.id, pending.savedId);
       return;
     }
@@ -1784,8 +1808,6 @@ function WorkspaceInner() {
         queryBarSaveOpen={queryBarSaveOpen}
         setQueryBarSaveOpen={setQueryBarSaveOpen}
         setSavedRefreshKey={setSavedRefreshKey}
-        expandBuilder={expandBuilder}
-        patchActiveCollection={patchActiveCollection}
         refsConfigureHint={refsConfigureHint}
         tabsPinHint={tabsPinHint}
         savedCreateHint={savedCreateHint}

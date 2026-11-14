@@ -39,8 +39,10 @@ test('a projection set in the Fields control is what the next Run fetches', asyn
       await ws.openCollectionFromNavigator('shop', 'customers');
       await expect(win.getByText('gold')).toBeVisible({ timeout: 8000 });
 
-      // No projection cell in the advanced row any more.
-      await ws.queryBarAdvancedToggle.click();
+      // Projection is the Project pill, in the Filter Bar row with the other
+      // options; the grid behind "Keep options expanded" has no cell for it.
+      await expect(ws.fieldsButton).toHaveText('Project');
+      await ws.toggleOptionsExpanded();
       await expect(ws.queryBarAdvanced).toBeVisible();
       await expect(ws.queryBarAdvanced.getByText(/projection/i)).toHaveCount(0);
 

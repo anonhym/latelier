@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   bandOccupant,
+  isResultStale,
   latestFailedConnection,
   resultPaneKind,
   revertTarget,
@@ -95,12 +96,51 @@ describe('revertTarget', () => {
   });
 });
 
+describe('isResultStale', () => {
+  const ran = (overrides: Partial<CollectionTabState> = {}) => {
+    const at = state({ queryRaw: '{"a":1}', ...overrides });
+    return { ...at, lastRun: run({ documents: [{ _id: 1 }] }), lastRunQueryKey: resultQueryKey(at) ?? undefined };
+  };
+
+  it('nothing is stale before a run', () => {
+    expect(isResultStale(state({ queryRaw: 'not json' }))).toBe(false);
+  });
+
+  it('rows that answer the query in the bar are current', () => {
+    expect(isResultStale(ran())).toBe(false);
+  });
+
+  it('an edit since the run makes them stale', () => {
+    expect(isResultStale({ ...ran(), queryRaw: '{"a":2}' })).toBe(true);
+    expect(isResultStale({ ...ran(), builder: { projection: [], sort: '{"a":1}', limit: '' } })).toBe(true);
+  });
+
+  it('a query that cannot run is stale, whatever ran before', () => {
+    expect(isResultStale({ ...ran(), queryRaw: '{"a":' })).toBe(true);
+    // Even with no recorded key to compare against.
+    expect(isResultStale({ ...ran(), queryRaw: '{"a":', lastRunQueryKey: undefined })).toBe(true);
+  });
+
+  it('a run from before the key was recorded has nothing to compare against', () => {
+    expect(isResultStale({ ...ran(), lastRunQueryKey: undefined })).toBe(false);
+  });
+});
+
 describe('bandOccupant', () => {
+  const none = { lost: false, running: false, cancelled: false, stale: false, selected: false };
+  const all = { lost: true, running: true, cancelled: true, stale: true, selected: true };
+
   it.each([
-    [{ lost: true, running: true, selected: true }, 'lost'],
-    [{ lost: false, running: true, selected: true }, 'running'],
-    [{ lost: false, running: false, selected: true }, 'selection'],
-    [{ lost: false, running: false, selected: false }, 'none'],
+    [all, 'lost'],
+    [{ ...all, lost: false }, 'running'],
+    [{ ...all, lost: false, running: false }, 'cancelled'],
+    [{ ...all, lost: false, running: false, cancelled: false }, 'stale'],
+    [{ ...none, selected: true }, 'selection'],
+    [none, 'none'],
+    [{ ...none, lost: true }, 'lost'],
+    [{ ...none, running: true }, 'running'],
+    [{ ...none, cancelled: true }, 'cancelled'],
+    [{ ...none, stale: true }, 'stale'],
   ] as const)('%o holds %s', (input, expected) => {
     expect(bandOccupant(input)).toBe(expected);
   });

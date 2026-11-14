@@ -55,9 +55,6 @@ import {
 import { initHistory, pushHistory, undo, redo, canUndo, canRedo, type History } from './filterHistory';
 import { clearFilterStep, peekFilterStep } from './filterStep';
 import { peekFilterRequest, subscribeTabRequests, takeFilterRequest } from './tabRequest';
-import { SavedTab } from './views/SavedTab';
-import { RecentTab } from './views/RecentTab';
-import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
 import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
@@ -66,16 +63,13 @@ import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type {
   BuilderState,
-  BuilderTab,
   CollectionTabState,
   FilterNode,
-  RecentQuery,
-  SavedQuery,
-  SavedQuerySummary,
   Stage,
   ValType,
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
+import { liveValidity } from '../../utils/shellSyntax';
 import { useLiveMatchCount } from './useLiveMatchCount';
 import { CondValueEditor } from './CondValueEditor';
 import { useStructureEntries } from './useStructureEntries';
@@ -85,20 +79,15 @@ import { builderToStages } from './builderToPipeline';
 import { CODE_LANGS, findCode, type CodeLang } from '../../utils/driverCode';
 
 interface BuilderPaneProps {
-  /** Bumped externally after a save so SavedTab re-fetches. */
-  savedRefreshKey: number;
-  /** Opens an aggregation or script saved item as its own top-level tab. */
-  onOpenInTab: (saved: SavedQuerySummary) => void;
-  /** Called once the Saved list has renamed one of its entries. */
-  onSavedRenamed: (saved: SavedQuerySummary, name: string) => void;
   /** Opens this query, as stages, in the collection's Aggregation view. */
   onOpenAsPipeline: (stages: Stage[]) => void;
   /**
-   * Counts the loads that replaced the query wholesale — Reset, Saved and
-   * Recent run-here. Owned by the parent so QueryBar sees the same count.
+   * Counts the loads that replaced the query wholesale — Reset here, a Saved
+   * or History load from the Filter Bar row. Owned by the parent, which
+   * counts both.
    */
   loadGen: number;
-  /** Called after each of those loads, alongside its patch. */
+  /** Called after a Reset, alongside its patch. */
   onLoaded: () => void;
 }
 
@@ -2002,9 +1991,6 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
 }
 
 function BuilderPaneInner({
-  savedRefreshKey,
-  onOpenInTab,
-  onSavedRenamed,
   onOpenAsPipeline,
   loadGen,
   onLoaded,
@@ -2013,7 +1999,6 @@ function BuilderPaneInner({
   const { state, actions, meta } = useCollectionWorkspace();
   const { connectionId, dbName, collection } = meta;
   const onPatch = actions.patch;
-  const onRun = actions.run;
 
   // `loadGen` is bumped on Reset / Saved-run / Recent-run — the external-edit
   // triggers of §5.3 that may (coincidentally) write the same `queryRaw` text
@@ -2022,7 +2007,12 @@ function BuilderPaneInner({
   // these always force a fresh seed + drop any pending rows, the same as a
   // genuine text change would.
 
-  const activeTab = state.activeBuilderTab;
+  // X14 §11 — the drawer reads the bar's text as the Shell Syntax transform
+  // would leave it. Uncommitted `{status: 'shipped'}` is a filter the app
+  // runs, so the tree shows its conditions instead of freezing on the last
+  // valid one; text the transform refuses still freezes it. The repair
+  // commits on blur, to this same text, so the drawer sees no second change.
+  const liveQueryRaw = React.useMemo(() => liveValidity(state.queryRaw).text, [state.queryRaw]);
 
   const suggestionContext = React.useMemo<SuggestionContext | null>(() => {
     if (!connectionId || !dbName || !collection) return null;
@@ -2033,10 +2023,6 @@ function BuilderPaneInner({
       recentDocs: state.lastRun?.documents,
     };
   }, [connectionId, dbName, collection, state.lastRun?.documents]);
-
-  const setActiveTab = (tab: BuilderTab) => {
-    onPatch({ activeBuilderTab: tab });
-  };
 
   // Reproduces the query as actually run, not the user's raw inputs: same
   // skip/limit split `useQueryRunner` computes from the page
@@ -2144,25 +2130,6 @@ function BuilderPaneInner({
     });
   };
 
-  const handleSavedRunHere = (saved: SavedQuery) => {
-    if (saved.payload.kind === 'find') {
-      const patch = hydrateFindPayload(saved.payload as unknown as LegacySavedFindPayload, state.builder);
-      // The draft belongs to the filter being replaced: drop it with it.
-      onPatch({ ...patch, filterDraft: undefined });
-      onRun(patch);
-      onLoaded();
-    }
-  };
-
-  const handleRecentRunHere = (recent: RecentQuery) => {
-    if (recent.payload.kind === 'find') {
-      const patch = hydrateFindPayload(recent.payload as unknown as LegacySavedFindPayload, state.builder);
-      onPatch({ ...patch, filterDraft: undefined });
-      onRun(patch);
-      onLoaded();
-    }
-  };
-
   return (
     <div
       data-testid="builder-pane"
@@ -2177,21 +2144,12 @@ function BuilderPaneInner({
         position: 'relative',
       }}
     >
-      {/* This was three bare <button>s with an accent bottom-border on the
-          active one: no role, no aria-selected, no
-          aria-controls, three separate tab stops. Mantine's Tabs is the
-          tablist pattern already built, so the drawer inherits all of it
-          (including arrow-key roving as a single tab stop) rather than
-          hand-rolling a fourth copy.
-
-          `keepMounted={false}` is load-bearing: Mantine's default keeps
-          inactive panels in the DOM, which would fire Saved's and Recent's
-          list IPC from the Filter tab and leave the Filter footer mounted
-          behind the other two. */}
+      {/* One tab: the Saved and Recent lists left for the Filter Bar row's
+          popovers (W09 §12, W10 §6), so each has one home. Still Mantine's
+          Tabs, the tablist pattern already built, so the panel keeps its
+          header and its focus target. */}
       <Tabs
-        value={activeTab}
-        onChange={(v) => { if (v) setActiveTab(v as BuilderTab); }}
-        keepMounted={false}
+        value="Builder"
         variant="default"
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
@@ -2201,14 +2159,10 @@ function BuilderPaneInner({
           aria-label="Query drawer"
           style={{ flexShrink: 0, height: 42, borderBottom: `1px solid ${T.border}` }}
         >
-          {(['Builder', 'Saved', 'Recent'] as BuilderTab[]).map((tab) => (
-            <Tabs.Tab key={tab} value={tab} styles={{ tab: { fontSize: T.fsXs } }}>
-              {/* W13 §6 — the first tab's label is "Filter"; `tab` (the
-                  BuilderTab value 'Builder') is unchanged so persisted tab
-                  state / other call sites keep working. */}
-              {tab === 'Builder' ? 'Filter' : tab}
-            </Tabs.Tab>
-          ))}
+          {/* W13 §6 — the label is "Filter"; the value stays 'Builder'. */}
+          <Tabs.Tab value="Builder" styles={{ tab: { fontSize: T.fsXs } }}>
+            Filter
+          </Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel
@@ -2217,7 +2171,7 @@ function BuilderPaneInner({
         >
           <FilterDrawer
             key={`${meta.tabId}:${loadGen}`}
-            queryRaw={state.queryRaw}
+            queryRaw={liveQueryRaw}
             filterDraft={state.filterDraft}
             onCommit={onPatch}
             suggestionContext={suggestionContext}
@@ -2264,28 +2218,6 @@ function BuilderPaneInner({
               Open as pipeline
             </Button>
           </div>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="Saved" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <SavedTab
-            connectionId={connectionId}
-            dbName={dbName}
-            collection={collection}
-            refreshKey={savedRefreshKey}
-            onRunHere={handleSavedRunHere}
-            onOpenInTab={onOpenInTab}
-            tabId={meta.tabId}
-            onRenamed={onSavedRenamed}
-          />
-        </Tabs.Panel>
-
-        <Tabs.Panel value="Recent" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <RecentTab
-            connectionId={connectionId}
-            dbName={dbName}
-            collection={collection}
-            onRunHere={handleRecentRunHere}
-          />
         </Tabs.Panel>
       </Tabs>
 

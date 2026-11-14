@@ -1,10 +1,12 @@
 // Opening a collection tab auto-runs the base query so results render
 // without a manual Run click — but only when the tab has never run
 // (`lastRun == null`) and its filter/sort/limit/projection is still at the
-// default (no saved query loaded in ahead of activation).
+// default (no saved query loaded in ahead of activation). The one exception
+// is the tab in front when a launch restores the workspace: it runs once,
+// whatever its filter.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { IpcApi } from '@shared/ipc';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -177,83 +179,118 @@ describe('Workspace — auto-run on open', () => {
     expect(findSpy).not.toHaveBeenCalled();
   });
 
-  it('AC4: a tab with a non-default loaded query does not auto-run', async () => {
+  // W01 §14.10 — results are never persisted, so every restored tab has no
+  // rows. The one in front runs once at launch, whatever its filter; the
+  // others wait to be asked.
+  const CUSTOM = '{"status":{"$eq":"active"}}';
+  const customState = (queryRaw = CUSTOM) => ({ ...makeCollectionTab().state, queryRaw });
+  function mountRestored(tabs: CollectionTab[], conns: Array<Omit<(typeof connections)[number], 'status'> & { status: string }> = connections) {
     const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
       documents: [],
       durationMs: 0,
       hasMore: false,
     }));
-
     installAtelierMock({
       tabs: {
-        list: async () => [
-          makeCollectionTab({
-            state: {
-              view: 'Tree',
-              builder: { projection: [], sort: '', limit: '' },
-              // W13 — the filter is text-only now, so "a non-default loaded
-              // query" is a non-default `queryRaw`, not a builder condition.
-              queryRaw: '{"status":{"$eq":"active"}}',
-              page: 0,
-              pageSize: 50,
-              activeBuilderTab: 'Builder',
-            },
-          }),
-        ],
+        list: async () => tabs,
         setActive: async (id) => ({ id }),
         update: async () => makeCollectionTab(),
       },
-      conn: { list: async () => connections },
+      conn: { list: (async () => conns) as unknown as IpcApi['conn']['list'] },
       query: { find: findSpy, count: async () => ({ count: 0 }) },
     });
+    return { ...mountWorkspace(), findSpy };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 50));
 
-    const { container } = mountWorkspace();
+  it('AC4: the tab in front at launch runs its restored query once, whatever its filter', async () => {
+    const { findSpy } = mountRestored([makeCollectionTab({ state: customState() })]);
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0]?.[0]?.filter).toBe(CUSTOM);
+    await settle();
+    expect(findSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC4: the focus then rests in that tab\'s filter editor, not on <body>', async () => {
+    const { findSpy } = mountRestored([makeCollectionTab({ state: customState() })]);
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('query-bar-input')));
+  });
+
+  it('AC4: a restored query that cannot run does not run, and says it has not', async () => {
+    const { findSpy, container } = mountRestored([makeCollectionTab({ state: customState('{"status":') })]);
 
     await screen.findByTestId('query-run-btn');
-    await new Promise((r) => setTimeout(r, 50));
+    await settle();
     expect(findSpy).not.toHaveBeenCalled();
-    // Results are never persisted, so a restored custom-query tab has not run
-    // yet: it must say so rather than claim the query matched nothing.
+    expect(container.textContent).toContain('Run the query to see results');
+  });
+
+  it('AC4: a restored custom query does not run against a Connection that is not connected', async () => {
+    const { findSpy, container } = mountRestored(
+      [makeCollectionTab({ state: customState() })],
+      [{ ...connections[0]!, status: 'disconnected' }],
+    );
+
+    await waitFor(() => expect(container.querySelector('[data-tab-id="t1"]')).toBeTruthy());
+    await settle();
+    expect(findSpy).not.toHaveBeenCalled();
+  });
+
+  it('AC4: a restored custom query waits for its Connection to be known, then runs once', async () => {
+    let answer: (conns: typeof connections) => void = () => {};
+    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({ documents: [], durationMs: 0, hasMore: false }));
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab({ state: customState() })],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: {
+        list: (() => new Promise((res) => { answer = res; })) as unknown as IpcApi['conn']['list'],
+      },
+      query: { find: findSpy, count: async () => ({ count: 0 }) },
+    });
+    mountWorkspace();
+
+    // The tabs have landed; the Connections have not.
+    await settle();
+    expect(findSpy).not.toHaveBeenCalled();
+
+    await act(async () => { answer(connections); });
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0]?.[0]?.filter).toBe(CUSTOM);
+  });
+
+  it('AC4: a restored tab that was not in front stays lazy when it is shown', async () => {
+    const { findSpy, container } = mountRestored([
+      makeCollectionTab({ id: 't1', isActive: true, position: 0, state: customState('{"a":1}') }),
+      makeCollectionTab({ id: 't2', collection: 'orders', isActive: false, position: 1, state: customState() }),
+    ]);
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0]?.[0]?.filter).toBe('{"a":1}');
+
+    fireEvent.click(container.querySelector('[data-tab-id="t2"]') as Element);
+    await waitFor(() => expect((screen.getByTestId('query-bar-input') as HTMLTextAreaElement).value).toBe(CUSTOM));
+    await settle();
+
+    expect(findSpy).toHaveBeenCalledTimes(1);
+    // It has not run yet: it must say so rather than claim the query matched nothing.
     expect(container.textContent).toContain('Run the query to see results');
     expect(container.textContent).not.toContain('No matching documents');
   });
 
   it('AC4b: editing a loaded non-default query down to default does not trigger a silent auto-run', async () => {
-    const findSpy = vi.fn<IpcApi['query']['find']>(async () => ({
-      documents: [],
-      durationMs: 0,
-      hasMore: false,
-    }));
-
-    installAtelierMock({
-      tabs: {
-        list: async () => [
-          makeCollectionTab({
-            state: {
-              view: 'Tree',
-              builder: { projection: [], sort: '', limit: '' },
-              // W13 — the Filter drawer is a view of `queryRaw` (§5): seeding
-              // it here is what makes the drawer render the "status" row this
-              // test clicks "Remove condition" on.
-              queryRaw: '{"status":{"$eq":"active"}}',
-              page: 0,
-              pageSize: 50,
-              activeBuilderTab: 'Builder',
-            },
-          }),
-        ],
-        setActive: async (id) => ({ id }),
-        update: async () => makeCollectionTab(),
-      },
-      conn: { list: async () => connections },
-      query: { find: findSpy, count: async () => ({ count: 0 }) },
-    });
-
-    const { container } = mountWorkspace();
-
-    await screen.findByTestId('query-run-btn');
-    await new Promise((r) => setTimeout(r, 50));
-    expect(findSpy).not.toHaveBeenCalled();
+    const { findSpy, container } = mountRestored([
+      makeCollectionTab({ id: 't1', isActive: true, position: 0, state: customState('{"a":1}') }),
+      // W13 — the Filter drawer is a view of `queryRaw` (§5): seeding it here
+      // is what makes the drawer render the "status" row this test removes.
+      makeCollectionTab({ id: 't2', collection: 'orders', isActive: false, position: 1, state: customState() }),
+    ]);
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click(container.querySelector('[data-tab-id="t2"]') as Element);
 
     // User deletes the loaded condition themselves — the filter collapses
     // to the default shape (no filter/sort/limit/projection), same shape a
@@ -267,8 +304,8 @@ describe('Workspace — auto-run on open', () => {
     await waitFor(() => {
       expect(container.querySelector('[aria-label="Remove condition status"]')).toBeNull();
     });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(findSpy).not.toHaveBeenCalled();
+    await settle();
+    expect(findSpy).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-run a tab opened directly into the Aggregation sub-view', async () => {

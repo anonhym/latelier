@@ -677,20 +677,22 @@ describe('Filter drawer — opened over invalid text with a draft from earlier t
   const A = '{"a":{"$eq":1}}';
   const B = '{"b":{"$eq":2}}';
 
-  // On the Saved tab the drawer isn't mounted, so the bar moves through
+  // With the builder closed the drawer isn't mounted, so the bar moves through
   // valid B without the drawer seeing it or clearing A's draft.
   async function openFrozenOnDraft() {
     mountWith(
       makeState({
         queryRaw: A,
-        activeBuilderTab: 'Saved',
         filterDraft: { queryRaw: A, root: andRoot(A1, { ...B2, disabled: true }) },
       }),
     );
     const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    const toggle = screen.getByRole('button', { name: 'Builder' });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull());
     fireEvent.change(bar, { target: { value: B } });
     fireEvent.change(bar, { target: { value: `${B}x` } });
-    fireEvent.click(screen.getByRole('tab', { name: 'Filter' }));
+    fireEvent.click(toggle);
     await screen.findByText(/as you last left it in the drawer/);
     return bar;
   }
@@ -857,8 +859,8 @@ describe('Filter drawer — a Saved or Recent load drops the draft', () => {
   };
   const DRAFT = { queryRaw: '{}', root: andRoot({ ...A1, disabled: true }) };
 
-  function mountLoading(tab: 'Saved' | 'Recent') {
-    const state = makeState({ activeBuilderTab: tab, filterDraft: DRAFT });
+  function mountLoading() {
+    const state = makeState({ filterDraft: DRAFT });
     const updateSpy = vi.fn(async () => makeCollectionTab(state));
     const saved = {
       id: 'q1', connectionId: 'c1', dbName: 'mydb', collection: 'users', kind: 'find',
@@ -888,8 +890,10 @@ describe('Filter drawer — a Saved or Recent load drops the draft', () => {
   }
 
   it.each(['Saved', 'Recent'] as const)('Run here from %s writes filterDraft: undefined with the loaded queryRaw', async (tab) => {
-    const updateSpy = mountLoading(tab);
+    const updateSpy = mountLoading();
 
+    // Each list opens from its own button in the Filter Bar row.
+    fireEvent.click(await screen.findByRole('button', { name: tab === 'Saved' ? 'Saved queries' : 'History' }));
     fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"z":{"$eq":"loaded"}}'));

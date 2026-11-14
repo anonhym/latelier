@@ -91,7 +91,8 @@ function mountWith(state: CollectionTabState, tabsOverrides: Partial<IpcApi['tab
     },
     conn: { list: async () => [CONNECTION] },
     prefs: {
-      get: async () => null,
+      // The builder is open: Copy code lives in its footer.
+      get: async (key: string) => (key === 'ui.workspace.builderCollapsed' ? false : null),
       set: prefsSetSpy,
     } as unknown as IpcApi['prefs'],
     query: { find: findSpy, count: async () => ({ count: 0 }) },
@@ -144,10 +145,16 @@ const copiedText = (): string => {
   return mock.mock.calls.at(-1)?.[0] ?? '';
 };
 
+/** Opens an option's pill and hands back its editor (W05 §9.2). */
+async function openOption(key: 'sort' | 'limit'): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByTestId(`option-pill-${key}`));
+  return screen.findByTestId(`query-bar-${key}`);
+}
+
 // ─── §3.1 ───────────────────────────────────────────────────────────────────
 
 describe('W15 §3.1 — an unparseable sort is refused client-side', () => {
-  it('gates Run, renders an inline message, and never calls find', async () => {
+  it('gates Run, says why once the field is left, and never calls find', async () => {
     // Typed rather than seeded: the round trip this replaces only happened
     // because nothing looked at the text between keystroke and IPC.
     const { findSpy } = mountWith(makeState({ builder: { projection: [], sort: '{"a":1}', limit: '' } }));
@@ -155,12 +162,17 @@ describe('W15 §3.1 — an unparseable sort is refused client-side', () => {
     const runBtn = await screen.findByTestId('query-run-btn');
     expect(runBtn).toHaveProperty('disabled', false);
 
-    fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '{"a":1' } });
+    const sort = await openOption('sort');
+    fireEvent.change(sort, { target: { value: '{"a":1' } });
 
     await waitFor(() => {
       expect(screen.getByTestId('query-run-btn')).toHaveProperty('disabled', true);
     });
-    expect(screen.getByText(/Can't parse this sort/)).toBeTruthy();
+    expect(screen.getByTestId('query-run-btn').textContent).toBe('Fix sort to run');
+    // The reason waits for a commit point: nothing moves while typing.
+    expect(screen.queryByTestId('query-bar-strip')).toBeNull();
+    fireEvent.blur(sort);
+    expect(screen.getByTestId('query-bar-strip').textContent).toMatch(/Sort — Line 1, column 7: /);
 
     fireEvent.click(screen.getByTestId('query-run-btn'));
     await new Promise((r) => setTimeout(r, 0));
@@ -204,12 +216,14 @@ describe('W15 §3.1 — an unparseable sort is refused client-side', () => {
     const runBtn = await screen.findByTestId('query-run-btn');
     expect(runBtn).toHaveProperty('disabled', false);
 
-    fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '[1,2]' } });
+    const sort = await openOption('sort');
+    fireEvent.change(sort, { target: { value: '[1,2]' } });
 
     await waitFor(() => {
       expect(screen.getByTestId('query-run-btn')).toHaveProperty('disabled', true);
     });
-    expect(screen.getByText(/must be a document/i)).toBeTruthy();
+    fireEvent.blur(sort);
+    expect(screen.getByTestId('query-bar-strip').textContent).toMatch(/Sort — A sort must be a document/);
     // Told the right thing: there is no syntax error to hunt for here.
     expect(screen.queryByText(/Can't parse this sort/)).toBeNull();
 
@@ -240,7 +254,7 @@ describe('W15 §3.1 — an unparseable sort is refused client-side', () => {
   it('a blank sort is not an invalid sort', async () => {
     const { findSpy } = mountWith(makeState({ builder: { projection: [], sort: '{"a":1}', limit: '' } }));
 
-    fireEvent.change(await screen.findByTestId('query-bar-sort'), { target: { value: '' } });
+    fireEvent.change(await openOption('sort'), { target: { value: '' } });
 
     await waitFor(() => {
       expect(screen.getByTestId('query-run-btn')).toHaveProperty('disabled', false);
@@ -291,7 +305,8 @@ describe('W15 §4.1 — a coerced limit says what it actually runs as', () => {
   it('an honest limit says nothing', async () => {
     mountWith(makeState({ builder: { projection: [], sort: '', limit: '25' } }));
 
-    await screen.findByTestId('query-bar-limit');
+    expect((await screen.findByTestId('option-pill-limit')).textContent).toBe('Limit: 25');
+    expect(screen.queryByTestId('query-bar-strip')).toBeNull();
     expect(screen.queryByText(/no limit|is ignored/)).toBeNull();
   });
 });
@@ -302,7 +317,7 @@ describe('W15 §4.2 — the limit says what it caps and what else stops a query'
   it('describes the limit as a total across pages, with the time and size caps', async () => {
     mountWith(makeState({ builder: { projection: [], sort: '', limit: '10' } }));
 
-    const input = await screen.findByTestId('query-bar-limit');
+    const input = await openOption('limit');
     const helpId = input.getAttribute('aria-describedby')?.split(' ') ?? [];
     const help = helpId.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
 

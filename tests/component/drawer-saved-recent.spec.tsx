@@ -2,7 +2,7 @@
 // labels, a query you can identify, copy actions that report, and chrome
 // that survives loading and error.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act, within } from '../helpers/render';
 import { SavedTab } from '../../src/pages/Workspace/views/SavedTab';
 import { RecentTab } from '../../src/pages/Workspace/views/RecentTab';
 import { notifications } from '@mantine/notifications';
@@ -111,14 +111,17 @@ describe('W10 — consecutive identical runs show as one row with a run count', 
     const visible = screen.getByText('×3');
     expect(visible.getAttribute('aria-hidden')).toBe('true');
     expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
-    expect(screen.getAllByText(PREVIEW)).toHaveLength(1);
+    // One row; the preview under the list repeats the highlighted run's query.
+    const rows = screen.getAllByTestId('recent-row');
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]!).getByText(PREVIEW)).toBeTruthy();
   });
 
   it('shows no badge on a run that happened once', async () => {
     installAtelierMock({ recent: { list: async () => [recent()] } });
     renderRecent();
 
-    await screen.findByText(PREVIEW);
+    expect(within(await screen.findByTestId('recent-row')).getByText(PREVIEW)).toBeTruthy();
     expect(screen.queryByText(/^Ran \d+ times$/)).toBeNull();
     expect(screen.queryByText(/^×\d+$/)).toBeNull();
   });
@@ -175,7 +178,7 @@ describe('W15 §13.4 — a Recent row shows what was queried', () => {
     installAtelierMock({ recent: { list: async () => [recent()] } });
     renderRecent();
 
-    await screen.findByText('{"status":{"$eq":"paid"}}');
+    expect(within(await screen.findByTestId('recent-row')).getByText('{"status":{"$eq":"paid"}}')).toBeTruthy();
     // A bare `toLocaleTimeString()` made a run from three days ago read
     // `14:32`, indistinguishable from one an hour ago.
     expect(screen.getByText(/3d ago/)).toBeTruthy();
@@ -193,7 +196,7 @@ describe('W15 §13.4 — a Recent row shows what was queried', () => {
     });
     renderRecent();
 
-    expect(await screen.findByText('no stored query')).toBeTruthy();
+    expect(within(await screen.findByTestId('recent-row')).getByText('no stored query')).toBeTruthy();
     // And it says so instead of rendering an empty or invented filter: the
     // row carries no `$`-prefixed operator text at all.
     expect(screen.queryByText(/\$/)).toBeNull();
@@ -492,5 +495,182 @@ describe(' Recent can delete a row and clear its history', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(clear).not.toHaveBeenCalled();
+  });
+});
+
+// W05 §9.6 — each list opens on its search box: type to narrow it, ↑↓ to move
+// through it reading each entry's query, Enter to load the one highlighted.
+describe('W05 §9.6 — Saved and History under the keyboard', () => {
+  const find = (queryRaw: string) =>
+    ({ kind: 'find', builder: { projection: [], sort: '', limit: '' }, queryRaw }) as RecentQuery['payload'];
+  const highlighted = (rows: HTMLElement[]) => rows.map((r) => r.getAttribute('data-highlighted') === 'true');
+
+  describe('History', () => {
+    const PAID = '{"status":{"$eq":"paid"}}';
+    const OPEN = '{"status":{"$eq":"open"}}';
+    const LATE = '{"late":{"$eq":true}}';
+    const runs = () => [
+      recent({ id: 'r1', payload: find(PAID) }),
+      recent({ id: 'r2', payload: find(OPEN) }),
+      recent({ id: 'r3', payload: find(LATE) }),
+    ];
+
+    async function mount() {
+      const onRunHere = vi.fn();
+      installAtelierMock({ recent: { list: async () => runs() } });
+      render(<RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={onRunHere} />);
+      await screen.findAllByTestId('recent-row');
+      const search = screen.getByRole('textbox', { name: 'Search recent queries' });
+      return { onRunHere, search };
+    }
+    const rows = () => screen.getAllByTestId('recent-row');
+    const preview = () => screen.getByTestId('recent-preview').textContent;
+
+    it('opens with the focus in the search box and the first run highlighted and previewed', async () => {
+      const { search } = await mount();
+      expect(document.activeElement).toBe(search);
+      expect(highlighted(rows())).toEqual([true, false, false]);
+      expect(preview()).toBe(PAID);
+      expect(screen.getByTestId('recent-preview').getAttribute('aria-live')).toBe('polite');
+    });
+
+    it('moves the highlight and the preview with the arrows, stopping at both ends', async () => {
+      const { search } = await mount();
+
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      expect(highlighted(rows())).toEqual([false, true, false]);
+      expect(preview()).toBe(OPEN);
+
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      expect(highlighted(rows())).toEqual([false, false, true]);
+      expect(preview()).toBe(LATE);
+
+      fireEvent.keyDown(search, { key: 'ArrowUp' });
+      fireEvent.keyDown(search, { key: 'ArrowUp' });
+      fireEvent.keyDown(search, { key: 'ArrowUp' });
+      expect(highlighted(rows())).toEqual([true, false, false]);
+      expect(preview()).toBe(PAID);
+      // The keys are the list's: the caret does not move in the box as well.
+      expect(fireEvent.keyDown(search, { key: 'ArrowDown' })).toBe(false);
+    });
+
+    it('loads the highlighted run on Enter', async () => {
+      const { onRunHere, search } = await mount();
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      fireEvent.keyDown(search, { key: 'Enter' });
+
+      expect(onRunHere).toHaveBeenCalledTimes(1);
+      expect(onRunHere.mock.calls[0]![0]).toMatchObject({ id: 'r2' });
+    });
+
+    it('narrows the list as the search is typed, and the highlight goes back to the top', async () => {
+      const { onRunHere, search } = await mount();
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+
+      fireEvent.change(search, { target: { value: 'STATUS' } });
+      expect(rows()).toHaveLength(2);
+      expect(highlighted(rows())).toEqual([true, false]);
+      expect(preview()).toBe(PAID);
+
+      fireEvent.change(search, { target: { value: 'late' } });
+      expect(rows()).toHaveLength(1);
+      fireEvent.keyDown(search, { key: 'Enter' });
+      expect(onRunHere.mock.calls[0]![0]).toMatchObject({ id: 'r3' });
+    });
+
+    it('says so when nothing matches, and Enter then loads nothing', async () => {
+      const { onRunHere, search } = await mount();
+      fireEvent.change(search, { target: { value: 'nothing like this' } });
+
+      expect(screen.queryAllByTestId('recent-row')).toHaveLength(0);
+      expect(screen.getByText('No run matches this search.')).toBeTruthy();
+      expect(screen.queryByTestId('recent-preview')).toBeNull();
+      fireEvent.keyDown(search, { key: 'Enter' });
+      expect(onRunHere).not.toHaveBeenCalled();
+    });
+
+    it('highlights the row under the pointer', async () => {
+      await mount();
+      fireEvent.mouseEnter(rows()[2]!);
+      expect(highlighted(rows())).toEqual([false, false, true]);
+      expect(preview()).toBe(LATE);
+    });
+  });
+
+  describe('Saved', () => {
+    const FILTERS: Record<string, string> = { q1: '{"paid":{"$eq":false}}', q2: '{"late":{"$eq":true}}' };
+
+    async function mount(get?: IpcApi['saved']['get']) {
+      const onRunHere = vi.fn();
+      const onOpenInTab = vi.fn();
+      const getSpy = vi.fn<IpcApi['saved']['get']>(
+        get ?? (async ({ id }) => ({ ...summary({ id }), payload: find(FILTERS[id]!) }) as never),
+      );
+      installAtelierMock({
+        saved: {
+          list: async () => [
+            summary({ id: 'q1', name: 'Unpaid orders' }),
+            summary({ id: 'q2', name: 'Late orders' }),
+            summary({ id: 'q3', name: 'Totals by day', kind: 'aggregation' }),
+          ],
+          get: getSpy,
+        },
+      });
+      render(
+        <SavedTab connectionId="c1" dbName="shop" collection="orders" onRunHere={onRunHere} onOpenInTab={onOpenInTab} />,
+      );
+      await screen.findByText('Unpaid orders');
+      const search = screen.getByRole('textbox', { name: 'Search saved queries' });
+      return { onRunHere, onOpenInTab, getSpy, search };
+    }
+    const preview = () => screen.getByTestId('saved-preview').textContent;
+
+    it('opens on the search box and previews the first entry once its query is fetched', async () => {
+      const { search } = await mount();
+      expect(document.activeElement).toBe(search);
+      await waitFor(() => expect(preview()).toBe(FILTERS.q1));
+    });
+
+    it('previews each entry the arrows reach, fetching its query once', async () => {
+      const { search, getSpy } = await mount();
+      await waitFor(() => expect(preview()).toBe(FILTERS.q1));
+
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      await waitFor(() => expect(preview()).toBe(FILTERS.q2));
+      fireEvent.keyDown(search, { key: 'ArrowUp' });
+      expect(preview()).toBe(FILTERS.q1);
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      expect(preview()).toBe(FILTERS.q2);
+
+      expect(getSpy.mock.calls.map(([{ id }]) => id)).toEqual(['q1', 'q2']);
+    });
+
+    it('loads the highlighted find on Enter', async () => {
+      const { search, onRunHere } = await mount();
+      fireEvent.keyDown(search, { key: 'ArrowDown' });
+      fireEvent.keyDown(search, { key: 'Enter' });
+
+      await waitFor(() => expect(onRunHere).toHaveBeenCalledTimes(1));
+      expect(onRunHere.mock.calls[0]![0]).toMatchObject({ id: 'q2' });
+    });
+
+    it('opens a highlighted aggregation as its own tab on Enter', async () => {
+      const { search, onRunHere, onOpenInTab } = await mount();
+      fireEvent.change(search, { target: { value: 'totals' } });
+      fireEvent.keyDown(search, { key: 'Enter' });
+
+      expect(onOpenInTab).toHaveBeenCalledWith(expect.objectContaining({ id: 'q3' }));
+      expect(onRunHere).not.toHaveBeenCalled();
+    });
+
+    it('says the preview is missing when the entry cannot be fetched, without failing the list', async () => {
+      await mount(async () => {
+        throw new Error('gone');
+      });
+      await waitFor(() => expect(preview()).toBe('no stored query'));
+      expect(screen.getByText('Unpaid orders')).toBeTruthy();
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act, within } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
@@ -102,22 +102,16 @@ function lastWrittenBuilder(
   return undefined;
 }
 
-/** The projection lives in the Fields control (W14 §4), behind its button. */
+/** The projection lives in the Project pill's popover (W05 §9.2). */
 async function openProjection(): Promise<HTMLElement> {
-  fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /^project/i }));
   return screen.findByTestId('fields-projection');
 }
 
-/**
- * The advanced row is collapsed while nothing is set (W14 §1), so a tab with
- * a default builder has to open it before the sort input exists.
- */
-async function openAdvanced(): Promise<void> {
-  await screen.findByTestId('query-bar-input');
-  const trigger = document.querySelector('[aria-controls="query-bar-advanced"]');
-  if (trigger && trigger.getAttribute('aria-expanded') !== 'true') {
-    fireEvent.click(trigger);
-  }
+/** The sort's editor lives in the Sort pill's popover (W05 §9.2). */
+async function openSort(): Promise<void> {
+  fireEvent.click(await screen.findByTestId('option-pill-sort'));
+  await screen.findByTestId('query-bar-sort');
 }
 
 /**
@@ -225,7 +219,7 @@ describe('W15 §2.3/§3.4 — field completion on projection and sort', () => {
 
   it('the sort input offers the same completion from the same control', async () => {
     mountWith(makeState());
-    await openAdvanced();
+    await openSort();
 
     const input = await screen.findByTestId('query-bar-sort');
     typeWithCaret(input, '{"nickn');
@@ -331,8 +325,10 @@ describe('W15 §11 — a refused projection never widens the query', () => {
     await waitFor(() => {
       expect(screen.getByTestId('query-run-btn')).toHaveProperty('disabled', true);
     });
+    expect(screen.getByTestId('query-run-btn').textContent).toBe('Fix projection to run');
+    expect(screen.getByTestId('query-bar-strip').textContent).toMatch(/Projection — Can't parse this projection/);
     await openProjection();
-    expect(screen.getByText(/Can't parse this projection/)).toBeTruthy();
+    expect(within(screen.getByRole('dialog')).getByText(/Can't parse this projection/)).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('query-run-btn'));
     await new Promise((r) => setTimeout(r, 0));
@@ -340,8 +336,12 @@ describe('W15 §11 — a refused projection never widens the query', () => {
   });
 
   it('the runner refuses too, on the paths with no button to disable', async () => {
+    // No rows on screen, so the refusal has the pane to itself.
     const { findSpy } = mountWith(
-      makeState({ builder: { projection: [], projectionRaw: '{"_id":0', sort: '', limit: '' } }),
+      makeState({
+        builder: { projection: [], projectionRaw: '{"_id":0', sort: '', limit: '' },
+        lastRun: { documents: [], durationMs: 1, ranAt: now },
+      }),
     );
 
     await screen.findByTestId('query-run-btn');
@@ -352,9 +352,11 @@ describe('W15 §11 — a refused projection never widens the query', () => {
       void runCmd!.perform({ pathname: '/workspace', connectionId: 'c1' });
     });
 
+    // The pane says the message; its code stays behind Details.
     await waitFor(() => {
-      expect(screen.getByText(/VALIDATION: Can't parse this projection/)).toBeTruthy();
+      expect(screen.getByTestId('error-details').textContent).toMatch(/^VALIDATION: Can't parse this projection/);
     });
+    expect(screen.queryByText(/^VALIDATION: /)).toBe(screen.getByTestId('error-details'));
     expect(findSpy).not.toHaveBeenCalled();
   });
 

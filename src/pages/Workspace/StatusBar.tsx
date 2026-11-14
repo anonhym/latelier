@@ -13,7 +13,10 @@ import { useCollectionWorkspace } from './context';
 import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import { useFindExplain } from './useFindExplain';
 import { summarizeExplain } from '../../utils/explainSummary';
-import { compileFindOptions, findProblem } from './builder';
+import { compileFindOptions } from './builder';
+import { formatElapsed, runProblem, stripText } from './optionPills';
+import { isResultStale } from './resultPaneState';
+import { useRunClock } from './runClock';
 import { LIMIT_EXPLANATION, limitChipText } from './queryCaps';
 import { statusCountLayout } from './toolbarLayout';
 import { setStatusBarSlot, useStatusBarSlot } from './statusBarSlot';
@@ -103,15 +106,15 @@ function ResultStatusContent() {
   // then asks about the committed filter text, like any other read surface.
   const { runExplain, onCreateIndex } = useFindExplain(() => state.queryRaw);
 
-  // X14 §5 — a refused filter never re-runs, so `lastRun` keeps describing the
-  // query the user has since edited away. `findProblem` is the Run button's own
-  // rule, so the count is marked stale exactly while Run is refusing to make it
-  // current again.
-  const runProblem = findProblem(state);
-  const isStale = runProblem !== null;
+  // W06 §8.2 — `lastRun` keeps describing the query the user has since edited
+  // away, or one that can no longer run. The same rule as the band above the
+  // rows, so the count is marked exactly while that band says so.
+  const isStale = isResultStale(state);
   // Before the first run, offer the same Run gate QueryBar's button uses.
   // Read-only consumers have no working `run`, so they keep the plain label.
-  const canRunHere = !isReadOnly && !isLoading && runProblem === null;
+  const problem = runProblem(state);
+  const canRunHere = !isReadOnly && !isLoading && problem === null;
+  const clock = useRunClock(meta.tabId);
 
   // What the last run's query did: the index it used, or a collection scan.
   // An empty filter matches every document, so a scan is not a missing index.
@@ -125,8 +128,7 @@ function ResultStatusContent() {
       : null;
   const [countRef, countWidth] = useElementWidth<HTMLDivElement>();
   const layout = statusCountLayout(countWidth);
-  // A stale count is the total and "· not current", at any width.
-  const countForm = isStale ? 'total' : layout.count;
+  const countForm = layout.count;
 
   // The limit that actually applies (a coerced one shows as what it runs as).
   const limitChip = limitChipText(compileFindOptions(state.builder).limit);
@@ -186,7 +188,16 @@ function ResultStatusContent() {
         data-testid="result-count-slot"
         style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: T.gapXs, overflow: 'hidden' }}
       >
-        {lastRun?.error && docCount === 0 ? (
+        {isLoading ? (
+          // W05 §9.5: a slow query used to change nothing here but the Run button.
+          <span role="status" data-testid="result-running" style={{ color: T.text, fontVariantNumeric: 'tabular-nums' }}>
+            Running · {formatElapsed(clock?.kind === 'running' ? clock.elapsedMs : 0)}
+          </span>
+        ) : clock?.kind === 'cancelled' ? (
+          <span role="status" data-testid="result-cancelled">
+            Cancelled after {formatElapsed(clock.elapsedMs, true)}
+          </span>
+        ) : lastRun?.error && docCount === 0 ? (
           <span data-testid="result-count-failed" style={{ color: T.redText, fontWeight: 600 }}>
             Query failed
           </span>
@@ -220,24 +231,28 @@ function ResultStatusContent() {
                     <CountFigure stale={isStale}>{totalLabel}</CountFigure> results
                   </>
                 ))}
-              {/* Short of room, a stale count spends it on "not current", not the noun. */}
               {countForm === 'total' && (
                 <>
-                  <CountFigure stale={isStale}>{totalLabel}</CountFigure>
-                  {!isStale && ' results'}
+                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> results
+                </>
+              )}
+              {/* W01 §14.6: the duration is always shown, whatever else gives way. */}
+              {countForm !== 'full' && duration !== null && (
+                <>
+                  {' · '}
+                  <CountFigure>{duration}</CountFigure> ms
                 </>
               )}
             </span>
-            {/* Plain text, not a live region: the QueryBar's `role="alert"`
-                already announces the reason. */}
+            {/* Not a live region: the band above the rows already says it. */}
             {isStale && (
               <span
+                role="img"
                 data-testid="result-count-stale"
-                title="The query above has changed and cannot run as written"
-                style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: T.warn, fontWeight: 600 }}
-              >
-                · not current
-              </span>
+                aria-label="Not current"
+                title="These results are not the current query's"
+                style={{ width: 7, height: 7, borderRadius: '50%', background: T.warn, flexShrink: 0 }}
+              />
             )}
             {limitChip !== null && (
               <>
@@ -255,7 +270,7 @@ function ResultStatusContent() {
         ) : isReadOnly ? (
           <span>No run yet</span>
         ) : (
-          <Tooltip label={runProblem ?? 'Run (Cmd+Enter)'} withArrow>
+          <Tooltip label={problem ? stripText(problem) : 'Run (Cmd+Enter)'} withArrow>
             <Button
               variant="subtle"
               color="gray"

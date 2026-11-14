@@ -518,7 +518,7 @@ describe('TableView — rendering and interaction', () => {
       expect(queryByTestId('table-header-apple')).toBeTruthy();
       expect(container.textContent).toContain('a-val');
 
-      fireEvent.click(getByRole('button', { name: /fields/i }));
+      fireEvent.click(getByRole('button', { name: /^project/i }));
       const appleCheckbox = getByRole('checkbox', { name: 'apple' });
       fireEvent.click(appleCheckbox);
 
@@ -533,7 +533,7 @@ describe('TableView — rendering and interaction', () => {
     it('reordering via drag changes the header order', () => {
       const { getByRole, getByTestId } = renderStatefulTable(stateWithDocs());
 
-      fireEvent.click(getByRole('button', { name: /fields/i }));
+      fireEvent.click(getByRole('button', { name: /^project/i }));
       // Scope to the chooser's own popover dropdown — TableView's cells are
       // also `draggable`, so an unscoped document-wide query would be
       // ambiguous between the two.
@@ -568,7 +568,7 @@ describe('TableView — rendering and interaction', () => {
         }),
       );
 
-      fireEvent.click(getByRole('button', { name: /fields/i }));
+      fireEvent.click(getByRole('button', { name: /^project/i }));
       const input = getByRole('textbox', { name: /computed column path/i });
       fireEvent.change(input, { target: { value: 'address.city' } });
       fireEvent.click(getByRole('button', { name: /add column/i }));
@@ -1136,7 +1136,7 @@ describe('TableView — rendering and interaction', () => {
         }),
       );
 
-      fireEvent.click(getByRole('button', { name: /fields/i }));
+      fireEvent.click(getByRole('button', { name: /^project/i }));
       expect(queryByRole('checkbox', { name: /actions/i })).toBeNull();
     });
 

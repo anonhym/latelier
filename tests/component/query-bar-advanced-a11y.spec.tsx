@@ -7,9 +7,10 @@ import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 
 /**
- * W15 §5 / §4.4 / §12 case 6 — the advanced row's four fields each
- * have a programmatic accessible name, and `skip` states its reason to
- * someone who is not holding a mouse.
+ * W15 §5 / §4.4 / §12 case 6 — the options grid's fields each have a
+ * programmatic accessible name, and `skip` states its reason to someone who
+ * is not holding a mouse. The grid is what "Keep options expanded" shows; the
+ * same editors in a pill's popover are named by the pill's own label.
  *
  * Before this, the labels were plain `<div>`s and the inputs carried a
  * `data-testid` and a placeholder: a screen reader announced three unnamed
@@ -21,9 +22,8 @@ import type { IpcApi } from '@shared/ipc';
 
 const now = '2026-08-06T12:00:00.000Z';
 
-// A sort is seeded so the advanced row auto-opens (`hasAdvanced`) — the row
-// is not in the DOM at all while collapsed.
-function makeState(limit = '25'): CollectionTabState {
+// The grid is not in the DOM at all unless the tab keeps its options expanded.
+function makeState(limit = '25', optionsExpanded = true): CollectionTabState {
   return {
     view: 'Tree',
     builder: { projection: [], sort: '{"name":1}', limit },
@@ -31,6 +31,7 @@ function makeState(limit = '25'): CollectionTabState {
     page: 2,
     pageSize: 50,
     activeBuilderTab: 'Builder',
+    optionsExpanded,
     lastRun: { documents: [], durationMs: 0, ranAt: now },
   };
 }
@@ -61,8 +62,8 @@ const CONNECTION = {
   status: 'connected' as const,
 };
 
-function mount(limit?: string) {
-  const state = makeState(limit);
+function mount(limit?: string, optionsExpanded?: boolean) {
+  const state = makeState(limit, optionsExpanded);
   installAtelierMock({
     tabs: {
       list: async () => [makeTab(state)],
@@ -92,7 +93,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('W15 §5 — the advanced row announces which field you are on', () => {
+describe('W15 §5 — the options grid announces which field you are on', () => {
   it('names sort off its visible label cell', async () => {
     mount();
     await screen.findByTestId('query-bar-sort');
@@ -102,19 +103,19 @@ describe('W15 §5 — the advanced row announces which field you are on', () => 
     expect(screen.getByLabelText('sort')).toBe(screen.getByTestId('query-bar-sort'));
   });
 
-  // The projection moved out of this row into the Fields control (W14 §4),
+  // The projection is not in the grid: it is the Project pill (W05 §9.2),
   // and keeps an accessible name there.
-  it('names the projection input in the Fields control', async () => {
+  it('names the projection input in the Project pill', async () => {
     mount();
-    fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^project/i }));
     expect(await screen.findByLabelText('Projection')).toBe(screen.getByTestId('fields-projection'));
   });
 
-  it('names the filter textarea (N5.1)', async () => {
+  it('names the filter textarea off its visible Filter label', async () => {
     mount();
-    expect(await screen.findByRole('textbox', { name: 'Query filter' })).toBe(
-      screen.getByTestId('query-bar-input'),
-    );
+    const filter = await screen.findByRole('textbox', { name: 'Filter' });
+    expect(filter).toBe(screen.getByTestId('query-bar-input'));
+    expect(screen.getByText('Filter', { selector: 'label' }).getAttribute('for')).toBe(filter.id);
   });
 
   it('names limit and skip too', async () => {
@@ -187,19 +188,21 @@ describe('W15 §4.2 — limit says it caps the total across all pages', () => {
   });
 });
 
-describe('W15 §5 — the disclosure trigger carries the focus-ring class', () => {
-  it('opts into the :focus-visible rule defined in index.css', async () => {
-    mount();
-    // The tab strip's Tab Group headers are expandable buttons too.
-    const expanded = await screen.findAllByRole('button', { expanded: true });
-    const trigger = expanded.find((b) => !b.closest('[role="tablist"]'))!;
-    // jsdom does not apply the app stylesheet, so this only proves the hook
-    // is present. The other two thirds live where they can be checked:
-    // `tests/unit/focus-ring-rule.spec.ts` asserts `index.css` still defines
-    // an outline for whatever class this element names, and
-    // `tests/e2e/w15-advanced-row-sort-limit.e2e.ts` keyboard-focuses it
-    // under Chromium and reads the computed outline back. `:focus-visible`
-    // cannot be evaluated here at all.
-    expect(trigger.className.split(/\s+/)).toContain('focus-ring');
+describe('W05 §9.2 — the same fields in a pill\'s popover', () => {
+  it('names each editor by its pill and keeps the explanations on screen', async () => {
+    mount('25', false);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Limit: 25' }));
+    const limit = await screen.findByTestId('query-bar-limit');
+    expect(screen.getByRole('spinbutton', { name: 'Limit' })).toBe(limit);
+    expect(describedText(limit)).toMatch(/across all pages/i);
+    // Not a tooltip here: the popover has room to say it.
+    expect(document.getElementById('query-bar-limit-help')?.textContent).toMatch(/across all pages/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip: 100' }));
+    const skip = await screen.findByTestId('query-bar-skip');
+    expect(screen.getByRole('textbox', { name: 'Skip' })).toBe(skip);
+    expect((skip as HTMLInputElement).readOnly).toBe(true);
+    expect(describedText(skip)).toMatch(/page selector below the results/);
   });
 });

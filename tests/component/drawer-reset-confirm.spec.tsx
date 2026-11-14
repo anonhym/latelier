@@ -116,8 +116,9 @@ describe('Reset names the find options it clears', () => {
 
   it('lists the options that are set, and Reset clears them', async () => {
     mountWith(withOptions());
-    const collation = (await screen.findByTestId('query-bar-collation')) as HTMLInputElement;
-    expect(collation.value).toBe('{"locale":"fr"}');
+    // A set option is a pill of its own in the Filter Bar row.
+    expect((await screen.findByTestId('option-pill-collation')).textContent).toBe('Collation: fr');
+    expect(screen.getByTestId('option-pill-hint').textContent).toBe('Hint: status_1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     const dialog = await screen.findByRole('dialog');
@@ -125,12 +126,9 @@ describe('Reset names the find options it clears', () => {
     expect(dialog.textContent).not.toContain('maxTimeMS');
 
     fireEvent.click(within(dialog).getAllByRole('button', { name: 'Reset' })[0]);
-    // Reset is a load that replaces the query, so the advanced row
-    // re-derives like a tab switch: nothing is set any more, so it collapses.
-    await waitFor(() => expect(screen.queryByTestId('query-bar-collation')).toBeNull());
-    fireEvent.click(document.querySelector('[aria-controls="query-bar-advanced"]')!);
-    expect((screen.getByTestId('query-bar-collation') as HTMLInputElement).value).toBe('');
-    expect((screen.getByTestId('query-bar-hint') as HTMLInputElement).value).toBe('');
+    // Nothing is set any more: both go back into More.
+    await waitFor(() => expect(screen.queryByTestId('option-pill-collation')).toBeNull());
+    expect(screen.queryByTestId('option-pill-hint')).toBeNull();
   });
 
   it('says nothing about options when none is set', async () => {

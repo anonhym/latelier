@@ -40,6 +40,7 @@ const TabStateShape = z
     columns: z.record(z.string(), z.object({ width: z.number() })).optional(),
     expandedRows: z.record(z.string(), z.boolean()).optional(),
     activeBuilderTab: z.string().optional(),
+    optionsExpanded: z.boolean().optional(),
     referenceDrawer: z.record(z.string(), z.unknown()).optional(),
     aggregation: z.record(z.string(), z.unknown()).optional(),
     schema: z.record(z.string(), z.unknown()).optional(),

@@ -339,7 +339,7 @@ describe('ResultViewer compound', () => {
     expect(screen.queryByRole('status', { name: 'Loading results' })).toBeNull();
   });
 
-  it('a re-run keeps the existing rows under the band, with no skeleton', () => {
+  it('a re-run keeps the existing rows under the band, marked as the previous results, with no skeleton', () => {
     const { container } = renderLoadingBody(
       makeState({
         view: 'JSON',
@@ -347,7 +347,8 @@ describe('ResultViewer compound', () => {
       }),
     );
     const status = screen.getByRole('status');
-    expect(status.textContent).toBe('Running…');
+    // The rows on screen answer the query before this one, and say so.
+    expect(status.textContent).toBe('Previous results');
     expect(screen.queryByRole('status', { name: 'Loading results' })).toBeNull();
     expect(container.textContent).toContain('alpha');
   });

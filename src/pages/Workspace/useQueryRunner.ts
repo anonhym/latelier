@@ -6,6 +6,7 @@ import { invalidateRecentValuesCache } from '../../features/fieldSuggestions/sou
 import { fieldValueEntriesFromFilter } from '../../features/fieldSuggestions/fieldValueEntries';
 import { queryRunKey } from '../../utils/queryRunKey';
 import { repairOnCommit } from '../../utils/shellSyntax';
+import { cancelRunClock, settleRunClock, startRunClock } from './runClock';
 import {
   compileFindOptions,
   currentFilterJson,
@@ -144,6 +145,7 @@ export function useQueryRunner({
       // itself as stale and skips patching state once the abort settles.
       runTokenRef.current.set(target.id, (runTokenRef.current.get(target.id) ?? 0) + 1);
       clearRunning(target.id);
+      cancelRunClock(target.id);
       void api.query.cancel({ token }).catch((err: unknown) => logFailure('query cancel', err));
     },
     [clearRunning],
@@ -198,6 +200,7 @@ export function useQueryRunner({
         Object.keys(patch).length === 0 ? requested : { ...requested, ...patch };
       if (Object.keys(patch).length > 0) patchState(target.id, patch);
       runningIdsRef.current.add(target.id);
+      startRunClock(target.id);
       const existingTimer = loadingTimersRef.current.get(target.id);
       if (existingTimer) clearTimeout(existingTimer);
       loadingTimersRef.current.set(
@@ -444,6 +447,7 @@ export function useQueryRunner({
         // the newer run (or a cancel) that already claimed it.
         if (runToken === runTokenRef.current.get(target.id)) {
           clearRunning(target.id);
+          settleRunClock(target.id);
           if (cancelTokensRef.current.get(target.id) === cancelToken) {
             cancelTokensRef.current.delete(target.id);
           }

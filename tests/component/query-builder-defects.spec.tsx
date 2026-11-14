@@ -78,7 +78,8 @@ function mountWith(
     },
     conn: { list: async () => [CONNECTION] },
     prefs: {
-      get: async (key: string) => prefs[key] ?? null,
+      // Open unless a test stores otherwise: most of these are about the drawer.
+      get: async (key: string) => ({ 'ui.workspace.builderCollapsed': false, ...prefs })[key] ?? null,
       set: async () => undefined,
     } as unknown as IpcApi['prefs'],
     query: { find: findSpy, count: async () => ({ count: 0 }) },
@@ -125,8 +126,9 @@ describe(' a blank or invalid filter text has no runnable filter', () => {
     });
 
     await waitFor(() => {
-      // `filterProblem`'s own message: blank text is a missing filter.
-      expect(screen.getByText(/Enter a filter, like/)).toBeTruthy();
+      // `filterProblem`'s own message, in the pane the refused run left
+      // empty: blank text is a missing filter.
+      expect(screen.getByTestId('error-details').textContent).toMatch(/^VALIDATION: Enter a filter, like/);
     });
     expect(findSpy).not.toHaveBeenCalled();
   });
@@ -257,42 +259,38 @@ describe(' one SaveModal, owned above the builder pane', () => {
 });
 
 // ─── History works with the builder drawer collapsed ───────────────────────
+//
+// History used to be a tab of the drawer, so its button had to expand the
+// drawer first. It is a popover of the Filter Bar row now (W05 §9.6): the
+// drawer's state has nothing to do with it and is left as it was.
 
 describe(' History works with the builder drawer collapsed', () => {
-  it('expands the drawer and shows the Recent tab', async () => {
+  it('opens its list over a collapsed drawer, which stays collapsed', async () => {
     mountWith(makeState(), { 'ui.workspace.builderCollapsed': true });
 
     // Collapsed: BuilderPane is not mounted, so its tab strip is absent.
     const history = await screen.findByRole('button', { name: 'History' });
     await waitFor(() => {
-      // W13 §6 renames the first tab's label Builder → Filter.
       expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull();
     });
 
     fireEvent.click(history);
 
-    // One click: the pane is mounted…
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Filter' })).toBeTruthy();
-    });
-    // …and it landed on Recent, not on its default Filter tab (whose footer
-    // — Reset / Copy code / Save, post-W13 — is Filter-tab-only).
-    expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
+    expect(await screen.findByRole('textbox', { name: 'Search recent queries' })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull();
   });
 
-  it('switches an already-expanded drawer to the Recent tab', async () => {
+  it('opens its list beside an open drawer, which keeps its filter', async () => {
     mountWith(makeState(), { 'ui.workspace.builderCollapsed': false });
 
-    // The footer (Reset / Copy code / Save) renders on the Builder tab only,
-    // so Reset disappearing is the signal that the pane actually switched
-    // tabs rather than just persisting a flag. (Pre-W13 this used the
-    // drawer's own Run button as the signal; W13 §7 deleted it.)
     await screen.findByRole('button', { name: 'Reset' });
     fireEvent.click(await screen.findByRole('button', { name: 'History' }));
 
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
-    });
+    expect(await screen.findByRole('textbox', { name: 'Search recent queries' })).toBeTruthy();
+    // The drawer has one tab, and it did not move.
+    const drawerTabs = within(screen.getByRole('tablist', { name: 'Query drawer' })).getAllByRole('tab');
+    expect(drawerTabs.map((tab) => tab.textContent)).toEqual(['Filter']);
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();
   });
 });
 
@@ -400,17 +398,32 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
       makeState({ builder: { projection: [], sort: '{sku: 1}', limit: '' } }),
     );
 
-    fireEvent.keyDown(await screen.findByTestId('query-bar-sort'), { key: 'Enter', ctrlKey: true });
+    // From the pill, which is in the Documents view and not in a dialog.
+    fireEvent.keyDown(await screen.findByTestId('option-pill-sort'), { key: 'Enter', ctrlKey: true });
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     expect(findSpy.mock.calls[0][0].sort).toBe('{"sku": 1}');
   });
 
-  // The projection's input sits in the Fields control's dropdown, a dialog
+  // The pill's editor sits in a popover, a dialog the panel-level ⌘↵ skips —
+  // so the popover runs this one itself, with what was just typed.
+  it('repairs and runs a sort typed in its pill\'s editor, on ⌘↵ there', async () => {
+    const { findSpy } = mountWith(makeState());
+    fireEvent.click(await screen.findByTestId('option-pill-sort'));
+    const sort = await screen.findByTestId('query-bar-sort');
+
+    fireEvent.change(sort, { target: { value: '{sku: -1}' } });
+    fireEvent.keyDown(sort, cmdEnter);
+
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
+    expect(findSpy.mock.calls[0][0].sort).toBe('{"sku": -1}');
+  });
+
+  // The projection's input sits in the Project pill's dropdown, a dialog
   // the panel-level ⌘↵ skips — so the control runs this one itself.
   it('commits a projection draft that was never blurred, and runs it', async () => {
     const { findSpy } = mountWith(makeState());
-    fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^project/i }));
     const projection = await screen.findByTestId('fields-projection');
 
     fireEvent.change(projection, { target: { value: '{sku: 1}' } });
@@ -428,26 +441,30 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
 
     fireEvent.keyDown(await screen.findByPlaceholderText('field'), cmdEnter);
 
-    const line = await screen.findByText('Not run: Invalid sort');
+    const line = await screen.findByTestId('query-bar-strip');
     expect(line.getAttribute('role')).toBe('alert');
+    expect(line.textContent).toMatch(/Sort — A sort must be a document/);
+    expect(screen.getByTestId('query-run-btn').textContent).toBe('Fix sort to run');
     await new Promise((r) => setTimeout(r, 0));
     expect(findSpy).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByTestId('query-bar-sort'), { target: { value: '{"sku": 1}' } });
-    await waitFor(() => expect(screen.queryByText('Not run: Invalid sort')).toBeNull());
+    fireEvent.click(screen.getByTestId('option-pill-sort'));
+    fireEvent.change(await screen.findByTestId('query-bar-sort'), { target: { value: '{"sku": 1}' } });
+    await waitFor(() => expect(screen.queryByTestId('query-bar-strip')).toBeNull());
   });
 
   it('announces a repeated refused press again', async () => {
     mountWith(makeState({ builder: { projection: [], sort: '[1,2]', limit: '' } }));
-    const sort = await screen.findByTestId('query-bar-sort');
+    const sort = await screen.findByTestId('option-pill-sort');
 
     fireEvent.keyDown(sort, cmdEnter);
-    const first = await screen.findByText('Not run: Invalid sort');
+    const first = await screen.findByTestId('query-bar-strip');
     fireEvent.keyDown(sort, cmdEnter);
 
     // A new alert node, not the same one re-rendered — only a fresh
     // `role="alert"` is announced.
-    await waitFor(() => expect(screen.getByText('Not run: Invalid sort')).not.toBe(first));
+    await waitFor(() => expect(screen.getByTestId('query-bar-strip')).not.toBe(first));
+    expect(screen.getByTestId('query-bar-strip').textContent).toBe(first.textContent);
   });
 
   // W14 §9 — the shortcut's gate reads the find options too, or ⌘↵ would
@@ -457,9 +474,14 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
       makeState({ builder: { projection: [], sort: '', limit: '', collation: 'en' } }),
     );
 
-    fireEvent.keyDown(await screen.findByTestId('query-bar-collation'), cmdEnter);
+    // A set option is a pill of its own.
+    fireEvent.keyDown(await screen.findByTestId('option-pill-collation'), cmdEnter);
 
-    expect(await screen.findByText('Not run: Invalid find option')).toBeTruthy();
+    expect((await screen.findByTestId('query-bar-strip')).textContent).toMatch(
+      /Collation — Can't parse this collation/,
+    );
+    expect(screen.getByTestId('query-run-btn').textContent).toBe('Fix collation to run');
+    await new Promise((r) => setTimeout(r, 0));
     expect(findSpy).not.toHaveBeenCalled();
   });
 
@@ -467,12 +489,16 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
     const { findSpy } = mountWith(makeState({ queryRaw: '[1,2]' }));
     const textarea = await screen.findByTestId('query-bar-input');
     fireEvent.blur(textarea);
-    await screen.findByText(/A filter must be a document/);
+    const before = await screen.findByTestId('query-bar-strip');
+    expect(before.textContent).toMatch(/A filter must be a document/);
 
-    // That notice is old news by now; the press has to say something itself.
+    // That notice is old news by now; the press has to say something itself:
+    // the same sentence, in a fresh alert.
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Filter' }), cmdEnter);
 
-    expect(await screen.findByText('Not run: Invalid MQL')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('query-bar-strip')).not.toBe(before));
+    expect(screen.getByTestId('query-bar-strip').textContent).toMatch(/A filter must be a document/);
+    expect(screen.getByTestId('query-run-btn').textContent).toBe('Fix filter to run');
     expect(findSpy).not.toHaveBeenCalled();
   });
 

@@ -1,36 +1,62 @@
 import React, { memo } from 'react';
-import { ActionIcon, Badge, Button, Menu, Tooltip, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Button, Menu, Popover, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { useFindExplain } from './useFindExplain';
 import {
   DRAGGED_FIELD_MIME,
-  filterProblem,
-  findOptionProblems,
   findProblem,
   limitWarning,
   MAX_TIME_MS_CAP,
-  maxTimeMSWarning,
-  optionsProblem,
-  projectionProblem,
   READ_PREFERENCE_MODES,
   resultQueryKey,
-  sortProblem,
   type DraggedField,
   type FindOptionKey,
 } from './builder';
+import {
+  optionPills,
+  PILL_LOOK,
+  runLabel,
+  runProblem,
+  runProblemKey,
+  runWarning,
+  splitPills,
+  stripText,
+  type OptionKey,
+  type OptionPill,
+  type RunProblem,
+} from './optionPills';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import { useTextareaAutocomplete } from '../../features/fieldSuggestions/useTextareaAutocomplete';
 import { useCollectionWorkspace } from './context';
 import { ExplainDrawer } from './Aggregation/ExplainDrawer';
-import { consumeTabRequest, subscribeTabRequests, tabRequested } from './tabRequest';
+import {
+  consumeSavedRename,
+  consumeTabRequest,
+  peekSavedRename,
+  subscribeTabRequests,
+  tabRequested,
+} from './tabRequest';
 import { useLatest } from '../../commands/useLatest';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
+import { liveValidity } from '../../utils/shellSyntax';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { QueryExpandModal } from './QueryExpandModal';
 import { LIMIT_EXPLANATION } from './queryCaps';
-import type { BuilderState, CollectionTabState, ExplainVerbosity } from '@shared/types';
+import { FieldsControl } from './FieldsControl';
+import { SavedTab } from './views/SavedTab';
+import { RecentTab } from './views/RecentTab';
+import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
+import type {
+  BuilderState,
+  CollectionTabState,
+  ExplainVerbosity,
+  SavedPayload,
+  SavedQuerySummary,
+} from '@shared/types';
 import { FeatureHint } from '../../hints/FeatureHint';
 import { useFeatureHint } from '../../hints/useFeatureHint';
 
@@ -43,67 +69,160 @@ interface QueryBarProps {
    * what it does lives here, beside the drafts it has to flush first.
    */
   runShortcutRef?: React.Ref<() => void>;
-  /**
-   * Counts the loads that replaced the query wholesale (Reset, Saved and
-   * Recent run-here). A change re-derives the advanced row like a tab switch.
-   */
-  loadGen: number;
+  /** Bumped after a save, so an open Saved list re-fetches. */
+  savedRefreshKey?: number;
+  /** Called after a Saved or History load replaced the query wholesale. */
+  onLoaded?: () => void;
+  /** Opens a saved aggregation or script as its own tab. */
+  onOpenInTab?: (saved: SavedQuerySummary) => void;
+  /** Called once the Saved list has renamed one of its entries. */
+  onSavedRenamed?: (saved: SavedQuerySummary, name: string) => void;
+  /** Whether the Query Builder is open; with `onToggleBuilder`, draws the row's Builder button. */
+  builderOpen?: boolean;
+  onToggleBuilder?: () => void;
 }
 
-/**
- * Why Run refuses `s`, or null when it would run. One copy for the Run
- * tooltip and the refused-⌘↵ line, so the two can't drift.
- */
-function runBlockReason(s: CollectionTabState): string | null {
-  if (filterProblem(s.queryRaw) !== null) return 'Invalid MQL';
-  if (sortProblem(s.builder.sort) !== null) return 'Invalid sort';
-  if (projectionProblem(s.builder) !== null) return 'Invalid projection';
-  if (optionsProblem(s.builder) !== null) return 'Invalid find option';
-  return null;
-}
-
-/** The options row's inputs, in row order (W14 §9). */
-const FIND_OPTION_KEYS: readonly FindOptionKey[] = ['collation', 'hint', 'maxTimeMS', 'readPreference'];
-
-// W15 §4.4 — one copy, referenced by both the Tooltip (mouse, and now
-// keyboard focus) and the visually-hidden element `skip` is described by. Two
-// copies of a sentence like this drift the first time someone edits one.
+// W15 §4.4 — one copy, shown beside the read-only input and read to a
+// screen reader. Two copies of a sentence like this drift the first time
+// someone edits one.
 const SKIP_EXPLANATION = 'Skip is driven by the page selector below the results';
 
 // W07 §3's rule, said beside Run before it applies.
 const PAGE_RESET_HINT = 'Will jump to page 1 on run';
 
+// X14 §11 — beside text the transform will rewrite, where a refusal would sit.
+const SHELL_SYNTAX_NOTE = 'mongosh syntax — rewritten as EJSON when you run';
+
+/** The element id of each clause's notice, which its input is described by. */
+const NOTICE_IDS: Record<RunProblem['clause'], string> = {
+  filter: 'query-bar-filter-error',
+  sort: 'query-bar-sort-error',
+  project: 'query-bar-projection-error',
+  limit: 'query-bar-limit-error',
+  skip: 'query-bar-skip-error',
+  collation: 'query-bar-collation-error',
+  hint: 'query-bar-hint-error',
+  maxTimeMS: 'query-bar-maxtime-error',
+  readPreference: 'query-bar-readpref-error',
+};
+
+/** The part of each option editor's ids (`query-bar-<part>-label`), as the grid always named them. */
+const EDITOR_IDS: Record<Exclude<OptionKey, 'project'>, string> = {
+  sort: 'sort',
+  limit: 'limit',
+  skip: 'skip',
+  collation: 'collation',
+  hint: 'hint',
+  maxTimeMS: 'maxtime',
+  readPreference: 'readpref',
+};
+
+/** The Run menu's explain items: the verbosity names read as jargon (W05 §9.5). */
+const EXPLAIN_ITEMS: ReadonlyArray<{ verbosity: ExplainVerbosity; label: string }> = [
+  { verbosity: 'queryPlanner', label: 'Explain plan' },
+  { verbosity: 'executionStats', label: 'Explain with execution stats' },
+  { verbosity: 'allPlansExecution', label: 'Explain all plans' },
+];
+
+// A stable ref callback: an option's editor takes the focus when its popover
+// mounts it. On the editor's wrapper, since the autocomplete input keeps its
+// own ref object.
+const focusEditorOnMount = (el: HTMLElement | null) => el?.querySelector<HTMLElement>('input, select')?.focus();
+
+/** A modal opened from inside a popover (a delete confirmation) is not a click outside it. */
+function modalIsOpen(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
+
 /**
- * Why the query can't run, or runs as something else, as a `role="alert"` line
- * in the gap beside Run. Never a strip of its own: that pushed the toolbar and
- * the rows down and back with every complaint. It truncates in the gap, with
- * the whole message on hover; a screen reader gets all of it.
+ * One option pill and the popover holding that option's editor (W05 §9.2).
+ * Focus is handled here rather than by Mantine: the editor takes it on open,
+ * and Mantine's own return target is captured too late to be the pill then.
  */
-function Notice({ id, text }: { id: string; text: string }) {
+function OptionPopover({
+  pill,
+  opened,
+  onOpen,
+  onClose,
+  onRun,
+  buttonRef,
+  children,
+}: {
+  pill: OptionPill;
+  opened: boolean;
+  onOpen: () => void;
+  /** `refocus` when the keyboard closed it, so the focus has somewhere to go. */
+  onClose: (refocus: boolean) => void;
+  onRun: () => void;
+  buttonRef: (el: HTMLButtonElement | null) => void;
+  children: React.ReactNode;
+}) {
+  const T = themeVars;
   return (
-    <div
-      id={id}
-      role="alert"
-      title={text}
-      style={{
-        flex: '0 1 auto',
-        minWidth: 0,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        fontSize: themeVars.fsXs,
-        color: themeVars.warnText,
-      }}
+    <Popover
+      opened={opened}
+      onChange={(next) => (next ? onOpen() : onClose(false))}
+      position="bottom-start"
+      shadow="md"
+      width={320}
+      withinPortal
+      // Layered by hand below: an open suggestion list takes Escape first.
+      closeOnEscape={false}
+      returnFocus={false}
     >
-      {text}
-    </div>
+      <Popover.Target>
+        <Button
+          ref={buttonRef}
+          {...PILL_LOOK[pill.status]}
+          size="compact-xs"
+          h={24}
+          data-testid={`option-pill-${pill.key}`}
+          data-status={pill.status}
+          // A controlled Popover's target does not toggle by itself.
+          onClick={() => (opened ? onClose(false) : onOpen())}
+          style={{ flexShrink: 0 }}
+        >
+          {pill.label}
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown
+        p="xs"
+        onKeyDown={(e) => {
+          // `defaultPrevented`: an open suggestion list already took the key.
+          if (e.defaultPrevented) return;
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            onClose(true);
+          } else if (e.key === 'Enter') {
+            // The panel-level ⌘↵ skips anything inside a dialog, and this is one.
+            e.preventDefault();
+            e.stopPropagation();
+            onClose(true);
+            if (e.metaKey || e.ctrlKey) onRun();
+          }
+        }}
+      >
+        <div
+          id={`query-bar-${EDITOR_IDS[pill.key as keyof typeof EDITOR_IDS]}-label`}
+          style={{ fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, marginBottom: 4 }}
+        >
+          {pill.name}
+        </div>
+        <div ref={focusEditorOnMount}>{children}</div>
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 
 function QueryBarInner({
   suggestionContext,
   runShortcutRef,
-  loadGen,
+  savedRefreshKey,
+  onLoaded,
+  onOpenInTab,
+  onSavedRenamed,
+  builderOpen = false,
+  onToggleBuilder,
 }: QueryBarProps) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -112,65 +231,31 @@ function QueryBarInner({
   const onRun = actions.run;
   const onCancel = actions.cancel;
   const onSave = actions.openSave;
-  // the Recent list lives in the builder pane, which is unmounted
-  // while collapsed. Switching its tab without making it visible is a click
-  // that appears to do nothing.
-  const onHistory = React.useCallback(() => {
-    actions.expandBuilder?.();
-    actions.patch({ activeBuilderTab: 'Recent' });
-  }, [actions]);
   const queryRaw = state.queryRaw;
+  const builder = state.builder;
+  const expanded = state.optionsExpanded === true;
 
-  // W13 — the sync pill / "Re-sync builder" / "Accept builder" machinery is
-  // gone: the drawer is a view of `queryRaw`, not a competing compiled
-  // filter to reconcile against, so the bar only needs to know whether the
-  // current text is runnable.
-  // A filter must be a *document*, not merely parseable EJSON — `[1,2]` and
-  // `null` parse, and main refuses them. The same rule `currentFilterJson`
-  // and `findProblem` use.
-  const isValid = React.useMemo(() => filterProblem(queryRaw) === null, [queryRaw]);
-
-  // W15 §3.1 — sort used to reach `QueryService.find` unvalidated and
-  // come back as a `VALIDATION` pill after a round trip, one row below a
-  // filter gated client-side. `sortProblem` is shared with `useQueryRunner`'s
-  // guard so the button and the runner can't drift onto two rules.
-  const sortError = React.useMemo(() => sortProblem(state.builder.sort), [state.builder.sort]);
-  const limitError = React.useMemo(
-    () => limitWarning(state.builder.limit),
-    [state.builder.limit],
+  // X14 §11 — every check that runs while the user types judges the text as
+  // the Shell Syntax transform would leave it: `{status: 'shipped'}` runs on
+  // ⌘↵, so nothing here may call it invalid. `runProblem` is the Run gate, the
+  // Run label and the strip's sentence, so the three cannot disagree.
+  // `findProblem` stays the strict rule for the paths with no button.
+  const problem = React.useMemo(() => runProblem({ queryRaw, builder }), [queryRaw, builder]);
+  const liveFilter = React.useMemo(() => liveValidity(queryRaw), [queryRaw]);
+  const pills = React.useMemo(
+    () => optionPills({ builder, page: state.page, pageSize: state.pageSize }),
+    [builder, state.page, state.pageSize],
   );
+  const pillOf = (key: OptionKey) => pills.find((p) => p.key === key)!;
+  const limitError = React.useMemo(() => limitWarning(builder.limit), [builder.limit]);
 
-  // W13 §7 — Run's enabled rule collapses to the filter's document rule. The
-  // fail-open hazard can't recur through this button: `queryRaw` is the single
-  // source of truth for the filter, and any op the old builder couldn't
-  // compile (`$elemMatch`, `$text`, ...) is now a raw node the filter-tree
-  // printer encodes losslessly — there's no more "compiles to a mangled
-  // clause" state to guard against.
-  // §3.1 folds the sort in: an unparseable sort is refused here rather than
-  // by the main process. `limitError` deliberately does *not* gate — a
-  // coerced limit still runs, it just has to say what it runs as (§4.1).
-  //
-  // The three-way conjunction collapses into `findProblem`, which is the
-  // same three gates in the same order and so the same boolean — this swap is
-  // deliberately an equivalent mutation, and no test can tell it from the
-  // conjunction it replaced. It earns its place structurally, not
-  // behaviourally: Copy code needs the *reason* rather than the verdict, and
-  // a second place computing "is this query runnable" is exactly what §3.1
-  // exists to prevent, so the button and the copy path read one function.
-  // `sortError` stays — it is the inline per-field
-  // message, which is a different question from whether Run is enabled.
-  const canRun = !isLoading && findProblem(state) === null;
+  const canRun = !isLoading && problem === null;
   // W07 §3: the runner's own rule for leaving this page, said ahead of the Run.
   const willResetPage =
     state.page > 0 &&
     findProblem(state) === null &&
     state.lastRunQueryKey !== undefined &&
     resultQueryKey(state) !== state.lastRunQueryKey;
-  // Explain calls `api.query.explain` directly — it does NOT go through
-  // `useQueryRunner.run`, but W13 collapses its rule to the same one:
-  // `queryRaw` is the only filter source now, so Explain needs nothing
-  // stricter than Run.
-  const canExplain = canRun;
 
   const [expandOpen, setExpandOpen] = React.useState(false);
   const [explainOpen, setExplainOpen] = React.useState(false);
@@ -193,102 +278,90 @@ function QueryBarInner({
   // the Run gate still closed.
   //
   // Safe to compose with the autocomplete's own blur: the suggestion popover
-  // preventDefaults its `onMouseDown` (`SuggestionPopover.tsx:152`), so
-  // picking a suggestion never blurs the textarea in the first place.
-  //
-  // X14 §5 — `thenCheck: filterProblem` is the document rule, applied after the
-  // transform's own refusal and never collapsed into the same sentence — the
-  // hook's own ordering rule. The message is held in state and set at the
-  // conversion point, not derived per keystroke: `Notice` is a `role="alert"`,
-  // and a derived one would announce a half-typed `{age:` on every character.
+  // preventDefaults its `onMouseDown` (`SuggestionPopover.tsx`), so picking a
+  // suggestion never blurs the textarea in the first place.
   const filterField = useShellSyntaxField({
     value: queryRaw,
     commit: (next) => onPatch({ queryRaw: next }),
-    thenCheck: filterProblem,
   });
+  // X14 §3 — the sort field's half, same glue and same conversion point.
+  const sortField = useShellSyntaxField({
+    value: builder.sort,
+    commit: (next) => onPatch({ builder: { ...builder, sort: next } }),
+  });
+
+  // W05 §9.3 — the strip under the row. A notice is raised at a commit point
+  // (a blur, a closed popover, a Run attempt), never derived per keystroke:
+  // it is a `role="alert"`, and a derived one would announce a half-typed
+  // `{age:` on every character and move the rows with it. It is kept with the
+  // query it judged, so any later edit, from anywhere, retires it.
+  const [raised, setRaised] = React.useState<{
+    notice: RunProblem;
+    blocking: boolean;
+    key: string;
+    seq: number;
+  } | null>(null);
+  const raise = (s: Pick<CollectionTabState, 'queryRaw' | 'builder'>, announce: boolean) => {
+    const blocking = runProblem(s);
+    const notice = blocking ?? runWarning(s);
+    setRaised((prev) => {
+      if (notice === null) return null;
+      const key = runProblemKey(s);
+      const same = prev?.key === key && prev.notice.message === notice.message;
+      // `seq` remounts the alert, so a repeated refused Run is announced
+      // again; a blur that changes nothing is not.
+      const seq = same && !announce ? prev.seq : (prev?.seq ?? 0) + 1;
+      return { notice, blocking: blocking !== null, key, seq };
+    });
+  };
+  // A tab arriving in front is a commit point too: nothing is being typed, and
+  // a restored query that cannot run has to say why, since Run is disabled.
+  const [judgedTab, setJudgedTab] = React.useState<string | null>(null);
+  if (judgedTab !== meta.tabId) {
+    setJudgedTab(meta.tabId);
+    raise({ queryRaw, builder }, false);
+  }
+  const shown = raised?.key === runProblemKey({ queryRaw, builder }) ? raised : null;
+  // A run the runner refused (Saved or History "Run", the palette) keeps its
+  // rows, so the pane has no room to say why. Only until the text can run.
+  const refusedRun =
+    state.lastRun?.error && state.lastRun.documents.length > 0 && findProblem(state) !== null
+      ? state.lastRun.error.message
+      : null;
+  const noticeId = (clause: RunProblem['clause']) => (shown?.notice.clause === clause ? NOTICE_IDS[clause] : undefined);
+
+  /** Repairs the filter and the sort, and hands back the query to act on this tick: a patch lands async. */
+  const settle = (): Pick<CollectionTabState, 'queryRaw' | 'builder'> => {
+    const filter = filterField.commitNow();
+    const sort = sortField.repairNow();
+    const next = sort.text === builder.sort ? builder : { ...builder, sort: sort.text };
+    if (next !== builder) onPatch({ builder: next });
+    return { queryRaw: filter.text, builder: next };
+  };
 
   const handleBlur = () => {
     autocomplete.onBlur();
-    filterField.onBlur();
+    raise({ queryRaw: filterField.commitNow().text, builder }, false);
   };
-
-  // X14 — Explain reads through the repair, like every other surface.
-  //
-  // These live below `filterField` rather than beside `canExplain` because
-  // they call it, and a hook argument is evaluated during render — naming it
-  // earlier is a temporal-dead-zone throw, not a lint nit.
-  //
-  // `canExplain` is `canRun`, which refuses Shell Syntax, so by the time
-  // Explain is reachable the text is strict JSON — save for padding with
-  // Unicode spaces (NBSP, BOM, em space) that the gate trims and `JSON.parse`
-  // refuses. The repair trims exactly that padding, so Explain sends the text
-  // `currentFilterJson` would; strict text with ordinary spacing comes back
-  // `unchanged` and is sent as typed.
-  const onExplain = (verbosity: ExplainVerbosity) => {
-    const { text, outcome } = filterField.commitNow();
-    if (outcome.kind === 'failed') return;
-    if (findProblem({ ...state, queryRaw: text }) !== null || isLoading) return;
-    setExplainVerbosity(verbosity);
-    setExplainOpen(true);
-  };
-
-  // The palette's Explain query on this tab: this menu's queryPlanner item, once.
-  const explainRequested = React.useSyncExternalStore(subscribeTabRequests, () =>
-    tabRequested('explain', meta.tabId),
-  );
-  const onExplainRef = useLatest(onExplain);
-  React.useEffect(() => {
-    if (!explainRequested) return;
-    consumeTabRequest('explain', meta.tabId);
-    onExplainRef.current('queryPlanner');
-  }, [explainRequested, meta.tabId, onExplainRef]);
-
-  // The fetcher and the create-index handoff are shared with the result bar's
-  // plan badge. The filter is read through the repair, never the raw text.
-  const { runExplain: runQueryExplain, onCreateIndex } = useFindExplain(
-    () => filterField.commitNow().text,
-  );
-
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onPatch({ queryRaw: e.target.value });
-    // Stale complaint while the user is already fixing it; the next blur or
-    // ⌘↵ re-asks. This is also X14 §5's "the message clears when the input
-    // becomes runnable again".
-    filterField.onChange(e.target.value);
     autocomplete.probe();
   };
 
-  // X14 §3 — the sort field's half, same glue and same conversion
-  // point as the filter bar. The transform runs first and `sortProblem` then
-  // judges the repaired text, which is the whole of the ordering rule:
-  // `{name: 1}` becomes `{"name": 1}` and passes, while `[1, 2]` is already
-  // valid JSON, so the transform returns `unchanged` and the shape refusal
-  // still fires with its own message rather than the parse one.
-  //
-  // Blank needs no special case: the transform reports empty input as
-  // `failed`, the hook then commits nothing, and `sortProblem`'s own blank
-  // check ahead of it still reads "no sort".
-  //
-  // X14 §5 — no `then` here: the shape check (`sortError`, below) is a
-  // separate memo and the two are OR'd in JSX rather than combined into one
-  // hook-owned refusal — `sortProblem`'s "must be a document" and the
-  // transform's own reason name different fixes.
-  const sortField = useShellSyntaxField({
-    value: state.builder.sort,
-    commit: (next) => onPatch({ builder: { ...state.builder, sort: next } }),
-  });
   const handleSortChange = (v: string) => {
-    onPatch({ builder: { ...state.builder, sort: v } });
-    sortField.onChange(v);
+    onPatch({ builder: { ...builder, sort: v } });
   };
   const handleSortBlur = () => {
-    sortField.onBlur();
+    const { text } = sortField.commitNow();
+    raise({ queryRaw, builder: text === builder.sort ? builder : { ...builder, sort: text } }, false);
   };
+  /** The other option inputs commit as they are typed; leaving one is still a commit point. */
+  const handleOptionBlur = () => raise({ queryRaw, builder }, false);
 
-  // A field dropped on the sort cell (ADR 0007 item 4) always sorts it
-  // ascending and replaces any sort there: ascending is the first step of the
-  // header's cycle, and a drop that flipped or cleared would let re-dropping
-  // the same field silently remove the sort.
+  // A field dropped on the sort (ADR 0007 item 4) always sorts it ascending
+  // and replaces any sort there: ascending is the first step of the header's
+  // cycle, and a drop that flipped or cleared would let re-dropping the same
+  // field silently remove the sort.
   const [sortDropActive, setSortDropActive] = React.useState(false);
   const acceptsField = (e: React.DragEvent) => e.dataTransfer.types.includes(DRAGGED_FIELD_MIME);
   const handleSortDragOver = (e: React.DragEvent) => {
@@ -311,134 +384,118 @@ function QueryBarInner({
     if (typeof dragged?.field !== 'string' || !dragged.field) return;
     handleSortChange(JSON.stringify({ [dragged.field]: 1 }));
   };
+  const sortDropProps = {
+    'data-testid': 'query-bar-sort-drop',
+    onDragOver: handleSortDragOver,
+    onDragLeave: () => setSortDropActive(false),
+    onDrop: handleSortDrop,
+  };
+  const sortDropStyle: React.CSSProperties | null = sortDropActive
+    ? { background: T.accentSoft, outline: `1.5px dashed ${T.accent}` }
+    : null;
+
   const handleLimitChange = (v: string) => {
-    onPatch({ builder: { ...state.builder, limit: v } });
+    onPatch({ builder: { ...builder, limit: v } });
   };
   const handleOptionChange = (key: FindOptionKey, v: string) => {
-    onPatch({ builder: { ...state.builder, [key]: v } as BuilderState });
+    onPatch({ builder: { ...builder, [key]: v } as BuilderState });
   };
-  const optionErrors = React.useMemo(() => findOptionProblems(state.builder), [state.builder]);
-  const maxTimeWarning = maxTimeMSWarning(state.builder.maxTimeMS);
 
-  // The Documents view's ⌘/Ctrl+Enter. No blur has run when a key
-  // is pressed, so every draft is repaired before the gate, never after it:
-  // gating the raw text would refuse `{age: {$gt: 60}}` or a `{name: 1}` sort
-  // that the Run button (whose click blurs first) accepts. Patches land
-  // async, so the repaired values also ride along as the `run` override.
+  // Run, from the button, its menu and the Documents view's ⌘/Ctrl+Enter. No
+  // blur has run when a key is pressed, so every draft is repaired before the
+  // gate, never after it: gating the raw text would refuse `{age: {$gt: 60}}`
+  // or a `{name: 1}` sort. Patches land async, so the repaired values also
+  // ride along as the `run` override. A refused press raises the strip.
   //
-  // A refused press is named on `runBlocked`'s line — unless this very
-  // press raised the filter Notice (`commitNow` set it just now), which
-  // already says why; a second `role="alert"` would say it twice. A Notice
-  // that was already on screen is not re-announced, so it does not count.
-  // `seq` remounts the line on every refused press so a repeat press is
-  // announced again. The line lasts until the query changes (keyed on the
-  // exact values it judged) or the tab switches.
-  //
-  // The projection is not settled here: its draft lives in the Fields
-  // control, whose dropdown is a dialog the panel-level ⌘↵ skips, so the
-  // control runs its own ⌘↵ with the draft settled.
-  const [runBlocked, setRunBlocked] = React.useState<{
-    reason: string;
-    queryRaw: string;
-    builder: CollectionTabState['builder'];
-    seq: number;
-  } | null>(null);
-  const runFromShortcut = () => {
+  // The projection is not settled here: its draft lives in the Project pill,
+  // whose dropdown is a dialog the panel-level ⌘↵ skips, so that control runs
+  // its own ⌘↵ with the draft settled.
+  const runNow = () => {
     if (isLoading) return;
-    const hadFilterNotice = filterField.refusal !== null;
-    const filter = filterField.commitNow();
-    const sort = sortField.repairNow();
-    const builder =
-      sort.text === state.builder.sort ? state.builder : { ...state.builder, sort: sort.text };
-    if (builder !== state.builder) onPatch({ builder });
-    const reason = runBlockReason({ ...state, queryRaw: filter.text, builder });
-    if (reason === null) {
-      setRunBlocked(null);
-      onRun({ queryRaw: filter.text, builder });
-      return;
-    }
-    const freshNotice = filterProblem(filter.text) !== null && !hadFilterNotice;
-    setRunBlocked((prev) =>
-      freshNotice ? null : { reason, queryRaw: filter.text, builder, seq: (prev?.seq ?? 0) + 1 },
-    );
+    const next = settle();
+    raise(next, true);
+    if (runProblem(next) === null) onRun(next);
   };
-  React.useImperativeHandle(runShortcutRef, () => runFromShortcut);
-  const blocked =
-    runBlocked?.queryRaw === state.queryRaw && runBlocked.builder === state.builder
-      ? runBlocked
-      : null;
+  React.useImperativeHandle(runShortcutRef, () => runNow);
+
+  // X14 — Explain reads through the repair, like every other surface.
+  const onExplain = (verbosity: ExplainVerbosity) => {
+    if (isLoading) return;
+    const next = settle();
+    raise(next, true);
+    if (runProblem(next) !== null) return;
+    setExplainVerbosity(verbosity);
+    setExplainOpen(true);
+  };
+
+  // The palette's Explain query on this tab: this menu's first item, once.
+  const explainRequested = React.useSyncExternalStore(subscribeTabRequests, () =>
+    tabRequested('explain', meta.tabId),
+  );
+  const onExplainRef = useLatest(onExplain);
+  React.useEffect(() => {
+    if (!explainRequested) return;
+    consumeTabRequest('explain', meta.tabId);
+    onExplainRef.current('queryPlanner');
+  }, [explainRequested, meta.tabId, onExplainRef]);
+
+  // The fetcher and the create-index handoff are shared with the status bar's
+  // plan badge. The filter is read through the repair, never the raw text.
+  const { runExplain: runQueryExplain, onCreateIndex } = useFindExplain(
+    () => filterField.commitNow().text,
+  );
+
+  // Which option's editor is open, with the tab it was opened on: the bar
+  // never remounts, so tab A's open popover must not reappear over tab B.
+  const [openOption, setOpenOption] = React.useState<{ tabId: string; key: OptionKey } | null>(null);
+  const openKey = openOption?.tabId === meta.tabId ? openOption.key : null;
+  const pillRefs = React.useRef(new Map<OptionKey, HTMLButtonElement | null>());
+  const openPill = (key: OptionKey) => setOpenOption({ tabId: meta.tabId, key });
+  const closePill = (key: OptionKey, refocus: boolean) => {
+    setOpenOption(null);
+    // Closing is a commit point, and the editor's own blur may never fire:
+    // the dropdown unmounts under it.
+    if (key === 'sort') handleSortBlur();
+    else handleOptionBlur();
+    const pill = pillRefs.current.get(key);
+    if (refocus) pill?.focus();
+    // A click that closed it on something focusable keeps the focus there;
+    // one on a blank area would drop it to <body>.
+    else {
+      window.setTimeout(() => {
+        if (document.activeElement === document.body) pill?.focus();
+      }, 0);
+    }
+  };
+
+  const { row: rowPills, more: morePills } = splitPills(pills, openKey);
+
+  // Saved and History: the row's two popovers are their only home (W05 §9.6).
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [savedOpen, setSavedOpen] = React.useState(false);
+  // The palette's Rename… (X07 §13.12) lands in the Saved list's own input.
+  const renameRequest = React.useSyncExternalStore(subscribeTabRequests, () => peekSavedRename(meta.tabId));
+  if (renameRequest !== null && !savedOpen) setSavedOpen(true);
+  const closeSaved = () => {
+    // A rename that was asked for and not started must not reopen the list.
+    consumeSavedRename(meta.tabId);
+    setSavedOpen(false);
+  };
+  const loadFind = (payload: SavedPayload) => {
+    if (payload.kind !== 'find') return;
+    const patch = hydrateFindPayload(payload as unknown as LegacySavedFindPayload, builder);
+    // The draft belongs to the filter being replaced: drop it with it.
+    onPatch({ ...patch, filterDraft: undefined });
+    onRun(patch);
+    onLoaded?.();
+  };
+
+  const findOptionsHint = useFeatureHint('find.options', !!builder.collation?.trim() || !!builder.hint?.trim());
 
   const skipValue = state.page * state.pageSize;
 
-  // Advanced rows (sort/skip/limit) are hidden by default and
-  // expand from the QUERY row's chevron. The row opens automatically when the
-  // builder already has any advanced value set, so users editing an existing
-  // saved query don't get a "where did my sort go?" moment.
-  // A count rather than a bare boolean — W14 §2 renders "n set" on the
-  // collapsed trigger. Projection is not counted: it lives in the Fields
-  // control, which carries its own badge (W14 §4).
-  const advancedCount =
-    (state.builder.sort.trim() !== '' ? 1 : 0) +
-    (state.builder.limit.trim() !== '' ? 1 : 0) +
-    FIND_OPTION_KEYS.filter((k) => state.builder[k]?.trim()).length;
-  const hasAdvanced = advancedCount > 0;
-  // The sort and limit notices render inside the advanced region, so a
-  // collapsed row would hide the reason Run is disabled (a sort that cannot
-  // parse) or that the limit is coerced. The same two conditions the notices
-  // use are counted here so the collapsed badge can say so (W14 §2).
-  const advancedProblems =
-    ((sortField.refusal ?? sortError) !== null ? 1 : 0) +
-    (limitError !== null ? 1 : 0) +
-    Object.keys(optionErrors).length +
-    (maxTimeWarning !== null ? 1 : 0);
-
-  // W14 §1 — `useState(hasAdvanced)` alone froze the row at whatever
-  // the first tab looked like: QueryBar has no `key` at its mount site and
-  // never remounts. Resync during render (React's "adjust state when a prop
-  // changes"), deliberately asymmetric:
-  //   - tab switch (`tabId` changes), or a load that replaced the query
-  //     (`loadGen` changes) → re-derive in both directions. A Saved or Recent
-  //     load into a tab whose row already held values and was collapsed
-  //     never changes `hasAdvanced`, so only the load count can open it;
-  //     Reset empties the values, so it collapses the row;
-  //   - same tab, hasAdvanced false→true (a quick-sort from the table
-  //     header) → open;
-  //   - same tab, true→false → leave it alone.
-  // The last rule is the point: a symmetric resync would yank the row shut
-  // under a user who just deleted the last character of `sort`, and a bare
-  // `useEffect(() => setAdvancedOpen(hasAdvanced))` would fight every toggle.
-  // No `key` is used, so nothing here remounts QueryBar.
-  const [advancedOpen, setAdvancedOpen] = React.useState(hasAdvanced);
-  const [advancedSync, setAdvancedSync] = React.useState({
-    tabId: meta.tabId,
-    hasAdvanced,
-    loadGen,
-  });
-  if (advancedSync.tabId !== meta.tabId || advancedSync.loadGen !== loadGen) {
-    setAdvancedSync({ tabId: meta.tabId, hasAdvanced, loadGen });
-    setAdvancedOpen(hasAdvanced);
-    // X14 §5 — the held messages are QueryBar-local and QueryBar never
-    // remounts, so tab A's complaint would otherwise sit under tab B's
-    // query, and a replaced query's complaint under the one that replaced
-    // it. `onChange`'s argument is unused by the hook — this leans on it
-    // purely for the clear.
-    filterField.onChange('');
-    sortField.onChange('');
-    setRunBlocked(null);
-  } else if (advancedSync.hasAdvanced !== hasAdvanced) {
-    setAdvancedSync({ tabId: meta.tabId, hasAdvanced, loadGen });
-    if (hasAdvanced) setAdvancedOpen(true);
-  }
-  const toggleAdvanced = () => setAdvancedOpen((o) => !o);
-  // Needs the options row open: that row holds the hint's anchor.
-  const findOptionsHint = useFeatureHint(
-    'find.options',
-    advancedOpen && (!!state.builder.collation?.trim() || !!state.builder.hint?.trim()),
-  );
-
-  // Shared cell styles for the 4-column grid below the toolbar. The label
-  // cells are a slightly raised background to read as "row headers" the way
-  // the screenshot mockup does it.
+  // Shared cell styles for the grid under the row ("Keep options expanded").
+  // The label cells are a slightly raised background to read as row headers.
   const gridStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateColumns: '120px 1fr 64px 152px',
@@ -468,49 +525,187 @@ function QueryBarInner({
     ...valueCellStyle,
     borderRight: 'none',
   };
-  const cellInputStyle: React.CSSProperties = {
-    flex: 1,
-    minWidth: 0,
+  /** An option input: borderless in a grid cell, boxed in a pill's popover. */
+  const inputStyle = (inPill: boolean, invalid: boolean): React.CSSProperties => ({
     fontFamily: '"JetBrains Mono", monospace',
     fontSize: T.fsXs,
-    padding: '4px 0',
-    border: 'none',
     background: 'transparent',
     color: T.text,
     outline: 'none',
+    ...(inPill
+      ? {
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '4px 6px',
+          border: `1px solid ${invalid ? T.warn : T.border}`,
+          borderRadius: T.rs,
+        }
+      : {
+          flex: 1,
+          minWidth: 0,
+          padding: '4px 0',
+          border: 'none',
+          borderBottom: `1px solid ${invalid ? T.warn : 'transparent'}`,
+        }),
+  });
+  const helpStyle: React.CSSProperties = { marginTop: 4, fontSize: T.fsXs, color: T.textMuted };
+
+  // The option editors. One copy each, drawn in a pill's popover or in a grid
+  // cell: the same input, the same Shell Syntax handling, the same validation
+  // (W05 §9.2). Each is named by the visible label its host renders, under the
+  // same id (W15 §5).
+  const sortEditor = (inPill: boolean) => (
+    <FieldAutocompleteInput
+      value={builder.sort}
+      onChange={handleSortChange}
+      context={suggestionContext}
+      mode="token"
+      onBlur={handleSortBlur}
+      placeholder='{"_id":-1}'
+      dataTestid="query-bar-sort"
+      ariaLabelledBy="query-bar-sort-label"
+      ariaInvalid={pillOf('sort').status === 'invalid'}
+      ariaDescribedBy={noticeId('sort')}
+      style={inputStyle(inPill, pillOf('sort').status === 'invalid')}
+    />
+  );
+  const skipEditor = (inPill: boolean) => {
+    // W15 §4.4 — a read-only `<input>`, not a `<span>`: native, focusable
+    // and nameable, so the one sentence explaining why this ignores typing
+    // reaches a keyboard and a screen reader too.
+    const input = (
+      <input
+        type="text"
+        readOnly
+        value={skipValue}
+        aria-labelledby="query-bar-skip-label"
+        aria-describedby="query-bar-skip-help"
+        data-testid="query-bar-skip"
+        style={{ ...inputStyle(inPill, false), color: T.textMuted, cursor: 'default' }}
+      />
+    );
+    return inPill ? (
+      <>
+        {input}
+        <div id="query-bar-skip-help" style={helpStyle}>{SKIP_EXPLANATION}</div>
+      </>
+    ) : (
+      <>
+        <Tooltip label={SKIP_EXPLANATION} withArrow events={{ hover: true, focus: true, touch: false }}>
+          {input}
+        </Tooltip>
+        <VisuallyHidden id="query-bar-skip-help">{SKIP_EXPLANATION}</VisuallyHidden>
+      </>
+    );
+  };
+  const limitEditor = (inPill: boolean) => {
+    const input = (
+      <input
+        type="number"
+        min={1}
+        value={builder.limit}
+        onChange={(e) => handleLimitChange(e.target.value)}
+        onBlur={handleOptionBlur}
+        placeholder="—"
+        data-testid="query-bar-limit"
+        aria-labelledby="query-bar-limit-label"
+        aria-invalid={limitError !== null}
+        aria-describedby={[noticeId('limit'), 'query-bar-limit-help'].filter(Boolean).join(' ')}
+        style={inputStyle(inPill, limitError !== null)}
+      />
+    );
+    return inPill ? (
+      <>
+        {input}
+        <div id="query-bar-limit-help" style={helpStyle}>{LIMIT_EXPLANATION}</div>
+      </>
+    ) : (
+      <>
+        <Tooltip label={LIMIT_EXPLANATION} withArrow events={{ hover: true, focus: true, touch: false }}>
+          {input}
+        </Tooltip>
+        <VisuallyHidden id="query-bar-limit-help">{LIMIT_EXPLANATION}</VisuallyHidden>
+      </>
+    );
+  };
+  const textOptionEditor = (
+    key: 'collation' | 'hint' | 'maxTimeMS',
+    placeholder: string,
+    inPill: boolean,
+  ) => {
+    const invalid = pillOf(key).status === 'invalid';
+    return (
+      <input
+        type={key === 'maxTimeMS' ? 'number' : 'text'}
+        min={key === 'maxTimeMS' ? 1 : undefined}
+        value={builder[key] ?? ''}
+        onChange={(e) => handleOptionChange(key, e.target.value)}
+        onBlur={handleOptionBlur}
+        placeholder={placeholder}
+        spellCheck={false}
+        data-testid={`query-bar-${EDITOR_IDS[key]}`}
+        aria-labelledby={`query-bar-${EDITOR_IDS[key]}-label`}
+        aria-invalid={invalid}
+        aria-describedby={noticeId(key)}
+        style={inputStyle(inPill, invalid)}
+      />
+    );
+  };
+  const readPrefEditor = (inPill: boolean) => {
+    const invalid = pillOf('readPreference').status === 'invalid';
+    return (
+      <select
+        value={builder.readPreference ?? ''}
+        onChange={(e) => handleOptionChange('readPreference', e.target.value)}
+        onBlur={handleOptionBlur}
+        data-testid="query-bar-readpref"
+        aria-labelledby="query-bar-readpref-label"
+        aria-invalid={invalid}
+        aria-describedby={noticeId('readPreference')}
+        // Opaque, like the app's other native selects: Chromium paints the
+        // option list from the select's own background.
+        style={{ ...inputStyle(inPill, invalid), background: T.surface, cursor: 'pointer' }}
+      >
+        <option value="">connection default</option>
+        {READ_PREFERENCE_MODES.map((mode) => (
+          <option key={mode} value={mode}>
+            {mode}
+          </option>
+        ))}
+        {/* A restored value the list does not have stays visible, so the
+            problem it raises names what is selected. */}
+        {invalid && <option value={builder.readPreference}>{builder.readPreference}</option>}
+      </select>
+    );
+  };
+  const editorOf = (key: Exclude<OptionKey, 'project'>, inPill: boolean): React.ReactNode => {
+    switch (key) {
+      case 'sort':
+        return sortEditor(inPill);
+      case 'limit':
+        return limitEditor(inPill);
+      case 'skip':
+        return skipEditor(inPill);
+      case 'collation':
+        return textOptionEditor('collation', '{"locale":"en","strength":2}', inPill);
+      case 'hint':
+        return textOptionEditor('hint', '_id_ or {"a":1}', inPill);
+      case 'maxTimeMS':
+        return textOptionEditor('maxTimeMS', `max ${MAX_TIME_MS_CAP}`, inPill);
+      case 'readPreference':
+        return readPrefEditor(inPill);
+    }
   };
 
-  // A run the runner refused (Saved or Recent "Run here", the palette) keeps its
-  // rows, so the pane has no room to say why. Only until the text can run.
-  const refusedRun =
-    state.lastRun?.error && state.lastRun.documents.length > 0 && findProblem(state) !== null
-      ? `${state.lastRun.error.code}: ${state.lastRun.error.message}`
-      : null;
-  const advanced = advancedOpen
-    ? [
-        { id: 'query-bar-sort-error', text: sortField.refusal ?? sortError },
-        { id: 'query-bar-limit-error', text: limitError },
-        { id: 'query-bar-collation-error', text: optionErrors.collation },
-        { id: 'query-bar-hint-error', text: optionErrors.hint },
-        { id: 'query-bar-maxtime-error', text: optionErrors.maxTimeMS ?? maxTimeWarning },
-        { id: 'query-bar-readpref-error', text: optionErrors.readPreference },
-      ]
-    : [];
-  // One line, so the first shows and the rest wait their turn for sight. Every
-  // one stays in the document: the inputs are described by these ids.
-  const notices = [
-    { id: 'query-bar-run-blocked', text: blocked && `Not run: ${blocked.reason}`, seq: blocked?.seq },
-    { id: 'query-bar-filter-error', text: filterField.refusal },
-    ...advanced,
-    { id: 'query-bar-run-refused', text: refusedRun },
-  ].filter((n): n is { id: string; text: string; seq?: number } => !!n.text);
-
-  // Below this the labelled Save and History leave the filter too little room.
+  // Below this the labelled Builder, History and Save leave the filter too little room.
   const [rootRef, rootWidth] = useElementWidth<HTMLDivElement>();
   const compact = rootWidth !== null && rootWidth < 640;
-  // The page-reset sentence is ~170px of the actions' minimum width, which the
-  // filter pays for: it turns into an icon sooner than Save and History do.
+  // The page-reset sentence is ~170px of the actions' width, which the
+  // filter pays for: it turns into an icon sooner than the buttons do.
   const hintCompact = rootWidth !== null && rootWidth < 800;
+  // Every group in the row is one line of the row's own 44px, so the row
+  // keeps its height while the filter grows and wraps cleanly when narrow.
+  const groupStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', minHeight: 44 };
 
   return (
     <div
@@ -521,92 +716,29 @@ function QueryBarInner({
         flexShrink: 0,
       }}
     >
-      {/* QUERY row — collapsible header, editable filter textarea, then the
-          query's actions. W13
-          deletes the sync pill / "Re-sync builder" / "Accept builder" /
-          "Builder disabled" column that used to sit to the right: the Filter
-          drawer is a view of this same text now, not a competing compiled
-          filter to reconcile against, so there's nothing left to show here. */}
+      {/* The Filter Bar row (W05 §9.1): the filter, the query's options as
+          pills, then Builder, History, Save and Run. */}
       <div
+        data-testid="filter-bar-row"
         style={{
-          display: 'grid',
-          // The actions take what they need up to half the row, so a notice
-          // beside them ellipsizes before it squeezes the filter.
-          gridTemplateColumns: '120px minmax(0, 1fr) fit-content(50%)',
+          position: 'relative',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-start',
+          columnGap: T.gapSm,
+          padding: '0 8px 0 12px',
         }}
       >
-        <Tooltip
-          label={advancedOpen ? 'Hide advanced options' : 'Show advanced options'}
-          withArrow
+        <label
+          id="query-bar-filter-label"
+          htmlFor="query-bar-filter"
+          style={{ ...groupStyle, fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, flexShrink: 0 }}
         >
-          <div
-            role="button"
-            tabIndex={0}
-            // W15 §5 — a styled `<div role="button">` inherits no
-            // focus ring of its own, and `:focus-visible` can't be expressed
-            // in the inline styles everything else here uses. The rule lives
-            // in `src/index.css`; the e2e keyboard-focuses this element and
-            // reads the computed outline back, which is what closes the item
-            // W14 §2 left open ("verified, not assumed").
-            className="focus-ring"
-            onClick={toggleAdvanced}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                toggleAdvanced();
-              }
-            }}
-            aria-expanded={advancedOpen}
-            aria-controls="query-bar-advanced"
-            style={{
-              ...labelCellStyle,
-              cursor: 'pointer',
-              // The 120px track fits chevron + QUERY with ~35px to spare;
-              // trim the right padding only while the badge is showing, so
-              // it never sits beside the expanded label cells below.
-              paddingRight: !advancedOpen && hasAdvanced ? 6 : undefined,
-              // "2 set · 2 errors" is wider than the room left beside QUERY
-              // in the 120px track, so the badge drops to its own line
-              // rather than spilling under the filter cell.
-              ...(!advancedOpen && hasAdvanced && advancedProblems > 0
-                ? { flexWrap: 'wrap', rowGap: themeVars.gapXs, paddingTop: 3, paddingBottom: 3 }
-                : null),
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                display: 'inline-flex',
-                marginRight: 6,
-                color: T.textGhost,
-                transform: advancedOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-                transition: 'transform 120ms ease',
-              }}
-            >
-              {I.chevD}
-            </span>
-            <span style={{ color: T.accentInk }}>query</span>
-            {/* W14 §2 — collapsed, the row gave no non-hover sign that
-                sort / limit were set. A count rather than the dot
-                43ee030 shipped and 7a21468 reverted: it survives monochrome
-                and states the fact. Decoration only — a Badge is a plain div,
-                so it isn't focusable and its clicks bubble to the trigger. */}
-            {!advancedOpen && hasAdvanced && (
-              <Badge
-                size="xs"
-                variant="light"
-                color={advancedProblems > 0 ? T.warn : T.accent}
-                style={{ marginLeft: 'auto', flexShrink: 0 }}
-              >
-                {advancedCount} set
-                {advancedProblems > 0 &&
-                  ` · ${advancedProblems} ${advancedProblems === 1 ? 'error' : 'errors'}`}
-              </Badge>
-            )}
-          </div>
-        </Tooltip>
-        <div style={{ ...valueCellStyle, padding: '0 4px' }}>
+          Filter
+        </label>
+        <div style={{ ...groupStyle, alignItems: 'flex-start', flex: '1 1 220px', minWidth: 160, padding: '8px 0', boxSizing: 'border-box' }}>
           <textarea
+            id="query-bar-filter"
             ref={textareaRef}
             value={queryRaw}
             onChange={handleChange}
@@ -615,30 +747,24 @@ function QueryBarInner({
             onFocus={autocomplete.probe}
             onBlur={handleBlur}
             spellCheck={false}
-            // No visible label cell names this one, unlike sort and limit.
-            aria-label="Query filter"
             data-testid="query-bar-input"
-            // X14 §5 — the textarea had neither, so the one control that
-            // most often refuses input was the only one whose complaint never
-            // reached a screen reader. Same wiring as the sort and limit
-            // inputs below (W15 §5).
-            aria-invalid={filterField.refusal !== null}
-            aria-describedby={filterField.refusal ? 'query-bar-filter-error' : undefined}
-            placeholder="{}"
+            aria-invalid={shown?.notice.clause === 'filter'}
+            aria-describedby={noticeId('filter')}
+            placeholder={`{ field: value } — press ${formatShortcut('⌘↵', isMacRenderer())} to run`}
             style={{
               flex: 1,
+              minWidth: 0,
               fontFamily: '"JetBrains Mono", monospace',
               fontSize: T.fsSm,
-              padding: '6px 8px',
+              padding: '3px 8px',
               border: 'none',
-              borderBottom: `1px solid ${
-                !isValid && queryRaw !== '{}' ? T.warn : 'transparent'
-              }`,
+              borderBottom: `1px solid ${problem?.clause === 'filter' && queryRaw !== '{}' ? T.warn : 'transparent'}`,
               background: 'transparent',
               color: T.text,
               resize: 'vertical',
               minHeight: 28,
               maxHeight: 240,
+              boxSizing: 'border-box',
               outline: 'none',
               lineHeight: 1.5,
             }}
@@ -652,70 +778,194 @@ function QueryBarInner({
               onClick={() => setExpandOpen(true)}
               aria-label="Expand query filter"
               data-testid="query-bar-expand-btn"
-              style={{ flexShrink: 0, alignSelf: 'flex-start', marginTop: 4 }}
+              style={{ flexShrink: 0, marginTop: 3 }}
             >
               {I.expand}
             </Button>
           </Tooltip>
           {autocomplete.popover}
         </div>
-        {/* Save · History · Run (split), on the QUERY row itself rather than a
-            bar of their own. W15 §7.1 deletes "Set default": saved queries
-            already own "reuse this query on this collection". This is the one
-            Save button in the Documents view, so `saved.create`'s hint anchor
-            lives here. Notices sit first, so Run never moves when one shows. */}
+
+        {/* Option pills (W05 §9.2). With "Keep options expanded" on, the
+            options are the grid below and only Project, which the grid never
+            held, stays a pill. */}
+        <div
+          data-testid="query-bar-options"
+          data-hint-anchor={expanded ? undefined : 'find.options'}
+          style={{ ...groupStyle, flexWrap: 'wrap', gap: T.gapXs, minWidth: 0 }}
+        >
+          {rowPills.map((pill) => {
+            if (pill.key === 'project') return <FieldsControl key="project" />;
+            if (expanded) return null;
+            const key = pill.key;
+            const popover = (
+              <OptionPopover
+                key={key}
+                pill={pill}
+                opened={openKey === key}
+                onOpen={() => openPill(key)}
+                onClose={(refocus) => closePill(key, refocus)}
+                onRun={runNow}
+                buttonRef={(el) => {
+                  pillRefs.current.set(key, el);
+                }}
+              >
+                {editorOf(key, true)}
+              </OptionPopover>
+            );
+            // The Sort pill takes a dropped field, as the grid's sort cell does.
+            return key === 'sort' ? (
+              <span key={key} {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
+                {popover}
+              </span>
+            ) : (
+              popover
+            );
+          })}
+          <Menu position="bottom-end" shadow="md" width={210}>
+            <Menu.Target>
+              <Button
+                variant="subtle"
+                color="gray"
+                size="compact-xs"
+                h={24}
+                leftSection={I.more}
+                data-testid="query-bar-more"
+                style={{ flexShrink: 0 }}
+              >
+                More
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {!expanded &&
+                morePills.map((pill) => (
+                  <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
+                    {pill.name}
+                  </Menu.Item>
+                ))}
+              {!expanded && morePills.length > 0 && <Menu.Divider />}
+              <Menu.CheckboxItem
+                checked={expanded}
+                onChange={(next) => onPatch({ optionsExpanded: next })}
+                closeMenuOnClick
+              >
+                Keep options expanded
+              </Menu.CheckboxItem>
+            </Menu.Dropdown>
+          </Menu>
+        </div>
+
+        {/* Builder · History · Save · Run (split). This is the one Save button
+            in the Documents view, so `saved.create`'s hint anchor lives here. */}
         <div
           data-testid="query-bar-actions"
-          style={{
-            alignSelf: 'start',
-            display: 'flex',
-            alignItems: 'center',
-            gap: T.gapSm,
-            padding: '4px 8px',
-            minWidth: 0,
-          }}
+          style={{ ...groupStyle, gap: T.gapSm, marginLeft: 'auto', flexShrink: 0 }}
         >
-          {/* The one part of this cell that gives way; the whole message is in its title. */}
-          {notices.length > 0 && (
-            <div style={{ display: 'flex', flex: '0 1 auto', minWidth: 0, maxWidth: 280 }}>
-              {notices.map((n, i) =>
-                i === 0 ? (
-                  <Notice key={`${n.id}-${n.seq}`} id={n.id} text={n.text} />
-                ) : (
-                  <VisuallyHidden key={`${n.id}-${n.seq}`} id={n.id} role="alert">
-                    {n.text}
-                  </VisuallyHidden>
-                ),
-              )}
-            </div>
-          )}
-          {/* Never shrinks: a squeezed Mantine button clips its label, not its box. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: T.gapSm, flexShrink: 0 }}>
-            {/* Narrow, the sentence would take the filter's room: an icon keeps it
-                as a tooltip and, for a screen reader, as text. */}
-            {willResetPage &&
-              (hintCompact ? (
-                <Tooltip label={PAGE_RESET_HINT} withArrow>
-                  <span
-                    data-testid="page-reset-hint"
-                    style={{ display: 'inline-flex', color: T.textMuted }}
-                  >
-                    <span aria-hidden="true" style={{ display: 'inline-flex' }}>
-                      {I.chevLL}
-                    </span>
-                    <VisuallyHidden>{PAGE_RESET_HINT}</VisuallyHidden>
+          {/* Narrow, the sentence would take the filter's room: an icon keeps it
+              as a tooltip and, for a screen reader, as text. */}
+          {willResetPage &&
+            (hintCompact ? (
+              <Tooltip label={PAGE_RESET_HINT} withArrow>
+                <span data-testid="page-reset-hint" style={{ display: 'inline-flex', color: T.textMuted }}>
+                  <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+                    {I.chevLL}
                   </span>
-                </Tooltip>
-              ) : (
-                <span
-                  data-testid="page-reset-hint"
-                  style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
-                >
-                  {PAGE_RESET_HINT}
+                  <VisuallyHidden>{PAGE_RESET_HINT}</VisuallyHidden>
                 </span>
-              ))}
-            {compact ? (
-              <>
+              </Tooltip>
+            ) : (
+              <span
+                data-testid="page-reset-hint"
+                style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
+              >
+                {PAGE_RESET_HINT}
+              </span>
+            ))}
+          {onToggleBuilder &&
+            (compact ? (
+              <Tooltip label="Builder" withArrow>
+                <ActionIcon
+                  variant={builderOpen ? 'light' : 'default'}
+                  size={22}
+                  onClick={onToggleBuilder}
+                  aria-label="Builder"
+                  aria-pressed={builderOpen}
+                >
+                  {I.filter}
+                </ActionIcon>
+              </Tooltip>
+            ) : (
+              <Button
+                variant={builderOpen ? 'light' : 'default'}
+                size="compact-xs"
+                leftSection={I.filter}
+                onClick={onToggleBuilder}
+                aria-pressed={builderOpen}
+              >
+                Builder
+              </Button>
+            ))}
+          <Popover
+            opened={historyOpen}
+            onChange={(next) => (next || !modalIsOpen()) && setHistoryOpen(next)}
+            position="bottom-end"
+            shadow="md"
+            width={360}
+            withinPortal
+            closeOnEscape={false}
+            returnFocus
+          >
+            <Tooltip label="History" withArrow disabled={!compact}>
+              <Popover.Target>
+                {compact ? (
+                  <ActionIcon variant="default" size={22} onClick={() => setHistoryOpen((o) => !o)} aria-label="History">
+                    {I.clock}
+                  </ActionIcon>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="compact-xs"
+                    leftSection={I.clock}
+                    rightSection={I.chevD}
+                    onClick={() => setHistoryOpen((o) => !o)}
+                  >
+                    History
+                  </Button>
+                )}
+              </Popover.Target>
+            </Tooltip>
+            <Popover.Dropdown
+              p={0}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape' || e.defaultPrevented) return;
+                e.stopPropagation();
+                setHistoryOpen(false);
+              }}
+            >
+              <RecentTab
+                connectionId={meta.connectionId}
+                dbName={meta.dbName}
+                collection={meta.collection}
+                onRunHere={(recent) => {
+                  setHistoryOpen(false);
+                  loadFind(recent.payload);
+                }}
+              />
+            </Popover.Dropdown>
+          </Popover>
+          {/* `☆`: saving the current query, and the list of saved ones (W09 §12). */}
+          <Popover
+            opened={savedOpen}
+            onChange={(next) => (next ? setSavedOpen(true) : !modalIsOpen() && closeSaved())}
+            position="bottom-end"
+            shadow="md"
+            width={360}
+            withinPortal
+            closeOnEscape={false}
+            returnFocus
+          >
+            <Button.Group>
+              {compact ? (
                 <Tooltip label="Save" withArrow>
                   <ActionIcon
                     data-hint-anchor="saved.create"
@@ -727,14 +977,7 @@ function QueryBarInner({
                     {I.save}
                   </ActionIcon>
                 </Tooltip>
-                <Tooltip label="History" withArrow>
-                  <ActionIcon variant="default" size={22} onClick={onHistory} aria-label="History">
-                    {I.clock}
-                  </ActionIcon>
-                </Tooltip>
-              </>
-            ) : (
-              <>
+              ) : (
                 <Button
                   data-hint-anchor="saved.create"
                   variant="default"
@@ -744,308 +987,237 @@ function QueryBarInner({
                 >
                   Save
                 </Button>
-                <Button variant="default" size="compact-xs" leftSection={I.clock} onClick={onHistory}>
-                  History
-                </Button>
-              </>
-            )}
-            <span
-              aria-hidden="true"
-              style={{
-                width: 1,
-                alignSelf: 'stretch',
-                background: T.border,
-                margin: '0 2px',
-              }}
-            />
-            {/* Run sits at the right end, beside the drawer, so the
-                pointer's trip from a builder row to Run is short. */}
-            <Button.Group>
-              {isLoading ? (
-                <Tooltip label="Cancel" withArrow>
+              )}
+              <Tooltip label="Saved queries" withArrow>
+                <Popover.Target>
                   <Button
-                    variant="outline"
-                    color="red"
+                    variant="default"
                     size="compact-xs"
-                    onClick={onCancel}
-                    data-testid="query-cancel-btn"
+                    px={4}
+                    onClick={() => (savedOpen ? closeSaved() : setSavedOpen(true))}
+                    aria-label="Saved queries"
+                    data-testid="query-bar-saved-btn"
                   >
-                    Cancel
+                    {I.chevD}
                   </Button>
-                </Tooltip>
-              ) : (
-                <Tooltip
-                  label={runBlockReason(state) ?? 'Run (Cmd+Enter)'}
-                  withArrow
+                </Popover.Target>
+              </Tooltip>
+            </Button.Group>
+            <Popover.Dropdown
+              p={0}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape' || e.defaultPrevented) return;
+                e.stopPropagation();
+                closeSaved();
+              }}
+            >
+              <SavedTab
+                connectionId={meta.connectionId}
+                dbName={meta.dbName}
+                collection={meta.collection}
+                refreshKey={savedRefreshKey}
+                onRunHere={(saved) => {
+                  closeSaved();
+                  loadFind(saved.payload);
+                }}
+                onOpenInTab={(saved) => {
+                  closeSaved();
+                  onOpenInTab?.(saved);
+                }}
+                tabId={meta.tabId}
+                onRenamed={onSavedRenamed}
+              />
+            </Popover.Dropdown>
+          </Popover>
+          <span
+            aria-hidden="true"
+            style={{ width: 1, height: 20, background: T.border, margin: '0 2px' }}
+          />
+          {/* Run is the row's, and the view's, only filled button. */}
+          <Button.Group>
+            {isLoading ? (
+              <Tooltip label="Cancel" withArrow>
+                <Button
+                  variant="outline"
+                  color="red"
+                  size="compact-xs"
+                  onClick={onCancel}
+                  data-testid="query-cancel-btn"
                 >
+                  Cancel
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip label={problem ? stripText(problem) : 'Run (Cmd+Enter)'} withArrow>
+                <Button
+                  variant="filled"
+                  size="compact-xs"
+                  onClick={runNow}
+                  disabled={!canRun}
+                  data-testid="query-run-btn"
+                  data-hint-anchor="run.execute"
+                  leftSection={I.play}
+                  rightSection={
+                    problem === null ? (
+                      <span aria-hidden="true" style={{ opacity: 0.75, fontWeight: 400 }}>
+                        {formatShortcut('⌘↵', isMacRenderer())}
+                      </span>
+                    ) : undefined
+                  }
+                >
+                  {runLabel(problem)}
+                </Button>
+              </Tooltip>
+            )}
+            <Menu position="bottom-end" shadow="md" width={230}>
+              <Menu.Target>
+                <Tooltip label="Run options" withArrow>
                   <Button
                     variant="filled"
                     size="compact-xs"
-                    onClick={() => canRun && onRun()}
                     disabled={!canRun}
-                    data-testid="query-run-btn"
-                    data-hint-anchor="run.execute"
-                    leftSection={I.play}
+                    aria-label="Run options"
+                    data-testid="query-run-options-btn"
+                    px={6}
                   >
-                    Run
+                    {I.chevD}
                   </Button>
                 </Tooltip>
-              )}
-              <Menu position="bottom-end" shadow="md" width={190}>
-                <Menu.Target>
-                  <Tooltip label="Run options" withArrow>
-                    <Button
-                      variant="filled"
-                      size="compact-xs"
-                      disabled={!canRun}
-                      aria-label="Run options"
-                      data-testid="query-run-options-btn"
-                      px={6}
-                    >
-                      {I.chevD}
-                    </Button>
-                  </Tooltip>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item leftSection={I.play} onClick={() => canRun && onRun()}>
-                    Run
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Label>Explain</Menu.Label>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={I.play} onClick={runNow}>
+                  Run
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Label>Explain</Menu.Label>
+                {EXPLAIN_ITEMS.map(({ verbosity, label }) => (
                   <Menu.Item
+                    key={verbosity}
                     leftSection={I.eye}
-                    disabled={!canExplain}
-                    onClick={() => onExplain('queryPlanner')}
+                    disabled={!canRun}
+                    onClick={() => onExplain(verbosity)}
                   >
-                    queryPlanner
+                    {label}
                   </Menu.Item>
-                  <Menu.Item
-                    leftSection={I.eye}
-                    disabled={!canExplain}
-                    onClick={() => onExplain('executionStats')}
-                  >
-                    executionStats
-                  </Menu.Item>
-                  <Menu.Item
-                    leftSection={I.eye}
-                    disabled={!canExplain}
-                    onClick={() => onExplain('allPlansExecution')}
-                  >
-                    allPlansExecution
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Button.Group>
-          </div>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
+          </Button.Group>
         </div>
+
+        {/* W05 §9.5 — two pixels of motion under the row while a find is in
+            flight. Laid over the row's edge, so starting one moves nothing. */}
+        {isLoading && (
+          <div
+            role="progressbar"
+            aria-label="Query running"
+            data-testid="query-running-bar"
+            className="query-running-bar"
+          />
+        )}
       </div>
 
-      {advancedOpen && (
-      <div id="query-bar-advanced">
-      {/* SORT row — the full width, since a multi-field sort is the longest
-          value here. Projection is not in this row: it lives in the Fields
-          control, beside the display-only toggles (W14 §4). */}
-      <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr' }}>
-        {/* W15 §5 — these label cells were the only thing naming the
-            inputs, and only visually. Giving them `id`s and pointing
-            `aria-labelledby` at them names each input off the exact text on
-            screen; an `aria-label` duplicate would be a second copy to keep
-            in sync. */}
-        <div id="query-bar-sort-label" style={labelCellStyle}>sort</div>
+      {/* The strip (W05 §9.3): why the query cannot run, or what it runs as,
+          whole and wrapped. Its neighbours wait their turn: one at a time. */}
+      {shown ? (
         <div
-          data-testid="query-bar-sort-drop"
-          onDragOver={handleSortDragOver}
-          onDragLeave={() => setSortDropActive(false)}
-          onDrop={handleSortDrop}
+          key={`${NOTICE_IDS[shown.notice.clause]}-${shown.seq}`}
+          id={NOTICE_IDS[shown.notice.clause]}
+          role="alert"
+          data-testid="query-bar-strip"
+          data-tone={shown.blocking ? 'error' : 'warn'}
           style={{
-            ...valueCellLast,
-            ...(sortDropActive ? { background: T.accentSoft, outline: `1.5px dashed ${T.accent}` } : null),
+            padding: '4px 12px',
+            borderTop: `1px solid ${shown.blocking ? T.redBorder : T.warnBorder}`,
+            background: shown.blocking ? T.redSoft : T.warnSoft,
+            color: shown.blocking ? T.redText : T.warnText,
+            fontSize: T.fsXs,
+            lineHeight: 1.5,
+            overflowWrap: 'anywhere',
           }}
         >
-          <FieldAutocompleteInput
-            value={state.builder.sort}
-            onChange={handleSortChange}
-            context={suggestionContext}
-            mode="token"
-            onBlur={handleSortBlur}
-            placeholder='{"_id":-1}'
-            dataTestid="query-bar-sort"
-            ariaLabelledBy="query-bar-sort-label"
-            ariaInvalid={(sortField.refusal ?? sortError) !== null}
-            ariaDescribedBy={(sortField.refusal ?? sortError) ? 'query-bar-sort-error' : undefined}
-            style={{
-              ...cellInputStyle,
-              borderBottom: `1px solid ${sortError ? T.warn : 'transparent'}`,
-            }}
-          />
+          <span aria-hidden="true">⚠ </span>
+          {stripText(shown.notice)}
         </div>
-      </div>
+      ) : refusedRun ? (
+        <div
+          id="query-bar-run-refused"
+          role="alert"
+          data-testid="query-bar-strip"
+          data-tone="error"
+          style={{
+            padding: '4px 12px',
+            borderTop: `1px solid ${T.redBorder}`,
+            background: T.redSoft,
+            color: T.redText,
+            fontSize: T.fsXs,
+            lineHeight: 1.5,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          <span aria-hidden="true">⚠ </span>
+          {refusedRun}
+        </div>
+      ) : (
+        liveFilter.repaired &&
+        liveFilter.runnable && (
+          // Not an alert: nothing is wrong, and it shows while the user types.
+          <div
+            data-testid="query-bar-syntax-note"
+            style={{
+              padding: '4px 12px',
+              borderTop: `1px solid ${T.border}`,
+              color: T.textMuted,
+              fontSize: T.fsXs,
+              lineHeight: 1.5,
+            }}
+          >
+            {SHELL_SYNTAX_NOTE}
+          </div>
+        )
+      )}
 
-      {/* SKIP + LIMIT row */}
-      <div style={gridStyle}>
-        <div id="query-bar-skip-label" style={labelCellStyle}>skip</div>
-        <div style={valueCellStyle}>
-          {/* W15 §4.4 — was a Tooltip on a non-focusable `<span>`, so
-              the one sentence explaining why this cell ignores typing reached
-              a hovering mouse and nobody else. Three changes, all needed:
-              a read-only `<input>` (native, focusable, nameable — a `<span>`
-              has no role that takes an accessible name), `events.focus` so
-              the Tooltip fires for a keyboard user (Mantine's default is
-              hover-only), and `aria-describedby` → a visually-hidden copy so
-              a screen reader gets the reason without a Tooltip at all. */}
-          <Tooltip
-            label={SKIP_EXPLANATION}
-            withArrow
-            events={{ hover: true, focus: true, touch: false }}
-          >
-            <input
-              type="text"
-              readOnly
-              value={skipValue}
-              aria-labelledby="query-bar-skip-label"
-              aria-describedby="query-bar-skip-help"
-              data-testid="query-bar-skip"
-              style={{
-                ...cellInputStyle,
-                color: T.textMuted,
-                cursor: 'default',
-              }}
-            />
-          </Tooltip>
-          <VisuallyHidden id="query-bar-skip-help">{SKIP_EXPLANATION}</VisuallyHidden>
-        </div>
-        <div id="query-bar-limit-label" style={labelCellStyle}>limit</div>
-        <div style={valueCellLast}>
-          {/* Same pattern as skip above: the Tooltip serves hover and focus,
-              the visually-hidden copy serves a screen reader. */}
-          <Tooltip
-            label={LIMIT_EXPLANATION}
-            withArrow
-            events={{ hover: true, focus: true, touch: false }}
-          >
-            <input
-              type="number"
-              min={1}
-              value={state.builder.limit}
-              onChange={(e) => handleLimitChange(e.target.value)}
-              placeholder="—"
-              data-testid="query-bar-limit"
-              aria-labelledby="query-bar-limit-label"
-              aria-invalid={limitError !== null}
-              aria-describedby={
-                limitError ? 'query-bar-limit-error query-bar-limit-help' : 'query-bar-limit-help'
-              }
-              style={{
-                ...cellInputStyle,
-                borderBottom: `1px solid ${limitError ? T.warn : 'transparent'}`,
-              }}
-            />
-          </Tooltip>
-          <VisuallyHidden id="query-bar-limit-help">{LIMIT_EXPLANATION}</VisuallyHidden>
-        </div>
-      </div>
+      {expanded && (
+        <div id="query-bar-advanced" data-hint-anchor="find.options">
+          {/* SORT row — the full width, since a multi-field sort is the longest
+              value here. Projection is not in the grid: it is the Project pill. */}
+          <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr' }}>
+            {/* W15 §5 — the label cells name the inputs: `aria-labelledby`
+                points at the exact text on screen, so the two cannot drift. */}
+            <div id="query-bar-sort-label" style={labelCellStyle}>sort</div>
+            <div {...sortDropProps} style={{ ...valueCellLast, ...sortDropStyle }}>
+              {sortEditor(false)}
+            </div>
+          </div>
 
-      {/* OPTIONS rows (W14 §9): what the find carries besides its clauses.
-          Labelled off the visible cells like sort and limit (W15 §5). */}
-      <div
-        data-hint-anchor="find.options"
-        style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}
-      >
-        <div id="query-bar-collation-label" style={labelCellStyle}>collation</div>
-        <div style={valueCellStyle}>
-          <input
-            type="text"
-            value={state.builder.collation ?? ''}
-            onChange={(e) => handleOptionChange('collation', e.target.value)}
-            placeholder='{"locale":"en","strength":2}'
-            spellCheck={false}
-            data-testid="query-bar-collation"
-            aria-labelledby="query-bar-collation-label"
-            aria-invalid={optionErrors.collation !== undefined}
-            aria-describedby={optionErrors.collation ? 'query-bar-collation-error' : undefined}
-            style={{
-              ...cellInputStyle,
-              borderBottom: `1px solid ${optionErrors.collation ? T.warn : 'transparent'}`,
-            }}
-          />
+          {/* SKIP + LIMIT row */}
+          <div style={gridStyle}>
+            <div id="query-bar-skip-label" style={labelCellStyle}>skip</div>
+            <div style={valueCellStyle}>{skipEditor(false)}</div>
+            <div id="query-bar-limit-label" style={labelCellStyle}>limit</div>
+            <div style={valueCellLast}>{limitEditor(false)}</div>
+          </div>
+
+          {/* OPTIONS rows (W14 §9): what the find carries besides its clauses. */}
+          <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}>
+            <div id="query-bar-collation-label" style={labelCellStyle}>collation</div>
+            <div style={valueCellStyle}>{editorOf('collation', false)}</div>
+            <div id="query-bar-hint-label" style={labelCellStyle}>hint</div>
+            <div style={valueCellLast}>{editorOf('hint', false)}</div>
+          </div>
+          <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}>
+            <div id="query-bar-maxtime-label" style={labelCellStyle}>maxTimeMS</div>
+            <div style={valueCellStyle}>{editorOf('maxTimeMS', false)}</div>
+            <div id="query-bar-readpref-label" style={labelCellStyle}>read pref</div>
+            <div style={valueCellLast}>{editorOf('readPreference', false)}</div>
+          </div>
         </div>
-        <div id="query-bar-hint-label" style={labelCellStyle}>hint</div>
-        <div style={valueCellLast}>
-          <input
-            type="text"
-            value={state.builder.hint ?? ''}
-            onChange={(e) => handleOptionChange('hint', e.target.value)}
-            placeholder='_id_ or {"a":1}'
-            spellCheck={false}
-            data-testid="query-bar-hint"
-            aria-labelledby="query-bar-hint-label"
-            aria-invalid={optionErrors.hint !== undefined}
-            aria-describedby={optionErrors.hint ? 'query-bar-hint-error' : undefined}
-            style={{
-              ...cellInputStyle,
-              borderBottom: `1px solid ${optionErrors.hint ? T.warn : 'transparent'}`,
-            }}
-          />
-        </div>
-      </div>
-      <div style={{ ...gridStyle, gridTemplateColumns: '120px 1fr 120px 1fr' }}>
-        <div id="query-bar-maxtime-label" style={labelCellStyle}>maxTimeMS</div>
-        <div style={valueCellStyle}>
-          <input
-            type="number"
-            min={1}
-            value={state.builder.maxTimeMS ?? ''}
-            onChange={(e) => handleOptionChange('maxTimeMS', e.target.value)}
-            placeholder={`max ${MAX_TIME_MS_CAP}`}
-            data-testid="query-bar-maxtime"
-            aria-labelledby="query-bar-maxtime-label"
-            aria-invalid={optionErrors.maxTimeMS !== undefined}
-            aria-describedby={
-              optionErrors.maxTimeMS || maxTimeWarning ? 'query-bar-maxtime-error' : undefined
-            }
-            style={{
-              ...cellInputStyle,
-              borderBottom: `1px solid ${optionErrors.maxTimeMS ? T.warn : 'transparent'}`,
-            }}
-          />
-        </div>
-        <div id="query-bar-readpref-label" style={labelCellStyle}>read pref</div>
-        <div style={valueCellLast}>
-          <select
-            value={state.builder.readPreference ?? ''}
-            onChange={(e) => handleOptionChange('readPreference', e.target.value)}
-            data-testid="query-bar-readpref"
-            aria-labelledby="query-bar-readpref-label"
-            aria-invalid={optionErrors.readPreference !== undefined}
-            aria-describedby={optionErrors.readPreference ? 'query-bar-readpref-error' : undefined}
-            // Opaque, like the app's other native selects: Chromium paints the
-            // option list from the select's own background.
-            style={{ ...cellInputStyle, background: T.surface, cursor: 'pointer' }}
-          >
-            <option value="">connection default</option>
-            {READ_PREFERENCE_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {mode}
-              </option>
-            ))}
-            {/* A restored value the list does not have stays visible, so the
-                problem it raises names what is selected. */}
-            {optionErrors.readPreference && (
-              <option value={state.builder.readPreference}>{state.builder.readPreference}</option>
-            )}
-          </select>
-        </div>
-      </div>
-      </div>
       )}
 
       {expandOpen && (
         <QueryExpandModal
           queryRaw={queryRaw}
-          onApply={(next) => {
-            onPatch({ queryRaw: next });
-            filterField.onChange(next);
-          }}
+          onApply={(next) => onPatch({ queryRaw: next })}
           onClose={() => setExpandOpen(false)}
         />
       )}

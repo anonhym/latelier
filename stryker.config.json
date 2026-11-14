@@ -39,6 +39,8 @@
     "electron/services/referencePairing.ts",
     "src/pages/Workspace/toolbarLayout.ts",
     "src/pages/Workspace/resultPaneState.ts",
+    "src/pages/Workspace/optionPills.ts",
+    "src/pages/Workspace/errorHints.ts",
     "src/pages/Workspace/sidePanels.ts",
     "src/pages/Workspace/projection.ts",
     "src/pages/Workspace/deleteMode.ts",

@@ -1,7 +1,7 @@
 // Findings from the Codex review pass on the W15 ticket PRs.
 // Each was reported against a merged commit, so these pin the fixes.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import { modals } from '@mantine/modals';
 import Workspace from '../../src/pages/Workspace';
@@ -95,7 +95,7 @@ describe('Recent per-row delete is bounded by what the tab is showing', () => {
     );
     await screen.findByText(/Recent · orders/);
 
-    await screen.findByText(/current/);
+    expect(within(await screen.findByTestId('recent-row')).getByText(/current/)).toBeTruthy();
 
     // The stale response lands last. `setItems` replaces rather than appends,
     // so counting rows proves nothing — the check has to be *which* row
@@ -104,7 +104,7 @@ describe('Recent per-row delete is bounded by what the tab is showing', () => {
 
     await new Promise((r) => { setTimeout(r, 20); });
     expect(screen.queryByText(/invoices/)).toBeNull();
-    expect(screen.getByText(/current/)).toBeTruthy();
+    expect(within(screen.getByTestId('recent-row')).getByText(/current/)).toBeTruthy();
   });
 });
 

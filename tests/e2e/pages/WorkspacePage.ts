@@ -62,28 +62,51 @@ export class WorkspacePage {
   get queryBarRunButton() { return this.win.locator('[data-testid="query-run-btn"]'); }
 
   /**
-   * The collapsible advanced row (sort / skip / limit). Only in
-   * the DOM while expanded, so presence is the open/closed assertion (W14 §8).
+   * The grid of every option, which replaces the pills on a tab with "Keep
+   * options expanded" on. Only in the DOM then, so presence is the assertion
+   * (W05 §9.2).
    */
   get queryBarAdvanced() { return this.win.locator('#query-bar-advanced'); }
 
-  /** The QUERY label cell doubles as the advanced row's expand/collapse trigger. */
-  get queryBarAdvancedToggle() { return this.win.locator('[aria-controls="query-bar-advanced"]'); }
+  /** An option's pill in the Filter Bar row: `sort`, `project`, `limit`, or one promoted out of More. */
+  optionPill(key: string) { return this.win.locator(`[data-testid="option-pill-${key}"]`); }
 
-  /** The result bar's Fields control trigger; its name gains a badge's text when one shows. */
-  // `aria-haspopup`: a Tab Group header is named after its Connection, so a
-  // Connection called "Fields …" would otherwise match too.
-  get fieldsButton() {
-    return this.win.getByRole('button', { name: /^Fields/ }).and(this.win.locator('[aria-haspopup="dialog"]'));
+  /** The row's `⋯ More` menu: the unset options and "Keep options expanded". */
+  get queryBarMore() { return this.win.locator('[data-testid="query-bar-more"]'); }
+
+  /** Opens an option's editor from its pill, or from More while it is unset there. */
+  async openOption(key: string, nameInMore?: string) {
+    if (nameInMore !== undefined && (await this.optionPill(key).count()) === 0) {
+      await this.queryBarMore.click();
+      await this.win.getByRole('menuitem', { name: nameInMore, exact: true }).click();
+      return;
+    }
+    await this.optionPill(key).click();
   }
+
+  /** Turns this tab's "Keep options expanded" on or off from More. */
+  async toggleOptionsExpanded() {
+    await this.queryBarMore.click();
+    await this.win.getByRole('menuitemcheckbox', { name: 'Keep options expanded' }).click();
+  }
+
+  /** Opens the Query Builder from the Filter Bar row when it is closed, which it is by default. */
+  async openBuilder() {
+    const toggle = this.win.locator('[data-testid="filter-bar-row"]').getByRole('button', { name: 'Builder', exact: true });
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** The Project pill: the Fields control's trigger, in the Filter Bar row. */
+  get fieldsButton() { return this.optionPill('project'); }
 
   /** Projection input in the Fields control's "fetch" section — only while the control is open. */
   get fieldsProjection() { return this.win.locator('[data-testid="fields-projection"]'); }
 
-  /** SORT input inside the advanced row. */
+  /** Sort input: in the Sort pill's editor, or in the grid. */
   get queryBarSort() { return this.win.locator('[data-testid="query-bar-sort"]'); }
 
-  /** LIMIT input inside the advanced row. */
+  /** Limit input: in the Limit pill's editor, or in the grid. */
   get queryBarLimit() { return this.win.locator('[data-testid="query-bar-limit"]'); }
 
   /** SKIP — read-only; driven by the pager (W15 §4.4). */

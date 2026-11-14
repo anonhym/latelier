@@ -6,7 +6,11 @@ import { COPY_FORMATS, COPY_FORMAT_LABELS, MONGOSH_HINT, formatDocsForCopy, type
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
-import { bandOccupant } from './resultPaneState';
+import { bandOccupant, isResultStale, resultPaneKind } from './resultPaneState';
+import { formatElapsed, runProblem } from './optionPills';
+import { useRunClock } from './runClock';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 import { buildDeleteSelectedFilterJson, selectedDocs } from './selection';
 import { useCopyFormat } from './views/useCopyFormat';
 
@@ -31,9 +35,10 @@ interface SelectionActionBarProps {
 const BAR_HEIGHT = 31;
 
 /**
- * The fixed band above the rows says a connection was lost or a find is
- * running; it always renders when the workspace isn't read-only (see
- * `BAR_HEIGHT`), so neither can move a row. A selection's actions are a
+ * The fixed band above the rows says a connection was lost, a find is running
+ * over earlier rows or was just cancelled, or the rows are not the current
+ * query's (W06 §8.2); it always renders when the workspace isn't read-only
+ * (see `BAR_HEIGHT`), so none of them can move a row. A selection's actions are a
  * floating pill instead (W06 §8.3), and nothing fills the band while idle. `ResultViewer` composes this as the
  * `SelectionBar` slot; `ScriptTab`'s read-only snapshot composition never
  * renders it at all (AC7), and `meta.isReadOnly` is checked here too so a
@@ -46,13 +51,17 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
   const selection = useResultSelection(documents);
   const [copied, setCopied] = React.useState(false);
   const [copyFormat, setCopyFormat] = useCopyFormat();
+  const clock = useRunClock(meta.tabId);
 
   if (meta.isReadOnly) return null;
 
+  const hasRows = resultPaneKind(state) === 'rows';
   const occupant = bandOccupant({
     lost: connectionLost !== undefined,
     // A first load has no rows to run over: `Body` shows placeholders instead.
     running: meta.isLoading && state.lastRun !== undefined,
+    cancelled: clock?.kind === 'cancelled',
+    stale: hasRows && isResultStale(state),
     selected: selection.indices.size > 0,
   });
   const docs = selectedDocs(documents, selection.indices);
@@ -89,7 +98,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
           boxSizing: 'border-box',
           padding: '4px 14px',
           borderBottom: `1px solid ${T.border}`,
-          background: occupant === 'lost' ? T.warnSoft : 'transparent',
+          background: occupant === 'lost' || occupant === 'stale' ? T.warnSoft : 'transparent',
           flexShrink: 0,
           fontSize: T.fsXs,
         }}
@@ -124,8 +133,10 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
         )}
         {occupant === 'running' && (
           <>
+            {/* The status bar counts the seconds; here, what the rows are
+                meanwhile. With none on screen there is nothing to mark. */}
             <span role="status" style={{ color: T.textMuted }}>
-              Running…
+              {hasRows ? 'Previous results' : 'Running…'}
             </span>
             <span style={{ flex: 1 }} />
             <Button
@@ -137,6 +148,36 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
             >
               Cancel
             </Button>
+          </>
+        )}
+        {occupant === 'cancelled' && clock && (
+          <span role="status" data-testid="band-cancelled" style={{ color: T.textMuted }}>
+            Cancelled after {formatElapsed(clock.elapsedMs, true)}
+            {hasRows && ' — showing previous results'}
+          </span>
+        )}
+        {occupant === 'stale' && (
+          <>
+            <span
+              role="status"
+              data-testid="band-stale"
+              style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: T.warnText }}
+            >
+              These results are from the previous filter.
+            </span>
+            {/* Absent while the query cannot run as written: the Filter Bar's
+                strip gives the reason, and a Run here could only refuse. */}
+            {runProblem(state) === null && (
+              <Button
+                data-testid="band-run"
+                size="compact-xs"
+                variant="subtle"
+                style={{ flexShrink: 0 }}
+                onClick={() => actions.run()}
+              >
+                Run {formatShortcut('⌘↵', isMacRenderer())}
+              </Button>
+            )}
           </>
         )}
       </Group>
