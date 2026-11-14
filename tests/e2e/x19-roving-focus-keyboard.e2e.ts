@@ -503,7 +503,7 @@ test('tree: D opens the delete confirmation on Cancel, and focus returns to the 
     await win.keyboard.press('ArrowDown');
 
     await win.keyboard.press('d');
-    const dialog = win.getByRole('dialog', { name: 'Delete document?' });
+    const dialog = win.getByRole('dialog', { name: /^Delete document from / });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
 
@@ -535,7 +535,7 @@ test('tree: D typed into a text field types the letter and deletes nothing', asy
     await win.keyboard.press('d');
 
     await expect(field).toHaveValue('d');
-    await expect(win.getByRole('dialog', { name: 'Delete document?' })).toHaveCount(0);
+    await expect(win.getByRole('dialog', { name: /^Delete document from / })).toHaveCount(0);
   }));
 
 test('field tree roving focus: a real click on a field row does not trap focus — ArrowDown still moves the field tree', async () =>

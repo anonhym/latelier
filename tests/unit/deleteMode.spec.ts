@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ejsonParse } from '../../src/utils/ejson';
-import { resolveDeleteDialog } from '../../src/pages/Workspace/deleteMode';
+import { deleteTier, resolveDeleteDialog } from '../../src/pages/Workspace/deleteMode';
 
 // Fixtures use `ejsonParse` (the same revival path `api.query.find`'s result
 // goes through at the renderer edge) so `_id` is a real revived ObjectId
@@ -23,7 +23,7 @@ describe('resolveDeleteDialog', () => {
     const doc = docWithId('507f1f77bcf86cd799439011');
     expect(
       resolveDeleteDialog({ deleteDoc: doc, deleteSelected: null, deleteAllFilterJson: null }),
-    ).toEqual({ open: true, docs: [doc], filter: undefined });
+    ).toEqual({ open: true, docs: [doc], filter: undefined, source: 'document' });
   });
 
   it('a valid deleteAllFilterJson opens with an empty docs array and that filter', () => {
@@ -33,7 +33,7 @@ describe('resolveDeleteDialog', () => {
         deleteSelected: null,
         deleteAllFilterJson: DELETE_ALL_FILTER,
       }),
-    ).toEqual({ open: true, docs: [], filter: DELETE_ALL_FILTER });
+    ).toEqual({ open: true, docs: [], filter: DELETE_ALL_FILTER, source: 'filter' });
   });
 
   // Fail-open guard — a null deleteAllFilterJson with nothing else set must stay closed.
@@ -53,6 +53,7 @@ describe('resolveDeleteDialog', () => {
     expect(result.open).toBe(true);
     if (!result.open) throw new Error('unreachable');
     expect(result.docs).toBe(docs);
+    expect(result.source).toBe('selection');
     expect(JSON.parse(result.filter!)).toEqual({
       _id: {
         $in: [
@@ -105,6 +106,30 @@ describe('resolveDeleteDialog', () => {
       deleteSelected: null,
       deleteAllFilterJson: DELETE_ALL_FILTER,
     });
-    expect(result).toEqual({ open: true, docs: [deleteDoc], filter: DELETE_ALL_FILTER });
+    expect(result).toEqual({ open: true, docs: [deleteDoc], filter: DELETE_ALL_FILTER, source: 'filter' });
+  });
+});
+
+describe('deleteTier (W08 §10)', () => {
+  it.each([
+    [1, 'plain'],
+    [20, 'plain'],
+    [21, 'typed'],
+  ] as const)('a selection of %i is %s', (count, tier) => {
+    expect(deleteTier({ source: 'selection', count, filterJson: '{"_id":{"$in":[1]}}' })).toBe(tier);
+  });
+
+  it.each([
+    ['{"status":"paid"}', 'typed'],
+    ['{}', 'typed-all'],
+    [' { \n } ', 'typed-all'],
+    ['   ', 'typed-all'],
+    ['', 'typed-all'],
+  ] as const)('the filter %j is %s, whatever it counts', (filterJson, tier) => {
+    expect(deleteTier({ source: 'filter', count: 3, filterJson })).toBe(tier);
+  });
+
+  it('a selection is never the red-band tier, even with no filter text', () => {
+    expect(deleteTier({ source: 'selection', count: 500, filterJson: '{}' })).toBe('typed');
   });
 });

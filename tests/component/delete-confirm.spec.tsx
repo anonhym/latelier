@@ -33,12 +33,14 @@ describe('DeleteConfirm — single document (regression)', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1', sku: 'a' }]}
+        source="document"
+        connectionName="Prod"
         onClose={onClose}
         onDeleted={onDeleted}
       />,
     );
 
-    expect(screen.getByText('Delete document?')).toBeTruthy();
+    expect(screen.getByText(/^Delete document from /)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(deleteOne).toHaveBeenCalledTimes(1));
@@ -71,12 +73,14 @@ describe('DeleteConfirm — single document (regression)', () => {
         dbName="app"
         collection="orders"
         docs={[{ sku: 'a' }]}
+        source="document"
+        connectionName="Prod"
         onClose={onClose}
         onDeleted={onDeleted}
       />,
     );
 
-    expect(screen.getByText('Delete document?')).toBeTruthy();
+    expect(screen.getByText(/^Delete document from /)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
@@ -108,6 +112,8 @@ describe('DeleteConfirm — single document (regression)', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1', sku: 'a' }]}
+        source="document"
+        connectionName="Prod"
         onClose={() => undefined}
         onDeleted={() => undefined}
       />,
@@ -133,6 +139,8 @@ describe('DeleteConfirm — single document (regression)', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1', sku: 'a' }]}
+        source="document"
+        connectionName="Prod"
         readOnly
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -163,6 +171,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
           dbName="app"
           collection="orders"
           docs={[]}
+          source="filter"
+          connectionName="Prod"
           filter='{"status":"pending"}'
           onClose={() => undefined}
           onDeleted={() => undefined}
@@ -190,6 +200,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -213,6 +225,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={onClose}
         onDeleted={onDeleted}
@@ -258,6 +272,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"nonexistent"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -287,6 +303,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -308,6 +326,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -332,6 +352,8 @@ describe('DeleteConfirm — delete-all-matching (filter-scoped)', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -360,6 +382,8 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"name":"a"}'
         collation='{"locale":"en","strength":2}'
         onClose={() => undefined}
@@ -370,7 +394,7 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
     expect(
       screen.getByText('Clear the collation to delete by filter: it would change which documents match.'),
     ).toBeTruthy();
-    expect(screen.getByRole('dialog', { name: 'Delete matching documents?' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: /^Delete matching documents from / })).toBeTruthy();
     expect(screen.queryByText('Counting matching documents…')).toBeNull();
     await Promise.resolve();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
@@ -391,6 +415,8 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"name":"a"}'
         collation="  "
         onClose={() => undefined}
@@ -410,6 +436,8 @@ describe('DeleteConfirm — a collation refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1' }]}
+        source="document"
+        connectionName="Prod"
         collation='{"locale":"en"}'
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -435,6 +463,8 @@ describe('DeleteConfirm — a hint refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"name":"a"}'
         hint="name_1_sparse"
         onClose={() => undefined}
@@ -443,7 +473,7 @@ describe('DeleteConfirm — a hint refuses a delete by filter', () => {
     );
 
     expect(screen.getByText(HINT_TEXT)).toBeTruthy();
-    expect(screen.getByRole('dialog', { name: 'Delete matching documents?' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: /^Delete matching documents from / })).toBeTruthy();
     expect(screen.queryByText('Counting matching documents…')).toBeNull();
     await Promise.resolve();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
@@ -464,6 +494,8 @@ describe('DeleteConfirm — a hint refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"name":"a"}'
         hint="  "
         onClose={() => undefined}
@@ -483,6 +515,8 @@ describe('DeleteConfirm — a hint refuses a delete by filter', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1' }]}
+        source="document"
+        connectionName="Prod"
         hint="name_1_sparse"
         onClose={() => undefined}
         onDeleted={() => undefined}
@@ -504,6 +538,8 @@ describe('DeleteConfirm — Undo hand-off', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1' }]}
+        source="document"
+        connectionName="Prod"
         onClose={() => {}}
         onDeleted={onDeleted}
       />,
@@ -523,6 +559,8 @@ describe('DeleteConfirm — Undo hand-off', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1' }]}
+        source="document"
+        connectionName="Prod"
         onClose={() => {}}
         onDeleted={onDeleted}
       />,
@@ -546,6 +584,8 @@ describe('DeleteConfirm — Undo hand-off', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => {}}
         onDeleted={onDeleted}
@@ -571,6 +611,8 @@ describe('DeleteConfirm — Undo hand-off', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => {}}
         onDeleted={onDeleted}
@@ -598,6 +640,8 @@ describe('DeleteConfirm — field-suggestion sample', () => {
         dbName="app"
         collection="orders"
         docs={docs}
+        source="document"
+        connectionName="Prod"
         onClose={() => {}}
         onDeleted={onDeleted}
       />,
@@ -609,6 +653,8 @@ describe('DeleteConfirm — field-suggestion sample', () => {
         dbName="app"
         collection="orders"
         docs={[]}
+        source="filter"
+        connectionName="Prod"
         filter='{"status":"pending"}'
         onClose={() => {}}
         onDeleted={onDeleted}
@@ -669,5 +715,100 @@ describe('DeleteConfirm — field-suggestion sample', () => {
 
     await screen.findByRole('alert');
     expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
+// W08 §10: three tiers, by how the documents were chosen.
+describe('DeleteConfirm — a confirmation sized to what it deletes', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => ({ _id: i + 1 }));
+  const inFilter = (n: number) => JSON.stringify({ _id: { $in: ids(n).map((d) => d._id) } });
+  function mount(props: { docs: unknown[]; filter: string; source: 'selection' | 'filter'; nameConnection?: boolean }, count: number) {
+    const confirmDeleteMany = vi.fn(async () => ({ count, confirmToken: 'tok' }));
+    const deleteMany = vi.fn(async () => ({ deletedCount: count }));
+    installAtelierMock({ doc: { confirmDeleteMany, deleteMany } });
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        connectionName="Prod"
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+        {...props}
+      />,
+    );
+    return { deleteMany };
+  }
+  const deleteButton = () => screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+
+  it('3 selected: no typing, the ids listed, Cancel holds focus so Enter on open deletes nothing', async () => {
+    const { deleteMany } = mount({ docs: ids(3), filter: inFilter(3), source: 'selection' }, 3);
+    const dialog = await screen.findByRole('dialog', { name: 'Delete 3 selected documents from shop.orders?' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    const list = screen.getByRole('list', { name: 'Documents to delete' });
+    expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['1', '2', '3']);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).not.toBe(deleteButton());
+    fireEvent.keyDown(dialog, { key: 'Enter' });
+    expect(deleteMany).not.toHaveBeenCalled();
+    await waitFor(() => expect(deleteButton().disabled).toBe(false));
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(deleteMany).toHaveBeenCalledWith(expect.objectContaining({ filterJson: inFilter(3) })));
+  });
+
+  it('21 selected asks for the collection name, and still says "selected"', async () => {
+    mount({ docs: ids(21), filter: inFilter(21), source: 'selection' }, 21);
+    expect(await screen.findByRole('dialog', { name: 'Delete 21 selected documents from shop.orders?' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Type orders to confirm' })).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Documents to delete' })).toBeNull();
+  });
+
+  it('a non-empty filter asks for the collection name and shows the filter that will run', async () => {
+    mount({ docs: [], filter: '{"status":"paid"}', source: 'filter' }, 7);
+    expect(await screen.findByRole('dialog', { name: 'Delete 7 matching documents from shop.orders?' })).toBeTruthy();
+    expect(screen.getByTestId('delete-filter').textContent).toBe('{"status":"paid"}');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Type orders to confirm' })));
+    expect(screen.queryByTestId('delete-all-band')).toBeNull();
+  });
+
+  it('{} puts the total and the Connection under a red band, and asks for the collection name', async () => {
+    mount({ docs: [], filter: '{}', source: 'filter' }, 6382);
+    await waitFor(() =>
+      expect(screen.getByTestId('delete-all-band').textContent).toBe(
+        'No filter — this deletes all 6,382 documents in shop.orders on Prod',
+      ),
+    );
+    expect(screen.getByRole('textbox', { name: 'Type orders to confirm' })).toBeTruthy();
+  });
+
+  it('names the Connection in the title when more than one is open', async () => {
+    mount({ docs: ids(2), filter: inFilter(2), source: 'selection', nameConnection: true }, 2);
+    expect(await screen.findByRole('dialog', { name: 'Delete 2 selected documents from shop.orders on Prod?' })).toBeTruthy();
+  });
+
+  it('a single document keeps its plain confirm, with the namespace', () => {
+    installAtelierMock();
+    render(
+      <DeleteConfirm
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        docs={[{ _id: 1 }]}
+        source="document"
+        connectionName="Prod"
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('dialog', { name: 'Delete document from shop.orders?' })).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('no dialog calls a selection "matching", while counting or after', async () => {
+    mount({ docs: ids(25), filter: inFilter(25), source: 'selection' }, 25);
+    await screen.findByRole('dialog');
+    expect(document.body.textContent).not.toMatch(/matching/);
+    await waitFor(() => expect(screen.queryByText(/Checking the selected documents/)).toBeNull());
+    expect(document.body.textContent).not.toMatch(/matching/);
   });
 });

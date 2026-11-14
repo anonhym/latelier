@@ -50,6 +50,8 @@ describe('dialogs open on their first real control, not on Close', () => {
         dbName="app"
         collection="orders"
         docs={[{ _id: '1' }]}
+        source="document"
+        connectionName="Prod"
         onClose={() => {}}
         onDeleted={() => {}}
       />,

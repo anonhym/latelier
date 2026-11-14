@@ -54,8 +54,8 @@ afterEach(() => {
 type Kind = 'delete' | 'delete-all' | 'update-all';
 
 const DIALOG_NAME: Record<Kind, string | RegExp> = {
-  delete: 'Delete document?',
-  'delete-all': /Delete .* matching documents?\?/,
+  delete: /^Delete document from /,
+  'delete-all': /^Delete .* matching documents? from /,
   'update-all': 'Update all matching documents',
 };
 

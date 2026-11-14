@@ -720,6 +720,8 @@ describe('useDocumentDialogs', () => {
               dbName={a.dbName}
               collection={a.collection}
               docs={[d.deleteDoc]}
+              source="document"
+              connectionName="Prod"
               onClose={d.closeDeleteDialogs}
               onDeleted={(auditId, message) => d.handleDeleted(auditId, message, target)}
             />
@@ -730,6 +732,8 @@ describe('useDocumentDialogs', () => {
               dbName={a.dbName}
               collection={a.collection}
               docs={[]}
+              source="filter"
+              connectionName="Prod"
               filter="{}"
               onClose={d.closeDeleteDialogs}
               onDeleted={(auditId, message) => d.handleDeleted(auditId, message, target)}

@@ -91,7 +91,7 @@ test('doc writes: insert adds a row; edit changes a field; delete removes the ro
 
       // DeleteConfirm dialog: button with exact text "Delete" — unique on the
       // page when the dialog is open (per-row buttons name is "Delete document").
-      await expect(win.getByText('Delete document?')).toBeVisible({ timeout: 4000 });
+      await expect(win.getByText(/^Delete document from /)).toBeVisible({ timeout: 4000 });
       await win.getByRole('button', { name: 'Delete', exact: true }).click();
 
       // Re-run happens via onDeleted (Workspace.tsx:1830). The deleted row's
