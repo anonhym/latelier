@@ -715,4 +715,26 @@ describe('liveValidity', () => {
     expect(liveValidity('5')).toMatchObject({ runnable: false });
     expect(liveValidity("['a']")).toMatchObject({ repaired: true, runnable: false });
   });
+  it.each([
+    ['{["__proto__"]: 0}', '{"__proto__": 0}'],
+    ['{" ": {" ": {["__proto__"]: false}}}', '{" ": {" ": {"__proto__": false}}}'],
+    ['{[ "__proto__" ]: {}}', '{"__proto__": {}}'],
+  ])('keeps a computed string key as an own field: %s', (typed, expected) => {
+    const out = repairToCanonicalEjson(typed);
+    expect(out).toEqual({ kind: 'repaired', text: expected });
+    if (out.kind !== 'repaired') return;
+    const keys = (t: string): string[] => {
+      let v: unknown = ejsonParse(t);
+      while (v && typeof v === 'object' && !Object.hasOwn(v, '__proto__')) v = Object.values(v)[0];
+      return Object.keys(v as object);
+    };
+    expect(keys(out.text)).toContain('__proto__');
+    expect(liveValidity(typed).runnable).toBe(true);
+  });
+
+  it('refuses a computed key that is not a string literal', () => {
+    expect(repairToCanonicalEjson('{[a]: 1}').kind).toBe('failed');
+    expect(repairToCanonicalEjson('{["a" + "b"]: 1}').kind).toBe('failed');
+    expect(repairToCanonicalEjson('{[1]: 1}').kind).toBe('failed');
+  });
 });
