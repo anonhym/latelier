@@ -289,7 +289,7 @@ export function TabStrip({
                 border: 'none',
                 // Solid text on both fills: muted text on the tint fell under 4.5:1.
                 color: T.text,
-                background: `color-mix(in srgb, ${groupColor} ${groupActive ? 32 : 14}%, ${T.bg})`,
+                background: `color-mix(in srgb, ${groupColor} ${groupActive ? 'var(--atelier-conn-tint-active)' : 'var(--atelier-conn-tint)'}, ${T.bg})`,
                 borderLeft: `3px solid ${connection?.color ?? T.border}`,
                 transition: 'background 120ms',
               }}

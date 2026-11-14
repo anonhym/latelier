@@ -57,6 +57,9 @@
      text takes this darker violet (violet[6]), held to 4.5:1 on every surface and on
      accent-soft by tests/unit/theme-contrast.spec.ts. */
   --atelier-accent-ink:     #5743c4;
+  /* Connection-colour tint mixed into the tab chip: idle and lit. */
+  --atelier-conn-tint:        14%;
+  --atelier-conn-tint-active: 32%;
   --atelier-accent-soft:    rgba(124,106,247,0.09);
   --atelier-accent-border:  rgba(124,106,247,0.30);
   /* Status — dot + scalar */
@@ -96,14 +99,17 @@
   --atelier-surface-raised: #1f252c;
   --atelier-surface-active: #29313a;
   /* Borders */
-  --atelier-border:         rgba(200,210,220,0.08);
-  --atelier-border-med:     rgba(200,210,220,0.14);
+  --atelier-border:         rgba(200,210,220,0.11);
+  --atelier-border-med:     rgba(200,210,220,0.2);
   /* Text */
   --atelier-text:           #cdd5de;
   --atelier-text-muted:     rgba(200,210,220,0.76);
   --atelier-text-ghost:     rgba(200,210,220,0.68);
   --mantine-color-dimmed:   var(--atelier-text-muted);
   /* Accent */
+  /* Dark floor for any connection tint is 24% (X10 amendment). */
+  --atelier-conn-tint:        24%;
+  --atelier-conn-tint-active: 38%;
   --atelier-accent:         #7c6af7;
   --atelier-accent-text:    #ffffff;
   --atelier-accent-ink:     #b7abf7;
