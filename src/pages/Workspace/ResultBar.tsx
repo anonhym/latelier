@@ -14,6 +14,9 @@ import { consumeTabRequest, tabRequested, subscribeTabRequests } from './tabRequ
 import { ImportDialog } from './ImportDialog';
 import { canvasHeaderLayout } from './toolbarLayout';
 import { ResultStatus } from './StatusBar';
+import { runUndo, useLatestUndo } from './undoStore';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 
 const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
 
@@ -54,6 +57,7 @@ export function ResultBar({ references }: ResultBarProps = {}) {
     setExportOpen(true);
   }, [requested, meta.tabId]);
 
+  const undo = useLatestUndo(meta);
   const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
   const layout = canvasHeaderLayout(barWidth, references !== undefined);
 
@@ -161,6 +165,19 @@ export function ResultBar({ references }: ResultBarProps = {}) {
                 <Menu.Item leftSection={I.upload} onClick={() => setImportOpen(true)}>
                   Import…
                 </Menu.Item>
+              )}
+              {/* X13 §13: while this collection's newest undo is still held. */}
+              {undo && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item
+                    leftSection={I.undo}
+                    rightSection={<span style={{ fontSize: T.fsXs, color: T.textMuted }}>{formatShortcut('⌘Z', isMacRenderer())}</span>}
+                    onClick={() => void runUndo(undo)}
+                  >
+                    {undo.label}
+                  </Menu.Item>
+                </>
               )}
             </Menu.Dropdown>
           </Menu>

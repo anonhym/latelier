@@ -145,10 +145,15 @@ export function ImportDialog({
     // No toast when nothing landed — `result.auditId` is only set when
     // something did (offerUndo no-ops on undefined either way). Undo removes
     // the imported documents, so it drops the sample again.
-    offerUndo(`${plural(result.inserted, 'document')} imported from ${result.fileName}`, result.auditId, () => {
-      dropStaleSample();
-      onImported(result);
-    });
+    offerUndo(
+      `${plural(result.inserted, 'document')} imported from ${result.fileName}`,
+      result.auditId,
+      () => {
+        dropStaleSample();
+        onImported(result);
+      },
+      { connectionId, dbName, collection },
+    );
   };
 
   const chooseAndImport = async () => {

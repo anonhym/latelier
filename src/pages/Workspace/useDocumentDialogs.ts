@@ -200,7 +200,7 @@ export function useDocumentDialogs(deps: {
     setEditing(null);
     if (!target) return;
     refreshSource(target);
-    offerUndo('Document updated', auditId, () => refreshSource(target));
+    offerUndo('Document updated', auditId, () => refreshSource(target), target);
   }, [editing, refreshSource]);
 
   const closeDeleteDialogs = React.useCallback(() => {
@@ -230,7 +230,7 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
-    offerUndo(message, auditId, () => refreshSource(target));
+    offerUndo(message, auditId, () => refreshSource(target), target);
   }, [activeCollectionRef, closeDeleteDialogs, refreshSource, rerunTarget]);
 
   // Same shape as delete-all: UpdateConfirm also reports the collection it
@@ -246,7 +246,7 @@ export function useDocumentDialogs(deps: {
       notify.success(message);
       return;
     }
-    offerUndo(message, auditId, () => refreshSource(target));
+    offerUndo(message, auditId, () => refreshSource(target), target);
   }, [activeCollectionRef, closeUpdateAllModal, refreshSource, rerunTarget]);
 
   // DeleteConfirm's and UpdateConfirm's targets are read live from the

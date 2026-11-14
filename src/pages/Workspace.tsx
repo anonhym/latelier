@@ -660,10 +660,15 @@ function WorkspaceInner() {
           // would re-enable it against the stale value, and a second click
           // there would guard its compare-and-set on that stale value too.
           const refreshed = rerunEdited();
-          offerUndo('Field updated', auditId, () => {
-            invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
-            void rerunEdited();
-          });
+          offerUndo(
+            'Field updated',
+            auditId,
+            () => {
+              invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
+              void rerunEdited();
+            },
+            a,
+          );
           return refreshed.then(() => OK);
         })
         .catch((e: unknown): UpdateFieldOutcome => {
