@@ -212,16 +212,16 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       await open(win);
       await win.setViewportSize({ width: 900, height: 600 });
 
-      const openBuilder = win.getByRole('button', { name: 'Open Query Builder', exact: true });
-      await expect(openBuilder).toBeVisible();
+      const openBuilder = win.getByRole('button', { name: 'Builder', exact: true });
+      await expect(openBuilder).toHaveAttribute('aria-pressed', 'false');
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
       await openBuilder.click();
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'false');
       await expect(win.getByRole('tablist', { name: 'Inspector view' })).toBeVisible();
       await win.waitForTimeout(300);
-      const drawer = await win.getByRole('tablist', { name: 'Inspector view' }).boundingBox();
-      expect(drawer!.width).toBeGreaterThanOrEqual(270);
+      const drawer = await win.getByTestId('inspector').boundingBox();
+      expect(drawer!.width).toBeGreaterThanOrEqual(319);
 
       const scrolled = () =>
         win.evaluate(() => [...document.querySelectorAll('*')].filter((e) => e.scrollLeft > 0).map((e) => e.tagName));
@@ -229,14 +229,14 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       await win.waitForTimeout(150);
       expect(await scrolled()).toEqual([]);
 
-      // The wide layout comes back untouched: both panels, the drawer at its stored share.
+      // The wide layout comes back untouched: both panels, the Inspector at its default 400 px.
       await win.setViewportSize({ width: 1280, height: 800 });
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
-      await expect(win.getByRole('button', { name: 'Collapse Query Builder', exact: true })).toBeVisible();
+      await expect(win.getByRole('button', { name: 'Builder', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await win.waitForTimeout(300);
-      const wide = await win.getByRole('tablist', { name: 'Inspector view' }).boundingBox();
-      expect(wide!.width).toBeGreaterThan(260);
-      expect(wide!.width).toBeLessThan(290);
+      const wide = await win.getByTestId('inspector').boundingBox();
+      expect(wide!.width).toBeGreaterThan(380);
+      expect(wide!.width).toBeLessThan(420);
     });
   });
 });

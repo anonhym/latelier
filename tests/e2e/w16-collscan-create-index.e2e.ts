@@ -63,7 +63,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await ws.queryBarRunOptionsButton.click();
       await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
-      const explainDrawer = win.getByRole('dialog', { name: 'Explain plan' });
+      const explainDrawer = win.getByTestId('inspector');
       await expect(explainDrawer).toBeVisible({ timeout: 8000 });
       await expect(explainDrawer).toContainText('COLLSCAN', { timeout: 8000 });
 
@@ -71,7 +71,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await expect(createIndexBtn).toBeVisible();
       await createIndexBtn.click();
 
-      // The explain drawer closes and Structure becomes the active sub-tab.
+      // The Inspector closes and Structure becomes the active sub-tab.
       await expect(explainDrawer).not.toBeVisible({ timeout: 4000 });
       await expect(win.getByRole('tab', { name: /Schema & indexes/ })).toHaveAttribute(
         'aria-selected',
@@ -108,7 +108,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await ws.queryBarRunOptionsButton.click();
       await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
-      const reExplainDrawer = win.getByRole('dialog', { name: 'Explain plan' });
+      const reExplainDrawer = win.getByTestId('inspector');
       await expect(reExplainDrawer).toBeVisible({ timeout: 8000 });
       await expect(reExplainDrawer).toContainText('IXSCAN', { timeout: 8000 });
       await expect(reExplainDrawer.getByTestId('explain-create-index')).not.toBeVisible();

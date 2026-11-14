@@ -15,7 +15,7 @@ test.afterAll(stopAllMemoryServers);
  * T0.1 — Wire up explain on a find query. The QueryBar's "Run options"
  * chevron (`QueryBar.tsx`) opens a menu with Run + Explain items. Explain
  * calls `api.query.explain` with the compiled MQL and reuses the shared
- * `ExplainDrawer` (`role="dialog"` + `aria-label="Explain plan"`).
+ * the Inspector's Plan tab (`data-testid="inspector"`).
  */
 test('find explain: chevron menu runs a find and opens the explain drawer', async () => {
   const { host, port } = await startMemoryServer();
@@ -50,13 +50,13 @@ test('find explain: chevron menu runs a find and opens the explain drawer', asyn
       await ws.queryBarRunOptionsButton.click();
       await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
-      const drawer = win.getByRole('dialog', { name: 'Explain plan' });
+      const drawer = win.getByTestId('inspector');
       await expect(drawer).toBeVisible({ timeout: 8000 });
       await expect(drawer.locator('[aria-label="Verbosity"]')).toBeVisible();
 
-      // X15 T6 — Mantine's close control, labelled "Close"; the bespoke
-      // `aria-label="Close explain"` ✕ went away with the migration.
-      await drawer.getByRole('button', { name: 'Close' }).click();
+      // The Inspector's close control; the plan is its Plan tab, not a dialog.
+      await expect(drawer.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      await drawer.getByRole('button', { name: 'Close inspector' }).click();
       await expect(drawer).not.toBeVisible({ timeout: 4000 });
 
       // The menu's "Run" item is additive, not a second path — it should

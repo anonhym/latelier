@@ -72,7 +72,7 @@ async function openExplainMenu() {
 }
 
 describe('QueryBar - Explain menu', () => {
-  it('clicking the chevron then Explain (queryPlanner) calls api.query.explain and opens the drawer', async () => {
+  it('clicking the chevron then Explain (queryPlanner) calls api.query.explain and opens the Inspector on Plan', async () => {
     const explainSpy = vi.fn<IpcApi['query']['explain']>(async () => ({
       plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } },
       verbosity: 'queryPlanner',
@@ -108,10 +108,11 @@ describe('QueryBar - Explain menu', () => {
     expect(callArgs?.collection).toBe('users');
     expect(callArgs?.verbosity).toBe('queryPlanner');
 
-    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
-    expect(dialog).toBeTruthy();
+    // The Inspector's Plan tab, not a dialog (W05 §9.7).
+    const inspector = await screen.findByTestId('inspector');
+    expect(within(inspector).getByRole('tab', { name: 'Plan' }).getAttribute('aria-selected')).toBe('true');
     await waitFor(() => {
-      expect(dialog.textContent).toContain('COLLSCAN');
+      expect(inspector.textContent).toContain('COLLSCAN');
     });
   });
 
@@ -302,7 +303,7 @@ describe('QueryBar - Explain menu', () => {
     expect(explainSpy.mock.calls[0]?.[0]?.verbosity).toBe('executionStats');
   });
 
-  it('renders the explain error inline in the drawer instead of throwing', async () => {
+  it('renders the explain error inline in the Inspector instead of throwing', async () => {
     const explainSpy = vi.fn(async () => {
       throw { code: 'MONGO_OP_FAILED', message: 'index not found' };
     });
@@ -327,12 +328,10 @@ describe('QueryBar - Explain menu', () => {
     const explainItem = await screen.findByRole('menuitem', { name: 'Explain plan' });
     fireEvent.click(explainItem);
 
-    const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
-    // X15 T6 — was `dialog.querySelector('[role="alert"]')`, which reaches into
-    // the drawer's internal element tree. `within(dialog).findByRole('alert')`
-    // asserts the same thing — the error is surfaced *inside* the drawer, as an
-    // alert — without depending on where in the panel it lands.
-    const alert = await within(dialog).findByRole('alert');
+    const inspector = await screen.findByTestId('inspector');
+    // The error is surfaced *inside* the Inspector, as an alert, without
+    // depending on where in the panel it lands.
+    const alert = await within(inspector).findByRole('alert');
     expect(alert.textContent).toContain('index not found');
   });
 });

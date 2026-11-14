@@ -16,6 +16,8 @@ import { notify } from '../theme/notifications';
 import { ejsonParse, isPlainDocument } from '../utils/ejson';
 import { buildUpdateRequest, setAtSegments } from './Workspace/documentDiff';
 import { copyToClipboard } from '../utils/clipboard';
+import { CODE_LANGS } from '../utils/driverCode';
+import { copyQueryAsCode } from './Workspace/copyQueryCode';
 import { BUILDER_DEFAULT_PX, BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
 import type { CollectionView, SavedQuerySummary, WorkspaceTab } from '@shared/types';
@@ -963,7 +965,6 @@ function WorkspaceInner() {
         // eslint-disable-next-line react-hooks/refs
         when: () => activeCollectionRef.current !== null,
         perform: () => {
-          // eslint-disable-next-line react-hooks/refs
           const a = activeCollectionRef.current;
           // eslint-disable-next-line react-hooks/refs
           if (a) tabsRef.current.setActiveView(a.id, view);
@@ -1003,6 +1004,20 @@ function WorkspaceInner() {
           if (raw) void copyToClipboard(raw, 'Query copied to the clipboard.');
         },
       },
+      // The Run menu's Copy query as…, one command per target (W05 §9.5).
+      ...CODE_LANGS.map(({ lang, label }) => ({
+        id: `query.copy-as.${lang}`,
+        title: `Copy query as ${label}`,
+        group: 'query' as const,
+        keywords: ['copy', 'code', 'snippet', 'driver', 'find'],
+        when: () =>
+          activeCollectionRef.current !== null &&
+          (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
+        perform: () => {
+          const a = activeCollectionRef.current;
+          if (a) copyQueryAsCode(lang, a.state, a.collection);
+        },
+      })),
       {
         id: 'doc.insert',
         title: 'Insert document…',

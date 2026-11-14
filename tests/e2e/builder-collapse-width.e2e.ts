@@ -65,8 +65,8 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     await win.reload();
     await win.waitForLoadState('domcontentloaded');
 
-    const collapseNotch = win.getByRole('button', { name: 'Collapse Query Builder' });
-    await expect(collapseNotch).toBeVisible({ timeout: 15_000 });
+    const builderToggle = win.getByRole('button', { name: 'Builder', exact: true });
+    await expect(builderToggle).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
 
     const readSplit = () =>
       win.evaluate(async () => {
@@ -76,16 +76,16 @@ test('collapsing the query drawer does not destroy its stored width', async () =
         return api.prefs.get('ui.workspace.innerHSplit');
       });
 
-    await collapseNotch.click();
-    await expect(win.getByRole('button', { name: 'Open Query Builder' })).toBeVisible();
+    await builderToggle.click();
+    await expect(builderToggle).toHaveAttribute('aria-pressed', 'false');
 
     // The regression: the collapsed rail width used to land here.
     const afterCollapse = await readSplit();
     expect(typeof afterCollapse).toBe('number');
     expect(afterCollapse as number).toBeGreaterThanOrEqual(15);
 
-    await win.getByRole('button', { name: 'Open Query Builder' }).click();
-    await expect(collapseNotch).toBeVisible();
+    await builderToggle.click();
+    await expect(builderToggle).toHaveAttribute('aria-pressed', 'true');
 
     // Checked before the width, and the order matters. Reopening at the rail
     // width is what *writes* the rail width back — the panel sits at 4% while
@@ -110,7 +110,7 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     const subTabs = win.locator('[role="tablist"][aria-label="Collection view"]');
     await subTabs.getByRole('tab', { name: /Aggregation/ }).click();
     await expect(drawer).toBeHidden();
-    await expect(win.getByRole('button', { name: /Query Builder$/ })).toHaveCount(0);
+    await expect(builderToggle).toHaveCount(0);
     // A stray press on the inert divider must not mark the restore below as the user's split.
     const divider = win.getByRole('separator', { name: 'Resize inspector' });
     await divider.dispatchEvent('pointerdown');
