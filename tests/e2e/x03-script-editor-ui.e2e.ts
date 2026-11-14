@@ -110,3 +110,36 @@ test('script editor ui: deleteMany({}) is confirmed before it runs; a closed scr
     });
   });
 });
+
+/**
+ * W01 §14.14 — closing a script tab that holds source offers an Undo toast,
+ * and Undo brings the tab back with that source.
+ */
+test('script editor ui: the close toast Undo reopens the script tab with its source', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnection(win, {
+        ...baseConnInput(host, port),
+        name: 'Undo Target',
+      });
+      await expectStatusDot(win, 'Undo Target', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openNewScript();
+      await win.locator('[data-testid="script-editor"] .cm-content').click();
+      await win.keyboard.type('1 + 41');
+
+      await ws.closeTab('Script 1');
+      await expect(win.locator('[data-testid="script-editor"]')).toHaveCount(0);
+      await win.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(win.locator('[data-testid="script-editor"] .cm-content')).toContainText('1 + 41', {
+        timeout: 5000,
+      });
+    });
+  });
+});

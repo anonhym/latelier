@@ -21,7 +21,7 @@ test.afterAll(stopAllMemoryServers);
  * The Focused Tab is deliberately the second tab opened, so a restore that
  * followed strip order rather than `is_active` would land on the wrong one.
  */
-test('restores the same Focused Tab, and its Connection, across a quit + relaunch', async () => {
+test('restores the same Focused Tab, runs it and focuses its filter, across a quit + relaunch', async () => {
   const { host, port } = await startMemoryServer();
   const userDataDir = freshUserData();
 
@@ -54,6 +54,18 @@ test('restores the same Focused Tab, and its Connection, across a quit + relaunc
         });
         // `beta` is second in the strip and is the Focused Tab.
         await api.tabs.setActive(beta.id);
+        await (
+          window as unknown as {
+            atelier: {
+              doc: { insert: (i: unknown) => Promise<unknown> };
+            };
+          }
+        ).atelier.doc.insert({
+          connectionId: c.id,
+          dbName: 'db',
+          collection: 'beta',
+          docJson: JSON.stringify({ marker: 'focused-tab-restore-run' }),
+        });
       }, baseConnInput(host, port));
 
       // Reload so the freshly-mounted Workspace reads the persisted tabs the
@@ -80,6 +92,10 @@ test('restores the same Focused Tab, and its Connection, across a quit + relaunc
         'aria-selected',
         'false',
       );
+      // W01 §14.10 — the Focused Tab runs once on its own, and the focus rests
+      // in its filter rather than on <body>.
+      await expect(win.getByText('focused-tab-restore-run')).toBeVisible({ timeout: 10_000 });
+      await expect(win.locator('#query-bar-filter')).toBeFocused();
     });
   } finally {
     fs.rmSync(userDataDir, { recursive: true, force: true });
