@@ -107,3 +107,53 @@ export function docMenuItems({
   }
   return items;
 }
+
+export interface HeaderMenuInput {
+  fieldPath: string;
+  /** The first value the column holds on this page; `Add to filter` needs one. */
+  sampleValue: unknown;
+  hasSample: boolean;
+  isReadOnly?: boolean;
+  filterBarValid: boolean;
+  onAddToFilter: (fieldPath: string, value: unknown) => Promise<void>;
+  /** Omitted where the table cannot sort (a snapshot, a computed column). */
+  onSort?: (dir: 1 | -1) => void;
+  onHide: () => void;
+}
+
+/** The column header's menu: Copy field path, Sort ascending/descending, Hide column, Add to filter. */
+export function headerMenuItems({
+  fieldPath,
+  sampleValue,
+  hasSample,
+  isReadOnly,
+  filterBarValid,
+  onAddToFilter,
+  onSort,
+  onHide,
+}: HeaderMenuInput): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [
+    {
+      kind: 'item',
+      label: 'Copy field path',
+      onClick: () => void copyToClipboard(fieldPath, 'Field name copied to the clipboard.'),
+    },
+  ];
+  if (onSort) {
+    items.push(
+      { kind: 'item', label: 'Sort ascending', onClick: () => onSort(1) },
+      { kind: 'item', label: 'Sort descending', onClick: () => onSort(-1) },
+    );
+  }
+  items.push({ kind: 'item', label: 'Hide column', onClick: onHide });
+  if (!isReadOnly && hasSample) {
+    items.push({
+      kind: 'item',
+      label: 'Add to filter',
+      disabled: !filterBarValid,
+      disabledTitle: "The filter bar's text isn't valid JSON",
+      onClick: () => void onAddToFilter(fieldPath, sampleValue),
+    });
+  }
+  return items;
+}

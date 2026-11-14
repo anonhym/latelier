@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { ContextMenu } from '../../../components/ContextMenu';
-import { anchorFromRect, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
+import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -268,6 +268,14 @@ function DocRowImpl({
           just clicked. */}
       <div
         onClick={handleRowClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onOpenRowMenu(
+            doc,
+            { x: e.clientX, y: e.clientY },
+            { returnFocusTo: e.currentTarget.closest<HTMLElement>('[role="tree"]') },
+          );
+        }}
         onMouseEnter={() => setRowHovered(true)}
         onMouseLeave={() => setRowHovered(false)}
         id={rowId(index)}
@@ -554,6 +562,20 @@ export function TreeView({
         void copyDocument(documents[roving.activeIndex], copyFormat);
         return;
       }
+      if (isContextMenuKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        // The active row may have been scrolled out and unmounted: anchor to
+        // the list instead and bring the row back.
+        const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
+        const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
+        if (!anchor) return;
+        if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
+        handleOpenRowMenu(documents[roving.activeIndex], anchor, {
+          returnFocusTo: listRef.current?.element ?? null,
+        });
+        return;
+      }
       if (isEditKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
@@ -579,7 +601,7 @@ export function TreeView({
     // `roving` is a fresh object every render — depend on the members this
     // actually reads instead (same as `TableView`'s `handleGridKeyDown`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete, copyFormat],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete, copyFormat, handleOpenRowMenu, listRef],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh

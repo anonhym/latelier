@@ -30,7 +30,7 @@ import { getDocId, getFullDocId, isInlineEditableKind, reviveTableValue } from '
 import { kindOf, parseAs, textOf, type FieldKind } from '../documentFieldTypes';
 import { SelectToggle } from './SelectToggle';
 import { FullValuePopover } from './FullValuePopover';
-import { docMenuItems, fieldMenuItems } from './menuItems';
+import { docMenuItems, fieldMenuItems, headerMenuItems } from './menuItems';
 import { allExpandablePaths } from './docFieldFlatten';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
@@ -1156,6 +1156,31 @@ export function TableView({
   const handleAddToFilter = useAddToFilter({ state, actions });
   const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
 
+  // The column header's menu (right-click or Shift+F10 on a header cell).
+  const [headerMenu, setHeaderMenu] = React.useState<{
+    x: number;
+    y: number;
+    field: string;
+    returnFocusTo: HTMLElement | null;
+  } | null>(null);
+  const closeHeaderMenu = React.useCallback(() => setHeaderMenu(null), []);
+  const hideColumn = React.useCallback(
+    (field: string) =>
+      actions.patchWith((prev) => {
+        const hidden = prev.columnConfig?.hidden ?? [];
+        return { columnConfig: { ...prev.columnConfig, hidden: hidden.includes(field) ? hidden : [...hidden, field] } };
+      }),
+    [actions],
+  );
+  const sortColumn = React.useCallback(
+    (field: string, dir: 1 | -1) => {
+      const patch = { builder: { ...state.builder, sort: JSON.stringify({ [field]: dir }) } };
+      actions.patch(patch);
+      actions.run(patch);
+    },
+    [actions, state.builder],
+  );
+
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
     () => resolveColumns(derivedFields, columnConfig),
@@ -1735,6 +1760,32 @@ export function TableView({
               aria-sort={ariaSortFor(sortable, dir)}
               title={headerTitle}
               data-testid={`table-header-${col.field}`}
+              onContextMenu={
+                col.kind === 'field'
+                  ? (e) => {
+                      e.preventDefault();
+                      setHeaderMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        field: col.field,
+                        returnFocusTo: e.currentTarget,
+                      });
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                col.kind === 'field'
+                  ? (e) => {
+                      if (!isContextMenuKey(e)) return;
+                      e.preventDefault();
+                      setHeaderMenu({
+                        ...anchorFromRect(e.currentTarget.getBoundingClientRect()),
+                        field: col.field,
+                        returnFocusTo: e.currentTarget,
+                      });
+                    }
+                  : undefined
+              }
               style={{
                 width: w,
                 minWidth: w,
@@ -1932,6 +1983,31 @@ export function TableView({
           onClose={closeContextMenu}
         />
       )}
+
+      {headerMenu && (() => {
+        const col = columns.find((c) => c.kind === 'field' && c.field === headerMenu.field);
+        const sample = col ? documents.map((d) => columnValue(d, col)).find((v) => v !== undefined) : undefined;
+        return (
+          <ContextMenu
+            menu={{
+              x: headerMenu.x,
+              y: headerMenu.y,
+              returnFocusTo: headerMenu.returnFocusTo,
+              items: headerMenuItems({
+                fieldPath: headerMenu.field,
+                sampleValue: sample,
+                hasSample: sample !== undefined,
+                isReadOnly: meta.isReadOnly,
+                filterBarValid,
+                onAddToFilter: handleAddToFilter,
+                onSort: onSortField ? (dir) => sortColumn(headerMenu.field, dir) : undefined,
+                onHide: () => hideColumn(headerMenu.field),
+              }),
+            }}
+            onClose={closeHeaderMenu}
+          />
+        );
+      })()}
 
       {/* Field-level context menu — from inside an expanded row's
           DocFieldTree panel (Copy value / Copy field path / Add to filter —
