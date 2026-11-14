@@ -12,6 +12,8 @@ import { useShellSyntaxField } from './useShellSyntaxField';
 import { classifyInsertPayload, type InsertPayloadClassification } from '../../utils/insertPayload';
 import { ScriptEditor } from '../../components/ScriptEditor';
 import { copyToClipboard } from '../../utils/clipboard';
+import { formatDocsForCopy } from '../../utils/copyFormat';
+import { useCopyFormat } from './views/useCopyFormat';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
@@ -1005,11 +1007,12 @@ export function DocumentEditor(props: DocumentEditorProps) {
     }
   };
 
-  // The default copy format is the readable one (W06 §8.6).
+  // The format the user last chose for copying documents (W06 §8.6).
+  const [copyFormat] = useCopyFormat();
   const copyMine = () => {
     // The JSON view's text may still be Shell Syntax: commit it, then print the draft.
     const mine = view === 'json' ? committedDraft() : draft;
-    if (mine) void copyToClipboard(ejsonStringifyReadable(mine, 2), 'Copied your version');
+    if (mine) void copyToClipboard(formatDocsForCopy([mine], copyFormat), 'Copied your version');
   };
 
   const goTo = async (delta: -1 | 1) => {

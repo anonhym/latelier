@@ -5,6 +5,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { DocumentEditor } from '../../src/pages/Workspace/DocumentEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { resetCopyFormatStore } from '../../src/pages/Workspace/views/useCopyFormat';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { IpcApi } from '@shared/ipc';
 import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
@@ -52,6 +53,7 @@ vi.mock('../../src/components/ScriptEditor', () => ({
 }));
 
 afterEach(() => {
+  resetCopyFormatStore();
   uninstallAtelierMock();
   invalidateSampleSchemaCache();
   vi.restoreAllMocks();
@@ -684,6 +686,29 @@ describe('DocumentEditor — conflicts', () => {
       const copied = JSON.parse((writeText.mock.calls[0] as unknown as [string])[0]) as Record<string, unknown>;
       expect(copied.name).toBe('gadget');
       expect(copied._id).toEqual({ $oid: OID });
+      vi.unstubAllGlobals();
+      act(() => notifications.clean());
+    });
+
+    it.each([
+      ['canonical', (t: string) => expect((JSON.parse(t) as { qty: unknown }).qty).toEqual({ $numberInt: '5' })],
+      ['mongosh', (t: string) => expect(t).toContain(`_id: ObjectId("${OID}")`)],
+    ])('Copy my version honours the %s copy format preference', async (format, check) => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+      setup({
+        updateOne: conflicted(),
+        findOne: gone(),
+        prefs: { get: (async (key: string) => (key === 'ui.workspace.copyFormat' ? format : null)) as IpcApi['prefs']['get'] },
+      });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      const copy = await within(editor()).findByRole('button', { name: 'Copy my version' });
+      // The stored choice arrives asynchronously.
+      await settle();
+      fireEvent.click(copy);
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      check((writeText.mock.calls[0] as unknown as [string])[0]);
       vi.unstubAllGlobals();
       act(() => notifications.clean());
     });
