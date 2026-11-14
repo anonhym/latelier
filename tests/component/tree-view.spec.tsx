@@ -59,6 +59,9 @@ function renderTree(documents: unknown[], opts: {
  * pins the deepPaths-reset perf fix; these add the basic rendering /
  * interaction surface (collapsed preview, expansion, deletion).
  */
+const previewKeys = (c: HTMLElement) =>
+  [...c.querySelectorAll('[data-testid="tree-preview-key"]')].map((k) => k.textContent);
+
 describe('TreeView — rendering and interaction', () => {
   it('renders one row per document and shows a collapsed-preview slice of fields', () => {
     const docs = [
@@ -96,8 +99,8 @@ describe('TreeView — rendering and interaction', () => {
     const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
     const { container } = renderTree(docs);
 
-    expect(container.textContent).toContain('aa:');
-    expect(container.textContent).not.toContain('ee:');
+    expect(previewKeys(container)).toContain('aa');
+    expect(previewKeys(container)).not.toContain('ee');
   });
 
   it('reordering fields in the Fields control changes which 4 fields the Tree previews', () => {
@@ -107,9 +110,9 @@ describe('TreeView — rendering and interaction', () => {
     });
 
     // Reordered to the front — now inside the first-4 preview slice.
-    expect(container.textContent).toContain('ee:');
+    expect(previewKeys(container)).toContain('ee');
     // Pushed to 5th by the reorder — falls out of the slice.
-    expect(container.textContent).not.toContain('aa:');
+    expect(previewKeys(container)).not.toContain('aa');
   });
 
   it('hiding every field shows an empty collapsed preview, not the hidden fields', () => {
@@ -213,6 +216,22 @@ describe('TreeView — rendering and interaction', () => {
     expect(row.style.minHeight).toBe('32px');
     const previewBox = getByText('"alpha"').closest('div[style*="flex: 1"]') as HTMLElement;
     expect(previewBox.style.justifyContent).toBe('flex-start');
+  });
+
+  it('collapsed rows show their first fields as aligned key value pairs, without a colon', () => {
+    const docs = [
+      { _id: 1, name: 'alpha', city: 'Oslo' },
+      { _id: 2, name: 'a much longer name', city: 'Rome' },
+    ];
+    const { getAllByTestId, getAllByRole } = renderTree(docs);
+
+    const keys = getAllByTestId('tree-preview-key');
+    expect(keys.map((k) => k.textContent)).toEqual(['name', 'city', 'name', 'city']);
+    // Every key takes the same column, so a field starts at the same x on each row.
+    for (const k of keys) expect(k.style.flex).toBe('0 0 64px');
+    const pairs = keys.map((k) => k.parentElement as HTMLElement);
+    for (const p of pairs) expect(p.style.flex).toBe('0 0 190px');
+    expect(getAllByRole('treeitem')[0]!.textContent).not.toContain('name:');
   });
 
   // #20 — roving focus: the tree itself is the widget's only tab stop.
@@ -322,13 +341,12 @@ describe('TreeView — rendering and interaction', () => {
         'Select document …99439011',
         'Expand document',
         'Edit document …99439011',
-        'Delete document …99439011',
         'More actions for document …99439011',
       ]);
 
       fireEvent.keyDown(tree, { key: 'ArrowDown' });
       expect(tabStops().every((label) => label?.includes('99439012') || label === 'Expand document')).toBe(true);
-      expect(tabStops()).toHaveLength(5);
+      expect(tabStops()).toHaveLength(4);
     });
 
     // Mirrors the existing per-row guard test above, at the container level:
@@ -440,23 +458,24 @@ describe('TreeView — rendering and interaction', () => {
   // adds a "More actions" button for parity with Table's context menu
   // (Duplicate), opening the same shared menu content.
   describe('"More actions" per-row menu', () => {
-    it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+    it('opens a menu with Duplicate, and calls the workspace action on click', async () => {
       const openDuplicate = vi.fn();
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole } = renderTree(docs, { actions: { openDuplicate } });
 
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
-      const menu = getByRole('group', { name: 'Document actions' });
-      fireEvent.click(within(menu).getByText('Duplicate document'));
+      const menu = await screen.findByRole('menu');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate document' }));
 
       expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
     });
 
-    it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+    it('omits Duplicate when the workspace has no openDuplicate action wired', async () => {
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole, queryByText } = renderTree(docs);
 
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      await screen.findByRole('menu');
       expect(queryByText('Duplicate document')).toBeNull();
     });
 
@@ -469,7 +488,7 @@ describe('TreeView — rendering and interaction', () => {
       expect(onRowExpand).not.toHaveBeenCalled();
     });
 
-    it('closes the field-level menu when the doc menu opens, and vice versa', () => {
+    it('closes the field-level menu when the doc menu opens, and vice versa', async () => {
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole, queryByRole } = renderTree(docs, {
         expanded: { '507f1f77bcf86cd799439011': true },
@@ -483,19 +502,17 @@ describe('TreeView — rendering and interaction', () => {
         'field-row-507f1f77bcf86cd799439011::name',
       )!;
       fireEvent.contextMenu(nameFieldRow);
-      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy field path' })).toBeTruthy();
 
-      // Opening the doc-level "More actions" menu must close the field menu —
-      // both are dismissed only by useMenuFocus's window click listener, and
-      // this button stops propagation, so it never fires for the other menu.
+      // Opening the doc-level "More actions" menu must close the field menu.
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
-      expect(queryByRole('group', { name: 'Field actions' })).toBeNull();
-      expect(getByRole('group', { name: 'Document actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy document' })).toBeTruthy();
+      expect(queryByRole('menuitem', { name: 'Copy field path' })).toBeNull();
 
       // And the reverse: opening a field menu closes the doc menu.
       fireEvent.contextMenu(nameFieldRow);
-      expect(queryByRole('group', { name: 'Document actions' })).toBeNull();
-      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy field path' })).toBeTruthy();
+      expect(queryByRole('menuitem', { name: 'Copy document' })).toBeNull();
     });
   });
 });
@@ -514,7 +531,7 @@ describe('TreeView row actions', () => {
     expect(first!.style.opacity).toBe('0');
     // Still mounted: hiding them must not take the width away, or Tab's reach.
     expect(within(first!).getByRole('button', { name: /^Edit document/ })).toBeTruthy();
-    expect(within(first!).getByRole('button', { name: /^Delete document/ })).toBeTruthy();
+    expect(within(first!).queryByRole('button', { name: /^Delete document/ })).toBeNull();
     expect(within(first!).getByRole('button', { name: /^More actions/ })).toBeTruthy();
   });
 

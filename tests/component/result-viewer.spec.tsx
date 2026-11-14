@@ -295,9 +295,8 @@ describe('ResultViewer compound', () => {
         />
       </ResultViewer>,
     );
-    // JsonView pretty-prints with two-space indents — look for indented key
-    // and the EJSON-aware output (no $oid here because _id is a plain number).
-    expect(container.textContent).toContain('"name"');
+    // JsonView writes the document in shell form: an unquoted key, then its value.
+    expect(container.textContent).toMatch(/name:\s*"alpha"/);
     expect(container.textContent).toContain('alpha');
   });
 

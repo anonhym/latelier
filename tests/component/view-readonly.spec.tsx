@@ -87,10 +87,13 @@ describe.each([
     expect(actions.openEdit).toHaveBeenCalledTimes(1);
   });
 
-  it('on a collection: Edit, Delete and Duplicate stay', async () => {
+  it('on a collection: Edit stays on the row, Delete and Duplicate in the menu', async () => {
     withProvider(name, false, node);
     expect(screen.getByRole('button', { name: /^Edit document/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Delete document/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Delete document/ })).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: /^More actions for document/ })[0]);
+    expect(await screen.findByRole('menuitem', { name: 'Delete' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Edit document' })).toBeTruthy();
     expect(screen.queryByText('View document')).toBeNull();
   });
 });

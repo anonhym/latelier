@@ -319,6 +319,20 @@ describe('tabs:update — the filter draft, via router and SQLite', () => {
     expect((await update({ optionsExpanded: false })).ok).toBe(true);
     expect(storedState().optionsExpanded).toBe(false);
   });
+
+  it('persists the JSON display per tab, and refuses a value that is neither shell nor canonical', async () => {
+    expect('jsonDisplay' in storedState()).toBe(false);
+    expect((await update({ jsonDisplay: 'canonical' })).ok).toBe(true);
+    expect(storedState().jsonDisplay).toBe('canonical');
+
+    const env = await update({ jsonDisplay: 'relaxed' });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    expect(storedState().jsonDisplay).toBe('canonical');
+
+    expect((await update({ jsonDisplay: 'shell' })).ok).toBe(true);
+    expect(storedState().jsonDisplay).toBe('shell');
+  });
 });
 
 /**

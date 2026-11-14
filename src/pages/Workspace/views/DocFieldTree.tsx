@@ -6,7 +6,12 @@ import { DRAGGED_FIELD_MIME, type DraggedField } from '../builder';
 import type { ReferenceRule } from '@shared/types';
 import { ReferenceChip } from '../../../features/references/ReferenceChip';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { flattenVisibleFieldRows, type FlatFieldRow } from './docFieldFlatten';
+import {
+  expandablePathsBelow,
+  flattenVisibleFieldRows,
+  parentRowIndex,
+  type FlatFieldRow,
+} from './docFieldFlatten';
 import { isContextMenuKey, anchorFromRect } from '../../../utils/contextMenuKey';
 import { childKey, pathCoversSubtree, rootKey } from './fieldPathKey';
 import { TYPE_HUES, TYPE_THEMED } from '../typeColors';
@@ -60,17 +65,14 @@ export function TypeBadge({ type }: { type: DisplayType }) {
  * Split into two interfaces rather than one with optional fields: a
  * `FieldNode`'s own mouse-driven `onContextMenu` can't reach `DocFieldTree`'s
  * roving-focus container, so it can't supply `returnFocusTo` itself —
- * `DocFieldTree` injects that (and `focusMenuOnOpen`, keyboard-open only) in
- * the wrapper it hands down to `FieldNode` instead. See `useMenuFocus`'s
- * docstring for why `focusMenuOnOpen` has to stay keyboard-only even though
- * `returnFocusTo` is now set on both paths.
+ * `DocFieldTree` injects that in the wrapper it hands down to `FieldNode`
+ * instead. The shared `ContextMenu` traps focus on open itself.
  */
 export interface FieldMenuOpenPayload {
   anchor: { x: number; y: number };
   fieldPath: string;
   value: unknown;
   returnFocusTo: HTMLElement | null;
-  focusMenuOnOpen?: boolean;
 }
 
 interface FieldNodeProps {
@@ -83,11 +85,15 @@ interface FieldNodeProps {
   fieldPath: string;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  /** Expands or collapses a whole subtree at once (`⌥`-click on a chevron). */
+  onSetPaths?: (paths: string[], expanded: boolean) => void;
+  /** Opens the Document Editor on a field; the full-value popover's `Open in editor`. */
+  onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` (and, for
-  // its own keyboard path, `focusMenuOnOpen`) before this reaches the caller.
-  onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => void;
+  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` before
+  // this reaches the caller.
+  onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo'>) => void;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -125,6 +131,8 @@ function FieldNodeImpl({
   fieldPath,
   expandedPaths,
   onToggle,
+  onSetPaths,
+  onOpenInEditor,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -164,6 +172,11 @@ function FieldNodeImpl({
   }, [isExpanded, dv.type, value]);
 
   const rowClickable = isExpandable;
+
+  // `⌥`-click flips this field and everything below it together.
+  const toggleSubtree = () =>
+    onSetPaths?.([path, ...expandablePathsBelow(value, path)], !isExpanded);
+  const toggleFor = (altKey: boolean) => (altKey && onSetPaths ? toggleSubtree() : onToggle(path));
 
   // A doc field can legitimately hold JS `undefined` (BSON's deprecated
   // Undefined type round-trips to it via EJSON `{$undefined:true}`), and
@@ -208,9 +221,9 @@ function FieldNodeImpl({
         // Enter/Space handler dead code (a keydown can only ever target an
         // element that can hold real focus): deleted, in favour of the
         // tree-level handling in `DocFieldTree` below.
-        onClick={() => {
+        onClick={(e) => {
           onActivate(path);
-          if (rowClickable) onToggle(path);
+          if (rowClickable) toggleFor(e.altKey);
         }}
         id={rowId(path)}
         role="treeitem"
@@ -294,9 +307,10 @@ function FieldNodeImpl({
                   c={isCopied ? '#fff' : 'var(--atelier-text-ghost)'}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onToggle(path);
+                    toggleFor(e.altKey);
                   }}
                   aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                  title="⌥-click for every level below"
                   style={{
                     flexShrink: 0,
                     transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -342,13 +356,15 @@ function FieldNodeImpl({
                 <FullValuePopover
                   display={dv.display}
                   isString={dv.type === 'string'}
+                  fieldPath={fieldPath}
+                  typeLabel={dv.type}
+                  onOpenInEditor={onOpenInEditor && (() => onOpenInEditor(fieldPath))}
                   opened={fullValueOpen}
                   onChange={(opened) => onFullValueChange(path, opened)}
                   visible={hovered || focused || isActive || fullValueOpen}
                   ariaLabel="Expand field value"
                   // Tab must not walk every leaf of a wide document.
                   tabIndex={-1}
-                  focusOnOpen
                 />
               )}
               {rule && (
@@ -379,6 +395,8 @@ function FieldNodeImpl({
             fieldPath={`${fieldPath}.${k}`}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
+            onSetPaths={onSetPaths}
+            onOpenInEditor={onOpenInEditor}
             copiedPath={copiedPath}
             onCopy={onCopy}
             onOpenMenu={onOpenMenu}
@@ -406,6 +424,8 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
     prev.fieldPath !== next.fieldPath ||
     prev.depth !== next.depth ||
     prev.onToggle !== next.onToggle ||
+    prev.onSetPaths !== next.onSetPaths ||
+    prev.onOpenInEditor !== next.onOpenInEditor ||
     prev.onCopy !== next.onCopy ||
     prev.onOpenMenu !== next.onOpenMenu ||
     prev.refsByField !== next.refsByField ||
@@ -475,6 +495,10 @@ export interface DocFieldTreeProps {
   docId: string;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  /** Expands or collapses several paths at once — `⌥`-click, `⌥→`, `⌥←`. */
+  onSetPaths?: (paths: string[], expanded: boolean) => void;
+  /** Opens the Document Editor on a field (the full-value popover's `Open in editor`). */
+  onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
   // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
@@ -511,6 +535,8 @@ export function DocFieldTree({
   docId,
   expandedPaths,
   onToggle,
+  onSetPaths,
+  onOpenInEditor,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -558,11 +584,9 @@ export function DocFieldTree({
 
   // Injects `returnFocusTo` before handing a mouse-driven open up to the
   // caller — a `FieldNode`'s own `onContextMenu` can't reach `containerRef`
-  // itself. `focusMenuOnOpen` is left unset here, so this stays a no-op for
-  // the "no forced refocus on a mouse-opened menu" behaviour the caller's
-  // hand-rolled menus already have — only the keyboard branch below sets it.
+  // itself.
   const handleOpenMenu = React.useCallback(
-    (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => {
+    (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo'>) => {
       onOpenMenu({ ...payload, returnFocusTo: containerRef.current });
     },
     [onOpenMenu],
@@ -636,8 +660,33 @@ export function DocFieldTree({
           fieldPath: activeRow.fieldPath,
           value: activeRow.value,
           returnFocusTo: containerRef.current,
-          focusMenuOnOpen: true,
         });
+        return;
+      }
+      // Tree keys (W06 §8.8). → opens a collapsed field, then enters an
+      // expanded one; ← closes it, then climbs to the parent field, and from
+      // a top-level field to the document row. ⌥ does the whole subtree.
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        if (!activeRow) return;
+        e.preventDefault();
+        const rowIndex = roving.activeIndex;
+        const open = expandedPaths.has(activeRow.path);
+        const subtree = [activeRow.path, ...expandablePathsBelow(activeRow.value, activeRow.path)];
+        if (e.key === 'ArrowRight') {
+          if (!activeRow.expandable) return;
+          if (e.altKey) onSetPaths?.(subtree, true);
+          else if (!open) onToggle(activeRow.path);
+          else roving.setActiveIndex(rowIndex + 1);
+          return;
+        }
+        if (activeRow.expandable && open) {
+          if (e.altKey) onSetPaths?.(subtree, false);
+          else onToggle(activeRow.path);
+          return;
+        }
+        const parent = parentRowIndex(flatRows, rowIndex);
+        if (parent >= 0) roving.setActiveIndex(parent);
+        else containerRef.current?.parentElement?.closest<HTMLElement>('[role="tree"], [role="grid"]')?.focus();
         return;
       }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
@@ -653,7 +702,7 @@ export function DocFieldTree({
     // `roving` itself is a fresh object every render; depend on the one
     // function this actually calls instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, activeRow, onToggle, onOpenMenu, fullValuePath],
+    [roving.onKeyDown, roving.activeIndex, activeRow, flatRows, expandedPaths, onToggle, onSetPaths, onOpenMenu, fullValuePath],
   );
 
   return (
@@ -705,6 +754,8 @@ export function DocFieldTree({
           fieldPath={field}
           expandedPaths={expandedPaths}
           onToggle={onToggle}
+          onSetPaths={onSetPaths}
+          onOpenInEditor={onOpenInEditor}
           copiedPath={copiedPath}
           onCopy={onCopy}
           onOpenMenu={handleOpenMenu}

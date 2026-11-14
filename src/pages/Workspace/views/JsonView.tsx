@@ -7,19 +7,21 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { I } from '../../../icons';
-import { ejsonStringifyReadable } from '../../../utils/ejson';
+import { ejsonStringify } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
-import { COPY_ACTION_LABELS, formatDocsForCopy } from '../../../utils/copyFormat';
+import { COPY_ACTION_LABELS, formatDocsForCopy, toMongoshLiteral } from '../../../utils/copyFormat';
 import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useCollectionWorkspace } from '../context';
 import { useResultSelection } from '../resultSelection';
 import { getDocId } from './docId';
 import { SelectToggle } from './SelectToggle';
-import { DocActionsPopup } from './RowActionsMenu';
+import { ContextMenu } from '../../../components/ContextMenu';
+import { docMenuItems } from './menuItems';
 import { useDocMenu } from './useDocMenu';
+import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
 import { copyShortcutOf } from './copyShortcut';
 
@@ -51,6 +53,7 @@ function tokenColor(kind: TokenKind): string {
     case 'number':  return 'var(--atelier-color-number)';
     case 'boolean': return 'var(--atelier-color-boolean)';
     case 'null':    return 'var(--atelier-text-ghost)';
+    case 'ctor':    return 'var(--atelier-color-number)';
     case 'punct':   return 'var(--atelier-text-muted)';
     default:        return 'var(--atelier-text)';
   }
@@ -185,6 +188,7 @@ export function HighlightedJson({
   collapsedKeys,
   onToggle,
   tabIndex = 0,
+  shell = false,
 }: {
   json: string;
   docKey: string;
@@ -192,8 +196,10 @@ export function HighlightedJson({
   onToggle: (key: string) => void;
   /** `-1` takes the collapse toggles out of the Tab order (a JSON card that is not the roving row). */
   tabIndex?: number;
+  /** The text is shell form (`ObjectId("…")`, unquoted keys), not JSON. */
+  shell?: boolean;
 }) {
-  const tree = React.useMemo(() => buildJsonTree(tokenizeJson(json)), [json]);
+  const tree = React.useMemo(() => buildJsonTree(tokenizeJson(json, { shell })), [json, shell]);
 
   return (
     <pre
@@ -238,13 +244,11 @@ interface DocCardProps {
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
-  onDelete: (doc: unknown) => void;
-  // Opens the shared `RowActionsMenu` (Duplicate — Edit/Delete already have
-  // their own always-visible buttons on this card).
+  // Opens the document's menu (Duplicate, Delete, …) from the `⋯` button.
   onOpenRowMenu: (
     doc: unknown,
     anchor: { x: number; y: number },
-    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    focus?: { returnFocusTo?: HTMLElement | null },
   ) => void;
 }
 
@@ -263,21 +267,29 @@ function DocCard({
   onToggle,
   onCopy,
   onEdit,
-  onDelete,
   onOpenRowMenu,
 }: DocCardProps) {
-  const isView = !!useCollectionWorkspace().meta.isView;
+  const { state, meta } = useCollectionWorkspace();
+  const isView = !!meta.isView;
+  const canonical = state.jsonDisplay === 'canonical';
   const buttonTabIndex = isTabStop ? undefined : -1;
   const [copyFormat] = useCopyFormat();
   const copyLabel = COPY_ACTION_LABELS[copyFormat];
   const json = React.useMemo(() => {
     const visible = redactHidden(doc, hiddenFields);
     try {
-      return ejsonStringifyReadable(visible, 2);
+      return canonical ? ejsonStringify(visible, 2) : toMongoshLiteral(visible);
     } catch {
       return JSON.stringify(visible, null, 2);
     }
-  }, [doc, hiddenFields]);
+  }, [doc, hiddenFields, canonical]);
+
+  // The card's actions show on hover, on focus within it and on the active
+  // card (W06 §8.11), and stay for a selected one. Hidden by opacity alone, so
+  // their space stays reserved and Tab still reaches them.
+  const [hovered, setHovered] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
+  const actionsVisible = hovered || focusWithin || isActive || isSelected;
 
   // A plain click makes this the active card, so the next Arrow key moves
   // on from it. It does not touch selection — toggling on a plain click
@@ -314,8 +326,14 @@ function DocCard({
       role="treeitem"
       tabIndex={-1}
       onFocus={(e) => {
+        setFocusWithin(true);
         if (e.target === e.currentTarget) e.currentTarget.closest<HTMLElement>('[role="tree"]')?.focus();
       }}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setFocusWithin(false);
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       aria-label={`Document ${idx + 1}`}
       style={{
         border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
@@ -328,7 +346,17 @@ function DocCard({
         outlineOffset: isActive ? '-2px' : undefined,
       }}
     >
-      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 'var(--atelier-gap-xs)' }}>
+      <div
+        data-testid="json-card-actions"
+        style={{
+          position: 'absolute',
+          top: 6,
+          right: 6,
+          display: 'flex',
+          gap: 'var(--atelier-gap-xs)',
+          opacity: actionsVisible ? 1 : 0,
+        }}
+      >
         <SelectToggle
           selected={isSelected}
           docLabel={getDocId(doc)}
@@ -350,7 +378,7 @@ function DocCard({
             {isCopied ? I.check : I.copy}
           </ActionIcon>
         </Tooltip>
-        <Tooltip label={isView ? 'View document' : 'Edit'} withArrow openDelay={400}>
+        <Tooltip label={isView ? 'View document' : 'Edit document'} withArrow openDelay={400}>
           <ActionIcon
             variant="default"
             size="sm"
@@ -365,23 +393,6 @@ function DocCard({
             {I.edit}
           </ActionIcon>
         </Tooltip>
-        {!isView && (
-          <Tooltip label="Delete" withArrow openDelay={400}>
-            <ActionIcon
-              variant="default"
-              size="sm"
-              c="var(--atelier-red)"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(doc);
-              }}
-              tabIndex={buttonTabIndex}
-              aria-label={`Delete document ${getDocId(doc)}`}
-            >
-              {I.trash}
-            </ActionIcon>
-          </Tooltip>
-        )}
         <Tooltip label="More actions" withArrow openDelay={400}>
           <ActionIcon
             variant="default"
@@ -392,7 +403,6 @@ function DocCard({
               const viaKeyboard = e.detail === 0;
               onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
                 returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-                focusMenuOnOpen: viaKeyboard,
               });
             }}
             tabIndex={buttonTabIndex}
@@ -408,6 +418,7 @@ function DocCard({
         collapsedKeys={collapsedKeys}
         onToggle={onToggleCollapse}
         tabIndex={buttonTabIndex ?? 0}
+        shell={!canonical}
       />
     </div>
   );
@@ -431,7 +442,6 @@ interface JsonRowProps {
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
-  onDelete: (doc: unknown) => void;
   onOpenRowMenu: DocCardProps['onOpenRowMenu'];
 }
 
@@ -451,7 +461,6 @@ function JsonRow({
   onToggle,
   onCopy,
   onEdit,
-  onDelete,
   onOpenRowMenu,
 }: RowComponentProps<JsonRowProps>) {
   const doc = documents[index];
@@ -472,7 +481,6 @@ function JsonRow({
         onToggle={onToggle}
         onCopy={onCopy}
         onEdit={onEdit}
-        onDelete={onDelete}
         onOpenRowMenu={onOpenRowMenu}
       />
     </div>
@@ -531,9 +539,8 @@ export function JsonView({ documents }: JsonViewProps) {
     });
   }, [copyFormat]);
 
-  // "More actions" per-card menu — Duplicate only, since Edit/Delete already
-  // have their own always-visible buttons on the card.
-  const { docMenu, docMenuRef, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
+  // "More actions" per-card menu: the card's Duplicate and Delete path.
+  const { docMenu, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
 
   // Cards are variable-height (driven by the doc's serialized size). The
   // estimate is intentionally generous; useDynamicRowHeight refines on render.
@@ -543,6 +550,7 @@ export function JsonView({ documents }: JsonViewProps) {
   // scroll has to happen in the same handler that moves the index, so the
   // row `aria-activedescendant` names is mounted.
   const listRef = useListRef(null);
+  const scrollMemory = useScrollMemory('JSON');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'json-row-',
@@ -570,10 +578,7 @@ export function JsonView({ documents }: JsonViewProps) {
         const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
         if (!anchor) return;
         if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
-        handleOpenRowMenu(doc, anchor, {
-          returnFocusTo: listRef.current?.element ?? null,
-          focusMenuOnOpen: true,
-        });
+        handleOpenRowMenu(doc, anchor, { returnFocusTo: listRef.current?.element ?? null });
         return;
       }
       if (isEditKey(e)) {
@@ -616,7 +621,6 @@ export function JsonView({ documents }: JsonViewProps) {
       onToggle: toggleSelect,
       onCopy: copyDoc,
       onEdit: onEditDoc,
-      onDelete: onDeleteDoc,
       onOpenRowMenu: handleOpenRowMenu,
     }),
     [
@@ -633,7 +637,6 @@ export function JsonView({ documents }: JsonViewProps) {
       toggleSelect,
       copyDoc,
       onEditDoc,
-      onDeleteDoc,
       handleOpenRowMenu,
     ],
   );
@@ -657,6 +660,7 @@ export function JsonView({ documents }: JsonViewProps) {
         role="tree"
         aria-label="Documents"
         listRef={listRef}
+        {...scrollMemory}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
         onFocus={roving.containerProps.onFocus}
@@ -676,14 +680,21 @@ export function JsonView({ documents }: JsonViewProps) {
         }}
       />
       {docMenu && (
-        <DocActionsPopup
-          menu={docMenu}
-          menuRef={docMenuRef}
-          onEdit={onEditDoc}
-          onDuplicate={onDuplicateDoc}
-          onDelete={onDeleteDoc}
-          isReadOnly={meta.isReadOnly}
-          isView={meta.isView}
+        <ContextMenu
+          menu={{
+            x: docMenu.x,
+            y: docMenu.y,
+            returnFocusTo: docMenu.returnFocusTo,
+            items: docMenuItems({
+              doc: docMenu.doc,
+              copyFormat,
+              onEdit: onEditDoc,
+              onDuplicate: onDuplicateDoc,
+              onDelete: onDeleteDoc,
+              isReadOnly: meta.isReadOnly,
+              isView: meta.isView,
+            }),
+          }}
           onClose={closeDocMenu}
         />
       )}

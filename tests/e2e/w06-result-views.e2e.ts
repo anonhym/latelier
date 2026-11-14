@@ -116,3 +116,34 @@ test('result views: JSON active card moves with ArrowDown; Enter on a Tree leaf 
     });
   });
 });
+
+test('result views: one Alt-click on a document opens a six-level deep document to its deepest field', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Views Deep' },
+        {
+          dbName: 'shop',
+          collection: 'orders',
+          docs: [{ l1: { l2: { l3: { l4: { l5: { l6: 'deepest-token' } } } } } }],
+        },
+      );
+      await expectStatusDot(win, 'Views Deep', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await ws.queryBarRunButton.click();
+      await expect(ws.viewTreeButton).toBeVisible({ timeout: 8000 });
+
+      // A plain click opens the document one level; Alt-click opens every level below it.
+      await win.getByTitle('Click to expand · ⌘/Ctrl+click to select').first().click({ modifiers: ['Alt'] });
+      await expect(win.getByText('"deepest-token"')).toBeVisible();
+    });
+  });
+});

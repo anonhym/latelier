@@ -21,5 +21,16 @@ export function useDeepPaths(documents: unknown[]) {
       return next;
     });
   }, []);
-  return { deepPaths, toggleDeepPath };
+  // ⌥-expand, ⌥← and Expand/Collapse all change a whole subtree at once.
+  const setPathsExpanded = React.useCallback((paths: readonly string[], expanded: boolean) => {
+    setDeepPaths((prev) => {
+      const next = new Set(prev);
+      for (const p of paths) {
+        if (expanded) next.add(p);
+        else next.delete(p);
+      }
+      return next;
+    });
+  }, []);
+  return { deepPaths, toggleDeepPath, setDeepPathsExpanded: setPathsExpanded };
 }

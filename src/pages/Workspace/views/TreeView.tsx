@@ -7,8 +7,8 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { useMenuFocus } from '../../../hooks/useMenuFocus';
-import { anchorFromRect, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
+import { ContextMenu } from '../../../components/ContextMenu';
+import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import type { ReferenceRule } from '@shared/types';
@@ -20,12 +20,14 @@ import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload }
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
 import { SelectToggle } from './SelectToggle';
-import { DocActionsPopup } from './RowActionsMenu';
 import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
 import { useCopyFormat } from './useCopyFormat';
 import { useDocMenu } from './useDocMenu';
-import { FieldActionsMenu } from './FieldActionsMenu';
+import { useScrollMemory } from './useScrollMemory';
+import { docMenuItems, fieldMenuItems } from './menuItems';
+import { allExpandablePaths } from './docFieldFlatten';
+import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useDeepPaths } from './useDeepPaths';
@@ -62,6 +64,8 @@ function getPreviewFields(
 const STICKY_HEADER_HEIGHT = 22;
 
 const PREVIEW_VALUE_MAX_CHARS = 25;
+const PREVIEW_KEY_WIDTH = 64;
+const PREVIEW_PAIR_WIDTH = 190;
 
 function truncatePreviewValue(s: string): string {
   return s.length > PREVIEW_VALUE_MAX_CHARS
@@ -88,7 +92,7 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
         flex: 1,
         display: 'flex',
         alignItems: 'center',
-        // Beside the id (W06 §2: `[shortId] [key: value …]`); `flex: 1` keeps the
+        // Beside the id (W06 §2: `[shortId] [key value …]`); `flex: 1` keeps the
         // row actions pinned right.
         justifyContent: 'flex-start',
         gap: 'var(--atelier-gap-sm)',
@@ -114,10 +118,24 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
               color: 'var(--atelier-text-muted)',
               minWidth: 0,
               overflow: 'hidden',
-              flexShrink: 0,
+              // A fixed pair width, with the key in a fixed column of its own, so the
+              // same field sits at the same x on every row (W06 §8.12).
+              flex: `0 0 ${PREVIEW_PAIR_WIDTH}px`,
             }}
           >
-            <span style={{ color: 'var(--atelier-text-ghost)', flexShrink: 0 }}>{field}:</span>
+            <span
+              data-testid="tree-preview-key"
+              style={{
+                color: 'var(--atelier-text-ghost)',
+                flex: `0 0 ${PREVIEW_KEY_WIDTH}px`,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={field}
+            >
+              {field}
+            </span>
             <span
               style={{
                 color: 'var(--atelier-text)',
@@ -161,18 +179,16 @@ interface DocRowProps {
   refsByField?: Map<string, ReferenceRule>;
   onRowExpand: (docId: string, expanded: boolean) => void;
   onEditDoc: (doc: unknown) => void;
-  onDeleteDoc: (doc: unknown) => void;
-  // Opens the shared `RowActionsMenu` (Duplicate — Edit/Delete already have
-  // their own visible buttons on this row) anchored to the "More actions"
-  // button.
+  // Opens the document's menu anchored to the "More actions" button.
   onOpenRowMenu: (
     doc: unknown,
     anchor: { x: number; y: number },
-    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    focus?: { returnFocusTo?: HTMLElement | null },
   ) => void;
   onSelect: (doc: unknown) => void;
   onToggleSelect: (index: number) => void;
   toggleDeepPath: (path: string) => void;
+  setDeepPaths: (paths: string[], expanded: boolean) => void;
   handleCopy: (path: string, value: unknown) => void;
   handleOpenMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
@@ -201,11 +217,11 @@ function DocRowImpl({
   refsByField,
   onRowExpand,
   onEditDoc,
-  onDeleteDoc,
   onOpenRowMenu,
   onSelect,
   onToggleSelect,
   toggleDeepPath,
+  setDeepPaths,
   handleCopy,
   handleOpenMenu,
   onRefHover,
@@ -214,7 +230,8 @@ function DocRowImpl({
   rowId,
   setActiveIndex,
 }: RowComponentProps<DocRowProps>) {
-  const isView = !!useCollectionWorkspace().meta.isView;
+  const { meta, actions: { openEdit } } = useCollectionWorkspace();
+  const isView = !!meta.isView;
   const doc = documents[index];
   const docId = getFullDocId(doc);
   const shortId = getDocId(doc);
@@ -235,8 +252,13 @@ function DocRowImpl({
       onToggleSelect(index);
       onSelect(doc);
     } else {
-      onRowExpand(docId, !isExpanded);
+      toggleDoc(e.altKey);
     }
+  };
+  // `⌥` flips the document and every nested field below it together.
+  const toggleDoc = (subtree: boolean) => {
+    if (subtree && isRecord(doc)) setDeepPaths(allExpandablePaths(doc, docId), !isExpanded);
+    onRowExpand(docId, !isExpanded);
   };
 
   return (
@@ -272,6 +294,14 @@ function DocRowImpl({
           just clicked. */}
       <div
         onClick={handleRowClick}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onOpenRowMenu(
+            doc,
+            { x: e.clientX, y: e.clientY },
+            { returnFocusTo: e.currentTarget.closest<HTMLElement>('[role="tree"]') },
+          );
+        }}
         onMouseEnter={() => setRowHovered(true)}
         onMouseLeave={() => setRowHovered(false)}
         id={rowId(index)}
@@ -313,7 +343,7 @@ function DocRowImpl({
           c="var(--atelier-text-ghost)"
           onClick={(e) => {
             e.stopPropagation();
-            onRowExpand(docId, !isExpanded);
+            toggleDoc(e.altKey);
           }}
           aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
           title={`${isExpanded ? 'Collapse document' : 'Expand document'} (Space)`}
@@ -354,23 +384,6 @@ function DocRowImpl({
               {I.edit}
             </ActionIcon>
           </Tooltip>
-          {!isView && (
-            <Tooltip label="Delete document" withArrow openDelay={400}>
-              <ActionIcon
-                variant="default"
-                size={24}
-                tabIndex={buttonTabIndex}
-                c="var(--atelier-red)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteDoc(doc);
-                }}
-                aria-label={`Delete document ${shortId}`}
-              >
-                {I.trash}
-              </ActionIcon>
-            </Tooltip>
-          )}
           <Tooltip label="More actions" withArrow openDelay={400}>
             <ActionIcon
               variant="default"
@@ -382,7 +395,6 @@ function DocRowImpl({
                 const viaKeyboard = e.detail === 0;
                 onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
                   returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-                  focusMenuOnOpen: viaKeyboard,
                 });
               }}
               aria-label={`More actions for document ${shortId}`}
@@ -408,6 +420,8 @@ function DocRowImpl({
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
+          onSetPaths={setDeepPaths}
+          onOpenInEditor={(fieldPath) => openEdit(doc, fieldPath)}
           copiedPath={copiedPath}
           onCopy={handleCopy}
           onOpenMenu={handleOpenMenu}
@@ -471,7 +485,7 @@ export function TreeView({
   const onDuplicateDoc = actions.openDuplicate;
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
-  const { deepPaths, toggleDeepPath } = useDeepPaths(documents);
+  const { deepPaths, toggleDeepPath, setDeepPathsExpanded } = useDeepPaths(documents);
   const { copied: copiedPath, flash } = useCopiedFlash<string>();
   const [contextMenu, setContextMenu] = React.useState<{
     x: number;
@@ -479,12 +493,9 @@ export function TreeView({
     fieldPath: string;
     value: unknown;
     // #68/#69 — `DocFieldTree` sets `returnFocusTo` on both the mouse and
-    // keyboard open paths, `focusMenuOnOpen` only on the keyboard one. See
-    // `useMenuFocus`'s docstring.
+    // keyboard open paths.
     returnFocusTo?: HTMLElement | null;
-    focusMenuOnOpen?: boolean;
   } | null>(null);
-  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
   // Memoized so `?? {}` doesn't allocate a fresh object every render, which
   // would cascade into the rowProps useMemo below.
   const expandedRows = React.useMemo(
@@ -502,15 +513,29 @@ export function TreeView({
   // field-level `contextMenu` above: this one is doc-level (opened from the
   // row strip, not from inside an expanded field). Declared here, ahead of
   // handleOpenMenu below, so both open handlers can close the other menu.
-  const { docMenu, docMenuRef, openDocMenu, closeDocMenu } = useDocMenu();
+  const { docMenu, openDocMenu, closeDocMenu } = useDocMenu();
   const [copyFormat] = useCopyFormat();
 
+  // Expand all / Collapse all in the document's menu: the row and every
+  // nested field below it.
+  const setDocSubtree = React.useCallback(
+    (doc: unknown, expanded: boolean) => {
+      if (!isRecord(doc)) return;
+      const id = getFullDocId(doc);
+      onRowExpand(id, expanded);
+      setDeepPathsExpanded(allExpandablePaths(doc, id), expanded);
+    },
+    [onRowExpand, setDeepPathsExpanded],
+  );
+  const handleExpandAll = React.useCallback((doc: unknown) => setDocSubtree(doc, true), [setDocSubtree]);
+  const handleCollapseAll = React.useCallback((doc: unknown) => setDocSubtree(doc, false), [setDocSubtree]);
+
   const handleOpenMenu = React.useCallback(
-    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+    ({ anchor, fieldPath, value, returnFocusTo }: FieldMenuOpenPayload) => {
       // Symmetric with handleOpenRowMenu below: only one of the field-level
       // and doc-level menus should ever be open at once.
       closeDocMenu();
-      setContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
+      setContextMenu({ ...anchor, fieldPath, value, returnFocusTo });
     },
     [closeDocMenu],
   );
@@ -522,18 +547,11 @@ export function TreeView({
   // Shared with TableView; confirms whenever the Filter drawer is open.
   const handleAddToFilter = useAddToFilter({ state, actions });
 
-  // #68 — this menu previously had no Escape path at all, only
-  // click-outside; a keyboard-opened menu with no keyboard way out would
-  // fail #68's own acceptance. `useMenuFocus` owns dismiss and focus both.
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
-  useMenuFocus(fieldMenuRef, contextMenu, closeContextMenu);
 
   const handleOpenRowMenu = React.useCallback(
     (...args: Parameters<typeof openDocMenu>) => {
-      // The field-level context menu and this doc-level one both only close
-      // via useMenuFocus's window click listener, but this button already
-      // stops propagation — so opening one while the other is open would
-      // otherwise leave both on screen at once.
+      // Only one of the field-level and doc-level menus is ever open.
       setContextMenu(null);
       openDocMenu(...args);
     },
@@ -550,6 +568,7 @@ export function TreeView({
   // identical wiring (and `useRovingFocus`'s docstring) for why the scroll
   // has to happen synchronously with the index change.
   const listRef = useListRef(null);
+  const scrollMemory = useScrollMemory('Tree');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'tree-row-',
@@ -572,6 +591,20 @@ export function TreeView({
         void copyDocument(documents[roving.activeIndex], copyFormat);
         return;
       }
+      if (isContextMenuKey(e)) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        // The active row may have been scrolled out and unmounted: anchor to
+        // the list instead and bring the row back.
+        const rowEl = document.getElementById(roving.rowId(roving.activeIndex));
+        const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
+        if (!anchor) return;
+        if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
+        handleOpenRowMenu(documents[roving.activeIndex], anchor, {
+          returnFocusTo: listRef.current?.element ?? null,
+        });
+        return;
+      }
       if (isEditKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
@@ -583,6 +616,26 @@ export function TreeView({
         if (documents.length === 0 || !canDelete) return;
         e.preventDefault();
         onDeleteDoc(documents[roving.activeIndex]);
+        return;
+      }
+      // → opens the active document and then enters its fields; ← closes it.
+      // ⌥ does the document and every field below it (W06 §8.8).
+      if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        const doc = documents[roving.activeIndex];
+        const docId = getFullDocId(doc);
+        const open = !!ownGet(expandedRows, docId);
+        const paths = isRecord(doc) ? allExpandablePaths(doc, docId) : [];
+        if (e.key === 'ArrowLeft') {
+          if (!open) return;
+          if (e.altKey) setDeepPathsExpanded(paths, false);
+          onRowExpand(docId, false);
+          return;
+        }
+        if (e.altKey) setDeepPathsExpanded(paths, true);
+        if (!open) onRowExpand(docId, true);
+        else enterFields(roving.rowId(roving.activeIndex));
         return;
       }
       // ⌘/Ctrl+Enter is Run (PanelBody's handler), never this row's action.
@@ -597,7 +650,7 @@ export function TreeView({
     // `roving` is a fresh object every render — depend on the members this
     // actually reads instead (same as `TableView`'s `handleGridKeyDown`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, documents, expandedRows, onRowExpand, onEditDoc, onDeleteDoc, canDelete, copyFormat],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, expandedRows, onRowExpand, setDeepPathsExpanded, onEditDoc, onDeleteDoc, canDelete, copyFormat, handleOpenRowMenu, listRef],
   );
 
   // Memoize so react-window receives a stable rowProps reference. A fresh
@@ -616,11 +669,11 @@ export function TreeView({
       refsByField,
       onRowExpand,
       onEditDoc,
-      onDeleteDoc,
       onOpenRowMenu: handleOpenRowMenu,
       onSelect,
       onToggleSelect: selection.toggle,
       toggleDeepPath,
+      setDeepPaths: setDeepPathsExpanded,
       handleCopy,
       handleOpenMenu,
       onRefHover,
@@ -642,10 +695,10 @@ export function TreeView({
       refsByField,
       onRowExpand,
       onEditDoc,
-      onDeleteDoc,
       handleOpenRowMenu,
       onSelect,
       toggleDeepPath,
+      setDeepPathsExpanded,
       handleCopy,
       handleOpenMenu,
       onRefHover,
@@ -726,6 +779,7 @@ export function TreeView({
           aria-label="Documents"
           // #20 — the tree is the widget's only tab stop; see `roving` above.
           listRef={listRef}
+          {...scrollMemory}
           tabIndex={roving.containerProps.tabIndex}
           aria-activedescendant={roving.containerProps['aria-activedescendant']}
           onFocus={roving.containerProps.onFocus}
@@ -778,43 +832,41 @@ export function TreeView({
         )}
       </div>
       {contextMenu && (
-        <div
-          ref={fieldMenuRef}
-          role="group"
-          aria-label="Field actions"
-          style={{
-            position: 'fixed',
-            top: contextMenu.y,
-            left: contextMenu.x,
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border-med)',
-            borderRadius: 'var(--atelier-radius-sm)',
-            boxShadow: 'var(--atelier-shadow)',
-            zIndex: 1000,
-            minWidth: 160,
-            padding: '4px 0',
+        <ContextMenu
+          menu={{
+            x: contextMenu.x,
+            y: contextMenu.y,
+            returnFocusTo: contextMenu.returnFocusTo,
+            items: fieldMenuItems({
+              fieldPath: contextMenu.fieldPath,
+              value: contextMenu.value,
+              hasValue: contextMenu.value !== undefined,
+              isReadOnly: meta.isReadOnly,
+              filterBarValid,
+              onAddToFilter: handleAddToFilter,
+            }),
           }}
-        >
-          <FieldActionsMenu
-            fieldPath={contextMenu.fieldPath}
-            value={contextMenu.value}
-            hasValue={contextMenu.value !== undefined}
-            isReadOnly={meta.isReadOnly}
-            filterBarValid={filterBarValid}
-            onAddToFilter={handleAddToFilter}
-            onClose={closeContextMenu}
-          />
-        </div>
+          onClose={closeContextMenu}
+        />
       )}
       {docMenu && (
-        <DocActionsPopup
-          menu={docMenu}
-          menuRef={docMenuRef}
-          onEdit={onEditDoc}
-          onDuplicate={onDuplicateDoc}
-          onDelete={onDeleteDoc}
-          isReadOnly={meta.isReadOnly}
-          isView={meta.isView}
+        <ContextMenu
+          menu={{
+            x: docMenu.x,
+            y: docMenu.y,
+            returnFocusTo: docMenu.returnFocusTo,
+            items: docMenuItems({
+              doc: docMenu.doc,
+              copyFormat,
+              onEdit: onEditDoc,
+              onDuplicate: onDuplicateDoc,
+              onDelete: onDeleteDoc,
+              onExpandAll: handleExpandAll,
+              onCollapseAll: handleCollapseAll,
+              isReadOnly: meta.isReadOnly,
+              isView: meta.isView,
+            }),
+          }}
           onClose={closeDocMenu}
         />
       )}

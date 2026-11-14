@@ -15,6 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { startCompletion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
 import type { ScriptTab as ScriptTabModel, ScriptTabState } from '@shared/types';
+import { recallScroll } from '../../src/pages/Workspace/views/scrollMemory';
 import { ScriptTab } from '../../src/pages/Workspace/ScriptTab';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
@@ -347,8 +348,8 @@ describe('ScriptTab', () => {
         onPatch={() => {}}
       />,
     );
-    // JsonView pretty-prints the doc inside a card
-    expect(container.textContent).toContain('"label"');
+    // JsonView writes the doc inside a card, in shell form
+    expect(container.textContent).toMatch(/label:\s*"singleton"/);
     expect(container.textContent).toContain('singleton');
   });
 });
@@ -701,5 +702,34 @@ describe('ScriptTab destructive-script confirmation (W12 §8.4)', () => {
     fireEvent.click(screen.getByTestId('script-run-btn'));
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('ScriptTab result scroll memory', () => {
+  it('keys the remembered scroll by the script tab, not a shared id', () => {
+    installAtelierMock();
+    const arrayJson = JSON.stringify([{ _id: 1, name: 'alpha' }]);
+    render(
+      <ScriptTab
+        tab={tab({
+          id: 'script-mem-a',
+          state: {
+            title: 'List',
+            source: 'x',
+            maxTimeMs: 60_000,
+            resultPanelHeight: 320,
+            resultView: 'Tree',
+            lastResult: { valueJson: arrayJson, printBuffer: '', durationMs: 1 },
+          },
+        })}
+        onPatch={() => {}}
+      />,
+    );
+    const list = screen.getByRole('tree', { name: 'Documents' });
+    Object.defineProperty(list, 'scrollTop', { value: 77, configurable: true });
+    fireEvent.scroll(list);
+
+    expect(recallScroll('script-mem-a', 'Tree')).toBe(77);
+    expect(recallScroll('script-result', 'Tree')).toBe(0);
   });
 });

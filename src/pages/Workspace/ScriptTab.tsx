@@ -353,6 +353,7 @@ function ScriptTabInner({ tab, defaultDb, connectionName, onPatch }: ScriptTabPr
         }}
       >
         <ScriptResultPanel
+          tabId={tab.id}
           running={running}
           lastResult={state.lastResult}
           lastError={state.lastError}
@@ -368,6 +369,7 @@ function ScriptTabInner({ tab, defaultDb, connectionName, onPatch }: ScriptTabPr
 }
 
 interface ScriptResultPanelProps {
+  tabId: string;
   running: boolean;
   lastResult?: ScriptRunResultWire;
   lastError?: { code: string; message: string };
@@ -379,6 +381,7 @@ interface ScriptResultPanelProps {
 }
 
 function ScriptResultPanel({
+  tabId,
   onRun,
   running,
   lastResult,
@@ -487,6 +490,7 @@ function ScriptResultPanel({
       {lastResult.valueJson !== null && (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <ResultValueView
+            tabId={tabId}
             value={value}
             resultView={resultView}
             resultColumns={resultColumns}
@@ -527,6 +531,7 @@ function ScriptResultPanel({
 }
 
 interface ResultValueViewProps {
+  tabId: string;
   value: unknown;
   resultView: ResultViewMode;
   resultColumns?: Record<string, { width: number }>;
@@ -541,6 +546,7 @@ interface ResultValueViewProps {
  *   - Anything else (scalar, null, undefined) → small inline pre.
  */
 function ResultValueView({
+  tabId,
   value,
   resultView,
   resultColumns,
@@ -558,6 +564,7 @@ function ResultValueView({
   if (Array.isArray(value)) {
     return (
       <ArrayResultView
+        tabId={tabId}
         documents={value}
         resultView={resultView}
         resultColumns={resultColumns}
@@ -572,7 +579,7 @@ function ResultValueView({
     // get the same EJSON-aware highlighting they see for collection docs.
     return (
       <div style={{ flex: 1, minHeight: 0 }}>
-        <ScriptResultProvider documents={singleDocArray} view="JSON">
+        <ScriptResultProvider tabId={tabId} documents={singleDocArray} view="JSON">
           <ResultViewer>
             <ResultViewer.Json />
           </ResultViewer>
@@ -600,6 +607,7 @@ function ResultValueView({
 }
 
 interface ArrayResultViewProps {
+  tabId: string;
   documents: unknown[];
   resultView: ResultViewMode;
   resultColumns?: Record<string, { width: number }>;
@@ -608,6 +616,7 @@ interface ArrayResultViewProps {
 }
 
 function ArrayResultView({
+  tabId,
   documents,
   resultView,
   resultColumns,
@@ -703,6 +712,7 @@ function ArrayResultView({
             synthetic provider. No bespoke TreeView/JsonView/TableView
             wrapping needed. */}
         <ScriptResultProvider
+          tabId={tabId}
           documents={documents}
           view={effectiveView}
           columns={resultColumns}
@@ -742,11 +752,11 @@ const SCRIPT_RESULT_ACTIONS: CollectionWorkspaceActions = Object.freeze({
   openSave: noop,
 }) as CollectionWorkspaceActions;
 
-const SCRIPT_RESULT_META: CollectionWorkspaceMeta = Object.freeze({
+const scriptResultMeta = (tabId: string): CollectionWorkspaceMeta => ({
   connectionId: '',
   dbName: '',
   collection: '',
-  tabId: 'script-result',
+  tabId,
   isLoading: false,
   isReadOnly: true,
 });
@@ -762,8 +772,10 @@ function ScriptResultProvider({
   view,
   columns,
   expandedRows,
+  tabId,
   children,
 }: {
+  tabId: string;
   documents: unknown[];
   view: ResultViewMode;
   columns?: Record<string, { width: number }>;
@@ -788,11 +800,12 @@ function ScriptResultProvider({
     }),
     [view, columns, expandedRows, documents],
   );
+  const meta = React.useMemo(() => scriptResultMeta(tabId), [tabId]);
   return (
     <CollectionWorkspaceProvider
       state={state}
       actions={SCRIPT_RESULT_ACTIONS}
-      meta={SCRIPT_RESULT_META}
+      meta={meta}
     >
       {children}
     </CollectionWorkspaceProvider>

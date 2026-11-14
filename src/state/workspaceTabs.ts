@@ -18,6 +18,7 @@ import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
 import { keepsPreview, nextScriptTitle } from '../pages/Workspace/tabActions';
+import { forgetScroll } from '../pages/Workspace/views/scrollMemory';
 import { closedTabOf, pushClosed, liveClosed, withoutClosed, type ClosedTab } from './closedTabs';
 
 /**
@@ -407,6 +408,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const noteClosed = useCallback(
     (closing: WorkspaceTab) => {
+      forgetScroll(closing.id);
       const entry = closedTabOf(closing);
       setClosedList(pushClosed(closedList.current, entry));
       return entry;
@@ -498,7 +500,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         if (!proceed) return;
       }
       await Promise.all(
-        matches.map((t) => api.tabs.close(t.id).catch((err) => logFailure('closing a tab', err))),
+        matches.map((t) => api.tabs.close(t.id).then(() => forgetScroll(t.id)).catch((err) => logFailure('closing a tab', err))),
       );
       await refresh();
     },

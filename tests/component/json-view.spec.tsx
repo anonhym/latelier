@@ -74,37 +74,39 @@ describe('JsonView — rendering', () => {
     expect(container.textContent).toContain('name');
   });
 
-  it('serializes BSON-typed values using canonical EJSON sentinels', () => {
-    const docs = [
-      {
-        _id: { $oid: '507f1f77bcf86cd799439011' },
-        createdAt: { $date: { $numberLong: '1735689600000' } },
-      },
-    ];
-    const { container } = renderJson(docs);
-    // EJSON canonical output must surface the type tags as text.
-    expect(container.textContent).toContain('$oid');
-    expect(container.textContent).toContain('$date');
+  const BSON_DOC = {
+    _id: { $oid: '507f1f77bcf86cd799439011' },
+    createdAt: { $date: { $numberLong: '1735689600000' } },
+    qty: { $numberInt: '7' },
+    big: { $numberLong: '9007199254740993' },
+  };
+
+  it('writes a document in shell form by default: constructors, unquoted keys, plain numbers', () => {
+    const { container } = renderJson([BSON_DOC]);
+    const text = container.textContent ?? '';
+    expect(text).toContain('ObjectId("507f1f77bcf86cd799439011")');
+    expect(text).toContain('ISODate("2025-01-01T00:00:00.000Z")');
+    expect(text).toContain('NumberLong("9007199254740993")');
+    expect(text).toMatch(/qty:\s*7\b/);
+    expect(text).not.toContain('$oid');
+    expect(text).not.toContain('$numberInt');
   });
 
-  it('renders lossless relaxations readably: ISO date and plain int, Long stays wrapped', () => {
-    const docs = [
-      {
-        _id: { $oid: '507f1f77bcf86cd799439011' },
-        createdAt: { $date: { $numberLong: '1735689600000' } },
-        qty: { $numberInt: '7' },
-        big: { $numberLong: '9007199254740993' },
-      },
-    ];
-    const { container } = renderJson(docs);
+  it('writes Canonical EJSON when the tab asks for it', () => {
+    const { container } = renderJson([BSON_DOC], { state: { jsonDisplay: 'canonical' } });
     const text = container.textContent ?? '';
-    expect(text).toContain('2025-01-01T00:00:00.000Z');
-    expect(text).not.toContain('1735689600000');
-    expect(text).toMatch(/"qty":\s*7\b/);
-    expect(text).not.toContain('$numberInt');
-    expect(text).toContain('$numberLong');
-    expect(text).toContain('9007199254740993');
     expect(text).toContain('$oid');
+    expect(text).toContain('$date');
+    expect(text).toContain('$numberInt');
+    expect(text).not.toContain('ObjectId(');
+  });
+
+  it('colours shell keys and constructor names, not just JSON', () => {
+    const { container } = renderJson([{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }]);
+    const spans = [...container.querySelectorAll<HTMLElement>('pre span')];
+    const colourOf = (text: string) => spans.find((el) => el.textContent === text)?.style.color;
+    expect(colourOf('name')).toBe('var(--atelier-accent-ink)');
+    expect(colourOf('ObjectId')).toBe('var(--atelier-color-number)');
   });
 
   it('Copy writes the same readable text it displays', async () => {
@@ -249,7 +251,7 @@ describe('JsonView — click selection semantics (N4.1)', () => {
 // Edit/Delete already had their own visible per-card buttons here; this adds
 // a "More actions" button for parity with Table's context menu (Duplicate).
 describe('JsonView — "More actions" per-card menu', () => {
-  it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+  it('opens a menu with Duplicate, and calls the workspace action on click', async () => {
     const openDuplicate = vi.fn();
     const docs = [{ _id: 1, name: 'alpha' }];
     const { getByRole } = renderJson(docs, {
@@ -257,17 +259,18 @@ describe('JsonView — "More actions" per-card menu', () => {
     });
 
     fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
-    const menu = getByRole('group', { name: 'Document actions' });
-    fireEvent.click(within(menu).getByText('Duplicate document'));
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate document' }));
 
     expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
   });
 
-  it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+  it('omits Duplicate when the workspace has no openDuplicate action wired', async () => {
     const docs = [{ _id: 1, name: 'alpha' }];
     const { getByRole, queryByText } = renderJson(docs);
 
     fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
+    await screen.findByRole('menu');
     expect(queryByText('Duplicate document')).toBeNull();
   });
 
@@ -277,5 +280,65 @@ describe('JsonView — "More actions" per-card menu', () => {
 
     fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
     expect(getByRole('button', { name: 'Select document 1' })).toBeTruthy();
+  });
+});
+
+
+// W06 §8.11 — the corner actions are not drawn on every card at once. jsdom
+// fires no hover, so the events are dispatched explicitly.
+describe('JsonView — card actions', () => {
+  const DOCS = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
+  const actionsOf = (n: number) => screen.getAllByTestId('json-card-actions')[n - 1]!;
+
+  it('are hidden at rest, with their space kept', () => {
+    renderJson(DOCS);
+    expect(actionsOf(1).style.opacity).toBe('0');
+    expect(within(actionsOf(1)).getByRole('button', { name: /^Edit document/ })).toBeTruthy();
+  });
+
+  it('show on hover and hide again', () => {
+    renderJson(DOCS);
+    const card = screen.getAllByRole('treeitem')[0]!;
+
+    fireEvent.mouseEnter(card);
+    expect(actionsOf(1).style.opacity).toBe('1');
+    expect(actionsOf(2).style.opacity).toBe('0');
+    fireEvent.mouseLeave(card);
+    expect(actionsOf(1).style.opacity).toBe('0');
+  });
+
+  it('show while focus is inside the card, and hide when focus leaves it', () => {
+    renderJson(DOCS);
+    const edit = within(actionsOf(2)).getByRole('button', { name: /^Edit document/ });
+
+    fireEvent.focus(edit);
+    expect(actionsOf(2).style.opacity).toBe('1');
+    expect(actionsOf(1).style.opacity).toBe('0');
+    fireEvent.blur(edit, { relatedTarget: document.body });
+    expect(actionsOf(2).style.opacity).toBe('0');
+  });
+
+  it('stay when focus moves between two controls of the same card', () => {
+    renderJson(DOCS);
+    const edit = within(actionsOf(1)).getByRole('button', { name: /^Edit document/ });
+    const more = within(actionsOf(1)).getByRole('button', { name: /^More actions/ });
+
+    fireEvent.focus(edit);
+    fireEvent.blur(edit, { relatedTarget: more });
+
+    expect(actionsOf(1).style.opacity).toBe('1');
+  });
+
+  it('show on the active card and on a selected one', async () => {
+    renderJson(DOCS);
+    const tree = screen.getByRole('tree');
+
+    await userEvent.click(screen.getAllByRole('treeitem')[1]!);
+    expect(document.activeElement).toBe(tree);
+    expect(actionsOf(2).style.opacity).toBe('1');
+
+    fireEvent.click(within(actionsOf(1)).getByRole('button', { name: /^Select document/ }));
+    fireEvent.blur(tree);
+    expect(actionsOf(1).style.opacity).toBe('1');
   });
 });
