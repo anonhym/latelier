@@ -21,7 +21,7 @@ export class NewConnectionPage {
 
   // The always-visible `Connection string` field above the tabs. It applies on
   // paste, blur and Enter; there is no Apply button.
-  get uriInput() { return this.win.getByLabel('Connection string', { exact: true }); }
+  get uriInput() { return this.win.getByTestId('connection-form-uri'); }
 
   /** Types a URI into the Connection string field and applies it with Enter. */
   async applyUri(uri: string) {

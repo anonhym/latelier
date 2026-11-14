@@ -24,7 +24,7 @@ test('delete connection: confirm dialog removes item from list', async () => {
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
 
       await seedConnection(win, { ...baseConnInput(host, port), name: 'To Delete' });
       await seedConnection(win, { ...baseConnInput(host, port), name: 'To Keep' });

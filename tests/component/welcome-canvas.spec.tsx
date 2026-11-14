@@ -210,6 +210,8 @@ describe('Welcome canvas (C03 §13.1)', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Could not reach the server. Check host, port, and firewall.');
+    // The field stays focused through the attempt, so the URI can be fixed at once.
+    expect(document.activeElement).toBe(await field());
     expect(create).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
 

@@ -25,7 +25,7 @@ test('edit connection: rename and save reflects in the list', async () => {
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
 
       const { name } = await seedConnection(win, {
         ...baseConnInput(host, port),

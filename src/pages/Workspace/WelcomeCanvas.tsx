@@ -106,6 +106,7 @@ export function WelcomeCanvas({ onSaved, onEnterManually, onImport }: WelcomeCan
 
   return (
     <div
+      data-testid="welcome-canvas"
       style={{
         flex: 1,
         display: 'flex',
@@ -140,7 +141,8 @@ export function WelcomeCanvas({ onSaved, onEnterManually, onImport }: WelcomeCan
             autoComplete="off"
             spellCheck={false}
             autoFocus
-            disabled={busy}
+            readOnly={busy}
+            aria-busy={busy}
             style={{
               flex: 1,
               minWidth: 0,

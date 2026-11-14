@@ -28,7 +28,7 @@ export class ConnectionSwitcherPage {
   get manageButton() { return this.win.getByRole('button', { name: 'Manage all' }); }
   // With no saved Connection the Data View is the welcome canvas (C03 §13.1):
   // no title-bar Switcher, so its `Connection string` field is the anchor.
-  get welcomeField() { return this.win.getByRole('textbox', { name: 'Connection string', exact: true }); }
+  get welcomeField() { return this.win.getByTestId('welcome-canvas').getByRole('textbox', { name: 'Connection string', exact: true }); }
   // The search field renders role="combobox" (Mantine's Popover.Target
   // wrapper adds aria-haspopup="listbox"), not "textbox".
   get searchInput() { return this.win.getByRole('combobox', { name: 'Search connections' }); }
@@ -98,12 +98,15 @@ export class ConnectionSwitcherPage {
     // cost on a loaded CI runner, which can exceed 5s. Resolves as soon as the
     // popover is open, so warm runs are unaffected.
     //
-    // With no saved Connection there is no popover to open: the welcome canvas
-    // is on screen instead, and that is the signal. Once a Connection is
-    // saved, call this again to open the popover.
-    await expect(this.trigger.or(this.welcomeField)).toBeVisible({ timeout: 10_000 });
-    if (await this.welcomeField.isVisible()) return;
+    // Needs a saved Connection: with none the welcome canvas is shown and
+    // there is no title-bar trigger, so zero-connection starts use `waitWelcome`.
+    await expect(this.trigger).toBeVisible({ timeout: 10_000 });
     await this.ensureOpen();
+  }
+
+  /** Zero-connection start: the welcome canvas is the boot anchor. */
+  async waitWelcome() {
+    await expect(this.welcomeField).toBeVisible({ timeout: 10_000 });
   }
 
   /**

@@ -22,7 +22,7 @@ test('uri paste: Apply fills hostname and port from the URI', async () => {
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
       await switcher.openNew();
 
       const form = new NewConnectionPage(win);

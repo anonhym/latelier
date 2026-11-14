@@ -94,7 +94,7 @@ test('quit + relaunch: every tab returns, only the Focused Tab Connection connec
       const win = await app.firstWindow();
       await win.waitForLoadState('domcontentloaded');
       const ws = new WorkspacePage(win);
-      await ws.switcher.waitVisible();
+      await ws.switcher.waitWelcome();
       await win.keyboard.press('Escape');
       ids = await seedThreeConnectionsWithTabs(win, host, port);
     });
@@ -172,7 +172,7 @@ test('clicking a Dormant tab after relaunch connects its Connection and fills th
       const win = await app.firstWindow();
       await win.waitForLoadState('domcontentloaded');
       const ws = new WorkspacePage(win);
-      await ws.switcher.waitVisible();
+      await ws.switcher.waitWelcome();
       await win.keyboard.press('Escape');
       ids = await seedThreeConnectionsWithTabs(win, host, port);
       // A document in gamma's collection, seeded before relaunch, so clicking

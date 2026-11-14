@@ -30,7 +30,7 @@ test('scaffolding boots, seeds a connection, and reflects it in the list', async
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
       // Zero connections: the welcome canvas is the boot anchor.
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
       await expect(switcher.welcomeField).toBeVisible();
 
       const seeded = await seedConnection(win, {

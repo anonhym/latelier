@@ -23,7 +23,7 @@ test('error recovery: invalid URI shows alert; valid URI clears it', async () =>
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
       await switcher.openNew();
 
       const form = new NewConnectionPage(win);

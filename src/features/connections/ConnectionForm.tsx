@@ -355,6 +355,7 @@ function ConnectionStringField({ value, edited, error, onChange, onApply }: {
       <Label htmlFor={id}>Connection string</Label>
       <input
         id={id}
+        data-testid="connection-form-uri"
         type="text"
         // A URI can carry a password: no history, no spell-check service.
         autoComplete="off"

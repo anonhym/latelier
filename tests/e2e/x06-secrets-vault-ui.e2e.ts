@@ -91,7 +91,7 @@ test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
       await switcher.openNew();
 
       const form = new NewConnectionPage(win);

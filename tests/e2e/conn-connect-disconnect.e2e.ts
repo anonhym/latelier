@@ -25,7 +25,7 @@ test('connect: status dot flips to connected, disconnect flips back', async () =
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
 
       // reviewed: this used to seed a decoy Connection first to avoid
       // racing a `connections[0]` "most recently created" fallback. That was

@@ -116,7 +116,7 @@ test('wrong password: Edit credentials… opens Authentication, a fixed password
     // The connect is rejected: the failure row offers the fix first.
     const failure = win.getByTestId('nav-connection-error');
     await expect(failure).toBeVisible({ timeout: 15_000 });
-    await failure.getByRole('button', { name: 'Edit credentials…' }).click();
+    await failure.getByRole('button', { name: 'Edit credentials for Auth Target' }).click();
 
     // The form opens on Authentication, not General.
     const form = new NewConnectionPage(win);

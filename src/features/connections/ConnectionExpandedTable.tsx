@@ -33,7 +33,7 @@ const CHECK_COLUMN_WIDTH = 32;
 
 export interface ConnectionExpandedTableProps {
   connections: ConnectionSummary[];
-  /** The Switcher's search text at the moment `⌘E` / "Manage connections" was pressed. */
+  /** The Switcher's search text at the moment `⌘E` / "Manage all" was pressed. */
   initialQuery: string;
   /**
    * The Switcher trigger that opened this table — the TitleBar's compact

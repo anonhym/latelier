@@ -24,7 +24,7 @@ test('connection list: shows all connections, filters by name, and selects', asy
 
     await expectConsoleClean(win, async () => {
       const switcher = new WorkspacePage(win).switcher;
-      await switcher.waitVisible();
+      await switcher.waitWelcome();
 
       // Seed three connections via IPC so the UI focus-refresh fires for each.
       await seedConnection(win, { ...baseConnInput(host, port), name: 'Alpha' });
