@@ -61,6 +61,20 @@ describe('WorkspaceStateService', () => {
     expect(svc.list().length).toBe(2);
   });
 
+  it('openCollection seeds initialState into the new tab and persists it', () => {
+    const tab = svc.openCollection({
+      connectionId: 'conn',
+      dbName: 'd',
+      collection: 'c',
+      reuseExisting: false,
+      initialState: { queryRaw: '{ "a": 1 }', pageSize: 100 },
+    });
+    expect(tab.state.queryRaw).toBe('{ "a": 1 }');
+    const stored = svc.list().find((t) => t.id === tab.id);
+    expect(stored?.kind === 'collection' && stored.state.queryRaw).toBe('{ "a": 1 }');
+    expect(stored?.kind === 'collection' && stored.state.pageSize).toBe(100);
+  });
+
   it('is_active is exclusive', () => {
     const a = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'a' });
     const b = svc.openCollection({ connectionId: 'conn', dbName: 'd', collection: 'b' });

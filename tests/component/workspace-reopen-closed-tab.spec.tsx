@@ -3,8 +3,9 @@ import { notifications } from '@mantine/notifications';
 import { renderHook, act, waitFor, screen, fireEvent } from '../helpers/render';
 import { useWorkspaceTabs } from '../../src/state/workspaceTabs';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 import type { IpcApi } from '@shared/ipc';
-import type { ScriptTab, WorkspaceTab } from '@shared/types';
+import type { CollectionTab, ScriptTab, WorkspaceTab } from '@shared/types';
 
 const now = '2026-04-21T12:00:00.000Z';
 
@@ -31,7 +32,10 @@ afterEach(() => {
 });
 
 /** A tab store that behaves like main: list, close and openScript share one array. */
-function installStore(initial: WorkspaceTab[]) {
+function installStore(
+  initial: WorkspaceTab[],
+  extra?: (rows: () => WorkspaceTab[]) => Partial<IpcApi['tabs']>,
+) {
   let rows = initial;
   let n = 100;
   const fail: { list: boolean; listGate: Promise<void> | null } = { list: false, listGate: null };
@@ -55,6 +59,7 @@ function installStore(initial: WorkspaceTab[]) {
         return { newActiveId: null };
       },
       openScript,
+      ...extra?.(() => rows),
     },
   });
   return { openScript, rows: () => rows, fail };
@@ -88,6 +93,46 @@ describe('useWorkspaceTabs — closed tabs (W01 §14.8)', () => {
     expect(seed.title).toBe('Script 1');
     expect(seed.lastResult).toBeUndefined();
     expect(result.current.closedCount).toBe(0);
+  });
+
+  it('reopens a closed collection tab with its saved state seeded at creation, not patched afterwards', async () => {
+    const saved = { queryRaw: '{ "status": "open" }', pageSize: 100 };
+    const coll: CollectionTab = {
+      id: 't1',
+      kind: 'collection',
+      connectionId: 'c1',
+      dbName: 'd',
+      collection: 'orders',
+      position: 0,
+      isActive: true,
+      openedAt: now,
+      pinned: false,
+      state: { ...DEFAULT_COLLECTION_TAB_STATE, ...saved },
+    };
+    const openCollection = vi.fn<IpcApi['tabs']['openCollection']>();
+    installStore([coll], (rows) => ({
+      openCollection: async (input) => {
+        void openCollection(input);
+        // Like main: the new row carries the seed, and the renderer never
+        // gets to render between the open and the end of the reopen.
+        const tab: CollectionTab = { ...coll, id: 't2', state: { ...coll.state, ...input.initialState } };
+        rows().push(tab);
+        return tab;
+      },
+    }));
+    const { result } = await mountHook();
+    await act(() => result.current.close('t1'));
+
+    await act(async () => {
+      await result.current.reopenClosed(live);
+    });
+    expect(openCollection).toHaveBeenCalledTimes(1);
+    const call = openCollection.mock.calls[0]![0];
+    expect(call.reuseExisting).toBe(false);
+    expect(call.initialState).toMatchObject(saved);
+    await waitFor(() =>
+      expect(result.current.tabs.find((t) => t.id === 't2')?.kind === 'collection').toBe(true),
+    );
   });
 
   it('reopens newest first and says false when nothing is left', async () => {
