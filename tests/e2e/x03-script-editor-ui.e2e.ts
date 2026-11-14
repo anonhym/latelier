@@ -55,3 +55,58 @@ test('script editor ui: type 1 + 2, run, result panel shows 3', async () => {
     });
   });
 });
+
+/**
+ * W12 §8: a script that looks destructive is confirmed before it runs, and a
+ * closed script tab comes back with its source (W01 §14.8).
+ */
+test('script editor ui: deleteMany({}) is confirmed before it runs; a closed script tab reopens with its source', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnection(win, {
+        ...baseConnInput(host, port),
+        name: 'Guard Target',
+      });
+      await expectStatusDot(win, 'Guard Target', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openNewScript();
+
+      // The output panel is there from the first render, before any run.
+      await expect(win.getByText(/Output appears here/)).toBeVisible({ timeout: 5000 });
+
+      const cmContent = win.locator('[data-testid="script-editor"] .cm-content');
+      await cmContent.click();
+      const source = 'db.getCollection("orders").deleteMany({})';
+      await win.keyboard.type(source);
+
+      // Run: the confirmation names the Connection, and Cancel runs nothing.
+      await win.locator('[data-testid="script-run-btn"]').click();
+      const dialog = win.getByRole('dialog');
+      await expect(dialog).toContainText('deleteMany({}) on Guard Target');
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toBeHidden();
+      await expect(win.getByText(/Output appears here/)).toBeVisible();
+
+      // Run anyway runs it.
+      await win.locator('[data-testid="script-run-btn"]').click();
+      await win.getByRole('button', { name: 'Run anyway' }).click();
+      await expect(win.getByText(/Output appears here/)).toBeHidden({ timeout: 10000 });
+
+      // Close the tab, then reopen it: the source is still there.
+      await ws.closeTab('Script 1');
+      await expect(win.locator('[data-testid="script-editor"]')).toHaveCount(0);
+      await win.keyboard.press('ControlOrMeta+Shift+T');
+      await expect(win.locator('[data-testid="script-editor"] .cm-content')).toContainText(
+        'deleteMany({})',
+        { timeout: 5000 },
+      );
+    });
+  });
+});

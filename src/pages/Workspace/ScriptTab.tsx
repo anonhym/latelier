@@ -13,6 +13,8 @@ import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sou
 import { invalidateSchemaEnumCache } from '../../features/fieldSuggestions/sources/schemaEnumSource';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
+import { formatShortcut } from '../../commands/shortcutLabel';
+import { isMacRenderer } from '../../utils/platform';
 import { Button, Group, Select, TextInput, Tooltip } from '@mantine/core';
 import { ScriptEditor } from '../../components/ScriptEditor';
 import { PaneState } from '../../components/PaneState';
@@ -20,6 +22,9 @@ import { ejsonStringify } from '../../utils/ejson';
 import { isRecord } from '../../utils/displayValue';
 import { ownSet } from '../../utils/ownProperty';
 import { ResultViewer } from './ResultViewer';
+import { confirmDestructive } from '../../utils/confirm';
+import { CONFIRM_DESTRUCTIVE_PREF_KEY, scanDestructive } from './scriptDestructiveScan';
+import { useElementHeight } from '../../hooks/useElementHeight';
 import { useResizableSplit, MIN_RESULT_HEIGHT, MAX_RESULT_HEIGHT } from './useResizableSplit';
 import { CollectionWorkspaceProvider } from './CollectionWorkspaceProvider';
 import type {
@@ -34,18 +39,22 @@ const MAX_TIME_OPTIONS: ReadonlyArray<{ label: string; value: number }> = [
   { label: 'No limit', value: 24 * 60 * 60_000 },
 ];
 
-const COLLAPSED_RESULT_HEIGHT = 32;
-const DEFAULT_RESULT_HEIGHT = 240;
+/** W12 §8.1: the output panel opens at 30% of the tab's height. */
+const DEFAULT_RESULT_FRACTION = 0.3;
+/** Used until the tab has been laid out (and in jsdom, which lays nothing out). */
+const FALLBACK_RESULT_HEIGHT = 240;
 
 interface ScriptTabProps {
   tab: ScriptTabModel;
   /** The connection's default database: what a blank DB field runs on, so
    *  completions follow the run. */
   defaultDb?: string;
+  /** Names the Connection in the destructive-script confirmation. */
+  connectionName?: string;
   onPatch: (patch: Partial<ScriptTabState>) => void;
 }
 
-function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
+function ScriptTabInner({ tab, defaultDb, connectionName, onPatch }: ScriptTabProps) {
   const T = themeVars;
   const [running, setRunning] = React.useState(false);
   const [collections, setCollections] = React.useState<readonly string[]>([]);
@@ -58,15 +67,19 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
   // Mirrors main's resolveDbName for a run with a blank field; keep the
   // `'test'` fallback in sync with MongoPool.resolveDbName.
   const effectiveDb = state.dbName?.trim() || defaultDb || 'test';
-  const hasFirstRun = !!(state.lastResult || state.lastError);
-  const persistedHeight = state.resultPanelHeight ?? DEFAULT_RESULT_HEIGHT;
+  const [rootRef, rootHeight] = useElementHeight<HTMLDivElement>();
+  const defaultHeight =
+    rootHeight === null
+      ? FALLBACK_RESULT_HEIGHT
+      : Math.min(MAX_RESULT_HEIGHT, Math.max(MIN_RESULT_HEIGHT, Math.round(rootHeight * DEFAULT_RESULT_FRACTION)));
+  // A stored height wins over the default.
+  const persistedHeight = state.resultPanelHeight ?? defaultHeight;
   const { resultPanelHeight, onResizeStart, onKeyDown: onResizeKeyDown } = useResizableSplit({
     persistedHeight,
-    hasContent: hasFirstRun || running,
-    collapsedHeight: COLLAPSED_RESULT_HEIGHT,
+    hasContent: true,
+    collapsedHeight: persistedHeight,
     onCommit: (h) => onPatch({ resultPanelHeight: h }),
   });
-  const showResizeHandle = hasFirstRun || running;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -88,7 +101,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
     };
   }, [tab.connectionId, effectiveDb]);
 
-  const runScript = React.useCallback(async () => {
+  const execute = React.useCallback(async () => {
     if (runningRef.current) return;
     runningRef.current = true;
     const token = crypto.randomUUID();
@@ -120,6 +133,37 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
       setRunning(false);
     }
   }, [tab.connectionId, state.source, state.dbName, state.maxTimeMs, onPatch]);
+
+  // The scan is a courtesy (W12 §8.4): it only reads the source as text. It runs
+  // on every Run path — button, ⌘↵ in the editor, ⌘↵ anywhere in the tab and
+  // "Run again" — because they all come through here.
+  const confirmingRef = React.useRef(false);
+  const runScript = React.useCallback(async () => {
+    if (runningRef.current || confirmingRef.current) return;
+    confirmingRef.current = true;
+    try {
+      let enabled: boolean | null = null;
+      try {
+        enabled = await api.prefs.get<boolean>(CONFIRM_DESTRUCTIVE_PREF_KEY);
+      } catch (err) {
+        // An unreadable setting must not switch the guard off.
+        logFailure('read confirm-destructive setting', err);
+      }
+      const hits = enabled === false ? [] : scanDestructive(state.source);
+      if (hits.length > 0) {
+        const ok = await confirmDestructive({
+          title: 'Run this script?',
+          body: `This script calls ${hits.join(', ')} on ${connectionName ?? 'this Connection'}.`,
+          confirmLabel: 'Run anyway',
+          focusCancel: true,
+        });
+        if (!ok) return;
+      }
+    } finally {
+      confirmingRef.current = false;
+    }
+    await execute();
+  }, [state.source, connectionName, execute]);
 
   const cancelScript = React.useCallback(() => {
     const token = cancelTokenRef.current;
@@ -183,6 +227,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
     // nested-interactive ARIA, and a bare `tabIndex={0}` adds a tab stop that
     // does nothing.
     <div
+      ref={rootRef}
       onKeyDown={onTabKeyDown}
       style={{
         display: 'flex',
@@ -211,7 +256,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           style={{ flex: '0 1 200px' }}
           styles={{ input: { fontWeight: 500, fontSize: T.fsMd } }}
         />
-        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>db:</span>
+        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>Database</span>
         <TextInput
           value={state.dbName ?? ''}
           onChange={onDbNameChange}
@@ -219,7 +264,7 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
           size="xs"
           style={{ width: 140 }}
         />
-        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>timeout:</span>
+        <span style={{ fontSize: T.fsXs, color: T.textMuted }}>Timeout</span>
         <Select
           value={String(state.maxTimeMs ?? 60_000)}
           onChange={onMaxTimeChange}
@@ -264,26 +309,24 @@ function ScriptTabInner({ tab, defaultDb, onPatch }: ScriptTabProps) {
         />
       </div>
 
-      {/* Resize handle — only meaningful once there is something to show. */}
-      {showResizeHandle && (
-        <div
-          onMouseDown={onResizeStart}
-          onKeyDown={onResizeKeyDown}
-          tabIndex={0}
-          className="resize-separator"
-          style={{
-            height: 4,
-            cursor: 'ns-resize',
-            background: T.border,
-            flexShrink: 0,
-          }}
-          aria-label="Resize result panel"
-          aria-valuenow={resultPanelHeight}
-          aria-valuemin={MIN_RESULT_HEIGHT}
-          aria-valuemax={MAX_RESULT_HEIGHT}
-          role="separator"
-        />
-      )}
+      {/* Resize handle. */}
+      <div
+        onMouseDown={onResizeStart}
+        onKeyDown={onResizeKeyDown}
+        tabIndex={0}
+        className="resize-separator"
+        style={{
+          height: 4,
+          cursor: 'ns-resize',
+          background: T.border,
+          flexShrink: 0,
+        }}
+        aria-label="Resize result panel"
+        aria-valuenow={resultPanelHeight}
+        aria-valuemin={MIN_RESULT_HEIGHT}
+        aria-valuemax={MAX_RESULT_HEIGHT}
+        role="separator"
+      />
 
       {/* Result panel */}
       <div
@@ -375,7 +418,7 @@ function ScriptResultPanel({
     );
   }
 
-  // Before a first run the panel is a 32 px strip, too short for a pane state.
+  // Before a first run the panel only says how to start one.
   if (!lastResult) {
     return (
       <div
@@ -388,8 +431,7 @@ function ScriptResultPanel({
           height: '100%',
         }}
       >
-        No output yet. Press <kbd style={kbdStyle}>Cmd</kbd>+
-        <kbd style={kbdStyle}>Enter</kbd> to run.
+        Output appears here · {formatShortcut('⌘↵', isMacRenderer())} to run
       </div>
     );
   }
@@ -668,15 +710,6 @@ function ArrayResultView({
     </div>
   );
 }
-
-const kbdStyle: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: themeVars.fsXs,
-  padding: '1px 4px',
-  border: '1px solid currentColor',
-  borderRadius: 3,
-  margin: '0 2px',
-};
 
 function noop() {}
 

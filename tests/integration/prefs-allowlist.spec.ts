@@ -29,6 +29,7 @@ const ROUND_TRIPS: Array<[string, unknown]> = [
   ['ui.workspace.sidebarCollapsed', true],
   ['ui.workspace.builderCollapsed', false],
   ['ui.workspace.restoreTabs', false],
+  ['ui.scripts.confirmDestructive', false],
   ['ui.workspace.documentEditorSize', { width: 600, height: 400 }],
   ['ui.commandPalette.mru', ['tab.new', 'tab.open:shop:orders']],
   ['ui.connections.pinned', [UUID]],

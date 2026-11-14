@@ -446,6 +446,7 @@ export function PanelBody({
           <ScriptTab
             tab={activeScript}
             defaultDb={focusedConnection?.defaultDb}
+            connectionName={focusedConnection?.name}
             onPatch={patchActiveScript}
           />
         ) : collection ? (

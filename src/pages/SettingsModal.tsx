@@ -6,6 +6,7 @@ import { api, getErrorMessage } from '../api/atelier';
 import { invalidateRecentValuesCache } from '../features/fieldSuggestions/sources';
 import { notify } from '../theme/notifications';
 import { useDialogFocusReturn } from '../hooks/useDialogFocusReturn';
+import { CONFIRM_DESTRUCTIVE_PREF_KEY } from './Workspace/scriptDestructiveScan';
 import {
   applyEditorFontSize,
   EDITOR_FONT_SIZE_MAX,
@@ -24,6 +25,7 @@ import {
 import type { ResultViewMode } from '@shared/types';
 
 const RESTORE_TABS_KEY = 'ui.workspace.restoreTabs';
+const CONFIRM_DESTRUCTIVE_KEY = CONFIRM_DESTRUCTIVE_PREF_KEY;
 
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
   { value: 'light', label: 'Light' },
@@ -89,6 +91,32 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
       cancelled = true;
     };
   }, []);
+
+  // Unset means confirm, so the switch starts on (W12 §8.4).
+  const [confirmDestructive, setConfirmDestructive] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.prefs
+      .get<boolean>(CONFIRM_DESTRUCTIVE_KEY)
+      .then((v) => {
+        if (!cancelled) setConfirmDestructive(v !== false);
+      })
+      .catch((err) => notify.error(getErrorMessage(err, 'Failed to read the destructive script setting.')));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleConfirmDestructive = async (next: boolean) => {
+    setConfirmDestructive(next);
+    try {
+      await api.prefs.set(CONFIRM_DESTRUCTIVE_KEY, next);
+    } catch (err) {
+      setConfirmDestructive(!next);
+      notify.error(getErrorMessage(err, 'Failed to save the destructive script setting.'));
+    }
+  };
 
   // Null until main answers; the row stays hidden rather than guess.
   const [columnKeyProtected, setColumnKeyProtected] = React.useState<boolean | null>(null);
@@ -353,6 +381,24 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                 aria-describedby="restore-tabs-description"
                 checked={restoreTabs}
                 onChange={(e) => void handleRestoreTabs(e.currentTarget.checked)}
+              />
+            </Group>
+
+            <Group justify="space-between" align="flex-start" wrap="nowrap">
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
+                <Text size="sm" fw={600}>
+                  Confirm destructive scripts
+                </Text>
+                <Text id="confirm-destructive-description" size="xs" c="dimmed">
+                  Ask before a script runs that calls deleteMany with no filter, drop, or dropDatabase. A
+                  text check only: it cannot see a filter built at run time.
+                </Text>
+              </Stack>
+              <Switch
+                aria-label="Confirm destructive scripts"
+                aria-describedby="confirm-destructive-description"
+                checked={confirmDestructive}
+                onChange={(e) => void handleConfirmDestructive(e.currentTarget.checked)}
               />
             </Group>
           </Section>

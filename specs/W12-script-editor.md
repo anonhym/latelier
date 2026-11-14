@@ -1,6 +1,6 @@
 # W12 — Script editor tab
 
-> **Status: Accepted.** §1–§7 shipped. §8 (an output panel visible from the start, labelled header fields, numbered titles, and a confirmation before a script that looks destructive) is agreed and not built yet.
+> **Status: Implemented.** §1–§7 shipped. §8 (an output panel visible from the start, labelled header fields, numbered titles, and a confirmation before a script that looks destructive) is built. The output panel's default height is 30% of the tab as laid out when it opens and stays at that fraction until the user drags it; the scan reads the source as text only.
 
 ## Purpose
 
@@ -519,7 +519,7 @@ tracked as a follow-up in GitHub Issues.
 
 ## 8. Amendment — visible output, plain labels, a guard for the obvious accident
 
-> **Accepted, not built.** It adds to §4 and leaves the service, the channels and the security model (§2, §3, §5) unchanged.
+> It adds to §4 and leaves the service, the channels and the security model (§2, §3, §5) unchanged.
 
 ### 8.1 Output panel
 
