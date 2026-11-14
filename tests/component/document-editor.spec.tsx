@@ -54,6 +54,9 @@ vi.mock('../../src/components/ScriptEditor', () => ({
 
 afterEach(() => {
   resetCopyFormatStore();
+  // A failed assertion must not leave a stubbed clipboard or a toast for the next test.
+  vi.unstubAllGlobals();
+  act(() => notifications.clean());
   uninstallAtelierMock();
   invalidateSampleSchemaCache();
   vi.restoreAllMocks();
