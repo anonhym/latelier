@@ -54,8 +54,8 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
 
       // Build something worth protecting.
       await win.getByRole('button', { name: 'Add condition' }).click();
-      await win.getByPlaceholder('field').first().fill('status');
-      await win.getByPlaceholder('value').first().fill('paid');
+      await win.getByPlaceholder('field', { exact: true }).first().fill('status');
+      await win.getByPlaceholder('value', { exact: true }).first().fill('paid');
       const bar = win.getByTestId('query-bar-input');
       await expect(bar).toHaveValue('{"status":{"$eq":"paid"}}');
 
@@ -127,9 +127,10 @@ test('drawer feedback: the match count appears without pressing Run', async () =
       await ws.openCollectionFromNavigator('shop', 'orders');
       await expect(win.getByText('cherry-003')).toBeVisible({ timeout: 8000 });
 
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
-      await win.getByPlaceholder('field').first().fill('a');
-      await win.getByPlaceholder('value').first().fill('x');
+      await win.getByPlaceholder('field', { exact: true }).first().fill('a');
+      await win.getByPlaceholder('value', { exact: true }).first().fill('x');
 
       // No Run: the count comes from the committed filter alone.
       await expect(win.getByText('≈2 match')).toBeVisible({ timeout: 5000 });

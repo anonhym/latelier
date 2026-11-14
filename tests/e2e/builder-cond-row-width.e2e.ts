@@ -32,10 +32,10 @@ async function width(locator: Locator): Promise<number> {
  * is not one, so the row shows its value error, and measures the row.
  */
 async function fillAndMeasure(win: Page, index: number) {
-  await win.getByPlaceholder('field').nth(index).fill(`o${index}`);
+  await win.getByPlaceholder('field', { exact: true }).nth(index).fill(`o${index}`);
   await win.locator('input[aria-label="Value type"]').nth(index).click();
   await win.getByRole('option', { name: 'objectid', exact: true }).click();
-  const value = win.getByPlaceholder('value').nth(index);
+  const value = win.getByPlaceholder('value', { exact: true }).nth(index);
   await value.fill('zzz');
 
   const describedBy = await value.getAttribute('aria-describedby');
@@ -46,7 +46,7 @@ async function fillAndMeasure(win: Page, index: number) {
   const valueWidth = await width(value);
   expect(valueWidth).toBeGreaterThanOrEqual(MIN_VALUE_WIDTH);
   expect(await width(error)).toBeGreaterThanOrEqual(valueWidth);
-  expect(await width(win.getByPlaceholder('field').nth(index))).toBeGreaterThanOrEqual(MIN_FIELD_WIDTH);
+  expect(await width(win.getByPlaceholder('field', { exact: true }).nth(index))).toBeGreaterThanOrEqual(MIN_FIELD_WIDTH);
 }
 
 test('a condition row keeps its value box, error and field box usable at the default drawer width, nested or not', async () => {
@@ -66,6 +66,7 @@ test('a condition row keeps its value box, error and field box usable at the def
     await ws.openCollectionFromNavigator('shop', 'orders');
     await expect(win.getByText('doc-1')).toBeVisible({ timeout: 8000 });
 
+    await ws.openBuilder();
     await win.getByRole('button', { name: 'Add condition', exact: true }).click();
     await fillAndMeasure(win, 0);
 

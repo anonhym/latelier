@@ -141,7 +141,7 @@ export class WorkspacePage {
   get queryBarRunOptionsButton() { return this.win.locator('[data-testid="query-run-options-btn"]'); }
 
   /** The canvas header's `⋯` menu trigger — hosts bulk and data actions. */
-  get resultOverflowMenuButton() { return this.win.getByRole('button', { name: 'More actions' }); }
+  get resultOverflowMenuButton() { return this.win.getByRole('button', { name: 'More actions', exact: true }); }
 
   /** "Delete matching…" item inside the canvas header's `⋯` menu. */
   get deleteAllMatchingMenuItem() {

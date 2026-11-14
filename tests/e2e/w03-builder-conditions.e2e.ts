@@ -51,9 +51,10 @@ test('builder conditions: add field + value, run, assert filter applied', async 
       await expect(win.getByText('banana-002')).toBeVisible({ timeout: 8000 });
 
       // Add a condition row, then fill its field + value.
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
-      await win.getByPlaceholder('field').first().fill('status');
-      await win.getByPlaceholder('value').first().fill('paid');
+      await win.getByPlaceholder('field', { exact: true }).first().fill('status');
+      await win.getByPlaceholder('value', { exact: true }).first().fill('paid');
 
       // Run via the QueryBar button (BuilderPane state syncs through the same compiler).
       await ws.queryBarRunButton.click();

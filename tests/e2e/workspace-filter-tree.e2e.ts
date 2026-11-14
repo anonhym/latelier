@@ -56,11 +56,12 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       await expect(win.getByText('no-match-bc-only')).toBeVisible({ timeout: 8000 });
 
       // ─── Build (a AND (b OR c)) in the drawer ─────────────────────────
+      await ws.openBuilder();
 
       // Root group defaults to AND. Add its first condition: a = "x".
       await win.getByRole('button', { name: 'Add condition', exact: true }).click();
-      await win.getByPlaceholder('field').nth(0).fill('a');
-      await win.getByPlaceholder('value').nth(0).fill('x');
+      await win.getByPlaceholder('field', { exact: true }).nth(0).fill('a');
+      await win.getByPlaceholder('value', { exact: true }).nth(0).fill('x');
 
       // Add a nested group as the root's second child.
       await win.getByRole('button', { name: 'More ways to add', exact: true }).click();
@@ -75,12 +76,12 @@ test('filter tree editor: build a nested filter in the drawer, run it, then hand
       // the root's second child, and its add button says so.
       const nestedAddCondition = win.getByRole('button', { name: 'Add condition to group 2', exact: true });
       await nestedAddCondition.click();
-      await win.getByPlaceholder('field').nth(1).fill('b');
-      await win.getByPlaceholder('value').nth(1).fill('y');
+      await win.getByPlaceholder('field', { exact: true }).nth(1).fill('b');
+      await win.getByPlaceholder('value', { exact: true }).nth(1).fill('y');
 
       await nestedAddCondition.click();
-      await win.getByPlaceholder('field').nth(2).fill('c');
-      await win.getByPlaceholder('value').nth(2).fill('z');
+      await win.getByPlaceholder('field', { exact: true }).nth(2).fill('c');
+      await win.getByPlaceholder('value', { exact: true }).nth(2).fill('z');
 
       // The printed filter should now be {"$and":[{"a":...},{"$or":[...]}]}.
       await expect(ws.queryBarTextarea).toHaveValue(
@@ -157,13 +158,14 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
       await expect(win.getByText('doc-wy')).toBeVisible({ timeout: 8000 });
 
       // ─── a = x AND b = y: one row ─────────────────────────────────────
+      await ws.openBuilder();
       const addCondition = win.getByRole('button', { name: 'Add condition' }).first();
       await addCondition.click();
-      await win.getByPlaceholder('field').nth(0).fill('a');
-      await win.getByPlaceholder('value').nth(0).fill('x');
+      await win.getByPlaceholder('field', { exact: true }).nth(0).fill('a');
+      await win.getByPlaceholder('value', { exact: true }).nth(0).fill('x');
       await addCondition.click();
-      await win.getByPlaceholder('field').nth(1).fill('b');
-      await win.getByPlaceholder('value').nth(1).fill('y');
+      await win.getByPlaceholder('field', { exact: true }).nth(1).fill('b');
+      await win.getByPlaceholder('value', { exact: true }).nth(1).fill('y');
       await expect(ws.queryBarTextarea).toHaveValue('{"$and":[{"a":{"$eq":"x"}},{"b":{"$eq":"y"}}]}');
 
       await ws.queryBarRunButton.click();
@@ -185,11 +187,11 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
       // `shop` is already expanded, so the collection row is clicked directly.
       await ws.collectionRow('shop', 'users').click();
       await expect(ws.tabByName('users')).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
-      await expect(win.getByPlaceholder('field')).toHaveCount(0);
+      await expect(win.getByPlaceholder('field', { exact: true })).toHaveCount(0);
 
       await ws.tabByName('orders').click();
       await expect(ws.tabByName('orders')).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
-      await expect(win.getByPlaceholder('field').nth(1)).toHaveValue('b');
+      await expect(win.getByPlaceholder('field', { exact: true }).nth(1)).toHaveValue('b');
       await expect(includeB).not.toBeChecked();
 
       // ─── b back on, then NOT b: only a = x with b ≠ y ────────────────
@@ -242,10 +244,11 @@ test('filter tree editor: starters and chips build filters that run', async () =
       await expect(win.getByText('bob')).toBeVisible({ timeout: 8000 });
 
       // ─── Contains text (any case): name ~ (?i)ali ─────────────────────
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Contains text (any case)' }).click();
-      await expect(win.getByPlaceholder('field')).toBeFocused();
-      await win.getByPlaceholder('field').fill('name');
-      await win.getByPlaceholder('value').fill('(?i)ali');
+      await expect(win.getByPlaceholder('field', { exact: true })).toBeFocused();
+      await win.getByPlaceholder('field', { exact: true }).fill('name');
+      await win.getByPlaceholder('value', { exact: true }).fill('(?i)ali');
       await expect(ws.queryBarTextarea).toHaveValue('{"name":{"$regex":"(?i)ali"}}');
 
       await ws.queryBarRunButton.click();
@@ -261,7 +264,7 @@ test('filter tree editor: starters and chips build filters that run', async () =
 
       // ─── One of a list: tags in [a, c], entered as chips ─────────────
       await win.getByRole('button', { name: 'One of a list' }).click();
-      await win.getByPlaceholder('field').fill('tags');
+      await win.getByPlaceholder('field', { exact: true }).fill('tags');
       const chips = win.getByRole('combobox', { name: 'Values' });
       await chips.fill('a');
       await chips.press('Enter');
@@ -303,6 +306,7 @@ test('filter tab: the add controls, status line and bottom row stay put as condi
       await ws.openCollectionFromNavigator('shop', 'orders');
       await expect(win.getByText('only')).toBeVisible({ timeout: 8000 });
 
+      await ws.openBuilder();
       const add = win.getByRole('button', { name: 'Add condition', exact: true });
       const reset = win.getByRole('button', { name: 'Reset', exact: true });
       const list = win.locator('[data-group-path="root"] > div').last();
