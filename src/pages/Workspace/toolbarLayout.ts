@@ -51,15 +51,3 @@ export function resultBarLayout(width: number | null, withReferences = false): R
     wrap: iconic < ONE_ROW_MIN,
   };
 }
-
-export type OutputBarActions = 'labels' | 'icons' | 'menu';
-
-const OUTPUT_LABELS_MIN = 760;
-const OUTPUT_ICONS_MIN = 520;
-
-/** The aggregation output bar: labels, then icons, then one menu for all four actions. */
-export function outputBarActions(width: number | null): OutputBarActions {
-  const w = width ?? Number.POSITIVE_INFINITY;
-  if (w >= OUTPUT_LABELS_MIN) return 'labels';
-  return w >= OUTPUT_ICONS_MIN ? 'icons' : 'menu';
-}

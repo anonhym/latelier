@@ -76,7 +76,8 @@ describe('Save as view — navigator refresh', () => {
     await screen.findByTestId('nav-coll-shop-orders');
     expect(screen.queryByTestId('nav-coll-shop-open_orders')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Save as view/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export results' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Create view…' }));
     await userEvent.type(await screen.findByLabelText('View name'), 'open_orders');
     fireEvent.click(screen.getByRole('button', { name: 'Create view' }));
 
@@ -97,7 +98,7 @@ describe('Save as collection — navigator refresh', () => {
           }) as never,
         },
       },
-      // Save as… needs a result to save.
+      // Save to collection… needs a result to save.
       {
         ...DEFAULT_AGGREGATION_TAB_STATE,
         lastRun: { rows: [{ a: 1 }], durationMs: 1, ranAt: '2026-01-01T00:00:00.000Z', stageCounts: {}, stageSamples: {} },
@@ -106,7 +107,8 @@ describe('Save as collection — navigator refresh', () => {
     await screen.findByTestId('nav-coll-shop-orders');
     expect(screen.queryByTestId('nav-coll-shop-monthly')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as…' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export results' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Save to collection…' }));
     fireEvent.change(await screen.findByLabelText(/Target collection/), { target: { value: 'monthly' } });
     fireEvent.change(screen.getByLabelText(/to confirm/i), { target: { value: 'monthly' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm $out' }));

@@ -9,6 +9,7 @@
 // the two surfaces drifted in the first place.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen } from '../helpers/render';
+import userEvent from '@testing-library/user-event';
 import { Double, Int32, Long, Decimal128 } from 'bson';
 import { OutputPanel } from '../../src/pages/Workspace/Aggregation/OutputPanel';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -38,20 +39,29 @@ function renderPanel(rows: unknown[], view: ResultViewMode = 'JSON') {
   const lastRun: AggregationLastRun = { ...runMeta, rows, durationMs: 5 };
   return render(
     <OutputPanel
+      stacked={false}
       height={260}
       view={view}
       lastRun={lastRun}
+      outputStale={false}
       running={false}
       pipelineName={null}
+      stage={null}
+      onRunToStage={vi.fn()}
       onHeightChange={vi.fn()}
       onHeightCommit={vi.fn()}
       onViewChange={vi.fn()}
       onSaveAsCollection={vi.fn()}
       onSaveAsView={vi.fn()}
       onRun={vi.fn()}
-      canRun
+      runBlockedReason={null}
     />,
   );
+}
+
+async function clickExportItem(name: string) {
+  await userEvent.click(screen.getByRole('button', { name: 'Export results' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name }));
 }
 
 describe('OutputPanel — readable EJSON', () => {
@@ -100,7 +110,7 @@ describe('OutputPanel — readable EJSON', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderPanel(rows);
 
-    fireEvent.click(screen.getByText('Copy').closest('button')!);
+    await clickExportItem('Copy');
 
     await screen.findByText(/Output copied to the clipboard/);
     const copied = writeText.mock.calls[0]![0];
@@ -123,7 +133,7 @@ describe('OutputPanel — readable EJSON', () => {
     installAtelierMock({ app: { saveFile } as never });
     renderPanel(rows);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Download output as JSON' }));
+    await clickExportItem('Download…');
 
     await vi.waitFor(() => expect(saveFile).toHaveBeenCalled());
     const { content } = saveFile.mock.calls[0]![0];
@@ -141,13 +151,49 @@ describe('OutputPanel — readable EJSON', () => {
     installAtelierMock({ app: { saveFile } as never });
     renderPanel(rows);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Download output as JSON' }));
+    await clickExportItem('Download…');
 
     await vi.waitFor(() => expect(saveFile).toHaveBeenCalled());
     const reread = ejsonParse<Array<{ long: unknown; double: unknown }>>(saveFile.mock.calls[0]![0].content);
     expect(reread[0]!.long).toBeInstanceOf(Long);
     expect(reread[0]!.double).toBeInstanceOf(Double);
     expect(ejsonStringify(reread)).toBe(ejsonStringify(rows));
+  });
+
+  it('renders a selected stage sample the same way: a count as a number, an int64 still wrapped', () => {
+    // The stage preview and the Documents view use one renderer; before, a
+    // sample read `{"$numberInt":"102"}`.
+    const lastRun: AggregationLastRun = {
+      ...runMeta,
+      rows: [],
+      durationMs: 0,
+      stageSamples: { 3: [{ _id: 'a', n: new Int32(102), big: Long.fromString('9007199254740993') }] },
+    };
+    const { container } = render(
+      <OutputPanel
+        stacked={false}
+        height={260}
+        view="JSON"
+        lastRun={lastRun}
+        outputStale={false}
+        running={false}
+        pipelineName={null}
+        stage={{ id: 3, index: 0, op: '$group', enabled: true, stale: false, loading: false }}
+        onRunToStage={vi.fn()}
+        onHeightChange={vi.fn()}
+        onHeightCommit={vi.fn()}
+        onViewChange={vi.fn()}
+        onSaveAsCollection={vi.fn()}
+        onSaveAsView={vi.fn()}
+        onRun={vi.fn()}
+        runBlockedReason={null}
+      />,
+    );
+
+    expect(container.textContent).toContain('"n": 102');
+    expect(container.textContent).not.toContain('$numberInt');
+    expect(container.textContent).toContain('9007199254740993');
+    expect(container.textContent).not.toContain('9007199254740992');
   });
 
   it.each(['JSON', 'Tree', 'Table'] as const)('shows them as their own type in the %s view', (view) => {

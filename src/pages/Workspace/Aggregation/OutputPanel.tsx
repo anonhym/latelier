@@ -10,28 +10,51 @@ import { api, getErrorMessage } from '../../../api/atelier';
 import { notify } from '../../../theme/notifications';
 import { resizeKeyStep } from '../resizeKeyStep';
 import { useElementWidth } from '../../../hooks/useElementWidth';
-import { outputBarActions } from '../toolbarLayout';
+import { formatShortcut } from '../../../commands/shortcutLabel';
+import { isMacRenderer } from '../../../utils/platform';
+
+/** The stage card selected in the stages column, when one is. */
+export interface PreviewStage {
+  id: number;
+  index: number;
+  op: string;
+  enabled: boolean;
+  stale: boolean;
+  loading: boolean;
+}
 
 interface OutputPanelProps {
+  /** Under the stages (with the height handle) rather than beside them. */
+  stacked: boolean;
+  /** The preview header's layout toggle; absent while the window is too narrow to choose. */
+  onToggleStacked?: () => void;
   height: number;
   view: ResultViewMode;
   lastRun: AggregationLastRun | undefined;
+  /** True when a stage was edited since the last full run. */
+  outputStale: boolean;
   running: boolean;
   pipelineName: string | null;
+  /** The selected stage, or null for the whole pipeline's output. */
+  stage: PreviewStage | null;
+  onRunToStage: (id: number) => void;
   onHeightChange: (px: number) => void;
   onHeightCommit: () => void;
   onViewChange: (v: ResultViewMode) => void;
   onSaveAsCollection: () => void;
   /** Saves the pipeline itself, so it needs no output rows. */
   onSaveAsView: () => void;
-  /** The toolbar's Run, offered again by the empty and failed states. */
+  /** The pipeline bar's Run, offered again by the empty and failed states. */
   onRun: () => void;
-  /** False while a stage body does not parse, as for the toolbar's Run. */
-  canRun: boolean;
+  /** Why Run cannot start (`runBlockedReason`), or null when it can. */
+  runBlockedReason: string | null;
 }
 
 const DEFAULT_HEIGHT = 260;
 const MIN_HEIGHT = 120;
+/** Below this header width the count goes and Export results is its icon alone. */
+const COMPACT_BAR_PX = 420;
+const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
 
 function maxHeight(): number {
   return Math.floor(window.innerHeight * 0.7);
@@ -41,18 +64,22 @@ function clampHeight(px: number): number {
   return Math.max(MIN_HEIGHT, Math.min(maxHeight(), px));
 }
 
-/**
- * the JSON view, Copy all, and Download all share this, and all three
- * are read by a person. `ejsonStringifyReadable` unwraps only sentinels that
- * re-parse to identical BSON, so the copied text still means exactly what the
- * server returned; an int64 stays wrapped rather than arriving rounded.
- */
+function fmt(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
 /** The whole error, server details included, since nothing else shows them. */
 function errorText(err: LastRunError): string {
   const head = `${err.code}: ${err.message}`;
   return err.details === undefined ? head : `${head}\n\n${JSON.stringify(err.details, null, 2)}`;
 }
 
+/**
+ * The JSON view, Copy and Download share this, and all three are read by a
+ * person. `ejsonStringifyReadable` unwraps only sentinels that re-parse to
+ * identical BSON, so the copied text still means exactly what the server
+ * returned; an int64 stays wrapped rather than arriving rounded.
+ */
 function safeStringifyArray(rows: unknown[]): string {
   try {
     return ejsonStringifyReadable(rows, 2);
@@ -62,18 +89,23 @@ function safeStringifyArray(rows: unknown[]): string {
 }
 
 export function OutputPanel({
+  stacked,
+  onToggleStacked,
   height,
   view,
   lastRun,
+  outputStale,
   running,
   pipelineName,
+  stage,
+  onRunToStage,
   onHeightChange,
   onHeightCommit,
   onViewChange,
   onSaveAsCollection,
   onSaveAsView,
   onRun,
-  canRun,
+  runBlockedReason,
 }: OutputPanelProps) {
   const T = themeVars;
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
@@ -130,15 +162,30 @@ export function OutputPanel({
     onHeightCommit();
   };
 
+  // The full run's rows: what Export results exports, whatever is selected.
   const rows = lastRun?.rows ?? [];
   const err = lastRun?.error;
-  const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
-  const actionsForm = outputBarActions(barWidth);
   const noRows = rows.length === 0;
-  const showsState = !!err || noRows;
+  const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
+  const compact = barWidth !== null && barWidth < COMPACT_BAR_PX;
+  const sample = stage ? lastRun?.stageSamples[stage.id] : undefined;
+  const stageCount = stage ? lastRun?.stageCounts[stage.id] : undefined;
+  const runUpToShortcut = formatShortcut('⇧⌘↵', isMacRenderer());
+
   const runButton = (label: string) => (
-    <Button variant="default" size="xs" disabled={running || !canRun} onClick={onRun}>
+    <Button variant="default" size="xs" disabled={running || runBlockedReason !== null} onClick={onRun}>
       {label}
+    </Button>
+  );
+  const runUpToButton = (s: PreviewStage) => (
+    <Button
+      variant="default"
+      size="xs"
+      disabled={s.loading}
+      onClick={() => onRunToStage(s.id)}
+      rightSection={<span aria-hidden="true" style={{ color: T.textGhost }}>{runUpToShortcut}</span>}
+    >
+      Run up to this stage
     </Button>
   );
 
@@ -167,40 +214,102 @@ export function OutputPanel({
     }
   };
 
+  // ── What the header says about what is shown ──
+  let heading: string;
+  let meta = '';
+  let stale: boolean;
+  if (stage) {
+    heading = `Stage ${stage.index + 1} · ${stage.op}`;
+    if (typeof stageCount === 'number') meta = `${fmt(stageCount)} docs`;
+    stale = stage.stale && sample !== undefined;
+  } else {
+    heading = 'Output';
+    if (lastRun) meta = `${rows.length} docs · ${lastRun.durationMs} ms`;
+    stale = outputStale;
+  }
+
+  // ── The body: a pane state, or rows ──
+  let body: React.ReactNode;
+  let shownRows: unknown[] | null = null;
+  // The empty pipeline's reason is the pane's own line; otherwise a strip states it.
+  const reasonIsPane = !stage && !lastRun && runBlockedReason !== null;
+  if (stage) {
+    if (!stage.enabled) {
+      body = <PaneState title={`Stage ${stage.index + 1} is turned off`} detail="Turn it on to preview its output." />;
+    } else if (sample === undefined) {
+      body = stage.loading ? (
+        <PaneState title={`Running up to stage ${stage.index + 1}…`} />
+      ) : (
+        <PaneState title="This stage has not been run yet" actions={runUpToButton(stage)} />
+      );
+    } else if (sample.length === 0) {
+      body = <PaneState title={`No documents reach stage ${stage.index + 1}`} actions={runUpToButton(stage)} />;
+    } else {
+      shownRows = sample;
+    }
+  } else if (err) {
+    body = <PaneState tone="error" title="The pipeline failed" detail={errorText(err)} actions={runButton('Run again')} />;
+  } else if (!lastRun) {
+    // Not "Run": that name belongs to the pipeline bar's button.
+    body = reasonIsPane ? (
+      <PaneState title={runBlockedReason} />
+    ) : (
+      <PaneState title="Run the pipeline to see output" actions={runButton('Run pipeline')} />
+    );
+  } else if (rows.length === 0) {
+    body = (
+      <PaneState
+        title="The pipeline returned no documents"
+        detail="Select a stage to see where the documents stop."
+        actions={runButton('Run again')}
+      />
+    );
+  } else {
+    shownRows = rows;
+  }
+  if (shownRows) {
+    if (view === 'JSON') body = <JsonOutput rows={shownRows} />;
+    else if (view === 'Table') body = <TableOutput rows={shownRows} />;
+    else body = <TreeOutput rows={shownRows} />;
+  }
+
   return (
-    <div
+    <section
+      aria-label="Preview"
       style={{
-        height,
-        flexShrink: 0,
-        borderTop: `1px solid ${T.border}`,
+        ...(stacked
+          ? { height, flexShrink: 0, borderTop: `1px solid ${T.border}` }
+          : { flex: 1, minWidth: 0 }),
         display: 'flex',
         flexDirection: 'column',
         background: T.surface,
       }}
     >
-      <div
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        onKeyDown={onKeyDown}
-        tabIndex={0}
-        role="separator"
-        className="resize-separator"
-        aria-label="Resize output panel"
-        aria-valuenow={height}
-        aria-valuemin={MIN_HEIGHT}
-        aria-valuemax={ariaMaxHeight}
-        style={{
-          height: 6,
-          cursor: 'ns-resize',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: T.surfaceRaised,
-          borderBottom: `1px solid ${T.border}`,
-        }}
-      >
-        <div style={{ width: 32, height: 3, borderRadius: 2, background: T.border }} />
-      </div>
+      {stacked && (
+        <div
+          onMouseDown={onMouseDown}
+          onDoubleClick={onDoubleClick}
+          onKeyDown={onKeyDown}
+          tabIndex={0}
+          role="separator"
+          className="resize-separator"
+          aria-label="Resize output panel"
+          aria-valuenow={height}
+          aria-valuemin={MIN_HEIGHT}
+          aria-valuemax={ariaMaxHeight}
+          style={{
+            height: 6,
+            cursor: 'ns-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: T.surfaceRaised,
+            borderBottom: `1px solid ${T.border}`,
+          }}
+        >
+          <div style={{ width: 32, height: 3, borderRadius: 2, background: T.border }} />
+        </div>
+      )}
 
       <Group
         ref={barRef}
@@ -216,13 +325,18 @@ export function OutputPanel({
           whiteSpace: 'nowrap',
         }}
       >
-        {actionsForm !== 'menu' && (
-          <span style={{ flexShrink: 0, fontSize: T.fsSm, fontWeight: 600, color: T.text }}>Pipeline output</span>
-        )}
-        {/* Holds the gap whether or not a run has happened: a long count
-            truncates here before any control moves. */}
+        <SegmentedControl
+          size="xs"
+          value={view}
+          onChange={(v) => onViewChange(v as ResultViewMode)}
+          data={VIEWS.map((m) => ({ label: m, value: m }))}
+          aria-label="Preview view"
+          style={{ flexShrink: 0 }}
+        />
+        {/* Holds the gap whatever is shown: a long heading truncates here before any control moves. */}
         <span
-          title={lastRun ? `${rows.length} docs · ${lastRun.durationMs} ms` : undefined}
+          data-testid="preview-heading"
+          title={[heading, meta].filter(Boolean).join(' · ')}
           style={{
             flex: 1,
             minWidth: 0,
@@ -233,79 +347,102 @@ export function OutputPanel({
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {lastRun && `${rows.length} docs · ${lastRun.durationMs} ms`}
+          <span style={{ color: T.text, fontWeight: 600 }}>{heading}</span>
+          {!compact && meta && ` · ${meta}`}
+          {stale && <span title="Stage edited after last run"> · ⚠ stale</span>}
         </span>
-        <SegmentedControl
-          size="xs"
-          value={view}
-          onChange={(v) => onViewChange(v as ResultViewMode)}
-          data={['Tree', 'JSON', 'Table'].map((m) => ({ label: m, value: m }))}
-          style={{ flexShrink: 0 }}
-        />
-        {actionsForm === 'labels' && (
-          <>
-            <Button size="compact-xs" variant="default" leftSection={I.copy} onClick={copyAll} disabled={noRows} style={{ flexShrink: 0 }}>
+        {stage && sample !== undefined && stage.enabled && (
+          <Tooltip label={`Run up to this stage again (${runUpToShortcut})`} withArrow>
+            <ActionIcon
+              variant="default"
+              size={26}
+              onClick={() => onRunToStage(stage.id)}
+              disabled={stage.loading}
+              aria-label="Refresh preview"
+              style={{ flexShrink: 0 }}
+            >
+              {I.sync}
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {onToggleStacked && (
+          <Tooltip label={stacked ? 'Show the preview beside the stages' : 'Show the preview under the stages'} withArrow>
+            <ActionIcon
+              variant="default"
+              size={26}
+              onClick={onToggleStacked}
+              aria-label="Stack preview under stages"
+              aria-pressed={stacked}
+              style={{ flexShrink: 0 }}
+            >
+              {stacked ? I.chevR : I.chevD}
+            </ActionIcon>
+          </Tooltip>
+        )}
+        <Menu position="bottom-end" shadow="md">
+          <Menu.Target>
+            {compact ? (
+              <ActionIcon variant="default" size={26} aria-label="Export results" style={{ flexShrink: 0 }}>
+                {I.download}
+              </ActionIcon>
+            ) : (
+              <Button
+                size="compact-xs"
+                variant="default"
+                leftSection={I.download}
+                rightSection={I.chevD}
+                style={{ flexShrink: 0 }}
+              >
+                Export results
+              </Button>
+            )}
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={I.copy} onClick={copyAll} disabled={noRows}>
               Copy
-            </Button>
-            <Button size="compact-xs" variant="default" leftSection={I.save} onClick={onSaveAsCollection} disabled={running || noRows} style={{ flexShrink: 0 }}>
-              Save as…
-            </Button>
-            <Button size="compact-xs" variant="default" leftSection={I.view} onClick={onSaveAsView} disabled={running} style={{ flexShrink: 0 }}>
-              Save as view…
-            </Button>
-          </>
-        )}
-        {actionsForm === 'icons' && (
-          <>
-            <OutputIcon label="Copy" icon={I.copy} onClick={copyAll} disabled={noRows} />
-            <OutputIcon label="Save as…" icon={I.save} onClick={onSaveAsCollection} disabled={running || noRows} />
-            <OutputIcon label="Save as view…" icon={I.view} onClick={onSaveAsView} disabled={running} />
-          </>
-        )}
-        {actionsForm !== 'menu' && (
-          <OutputIcon
-            label="Download output as JSON"
-            icon={I.download}
-            onClick={() => void download()}
-            disabled={noRows}
-          />
-        )}
-        {actionsForm === 'menu' && (
-          <Menu position="bottom-end" shadow="md">
-            <Tooltip label="Copy, Save as, Save as view, Download" withArrow>
-              <Menu.Target>
-                <ActionIcon variant="default" size={26} style={{ flexShrink: 0 }} aria-label="Output actions">
-                  {I.more}
-                </ActionIcon>
-              </Menu.Target>
-            </Tooltip>
-            <Menu.Dropdown>
-              <Menu.Item leftSection={I.copy} onClick={copyAll} disabled={noRows}>
-                Copy
-              </Menu.Item>
-              <Menu.Item leftSection={I.save} onClick={onSaveAsCollection} disabled={running || noRows}>
-                Save as…
-              </Menu.Item>
-              <Menu.Item leftSection={I.view} onClick={onSaveAsView} disabled={running}>
-                Save as view…
-              </Menu.Item>
-              <Menu.Item leftSection={I.download} onClick={() => void download()} disabled={noRows}>
-                Download output as JSON
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        )}
+            </Menu.Item>
+            <Menu.Item leftSection={I.download} onClick={() => void download()} disabled={noRows}>
+              Download…
+            </Menu.Item>
+            <Menu.Item leftSection={I.save} onClick={onSaveAsCollection} disabled={running || noRows}>
+              Save to collection…
+            </Menu.Item>
+            <Menu.Item leftSection={I.view} onClick={onSaveAsView} disabled={running}>
+              Create view…
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
       </Group>
+
+      {runBlockedReason !== null && !reasonIsPane && (
+        <div
+          data-testid="run-blocked-reason"
+          style={{
+            flexShrink: 0,
+            padding: '4px 14px',
+            fontSize: T.fsXs,
+            color: T.textMuted,
+            borderBottom: `1px solid ${T.border}`,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={runBlockedReason}
+        >
+          {runBlockedReason}
+        </div>
+      )}
 
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
           padding: '8px 14px',
           // A pane state fills the pane in the app's text face; rows keep the code face.
-          ...(showsState
-            ? { display: 'flex', flexDirection: 'column' }
-            : { fontFamily: 'JetBrains Mono, monospace', fontSize: T.fsSm }),
+          ...(shownRows
+            ? { fontFamily: 'JetBrains Mono, monospace', fontSize: T.fsSm }
+            : { display: 'flex', flexDirection: 'column' }),
           position: 'relative',
         }}
       >
@@ -329,52 +466,9 @@ export function OutputPanel({
             Running…
           </div>
         )}
-
-        {err ? (
-          <PaneState
-            tone="error"
-            title="The pipeline failed"
-            detail={errorText(err)}
-            actions={runButton('Run again')}
-          />
-        ) : !lastRun ? (
-          // Not "Run": that name belongs to the toolbar button.
-          <PaneState title="Run the pipeline to see output" actions={runButton('Run pipeline')} />
-        ) : rows.length === 0 ? (
-          <PaneState
-            title="The pipeline returned no documents"
-            detail="Each stage's preview shows where the documents stop."
-            actions={runButton('Run again')}
-          />
-        ) : view === 'JSON' ? (
-          <JsonOutput rows={rows} />
-        ) : view === 'Table' ? (
-          <TableOutput rows={rows} />
-        ) : (
-          <TreeOutput rows={rows} />
-        )}
+        {body}
       </div>
-    </div>
-  );
-}
-
-function OutputIcon({
-  label,
-  icon,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <Tooltip label={label} withArrow>
-      <ActionIcon variant="default" size={26} onClick={onClick} disabled={disabled} aria-label={label} style={{ flexShrink: 0 }}>
-        {icon}
-      </ActionIcon>
-    </Tooltip>
+    </section>
   );
 }
 
