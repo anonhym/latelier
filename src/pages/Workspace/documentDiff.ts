@@ -1,5 +1,5 @@
-import { ejsonParse, ejsonStringify, isPlainDocument } from '../../utils/ejson';
-import { SELECTABLE_KINDS, kindOf, textOf, typeLabel, zeroValue } from './documentFieldTypes';
+import { ejsonParse, ejsonStringify, ejsonStringifyReadable, isPlainDocument } from '../../utils/ejson';
+import { SELECTABLE_KINDS, kindOf, textOf, typeLabel, zeroValue, type Kind } from './documentFieldTypes';
 
 /**
  * The Document Editor's save, as pure functions (W18 §5, ADR 0012).
@@ -297,7 +297,7 @@ export interface ChangeEntry {
   typeChange?: { from: string; to: string; cleared: boolean };
 }
 
-function typeChangeOf(before: unknown, after: unknown): ChangeEntry['typeChange'] {
+export function typeChangeOf(before: unknown, after: unknown): ChangeEntry['typeChange'] {
   const from = kindOf(before);
   const to = kindOf(after);
   if (from === to) return undefined;
@@ -329,6 +329,51 @@ export function changeList(original: Doc, draft: Doc): ChangeEntry[] {
   }
   for (const path of d.unset) entries.push({ path, kind: 'removed', before: lookup(original, path)?.value });
   return entries;
+}
+
+const PLAIN_TEXT_KINDS = new Set<Kind>(['int32', 'double', 'long', 'decimal', 'number', 'date', 'objectId']);
+
+/**
+ * A value in its readable form on one line, cut to `max` characters (W18
+ * §13.2). A number, date or ObjectId reads as the text its field shows; the
+ * type is named beside it, so a `$numberDouble` wrapper would only be noise.
+ */
+export function oneLineValue(value: unknown, max = 60): string {
+  const kind = kindOf(value);
+  const text = PLAIN_TEXT_KINDS.has(kind) ? textOf(kind, value) : ejsonStringifyReadable(value);
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** `5 Int32 → 5 Double`, plus ` · value cleared` when the conversion kept nothing. */
+export function typeChangeText(
+  before: unknown,
+  after: unknown,
+  change: NonNullable<ChangeEntry['typeChange']>,
+  max = 60,
+): string {
+  const line = `${oneLineValue(before, max)} ${change.from} → ${oneLineValue(after, max)} ${change.to}`;
+  return change.cleared ? `${line} · value cleared` : line;
+}
+
+/**
+ * One line of the change strip: `status: "a" → "b"`, `note: + "x"`,
+ * `flag: removed`. `title` is the same line with nothing cut, for the tooltip.
+ */
+export function changeText(entry: ChangeEntry, max = 60): { text: string; title: string } {
+  const line = (limit: number) => {
+    if (entry.kind === 'removed') return `${entry.path}: removed`;
+    if (entry.kind === 'added') return `${entry.path}: + ${oneLineValue(entry.after, limit)}`;
+    if (entry.typeChange) return `${entry.path}: ${typeChangeText(entry.before, entry.after, entry.typeChange, limit)}`;
+    return `${entry.path}: ${oneLineValue(entry.before, limit)} → ${oneLineValue(entry.after, limit)}`;
+  };
+  return { text: line(max), title: line(Number.POSITIVE_INFINITY) };
+}
+
+/** The operators Save will send, `$set 2 · $unset 1`; an operator with nothing in it is left out. */
+export function operatorSummary(entries: readonly ChangeEntry[]): string {
+  const unset = entries.filter((e) => e.kind === 'removed').length;
+  const set = entries.length - unset;
+  return [set > 0 ? `$set ${set}` : '', unset > 0 ? `$unset ${unset}` : ''].filter(Boolean).join(' · ');
 }
 
 /** Two update paths clash when they are the same or one sits under the other. */
