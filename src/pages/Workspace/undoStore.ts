@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { api } from '../../api/atelier';
+import { api, isIpcError } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { undoFailureMessage, undoneMessage } from '../../utils/auditUndo';
 
@@ -61,9 +61,14 @@ function forget(auditId: string) {
   emit();
 }
 
+/** X13's refusals, which hold however often the undo is retried. */
+const FINAL_REFUSALS = new Set(['AUDIT_TARGET_CHANGED', 'AUDIT_ALREADY_UNDONE', 'AUDIT_UNDO_EXPIRED', 'AUDIT_NOT_REVERSIBLE', 'CONFLICT']);
+
 /**
- * Runs one undo the way the toast's button does, and forgets it either way:
- * an entry that ran cannot run twice, and a refused one never will.
+ * Runs one undo the way the toast's button does. An entry that ran is
+ * forgotten, since it cannot run twice, and so is one X13 refused, since it
+ * never will. Any other failure (a dropped Connection, a server error) says
+ * nothing about the change, so the entry stays for another try.
  */
 export function runUndo(entry: UndoEntry): Promise<void> {
   return api.audit.undo({ entryId: entry.auditId }).then(
@@ -73,7 +78,7 @@ export function runUndo(entry: UndoEntry): Promise<void> {
       entry.onUndone();
     },
     (e: unknown) => {
-      forget(entry.auditId);
+      if (isIpcError(e) && FINAL_REFUSALS.has(e.code)) forget(entry.auditId);
       notify.error(undoFailureMessage(e), { title: 'Undo failed' });
     },
   );

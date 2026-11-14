@@ -7,6 +7,7 @@ import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/Collectio
 import { clearUndoStore, recordUndo } from '../../src/pages/Workspace/undoStore';
 import { offerUndo } from '../../src/pages/Workspace/offerUndo';
 import { notify } from '../../src/theme/notifications';
+import { undoFailureMessage } from '../../src/utils/auditUndo';
 import type { CollectionTabState } from '@shared/types';
 
 const NS = { connectionId: 'c1', dbName: 'app', collection: 'orders' };
@@ -134,8 +135,8 @@ describe('Undo last change in `⋯`', () => {
     await waitFor(() => expect(screen.queryByRole('menuitem', { name: /^Undo/ })).toBeNull());
   });
 
-  it('a refused undo says why and removes the item', async () => {
-    const refusal = Object.assign(new Error('gone'), { code: 'AUDIT_UNDO_EXPIRED' });
+  it.each(['AUDIT_TARGET_CHANGED', 'AUDIT_ALREADY_UNDONE', 'AUDIT_UNDO_EXPIRED', 'AUDIT_NOT_REVERSIBLE', 'CONFLICT'])('a refused undo (%s) says why and removes the item', async (code) => {
+    const refusal = Object.assign(new Error('gone'), { code });
     installUndo(async () => {
       throw refusal;
     });
@@ -143,8 +144,25 @@ describe('Undo last change in `⋯`', () => {
     mount();
     act(() => offerUndo('Field updated', 'e3', () => {}, NS));
     pressUndo(screen.getByRole('tree', { name: 'Documents' }));
-    await waitFor(() => expect(error).toHaveBeenCalledWith(expect.stringMatching(/can't be undone any more/), { title: 'Undo failed' }));
+    await waitFor(() => expect(error).toHaveBeenCalledWith(undoFailureMessage(refusal), { title: 'Undo failed' }));
     await openMenu();
     expect(screen.queryByRole('menuitem', { name: /^Undo/ })).toBeNull();
+  });
+
+  // A dropped connection or a server error says nothing about the change
+  // itself: the undo can still run once the Connection is back.
+  it('a transient failure keeps the item, so it can be tried again', async () => {
+    const lost = Object.assign(new Error('connection closed'), { code: 'MONGO_OP' });
+    const undo = installUndo(async () => {
+      throw lost;
+    });
+    const error = vi.spyOn(notify, 'error');
+    mount();
+    act(() => offerUndo('Field updated', 'e4', () => {}, NS));
+    pressUndo(screen.getByRole('tree', { name: 'Documents' }));
+    await waitFor(() => expect(error).toHaveBeenCalledWith('connection closed', { title: 'Undo failed' }));
+    await openMenu();
+    expect(await screen.findByRole('menuitem', { name: /^Undo: field updated/ })).toBeTruthy();
+    expect(undo).toHaveBeenCalledOnce();
   });
 });
