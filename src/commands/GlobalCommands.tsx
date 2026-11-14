@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../ThemeContext';
 import { useSettings } from '../pages/SettingsContext';
 import { useConnectionTransfer } from '../features/connections/ConnectionTransferProvider';
@@ -18,6 +18,7 @@ import type { PaletteContext } from './types';
  */
 export function GlobalCommands() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isDark, toggleTheme] = useTheme();
   const settings = useSettings();
   const transfer = useConnectionTransfer();
@@ -131,11 +132,15 @@ export function GlobalCommands() {
         keywords: ['connection', 'server'],
         when: (ctx: PaletteContext) => ctx.connectionId !== null,
         perform: (ctx: PaletteContext) => {
-          if (ctx.connectionId) void navigate(`/connections/${ctx.connectionId}`, { state: { detailTab: tab } });
+          if (!ctx.connectionId) return;
+          void navigate('/workspace', {
+            state: { openServer: { connectionId: ctx.connectionId, section: tab.toLowerCase() } },
+            replace: location.pathname === '/workspace',
+          });
         },
       })),
     ],
-    [navigate, isDark, toggleTheme, settings, transfer],
+    [navigate, location.pathname, isDark, toggleTheme, settings, transfer],
   );
 
   return (

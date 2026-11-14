@@ -7,6 +7,7 @@ import type {
   ResultViewMode,
   ScriptTab,
   ScriptTabState,
+  ServerSection,
   ServerTab,
   ServerTabState,
   WorkspaceTab,
@@ -97,7 +98,7 @@ export interface WorkspaceTabsState {
     initialState?: Partial<ScriptTabState>;
   }) => Promise<ScriptTab>;
   /** C05 §11 — opens or focuses the Connection's server tab. */
-  openServer: (input: { connectionId: string }) => Promise<ServerTab>;
+  openServer: (input: { connectionId: string; section?: ServerSection }) => Promise<ServerTab>;
   /**
    * Closes one tab. A script tab holding source says so in a toast with Undo,
    * and every tab closed this way joins the reopen list (W01 §14.8).
@@ -401,8 +402,13 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   );
 
   const openServer: WorkspaceTabsState['openServer'] = useCallback(
-    async (input) => {
-      const tab = await api.tabs.openServer(input);
+    async ({ connectionId, section }) => {
+      let tab = await api.tabs.openServer({ connectionId });
+      // Written through main rather than `patchServerState`: the tab is not in
+      // local state until the refresh below has rendered.
+      if (section && section !== tab.state.section) {
+        tab = (await api.tabs.update(tab.id, { state: { section } })) as ServerTab;
+      }
       await refresh();
       return tab;
     },
@@ -812,8 +818,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         return;
       }
       if (entry.kind === 'server') {
-        const tab = await openServer({ connectionId: entry.connectionId });
-        patchServerState(tab.id, entry.state);
+        const tab = await openServer({ connectionId: entry.connectionId, section: entry.state.section });
         if (entry.pinned) await setPinned(tab.id, true);
         return;
       }
@@ -826,7 +831,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       patchCollectionState(tab.id, entry.state);
       if (entry.pinned) await setPinned(tab.id, true);
     },
-    [openScript, openServer, openCollection, setPinned, patchCollectionState, patchServerState],
+    [openScript, openServer, openCollection, setPinned, patchCollectionState],
   );
 
   // An entry leaves the list only once its tab is open: a reopen that fails
