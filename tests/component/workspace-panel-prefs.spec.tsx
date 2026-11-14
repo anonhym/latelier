@@ -190,7 +190,8 @@ describe('workspace panel prefs (T4)', () => {
     fireEvent.mouseMove(window, { clientX: 340, clientY: 300 });
     fireEvent.mouseUp(window, { clientX: 340, clientY: 300 });
 
-    await waitFor(() => expect(set).toHaveBeenCalledWith('ui.workspace.leftWidth', 246));
+    // The default width, 240, plus the 40px drag.
+    await waitFor(() => expect(set).toHaveBeenCalledWith('ui.workspace.leftWidth', 280));
   });
 
   it('dragging the reference-drawer resize handle writes ui.workspace.refDrawerWidth', async () => {

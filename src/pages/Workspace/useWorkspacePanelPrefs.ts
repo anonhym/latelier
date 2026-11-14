@@ -33,7 +33,7 @@ export function useWorkspacePanelPrefs(): {
   /** Below the width that fits both side panels. Layout changes here are not the user's stored layout. */
   onePanelOnly: boolean;
 } {
-  const [leftWidth, setLeftWidth] = React.useState(206);
+  const [leftWidth, setLeftWidth] = React.useState(240);
   // Pixels, not a percentage: a plain flex column resized via the bespoke ResizeHandle, not a react-resizable-panels Panel.
   const [refDrawerWidth, setRefDrawerWidth] = React.useState(380);
   const [innerHSplit, setInnerHSplit] = React.useState(BUILDER_DEFAULT_PCT);

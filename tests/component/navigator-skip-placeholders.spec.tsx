@@ -60,12 +60,14 @@ describe('DbCollectionNavigator — Retry stays reachable and usable from the ke
     // Tabbing away; skipping it left `row` null in `onKeyDown`, which took
     // the early `if (!row) return` before ever reaching `preventDefault()`
     // and made the original version of this test pass on unfixed code too).
-    // Then Tab into its one nested interactive descendant — Retry is the
-    // only tabbable thing here since this Connection isn't 'connecting' (no
-    // Cancel button) and isn't expanded.
+    // Then Tab into its nested interactive descendants: the focused root's
+    // own `⋯` first, then Retry. This Connection isn't 'connecting' (no
+    // Cancel button) and isn't expanded, so nothing else sits between them.
     await userEvent.setup().click(treeEl);
     fireEvent.keyDown(treeEl, { key: 'ArrowDown' });
     expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for Prod' }));
     await userEvent.tab();
     expect(document.activeElement).toBe(retryButton);
 
@@ -94,6 +96,7 @@ describe('DbCollectionNavigator — Retry stays reachable and usable from the ke
     await userEvent.setup().click(treeEl);
     fireEvent.keyDown(treeEl, { key: 'ArrowDown' }); // see the comment in the test above
     expect(treeEl.getAttribute('aria-activedescendant')).toBe('navigator-row-conn:c1');
+    await userEvent.tab(); // the focused root's ⋯
     await userEvent.tab();
     expect(document.activeElement).toBe(retryButton);
     const before = treeEl.getAttribute('aria-activedescendant');
