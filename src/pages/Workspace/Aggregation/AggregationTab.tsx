@@ -1,8 +1,9 @@
 import React from 'react';
 import { themeVars } from '../../../theme/themeVars';
-import { SubmitButton } from '../../../components/SubmitButton';
+import { submittingProps } from '../../../components/SubmitButton';
 import { I } from '../../../icons';
 import { Button, Group, Menu, Modal, Tooltip } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { api, getErrorMessage, isIpcError } from '../../../api/atelier';
 import { logFailure } from '../../../utils/rendererLog';
@@ -24,14 +25,18 @@ import {
   restoreStage,
   setBody as setBodyOp,
   setOp as setOpOp,
-  stageSig,
+  pipelineSigs,
   toggleEnabled as toggleEnabledOp,
   validatePipeline,
   isWriteStage,
+  runBlockedReason,
 } from './pipeline';
-import { PipelineOutline } from './PipelineOutline';
 import { StageAccordion } from './StageAccordion';
-import { OutputPanel } from './OutputPanel';
+import { OutputPanel, type PreviewStage } from './OutputPanel';
+import { ONE_PANEL_BELOW_PX } from '../sidePanels';
+import { resizeKeyStep } from '../resizeKeyStep';
+import { formatShortcut } from '../../../commands/shortcutLabel';
+import { isMacRenderer } from '../../../utils/platform';
 import { useRegisterCommands } from '../../../commands/useRegisterCommands';
 import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
@@ -50,6 +55,21 @@ import { pipelineJsonForCopy } from '../builderToPipeline';
 import { aggregateCode, CODE_LANGS, type CodeLang } from '../../../utils/driverCode';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { consumeTabRequest, subscribeTabRequests, tabRequested } from '../tabRequest';
+
+/** The stages column beside the preview (A01 §9.1): its width at 1440 and its limits. */
+const STAGES_DEFAULT_PX = 480;
+const STAGES_MIN_PX = 320;
+
+function stagesMaxPx(): number {
+  return Math.max(STAGES_MIN_PX, Math.floor(window.innerWidth * 0.6));
+}
+
+/** One stage's sample and count, with the `pipelineSigs` signature it was taken under. */
+interface StagePreviewResult {
+  sample?: unknown[];
+  count?: number;
+  sig?: string;
+}
 
 interface Props {
   connectionId: string;
@@ -96,9 +116,6 @@ export function AggregationTab({
   const runIsWriteRef = React.useRef(false);
   const stoppingRef = React.useRef(false);
   const [stopping, setStopping] = React.useState(false);
-  const [lastRunSig, setLastRunSig] = React.useState<Map<number, string>>(
-    () => new Map(),
-  );
   // Per-stage preview race guard (N0.4): a dedicated monotonic token per
   // stageId, separate from the main Run path's runTokenRef/running above —
   // reusing those would let the two paths clobber each other.
@@ -106,20 +123,70 @@ export function AggregationTab({
   const [previewLoading, setPreviewLoading] = React.useState<Set<number>>(
     () => new Set(),
   );
+  // "Run up to this stage" results. They are not a run, so they never become
+  // `lastRun` (whose rows are the Output row's); a full run replaces them, as
+  // it re-samples every stage. Local, so they go when the tab does.
+  const [previews, setPreviews] = React.useState<Record<number, StagePreviewResult>>({});
+  // One AggregationTab serves every collection tab, and `onPatch` writes to
+  // whichever tab is active when it is called: a result that lands after a tab
+  // change belongs to another tab, so it is dropped rather than written here.
+  // `previewGenRef` also moves when a full run lands, so an older preview
+  // cannot replace the run's fresher sample.
+  const tabKey = [tabId ?? '', connectionId, dbName, collection].join('\u0000');
+  const tabKeyRef = useLatest(tabKey);
+  const previewGenRef = React.useRef(0);
+  const [previewsFor, setPreviewsFor] = React.useState(tabKey);
+  if (previewsFor !== tabKey) {
+    setPreviewsFor(tabKey);
+    setPreviews({});
+    setPreviewLoading(new Set());
+  }
+  const lastRunRef = useLatest(state.lastRun);
 
-  const staleStageIds = React.useMemo(() => {
-    const set = new Set<number>();
-    if (!state.lastRun) return set;
+  // What each card shows: its own preview, else the full run's sample, each
+  // with the signature it was taken under, so an edit upstream marks it stale.
+  const sigs = React.useMemo(() => pipelineSigs(stages), [stages]);
+  const stageResults = React.useMemo(() => {
+    const out: Record<number, StagePreviewResult> = {};
+    const run = state.lastRun;
     for (const s of stages) {
-      const prev = lastRunSig.get(s.id);
-      if (prev === undefined || prev !== stageSig(s)) {
-        set.add(s.id);
+      const preview = previews[s.id];
+      if (preview) out[s.id] = preview;
+      else if (run && (run.stageSamples[s.id] !== undefined || run.stageCounts[s.id] !== undefined)) {
+        out[s.id] = { sample: run.stageSamples[s.id], count: run.stageCounts[s.id], sig: run.stageSigs?.[s.id] };
       }
     }
+    return out;
+  }, [stages, previews, state.lastRun]);
+  const staleStageIds = React.useMemo(() => {
+    const set = new Set<number>();
+    for (const s of stages) {
+      const r = stageResults[s.id];
+      if (r && r.sig !== sigs.byStage[s.id]) set.add(s.id);
+    }
     return set;
-  }, [stages, state.lastRun, lastRunSig]);
+  }, [stages, stageResults, sigs]);
+  const stageCounts = React.useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const [id, r] of Object.entries(stageResults)) if (r.count !== undefined) out[Number(id)] = r.count;
+    return out;
+  }, [stageResults]);
 
   const validation = React.useMemo(() => validatePipeline(stages), [stages]);
+  const blockedReason = runBlockedReason(stages, validation);
+
+  // Below the one-panel width the preview always stacks; above it, the preview
+  // header's toggle chooses. Neither the choice nor the column width is tab
+  // state, so both reset when the tab remounts.
+  const narrow = useMediaQuery(`(max-width: ${ONE_PANEL_BELOW_PX - 0.02}px)`, false, {
+    getInitialValueInEffect: false,
+  });
+  const [stackChoice, setStackChoice] = React.useState(false);
+  const stacked = narrow || stackChoice;
+  const [stagesWidth, setStagesWidth] = React.useState(STAGES_DEFAULT_PX);
+  // A drag's window listeners, removed by mouseup or, mid-drag, by unmount.
+  const dividerDragStopRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => dividerDragStopRef.current?.(), []);
 
   const markDirty = React.useCallback(() => {
     if (!state.dirty) onPatch({ dirty: true });
@@ -220,8 +287,12 @@ export function AggregationTab({
     markDirty();
   };
 
+  // The selected card is what the preview shows; null is the Output row.
   const onSelectStage = (id: number) => {
     onPatch({ activeStageId: state.activeStageId === id ? null : id });
+  };
+  const onSelect = (id: number | null) => {
+    if (id !== state.activeStageId) onPatch({ activeStageId: id });
   };
 
   // ── Runner ───────────────────────────────────────────────────────────
@@ -256,6 +327,8 @@ export function AggregationTab({
     async (allowWrite: boolean) => {
       if (!validation.ok) return;
       const runStages = repairStageBodies();
+      const runSigs = pipelineSigs(runStages);
+      const startedFor = tabKey;
       const token = crypto.randomUUID();
       runTokenRef.current = token;
       runIsWriteRef.current = allowWrite;
@@ -272,16 +345,21 @@ export function AggregationTab({
           allowWrite,
         });
         if (runTokenRef.current !== token) return;
-        const lastRun: AggregationLastRun = {
-          rows: result.rows,
-          durationMs: result.durationMs,
-          ranAt: new Date().toISOString(),
-          stageCounts: result.stageCounts,
-          stageSamples: result.stageSamples,
-          hasMore: result.hasMore,
-        };
-        onPatch({ lastRun });
-        setLastRunSig(new Map(runStages.map((s) => [s.id, stageSig(s)])));
+        if (tabKeyRef.current === startedFor) {
+          const lastRun: AggregationLastRun = {
+            rows: result.rows,
+            durationMs: result.durationMs,
+            ranAt: new Date().toISOString(),
+            stageCounts: result.stageCounts,
+            stageSamples: result.stageSamples,
+            hasMore: result.hasMore,
+            stageSigs: runSigs.byStage,
+            pipelineSig: runSigs.pipeline,
+          };
+          onPatch({ lastRun });
+          previewGenRef.current += 1;
+          setPreviews({});
+        }
         // Fire-and-forget, as after a find: the values the leading `$match`
         // stages carried feed the value-suggestion popover. Never blocks or
         // fails the run; main re-filters by op and secret field path.
@@ -311,6 +389,7 @@ export function AggregationTab({
           }
           return;
         }
+        if (tabKeyRef.current !== startedFor) return;
         if (isIpcError(e)) {
           const details = (e.details ?? {}) as {
             kind?: string;
@@ -324,28 +403,26 @@ export function AggregationTab({
             });
             return;
           }
-          onPatch({
-            lastRun: {
-              rows: state.lastRun?.rows ?? [],
-              durationMs: 0,
-              ranAt: new Date().toISOString(),
-              stageCounts: state.lastRun?.stageCounts ?? {},
-              stageSamples: state.lastRun?.stageSamples ?? {},
-              error: { code: e.code, message: e.message, details: e.details },
-            },
-          });
-        } else {
-          onPatch({
-            lastRun: {
-              rows: state.lastRun?.rows ?? [],
-              durationMs: 0,
-              ranAt: new Date().toISOString(),
-              stageCounts: state.lastRun?.stageCounts ?? {},
-              stageSamples: state.lastRun?.stageSamples ?? {},
-              error: { code: 'INTERNAL', message: String(e) },
-            },
-          });
         }
+        // The failure is this pipeline's; the counts and samples kept beside
+        // it are the previous run's, under that run's signatures. Read at
+        // settle time, not from the closure: a preview or a run may have
+        // landed while this one was in flight.
+        const prev = lastRunRef.current;
+        onPatch({
+          lastRun: {
+            rows: prev?.rows ?? [],
+            durationMs: 0,
+            ranAt: new Date().toISOString(),
+            stageCounts: prev?.stageCounts ?? {},
+            stageSamples: prev?.stageSamples ?? {},
+            stageSigs: prev?.stageSigs,
+            pipelineSig: runSigs.pipeline,
+            error: isIpcError(e)
+              ? { code: e.code, message: e.message, details: e.details }
+              : { code: 'INTERNAL', message: String(e) },
+          },
+        });
       } finally {
         // A confirmed run is one with a `$out`/`$merge` stage, whose target
         // main parses out of the stage body, so the renderer can't name the
@@ -364,11 +441,19 @@ export function AggregationTab({
         }
       }
     },
-    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, state.lastRun],
+    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, tabKey, tabKeyRef, lastRunRef],
   );
 
+  // Every way of asking for a run that cannot start — the fake-disabled
+  // button, ⌘↵, the palette — hears why, once, in the same words as the tooltip.
+  const sayBlocked = (reason: string) => notify.info(reason, { id: 'agg-run-blocked' });
+
   const onRun = () => {
-    if (running || !validation.ok) return;
+    if (running) return;
+    if (blockedReason) {
+      sayBlocked(blockedReason);
+      return;
+    }
     void executeRun(false);
   };
 
@@ -399,8 +484,13 @@ export function AggregationTab({
     if (idx === -1) return;
     const upto = runStages.slice(0, idx + 1).filter((s) => s.enabled);
     if (upto.length === 0) return;
+    const sig = pipelineSigs(runStages).byStage[stageId];
+    const startedFor = tabKey;
+    const gen = previewGenRef.current;
     const token = (previewTokenRef.current.get(stageId) ?? 0) + 1;
     previewTokenRef.current.set(stageId, token);
+    // Still the newest call for this stage, on this tab.
+    const latest = () => previewTokenRef.current.get(stageId) === token && tabKeyRef.current === startedFor;
     setPreviewLoading((prev) => {
       const next = new Set(prev);
       next.add(stageId);
@@ -414,38 +504,18 @@ export function AggregationTab({
         stages: upto,
         limit: 5,
       });
-      // A newer call for this same stage superseded us — drop this stale
-      // response instead of clobbering what it already committed.
-      if (previewTokenRef.current.get(stageId) !== token) return;
-      const nextRun: AggregationLastRun = state.lastRun
-        ? { ...state.lastRun }
-        : {
-            rows: [],
-            durationMs: 0,
-            ranAt: new Date().toISOString(),
-            stageCounts: {},
-            stageSamples: {},
-          };
-      nextRun.stageSamples = {
-        ...nextRun.stageSamples,
-        [stageId]: preview.sample,
-      };
-      if (typeof preview.count === 'number') {
-        nextRun.stageCounts = {
-          ...nextRun.stageCounts,
-          [stageId]: preview.count,
-        };
-      }
-      nextRun.ranAt = new Date().toISOString();
-      onPatch({ lastRun: nextRun });
+      // Superseded by a newer call for this stage, by a full run that landed
+      // first, or by a tab change: drop it rather than clobber the newer result.
+      if (!latest() || previewGenRef.current !== gen) return;
+      setPreviews((prev) => ({ ...prev, [stageId]: { sample: preview.sample, count: preview.count, sig } }));
     } catch (e) {
       // Same guard: a superseded failed preview must not toast over a
       // newer success (or a newer failure already surfaced).
-      if (previewTokenRef.current.get(stageId) !== token) return;
+      if (!latest() || previewGenRef.current !== gen) return;
       const msg = isIpcError(e) ? e.message : String(e);
       notify.error(msg, { title: 'Preview failed' });
     } finally {
-      if (previewTokenRef.current.get(stageId) === token) {
+      if (latest()) {
         setPreviewLoading((prev) => {
           const next = new Set(prev);
           next.delete(stageId);
@@ -494,7 +564,11 @@ export function AggregationTab({
   // ── Explain ──────────────────────────────────────────────────────
 
   const onExplain = () => {
-    if (running || !validation.ok) return;
+    if (running) return;
+    if (blockedReason) {
+      sayBlocked(blockedReason);
+      return;
+    }
     setExplainOpen(true);
   };
 
@@ -550,6 +624,9 @@ export function AggregationTab({
   const onSaveRef = useLatest(onSave);
   const onExplainRef = useLatest(onExplain);
   const runningRef = useLatest(running);
+  const onRunToStageRef = useLatest(onRunToStage);
+  const activeStageIdRef = useLatest(state.activeStageId);
+  const previewLoadingRef = useLatest(previewLoading);
 
   // The palette's Run on a saved pipeline: the Run button's own handler, once.
   const runRequested = React.useSyncExternalStore(
@@ -599,7 +676,15 @@ export function AggregationTab({
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && e.shiftKey) {
+        // ⇧⌘↵ runs up to the selected stage wherever focus is in the view.
+        // The stage editor claims the key itself (and prevents its default),
+        // so a press there is already handled.
+        const id = activeStageIdRef.current;
+        if (e.defaultPrevented || id === null || previewLoadingRef.current.has(id)) return;
+        e.preventDefault();
+        void onRunToStageRef.current(id);
+      } else if (e.key === 'Enter') {
         e.preventDefault();
         if (runningRef.current) onCancelRunRef.current();
         else onRunRef.current();
@@ -610,14 +695,40 @@ export function AggregationTab({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onCancelRunRef, onExplainRef, onRunRef, runningRef]);
+  }, [activeStageIdRef, onCancelRunRef, onExplainRef, onRunRef, onRunToStageRef, previewLoadingRef, runningRef]);
 
   // ── Derived UI values ───────────────────────────────────────────
 
   const outputCount =
     state.lastRun?.rows.length !== undefined ? state.lastRun.rows.length : null;
-  const outputStale = state.lastRun ? staleStageIds.size > 0 : false;
+  const outputStale = state.lastRun ? state.lastRun.pipelineSig !== sigs.pipeline : false;
   const hasWriteStage = stages.some((s) => s.enabled && isWriteStage(s.op));
+  const activeIndex = stages.findIndex((s) => s.id === state.activeStageId);
+  const activeStage = stages[activeIndex];
+  const previewStage: PreviewStage | null = activeStage
+    ? {
+        id: activeStage.id,
+        index: activeIndex,
+        op: activeStage.op,
+        enabled: activeStage.enabled,
+        stale: staleStageIds.has(activeStage.id),
+        loading: previewLoading.has(activeStage.id),
+        sample: stageResults[activeStage.id]?.sample,
+        count: stageResults[activeStage.id]?.count,
+      }
+    : null;
+  const mac = isMacRenderer();
+  const runShortcut = formatShortcut('⌘↵', mac);
+  // Unavailable Run and Explain stay hoverable (aria-disabled, not disabled) so
+  // their tooltips can say why; their handlers refuse the click themselves.
+  const runBlocked = !running && blockedReason !== null;
+  const explainBlocked = running || blockedReason !== null;
+  let explainTip = `Explain the pipeline (${formatShortcut('⌘E', mac)})`;
+  if (running) explainTip = 'Explain waits for the run to finish';
+  else if (blockedReason) explainTip = blockedReason;
+  let runTip = `Run the pipeline (${runShortcut})`;
+  if (running) runTip = 'Cancel the run';
+  else if (blockedReason) runTip = blockedReason;
 
   const suggestionContext = React.useMemo<SuggestionContext | null>(() => {
     if (!connectionId || !dbName || !collection) return null;
@@ -638,20 +749,47 @@ export function AggregationTab({
     // Patch already debounced — no separate commit channel needed.
   };
 
+  const onStagesDividerDown = (e: React.MouseEvent) => {
+    // No text selection while dragging across the editors.
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = stagesWidth;
+    const onMove = (ev: MouseEvent) =>
+      setStagesWidth(Math.max(STAGES_MIN_PX, Math.min(stagesMaxPx(), startW + ev.clientX - startX)));
+    const stop = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', stop);
+      dividerDragStopRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', stop);
+    dividerDragStopRef.current = stop;
+  };
+  const onStagesDividerKey = (e: React.KeyboardEvent) => {
+    const next = resizeKeyStep(e.key, 'horizontal', stagesWidth, STAGES_MIN_PX, stagesMaxPx());
+    if (next === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setStagesWidth(next);
+  };
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Action bar (below the workspace tab strip) */}
+      {/* Pipeline bar (below the view header) */}
       <Group
+        data-testid="pipeline-bar"
         gap={T.gapSm}
         wrap="nowrap"
         style={{
-          padding: '6px 14px',
+          height: 44,
+          boxSizing: 'border-box',
+          padding: '0 14px',
           borderBottom: `1px solid ${T.border}`,
           background: T.surface,
           flexShrink: 0,
         }}
       >
-        <Group gap={themeVars.gapXs} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+        <Group gap={themeVars.gapXs} wrap="nowrap" style={{ minWidth: 0, flexShrink: 1 }}>
           <span
             title={state.name ?? undefined}
             style={{ minWidth: 0, fontSize: T.fsSm, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -668,6 +806,7 @@ export function AggregationTab({
                   borderRadius: '50%',
                   background: T.accent,
                   display: 'inline-block',
+                  flexShrink: 0,
                 }}
               />
             </Tooltip>
@@ -681,6 +820,7 @@ export function AggregationTab({
                 padding: '1px 5px',
                 borderRadius: T.rx,
                 border: `1px solid ${T.border}`,
+                whiteSpace: 'nowrap',
               }}
             >
               contains write stage
@@ -688,34 +828,44 @@ export function AggregationTab({
           )}
         </Group>
 
-        <SubmitButton size="compact-xs" variant="default" leftSection={I.save} submitting={running || !state.dirty} onClick={onSave} style={{ flexShrink: 0 }}>
-          Save
-        </SubmitButton>
-        <Button size="compact-xs" variant="default" disabled={running} onClick={onSaveAs} style={{ flexShrink: 0 }}>
-          Save as
-        </Button>
-        <Button
-          size="compact-xs"
-          variant="filled"
-          leftSection={running ? I.close : I.play}
-          disabled={stopping || (!running && !validation.ok)}
-          onClick={running ? onCancelRun : onRun}
-          // Wide enough for "Stopping…", so Run becoming Cancel moves nothing.
-          w={104}
-          style={{ flexShrink: 0 }}
-        >
-          {running ? (stopping ? 'Stopping…' : 'Cancel') : 'Run'}
-        </Button>
-        <Button size="compact-xs" variant="default" leftSection={I.eye} disabled={running || !validation.ok} onClick={onExplain} style={{ flexShrink: 0 }}>
-          Explain
-        </Button>
+        <Menu position="bottom-start" shadow="md">
+          <Menu.Target>
+            <Button size="compact-xs" variant="default" leftSection={I.save} rightSection={I.chevD} style={{ flexShrink: 0 }}>
+              Save
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item onClick={() => void onSave()} disabled={running || !state.dirty}>
+              Save
+            </Menu.Item>
+            <Menu.Item onClick={onSaveAs} disabled={running}>
+              Save as…
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+
+        <div style={{ flex: 1 }} />
+
+        <Tooltip label={explainTip} withArrow>
+          <Button
+            size="compact-xs"
+            variant="default"
+            leftSection={I.eye}
+            {...submittingProps(explainBlocked)}
+            onClick={onExplain}
+            style={{ flexShrink: 0 }}
+          >
+            Explain
+          </Button>
+        </Tooltip>
         <Menu position="bottom-end" shadow="md">
           <Menu.Target>
-            {/* The output panel has its own "Copy"; the name says which. */}
+            {/* The preview has its own "Copy"; the name says which. */}
             <Button
               size="compact-xs"
               variant="default"
               leftSection={I.copy}
+              rightSection={I.chevD}
               disabled={!validation.ok}
               aria-label="Copy pipeline"
               style={{ flexShrink: 0 }}
@@ -732,36 +882,55 @@ export function AggregationTab({
             ))}
           </Menu.Dropdown>
         </Menu>
+        {/* The view's only filled button. */}
+        <Tooltip label={runTip} withArrow>
+          <Button
+            size="compact-xs"
+            variant="filled"
+            leftSection={running ? I.close : I.play}
+            // The glyphs fit the fixed width; "Ctrl+Enter" would not, so off a
+            // Mac the shortcut is the tooltip's alone.
+            rightSection={
+              running || !mac ? undefined : <span aria-hidden="true" style={{ opacity: 0.7 }}>{runShortcut}</span>
+            }
+            disabled={stopping}
+            {...submittingProps(runBlocked)}
+            onClick={running ? onCancelRun : onRun}
+            // Wide enough for "Stopping…", so Run becoming Cancel moves nothing.
+            w={104}
+            style={{ flexShrink: 0 }}
+          >
+            {running ? (stopping ? 'Stopping…' : 'Cancel') : 'Run'}
+          </Button>
+        </Tooltip>
       </Group>
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <PipelineOutline
-          stages={stages}
-          activeId={state.activeStageId}
-          collection={collection}
-          stageCounts={state.lastRun?.stageCounts ?? {}}
-          staleStageIds={staleStageIds}
-          outputCount={outputCount}
-          outputStale={outputStale}
-          darkMode={darkMode}
-          onSelect={onSelectStage}
-        />
-
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', overflow: 'hidden', minHeight: 0 }}>
+        <section
+          aria-label="Stages"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            minWidth: 0,
+            ...(stacked ? { flex: 1 } : { width: stagesWidth, flexShrink: 0 }),
+          }}
+        >
           <StageAccordion
             stages={stages}
             activeId={state.activeStageId}
             collection={collection}
             sourceCount={sourceCount}
             outputCount={outputCount}
-            stageCounts={state.lastRun?.stageCounts ?? {}}
-            stageSamples={state.lastRun?.stageSamples ?? {}}
+            outputStale={outputStale}
+            stageCounts={stageCounts}
             staleStageIds={staleStageIds}
             previewLoading={previewLoading}
             darkMode={darkMode}
             suggestionContext={suggestionContext}
             onAdd={onAddStage}
             onToggleActive={onSelectStage}
+            onSelect={onSelect}
             onToggleEnabled={onToggleEnabled}
             onChangeOp={onChangeOp}
             onBodyChange={onSetBody}
@@ -771,24 +940,44 @@ export function AggregationTab({
             onRemove={onRemoveStage}
             onDuplicate={onDuplicateStage}
             onRunToStage={onRunToStage}
-            onRefreshPreview={onRunToStage}
           />
+        </section>
 
-          <OutputPanel
-            height={state.outputHeight}
-            view={state.outputView}
-            lastRun={state.lastRun}
-            running={running}
-            pipelineName={state.name ?? null}
-            onHeightChange={onHeightChange}
-            onHeightCommit={onHeightCommit}
-            onViewChange={onViewChange}
-            onSaveAsCollection={onSaveAsCollection}
-            onSaveAsView={onSaveAsView}
-            onRun={onRun}
-            canRun={validation.ok}
+        {!stacked && (
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label="Resize stages column"
+            aria-valuenow={stagesWidth}
+            aria-valuemin={STAGES_MIN_PX}
+            aria-valuemax={stagesMaxPx()}
+            className="resize-separator"
+            onMouseDown={onStagesDividerDown}
+            onKeyDown={onStagesDividerKey}
+            style={{ width: 5, flexShrink: 0, cursor: 'ew-resize', background: T.border }}
           />
-        </div>
+        )}
+
+        <OutputPanel
+          stacked={stacked}
+          onToggleStacked={narrow ? undefined : () => setStackChoice((v) => !v)}
+          height={state.outputHeight}
+          view={state.outputView}
+          lastRun={state.lastRun}
+          outputStale={outputStale}
+          running={running}
+          pipelineName={state.name ?? null}
+          stage={previewStage}
+          onRunToStage={(id) => void onRunToStage(id)}
+          onHeightChange={onHeightChange}
+          onHeightCommit={onHeightCommit}
+          onViewChange={onViewChange}
+          onSaveAsCollection={onSaveAsCollection}
+          onSaveAsView={onSaveAsView}
+          onRun={onRun}
+          runBlockedReason={blockedReason}
+        />
       </div>
 
       {writeWarning && (

@@ -1,6 +1,6 @@
 # A05 — Pipeline output panel
 
-> **Status: Accepted.** §1–§6 shipped. §7 is agreed and not built yet: the panel becomes the preview column of [A01 §9](./A01-aggregation-shell.md), and its Copy, Save as…, Save as view… and Download become one `Export results ▾` menu.
+> **Status: Implemented.** §1–§6 shipped. §7 is built: the panel is the preview column of [A01 §9](./A01-aggregation-shell.md), and its Copy, Save as…, Save as view… and Download are one `Export results ▾` menu, which acts on the full pipeline output whatever stage is selected.
 
 ## Purpose
 
@@ -82,7 +82,7 @@ The empty, not-run and failed states are the W06 pane states (`PaneState`), each
 
 ## 7. Amendment — the preview column and one Export menu
 
-> **Accepted, not built.** The design is [A01 §9.4](./A01-aggregation-shell.md).
+> The design is [A01 §9.4](./A01-aggregation-shell.md).
 
 - The panel is the **preview column**, beside the stages rather than under them; stacked under them below 1100px or by its toggle. In the stacked arrangement §2's drag handle and `outputHeight` apply as before; side by side, the divider between the columns is what resizes.
 - It shows the selected stage's output or the full run's (A01 §9.4). §4's states (not run, running, empty, error) apply to whichever is shown.

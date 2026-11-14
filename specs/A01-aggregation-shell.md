@@ -1,6 +1,6 @@
 # A01 — Aggregation shell + tab routing
 
-> **Status: Accepted.** §1–§8 shipped, with Aggregation as a sub-view of the collection tab, not a tab of its own. §9, the side-by-side layout (a stages column and a preview column, no outline, one Export menu), is agreed and not built yet; where it names a part of §2 or §4, §9 is what ships.
+> **Status: Implemented.** §1–§8 shipped, with Aggregation as a sub-view of the collection tab, not a tab of its own. §9, the side-by-side layout (a stages column and a preview column, no outline, one Export menu), is built; where it names a part of §2 or §4, §9 is what ships. The stack toggle's choice and the stages column's width are not tab state: they reset when the view remounts.
 
 ## Purpose
 
@@ -124,7 +124,7 @@ If `dirty: true` and user closes via `×` or `⌘W`:
 
 ## 9. Amendment — stages beside their preview
 
-> **Accepted, not built.** It supersedes §2's layout and the placement of §4's actions. The runner, save and explain behaviour (§4, A04, A06) is unchanged.
+> It supersedes §2's layout and the placement of §4's actions. The runner, save and explain behaviour (§4, A04, A06) is unchanged.
 
 The shipped view had a 200px outline that repeated the canvas beside it, a second toolbar with its own Save / Save as / Run / Explain / Copy, and an output panel with another "Save as…" and "Save as view…": two "Save as" with different meanings. With no stages, Run was disabled and nothing said why.
 

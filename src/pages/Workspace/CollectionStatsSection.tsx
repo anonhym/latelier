@@ -1,6 +1,4 @@
-import { Button } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
-import { I } from '../../icons';
 import type { CollectionDetails } from '@shared/ipc';
 import { humanBytes } from '../../utils/humanBytes';
 
@@ -8,16 +6,15 @@ interface Props {
   details: CollectionDetails | null;
   error: string | null;
   loading: boolean;
-  onRefresh: () => void;
 }
 
 /**
- * Structure's statistics header (W16 §13): one collection's counts and sizes,
+ * Schema & indexes' stat strip (W16 §16.3): one collection's counts and sizes,
  * from the `meta:collectionDetails` read StructureView owns. Natural height and
  * `flex: 'none'` like its siblings, because StructureView's single scroller
  * sizes them (see StructureView's comment).
  */
-export function CollectionStatsSection({ details, error, loading, onRefresh }: Props) {
+export function CollectionStatsSection({ details, error, loading }: Props) {
   const T = themeVars;
   const stats = details?.stats;
   const size = (n: number | undefined) => (n === undefined ? '—' : humanBytes(n));
@@ -27,30 +24,6 @@ export function CollectionStatsSection({ details, error, loading, onRefresh }: P
       aria-label="Statistics"
       style={{ flex: 'none', display: 'flex', flexDirection: 'column', overflow: 'visible' }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: themeVars.gapSm,
-          padding: '10px 16px',
-          borderBottom: `1px solid ${T.border}`,
-          background: T.surface,
-          fontSize: T.fsSm,
-        }}
-      >
-        <div style={{ flex: 1, fontWeight: 600, color: T.text }}>Statistics</div>
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          aria-label="Refresh statistics"
-          onClick={onRefresh}
-          leftSection={I.sync}
-          disabled={loading}
-        >
-          Refresh
-        </Button>
-      </div>
-
       {error && (
         <div
           role="alert"
@@ -81,30 +54,50 @@ export function CollectionStatsSection({ details, error, loading, onRefresh }: P
           style={{
             display: 'flex',
             flexWrap: 'wrap',
-            gap: `${themeVars.gapSm} ${themeVars.gapXl}`,
+            gap: T.gapSm,
             padding: '10px 16px',
             borderBottom: `1px solid ${T.border}`,
-            fontSize: T.fsSm,
           }}
         >
-          <Figure label="Documents" value={stats.documentCount?.toLocaleString() ?? '—'} />
-          <Figure label="Data size" value={size(stats.sizeBytes)} />
-          <Figure label="Storage size" value={size(stats.storageSizeBytes)} />
-          <Figure label="Avg. document size" value={size(stats.avgObjSizeBytes)} />
-          <Figure label="Indexes" value={`${stats.indexCount ?? '—'} · ${size(stats.totalIndexSizeBytes)}`} />
-          <Figure label="Capped" value={details.capped ? 'Yes' : 'No'} />
+          <Tile label="Documents" value={stats.documentCount?.toLocaleString() ?? '—'} />
+          <Tile label="Data size" value={size(stats.sizeBytes)} />
+          <Tile label="Storage" value={size(stats.storageSizeBytes)} />
+          <Tile label="Avg document" value={size(stats.avgObjSizeBytes)} />
+          <Tile label="Indexes" value={indexesFigure(stats.indexCount, stats.totalIndexSizeBytes)} />
+          {details.capped && <Tile label="Capped" value="Yes" />}
         </div>
       )}
     </section>
   );
 }
 
-function Figure({ label, value }: { label: string; value: string }) {
+function indexesFigure(count: number | undefined, bytes: number | undefined): string {
+  if (count === undefined && bytes === undefined) return '—';
+  return `${count ?? '—'} · ${bytes === undefined ? '—' : humanBytes(bytes)}`;
+}
+
+/** A 64px tile: a 13px label over an 18px value (W16 §16.3). */
+function Tile({ label, value }: { label: string; value: string }) {
   const T = themeVars;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapXs }}>
-      <span style={{ color: T.textMuted, fontSize: T.fsXs }}>{label}</span>
-      <span style={{ color: T.text, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    <div
+      style={{
+        height: 64,
+        boxSizing: 'border-box',
+        minWidth: 110,
+        flex: '1 1 110px',
+        padding: '8px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        border: `1px solid ${T.border}`,
+        borderRadius: T.rs,
+        background: T.surface,
+      }}
+    >
+      <span style={{ color: T.textMuted, fontSize: T.fsMd }}>{label}</span>
+      {/* eslint-disable-next-line no-restricted-syntax -- W16 §16.3 sets the value at 18px; no token is that size */}
+      <span style={{ color: T.text, fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
   );
 }
