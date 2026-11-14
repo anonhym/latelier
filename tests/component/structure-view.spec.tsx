@@ -1101,7 +1101,8 @@ describe('Structure view — header count across view switches', () => {
     const callsBefore = collectionDetails.mock.calls.length;
 
     await userEvent.click(screen.getByRole('tab', { name: /Aggregation/i }));
-    await screen.findByRole('button', { name: /Add stage/ });
+    // An empty pipeline offers starter chips rather than an Add stage button.
+    await screen.findByText('Add a first stage');
     await userEvent.click(screen.getByRole('tab', { name: /Documents/i }));
     await screen.findByTestId('query-bar-input');
     await new Promise((r) => setTimeout(r, 50));
