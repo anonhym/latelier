@@ -39,6 +39,7 @@ export function ResultBar({ references }: ResultBarProps = {}) {
   const { state, actions, meta } = useCollectionWorkspace();
   const docCount = state.lastRun?.documents.length ?? null;
   const view = state.view;
+  const canonicalJson = state.jsonDisplay === 'canonical';
   const isReadOnly = !!meta.isReadOnly;
   // A view runs queries but takes no writes.
   const isView = !!meta.isView;
@@ -127,7 +128,7 @@ export function ResultBar({ references }: ResultBarProps = {}) {
         {/* Bulk and data actions on the result set. `⋯`, not "Documents": that
             was also the name of the view it sat in. Hidden for read-only
             consumers so there's nothing to short-circuit at the leaf. */}
-        {!isReadOnly && (
+        {(!isReadOnly || view === 'JSON') && (
           <Menu position="bottom-end" shadow="md" width={210}>
             <Tooltip label="More actions" withArrow>
               <Menu.Target>
@@ -137,7 +138,20 @@ export function ResultBar({ references }: ResultBarProps = {}) {
               </Menu.Target>
             </Tooltip>
             <Menu.Dropdown>
-              {!isView && (
+              {/* Display only (W06 §8.11): how the JSON cards write a document, per tab. */}
+              {view === 'JSON' && (
+                <>
+                  <Menu.Label>Display</Menu.Label>
+                  <Menu.Item
+                    data-checked={canonicalJson}
+                    rightSection={canonicalJson ? I.check : undefined}
+                    onClick={() => actions.patch({ jsonDisplay: canonicalJson ? 'shell' : 'canonical' })}
+                  >
+                    Canonical EJSON
+                  </Menu.Item>
+                </>
+              )}
+              {!isReadOnly && !isView && (
                 <>
                   <Menu.Label>Bulk actions</Menu.Label>
                   <Menu.Item leftSection={I.edit} onClick={() => actions.openUpdateAll()}>
@@ -148,21 +162,25 @@ export function ResultBar({ references }: ResultBarProps = {}) {
                   </Menu.Item>
                 </>
               )}
-              <Menu.Label>Data</Menu.Label>
-              <Menu.Item
-                leftSection={I.download}
-                disabled={docCount === null || docCount === 0}
-                onClick={() => setExportOpen(true)}
-              >
-                Export…
-              </Menu.Item>
-              {!isView && (
-                <Menu.Item leftSection={I.upload} onClick={() => setImportOpen(true)}>
-                  Import…
-                </Menu.Item>
+              {!isReadOnly && (
+                <>
+                  <Menu.Label>Data</Menu.Label>
+                  <Menu.Item
+                    leftSection={I.download}
+                    disabled={docCount === null || docCount === 0}
+                    onClick={() => setExportOpen(true)}
+                  >
+                    Export…
+                  </Menu.Item>
+                  {!isView && (
+                    <Menu.Item leftSection={I.upload} onClick={() => setImportOpen(true)}>
+                      Import…
+                    </Menu.Item>
+                  )}
+                </>
               )}
               {/* X13 §13: while this collection's newest undo is still held. */}
-              {undo && (
+              {!isReadOnly && undo && (
                 <>
                   <Menu.Divider />
                   <Menu.Item

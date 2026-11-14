@@ -197,4 +197,33 @@ describe('tokenizeJson', () => {
       ]);
     });
   });
+
+  describe('shell form', () => {
+    const shell = (text: string) => tokenizeJson(text, { shell: true });
+
+    it('reads a bare word before a colon as a key and a call name as a constructor', () => {
+      expect(shell('{ _id: ObjectId("a") }').filter((t) => t.kind !== 'punct')).toEqual([
+        { kind: 'key', text: '_id' },
+        { kind: 'ctor', text: 'ObjectId' },
+        { kind: 'string', text: '"a"' },
+      ]);
+    });
+
+    it('keeps true, false and null as literals', () => {
+      expect(shell('{ a: true, b: false, c: null }').filter((t) => t.kind === 'boolean' || t.kind === 'null'))
+        .toEqual([
+          { kind: 'boolean', text: 'true' },
+          { kind: 'boolean', text: 'false' },
+          { kind: 'null', text: 'null' },
+        ]);
+    });
+
+    it('sees a key even with whitespace before the colon, and digits and $ inside a name', () => {
+      expect(shell('{ a1$  : 1 }').find((t) => t.kind === 'key')).toEqual({ kind: 'key', text: 'a1$' });
+    });
+
+    it('is off by default: a bare word is not a token in JSON mode', () => {
+      expect(tokenizeJson('{ a: 1 }').some((t) => t.kind === 'ctor')).toBe(false);
+    });
+  });
 });

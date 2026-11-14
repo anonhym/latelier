@@ -905,6 +905,11 @@ export interface CollectionTabState {
    * the Filter Bar row instead of as pills. Per tab, and off unless set.
    */
   optionsExpanded?: boolean;
+  /**
+   * How the JSON view writes a document: shell form (`ObjectId("…")`, the
+   * default) or Canonical EJSON. Display only; copying has its own format.
+   */
+  jsonDisplay?: 'shell' | 'canonical';
   /** Persisted reference-drawer stack; restored when the user revisits this tab. */
   referenceDrawer?: PersistedDrawerState;
   /** Aggregation sub-view state. Lazily populated when the user opens it. */

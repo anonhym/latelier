@@ -1,8 +1,10 @@
 const NUMBER_CHAR_RE = /[0-9eE+\-.]/u;
 const LOWER_ALPHA_RE = /[a-z]/u;
 const WHITESPACE_RE = /\s/u;
+const IDENT_START_RE = /[A-Za-z_$]/u;
+const IDENT_CHAR_RE = /[A-Za-z0-9_$]/u;
 
-export type TokenKind = 'key' | 'string' | 'number' | 'boolean' | 'null' | 'punct';
+export type TokenKind = 'key' | 'string' | 'number' | 'boolean' | 'null' | 'punct' | 'ctor';
 
 export interface Token {
   kind: TokenKind;
@@ -13,7 +15,7 @@ export interface Token {
  * Tiny JSON tokenizer. Returns an array of tokens with semantic kinds.
  * No external dependencies — hand-rolled state machine.
  */
-export function tokenizeJson(json: string): Token[] {
+export function tokenizeJson(json: string, options: { shell?: boolean } = {}): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   const len = json.length;
@@ -100,6 +102,21 @@ export function tokenizeJson(json: string): Token[] {
       tokens.push({ kind: 'punct', text: c });
       i++;
       expectValue = true;
+      continue;
+    }
+
+    // Shell form (`{ name: ObjectId("…") }`): a bare word is a key before a
+    // colon, `true`/`false`/`null` as ever, and otherwise a constructor name.
+    // Opt-in, so JSON input keeps the exact tokens it always had.
+    if (options.shell && IDENT_START_RE.test(c)) {
+      let word = '';
+      while (i < len && IDENT_CHAR_RE.test(json[i] ?? '')) word += json[i++];
+      let j = i;
+      while (j < len && WHITESPACE_RE.test(json[j] ?? '')) j++;
+      if (word === 'true' || word === 'false') tokens.push({ kind: 'boolean', text: word });
+      else if (word === 'null') tokens.push({ kind: 'null', text: word });
+      else tokens.push({ kind: json[j] === ':' ? 'key' : 'ctor', text: word });
+      expectValue = false;
       continue;
     }
 

@@ -7,11 +7,11 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { I } from '../../../icons';
-import { ejsonStringifyReadable } from '../../../utils/ejson';
+import { ejsonStringify } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
-import { COPY_ACTION_LABELS, formatDocsForCopy } from '../../../utils/copyFormat';
+import { COPY_ACTION_LABELS, formatDocsForCopy, toMongoshLiteral } from '../../../utils/copyFormat';
 import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useCollectionWorkspace } from '../context';
@@ -52,6 +52,7 @@ function tokenColor(kind: TokenKind): string {
     case 'number':  return 'var(--atelier-color-number)';
     case 'boolean': return 'var(--atelier-color-boolean)';
     case 'null':    return 'var(--atelier-text-ghost)';
+    case 'ctor':    return 'var(--atelier-color-number)';
     case 'punct':   return 'var(--atelier-text-muted)';
     default:        return 'var(--atelier-text)';
   }
@@ -186,6 +187,7 @@ export function HighlightedJson({
   collapsedKeys,
   onToggle,
   tabIndex = 0,
+  shell = false,
 }: {
   json: string;
   docKey: string;
@@ -193,8 +195,10 @@ export function HighlightedJson({
   onToggle: (key: string) => void;
   /** `-1` takes the collapse toggles out of the Tab order (a JSON card that is not the roving row). */
   tabIndex?: number;
+  /** The text is shell form (`ObjectId("…")`, unquoted keys), not JSON. */
+  shell?: boolean;
 }) {
-  const tree = React.useMemo(() => buildJsonTree(tokenizeJson(json)), [json]);
+  const tree = React.useMemo(() => buildJsonTree(tokenizeJson(json, { shell })), [json, shell]);
 
   return (
     <pre
@@ -264,18 +268,27 @@ function DocCard({
   onEdit,
   onOpenRowMenu,
 }: DocCardProps) {
-  const isView = !!useCollectionWorkspace().meta.isView;
+  const { state, meta } = useCollectionWorkspace();
+  const isView = !!meta.isView;
+  const canonical = state.jsonDisplay === 'canonical';
   const buttonTabIndex = isTabStop ? undefined : -1;
   const [copyFormat] = useCopyFormat();
   const copyLabel = COPY_ACTION_LABELS[copyFormat];
   const json = React.useMemo(() => {
     const visible = redactHidden(doc, hiddenFields);
     try {
-      return ejsonStringifyReadable(visible, 2);
+      return canonical ? ejsonStringify(visible, 2) : toMongoshLiteral(visible);
     } catch {
       return JSON.stringify(visible, null, 2);
     }
-  }, [doc, hiddenFields]);
+  }, [doc, hiddenFields, canonical]);
+
+  // The card's actions show on hover, on focus within it and on the active
+  // card (W06 §8.11), and stay for a selected one. Hidden by opacity alone, so
+  // their space stays reserved and Tab still reaches them.
+  const [hovered, setHovered] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
+  const actionsVisible = hovered || focusWithin || isActive || isSelected;
 
   // A plain click makes this the active card, so the next Arrow key moves
   // on from it. It does not touch selection — toggling on a plain click
@@ -312,8 +325,14 @@ function DocCard({
       role="treeitem"
       tabIndex={-1}
       onFocus={(e) => {
+        setFocusWithin(true);
         if (e.target === e.currentTarget) e.currentTarget.closest<HTMLElement>('[role="tree"]')?.focus();
       }}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setFocusWithin(false);
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       aria-label={`Document ${idx + 1}`}
       style={{
         border: `1px solid ${isSelected ? 'var(--atelier-accent-border)' : 'var(--atelier-border)'}`,
@@ -326,7 +345,17 @@ function DocCard({
         outlineOffset: isActive ? '-2px' : undefined,
       }}
     >
-      <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 'var(--atelier-gap-xs)' }}>
+      <div
+        data-testid="json-card-actions"
+        style={{
+          position: 'absolute',
+          top: 6,
+          right: 6,
+          display: 'flex',
+          gap: 'var(--atelier-gap-xs)',
+          opacity: actionsVisible ? 1 : 0,
+        }}
+      >
         <SelectToggle
           selected={isSelected}
           docLabel={getDocId(doc)}
@@ -388,6 +417,7 @@ function DocCard({
         collapsedKeys={collapsedKeys}
         onToggle={onToggleCollapse}
         tabIndex={buttonTabIndex ?? 0}
+        shell={!canonical}
       />
     </div>
   );
