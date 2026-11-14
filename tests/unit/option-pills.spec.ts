@@ -201,6 +201,7 @@ describe('runProblem', () => {
     expect(runProblem(query({}, '{ a: b }'))).toEqual({
       clause: 'filter',
       message: expect.stringMatching(/^Line 1, column 6: /),
+      range: { start: 5, end: 6 },
     });
     expect(runProblem(query({ sort: '{ a: b }' }))).toEqual({
       clause: 'sort',

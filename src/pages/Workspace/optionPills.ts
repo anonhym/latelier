@@ -1,6 +1,6 @@
 import type { CollectionTabState } from '@shared/types';
 import { ejsonParse } from '../../utils/ejson';
-import { refusalMessage, repairToCanonicalEjson } from '../../utils/shellSyntax';
+import { refusalMessage, refusalRange, repairToCanonicalEjson } from '../../utils/shellSyntax';
 import {
   compileFindOptions,
   filterProblem,
@@ -168,6 +168,8 @@ export function splitPills(
 export interface RunProblem {
   clause: 'filter' | OptionKey;
   message: string;
+  /** Where in the filter text the parser points, when it does (W05 §9.3). */
+  range?: { start: number; end: number };
 }
 
 /**
@@ -178,7 +180,10 @@ export interface RunProblem {
 export function runProblem(state: QueryText): RunProblem | null {
   const { builder } = state;
   const filter = clauseProblem(state.queryRaw, filterProblem);
-  if (filter !== null) return { clause: 'filter', message: filter };
+  if (filter !== null) {
+    const range = refusalRange(state.queryRaw, repairToCanonicalEjson(state.queryRaw));
+    return range ? { clause: 'filter', message: filter, range } : { clause: 'filter', message: filter };
+  }
   const sort = clauseProblem(builder.sort, sortProblem);
   if (sort !== null) return { clause: 'sort', message: sort };
   const projection = projectionProblem(builder);

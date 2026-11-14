@@ -1,6 +1,6 @@
 # W05 — Query bar + bidirectional MQL sync
 
-> **Status: Accepted.** §1–§8 shipped; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). §9, the Filter Bar row with option pills, the error strip, run feedback and the Inspector, is agreed and not built yet; where it names a part of §2 or §6, §9 is what ships.
+> **Status: Implemented.** §1–§9 shipped; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). Where §9 names a part of §2 or §6, §9 is what ships.
 
 > **Partly superseded by [W13](./W13-filter-tree-editor.md).** W13 makes the
 > filter text canonical and the drawer a view of it, which removes the sync

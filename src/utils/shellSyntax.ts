@@ -234,6 +234,21 @@ export function refusalMessage(text: string, outcome: RepairOutcome): string | n
   return `Line ${line}, column ${column}: ${outcome.reason}`;
 }
 
+/**
+ * W05 §9.3 — the span of `text` a `failed` outcome points at, for the editor to
+ * underline: from `index` to the end of the token there. A punctuation
+ * character is its own one-character token, and an index at the end of the
+ * text (an unterminated value) is drawn on the last character instead.
+ */
+export function refusalRange(text: string, outcome: RepairOutcome): { start: number; end: number } | null {
+  if (outcome.kind !== 'failed' || outcome.index === undefined || text.trim() === '') return null;
+  let start = Math.min(outcome.index, text.trimEnd().length - 1);
+  // The parser can point at the gap before the token (`{a: 1} junk` points at the space).
+  while (/\s/.test(text.charAt(start))) start++;
+  const word = /^[^\s,:{}[\]()]+/.exec(text.slice(start));
+  return { start, end: start + (word ? word[0].length : 1) };
+}
+
 function walk(node: AnyNode, text: string, edits: Edit[]): void {
   switch (node.type) {
     case 'ObjectExpression': {
