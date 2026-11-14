@@ -92,7 +92,7 @@ describe('StructureView — indexes above schema, one pane', () => {
     expect(screen.getByText('sku')).toBeTruthy();
   });
 
-  it('Refresh re-samples the schema', async () => {
+  it('Resample re-samples the schema, and is the only control that does', async () => {
     const sampleSchema = vi.fn(async () => ({ docs: [{ sku: 'a' }] }));
     installAtelierMock({
       index: { list: async () => [] },
@@ -105,10 +105,7 @@ describe('StructureView — indexes above schema, one pane', () => {
     await waitFor(() => expect(screen.getByText('sku')).toBeTruthy());
     expect(sampleSchema).not.toHaveBeenCalled();
 
-    // Both sections have a "Refresh" button — the indexes one first, then
-    // the schema one (indexes stacked above schema).
-    const refreshButtons = screen.getAllByRole('button', { name: 'Refresh' });
-    await userEvent.click(refreshButtons[refreshButtons.length - 1]!);
+    await userEvent.click(screen.getByRole('button', { name: 'Resample' }));
 
     await waitFor(() => expect(sampleSchema).toHaveBeenCalledTimes(1));
   });
@@ -174,7 +171,22 @@ describe('StructureView — statistics section', () => {
     expect(within(stats).getByText('4.0 KB')).toBeTruthy();
     expect(within(stats).getByText('512 B')).toBeTruthy();
     expect(within(stats).getByText('2 · 8.0 KB')).toBeTruthy();
-    expect(within(stats).getByText('No')).toBeTruthy();
+    expect(['Documents', 'Data size', 'Storage', 'Avg document', 'Indexes'].every((l) => within(stats).queryByText(l))).toBe(true);
+    // Capped is shown only for a capped collection.
+    expect(within(stats).queryByText('Capped')).toBeNull();
+  });
+
+  it('adds a Capped tile for a capped collection', async () => {
+    installAtelierMock({
+      index: { list: async () => [] },
+      meta: { collectionDetails: async () => ({ ...DETAILS, capped: true }), sampleSchema: async () => ({ docs: [] }) },
+    });
+
+    renderStructure();
+
+    const stats = await screen.findByRole('region', { name: 'Statistics' });
+    expect(await within(stats).findByText('Capped')).toBeTruthy();
+    expect(within(stats).getByText('Yes')).toBeTruthy();
   });
 
   it('shows a dash for a size the server did not report', async () => {
@@ -404,18 +416,200 @@ describe('StructureView — statistics section', () => {
     expect(within(stats).queryByText('42')).toBeNull();
   });
 
-  it('Refresh fetches the details again', async () => {
+  it('has exactly one Refresh; it reloads statistics, indexes and validation and does not sample', async () => {
     const collectionDetails = vi.fn(async () => DETAILS);
+    const list = vi.fn(async () => [ID_INDEX]);
+    const sampleSchema = vi.fn(async () => ({ docs: [] }));
+    installAtelierMock({ index: { list }, meta: { collectionDetails, sampleSchema } });
+
+    const entries: SchemaSampleEntry[] = [{ path: 'sku', frequency: 1, types: { string: 3 } }];
+    renderStructure({ ...DEFAULT_SCHEMA_TAB_STATE, entries, sampledCount: 3, ranAt: '2026-04-21T00:00:00.000Z' });
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    expect(collectionDetails).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole('button', { name: /refresh/i })).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() => expect(collectionDetails).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(sampleSchema).not.toHaveBeenCalled();
+  });
+
+  it('labels the schema button Sample before a sample and Resample after', async () => {
     installAtelierMock({
       index: { list: async () => [] },
-      meta: { collectionDetails, sampleSchema: async () => ({ docs: [] }) },
+      meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
     });
 
-    renderStructure();
+    const { rerender } = renderStructure({ ...DEFAULT_SCHEMA_TAB_STATE, entries: [] });
+    expect(await screen.findByRole('button', { name: 'Sample' })).toBeTruthy();
+    expect(screen.getByText('Click Sample to sample documents.')).toBeTruthy();
 
-    await waitFor(() => expect(collectionDetails).toHaveBeenCalledTimes(1));
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh statistics' }));
-    await waitFor(() => expect(collectionDetails).toHaveBeenCalledTimes(2));
+    rerender(
+      <StructureView
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        state={{ ...DEFAULT_SCHEMA_TAB_STATE, entries: [], ranAt: '2026-04-21T00:00:00.000Z' }}
+        onPatch={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole('button', { name: 'Resample' })).toBeTruthy();
+  });
+});
+
+describe('StructureView — section pills', () => {
+  const sampled = {
+    ...DEFAULT_SCHEMA_TAB_STATE,
+    entries: [
+      { path: 'sku', frequency: 1, types: { string: 3 } },
+      { path: 'qty', frequency: 0.5, types: { int: 3 } },
+    ] as SchemaSampleEntry[],
+    sampledCount: 3,
+    ranAt: '2026-04-21T00:00:00.000Z',
+  };
+
+  it('names the sections with their counts, in the order Indexes, Schema, Validation', async () => {
+    installAtelierMock({
+      index: { list: async () => [ID_INDEX] },
+      meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
+    });
+
+    renderStructure(sampled);
+
+    const nav = await screen.findByRole('navigation', { name: 'Sections' });
+    await waitFor(() => expect(within(nav).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Indexes 2',
+      'Schema 2 fields',
+      'Validation',
+    ]));
+    const [indexes, schema, validation] = ['Indexes', 'Schema', 'Validation'].map((n) => screen.getByRole('region', { name: n }));
+    expect(indexes!.compareDocumentPosition(schema!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(schema!.compareDocumentPosition(validation!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('jumps to a section and marks its pill', async () => {
+    const scrolled: Element[] = [];
+    const proto = HTMLElement.prototype as { scrollIntoView?: (arg?: unknown) => void };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      installAtelierMock({
+        index: { list: async () => [] },
+        meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
+      });
+      renderStructure(sampled);
+
+      const nav = await screen.findByRole('navigation', { name: 'Sections' });
+      const indexesPill = await within(nav).findByRole('button', { name: /^Indexes/ });
+      expect(indexesPill.getAttribute('aria-current')).toBe('true');
+
+      await userEvent.click(within(nav).getByRole('button', { name: /^Schema/ }));
+
+      expect(scrolled).toContain(screen.getByRole('region', { name: 'Schema' }));
+      expect(within(nav).getByRole('button', { name: /^Schema/ }).getAttribute('aria-current')).toBe('true');
+      expect(indexesPill.getAttribute('aria-current')).toBeNull();
+    } finally {
+      proto.scrollIntoView = original;
+    }
+  });
+
+  it('offers no Validation pill for a view', async () => {
+    installAtelierMock({
+      index: { list: async () => [] },
+      meta: {
+        collectionDetails: async () => ({ name: 'orders', type: 'view' as const, capped: false, options: { viewOn: 'src', pipeline: '[]' } }),
+        sampleSchema: async () => ({ docs: [] }),
+      },
+    });
+    renderStructure(sampled);
+
+    const nav = await screen.findByRole('navigation', { name: 'Sections' });
+    await within(nav).findByRole('button', { name: /^Schema/ });
+    expect(within(nav).queryByRole('button', { name: 'Validation' })).toBeNull();
+  });
+});
+
+describe('StructureView — schema rows', () => {
+  const entries: SchemaSampleEntry[] = [
+    { path: 'items', frequency: 1, types: { array: 1 } },
+    { path: 'items.qty', frequency: 0.5, types: { int: 1 } },
+    { path: 'sku', frequency: 0, types: { string: 1 } },
+  ];
+  const state = { ...DEFAULT_SCHEMA_TAB_STATE, entries, sampledCount: 2, ranAt: '2026-04-21T00:00:00.000Z' };
+  const mock = (type: 'collection' | 'view' = 'collection') =>
+    installAtelierMock({
+      index: { list: async () => [] },
+      meta: {
+        collectionDetails: async () =>
+          type === 'view'
+            ? { name: 'orders', type, capped: false, options: { viewOn: 'src', pipeline: '[]' } }
+            : DETAILS,
+        sampleSchema: async () => ({ docs: [] }),
+      },
+    });
+
+  it('indents a nested field by depth and names it by its last segment', async () => {
+    mock();
+    renderStructure(state);
+
+    const qty = await screen.findByText('qty');
+    expect(qty.getAttribute('title')).toBe('items.qty');
+    expect(screen.queryByText('items.qty')).toBeNull();
+    const pad = (el: HTMLElement) => Number.parseInt(el.closest('td')!.style.paddingLeft, 10);
+    expect(pad(qty)).toBeGreaterThan(pad(screen.getByText('items')));
+  });
+
+  it('draws the frequency as a bar at 0, 50 and 100% with the percentage beside it', async () => {
+    mock();
+    renderStructure(state);
+
+    await screen.findByText('qty');
+    expect(screen.getAllByTestId('frequency-bar').map((b) => b.style.width)).toEqual(['100%', '50%', '0%']);
+    expect(screen.getByText('50%')).toBeTruthy();
+  });
+
+  it('offers Filter by this field and Create index on this field from a row menu', async () => {
+    mock();
+    const onFilterField = vi.fn();
+    render(
+      <StructureView
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        state={state}
+        onPatch={vi.fn()}
+        onFilterField={onFilterField}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for items.qty' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Filter by this field' }));
+    expect(onFilterField).toHaveBeenCalledWith('items.qty');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for items.qty' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Create index on this field' }));
+    expect(await screen.findByDisplayValue('items.qty')).toBeTruthy();
+  });
+
+  it('offers no index creation on a view or a Read-Only Connection', async () => {
+    mock('view');
+    const { unmount } = render(
+      <StructureView connectionId="c1" dbName="shop" collection="orders" state={state} onPatch={vi.fn()} />,
+    );
+    await screen.findByText('qty');
+    expect(screen.queryByRole('button', { name: /^Actions for/ })).toBeNull();
+    unmount();
+
+    mock();
+    render(
+      <StructureView connectionId="c1" dbName="shop" collection="orders" state={state} onPatch={vi.fn()} readOnly />,
+    );
+    await screen.findByText('qty');
+    expect(screen.queryByRole('button', { name: /^Actions for/ })).toBeNull();
   });
 });
 
@@ -423,7 +617,7 @@ describe('StructureView — validation rules', () => {
   const RULES = '{"$jsonSchema":{"required":["name"]}}';
   const withRules = (options: CollectionDetails['options']): CollectionDetails => ({ ...DETAILS, options });
 
-  it('renders a Validation region between the indexes and the schema', async () => {
+  it('renders the Validation region after the indexes and the schema', async () => {
     installAtelierMock({
       index: { list: async () => [] },
       meta: { collectionDetails: async () => withRules({ validator: RULES }), sampleSchema: async () => ({ docs: [] }) },
@@ -434,8 +628,8 @@ describe('StructureView — validation rules', () => {
     const validation = await screen.findByRole('region', { name: 'Validation' });
     const indexes = screen.getByRole('region', { name: 'Indexes' });
     const schema = screen.getByLabelText('Sample size');
-    expect(indexes.compareDocumentPosition(validation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(validation.compareDocumentPosition(schema) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(indexes.compareDocumentPosition(schema) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(schema.compareDocumentPosition(validation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the rules, the level and the action from the details', async () => {
@@ -459,7 +653,7 @@ describe('StructureView — validation rules', () => {
     expect(within(validation).getByText('Action: warn')).toBeTruthy();
   });
 
-  it('says there are no rules, with the server defaults, when none are set', async () => {
+  it('says there are no rules in one line, with an Add rules action, when none are set', async () => {
     installAtelierMock({
       index: { list: async () => [] },
       meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
@@ -469,8 +663,8 @@ describe('StructureView — validation rules', () => {
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
     expect(await within(validation).findByText('No validation rules')).toBeTruthy();
-    expect(within(validation).getByText('Level: strict')).toBeTruthy();
-    expect(within(validation).getByText('Action: error')).toBeTruthy();
+    expect(within(validation).getByRole('button', { name: 'Add rules' })).toBeTruthy();
+    expect(within(validation).queryByText(/^Level:/)).toBeNull();
   });
 
   it('reads a cleared validator ({}) as no rules', async () => {
@@ -501,7 +695,7 @@ describe('StructureView — validation rules', () => {
     renderStructure();
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     await userEvent.selectOptions(within(validation).getByLabelText('Validation level'), 'moderate');
     await userEvent.click(within(validation).getByRole('button', { name: 'Save' }));
 
@@ -551,7 +745,7 @@ describe('StructureView — validation rules', () => {
 
     renderStructure();
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     await userEvent.click(within(validation).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(within(validation).queryByLabelText('Validator')).toBeNull());
 
@@ -574,7 +768,7 @@ describe('StructureView — validation rules', () => {
     expect(shown.textContent).toContain('"minimum": 0');
     expect(shown.textContent).not.toContain('$numberInt');
 
-    await userEvent.click(within(validation).getByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(within(validation).getByRole('button', { name: /^(Add|Edit) rules$/ }));
     const editor = within(validation).getByLabelText('Validator') as HTMLTextAreaElement;
     expect(editor.value).toContain('"minimum": 0');
     expect(editor.value).not.toContain('$numberInt');
@@ -598,7 +792,7 @@ describe('StructureView — validation rules', () => {
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
     expect(await within(validation).findByText('Action: errorAndLog')).toBeTruthy();
-    await userEvent.click(within(validation).getByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(within(validation).getByRole('button', { name: /^(Add|Edit) rules$/ }));
     expect((within(validation).getByLabelText('Validation action') as HTMLSelectElement).value).toBe('errorAndLog');
   });
 
@@ -647,7 +841,7 @@ describe('StructureView — validation rules', () => {
     renderStructure();
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     await userEvent.clear(within(validation).getByLabelText('Validator'));
     await userEvent.click(within(validation).getByRole('button', { name: 'Save' }));
 
@@ -673,7 +867,7 @@ describe('StructureView — validation rules', () => {
     renderStructure();
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     fireEvent.change(within(validation).getByLabelText('Validator'), { target: { value: text } });
     await userEvent.click(within(validation).getByRole('button', { name: 'Save' }));
 
@@ -705,13 +899,13 @@ describe('StructureView — validation rules', () => {
 
     const { rerender } = render(view('orders'));
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     expect(within(validation).getByLabelText('Validator')).toBeTruthy();
 
     rerender(view('customers'));
 
     const next = await screen.findByRole('region', { name: 'Validation' });
-    await within(next).findByRole('button', { name: 'Edit rules' });
+    await within(next).findByRole('button', { name: /^(Add|Edit) rules$/ });
     expect(within(next).queryByLabelText('Validator')).toBeNull();
   });
 
@@ -729,7 +923,7 @@ describe('StructureView — validation rules', () => {
     renderStructure();
 
     const validation = await screen.findByRole('region', { name: 'Validation' });
-    await userEvent.click(await within(validation).findByRole('button', { name: 'Edit rules' }));
+    await userEvent.click(await within(validation).findByRole('button', { name: /^(Add|Edit) rules$/ }));
     await userEvent.click(within(validation).getByRole('button', { name: 'Save' }));
 
     expect((await within(validation).findByRole('alert')).textContent).toMatch(/read-only/);
@@ -813,8 +1007,7 @@ describe('SchemaView — sample size is bounded by what meta:sampleSchema accept
       ranAt: '2026-04-21T00:00:00.000Z',
     });
 
-    const refreshButtons = await screen.findAllByRole('button', { name: 'Refresh' });
-    await userEvent.click(refreshButtons[refreshButtons.length - 1]!);
+    await userEvent.click(await screen.findByRole('button', { name: 'Resample' }));
 
     await waitFor(() => expect(sampleSchema).toHaveBeenCalledTimes(1));
     expect(sampleSchema).toHaveBeenCalledWith(expect.objectContaining({ size: 200 }));

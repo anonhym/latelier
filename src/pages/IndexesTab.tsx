@@ -117,10 +117,16 @@ export function IndexesTab({
   initialCreate,
   onInitialCreateConsumed,
   onChanged,
+  reloadSignal,
 }: {
   connectionId: string;
   dbName: string;
   collection: string;
+  /**
+   * Schema & indexes owns the one Refresh (W16 §16.2); it bumps this to reload
+   * the list. The tab has no Refresh button of its own.
+   */
+  reloadSignal?: number;
   /** How many indexes the statistics reported, to hold their space while the list loads. */
   expectedCount?: number;
   /**
@@ -146,7 +152,6 @@ export function IndexesTab({
   const T = themeVars;
   const target = React.useMemo(() => ({ dbName, collection }), [dbName, collection]);
   const [indexes, setIndexes] = React.useState<IndexInfo[] | null>(null);
-  const [loadingIndexes, setLoadingIndexes] = React.useState(false);
   const [indexError, setIndexError] = React.useState<{ message: string; code?: string } | null>(
     null,
   );
@@ -165,12 +170,10 @@ export function IndexesTab({
   // `scrollRegionRef.current` inline in the JSX below.
   const [dropReturnFocus, setDropReturnFocus] = React.useState<HTMLElement | null>(null);
   // Focus-return target for a successful drop: the row is gone by then, but
-  // this scroll region is mounted for the tab's whole lifetime. Not the
-  // "Refresh" button, the obvious-looking alternative — it's `disabled={loadingIndexes}`,
-  // and the success path kicks off a reload, so it is disabled at the exact
-  // moment focus would land there. A disabled focused button drops focus to
-  // <body> itself — the same disabled-button focus loss documented at
-  // FieldsControl.tsx:84-91 — which is the bug this exists to fix.
+  // this scroll region is mounted for the tab's whole lifetime. Not a button
+  // that disables while the reload runs: a disabled focused button drops
+  // focus to <body> itself — the same disabled-button focus loss documented
+  // at FieldsControl.tsx:84-91 — which is the bug this exists to fix.
   const scrollRegionRef = React.useRef<HTMLDivElement>(null);
 
   // Only the latest request may write state: a slow reply for a collection the
@@ -180,7 +183,6 @@ export function IndexesTab({
   const loadIndexes = React.useCallback(
     async (t: { dbName: string; collection: string }) => {
       const id = ++latest.current;
-      setLoadingIndexes(true);
       setIndexError(null);
       try {
         const rows = await api.index.list({
@@ -198,8 +200,6 @@ export function IndexesTab({
           }
           setIndexes(null);
         }
-      } finally {
-        if (id === latest.current) setLoadingIndexes(false);
       }
     },
     [connectionId],
@@ -215,6 +215,16 @@ export function IndexesTab({
       request.current++;
     };
   }, [target, loadIndexes, viewOn]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // The mount load above covers the first value; only a later bump reloads.
+  const seenReloadSignal = React.useRef(reloadSignal);
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    if (seenReloadSignal.current === reloadSignal) return;
+    seenReloadSignal.current = reloadSignal;
+    if (viewOn === undefined) void loadIndexes(target);
+  }, [reloadSignal, loadIndexes, target, viewOn]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Opens the create-index drawer prefilled from ExplainDrawer's "Create an
@@ -280,7 +290,7 @@ export function IndexesTab({
 
         <Button
           size="compact-xs"
-          variant="filled"
+          variant="default"
           onClick={() => {
             setCreatePrefill(null);
             setCreateReturnFocusTo(null);
@@ -289,16 +299,6 @@ export function IndexesTab({
         >
           + New index
         </Button>
-
-        <SubmitButton
-          size="compact-xs"
-          variant="subtle"
-          onClick={() => void loadIndexes(target)}
-          leftSection={I.sync}
-          submitting={loadingIndexes}
-        >
-          Refresh
-        </SubmitButton>
       </div>
 
       <div

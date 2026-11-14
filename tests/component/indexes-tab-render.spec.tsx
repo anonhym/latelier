@@ -216,51 +216,29 @@ describe('IndexesTab — render', () => {
     rerender(<IndexesTab connectionId="c1" dbName="alpha" collection="orders" />);
     await waitFor(() => expect(pending.orders).toBeDefined());
 
-    // The stale call fails first: it must neither show its error nor clear the
-    // loading state the newer call is still holding.
+    // The stale call fails first: it must not show its error.
     await act(async () => {
       pending.people.reject(new Error('stale boom'));
     });
     expect(screen.queryByText(/stale boom/)).toBeNull();
-    expect(screen.getByRole('button', { name: /refresh/i }).getAttribute('aria-disabled')).toBe('true');
 
     await act(async () => {
       pending.orders.resolve([UNIQUE_INDEX]);
     });
     expect(screen.getByText('email_unique')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /refresh/i }).hasAttribute('aria-disabled')).toBe(false);
   });
 
-  // jsdom never blurs an element that goes `disabled`, and the e2e suite cannot
-  // inject IPC latency, so the focus drop itself is unobservable here; what the
-  // fix guarantees (and what is asserted) is that the button never takes the
-  // real `disabled` attribute, which is what makes Chromium blur it.
-  it('keeps Refresh focusable while loading and swallows a second click', async () => {
-    let lists = 0;
-    let finish: (r: IndexInfo[]) => void = () => {};
-    installAtelierMock({
-      index: {
-        list: () => {
-          lists += 1;
-          return new Promise<IndexInfo[]>((resolve) => {
-            finish = resolve;
-          });
-        },
-      },
-    });
+  it('has no Refresh of its own, and reloads only when its reload signal is bumped', async () => {
+    const list = vi.fn(async () => [ID_INDEX]);
+    installAtelierMock({ index: { list } });
 
-    renderTab();
-    await waitFor(() => expect(lists).toBe(1));
-    const refresh = screen.getByRole('button', { name: /refresh/i });
-    expect(refresh.hasAttribute('disabled')).toBe(false);
-    expect(refresh.getAttribute('aria-disabled')).toBe('true');
+    const { rerender } = render(<IndexesTab connectionId="c1" dbName="alpha" collection="people" reloadSignal={0} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
 
-    await userEvent.click(refresh);
-    expect(lists).toBe(1);
-
-    await act(async () => {
-      finish([ID_INDEX]);
-    });
-    expect(screen.getByRole('button', { name: /refresh/i }).hasAttribute('aria-disabled')).toBe(false);
+    rerender(<IndexesTab connectionId="c1" dbName="alpha" collection="people" reloadSignal={0} />);
+    expect(list).toHaveBeenCalledTimes(1);
+    rerender(<IndexesTab connectionId="c1" dbName="alpha" collection="people" reloadSignal={1} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   });
 });

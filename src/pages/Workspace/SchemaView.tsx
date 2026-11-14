@@ -1,11 +1,12 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { Button } from '@mantine/core';
+import { ActionIcon, Button, Tooltip } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import type { SchemaSampleEntry, SchemaTabState } from '@shared/types';
 import { SCHEMA_SAMPLE_MAX } from '@shared/defaults';
-import { summarizeSchema } from './schemaSummary';
+import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
+import { summarizeSchema, fieldDisplay } from './schemaSummary';
 
 interface Props {
   connectionId: string;
@@ -13,6 +14,10 @@ interface Props {
   collection: string;
   state: SchemaTabState;
   onPatch: (patch: Partial<SchemaTabState>) => void;
+  /** Adds the field to the Documents filter, running nothing. Omitted: no such menu item. */
+  onFilterField?: (path: string) => void;
+  /** Opens the create-index drawer on the field. Omitted (a view, a Read-Only Connection): no such menu item. */
+  onCreateIndex?: (path: string) => void;
 }
 
 // Bounded by `meta:sampleSchema`'s zod max: a larger size is refused with
@@ -25,8 +30,18 @@ export function SchemaView({
   collection,
   state,
   onPatch,
+  onFilterField,
+  onCreateIndex,
 }: Props) {
   const T = themeVars;
+  const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
+  const openMenu = (path: string, x: number, y: number, returnFocusTo: HTMLElement | null) => {
+    const items: ContextMenuState['items'] = [];
+    if (onFilterField) items.push({ kind: 'item', label: 'Filter by this field', onClick: () => onFilterField(path) });
+    if (onCreateIndex) items.push({ kind: 'item', label: 'Create index on this field', onClick: () => onCreateIndex(path) });
+    if (items.length > 0) setMenu({ x, y, items, returnFocusTo });
+  };
+  const hasMenu = !!(onFilterField || onCreateIndex);
   const [sampling, setSampling] = React.useState(false);
   // A tab persisted before the bound came down can carry 250/500/1000.
   const sampleSize = Math.min(state.sampleSize, SCHEMA_SAMPLE_MAX);
@@ -67,7 +82,7 @@ export function SchemaView({
   }, [connectionId, dbName, collection, sampleSize, onPatch]);
 
   // Auto-sample on first open. We intentionally do not re-sample on tab
-  // switches: the user explicitly hits Refresh to update, since each sample
+  // switches: the user explicitly hits Resample to update, since each sample
   // hits Mongo and may be slow on large collections.
   const sampledOnce = React.useRef(false);
   React.useEffect(() => {
@@ -152,7 +167,7 @@ export function SchemaView({
           disabled={sampling}
           onClick={() => void runSample()}
         >
-          {sampling ? 'Sampling…' : 'Refresh'}
+          {sampling ? 'Sampling…' : state.ranAt ? 'Resample' : 'Sample'}
         </Button>
       </div>
 
@@ -189,7 +204,7 @@ export function SchemaView({
                 ? 'Sampling…'
                 : state.ranAt
                   ? 'No fields found in the sample.'
-                  : 'Click Refresh to sample documents.'}
+                  : 'Click Sample to sample documents.'}
             </div>
           )
         ) : (
@@ -206,30 +221,52 @@ export function SchemaView({
                 <th scope="col" style={cellHead(T)}>Types</th>
                 <th scope="col" style={{ ...cellHead(T), width: 90, textAlign: 'right' }}>Distinct</th>
                 <th scope="col" style={cellHead(T)}>Range</th>
-                <th scope="col" style={{ ...cellHead(T), width: 110, textAlign: 'right' }}>Frequency</th>
+                <th scope="col" style={{ ...cellHead(T), width: 150 }}>Frequency</th>
+                {hasMenu && <th scope="col" aria-label="Actions" style={{ ...cellHead(T), width: 32 }} />}
               </tr>
             </thead>
             <tbody>
               {entries.map((e) => (
-                <SchemaRow key={e.path} entry={e} />
+                <SchemaRow key={e.path} entry={e} withMenu={hasMenu} onMenu={openMenu} />
               ))}
             </tbody>
           </table>
         )}
       </div>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }
 
-function SchemaRow({ entry }: { entry: SchemaSampleEntry }) {
+function SchemaRow({
+  entry,
+  withMenu,
+  onMenu,
+}: {
+  entry: SchemaSampleEntry;
+  withMenu: boolean;
+  onMenu: (path: string, x: number, y: number, returnFocusTo: HTMLElement | null) => void;
+}) {
   const T = themeVars;
+  const { depth, name } = fieldDisplay(entry.path);
+  const percent = Math.round(entry.frequency * 100);
   const totalCount = Object.values(entry.types).reduce((a, b) => a + b, 0);
   const sortedTypes = Object.entries(entry.types).sort((a, b) => b[1] - a[1]);
   return (
-    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-      <td style={cellBody(T)}>
-        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
-          {entry.path}
+    <tr
+      style={{ borderBottom: `1px solid ${T.border}` }}
+      onContextMenu={
+        withMenu
+          ? (e) => {
+              e.preventDefault();
+              onMenu(entry.path, e.clientX, e.clientY, null);
+            }
+          : undefined
+      }
+    >
+      <td style={{ ...cellBody(T), paddingLeft: 12 + depth * 16 }}>
+        <code title={entry.path} style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+          {name}
         </code>
       </td>
       <td style={cellBody(T)}>
@@ -266,11 +303,34 @@ function SchemaRow({ entry }: { entry: SchemaSampleEntry }) {
           ? `${formatNumber(entry.numeric.min)} – ${formatNumber(entry.numeric.max)} · avg ${formatNumber(entry.numeric.avg)}`
           : '—'}
       </td>
-      <td style={{ ...cellBody(T), textAlign: 'right' }}>
-        <span style={{ color: T.textMuted, fontVariantNumeric: 'tabular-nums' }}>
-          {Math.round(entry.frequency * 100)}%
-        </span>
+      <td style={cellBody(T)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: T.gapSm }}>
+          <div style={{ width: 80, height: 6, borderRadius: 3, background: T.surfaceRaised, flex: 'none' }}>
+            <div
+              data-testid="frequency-bar"
+              style={{ width: `${percent}%`, height: '100%', borderRadius: 3, background: T.accent }}
+            />
+          </div>
+          <span style={{ color: T.textMuted, fontVariantNumeric: 'tabular-nums' }}>{percent}%</span>
+        </div>
       </td>
+      {withMenu && (
+        <td style={cellBody(T)}>
+          <Tooltip label="Field actions">
+            <ActionIcon
+              variant="subtle"
+              size="xs"
+              aria-label={`Actions for ${entry.path}`}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onMenu(entry.path, r.left, r.bottom, e.currentTarget);
+              }}
+            >
+              {I.more}
+            </ActionIcon>
+          </Tooltip>
+        </td>
+      )}
     </tr>
   );
 }
