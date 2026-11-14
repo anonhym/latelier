@@ -34,7 +34,7 @@ import {
   isUserChosenBuilderSplit,
 } from './panelSizes';
 import { AggregationTab } from './Aggregation/AggregationTab';
-import { StructureView } from './StructureView';
+import { StructureViewConnected } from './StructureViewConnected';
 import type { IndexCreateRequest } from '../IndexesTab';
 import { QueryBar } from './QueryBar';
 import { ResultViewer } from './ResultViewer';
@@ -579,7 +579,7 @@ export function PanelBody({
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="structure" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
-                    <StructureView
+                    <StructureViewConnected
                       connectionId={collection.tab.connectionId}
                       dbName={collection.tab.dbName}
                       collection={collection.tab.collection}
@@ -588,6 +588,7 @@ export function PanelBody({
                       initialCreate={structureInitialCreate}
                       onInitialCreateConsumed={onStructureInitialCreateConsumed}
                       onChanged={bumpStructureChanges}
+                      readOnly={focusedConnection?.readOnly ?? false}
                     />
                   </Tabs.Panel>
                 </Panel>

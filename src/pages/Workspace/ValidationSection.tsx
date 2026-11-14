@@ -37,6 +37,7 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
   // edited without canonical wrappers; the readable form re-parses to the same BSON.
   const rules = validator ? ejsonParse<Record<string, unknown>>(validator) : {};
   const pretty = Object.keys(rules).length > 0 ? ejsonStringifyReadable(rules, 2) : '';
+  const empty = pretty === '';
 
   const [editing, setEditing] = React.useState(false);
   const [text, setText] = React.useState('');
@@ -108,14 +109,23 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
           fontSize: T.fsSm,
         }}
       >
-        <div style={{ flex: 1, fontWeight: 600, color: T.text }}>Validation</div>
-        {!editing && (
+        <div style={{ flex: !editing && empty ? 'none' : 1, fontWeight: 600, color: T.text }}>Validation</div>
+        {!editing && !empty && (
           <Button size="compact-xs" variant="subtle" leftSection={I.edit} onClick={startEdit}>
             Edit rules
           </Button>
         )}
+        {!editing && empty && (
+          <>
+            <span style={{ color: T.textMuted }}>No validation rules</span>
+            <Button size="compact-xs" variant="subtle" leftSection={I.plus} onClick={startEdit}>
+              Add rules
+            </Button>
+          </>
+        )}
       </div>
 
+      {(editing || !empty || error) && (
       <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapSm, padding: '10px 16px', fontSize: T.fsSm }}>
         {editing ? (
           <>
@@ -177,15 +187,15 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
           </>
         ) : (
           <>
-            {pretty ? (
-              <pre style={{ ...mono, margin: 0, color: T.text, whiteSpace: 'pre-wrap' }}>{pretty}</pre>
-            ) : (
-              <div style={{ color: T.textMuted }}>No validation rules</div>
+            {!empty && (
+              <>
+                <pre style={{ ...mono, margin: 0, color: T.text, whiteSpace: 'pre-wrap' }}>{pretty}</pre>
+                <div style={{ display: 'flex', gap: T.gapLg, color: T.textMuted }}>
+                  <span>Level: {level}</span>
+                  <span>Action: {action}</span>
+                </div>
+              </>
             )}
-            <div style={{ display: 'flex', gap: T.gapLg, color: T.textMuted }}>
-              <span>Level: {level}</span>
-              <span>Action: {action}</span>
-            </div>
           </>
         )}
         {error && (
@@ -194,6 +204,7 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
           </div>
         )}
       </div>
+      )}
     </section>
   );
 }

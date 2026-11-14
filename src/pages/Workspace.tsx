@@ -539,6 +539,7 @@ function WorkspaceInner() {
     },
     [activeCollectionRef, selectActiveView],
   );
+  const openDocuments = React.useCallback(() => selectActiveView('documents'), [selectActiveView]);
   const onCreateIndexConsumed = React.useCallback(() => setCreateIndexRequest(null), []);
   // The post-write refresh target, resolved fresh from `tabsRef` at
   // completion time rather than snapshotted, since a drawer pinned to tab A
@@ -690,6 +691,7 @@ function WorkspaceInner() {
       updateField,
       openDuplicate,
       openCreateIndex,
+      openDocuments,
     }),
     [
       patchActiveCollection,
@@ -706,6 +708,7 @@ function WorkspaceInner() {
       updateField,
       openDuplicate,
       openCreateIndex,
+      openDocuments,
     ],
   );
   const workspaceMeta = React.useMemo<CollectionWorkspaceMeta | null>(

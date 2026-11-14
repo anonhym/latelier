@@ -158,6 +158,16 @@ function walk(
   }
 }
 
+/**
+ * How a schema row names a field: its nesting depth (the dotted segments
+ * above it) and its own last segment, so the table indents instead of
+ * repeating `items.variants.` on every row (W16 §16.6).
+ */
+export function fieldDisplay(path: string): { depth: number; name: string } {
+  const at = path.lastIndexOf('.');
+  return { depth: path.split('.').length - 1, name: at < 0 ? path : path.slice(at + 1) };
+}
+
 /** 0-1. A type must hold at least this share of a field's own histogram
  *  before disagreeing with it counts as a warning (W17 §2). */
 const DOMINANT_SHARE = 0.9;

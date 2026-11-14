@@ -96,7 +96,7 @@ test('Save as view from the builder, then Modify view from the navigator', async
 });
 
 /** W16 §15 — validation rules saved from Structure and read back from the server. */
-test('Structure → Validation → Edit rules saves a $jsonSchema that the section then shows', async () => {
+test('Structure → Validation → Add rules saves a $jsonSchema that the section then shows', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -118,7 +118,7 @@ test('Structure → Validation → Edit rules saves a $jsonSchema that the secti
       const validation = win.getByRole('region', { name: 'Validation' });
       await expect(validation.getByText('No validation rules')).toBeVisible({ timeout: 8000 });
 
-      await validation.getByRole('button', { name: 'Edit rules' }).click();
+      await validation.getByRole('button', { name: 'Add rules' }).click();
       await validation.getByLabel('Validator').fill('{"$jsonSchema":{"required":["sku"]}}');
       await validation.getByLabel('Validation level').selectOption('moderate');
       await validation.getByRole('button', { name: 'Save' }).click();

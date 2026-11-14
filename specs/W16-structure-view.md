@@ -1,6 +1,6 @@
 # W16 — Structure: the collection's shape and access paths
 
-> **Status: Accepted.** §0–§15 shipped. §16 is agreed and not built yet: the view is named "Schema & indexes" in the UI and is laid out as a stat strip, section pills, one Refresh and a schema table with frequency bars.
+> **Status: Accepted.** §0–§15 shipped. §16 is built except the tab label rename ("Schema & indexes" in the UI), which ships with the view-header slice: stat strip, sticky section pills, one Refresh, Sample/Resample, frequency bars, a schema row menu and the one-line validation state.
 
 ## Purpose
 
