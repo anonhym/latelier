@@ -1584,6 +1584,8 @@ function WorkspaceInner() {
     <AppShell
       mode="static"
       header={{ height: 72 }}
+      // The status bar (W01 §14.6), drawn by ShellSection under the same condition.
+      footer={connections.length > 0 ? { height: 24 } : undefined}
       navbar={{
         // Manual width, not Mantine's `collapsed` flag: the title bar's
         // sidebar toggle is the expand affordance, so collapsed is no width.

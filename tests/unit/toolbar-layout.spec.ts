@@ -1,60 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { outputBarActions, resultBarLayout } from '../../src/pages/Workspace/toolbarLayout';
+import { canvasHeaderLayout, outputBarActions, statusCountLayout } from '../../src/pages/Workspace/toolbarLayout';
 
-describe('resultBarLayout', () => {
+describe('canvasHeaderLayout', () => {
   it.each([
-    // Boundaries, each side: the window sizes the boards were drawn at sit inside these.
-    [900, { count: 'full', iconControls: false, planBadge: true, wrap: false }],
-    [899, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [760, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [759, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [640, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [639, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [500, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [499, { count: 'total', iconControls: true, planBadge: false, wrap: true }],
-  ])('at %i px', (width, expected) => {
-    expect(resultBarLayout(width)).toEqual(expected);
+    [400, false],
+    [399, true],
+    [320, true],
+  ])('at %i px, icons: %s', (width, iconControls) => {
+    expect(canvasHeaderLayout(width)).toEqual({ iconControls });
   });
 
-  it('merges the counts before it collapses any control', () => {
-    for (let w = 320; w <= 2000; w += 1) {
-      const { count, iconControls } = resultBarLayout(w);
-      if (iconControls) expect(count).not.toBe('full');
-    }
-  });
-
-  // The References button shifts every step by its own width: labelled above the
-  // icon step, an icon below it.
+  // The References button shifts the step by its own width.
   it.each([
-    [1041, { count: 'full', iconControls: false, planBadge: true, wrap: false }],
-    [1040, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [901, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [900, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [672, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [671, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [532, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [531, { count: 'total', iconControls: true, planBadge: false, wrap: true }],
-  ])('with References, at %i px', (width, expected) => {
-    expect(resultBarLayout(width, true)).toEqual(expected);
+    [541, false],
+    [540, true],
+  ])('with References, at %i px, icons: %s', (width, iconControls) => {
+    expect(canvasHeaderLayout(width, true)).toEqual({ iconControls });
   });
 
-  it('with References, still merges the counts before it collapses any control', () => {
-    for (let w = 320; w <= 2000; w += 1) {
-      const { count, iconControls } = resultBarLayout(w, true);
-      if (iconControls) expect(count).not.toBe('full');
-    }
-  });
-
-  it('with no measured width (no layout), gives room for everything', () => {
-    expect(resultBarLayout(null)).toEqual({ count: 'full', iconControls: false, planBadge: true, wrap: false });
+  it('with no measured width (no layout), keeps the labels', () => {
+    expect(canvasHeaderLayout(null)).toEqual({ iconControls: false });
+    expect(canvasHeaderLayout(null, true)).toEqual({ iconControls: false });
   });
 
   // The rule is enforced by the signature: nothing about the query can reach it.
-  // The one optional flag is which controls the bar holds, not the query.
   it('takes the width and nothing else', () => {
-    expect(resultBarLayout.length).toBe(1);
-    expect(resultBarLayout(null, true)).toEqual(resultBarLayout(null));
+    expect(canvasHeaderLayout.length).toBe(1);
+    expect(statusCountLayout.length).toBe(1);
     expect(outputBarActions.length).toBe(1);
+  });
+});
+
+describe('statusCountLayout', () => {
+  it.each([
+    [320, { count: 'full', planBadge: true }],
+    [319, { count: 'range', planBadge: true }],
+    [200, { count: 'range', planBadge: true }],
+    [199, { count: 'range', planBadge: false }],
+    [160, { count: 'range', planBadge: false }],
+    [159, { count: 'total', planBadge: false }],
+  ])('at %i px', (width, expected) => {
+    expect(statusCountLayout(width)).toEqual(expected);
+  });
+
+  it('with no measured width (no layout), gives room for everything', () => {
+    expect(statusCountLayout(null)).toEqual({ count: 'full', planBadge: true });
   });
 });
 
@@ -68,28 +58,6 @@ describe('outputBarActions', () => {
     [423, 'menu'],
   ])('at %i px is %s', (width, expected) => {
     expect(outputBarActions(width)).toBe(expected);
-  });
-
-  // The References button shifts every step by its own width: labelled above the
-  // icon step, an icon below it.
-  it.each([
-    [1041, { count: 'full', iconControls: false, planBadge: true, wrap: false }],
-    [1040, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [901, { count: 'range', iconControls: false, planBadge: true, wrap: false }],
-    [900, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [672, { count: 'range', iconControls: true, planBadge: true, wrap: false }],
-    [671, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [532, { count: 'total', iconControls: true, planBadge: false, wrap: false }],
-    [531, { count: 'total', iconControls: true, planBadge: false, wrap: true }],
-  ])('with References, at %i px', (width, expected) => {
-    expect(resultBarLayout(width, true)).toEqual(expected);
-  });
-
-  it('with References, still merges the counts before it collapses any control', () => {
-    for (let w = 320; w <= 2000; w += 1) {
-      const { count, iconControls } = resultBarLayout(w, true);
-      if (iconControls) expect(count).not.toBe('full');
-    }
   });
 
   it('with no measured width, shows labels', () => {

@@ -9,6 +9,7 @@ import {
   emptyWorkspaceMeta,
 } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { useFindExplain } from '../../src/pages/Workspace/useFindExplain';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -50,6 +51,7 @@ function renderBar(plan: unknown, queryRaw?: string, sort?: string) {
       actions={emptyWorkspaceActions({ openCreateIndex })}
       meta={emptyWorkspaceMeta()}
     >
+      <StatusBar connection={null} />
       <ResultBar />
     </CollectionWorkspaceProvider>,
   );

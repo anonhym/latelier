@@ -13,7 +13,7 @@ test.afterAll(stopAllMemoryServers);
 
 /**
  * (T0.2) — bulk delete-by-query. The results overflow menu's
- * "Delete all matching…" action scopes the existing two-step confirm flow
+ * "Delete matching…" action scopes the existing two-step confirm flow
  * (type-collection-name + `doc:confirmDeleteMany` → token → `doc:deleteMany`)
  * to the tab's *current* query filter, so a user can delete every document
  * matching a filter without deleting one row at a time.

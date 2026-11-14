@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications';
 import { render, screen, fireEvent, waitFor, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
 
@@ -53,6 +54,7 @@ function renderBar(overrides: BarStateOverride = {}) {
         actions={actions}
         meta={meta}
       >
+        <StatusBar connection={null} />
         <ResultBar />
       </CollectionWorkspaceProvider>
   );

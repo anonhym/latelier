@@ -5,6 +5,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import { ImportDialog } from '../../src/pages/Workspace/ImportDialog';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CsvPreview, DataImportInput, DataImportProgressEvent, ImportReport } from '@shared/types';
 import type { PickFilePurpose } from '@shared/ipc';
@@ -546,11 +547,12 @@ describe('ResultBar — Import documents', () => {
         actions={actions}
         meta={emptyWorkspaceMeta({ collection: 'people' })}
       >
+        <StatusBar connection={null} />
         <ResultBar />
       </CollectionWorkspaceProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Import documents…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Import…/ }));
     expect(await screen.findByRole('dialog', { name: /Import into "people"/ })).toBeTruthy();
     expect(actions.run).not.toHaveBeenCalled();
     choose();
@@ -570,11 +572,12 @@ describe('ResultBar — Import documents', () => {
         actions={actions}
         meta={emptyWorkspaceMeta({ collection: 'people' })}
       >
+        <StatusBar connection={null} />
         <ResultBar />
       </CollectionWorkspaceProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }));
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Import documents…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Import…/ }));
     await screen.findByRole('dialog', { name: /Import into "people"/ });
     choose();
     expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);

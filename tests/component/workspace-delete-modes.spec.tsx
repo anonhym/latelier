@@ -98,7 +98,7 @@ describe('workspace delete modes (T1)', () => {
     );
   });
 
-  it('"Delete all matching…" with a valid filter carries that filter to confirmDeleteMany', async () => {
+  it('"Delete matching…" with a valid filter carries that filter to confirmDeleteMany', async () => {
     const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-1' }));
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{"status":"pending"}' })] },
@@ -108,8 +108,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     await waitFor(() =>
       expect(confirmDeleteMany).toHaveBeenCalledWith({
@@ -125,7 +125,7 @@ describe('workspace delete modes (T1)', () => {
   // W14 §9 — the doc channels send only the filter, so with a collation on
   // the tab a write by filter would act on a different set than the one on
   // screen. The tab's collation has to reach the dialogs for them to refuse.
-  it('"Delete all matching…" and "Update all matching…" refuse while the tab has a collation', async () => {
+  it('"Delete matching…" and "Update matching…" refuse while the tab has a collation', async () => {
     const collated = tab({
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', collation: '{"locale":"en","strength":2}' },
@@ -139,8 +139,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
     expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(
@@ -150,8 +150,8 @@ describe('workspace delete modes (T1)', () => {
     fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Update matching…'));
     const upd = await screen.findByRole('dialog', { name: 'Update all matching documents' });
     expect(
       within(upd).getByText('Clear the collation to update by filter: it would change which documents match.'),
@@ -176,7 +176,7 @@ describe('workspace delete modes (T1)', () => {
 
   // W14 §9 — a hint naming a sparse index can show fewer documents than the
   // filter matches, so the tab's hint has to reach the dialogs too.
-  it('"Delete all matching…" and "Update all matching…" refuse while the tab has a hint', async () => {
+  it('"Delete matching…" and "Update matching…" refuse while the tab has a hint', async () => {
     const hinted = tab({
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', hint: 'status_1_sparse' },
@@ -190,8 +190,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
     expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(within(del).getByText(/^Clear the hint to delete by filter/)).toBeTruthy();
@@ -199,8 +199,8 @@ describe('workspace delete modes (T1)', () => {
     fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Update matching…'));
     const upd = await screen.findByRole('dialog', { name: 'Update all matching documents' });
     expect(within(upd).getByText(/^Clear the hint to update by filter/)).toBeTruthy();
   });
@@ -225,7 +225,7 @@ describe('workspace delete modes (T1)', () => {
   // would count/delete the *entire* collection. `openDeleteAllModal` must
   // refuse to open the dialog at all when the tab's filter text is blank or
   // not valid EJSON.
-  it('"Delete all matching…" refuses to open when the filter is blank', async () => {
+  it('"Delete matching…" refuses to open when the filter is blank', async () => {
     const confirmDeleteMany = vi.fn();
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '' })] },
@@ -235,14 +235,14 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
   });
 
-  it('"Delete all matching…" refuses to open when the filter text is invalid EJSON', async () => {
+  it('"Delete matching…" refuses to open when the filter text is invalid EJSON', async () => {
     const confirmDeleteMany = vi.fn();
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{not json' })] },
@@ -252,8 +252,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
@@ -266,7 +266,7 @@ describe('workspace delete modes (T1)', () => {
   // dialog is already open (editing the query bar behind it). Without that
   // guard, `filter` would reach DeleteConfirm as `undefined` and its own
   // `filter ?? '{}'` default would count/delete the whole collection.
-  it('an already-open "Delete all matching…" dialog closes itself if the filter goes invalid while it is up', async () => {
+  it('an already-open "Delete matching…" dialog closes itself if the filter goes invalid while it is up', async () => {
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{"status":"pending"}' })] },
       conn: { list: async () => [connectionFixture({ id: 'c1' })] },
@@ -275,8 +275,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     await screen.findByRole('dialog');
 
     // Edit the query bar's raw filter — still mounted behind the modal —
@@ -287,7 +287,7 @@ describe('workspace delete modes (T1)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('onClose clears the row-delete state — canceling it does not leak into a later "Delete all matching…"', async () => {
+  it('onClose clears the row-delete state — canceling it does not leak into a later "Delete matching…"', async () => {
     // Regression for the mutual-exclusivity guardrail: DeleteConfirm's `docs`
     // ternary checks `deleteDoc !== null` first, so if Cancel failed to null
     // it out, the *next* dialog opened (delete-all, a different mode) would
@@ -305,8 +305,8 @@ describe('workspace delete modes (T1)', () => {
     fireEvent.click(within(rowDialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     const dialog = await screen.findByRole('dialog');
     // The filter-scoped mode's tell — present only when isMulti (docs.length
@@ -328,8 +328,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     const allDialog = await screen.findByRole('dialog');
     expect(within(allDialog).getByPlaceholderText('orders')).toBeTruthy();
     fireEvent.click(within(allDialog).getByRole('button', { name: 'Cancel' }));

@@ -11,6 +11,7 @@ import { TitleBar } from './TitleBar';
 import { LocationBreadcrumb } from './LocationBreadcrumb';
 import { locationModel } from './locationModel';
 import { TabStrip } from './TabStrip';
+import { StatusBar } from './StatusBar';
 import { activateTab, closeTabGuarded } from './tabActions';
 import { ResizeHandle } from './ResizeHandle';
 import {
@@ -301,6 +302,12 @@ export function ShellSection({
           )}
         </div>
       </AppShell.Navbar>
+      {/* Not on the welcome canvas: with nothing saved there is nothing to state. */}
+      {connections.length > 0 && (
+        <AppShell.Footer aria-label="Status bar">
+          <StatusBar connection={focusedConnection} />
+        </AppShell.Footer>
+      )}
     </>
   );
 }

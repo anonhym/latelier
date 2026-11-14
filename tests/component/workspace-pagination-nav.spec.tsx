@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -184,5 +184,37 @@ describe('Workspace pagination navigation', () => {
     fireEvent.click(prevBtn);
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(4));
     expect(findSpy.mock.calls[3]?.[0]?.skip).toBe(50);
+  });
+});
+
+describe('the pager lives in the status bar', () => {
+  it('leaves with the Documents view and comes back on the same page', async () => {
+    installAtelierMock({
+      tabs: {
+        list: async () => [makeCollectionTab({ state: { ...makeCollectionTab().state, page: 2 } })],
+        setActive: async (id) => ({ id }),
+        update: async () => makeCollectionTab(),
+      },
+      conn: {
+        list: async () => [
+          { id: 'c1', name: 'Local', color: '#1A6835', host: 'localhost', port: 27017, connectionType: 'standard', readOnly: false, status: 'connected' },
+        ],
+      },
+      query: {
+        find: async () => ({ documents: [{ _id: 1 }], durationMs: 1, hasMore: true }),
+        count: async () => ({ count: 1284 }),
+      },
+    });
+    mountWorkspace();
+    const statusBar = await screen.findByRole('contentinfo', { name: 'Status bar' });
+    await waitFor(() => expect(within(statusBar).getByTestId('page-label').textContent).toMatch(/^3/));
+    expect(within(screen.getByTestId('result-bar')).queryByTestId('page-label')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Aggregation' }));
+    await waitFor(() => expect(within(statusBar).queryByTestId('page-label')).toBeNull());
+    expect(within(statusBar).getByTestId('status-connection').textContent).toMatch(/^Local · localhost/);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Documents' }));
+    await waitFor(() => expect(within(statusBar).getByTestId('page-label').textContent).toMatch(/^3/));
   });
 });

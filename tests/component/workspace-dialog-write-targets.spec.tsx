@@ -64,8 +64,8 @@ async function openDialog(kind: Kind) {
   if (kind === 'delete') {
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
   } else {
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText(kind === 'delete-all' ? 'Delete all matching…' : 'Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText(kind === 'delete-all' ? 'Delete matching…' : 'Update matching…'));
   }
   return screen.findByRole('dialog', { name: DIALOG_NAME[kind] });
 }
