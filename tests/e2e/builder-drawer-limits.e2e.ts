@@ -24,10 +24,10 @@ async function open(win: Page) {
 }
 
 const drawerWidth = (win: Page) =>
-  win.getByRole('tablist', { name: 'Query drawer' }).evaluate((el) => el.closest('[data-panel]')!.getBoundingClientRect().width);
+  win.getByRole('tablist', { name: 'Inspector view' }).evaluate((el) => el.closest('[data-panel]')!.getBoundingClientRect().width);
 
 const groupWidth = (win: Page) =>
-  win.getByRole('tablist', { name: 'Query drawer' }).evaluate((el) => el.closest('[data-group]')!.getBoundingClientRect().width);
+  win.getByRole('tablist', { name: 'Inspector view' }).evaluate((el) => el.closest('[data-group]')!.getBoundingClientRect().width);
 
 test('the drawer cannot be dragged narrower than 15% of the split', async () => {
   await withApp(async (app) => {
@@ -39,7 +39,7 @@ test('the drawer cannot be dragged narrower than 15% of the split', async () => 
     // Drag the divider to leave the drawer about 150 px: past a 15 px minimum
     // that would simply stay 150 px wide, while the 15% minimum holds it up
     // (and 150 px is far enough above the collapse point not to collapse it).
-    const handle = win.getByRole('separator', { name: 'Resize Query Builder' });
+    const handle = win.getByRole('separator', { name: 'Resize inspector' });
     const box = await handle.boundingBox();
     expect(box, 'the divider has a layout box').not.toBeNull();
     const y = box!.y + 100;
@@ -61,7 +61,7 @@ test('a drag to the window edge stops at the minimum, and the toggle still works
     await win.setViewportSize({ width: 1600, height: 900 });
     await open(win);
 
-    const handle = win.getByRole('separator', { name: 'Resize Query Builder' });
+    const handle = win.getByRole('separator', { name: 'Resize inspector' });
     const box = await handle.boundingBox();
     expect(box, 'the divider has a layout box').not.toBeNull();
     const y = box!.y + 100;
@@ -76,7 +76,7 @@ test('a drag to the window edge stops at the minimum, and the toggle still works
 
     await win.getByRole('button', { name: 'Collapse Query Builder' }).click();
     await win.getByRole('button', { name: 'Open Query Builder' }).click();
-    await expect(win.getByRole('tablist', { name: 'Query drawer' })).toBeVisible();
+    await expect(win.getByRole('tablist', { name: 'Inspector view' })).toBeVisible();
   });
 });
 
@@ -87,7 +87,7 @@ test('a dragged width comes back after the window has been narrow', async () => 
     await win.setViewportSize({ width: 1600, height: 900 });
     await open(win);
 
-    const handle = win.getByRole('separator', { name: 'Resize Query Builder' });
+    const handle = win.getByRole('separator', { name: 'Resize inspector' });
     const box = await handle.boundingBox();
     expect(box, 'the divider has a layout box').not.toBeNull();
     const y = box!.y + 100;
@@ -142,7 +142,7 @@ test('every control in a condition row stays inside the drawer at 1280, with no 
 
     const overflow = () =>
       win.evaluate(() => {
-        const drawer = document.querySelector('[aria-label="Query drawer"]')!.closest('[data-panel]')!;
+        const drawer = document.querySelector('[aria-label="Inspector view"]')!.closest('[data-panel]')!;
         const right = drawer.getBoundingClientRect().right;
         const stray = [...drawer.querySelectorAll<HTMLElement>('[data-row-path] button, [data-row-path] input')]
           .filter((el) => el.getBoundingClientRect().right > right + 0.5)

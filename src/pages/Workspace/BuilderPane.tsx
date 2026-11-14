@@ -6,7 +6,6 @@ import {
   Menu,
   VisuallyHidden,
   Select,
-  Tabs,
   TextInput,
   Tooltip,
 } from '@mantine/core';
@@ -14,14 +13,9 @@ import { confirmDestructive } from '../../utils/confirm';
 import { filledFills } from '../../theme/mantineTheme';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { copyToClipboard } from '../../utils/clipboard';
 import { notify } from '../../theme/notifications';
 import {
   emptyBuilder,
-  compileFindOptions,
-  effectivePageLimit,
-  findProblem,
-  requireFilterJson,
   FIELD_OPS,
   DRAGGED_FIELD_MIME,
   condFromDragged,
@@ -76,7 +70,8 @@ import { useStructureEntries } from './useStructureEntries';
 import { condTypeWarning } from './condValue';
 import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 import { builderToStages } from './builderToPipeline';
-import { CODE_LANGS, findCode, type CodeLang } from '../../utils/driverCode';
+import { CODE_LANGS, type CodeLang } from '../../utils/driverCode';
+import { copyQueryAsCode } from './copyQueryCode';
 
 interface BuilderPaneProps {
   /** Opens this query, as stages, in the collection's Aggregation view. */
@@ -2024,70 +2019,7 @@ function BuilderPaneInner({
     };
   }, [connectionId, dbName, collection, state.lastRun?.documents]);
 
-  // Reproduces the query as actually run, not the user's raw inputs: same
-  // skip/limit split `useQueryRunner` computes from the page
-  // (`effectivePageLimit`), same projection and sort it hands to
-  // `api.query.find` — so the copied command matches the page on screen.
-  const handleCopyCode = (lang: CodeLang) => {
-    // Refused through the same `findProblem` the Run button gates on: one
-    // rule for "is this query runnable", not a copy-path opinion beside it.
-    // An unparseable filter, sort, or raw projection copies nothing rather
-    // than verbatim text that won't run — the notification names the
-    // clause rather than saying the copy failed, since the clipboard is
-    // working fine; the query is not.
-    const problem = findProblem(state);
-    if (problem) {
-      notify.error(`Nothing copied — ${problem}`);
-      return;
-    }
-    const opts = compileFindOptions(state.builder);
-    const { skip, limit } = effectivePageLimit(opts.limit, state.page, state.pageSize);
-    // A `limit` of 0 means the page is past the user's cap and the runner
-    // short-circuits to an empty result (`useQueryRunner.ts:143`) — there is
-    // no `find` that reproduces that, so there is nothing to copy.
-    //
-    // A `.limit(0)` reads to the driver as "no limit", not zero — so
-    // emitting one here to represent an exhausted page would paste an
-    // *unbounded* cursor while the app itself shows zero rows: a
-    // full-collection scan hiding behind code that looks like it matches
-    // the screen. Refused, like every other unrunnable state above it,
-    // rather than emitted with an explanatory comment attached — a comment
-    // does not disarm the expression in front of it.
-    if (limit <= 0) {
-      notify.error(
-        'Nothing copied — this page is past the limit, so the query returns no documents.',
-      );
-      return;
-    }
-    // `findProblem` passing means every clause is already strict JSON — the
-    // filter once trimmed of the Unicode spaces the gate allows around it,
-    // which `requireFilterJson` does — so there is no Shell Syntax left to
-    // repair here. Canonical EJSON is still
-    // not shell syntax (`{"$oid": …}` pasted into mongosh is an unknown
-    // operator): `findCode` routes such a document through EJSON.parse.
-    //
-    // A clause the gates above let through but `findCode` cannot write is a
-    // bug in one of the two; from a menu click it would otherwise surface as
-    // an uncaught page error with nothing copied and nothing said.
-    const filter = requireFilterJson(state);
-    let code: string;
-    try {
-      code = findCode(lang, {
-        collection,
-        filter,
-        projection: opts.projection,
-        sort: opts.sort,
-        collation: opts.collation,
-        hint: opts.hint,
-        skip,
-        limit,
-      });
-    } catch (err) {
-      notify.error(`Nothing copied — ${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
-    void copyToClipboard(code, 'Command copied to the clipboard');
-  };
+  const handleCopyCode = (lang: CodeLang) => copyQueryAsCode(lang, state, collection);
 
   const handleOpenAsPipeline = () => {
     const result = builderToStages(state);
@@ -2144,83 +2076,61 @@ function BuilderPaneInner({
         position: 'relative',
       }}
     >
-      {/* One tab: the Saved and Recent lists left for the Filter Bar row's
-          popovers (W09 §12, W10 §6), so each has one home. Still Mantine's
-          Tabs, the tablist pattern already built, so the panel keeps its
-          header and its focus target. */}
-      <Tabs
-        value="Builder"
-        variant="default"
+      {/* The Inspector's Filter tab (W05 §9.7): its header and tab switch are
+          the Inspector's, so this pane is the body and the footer only. */}
+      <div
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        {/* 42px matches CollectionHeader height so the bottom border aligns */}
-        <Tabs.List
-          grow
-          aria-label="Query drawer"
-          style={{ flexShrink: 0, height: 42, borderBottom: `1px solid ${T.border}` }}
+        <FilterDrawer
+          key={`${meta.tabId}:${loadGen}`}
+          queryRaw={liveQueryRaw}
+          filterDraft={state.filterDraft}
+          onCommit={onPatch}
+          suggestionContext={suggestionContext}
+        />
+
+        {/* Pinned bottom row: Reset / Copy code / Open as pipeline, three
+            actions on the whole query. Save lived here too until the QueryBar
+            toolbar Save (always visible, next to Run/History) made this one a
+            duplicate; `saved.create`'s hint anchor moved with it. `SavedStrip`,
+            a preview of the Saved tab one click away, is gone for the same
+            reason.
+
+            Each button keeps its natural width and the row wraps, so the
+            height depends on the pane's width alone and no label clips. */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: themeVars.gapXs,
+            boxSizing: 'border-box',
+            padding: '10px',
+            borderTop: `1px solid ${T.border}`,
+            flexShrink: 0,
+          }}
         >
-          {/* W13 §6 — the label is "Filter"; the value stays 'Builder'. */}
-          <Tabs.Tab value="Builder" styles={{ tab: { fontSize: T.fsXs } }}>
-            Filter
-          </Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel
-          value="Builder"
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
-        >
-          <FilterDrawer
-            key={`${meta.tabId}:${loadGen}`}
-            queryRaw={liveQueryRaw}
-            filterDraft={state.filterDraft}
-            onCommit={onPatch}
-            suggestionContext={suggestionContext}
-          />
-
-          {/* Pinned bottom row: Reset / Copy code / Open as pipeline, three
-              actions on the whole query. Save lived here too until the QueryBar
-              toolbar Save (always visible, next to Run/History) made this one a
-              duplicate; `saved.create`'s hint anchor moved with it. `SavedStrip`,
-              a preview of the Saved tab one click away, is gone for the same
-              reason.
-
-              Each button keeps its natural width and the row wraps, so the
-              height depends on the pane's width alone and no label clips. */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: themeVars.gapXs,
-              boxSizing: 'border-box',
-              padding: '10px',
-              borderTop: `1px solid ${T.border}`,
-              flexShrink: 0,
-            }}
-          >
-            <Button variant="default" size="compact-xs" onClick={handleReset}>
-              Reset
-            </Button>
-            <Menu position="top-start" shadow="md">
-              <Menu.Target>
-                <Button variant="default" size="compact-xs" rightSection={I.chevD}>
-                  Copy code
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                {CODE_LANGS.map(({ lang, label }) => (
-                  <Menu.Item key={lang} onClick={() => handleCopyCode(lang)}>
-                    {label}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
-            <Button variant="default" size="compact-xs" onClick={handleOpenAsPipeline}>
-              Open as pipeline
-            </Button>
-          </div>
-        </Tabs.Panel>
-      </Tabs>
-
+          <Button variant="default" size="compact-xs" onClick={handleReset}>
+            Reset
+          </Button>
+          <Menu position="top-start" shadow="md">
+            <Menu.Target>
+              <Button variant="default" size="compact-xs" rightSection={I.chevD}>
+                Copy code
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {CODE_LANGS.map(({ lang, label }) => (
+                <Menu.Item key={lang} onClick={() => handleCopyCode(lang)}>
+                  {label}
+                </Menu.Item>
+              ))}
+            </Menu.Dropdown>
+          </Menu>
+          <Button variant="default" size="compact-xs" onClick={handleOpenAsPipeline}>
+            Open as pipeline
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

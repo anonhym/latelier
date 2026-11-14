@@ -331,7 +331,7 @@ describe('Filter by field…: choosing a row', () => {
   it('expands a collapsed query drawer to append', async () => {
     mount();
     await screen.findByDisplayValue('offrow');
-    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'B', ctrlKey: true, shiftKey: true });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Undo filter edit' })).toBeNull());
     await runAction('shop.orders', 'Filter by field');
     await pickField('customer');

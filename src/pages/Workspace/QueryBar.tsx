@@ -3,7 +3,6 @@ import { ActionIcon, Button, Menu, Popover, Tooltip, VisuallyHidden } from '@man
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useShellSyntaxField } from './useShellSyntaxField';
-import { useFindExplain } from './useFindExplain';
 import {
   DRAGGED_FIELD_MIME,
   findProblem,
@@ -31,7 +30,6 @@ import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import { useTextareaAutocomplete } from '../../features/fieldSuggestions/useTextareaAutocomplete';
 import { useCollectionWorkspace } from './context';
-import { ExplainDrawer } from './Aggregation/ExplainDrawer';
 import {
   consumeSavedRename,
   consumeTabRequest,
@@ -41,6 +39,8 @@ import {
 } from './tabRequest';
 import { useLatest } from '../../commands/useLatest';
 import { formatShortcut } from '../../commands/shortcutLabel';
+import { CODE_LANGS, type CodeLang } from '../../utils/driverCode';
+import { copyQueryAsCode } from './copyQueryCode';
 import { isMacRenderer } from '../../utils/platform';
 import { liveValidity } from '../../utils/shellSyntax';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -249,6 +249,7 @@ function QueryBarInner({
   const pillOf = (key: OptionKey) => pills.find((p) => p.key === key)!;
   const limitError = React.useMemo(() => limitWarning(builder.limit), [builder.limit]);
 
+  const builderShortcut = formatShortcut('⌘⇧B', isMacRenderer());
   const canRun = !isLoading && problem === null;
   // W07 §3: the runner's own rule for leaving this page, said ahead of the Run.
   const willResetPage =
@@ -258,9 +259,6 @@ function QueryBarInner({
     resultQueryKey(state) !== state.lastRunQueryKey;
 
   const [expandOpen, setExpandOpen] = React.useState(false);
-  const [explainOpen, setExplainOpen] = React.useState(false);
-  const [explainVerbosity, setExplainVerbosity] =
-    React.useState<ExplainVerbosity>('queryPlanner');
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const autocomplete = useTextareaAutocomplete({
@@ -424,8 +422,17 @@ function QueryBarInner({
     const next = settle();
     raise(next, true);
     if (runProblem(next) !== null) return;
-    setExplainVerbosity(verbosity);
-    setExplainOpen(true);
+    // The Inspector's Plan tab (W05 §9.7), which reads the query just settled.
+    actions.openPlan?.({ verbosity });
+  };
+
+  // W05 §9.5 — Copy query as…, through the same repair: the filter as typed
+  // (`{status: 'shipped'}`) copies as the query that runs.
+  const onCopyAs = (lang: CodeLang) => {
+    const next = settle();
+    raise(next, true);
+    if (runProblem(next) !== null) return;
+    copyQueryAsCode(lang, { ...state, ...next }, meta.collection);
   };
 
   // The palette's Explain query on this tab: this menu's first item, once.
@@ -438,12 +445,6 @@ function QueryBarInner({
     consumeTabRequest('explain', meta.tabId);
     onExplainRef.current('queryPlanner');
   }, [explainRequested, meta.tabId, onExplainRef]);
-
-  // The fetcher and the create-index handoff are shared with the status bar's
-  // plan badge. The filter is read through the repair, never the raw text.
-  const { runExplain: runQueryExplain, onCreateIndex } = useFindExplain(
-    () => filterField.commitNow().text,
-  );
 
   // Which option's editor is open, with the tab it was opened on: the bar
   // never remounts, so tab A's open popover must not reappear over tab B.
@@ -883,27 +884,31 @@ function QueryBarInner({
             ))}
           {onToggleBuilder &&
             (compact ? (
-              <Tooltip label="Builder" withArrow>
+              <Tooltip label={`Builder (${builderShortcut})`} withArrow>
                 <ActionIcon
                   variant={builderOpen ? 'light' : 'default'}
                   size={22}
                   onClick={onToggleBuilder}
                   aria-label="Builder"
                   aria-pressed={builderOpen}
+                  data-builder-toggle
                 >
                   {I.filter}
                 </ActionIcon>
               </Tooltip>
             ) : (
-              <Button
-                variant={builderOpen ? 'light' : 'default'}
-                size="compact-xs"
-                leftSection={I.filter}
-                onClick={onToggleBuilder}
-                aria-pressed={builderOpen}
-              >
-                Builder
-              </Button>
+              <Tooltip label={`Builder (${builderShortcut})`} withArrow>
+                <Button
+                  variant={builderOpen ? 'light' : 'default'}
+                  size="compact-xs"
+                  leftSection={I.filter}
+                  onClick={onToggleBuilder}
+                  aria-pressed={builderOpen}
+                  data-builder-toggle
+                >
+                  Builder
+                </Button>
+              </Tooltip>
             ))}
           <Popover
             opened={historyOpen}
@@ -1100,6 +1105,13 @@ function QueryBarInner({
                     {label}
                   </Menu.Item>
                 ))}
+                <Menu.Divider />
+                <Menu.Label>Copy query as…</Menu.Label>
+                {CODE_LANGS.map(({ lang, label }) => (
+                  <Menu.Item key={lang} leftSection={I.copy} disabled={!canRun} onClick={() => onCopyAs(lang)}>
+                    {label}
+                  </Menu.Item>
+                ))}
               </Menu.Dropdown>
             </Menu>
           </Button.Group>
@@ -1219,15 +1231,6 @@ function QueryBarInner({
           queryRaw={queryRaw}
           onApply={(next) => onPatch({ queryRaw: next })}
           onClose={() => setExpandOpen(false)}
-        />
-      )}
-
-      {explainOpen && (
-        <ExplainDrawer
-          onClose={() => setExplainOpen(false)}
-          initialVerbosity={explainVerbosity}
-          runExplain={runQueryExplain}
-          onCreateIndex={onCreateIndex}
         />
       )}
 

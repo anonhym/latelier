@@ -28,6 +28,11 @@ export const BUILDER_COLLAPSED_PX = 4;
 /** Fallback split when nothing is stored: 26 ≈ 348 / 1344. */
 export const BUILDER_DEFAULT_PCT = 26;
 
+/** The Inspector's width in pixels (W05 §9.7): what it opens at before anyone resizes it, and its bounds. */
+export const BUILDER_DEFAULT_PX = 400;
+export const BUILDER_MIN_PX = 320;
+export const BUILDER_MAX_PX = 640;
+
 /**
  * Did the user choose this width, or did we?
  *

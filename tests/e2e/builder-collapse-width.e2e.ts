@@ -99,7 +99,7 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     // than the panel element: this version of `react-resizable-panels` renders
     // a bare `data-panel` with no id, and the tablist width is what the user
     // is actually complaining about.
-    const drawer = win.getByRole('tablist', { name: 'Query drawer' });
+    const drawer = win.getByRole('tablist', { name: 'Inspector view' });
     await expect(drawer).toBeVisible();
     const box = await drawer.boundingBox();
     expect(box).not.toBeNull();
@@ -112,7 +112,7 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     await expect(drawer).toBeHidden();
     await expect(win.getByRole('button', { name: /Query Builder$/ })).toHaveCount(0);
     // A stray press on the inert divider must not mark the restore below as the user's split.
-    const divider = win.getByRole('separator', { name: 'Resize Query Builder' });
+    const divider = win.getByRole('separator', { name: 'Resize inspector' });
     await divider.dispatchEvent('pointerdown');
     await divider.focus();
     await win.keyboard.press('ArrowLeft');

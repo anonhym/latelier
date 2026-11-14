@@ -658,7 +658,9 @@ describe('the added commands’ gates', () => {
     search('Explain query');
     await waitFor(() => expect(titles()[0]).toEqual(['Explain query', '']));
     fireEvent.keyDown(input(), { key: 'Enter' });
-    expect(await screen.findByRole('dialog', { name: /plan|explain/i })).toBeTruthy();
+    // The Inspector's Plan tab, not a dialog (W05 §9.7).
+    expect(await screen.findByRole('tab', { name: 'Plan' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Plan' }).getAttribute('aria-selected')).toBe('true'));
   });
 
   it('New script tab is greyed with a reason when no Connection can be named', async () => {

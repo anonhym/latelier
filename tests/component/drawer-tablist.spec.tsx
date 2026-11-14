@@ -60,6 +60,8 @@ function mountWith(state: CollectionTabState) {
       update: (async () => makeCollectionTab(state)) as unknown as IpcApi['tabs']['update'],
     },
     conn: { list: async () => [CONNECTION] },
+    // The Inspector starts closed (W15 §16): this spec reads its strip.
+    prefs: { get: (async (key: string) => (key === 'ui.workspace.builderCollapsed' ? false : null)) as never },
     saved: { list: savedListSpy as unknown as IpcApi['saved']['list'] },
     recent: { list: recentListSpy as unknown as IpcApi['recent']['list'] },
     query: {
@@ -80,19 +82,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('W15 §13.2 — the drawer tab strip is a real tablist', () => {
-  it('exposes tablist / tab / aria-selected / aria-controls, with Filter its one tab', async () => {
+describe('W15 §13.2 — the Inspector tab strip is a real tablist', () => {
+  it('exposes tablist / tab / aria-selected / aria-controls, Filter then Plan', async () => {
     mountWith(makeState());
 
     // The Workspace renders other tablists (the workspace tab strip, the
     // collection-view switcher), so scope to this one by its name.
-    const list = await screen.findByRole('tablist', { name: 'Query drawer' });
+    const list = await screen.findByRole('tablist', { name: 'Inspector view' });
     const tabs = within(list).getAllByRole('tab');
-    // Saved and Recent left for the Filter Bar row's popovers (W05 §9.6).
-    expect(tabs.map((t) => t.textContent)).toEqual(['Filter']);
+    // Saved and Recent left for the Filter Bar row's popovers (W05 §9.6); Plan joined.
+    expect(tabs.map((t) => t.textContent)).toEqual(['Filter', 'Plan']);
 
-    const [filter] = tabs;
+    const [filter, plan] = tabs;
     expect(filter!.getAttribute('aria-selected')).toBe('true');
+    expect(plan!.getAttribute('aria-selected')).toBe('false');
     // The tab points at the panel it governs, which is really in the document.
     expect(document.getElementById(filter!.getAttribute('aria-controls')!)).toBeTruthy();
   });
@@ -100,7 +103,7 @@ describe('W15 §13.2 — the drawer tab strip is a real tablist', () => {
   it('is a single tab stop: only the selected tab is keyboard-reachable', async () => {
     mountWith(makeState());
 
-    const list = await screen.findByRole('tablist', { name: 'Query drawer' });
+    const list = await screen.findByRole('tablist', { name: 'Inspector view' });
     const tabs = within(list).getAllByRole('tab');
     // Roving tabindex — exactly one tab participates in the Tab order.
     const reachable = tabs.filter((t) => t.getAttribute('tabindex') !== '-1');
@@ -111,7 +114,7 @@ describe('W15 §13.2 — the drawer tab strip is a real tablist', () => {
   it('does not load the lists that left it — History fetches only once its popover opens', async () => {
     const { recentListSpy } = mountWith(makeState());
 
-    await screen.findByRole('tablist', { name: 'Query drawer' });
+    await screen.findByRole('tablist', { name: 'Inspector view' });
     await new Promise((r) => setTimeout(r, 20));
     expect(recentListSpy).not.toHaveBeenCalled();
 

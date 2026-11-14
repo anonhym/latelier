@@ -80,14 +80,18 @@ interface Props {
   stale?: boolean;
 }
 
-export function ExplainDrawer({
+/**
+ * The explain view itself, hosted by the drawer below (Aggregation) and by the
+ * Inspector's Plan tab (find). `onClose` is called before the create-index
+ * handoff so the host can step out of the way.
+ */
+export function ExplainBody({
   onClose,
   initialVerbosity,
   runExplain,
   onCancelToken,
   onCreateIndex,
   initialPlan,
-  stale,
 }: Props) {
   const T = themeVars;
   const [verbosity, setVerbosity] = React.useState<ExplainVerbosity>(
@@ -118,9 +122,6 @@ export function ExplainDrawer({
   // the re-fire the ref indirection exists to avoid.
   const runExplainRef = useLatest(runExplain);
   const onCancelTokenRef = useLatest(onCancelToken);
-
-  // The drawer has nothing to save, so every close is a dismiss.
-  const close = useDialogFocusReturn(onClose);
 
   // Fixed at mount: a re-run replacing the badge's plan (even with none, until
   // its own explain lands) while the drawer is open must not start a fetch.
@@ -182,6 +183,220 @@ export function ExplainDrawer({
   };
 
   return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: T.gapSm,
+          padding: '10px 14px',
+          borderBottom: `1px solid ${T.border}`,
+        }}
+      >
+        <select
+          value={verbosity}
+          onChange={(e) => {
+            setVerbosity(e.target.value as ExplainVerbosity);
+            setVerbosityTouched(true);
+          }}
+          aria-label="Verbosity"
+          style={{
+            fontSize: T.fsXs,
+            padding: '4px 8px',
+            border: `1px solid ${T.border}`,
+            borderRadius: T.rs,
+            background: T.surfaceRaised,
+            color: T.text,
+          }}
+        >
+          <option value="queryPlanner">queryPlanner</option>
+          <option value="executionStats">executionStats</option>
+          <option value="allPlansExecution">allPlansExecution</option>
+        </select>
+        <Button
+          variant="default"
+          size="compact-xs"
+          fz={T.fsXs}
+          c={T.textMuted}
+          onClick={() => setViewMode((m) => (m === 'tree' ? 'raw' : 'tree'))}
+          aria-label={viewMode === 'tree' ? 'Switch to raw view' : 'Switch to tree view'}
+        >
+          {viewMode === 'tree' ? 'Raw' : 'Tree'}
+        </Button>
+      </div>
+
+      {writeOmitted && (
+        <div
+          style={{
+            padding: '6px 14px',
+            fontSize: T.fsXs,
+            color: T.warn,
+            background: 'rgba(200,160,0,0.08)',
+            borderBottom: `1px solid ${T.border}`,
+          }}
+        >
+          Stages with write ops were omitted from the explain.
+        </div>
+      )}
+
+      <div
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, background: T.bg }}
+      >
+        {loading ? (
+          <div style={{ color: T.textMuted, fontSize: T.fsSm }}>Running explain…</div>
+        ) : err ? (
+          <div role="alert" style={{ color: T.red, fontSize: T.fsSm, whiteSpace: 'pre-wrap' }}>
+            {err}
+          </div>
+        ) : plan === null ? null : (
+          <>
+            {summary && (
+              <div
+                data-testid="explain-summary-strip"
+                style={{
+                  marginBottom: 10,
+                  padding: '8px 10px',
+                  border: `1px solid ${T.border}`,
+                  borderRadius: T.rs,
+                  background: T.surfaceRaised,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: '"JetBrains Mono", monospace',
+                    fontSize: T.fsXs,
+                    color: T.text,
+                    marginBottom: 6,
+                  }}
+                >
+                  {summary.stages.join(' → ')}
+                </div>
+                <div style={{ display: 'flex', gap: themeVars.gapXs, flexWrap: 'wrap' }}>
+                  {summary.collscan ? (
+                    <span
+                      style={{
+                        fontSize: T.fsXs,
+                        padding: '2px 6px',
+                        borderRadius: T.rs,
+                        background: T.warnSoft,
+                        color: T.warnText,
+                        border: `1px solid ${T.warnBorder}`,
+                      }}
+                    >
+                      ⚠ COLLSCAN — no index used
+                    </span>
+                  ) : null}
+                  {summary.collscan && onCreateIndex && (
+                    <Button
+                      data-testid="explain-create-index"
+                      variant="default"
+                      size="compact-xs"
+                      h={20}
+                      px={8}
+                      fz={T.fsXs}
+                      c={T.text}
+                      onClick={() => {
+                        onClose();
+                        onCreateIndex();
+                      }}
+                    >
+                      Create an index for this query
+                    </Button>
+                  )}
+                  {!summary.collscan && summary.usesIndex ? (
+                    <span
+                      style={{
+                        fontSize: T.fsXs,
+                        padding: '2px 6px',
+                        borderRadius: T.rs,
+                        background: T.greenSoft,
+                        color: T.greenText,
+                        border: `1px solid ${T.greenBorder}`,
+                      }}
+                    >
+                      Index: {summary.indexName ?? 'IXSCAN'}
+                    </span>
+                  ) : null}
+                  {summary.nReturned !== undefined && (
+                    <span style={metricChipStyle(T)}>nReturned: {summary.nReturned}</span>
+                  )}
+                  {summary.docsExamined !== undefined && (
+                    <span style={metricChipStyle(T)}>docsExamined: {summary.docsExamined}</span>
+                  )}
+                  {summary.keysExamined !== undefined && (
+                    <span style={metricChipStyle(T)}>keysExamined: {summary.keysExamined}</span>
+                  )}
+                  {summary.executionTimeMillis !== undefined && (
+                    <span style={metricChipStyle(T)}>{summary.executionTimeMillis}ms</span>
+                  )}
+                </div>
+              </div>
+            )}
+            <PlanTree plan={plan} />
+            {viewMode === 'raw' ? (
+              <pre
+                // Handle for the raw-vs-tree assertions. They used to reach
+                // for `dialog.querySelector('pre')`; a `<pre>` carries no
+                // implicit ARIA role, so a testid is the accessible-query
+                // equivalent here.
+                data-testid="explain-raw"
+                style={{
+                  margin: 0,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: T.fsXs,
+                  color: T.text,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}
+              >
+                {json}
+              </pre>
+            ) : (
+              <JsonTree value={plan} highlightKeys={EXPLAIN_HIGHLIGHT_KEYS} />
+            )}
+          </>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: T.gapSm,
+          padding: '8px 14px',
+          borderTop: `1px solid ${T.border}`,
+          justifyContent: 'flex-end',
+        }}
+      >
+        <Button
+          variant="default"
+          size="compact-xs"
+          fz={T.fsXs}
+          c={json ? T.textMuted : undefined}
+          onClick={onCopy}
+          disabled={!json}
+        >
+          Copy
+        </Button>
+        <Button
+          variant="default"
+          size="compact-xs"
+          fz={T.fsXs}
+          c={json ? T.textMuted : undefined}
+          onClick={() => void onDownload()}
+          disabled={!json}
+        >
+          Download
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function ExplainDrawer(props: Props) {
+  // The drawer has nothing to save, so every close is a dismiss.
+  const close = useDialogFocusReturn(props.onClose);
+  return (
     // X15 T6 — the hand-rolled version put `role="dialog"` on the *backdrop*
     // (the `position: fixed` scrim), so assistive tech announced the scrim and
     // never the panel; it also never moved focus in on open. Mantine fixes both.
@@ -201,7 +416,7 @@ export function ExplainDrawer({
       onClose={close}
       position="right"
       size={520}
-      title={stale ? 'Explain plan (not current)' : 'Explain plan'}
+      title={props.stale ? 'Explain plan (not current)' : 'Explain plan'}
       // Mantine's body is a plain padded block, so the `flex: 1` on the
       // scrolling plan output below has no flex context to resolve against: it
       // would collapse to its intrinsic height and the Copy/Download footer
@@ -216,213 +431,7 @@ export function ExplainDrawer({
         body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 0 },
       }}
     >
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: T.gapSm,
-            padding: '10px 14px',
-            borderBottom: `1px solid ${T.border}`,
-          }}
-        >
-          <select
-            value={verbosity}
-            onChange={(e) => {
-              setVerbosity(e.target.value as ExplainVerbosity);
-              setVerbosityTouched(true);
-            }}
-            aria-label="Verbosity"
-            style={{
-              fontSize: T.fsXs,
-              padding: '4px 8px',
-              border: `1px solid ${T.border}`,
-              borderRadius: T.rs,
-              background: T.surfaceRaised,
-              color: T.text,
-            }}
-          >
-            <option value="queryPlanner">queryPlanner</option>
-            <option value="executionStats">executionStats</option>
-            <option value="allPlansExecution">allPlansExecution</option>
-          </select>
-          <Button
-            variant="default"
-            size="compact-xs"
-            fz={T.fsXs}
-            c={T.textMuted}
-            onClick={() => setViewMode((m) => (m === 'tree' ? 'raw' : 'tree'))}
-            aria-label={viewMode === 'tree' ? 'Switch to raw view' : 'Switch to tree view'}
-          >
-            {viewMode === 'tree' ? 'Raw' : 'Tree'}
-          </Button>
-        </div>
-
-        {writeOmitted && (
-          <div
-            style={{
-              padding: '6px 14px',
-              fontSize: T.fsXs,
-              color: T.warn,
-              background: 'rgba(200,160,0,0.08)',
-              borderBottom: `1px solid ${T.border}`,
-            }}
-          >
-            Stages with write ops were omitted from the explain.
-          </div>
-        )}
-
-        <div
-          style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, background: T.bg }}
-        >
-          {loading ? (
-            <div style={{ color: T.textMuted, fontSize: T.fsSm }}>Running explain…</div>
-          ) : err ? (
-            <div role="alert" style={{ color: T.red, fontSize: T.fsSm, whiteSpace: 'pre-wrap' }}>
-              {err}
-            </div>
-          ) : plan === null ? null : (
-            <>
-              {summary && (
-                <div
-                  data-testid="explain-summary-strip"
-                  style={{
-                    marginBottom: 10,
-                    padding: '8px 10px',
-                    border: `1px solid ${T.border}`,
-                    borderRadius: T.rs,
-                    background: T.surfaceRaised,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontFamily: '"JetBrains Mono", monospace',
-                      fontSize: T.fsXs,
-                      color: T.text,
-                      marginBottom: 6,
-                    }}
-                  >
-                    {summary.stages.join(' → ')}
-                  </div>
-                  <div style={{ display: 'flex', gap: themeVars.gapXs, flexWrap: 'wrap' }}>
-                    {summary.collscan ? (
-                      <span
-                        style={{
-                          fontSize: T.fsXs,
-                          padding: '2px 6px',
-                          borderRadius: T.rs,
-                          background: T.warnSoft,
-                          color: T.warnText,
-                          border: `1px solid ${T.warnBorder}`,
-                        }}
-                      >
-                        ⚠ COLLSCAN — no index used
-                      </span>
-                    ) : null}
-                    {summary.collscan && onCreateIndex && (
-                      <Button
-                        data-testid="explain-create-index"
-                        variant="default"
-                        size="compact-xs"
-                        h={20}
-                        px={8}
-                        fz={T.fsXs}
-                        c={T.text}
-                        onClick={() => {
-                          close();
-                          onCreateIndex();
-                        }}
-                      >
-                        Create an index for this query
-                      </Button>
-                    )}
-                    {!summary.collscan && summary.usesIndex ? (
-                      <span
-                        style={{
-                          fontSize: T.fsXs,
-                          padding: '2px 6px',
-                          borderRadius: T.rs,
-                          background: T.greenSoft,
-                          color: T.greenText,
-                          border: `1px solid ${T.greenBorder}`,
-                        }}
-                      >
-                        Index: {summary.indexName ?? 'IXSCAN'}
-                      </span>
-                    ) : null}
-                    {summary.nReturned !== undefined && (
-                      <span style={metricChipStyle(T)}>nReturned: {summary.nReturned}</span>
-                    )}
-                    {summary.docsExamined !== undefined && (
-                      <span style={metricChipStyle(T)}>docsExamined: {summary.docsExamined}</span>
-                    )}
-                    {summary.keysExamined !== undefined && (
-                      <span style={metricChipStyle(T)}>keysExamined: {summary.keysExamined}</span>
-                    )}
-                    {summary.executionTimeMillis !== undefined && (
-                      <span style={metricChipStyle(T)}>{summary.executionTimeMillis}ms</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              <PlanTree plan={plan} />
-              {viewMode === 'raw' ? (
-                <pre
-                  // Handle for the raw-vs-tree assertions. They used to reach
-                  // for `dialog.querySelector('pre')`; a `<pre>` carries no
-                  // implicit ARIA role, so a testid is the accessible-query
-                  // equivalent here.
-                  data-testid="explain-raw"
-                  style={{
-                    margin: 0,
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: T.fsXs,
-                    color: T.text,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {json}
-                </pre>
-              ) : (
-                <JsonTree value={plan} highlightKeys={EXPLAIN_HIGHLIGHT_KEYS} />
-              )}
-            </>
-          )}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: T.gapSm,
-            padding: '8px 14px',
-            borderTop: `1px solid ${T.border}`,
-            justifyContent: 'flex-end',
-          }}
-        >
-          <Button
-            variant="default"
-            size="compact-xs"
-            fz={T.fsXs}
-            c={json ? T.textMuted : undefined}
-            onClick={onCopy}
-            disabled={!json}
-          >
-            Copy
-          </Button>
-          <Button
-            variant="default"
-            size="compact-xs"
-            fz={T.fsXs}
-            c={json ? T.textMuted : undefined}
-            onClick={() => void onDownload()}
-            disabled={!json}
-          >
-            Download
-          </Button>
-        </div>
-      </div>
+      <ExplainBody {...props} onClose={close} />
     </Drawer>
   );
 }

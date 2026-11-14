@@ -1,5 +1,5 @@
 import { createContext, use } from 'react';
-import type { CollectionTabState } from '@shared/types';
+import type { CollectionTabState, ExplainVerbosity } from '@shared/types';
 import type { IndexSuggestion } from '../../utils/indexSuggestion';
 
 /**
@@ -87,6 +87,12 @@ export interface CollectionWorkspaceActions {
   openCreateIndex?: (suggestion: IndexSuggestion | null) => void;
   /** Switches the tab to its Documents view. Optional like `openCreateIndex`. */
   openDocuments?: () => void;
+  /**
+   * Opens the Inspector on its Plan tab (W05 §9.7): the explain of this tab's
+   * find, at `verbosity`, or the `plan` the caller already holds (`stale` when
+   * it describes an earlier run). Optional: providers without an Inspector omit it.
+   */
+  openPlan?: (request: { verbosity: ExplainVerbosity; plan?: unknown; stale?: boolean }) => void;
 }
 
 /**

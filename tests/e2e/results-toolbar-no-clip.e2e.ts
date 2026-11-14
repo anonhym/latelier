@@ -218,9 +218,9 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
 
       await openBuilder.click();
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'false');
-      await expect(win.getByRole('tablist', { name: 'Query drawer' })).toBeVisible();
+      await expect(win.getByRole('tablist', { name: 'Inspector view' })).toBeVisible();
       await win.waitForTimeout(300);
-      const drawer = await win.getByRole('tablist', { name: 'Query drawer' }).boundingBox();
+      const drawer = await win.getByRole('tablist', { name: 'Inspector view' }).boundingBox();
       expect(drawer!.width).toBeGreaterThanOrEqual(270);
 
       const scrolled = () =>
@@ -234,7 +234,7 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(win.getByRole('button', { name: 'Collapse Query Builder', exact: true })).toBeVisible();
       await win.waitForTimeout(300);
-      const wide = await win.getByRole('tablist', { name: 'Query drawer' }).boundingBox();
+      const wide = await win.getByRole('tablist', { name: 'Inspector view' }).boundingBox();
       expect(wide!.width).toBeGreaterThan(260);
       expect(wide!.width).toBeLessThan(290);
     });

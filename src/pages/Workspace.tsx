@@ -16,7 +16,7 @@ import { notify } from '../theme/notifications';
 import { ejsonParse, isPlainDocument } from '../utils/ejson';
 import { buildUpdateRequest, setAtSegments } from './Workspace/documentDiff';
 import { copyToClipboard } from '../utils/clipboard';
-import { BUILDER_MIN_PCT } from './Workspace/panelSizes';
+import { BUILDER_DEFAULT_PX, BUILDER_MIN_PCT } from './Workspace/panelSizes';
 import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
 import type { CollectionView, SavedQuerySummary, WorkspaceTab } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
@@ -133,7 +133,9 @@ function WorkspaceInner() {
   // `resize()` treats a number as pixels and a string as a percentage —
   // `resize(26)` is 26px, not 26%. `expand()` alone reopens at the collapsed
   // 4% rail, so the width is set explicitly from the stored split after.
+  const panelPrefsRef = useLatest(panelPrefs);
   const innerHSplitRef = useLatest(innerHSplit);
+  const innerHSplitStoredRef = useLatest(panelPrefs.innerHSplitStored);
   const restoreBuilderWidth = React.useCallback(() => {
     const handle = builderPanelRef.current;
     if (!handle) return;
@@ -142,10 +144,14 @@ function WorkspaceInner() {
       handle.resize(ONE_PANEL_BUILDER_PX);
       return;
     }
+    if (!innerHSplitStoredRef.current) {
+      handle.resize(BUILDER_DEFAULT_PX);
+      return;
+    }
     // Floor at BUILDER_MIN_PCT in case a stored split is narrower than draggable.
     const pct = Math.max(innerHSplitRef.current, BUILDER_MIN_PCT);
     handle.resize(`${pct}%`);
-  }, [innerHSplitRef, onePanelOnly]);
+  }, [innerHSplitRef, innerHSplitStoredRef, onePanelOnly]);
 
   const toggleBuilder = React.useCallback(() => {
     const next = !builderCollapsed;
@@ -184,20 +190,19 @@ function WorkspaceInner() {
     restoreBuilderWidth();
   }, [builderCollapsedRef, commitBuilderCollapsed, restoreBuilderWidth]);
 
-  // Moves focus to the drawer's selected tab on expand, or back to the notch
-  // on collapse — a flag+effect because BuilderPane isn't mounted while
-  // collapsed, so there's nothing to focus until the next render.
-  const notchRef = React.useRef<HTMLButtonElement>(null);
+  // Moves focus to the Inspector's selected tab on open, or back to the
+  // Builder button on close — a flag+effect because BuilderPane isn't mounted
+  // while collapsed, so there's nothing to focus until the next render.
   const moveFocusOnBuilderToggle = React.useRef(false);
   React.useEffect(() => {
     if (!moveFocusOnBuilderToggle.current) return;
     moveFocusOnBuilderToggle.current = false;
     if (builderCollapsed) {
-      notchRef.current?.focus();
+      document.querySelector<HTMLElement>('[data-builder-toggle]')?.focus();
       return;
     }
     const selectedTab = document.querySelector<HTMLElement>(
-      '[aria-label="Query drawer"] [role="tab"][aria-selected="true"]',
+      '[aria-label="Inspector view"] [role="tab"][aria-selected="true"]',
     );
     selectedTab?.focus();
   }, [builderCollapsed]);
@@ -910,19 +915,60 @@ function WorkspaceInner() {
       },
       {
         id: 'query.drawer.toggle',
-        title: 'Query drawer',
+        title: 'Query builder',
         group: 'query',
-        shortcut: '⌘B',
-        keywords: ['builder', 'filter', 'panel', 'sidebar', 'saved', 'recent', 'expand', 'collapse', 'toggle'],
+        shortcut: '⌘⇧B',
+        keywords: ['builder', 'filter', 'panel', 'inspector', 'drawer', 'expand', 'collapse', 'toggle'],
         toggle: { checked: !builderCollapsed },
         // Builder is shut and hidden outside documents view and absent for script tabs.
         when: () =>
           activeCollectionRef.current !== null &&
           (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
-        // The palette stays open on a toggle, so focus stays in it: ⌘B moves
-        // focus with the drawer, this does not.
+        // The palette stays open on a toggle, so focus stays in it: ⌘⇧B moves
+        // focus with the Inspector, this does not.
         perform: toggleBuilder,
       },
+      {
+        id: 'view.sidebar.toggle',
+        title: 'Toggle sidebar',
+        group: 'view',
+        shortcut: '⌘B',
+        keywords: ['navigator', 'collections', 'panel', 'expand', 'collapse'],
+        toggle: { checked: !sidebarCollapsed },
+        perform: () => panelPrefsRef.current.toggleSidebar(),
+      },
+      {
+        id: 'query.focus',
+        title: 'Focus filter',
+        group: 'query',
+        shortcut: '⌘L',
+        keywords: ['query', 'search', 'input'],
+        when: () =>
+          activeCollectionRef.current !== null &&
+          (activeCollectionRef.current.state.activeView ?? 'documents') === 'documents',
+        perform: () => document.getElementById('query-bar-filter')?.focus(),
+      },
+      ...(
+        [
+          ['documents', 'Go to documents', '⌥1'],
+          ['aggregation', 'Go to aggregation', '⌥2'],
+          ['structure', 'Go to schema & indexes', '⌥3'],
+        ] as const
+      ).map(([view, title, shortcut]) => ({
+        id: `view.${view}`,
+        title,
+        group: 'view' as const,
+        shortcut,
+        keywords: view === 'structure' ? ['structure', 'fields', 'index'] : [view],
+        // eslint-disable-next-line react-hooks/refs
+        when: () => activeCollectionRef.current !== null,
+        perform: () => {
+          // eslint-disable-next-line react-hooks/refs
+          const a = activeCollectionRef.current;
+          // eslint-disable-next-line react-hooks/refs
+          if (a) tabsRef.current.setActiveView(a.id, view);
+        },
+      })),
       {
         id: 'query.run',
         title: 'Run query',
@@ -992,7 +1038,7 @@ function WorkspaceInner() {
         },
       })),
     ],
-    [active?.pinned, builderCollapsed, shellOpen, toggleBuilder, activeIsView, showStructure],
+    [active?.pinned, builderCollapsed, sidebarCollapsed, shellOpen, toggleBuilder, activeIsView, showStructure],
   );
 
   // `⌘K → orders`-style commands for every collection of the focused
@@ -1068,7 +1114,6 @@ function WorkspaceInner() {
   // the sidebar opens first: the dialog is the navigator's own.
   const [navigatorDialogRequest, setNavigatorDialogRequest] = React.useState<NavigatorDialogRequest | null>(null);
   const clearNavigatorDialog = React.useCallback(() => setNavigatorDialogRequest(null), []);
-  const panelPrefsRef = useLatest(panelPrefs);
   const requestNavigatorDialog = React.useCallback(
     (request: NavigatorDialogRequest) => {
       if (panelPrefsRef.current.sidebarCollapsed) panelPrefsRef.current.toggleSidebar();
@@ -1276,6 +1321,16 @@ function WorkspaceInner() {
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      const origin = e.target instanceof HTMLElement ? e.target : null;
+      // ⌥1–⌥3 (W01 §14.11): the code, since Option-digit types a character on
+      // a Mac. Left alone in a text field, where that character is the point.
+      if (e.altKey && !mod && !e.shiftKey && /^Digit[123]$/.test(e.code)) {
+        const a = activeCollectionRef.current;
+        if (!a || origin?.closest('[role="dialog"], [role="alertdialog"], input, textarea, select, [contenteditable="true"]')) return;
+        e.preventDefault();
+        tabs.setActiveView(a.id, (['documents', 'aggregation', 'structure'] as const)[Number(e.code.slice(5)) - 1]!);
+        return;
+      }
       if (!mod) return;
       // Grouped-by-connection order, matching what's on screen (not stored order).
       const ids = groupTabsByConnection(tabs.tabs).flatMap((g) =>
@@ -1283,7 +1338,6 @@ function WorkspaceInner() {
       );
       if (e.key === '`' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
         // The Console (W11 §8.2): from anywhere in the workspace outside a dialog.
-        const origin = e.target instanceof HTMLElement ? e.target : null;
         if (origin?.closest('[role="dialog"], [role="alertdialog"]') || !focusedConnectionRef.current) return;
         e.preventDefault();
         setShellOpen((v) => !v);
@@ -1292,20 +1346,31 @@ function WorkspaceInner() {
         // ⇧ held: the key reads 'T'. ⌘⇧T reopens, ⌘T opens (W01 §14.8).
         // A dialog's own focus keeps ⌘⇧T: reopening behind it would be missed.
         if (e.shiftKey) {
-          const origin = e.target instanceof HTMLElement ? e.target : null;
           if (!origin?.closest('[role="dialog"], [role="alertdialog"]')) void reopenClosed();
         }
         else setNewTabOpen(true);
-      } else if (e.key === 'b') {
+      } else if (e.key.toLowerCase() === 'b') {
         // A dialog has no ⌘B handler, so the event bubbles here — must not
-        // toggle the drawer behind an open modal. `instanceof`, not a cast:
+        // toggle a panel behind an open modal. `instanceof`, not a cast:
         // a window/document-dispatched keydown's target may lack `closest`.
-        const origin = e.target instanceof HTMLElement ? e.target : null;
         if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
+        if (e.shiftKey) {
+          // ⌘⇧B: the Query Builder, on Documents only (W01 §14.11).
+          const a = activeCollectionRef.current;
+          if (!a || (a.state.activeView ?? 'documents') !== 'documents') return;
+          e.preventDefault();
+          toggleBuilderWithFocus();
+        } else if (!e.altKey) {
+          e.preventDefault();
+          panelPrefsRef.current.toggleSidebar();
+        }
+      } else if (e.key.toLowerCase() === 'l' && !e.shiftKey && !e.altKey) {
+        // ⌘L: the filter, from anywhere in the Documents view outside a dialog.
         const a = activeCollectionRef.current;
+        if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
         if (!a || (a.state.activeView ?? 'documents') !== 'documents') return;
         e.preventDefault();
-        toggleBuilderWithFocus();
+        document.getElementById('query-bar-filter')?.focus();
       } else if (e.key === 'w') {
         e.preventDefault();
         if (tabs.activeId) void closeTabGuarded(tabs, tabs.activeId);
@@ -1330,7 +1395,7 @@ function WorkspaceInner() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosed, focusedConnectionRef]);
+  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosed, focusedConnectionRef, panelPrefsRef]);
 
   const handlePick = async (input: {
     connectionId: string;
@@ -1768,7 +1833,6 @@ function WorkspaceInner() {
         dark={dark}
         builderPanelRef={builderPanelRef}
         toggleBuilder={toggleBuilder}
-        notchRef={notchRef}
         structureInitialCreate={
           createIndexRequest?.tabId === activeCollection?.id ? createIndexRequest : null
         }
