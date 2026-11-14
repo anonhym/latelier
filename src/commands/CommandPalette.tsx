@@ -38,6 +38,7 @@ import {
   type VerbEntry,
   failureTitle,
 } from './layout';
+import { measurePaletteAnchor, PALETTE_WIDTH } from './paletteAnchor';
 import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
@@ -188,9 +189,10 @@ const KIND_ICON: Record<RowKind, React.ReactNode> = {
       <path d="M6 3h12v18l-6-4-6 4z" />
     </Svg>
   ),
+  // A command glyph, never a chevron: a chevron on the left reads as "expandable" (X07 §14.4).
   action: (
     <Svg>
-      <path d="M9 18l6-6-6-6" />
+      <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
     </Svg>
   ),
 };
@@ -674,7 +676,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
 
   // A new query or scope is a new list: the cursor goes back to the top.
   const listKey = `${scope}\u0000${narrowed}\u0000${query}`;
-  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey);
+  const { index: safeCursor, setIndex, move } = useRovingHighlight(entries.length, listKey, layout.initialCursor);
 
   const actionsOf = React.useMemo(
     () => (actionsOfId === null ? null : (all.find((c) => c.id === actionsOfId)?.object ?? null)),
@@ -996,7 +998,11 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   };
 
   const onlyFromQuery = entries.length > 0 && entries.every((e) => e.type === 'row' && e.row.fromQuery);
-  const emptyText = typed
+  // A sweep that could still produce a match is no reason to say "No matches" yet (X07 §14.5).
+  const loadingCollections = ctx.collectionsPending === true && (typed || scope === 'collections');
+  const emptyText = loadingCollections
+    ? 'Loading collections…'
+    : typed
     ? `No matches for "${query.trim()}"`
     : scope === 'all'
       ? 'No actions available here yet.'
@@ -1296,6 +1302,7 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       >
         {entries.length === 0 ? (
           <div
+            role="status"
             style={{
               padding: '24px 16px',
               textAlign: 'center',
@@ -1378,6 +1385,8 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
   const discoverHint = useFeatureHint('palette.discover', paletteOpenedCount === 0);
   const { opened } = useSpotlight(paletteStore);
   React.useEffect(() => setPaletteOpen(opened), [opened]);
+  // Measured once per open, before the first paint: the field does not move while the palette is up.
+  const anchor = React.useMemo(() => (opened ? measurePaletteAnchor() : null), [opened]);
 
   const openPalette = React.useCallback(() => {
     hints.recordSessionEvent('palette', 'opened');
@@ -1519,10 +1528,12 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
             color: 'var(--atelier-text)',
             fontSize: 'var(--atelier-fs-md)',
             overflow: 'hidden',
+            // Under the title-bar search field (X07 §14.1); centred when there is none.
+            ...(anchor ? { position: 'fixed' as const, top: anchor.top, left: anchor.left, margin: 0 } : {}),
           },
           body: { padding: 0 },
         }}
-        size={640}
+        size={PALETTE_WIDTH}
         yOffset={80}
       >
         {/* Only mount palette content while opened — keeps registry memos and

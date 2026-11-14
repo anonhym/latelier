@@ -48,10 +48,10 @@ export interface NavigatorOpenInput {
   collection: string;
 }
 
-/** A row to reveal: a collection, or a database on its own. */
+/** A row to reveal: a collection, a database on its own, or a Connection's root (no `dbName`). */
 export interface NavigatorRevealInput {
   connectionId: string;
-  dbName: string;
+  dbName?: string;
   collection?: string;
 }
 
@@ -772,10 +772,13 @@ export function DbCollectionNavigator({
   const [revealListed, setRevealListed] = React.useState(0);
   React.useEffect(() => {
     if (!revealRequest) return;
-    const pending = { req: revealRequest, listed: false };
+    const { dbName } = revealRequest;
+    // A root needs no listing: it is drawn once the Connection is.
+    const pending = { req: revealRequest, listed: dbName === undefined };
     pendingRevealRef.current = pending;
     queueMicrotask(() => setFilter(''));
-    void loadColls(revealRequest.connectionId, revealRequest.dbName).then(() => {
+    if (dbName === undefined) return;
+    void loadColls(revealRequest.connectionId, dbName).then(() => {
       pending.listed = true;
       setRevealListed((n) => n + 1);
     });
@@ -784,10 +787,13 @@ export function DbCollectionNavigator({
     const pending = pendingRevealRef.current;
     if (!pending) return;
     const { req } = pending;
+    const { dbName } = req;
     const id =
-      req.collection === undefined
-        ? `db:${req.connectionId}:${req.dbName}`
-        : `coll:${req.connectionId}:${req.dbName}:${req.collection}`;
+      dbName === undefined
+        ? `conn:${req.connectionId}`
+        : req.collection === undefined
+        ? `db:${req.connectionId}:${dbName}`
+        : `coll:${req.connectionId}:${dbName}:${req.collection}`;
     const idx = rows.findIndex((r) => r.id === id);
     if (idx >= 0) {
       pendingRevealRef.current = null;
@@ -796,15 +802,19 @@ export function DbCollectionNavigator({
       listRef.current?.scrollToRow({ index: idx, align: 'auto' });
       queueMicrotask(() => {
         setFocusedId(id);
+        // A Connection's root is revealed to be used with the keyboard: the tree takes focus.
+        if (dbName === undefined) treeRef.current?.focus();
         onRevealHandled?.();
       });
       return;
     }
+    // A root that is not drawn yet is waited for; it is never "gone" like a listed row.
+    if (dbName === undefined) return;
     const c = ownGet(caches, req.connectionId);
-    if (!pending.listed || ownGet(c?.collsLoading ?? {}, req.dbName)) return;
+    if (!pending.listed || ownGet(c?.collsLoading ?? {}, dbName)) return;
     // A database's own row is drawn from its listing already: absent once its
     // collections are in, it is gone.
-    if (req.collection !== undefined && ownGet(c?.colls ?? {}, req.dbName)?.some((x) => x.name === req.collection)) return;
+    if (req.collection !== undefined && ownGet(c?.colls ?? {}, dbName)?.some((x) => x.name === req.collection)) return;
     pendingRevealRef.current = null;
     queueMicrotask(() => onRevealHandled?.());
   }, [rows, revealListed, onRevealHandled, caches, listRef]);

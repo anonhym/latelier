@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import type { PaletteContext as PaletteContextValue } from './types';
 import { useFocusedConnectionId } from '../state/focusedConnection';
+import { usePaletteCollections } from '../state/paletteCollections';
 
 const Ctx = React.createContext<PaletteContextValue>({
   pathname: '/',
@@ -44,12 +45,15 @@ function parseConnectionId(pathname: string): string | null {
 export function PaletteContextProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const focusedConnectionId = useFocusedConnectionId();
+  const collections = usePaletteCollections();
   const value = React.useMemo<PaletteContextValue>(
     () => ({
       pathname: location.pathname,
       connectionId: parseConnectionId(location.pathname) ?? focusedConnectionId,
+      collectionsConnectionId: collections.connectionId,
+      collectionsPending: collections.pending,
     }),
-    [location.pathname, focusedConnectionId],
+    [location.pathname, focusedConnectionId, collections],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

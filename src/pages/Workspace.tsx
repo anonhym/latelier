@@ -7,6 +7,8 @@ import { type PanelImperativeHandle } from 'react-resizable-panels';
 import { useWorkspaceTabs } from '../state/workspaceTabs';
 import { useConnections, isConnectionActive, isKnownNotConnected } from '../state/connections';
 import { setFocusedConnectionId as publishFocusedConnectionId } from '../state/focusedConnection';
+import { publishPaletteCollections } from '../state/paletteCollections';
+import { isSweepPending, sweepConnectionId } from './Workspace/collectionSweep';
 import { api, getErrorMessage, isIpcError } from '../api/atelier';
 import { logFailure } from '../utils/rendererLog';
 import { notify } from '../theme/notifications';
@@ -922,10 +924,16 @@ function WorkspaceInner() {
   // Connection. The sweep fills the navigator's own cache, so the navigator
   // never fetches what the palette already has, and the reverse.
   const { tree: navigatorTree, loadDbs, loadColls } = navigatorData;
-  const focusedCache = focusedConnectionId
-    ? ownGet(navigatorTree.caches, focusedConnectionId)
-    : undefined;
-  const focusedIsConnected = focusedConnection?.status === 'connected';
+  // The Focused Tab's Connection, or with no tab the most recently connected
+  // Open Connection, so a palette connect lists its collections at once.
+  const sweepId = sweepConnectionId(focusedConnectionId, connections);
+  const sweepCache = sweepId ? ownGet(navigatorTree.caches, sweepId) : undefined;
+  const sweepIsConnected = connections.find((c) => c.id === sweepId)?.status === 'connected';
+  const sweepPending = sweepIsConnected && isSweepPending(sweepCache);
+  React.useEffect(() => {
+    publishPaletteCollections({ connectionId: sweepIsConnected ? sweepId : null, pending: sweepPending });
+  }, [sweepId, sweepIsConnected, sweepPending]);
+  React.useEffect(() => () => publishPaletteCollections({ connectionId: null, pending: false }), []);
   // One attempt per database per database list: a database whose listing
   // failed is not retried on every render, and a refreshed list sweeps again.
   const sweptRef = React.useRef<{ dbs: DbInfo[] | null; done: Set<string> }>({
@@ -936,10 +944,10 @@ function WorkspaceInner() {
   const relistRef = React.useRef<{ id: string | null; names: Set<string> }>({ id: null, names: new Set() });
   const [relists, setRelists] = React.useState(0);
   React.useEffect(() => {
-    if (!focusedConnectionId || !focusedIsConnected) return;
-    if (reconnectedRef.current.delete(focusedConnectionId)) {
+    if (!sweepId || !sweepIsConnected) return;
+    if (reconnectedRef.current.delete(sweepId)) {
       // The expanded databases were already re-listed by the status sync.
-      const id = focusedConnectionId;
+      const id = sweepId;
       const expanded = ownGet(navigatorTree.expanded, id) ?? {};
       void loadDbs(id, { force: true }).then((dbs) => {
         const names = (dbs ?? []).filter((d) => !ownGet(expanded, d.name)).map((d) => d.name);
@@ -949,14 +957,14 @@ function WorkspaceInner() {
       });
       return;
     }
-    const c = focusedCache;
+    const c = sweepCache;
     if (!c?.dbs) {
-      if (!c?.dbsLoading && !c?.err) void loadDbs(focusedConnectionId);
+      if (!c?.dbsLoading && !c?.err) void loadDbs(sweepId);
       return;
     }
     if (sweptRef.current.dbs !== c.dbs) sweptRef.current = { dbs: c.dbs, done: new Set() };
     const { done } = sweptRef.current;
-    const relist = relistRef.current.id === focusedConnectionId ? relistRef.current.names : null;
+    const relist = relistRef.current.id === sweepId ? relistRef.current.names : null;
     // A few listings at a time, the navigator's own included, so a server with
     // hundreds of databases is not asked for all of them at once. Each one that
     // settles changes the cache and so runs this again for the next.
@@ -968,12 +976,12 @@ function WorkspaceInner() {
       done.add(d.name);
       relist?.delete(d.name);
       inFlight++;
-      void loadColls(focusedConnectionId, d.name);
+      void loadColls(sweepId, d.name);
     }
   }, [
-    focusedConnectionId,
-    focusedIsConnected,
-    focusedCache,
+    sweepId,
+    sweepIsConnected,
+    sweepCache,
     loadDbs,
     loadColls,
     reconnects,
@@ -1003,6 +1011,17 @@ function WorkspaceInner() {
       navigatorDispatch({ type: 'expandedConnSet', id: connectionId });
       navigatorDispatch({ type: 'dbExpandedSet', connectionId, dbName, value: true });
       setNavigatorRevealRequest({ connectionId, dbName });
+    },
+    [panelPrefsRef, navigatorDispatch, setNavigatorRevealRequest],
+  );
+
+  // A palette connect lands on the Connection's root in the navigator, so the
+  // next keys move through its databases instead of into the void.
+  const revealConnectionRoot = React.useCallback(
+    (connectionId: string) => {
+      if (panelPrefsRef.current.sidebarCollapsed) panelPrefsRef.current.toggleSidebar();
+      navigatorDispatch({ type: 'expandedConnSet', id: connectionId });
+      setNavigatorRevealRequest({ connectionId });
     },
     [panelPrefsRef, navigatorDispatch, setNavigatorRevealRequest],
   );
@@ -1496,7 +1515,11 @@ function WorkspaceInner() {
     if (!openConnectionId) return;
     void navigate(location.pathname, { replace: true, state: null });
     openConnection(openConnectionId);
-    if (!openCollectionFromNav) return;
+    if (!openCollectionFromNav) {
+      // Deferred, like the navigator's other reveals: this effect may not set state itself.
+      queueMicrotask(() => revealConnectionRoot(openConnectionId));
+      return;
+    }
     void tabsRef.current
       .openCollection({
         connectionId: openConnectionId,

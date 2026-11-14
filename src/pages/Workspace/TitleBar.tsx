@@ -76,6 +76,8 @@ export function TitleBar({
       <UnstyledButton
         onClick={onOpenPalette}
         data-hint-anchor="palette.discover"
+        // The palette opens under this field (X07 §14.1).
+        data-palette-anchor
         aria-label="Search collections and actions"
         style={{
           display: 'flex',
