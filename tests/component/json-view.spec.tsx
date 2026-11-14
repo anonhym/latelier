@@ -342,3 +342,18 @@ describe('JsonView — card actions', () => {
     expect(actionsOf(1).style.opacity).toBe('1');
   });
 });
+
+describe('JsonView — shell regex literals', () => {
+  it.each([
+    ['{', 'i'],
+    ['}', ''],
+    ['^a{2}$', 'im'],
+    ['[{}]', 's'],
+  ])('renders a BSON regex /%s/%s as one literal without losing the document braces', async (pattern, flags) => {
+    const { BSONRegExp } = await import('bson');
+    const { container } = renderJson([{ _id: 1, re: new BSONRegExp(pattern, flags), after: 'tail' }]);
+    expect(container.textContent).toContain(`/${pattern}/${flags}`);
+    expect(container.textContent).toContain('tail');
+    expect(container.textContent?.trim().endsWith('}')).toBe(true);
+  });
+});

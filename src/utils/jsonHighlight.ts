@@ -51,6 +51,28 @@ export function tokenizeJson(json: string, options: { shell?: boolean } = {}): T
     return s;
   }
 
+  /**
+   * A shell regex literal `/pattern/flags` as one atomic token. A char scan,
+   * not a regex: the pattern may hold `{`, `}` or `"`, which must not reach
+   * the punctuation branches. An unterminated literal runs to the end.
+   */
+  function readRegexLiteral(): string {
+    const start = i;
+    i++; // opening slash
+    let inClass = false;
+    while (i < len) {
+      const c = json[i];
+      i++;
+      if (c === '\\') i++;
+      else if (c === '[') inClass = true;
+      else if (c === ']') inClass = false;
+      else if (c === '/' && !inClass) break;
+    }
+    i = Math.min(i, len);
+    while (i < len && LOWER_ALPHA_RE.test(json[i])) i++;
+    return json.slice(start, i);
+  }
+
   function readNumber(): string {
     let s = '';
     while (i < len) {
@@ -116,6 +138,12 @@ export function tokenizeJson(json: string, options: { shell?: boolean } = {}): T
       if (word === 'true' || word === 'false') tokens.push({ kind: 'boolean', text: word });
       else if (word === 'null') tokens.push({ kind: 'null', text: word });
       else tokens.push({ kind: json[j] === ':' ? 'key' : 'ctor', text: word });
+      expectValue = false;
+      continue;
+    }
+
+    if (options.shell && c === '/') {
+      tokens.push({ kind: 'string', text: readRegexLiteral() });
       expectValue = false;
       continue;
     }
