@@ -271,7 +271,7 @@ describe('Status bar — a find in flight', () => {
     rerender(status(false));
 
     expect(screen.queryByTestId('result-running')).toBeNull();
-    expect(slot().textContent).toContain('3 results');
+    expect(slot().textContent).toContain('3 documents');
     expect(slot().textContent).toContain('2 ms');
   });
 
@@ -288,13 +288,13 @@ describe('Status bar — a find in flight', () => {
 
     act(() => { vi.advanceTimersByTime(CANCELLED_NOTICE_MS); });
     expect(screen.queryByTestId('result-cancelled')).toBeNull();
-    expect(slot().textContent).toContain('3 results');
+    expect(slot().textContent).toContain('3 documents');
   });
 
   it('reads another tab\'s clock as none of its own', () => {
     act(() => startRunClock('t2'));
     render(status(false));
     expect(screen.queryByTestId('result-running')).toBeNull();
-    expect(slot().textContent).toContain('3 results');
+    expect(slot().textContent).toContain('3 documents');
   });
 });

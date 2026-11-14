@@ -302,7 +302,7 @@ Keeps the tablist semantics of §7's "Collection view strip" (`aria-label="Colle
 A 24px band along the bottom of the window (`aria-label="Status bar"`), hidden on the welcome canvas.
 
 - **Left**: `● {connection} · {host} · v{version}` for the Focused Tab's Connection, with a `Read-only` badge when set. The version shows only while connected.
-- **Middle**, for a collection tab on Documents: the last run as `{n} documents · {duration} · {plan}`. The duration is always shown. The plan badge moves here from the result bar; activating it opens the plan in the Inspector ([W05 §9.7](./W05-query-bar.md)). While a query runs it reads `Running · {elapsed}`; after a cancel, `Cancelled after {elapsed}` for a few seconds. When the results are not current the count carries a warning dot.
+- **Middle**, for a collection tab on Documents: the last run as `{n} documents · {ms} ms · {a}–{b} of {n}`, then the plan badge (`1 document` when the total is 1; `0 documents · {ms} ms` with no range when empty; an uncounted total reads `6,382+`). In a narrow bar the range gives way first (`{a}–{b} of {n}`, then `{n} documents`), and the full text moves to a tooltip. The duration is always shown. The plan badge moves here from the result bar; activating it opens the plan in the Inspector ([W05 §9.7](./W05-query-bar.md)). While a query runs it reads `Running · {elapsed}`; after a cancel, `Cancelled after {elapsed}` for a few seconds. When the results are not current the count carries a warning dot.
 - **Right**: the pager ([W07 §7](./W07-pagination.md)).
 - On a script or server tab, and on the Aggregation and Schema & indexes views, the middle and right are empty.
 

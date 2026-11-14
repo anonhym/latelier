@@ -82,7 +82,7 @@ describe('status bar', () => {
   it('holds the count and the pager, and the pager drives the tab', () => {
     const { actions } = mount();
     const bar = screen.getByTestId('status-bar');
-    expect(within(bar).getByTestId('result-count-slot').textContent).toMatch(/120 results/);
+    expect(within(bar).getByTestId('result-count-slot').textContent).toMatch(/120 documents/);
     fireEvent.click(within(bar).getByRole('button', { name: 'Next page' }));
     expect(actions.patch).toHaveBeenCalledWith({ page: 1 });
     expect(actions.run).toHaveBeenCalledWith({ page: 1 });

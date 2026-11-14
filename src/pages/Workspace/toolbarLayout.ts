@@ -38,14 +38,14 @@ export function canvasHeaderLayout(width: number | null, withReferences = false)
 
 /** The status bar's middle part (W01 §14.6): the width it gets is the count's own. */
 export interface StatusCountLayout {
-  /** full: "60 results · 2 ms · showing 1–50". range: "1–50 of 60". total: "60 results". */
+  /** full: "60 documents · 2 ms · 1–50 of 60". range: "1–50 of 60". total: "60 documents". */
   count: CountForm;
   /** The query-plan badge takes count room the narrowest bars do not have. */
   planBadge: boolean;
 }
 
 // Widest each form gets at the band's 11px text, plus the plan badge's 44px
-// minimum beside it: "6,382+ results · 1234 ms · showing 6,351–6,382" is about 260.
+// minimum beside it: "6,382+ documents · 1234 ms · 6,351–6,382 of 6,382+" is about 300.
 const COUNT_FULL_MIN = 320;
 const COUNT_RANGE_MIN = 160;
 const PLAN_BADGE_MIN = 200;
