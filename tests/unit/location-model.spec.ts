@@ -8,7 +8,7 @@ const conn = (id: string, over: Partial<ConnectionSummary> = {}): ConnectionSumm
   color: '#000',
   host: 'localhost',
   port: 27017,
-  connectionType: 'standalone',
+  connectionType: 'standard',
   status: 'connected',
   readOnly: false,
   ...over,
