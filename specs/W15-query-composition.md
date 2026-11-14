@@ -1,6 +1,6 @@
 # W15 — Query composition: the whole find, not just the filter
 
-> **Status: Accepted.** §16 (the drawer becomes the Inspector's Filter tab, closed by default, without Saved and Recent) is agreed and not built yet. Tiers 1–2 and most of §13 shipped. Tier 3 is open for the 1000-document cap and §1.2, whose pointer was shipped and then removed. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
+> **Status: Accepted.** Tiers 1–2 and most of §13 shipped. Tier 3 is open for the 1000-document cap and §1.2, whose pointer was shipped and then removed. Of §14, 14.1, 14.3 and 14.5–14.9 shipped; 14.2 and 14.4's "exclude this value" are open.
 
 ## Purpose
 

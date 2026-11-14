@@ -1,6 +1,6 @@
 # W10 — Recent queries + preview field preferences
 
-> **Status: Accepted.** §1–§5 shipped; the preview-field preferences in §2 were removed along with the picker. §6, which moves the Recent list out of the Query Builder into the Filter Bar's History popover, is agreed and not built yet.
+> **Status: Accepted.** §1–§6 shipped; the preview-field preferences in §2 were removed and §6 moved the Recent list into the Filter Bar's History popover.
 
 ## Purpose
 

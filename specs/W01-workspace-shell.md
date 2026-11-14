@@ -1,6 +1,6 @@
 # W01 — Workspace shell + tab management
 
-> **Status: Accepted.** §1–§13 shipped, with Aggregation as a sub-view of the collection tab (§5), not the separate tab kind §2 lists. §14, the One Spine shell, is agreed and not built yet; where §14 names a part of §7, §10 or §11, §14 is what ships.
+> **Status: Implemented.** §1–§13 shipped, with Aggregation as a sub-view of the collection tab (§5), not the separate tab kind §2 lists. §14, the One Spine shell, shipped; where §14 names a part of §7, §10 or §11, §14 is what ships.
 
 ## Purpose
 

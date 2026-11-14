@@ -1,6 +1,6 @@
 # C03 — NewConnection page UI
 
-> **Status: Accepted.** §1–§12 shipped. §13 is agreed and not built yet: a welcome canvas that connects from a pasted URI, a connection string field at the top of the form, a Standard / localhost default, and Save & connect.
+> **Status: Implemented.** §1–§12 shipped. §13 shipped: a welcome canvas that connects from a pasted URI, a connection string field at the top of the form, a Standard / localhost default, and Save & connect.
 
 > **Note:** The form body described below now lives in the host-agnostic
 > `src/features/connections/ConnectionForm.tsx` (extracted from
