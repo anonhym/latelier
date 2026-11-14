@@ -123,7 +123,7 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
     mountWorkspace();
 
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
 
     const explainDialog = await screen.findByRole('dialog', { name: 'Explain plan' });
     await waitFor(() => expect(explainDialog.textContent).toContain('COLLSCAN'));
@@ -201,7 +201,7 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
     mountWorkspace();
 
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
     await screen.findByRole('dialog', { name: 'Explain plan' });
     fireEvent.click(await screen.findByTestId('explain-create-index'));
 
@@ -252,7 +252,7 @@ describe('QueryBar → ExplainDrawer → Structure — Create an index for this 
     mountWorkspace();
 
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
     await screen.findByRole('dialog', { name: 'Explain plan' });
 
     fireEvent.click(await screen.findByTestId('explain-create-index'));

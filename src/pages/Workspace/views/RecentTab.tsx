@@ -4,11 +4,15 @@ import { api, getErrorMessage } from '../../../api/atelier';
 import { relativeTime } from '../../../utils/relativeTime';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { confirmDestructive } from '../../../utils/confirm';
-import { ActionIcon, Box, Button, Group, Text, Tooltip, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Text, TextInput, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../../theme/themeVars';
 import { SubmitButton } from '../../../components/SubmitButton';
 import type { RecentQuery } from '@shared/types';
-import { mergeConsecutive, type MergedRecentQuery } from './recentRuns';
+import { mergeConsecutive, queryPreview, type MergedRecentQuery } from './recentRuns';
+import { useListPreview } from './useListPreview';
+
+// Stable, so it runs once per mount: an inline ref would refocus on every render.
+const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
 
 interface RecentTabProps {
   connectionId: string;
@@ -37,7 +41,15 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
-  const rows = React.useMemo(() => mergeConsecutive(items), [items]);
+  const [search, setSearch] = React.useState('');
+  const rows = React.useMemo(() => {
+    const merged = mergeConsecutive(items);
+    const needle = search.trim().toLowerCase();
+    return needle ? merged.filter((item) => (queryPreview(item.payload) ?? '').toLowerCase().includes(needle)) : merged;
+  }, [items, search]);
+  // W05 §9.6: ↑↓ in the search box move the highlight, Enter loads it.
+  const list = useListPreview(rows, onRunHere);
+  const activePreview = list.active ? queryPreview(list.active.payload) : null;
 
   // A reviewer flagged that this instance is reused when the active collection
   // changes, and two `recent.list` calls can be in flight at once. If the older
@@ -178,6 +190,23 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </Tooltip>
       </Group>
 
+      <TextInput
+        size="xs"
+        mx={10}
+        mb={6}
+        // The popover opens on this box, so the list is under the keyboard at once.
+        ref={focusOnMount}
+        leftSection={I.search}
+        placeholder="Search history"
+        aria-label="Search recent queries"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.currentTarget.value);
+          list.highlight(0);
+        }}
+        onKeyDown={list.onKeyDown}
+      />
+
       {loading && (
         <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
           Loading…
@@ -196,8 +225,15 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </Text>
       )}
 
-      {!loading && !err && rows.map((item) => {
+      {!loading && !err && items.length > 0 && rows.length === 0 && (
+        <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
+          No run matches this search.
+        </Text>
+      )}
+
+      {!loading && !err && rows.map((item, index) => {
         const preview = previewOf(item);
+        const highlighted = item === list.active;
         return (
           <Group
             key={item.id}
@@ -206,7 +242,10 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
             px={10}
             py={7}
             fz={T.fsSm}
-            style={{ borderBottom: `1px solid ${T.border}` }}
+            data-testid="recent-row"
+            data-highlighted={highlighted || undefined}
+            onMouseEnter={() => list.highlight(index)}
+            style={{ borderBottom: `1px solid ${T.border}`, background: highlighted ? T.accentSoft : undefined }}
           >
             <Box style={{ flex: 1, overflow: 'hidden' }}>
               {/* The row's identity: what was queried, not just when. */}
@@ -293,6 +332,31 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
           </Group>
         );
       })}
+
+      {/* The highlighted run's query, whole: read before it is loaded. Live,
+          so moving the highlight with the keyboard reads it out. */}
+      {!loading && !err && list.active && (
+        <div
+          data-testid="recent-preview"
+          aria-live="polite"
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            maxHeight: 120,
+            overflowY: 'auto',
+            padding: '6px 10px',
+            borderTop: `1px solid ${T.border}`,
+            background: T.surfaceRaised,
+            color: activePreview ? T.text : T.textGhost,
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: T.fsXs,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {activePreview ?? 'no stored query'}
+        </div>
+      )}
     </div>
   );
 }

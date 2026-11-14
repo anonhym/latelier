@@ -18,15 +18,25 @@ import type { BuilderState, CollectionTab, CollectionTabState } from '@shared/ty
 import type { IpcApi } from '@shared/ipc';
 
 /**
- * W14 §9 — the advanced region's options row: collation, hint, maxTimeMS and
- * readPreference. The bar is rendered under a wrapper that holds real state
- * and merges each patch, so what the row shows is what a patch round-trip
- * produced, not the fixture it started from.
+ * W14 §9 — the find's options: collation, hint, maxTimeMS and readPreference.
+ * Pills in the Filter Bar row, and cells of the grid under it while "Keep
+ * options expanded" is on, which is where most of these tests edit them. The
+ * bar is rendered under a wrapper that holds real state and merges each
+ * patch, so what it shows is what a patch round-trip produced, not the
+ * fixture it started from.
  */
 
 const b = (over: Partial<BuilderState> = {}): BuilderState => ({ projection: [], sort: '', limit: '', ...over });
 
-function Harness({ initial, onState }: { initial: BuilderState; onState: (s: CollectionTabState) => void }) {
+function Harness({
+  initial,
+  expanded,
+  onState,
+}: {
+  initial: BuilderState;
+  expanded: boolean;
+  onState: (s: CollectionTabState) => void;
+}) {
   const [state, setState] = React.useState<CollectionTabState>({
     view: 'Tree',
     builder: initial,
@@ -34,6 +44,7 @@ function Harness({ initial, onState }: { initial: BuilderState; onState: (s: Col
     page: 0,
     pageSize: 50,
     activeBuilderTab: 'Builder',
+    optionsExpanded: expanded,
   });
   onState(state);
   const actions = React.useMemo(
@@ -45,21 +56,21 @@ function Harness({ initial, onState }: { initial: BuilderState; onState: (s: Col
   );
   return (
     <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
-      <QueryBar suggestionContext={null} loadGen={0} />
+      <QueryBar suggestionContext={null} />
     </CollectionWorkspaceProvider>
   );
 }
 
-function mountBar(initial: BuilderState) {
+/** The bar with the options grid open, unless `expanded` is false. */
+function mountBar(initial: BuilderState, expanded = true) {
   let latest: CollectionTabState | undefined;
-  const r = render(<Harness initial={initial} onState={(s) => (latest = s)} />);
+  const r = render(<Harness initial={initial} expanded={expanded} onState={(s) => (latest = s)} />);
   return { ...r, builder: () => latest!.builder };
 }
 
-const runDisabled = () => screen.getByTestId<HTMLButtonElement>('query-run-btn').disabled;
-
-const trigger = (container: HTMLElement) =>
-  container.querySelector('[aria-controls="query-bar-advanced"]') as HTMLElement;
+const runButton = () => screen.getByTestId<HTMLButtonElement>('query-run-btn');
+const runDisabled = () => runButton().disabled;
+const strip = () => screen.queryByTestId('query-bar-strip');
 
 describe('QueryBar options row', () => {
   it('names each option off its visible label cell', () => {
@@ -70,7 +81,7 @@ describe('QueryBar options row', () => {
     expect(screen.getByLabelText('read pref')).toBe(screen.getByTestId('query-bar-readpref'));
   });
 
-  it('opens with the advanced row when only an option is set, and patches the builder', () => {
+  it('shows a set option in its cell, and patches the builder', () => {
     const { builder } = mountBar(b({ collation: '{"locale":"en"}' }));
     expect(screen.getByTestId<HTMLInputElement>('query-bar-collation').value).toBe('{"locale":"en"}');
 
@@ -93,42 +104,71 @@ describe('QueryBar options row', () => {
     expect(options).toEqual(['', 'primary', 'primaryPreferred', 'secondary', 'secondaryPreferred', 'nearest']);
   });
 
-  it('an unparseable collation raises its notice and disables Run', () => {
+  it('an unparseable collation closes Run as it is typed and says why once the field is left', () => {
     mountBar(b());
-    fireEvent.click(trigger(document.body));
     expect(runDisabled()).toBe(false);
 
-    fireEvent.change(screen.getByTestId('query-bar-collation'), { target: { value: '{"locale":' } });
     const input = screen.getByTestId('query-bar-collation');
+    fireEvent.change(input, { target: { value: '{"locale":' } });
+    // The gate follows the text; the strip waits for a commit point.
     expect(input.getAttribute('aria-invalid')).toBe('true');
-    expect(input.getAttribute('aria-describedby')).toBe('query-bar-collation-error');
-    expect(document.getElementById('query-bar-collation-error')?.textContent).toMatch(/Can't parse this collation/);
     expect(runDisabled()).toBe(true);
+    expect(runButton().textContent).toBe('Fix collation to run');
+    expect(strip()).toBeNull();
+
+    fireEvent.blur(input);
+    expect(strip()?.getAttribute('role')).toBe('alert');
+    expect(strip()?.id).toBe('query-bar-collation-error');
+    expect(strip()?.textContent).toMatch(/Collation — Can't parse this collation/);
+    expect(input.getAttribute('aria-describedby')).toBe('query-bar-collation-error');
+
+    // Any edit retires the notice it was raised for.
+    fireEvent.change(input, { target: { value: '{"locale":"en"}' } });
+    expect(strip()).toBeNull();
+    expect(runDisabled()).toBe(false);
   });
 
-  it('names a bad hint key pattern, maxTimeMS and a restored read preference', () => {
+  it('says why a restored query cannot run as soon as its tab is in front, one problem at a time', () => {
     mountBar(b({ hint: '{"a":', maxTimeMS: '0', readPreference: 'secondaryOnly' }));
-    expect(document.getElementById('query-bar-hint-error')?.textContent).toMatch(/Can't parse this hint/);
-    expect(document.getElementById('query-bar-maxtime-error')?.textContent).toMatch(/whole number/);
-    expect(document.getElementById('query-bar-readpref-error')?.textContent).toMatch(/"secondaryOnly" is not a read preference/);
+    // The first problem in clause order; the others follow as each is fixed.
+    expect(strip()?.id).toBe('query-bar-hint-error');
+    expect(strip()?.textContent).toMatch(/Hint — Can't parse this hint/);
+    expect(screen.getByTestId('query-bar-hint').getAttribute('aria-describedby')).toBe('query-bar-hint-error');
+    for (const id of ['query-bar-hint', 'query-bar-maxtime', 'query-bar-readpref']) {
+      expect(screen.getByTestId(id).getAttribute('aria-invalid')).toBe('true');
+    }
     // The restored value stays the selected one, so the notice names what is shown.
     expect(screen.getByTestId<HTMLSelectElement>('query-bar-readpref').value).toBe('secondaryOnly');
+
+    fireEvent.change(screen.getByTestId('query-bar-hint'), { target: { value: '_id_' } });
+    fireEvent.blur(screen.getByTestId('query-bar-hint'));
+    expect(strip()?.id).toBe('query-bar-maxtime-error');
+    expect(strip()?.textContent).toMatch(/Max time — maxTimeMS must be a whole number/);
+
+    fireEvent.change(screen.getByTestId('query-bar-maxtime'), { target: { value: '10' } });
+    fireEvent.blur(screen.getByTestId('query-bar-maxtime'));
+    expect(strip()?.id).toBe('query-bar-readpref-error');
+    expect(strip()?.textContent).toMatch(/Read preference — "secondaryOnly" is not a read preference/);
   });
 
-  it('says a maxTimeMS over the cap runs at 30000, without blocking Run', () => {
+  it('says a maxTimeMS over the cap runs at 30000, as a warning that leaves Run open', () => {
     mountBar(b({ maxTimeMS: '40000' }));
     expect(screen.getByTestId('query-bar-maxtime').getAttribute('placeholder')).toBe('max 30000');
-    expect(document.getElementById('query-bar-maxtime-error')?.textContent).toMatch(
-      'Running with maxTimeMS 30000, the most a query may run.',
-    );
+    expect(strip()?.id).toBe('query-bar-maxtime-error');
+    expect(strip()?.getAttribute('data-tone')).toBe('warn');
+    expect(strip()?.textContent).toMatch('Max time — Running with maxTimeMS 30000, the most a query may run.');
     expect(screen.getByTestId('query-bar-maxtime').getAttribute('aria-invalid')).toBe('false');
     expect(runDisabled()).toBe(false);
+    expect(runButton().textContent).toContain('Run');
   });
 
-  it('counts set options and their errors on the collapsed trigger', () => {
-    const { container } = mountBar(b({ sort: '{"a":1}', collation: '{"locale":"en"}', hint: '{' }));
-    fireEvent.click(trigger(container));
-    expect(within(trigger(container)).getByText(/set/).textContent).toBe('3 set · 1 error');
+  it('says each set option, and the one that cannot run, on its pill', () => {
+    mountBar(b({ sort: '{"a":1}', collation: '{"locale":"en"}', hint: '{' }), false);
+    expect(screen.getByTestId('option-pill-sort').textContent).toBe('Sort: a ↑');
+    expect(screen.getByTestId('option-pill-collation').textContent).toBe('Collation: en');
+    expect(screen.getByTestId('option-pill-hint').textContent).toBe('Hint: invalid');
+    expect(screen.getByTestId('option-pill-hint').getAttribute('data-status')).toBe('invalid');
+    expect(strip()?.getAttribute('data-tone')).toBe('error');
   });
 });
 

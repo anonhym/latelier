@@ -12,8 +12,8 @@ import { expectConsoleClean, expectStatusDot } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * W15 §12 case 11 — one flow: set a sort and a limit from the advanced
- * row, run, read them back off the *header* and the *pager* rather than off
+ * W15 §12 case 11 — one flow: set a sort and a limit from their pills in the
+ * Filter Bar row, run, read them back off the *header* and the *pager* rather than off
  * the inputs that set them, then reload and confirm the whole composition
  * survived.
  *
@@ -22,7 +22,7 @@ test.afterAll(stopAllMemoryServers);
  * defect W15 §3.2 describes is precisely the header disagreeing with the
  * query that ran.
  */
-test('a sort and a limit set in the advanced row reach the header and the pager, and survive a reload', async () => {
+test('a sort and a limit set from their pills reach the header and the pager, and survive a reload', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -50,36 +50,21 @@ test('a sort and a limit set in the advanced row reach the header and the pager,
       // opening a tab auto-runs the base query. Let it land first.
       await expect(win.getByText('aaa-1')).toBeVisible({ timeout: 8000 });
 
-      // ── The disclosure trigger's focus ring (W15 §5, closing W14 §2). ──
-      // Asserted here rather than in a component test because jsdom applies
-      // no stylesheet and cannot evaluate `:focus-visible` at all.
+      // ── Compose from the pills: sort descending on `sku`, limit 2. ──
+      // Each pill opens its own editor with the focus in it, and Escape
+      // hands the focus back to the pill.
       await expect(ws.queryBarAdvanced).toHaveCount(0);
-      const outline = () =>
-        ws.queryBarAdvancedToggle.evaluate((el) => {
-          const s = getComputedStyle(el);
-          return { style: s.outlineStyle, width: s.outlineWidth };
-        });
-      // Loose on purpose: the point is that the ring is not simply always
-      // on. Pinning the exact computed serialization of `outline-style: none`
-      // would bet the criterion on a UA detail.
-      expect((await outline()).style).not.toBe('solid');
-
-      // Reached with a real keyboard press: Chromium's `:focus-visible`
-      // heuristic does not fire for a programmatic `.focus()`. The trigger is
-      // the focusable immediately before the filter textarea.
-      await ws.queryBarTextarea.click();
-      await win.keyboard.press('Shift+Tab');
-      await expect(ws.queryBarAdvancedToggle).toBeFocused();
-      const focused = await outline();
-      expect(focused.style).toBe('solid');
-      expect(focused.width).toBe('2px');
-
-      // ── Compose: sort descending on `sku`, limit 2. ──
-      await ws.queryBarAdvancedToggle.press('Enter');
-      await expect(ws.queryBarAdvanced).toBeVisible();
-
+      await ws.openOption('sort');
+      await expect(ws.queryBarSort).toBeFocused();
       await ws.queryBarSort.fill('{"sku":-1}');
+      await ws.queryBarSort.press('Escape');
+      await expect(ws.optionPill('sort')).toBeFocused();
+      await expect(ws.optionPill('sort')).toHaveText('Sort: sku ↓');
+
+      await ws.openOption('limit');
       await ws.queryBarLimit.fill('2');
+      await ws.queryBarLimit.press('Escape');
+      await expect(ws.optionPill('limit')).toHaveText('Limit: 2');
       await ws.queryBarRunButton.click();
 
       // The header agrees with the sort that ran.
@@ -104,16 +89,14 @@ test('a sort and a limit set in the advanced row reach the header and the pager,
       await expect(ws.tabByName('orders')).toHaveAttribute('aria-selected', 'true', {
         timeout: 10000,
       });
-      // The row re-opens because the restored tab has advanced values set.
-      await expect(ws.queryBarAdvanced).toBeVisible({ timeout: 8000 });
-      await expect(ws.queryBarSort).toHaveValue('{"sku":-1}');
-      await expect(ws.queryBarLimit).toHaveValue('2');
-      await expect(ws.queryBarSkip).toHaveValue('0');
+      // The restored tab's pills say its options; nothing is paged, so Skip
+      // stays in More.
+      await expect(ws.optionPill('sort')).toHaveText('Sort: sku ↓', { timeout: 8000 });
+      await expect(ws.optionPill('limit')).toHaveText('Limit: 2');
+      await expect(ws.optionPill('skip')).toHaveCount(0);
 
-      // A restored tab carrying a non-default query does not auto-run,
-      // so run it: the assertion that matters is that the restored state
-      // still produces the same header and pager.
-      await ws.queryBarRunButton.click();
+      // The tab in front at launch runs its restored query once (W01 §14.10):
+      // the restored state produces the same header and pager, with no Run.
       await expect(ws.tableHeader('sku')).toContainText('↓', { timeout: 8000 });
       await expect(win.getByText(/^1–2 of/)).toBeVisible({ timeout: 8000 });
       await expect(win.getByText('ccc-3')).toBeVisible();
@@ -152,7 +135,7 @@ test('a sort the column arrows cannot express is still announced in the header',
     await ws.viewTableButton.click();
     await expect(ws.tableSortNote).toHaveCount(0);
 
-    await ws.queryBarAdvancedToggle.click();
+    await ws.openOption('sort');
     await ws.queryBarSort.fill('{"score":{"$meta":"textScore"}}');
 
     // No column arrow appears anywhere — that is the defect — but the gutter

@@ -57,7 +57,7 @@ function controlForms() {
     const b = within(root).getByRole('button', { name });
     return `${b.getAttribute('aria-label') ?? b.textContent}:${b.classList.contains('mantine-ActionIcon-root') ? 'icon' : 'label'}`;
   };
-  return [form(/^Fields/), form(/^Insert document/)];
+  return [form(/^Insert document/)];
 }
 
 beforeEach(() => installAtelierMock());
@@ -68,8 +68,8 @@ afterEach(() => {
 
 describe('ResultBar collapses by width alone', () => {
   it.each([
-    [400, 'label'],
-    [399, 'icon'],
+    [320, 'label'],
+    [319, 'icon'],
   ])('at %i px every state keeps the same control forms', (width, form) => {
     giveBarWidth(width);
     const { rerender } = render(bar(barState()));
@@ -77,7 +77,7 @@ describe('ResultBar collapses by width alone', () => {
     expect(fresh.every((f) => f.endsWith(`:${form}`))).toBe(true);
 
     rerender(bar(barState({ queryRaw: '{ bad:' })));
-    expect(screen.getByTestId('result-count-stale').textContent).toContain('not current');
+    expect(screen.getByTestId('result-count-stale').getAttribute('aria-label')).toBe('Not current');
     expect(controlForms()).toEqual(fresh);
 
     rerender(bar(barState(), true));
@@ -91,21 +91,13 @@ describe('ResultBar collapses by width alone', () => {
   });
 
   it('icon-only controls keep their accessible names', () => {
-    giveBarWidth(399);
+    giveBarWidth(319);
     render(bar(barState()));
     const root = screen.getByTestId('result-bar');
-    for (const name of ['Fields', 'Insert document', 'More actions']) {
+    for (const name of ['Insert document', 'More actions']) {
       const b = within(root).getByRole('button', { name });
       expect(b.querySelector('svg')).not.toBeNull();
     }
-  });
-
-  it('marks a changed Fields view on the icon, so it does not hide behind a click', () => {
-    giveBarWidth(399);
-    const { rerender } = render(bar(barState()));
-    expect(screen.queryByTestId('fields-changed-mark')).toBeNull();
-    rerender(bar(barState({ columnConfig: { hidden: ['a'] } })));
-    expect(screen.getByTestId('fields-changed-mark')).toBeTruthy();
   });
 
   it('Table, Tree and JSON keep their words at every width, in that order', () => {
@@ -129,10 +121,19 @@ describe('ResultBar collapses by width alone', () => {
     else expect(slot.querySelector('[title*="showing 1–50"]')).not.toBeNull();
   });
 
-  it('the narrowest count spends its room on "not current" rather than the noun', () => {
+  it('the narrowest count keeps the noun and the duration, and marks a stale result with a dot', () => {
     giveCountWidth(150);
     render(bar(barState({ queryRaw: '{ bad:' })));
-    expect(screen.getByTestId('result-count-slot').textContent).toBe('60· not current');
+    const slot = screen.getByTestId('result-count-slot');
+    expect(slot.textContent).toBe('60 results · 2 ms');
+    const dot = within(slot).getByRole('img', { name: 'Not current' });
+    expect(dot.textContent).toBe('');
+  });
+
+  it('a current result carries no stale mark', () => {
+    giveCountWidth(150);
+    render(bar(barState()));
+    expect(screen.queryByTestId('result-count-stale')).toBeNull();
   });
 
   it('everything that depends on the query sits in the status bar\'s flexible slot, not in the canvas header', () => {

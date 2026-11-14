@@ -8,15 +8,15 @@ import type { IpcApi } from '@shared/ipc';
 import { DRAGGED_FIELD_MIME } from '../../src/pages/Workspace/builder';
 
 /**
- * #323 / ADR 0007 item 4 — a field dragged from the results onto the sort
- * cell sorts by it: always ascending, always replacing what was there.
+ * #323 / ADR 0007 item 4 — a field dragged from the results onto Sort sorts by
+ * it: always ascending, always replacing what was there. Sort is a pill in the
+ * Filter Bar row, and a cell of the grid while the tab keeps its options
+ * expanded; both take the drop.
  */
 
 const now = '2026-08-06T12:00:00.000Z';
 
-// A sort is seeded so the advanced row auto-opens (`hasAdvanced`) — the row
-// is not in the DOM at all while collapsed.
-function makeState(): CollectionTabState {
+function makeState(optionsExpanded = false): CollectionTabState {
   return {
     view: 'Tree',
     builder: { projection: [], sort: '{"name":1}', limit: '' },
@@ -24,6 +24,7 @@ function makeState(): CollectionTabState {
     page: 2,
     pageSize: 50,
     activeBuilderTab: 'Builder',
+    optionsExpanded,
     lastRun: { documents: [], durationMs: 0, ranAt: now },
   };
 }
@@ -54,8 +55,8 @@ const CONNECTION = {
   status: 'connected' as const,
 };
 
-function mount() {
-  const state = makeState();
+function mount(optionsExpanded?: boolean) {
+  const state = makeState(optionsExpanded);
   installAtelierMock({
     tabs: {
       list: async () => [makeTab(state)],
@@ -94,30 +95,42 @@ const fieldDrag = (field: unknown) => transfer([DRAGGED_FIELD_MIME], JSON.string
 describe('#323 — drop a field onto Sort', () => {
   it('replaces the sort with the field, ascending', async () => {
     mount();
+    const pill = await screen.findByTestId('option-pill-sort');
+    expect(pill.textContent).toBe('Sort: name ↑');
+    const target = screen.getByTestId('query-bar-sort-drop');
+    expect(target.contains(pill)).toBe(true);
+
+    const dataTransfer = fieldDrag('age');
+    fireEvent.dragOver(target, { dataTransfer });
+    expect(dataTransfer.dropEffect).toBe('copy');
+    fireEvent.drop(target, { dataTransfer });
+
+    await waitFor(() => expect(pill.textContent).toBe('Sort: age ↑'));
+  });
+
+  it('takes the drop on the grid\'s sort cell while the options are kept expanded', async () => {
+    mount(true);
     const input = (await screen.findByTestId('query-bar-sort')) as HTMLInputElement;
     expect(input.value).toBe('{"name":1}');
     const cell = screen.getByTestId('query-bar-sort-drop');
+    expect(cell.contains(input)).toBe(true);
 
-    const dataTransfer = fieldDrag('age');
-    fireEvent.dragOver(cell, { dataTransfer });
-    expect(dataTransfer.dropEffect).toBe('copy');
-    fireEvent.drop(cell, { dataTransfer });
-
+    fireEvent.drop(cell, { dataTransfer: fieldDrag('age') });
     await waitFor(() => expect(input.value).toBe('{"age":1}'));
   });
 
   it('re-dropping the sorted field keeps it ascending rather than flipping or clearing it', async () => {
     mount();
-    const input = (await screen.findByTestId('query-bar-sort')) as HTMLInputElement;
+    const pill = await screen.findByTestId('option-pill-sort');
     fireEvent.drop(screen.getByTestId('query-bar-sort-drop'), { dataTransfer: fieldDrag('age') });
-    await waitFor(() => expect(input.value).toBe('{"age":1}'));
+    await waitFor(() => expect(pill.textContent).toBe('Sort: age ↑'));
     // The first drop has round-tripped into state, so this one sees `age`
     // already sorted — where the header's cycle would flip it.
     await act(async () => {
       fireEvent.drop(screen.getByTestId('query-bar-sort-drop'), { dataTransfer: fieldDrag('age') });
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(input.value).toBe('{"age":1}');
+    expect(pill.textContent).toBe('Sort: age ↑');
   });
 
   it('ignores a drag that is not a field, or a malformed one', async () => {
@@ -130,7 +143,7 @@ describe('#323 — drop a field onto Sort', () => {
     };
     window.addEventListener('error', onError);
     mount();
-    const input = (await screen.findByTestId('query-bar-sort')) as HTMLInputElement;
+    const pill = await screen.findByTestId('option-pill-sort');
     const cell = screen.getByTestId('query-bar-sort-drop');
     for (const dataTransfer of [
       transfer(['text/plain'], JSON.stringify({ field: 'age' })),
@@ -144,12 +157,12 @@ describe('#323 — drop a field onto Sort', () => {
     }
     window.removeEventListener('error', onError);
     expect(thrown).toEqual([]);
-    expect(input.value).toBe('{"name":1}');
+    expect(pill.textContent).toBe('Sort: name ↑');
   });
 
-  it('highlights while a field is over the cell, and clears on leave and on drop', async () => {
+  it('highlights while a field is over the pill, and clears on leave and on drop', async () => {
     mount();
-    await screen.findByTestId('query-bar-sort');
+    await screen.findByTestId('option-pill-sort');
     const cell = screen.getByTestId('query-bar-sort-drop');
     const idle = cell.style.outline;
 

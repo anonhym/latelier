@@ -8,7 +8,6 @@ import {
   Stack,
   TextInput,
   VisuallyHidden,
-  Tooltip,
 } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
@@ -18,6 +17,7 @@ import { deriveColumns, orderFields } from './views/tableColumns';
 import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { projectionProblem } from './builder';
+import { optionPills, PILL_LOOK } from './optionPills';
 import {
   formatProjection,
   isRawProjection,
@@ -126,22 +126,24 @@ function useProjectionDraft() {
  *   elsewhere would let a user add a column that visibly does nothing.
  * - **Fetch only these fields from the server** — the projection
  *   (`builder.projection` / `builder.projectionRaw`), a query concern: it
- *   changes what the server returns and applies on the next Run. It lives
- *   here, not in the query bar's advanced row, because sitting beside the
- *   display toggles is what teaches the difference (W14 §4). Hidden for
- *   read-only consumers, which have no Run to apply it.
+ *   changes what the server returns and applies on the next Run. It sits
+ *   beside the display toggles, which is what teaches the difference
+ *   (W14 §4). Hidden for read-only consumers, which have no Run to apply it.
+ *
+ * Its trigger is the Filter Bar row's `Project` pill (W05 §9.2): the
+ * projection is one of the query's options, so it sits with them.
  *
  * A field the projection keeps off the wire is listed as "not fetched"
  * rather than silently missing from the list.
  *
  * A Popover-anchored-Button pattern; reads everything off
- * `useCollectionWorkspace()` (documents, `columnConfig`, `builder`) so it can
- * be dropped into `<ResultBar>` with no prop plumbing, and writes back
+ * `useCollectionWorkspace()` (documents, `columnConfig`, `builder`) so it
+ * needs no prop plumbing, and writes back
  * through the existing `actions.patchWith` read-modify-write — the same
  * pattern `columns` / `expandedRows` / `schema` already use — or, for the
  * projection, `actions.patch({ builder })` as the query bar does for sort.
  */
-export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
+export function FieldsControl() {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
   const isTableView = state.view === 'Table';
@@ -152,8 +154,6 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
   const canFetch = !meta.isReadOnly;
   const projection = useProjectionDraft();
   const projRawError = projectionProblem(state.builder);
-  const hasProjection =
-    state.builder.projection.length > 0 || !!state.builder.projectionRaw?.trim();
   // Same four inputs `Workspace.tsx` feeds the query bar's completion, built
   // here off the context so the control still needs no props.
   const suggestionContext = React.useMemo<SuggestionContext>(
@@ -288,7 +288,11 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
 
   const hiddenCount = hidden.size;
   const showCountBadge = hiddenCount > 0 || (isTableView && computed.length > 0);
-  const showProjectionBadge = canFetch && (hasProjection || projection.message !== null);
+  // The pill is the projection's only sign while the control is closed — it
+  // changes what Run returns, so it states the value, and is drawn in the
+  // error colour while a refused draft is still waiting inside (W15 §2.4).
+  const pill = optionPills(state).find((p) => p.key === 'project')!;
+  const pillStatus = projection.message !== null ? 'invalid' : pill.status;
 
   const sectionHeadingStyle: React.CSSProperties = {
     fontSize: T.fsXs,
@@ -331,7 +335,7 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
       // projection input's suggestion list can claim the key. The bubble-phase
       // `onKeyDown` below closes only when nothing inside already did.
       closeOnEscape={false}
-      position="bottom-end"
+      position="bottom-start"
       shadow="md"
       withinPortal
       // #79 — a click that closes the popover on a non-focusable area
@@ -345,73 +349,29 @@ export function FieldsControl({ iconOnly = false }: { iconOnly?: boolean }) {
       returnFocus
       onChange={(next) => (next ? setOpened(true) : close())}
     >
-      {/* The tooltip sits outside the target so the target's aria props land on the
-          button. It has nothing to add while the button shows its name. */}
-      <Tooltip label="Fields" withArrow disabled={!iconOnly}>
-        <Popover.Target>
-          {iconOnly ? (
-            // The badges are this control's only sign of a changed view or a
-            // projection while it is closed, so the icon keeps a mark for them.
-            <ActionIcon
-              onClick={() => (opened ? close() : setOpened(true))}
-              variant="default"
-              size={26}
-              aria-label="Fields"
-              style={{ position: 'relative' }}
-            >
-              {I.coll}
-              {(showCountBadge || showProjectionBadge) && (
-                <span
-                  data-testid="fields-changed-mark"
-                  aria-hidden="true"
-                  style={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 2,
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: projRawError || projection.message ? T.warn : T.accent,
-                  }}
-                />
-              )}
-            </ActionIcon>
-          ) : (
-          <Button
-            // A controlled Popover's target does not toggle by itself.
-            onClick={() => (opened ? close() : setOpened(true))}
-            variant="default"
-            size="compact-xs"
-            rightSection={
-              showCountBadge || showProjectionBadge ? (
-                <>
-                  {showCountBadge && (
-                    <Badge size="xs" variant="light" color="violet">
-                      {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
-                    </Badge>
-                  )}
-                  {/* The projection's only sign while the control is closed —
-                      it changes what Run returns, so it must not hide behind
-                      a click. Warn-coloured while it cannot run as written. */}
-                  {showProjectionBadge && (
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color={projRawError || projection.message ? 'orange' : 'teal'}
-                      ml={4}
-                    >
-                      projection
-                    </Badge>
-                  )}
-                </>
-              ) : undefined
-            }
-          >
-            Fields
-          </Button>
-          )}
-        </Popover.Target>
-      </Tooltip>
+      <Popover.Target>
+        <Button
+          // A controlled Popover's target does not toggle by itself.
+          onClick={() => (opened ? close() : setOpened(true))}
+          {...PILL_LOOK[pillStatus]}
+          size="compact-xs"
+          h={24}
+          data-testid="option-pill-project"
+          data-status={pillStatus}
+          style={{ flexShrink: 0 }}
+          // The display toggles' only sign while the control is closed.
+          rightSection={
+            showCountBadge ? (
+              <Badge size="xs" variant="light" color="violet">
+                {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
+              </Badge>
+            ) : undefined
+          }
+        >
+          {/* A refused draft is not in the state the label is read from. */}
+          {pillStatus === 'invalid' ? `${pill.name}: invalid` : pill.label}
+        </Button>
+      </Popover.Target>
       <Popover.Dropdown
         p="xs"
         style={{ maxWidth: 320 }}

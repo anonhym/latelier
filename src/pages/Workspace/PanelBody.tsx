@@ -22,6 +22,7 @@ import type {
   WorkspaceTab,
   ConnectionSummary,
   AggregationTabState,
+  SavedQuerySummary,
   SchemaTabState,
 } from '@shared/types';
 import type { WorkspaceTabsState } from '../../state/workspaceTabs';
@@ -302,12 +303,23 @@ export function PanelBody({
         }
       : undefined;
   const { openImport } = useConnectionTransfer();
-  // Bumped by every load that replaces the query wholesale (Reset, Saved and
-  // Recent run-here, all in BuilderPane). Lifted here because QueryBar needs
-  // it too: such a load re-derives the advanced row's open state, which a
-  // same-tab `hasAdvanced` change alone misses when the row already had
-  // values and was collapsed.
+  // Bumped by every load that replaces the query wholesale: Reset in the
+  // builder, a Saved or History load from the Filter Bar row. Lifted here
+  // because the two are siblings, and the builder reseeds its tree on it.
   const [ownLoadGen, bumpLoadGen] = React.useReducer((n: number) => n + 1, 0);
+  // The Saved list's handlers, stable so the memoized QueryBar is not
+  // re-rendered by every pass through here.
+  const openSavedInTab = React.useCallback(
+    (saved: SavedQuerySummary) => {
+      if (saved.kind === 'aggregation') void openSavedPipeline(tabs, saved);
+      else if (saved.kind === 'script') void tabs.openScript({ connectionId: saved.connectionId });
+    },
+    [tabs],
+  );
+  const renameSavedPipelines = React.useCallback(
+    (saved: SavedQuerySummary, name: string) => renameOpenPipelines(tabs, saved.id, name),
+    [tabs],
+  );
   // The header sits above every view, so it never remounts: it re-reads its
   // counts after a document write and after Structure changes an index. Not on
   // a view switch: each read is a server-side stats aggregation. An Aggregation
@@ -519,8 +531,13 @@ export function PanelBody({
                     <>
                       <QueryBar
                         suggestionContext={collection.suggestionContext}
-                        loadGen={loadGen}
                         runShortcutRef={runShortcutRef}
+                        savedRefreshKey={collection.savedRefreshKey}
+                        onLoaded={bumpLoadGen}
+                        onOpenInTab={openSavedInTab}
+                        onSavedRenamed={renameSavedPipelines}
+                        builderOpen={!builderCollapsed}
+                        onToggleBuilder={toggleBuilder}
                       />
                       <ResultViewer>
                         <ResultViewer.Pagination
@@ -664,17 +681,8 @@ export function PanelBody({
                       {/* Hidden, not unmounted, off Documents: see builderShut. */}
                       <div style={{ height: '100%', display: onDocuments ? undefined : 'none' }}>
                         <BuilderPane
-                          savedRefreshKey={collection.savedRefreshKey}
                           loadGen={loadGen}
                           onLoaded={bumpLoadGen}
-                          onOpenInTab={(saved) => {
-                            if (saved.kind === 'aggregation') {
-                              void openSavedPipeline(tabs, saved);
-                            } else if (saved.kind === 'script') {
-                              void tabs.openScript({ connectionId: saved.connectionId });
-                            }
-                          }}
-                          onSavedRenamed={(saved, name) => renameOpenPipelines(tabs, saved.id, name)}
                           onOpenAsPipeline={(stages) => {
                             tabs
                               .openAggregation({

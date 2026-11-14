@@ -218,7 +218,7 @@ describe('QueryBar — Shell Syntax input (X14 T2)', () => {
     expect(ta.value).toBe('');
     await waitFor(() =>
       expect(document.getElementById('query-bar-filter-error')?.textContent).toBe(
-        'Enter a filter, like { "status": "active" }, or {} to match every document.',
+        '⚠ Enter a filter, like { "status": "active" }, or {} to match every document.',
       ),
     );
     expect(document.getElementById('query-bar-filter-error')?.textContent).not.toMatch(/parse/i);
@@ -283,15 +283,13 @@ describe('QueryBar — Shell Syntax input (X14 T2)', () => {
  */
 
 /**
- * The advanced row is collapsed while nothing is set (W14 §1), so a tab with
- * a default builder has to open it before the sort/projection inputs exist.
+ * The sort's editor lives in the Sort pill's popover (W05 §9.2), which stays
+ * open through the editor's blur: only a click outside, Escape or Enter
+ * closes it.
  */
-async function openAdvanced(): Promise<void> {
-  await screen.findByTestId('query-bar-input');
-  const trigger = document.querySelector('[aria-controls="query-bar-advanced"]');
-  if (trigger && trigger.getAttribute('aria-expanded') !== 'true') {
-    fireEvent.click(trigger);
-  }
+async function openSort(): Promise<void> {
+  fireEvent.click(await screen.findByTestId('option-pill-sort'));
+  await screen.findByTestId('query-bar-sort');
 }
 
 async function fieldAndBlur(testid: string, text: string) {
@@ -326,7 +324,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   it('repairs an unquoted sort key on blur, and runs the repaired sort', async () => {
     const findSpy = findMock();
     setup('{}', { query: { find: findSpy, count: async () => ({ count: 0 }) } });
-    await openAdvanced();
+    await openSort();
 
     const sort = await fieldAndBlur('query-bar-sort', '{name: 1}');
 
@@ -345,8 +343,8 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   it('repairs {_id: 0} in the raw projection on blur, and runs it', async () => {
     const findSpy = findMock();
     setup('{}', { query: { find: findSpy, count: async () => ({ count: 0 }) } });
-    // The projection lives in the Fields control (W14 §4).
-    fireEvent.click(await screen.findByRole('button', { name: /^fields/i }));
+    // The projection lives in the Project pill (W05 §9.2).
+    fireEvent.click(await screen.findByRole('button', { name: /^project/i }));
 
     const proj = await fieldAndBlur('fields-projection', '{_id: 0}');
 
@@ -364,7 +362,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   // shape message, which names a different fix from the parse message.
   it('still refuses [1, 2] in the sort field, with the shape message not the parse one', async () => {
     setup('{}');
-    await openAdvanced();
+    await openSort();
 
     const sort = await fieldAndBlur('query-bar-sort', '[1, 2]');
 
@@ -380,7 +378,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   it('leaves a blank sort meaning "no sort", with no error and Run enabled', async () => {
     const findSpy = findMock();
     setup('{}', { query: { find: findSpy, count: async () => ({ count: 0 }) } });
-    await openAdvanced();
+    await openSort();
 
     const sort = await fieldAndBlur('query-bar-sort', '');
 
@@ -399,7 +397,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   it('leaves a strictly-parsing sort byte-identical after a blur', async () => {
     const HAND_ARRANGED = '{ "b" : 1,   "a" : 2 }';
     const { updateSpy } = setup('{}');
-    await openAdvanced();
+    await openSort();
 
     const sort = await fieldAndBlur('query-bar-sort', HAND_ARRANGED);
 
@@ -413,7 +411,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
   it('leaves a sort the transform cannot read exactly as typed, with Run disabled', async () => {
     const TYPED = '{name: /^acme/gi}';
     setup('{}');
-    await openAdvanced();
+    await openSort();
 
     const sort = await fieldAndBlur('query-bar-sort', TYPED);
 
@@ -426,7 +424,7 @@ describe('QueryBar sort / projection — Shell Syntax input (X14 T3)', () => {
     const notice = document.getElementById('query-bar-sort-error')?.textContent;
     expect(notice).toContain('"g"');
     expect(notice).toContain('global');
-    expect(notice).toMatch(/^Line 1, column 8: /);
+    expect(notice).toMatch(/^⚠ Sort — Line 1, column 8: /);
     expect(await screen.findByTestId('query-run-btn')).toHaveProperty('disabled', true);
   });
 });

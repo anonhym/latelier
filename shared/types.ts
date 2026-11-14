@@ -900,6 +900,11 @@ export interface CollectionTabState {
   /** Table-view column show/hide/reorder/computed config (T2.5). */
   columnConfig?: TableColumnConfig;
   activeBuilderTab: BuilderTab;
+  /**
+   * W05 §9.2 "Keep options expanded": the query options show as the grid under
+   * the Filter Bar row instead of as pills. Per tab, and off unless set.
+   */
+  optionsExpanded?: boolean;
   /** Persisted reference-drawer stack; restored when the user revisits this tab. */
   referenceDrawer?: PersistedDrawerState;
   /** Aggregation sub-view state. Lazily populated when the user opens it. */

@@ -1,5 +1,5 @@
 import type { CollectionTabState, ConnectionSummary, LastQuery } from '@shared/types';
-import { isUnfilteredFirstPage, resultQueryKey } from './builder';
+import { findProblem, isUnfilteredFirstPage, resultQueryKey } from './builder';
 
 export type ResultPaneKind =
   | 'rows'
@@ -17,7 +17,7 @@ const NOT_THE_QUERYS_FAULT = new Set(['NETWORK', 'UNAUTHORIZED', 'DB_ERROR', 'IN
 export function resultPaneKind(state: CollectionTabState): ResultPaneKind {
   const run = state.lastRun;
   if (!run) return 'never-run';
-  // A run the client refused keeps its rows: they stay, dimmed, until the text can run.
+  // A run the client refused keeps its rows: they stay, marked as not current, until the text can run.
   if (run.documents.length > 0) return 'rows';
   if (run.error) return NOT_THE_QUERYS_FAULT.has(run.error.code) ? 'failed' : 'query-error';
   // An empty result only says the collection is empty if `{}` is what ran, not
@@ -41,16 +41,36 @@ export function revertTarget(state: CollectionTabState): LastQuery | null {
   return same ? null : last;
 }
 
-export type BandOccupant = 'lost' | 'running' | 'selection' | 'none';
+/**
+ * Whether the rows on screen answer another query than the one in the bar
+ * (W06 §8.2): it was edited since they arrived, or it cannot run as written.
+ * A run from before `lastRunQueryKey` existed has nothing to compare against.
+ */
+export function isResultStale(state: CollectionTabState): boolean {
+  if (!state.lastRun) return false;
+  if (findProblem(state) !== null) return true;
+  return state.lastRunQueryKey !== undefined && resultQueryKey(state) !== state.lastRunQueryKey;
+}
+
+export type BandOccupant = 'lost' | 'running' | 'cancelled' | 'stale' | 'selection' | 'none';
 
 /**
  * Who holds the fixed band above the rows. Losing the connection outranks a
- * find that cannot finish, and a find about to replace the rows outranks a
- * selection of them.
+ * find that cannot finish; a find about to replace the rows, then one just
+ * cancelled, outrank saying the rows are not current; and all of them outrank
+ * a selection.
  */
-export function bandOccupant(state: { lost: boolean; running: boolean; selected: boolean }): BandOccupant {
+export function bandOccupant(state: {
+  lost: boolean;
+  running: boolean;
+  cancelled: boolean;
+  stale: boolean;
+  selected: boolean;
+}): BandOccupant {
   if (state.lost) return 'lost';
   if (state.running) return 'running';
+  if (state.cancelled) return 'cancelled';
+  if (state.stale) return 'stale';
   return state.selected ? 'selection' : 'none';
 }
 

@@ -49,11 +49,14 @@ test('a case-insensitive collation matches the mixed-case row, and the count agr
       await expect(rows.getByText('"Ada"', { exact: true })).toHaveCount(0);
       await expect(win.getByText('1–1 of 1', { exact: true })).toBeVisible();
 
-      await ws.queryBarAdvancedToggle.click();
-      await expect(ws.queryBarAdvanced).toBeVisible();
+      // Collation is unset, so it waits in More; picking it draws its pill
+      // with the editor open.
+      await ws.openOption('collation', 'Collation');
       const collation = win.locator('[data-testid="query-bar-collation"]');
       await collation.fill('{"locale":"en","strength":2}');
       await expect(collation).toHaveValue('{"locale":"en","strength":2}');
+      await collation.press('Escape');
+      await expect(ws.optionPill('collation')).toHaveText('Collation: en');
       await ws.queryBarRunButton.click();
 
       await expect(rows.getByText('"Ada"', { exact: true })).toBeVisible({ timeout: 8000 });

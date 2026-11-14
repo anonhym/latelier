@@ -13,17 +13,17 @@
 export type CountForm = 'full' | 'range' | 'total';
 
 /**
- * The canvas header (W06 §8.1): the view switch, Fields, References, `⋯` and
- * Insert. Nothing in it depends on the query, so labels or icons is its only step.
+ * The canvas header (W06 §8.1): the view switch, References, `⋯` and Insert.
+ * Nothing in it depends on the query, so labels or icons is its only step.
  */
 export interface CanvasHeaderLayout {
-  /** Fields, References and Insert as icons with tooltips. The view switch keeps its words. */
+  /** References and Insert as icons with tooltips. The view switch keeps its words. */
   iconControls: boolean;
 }
 
-// The header's fixed parts with words: view switch 150, Fields 80, `⋯` 26,
-// Insert 70, gaps and padding 60. The icon form fits the result pane's 320px minimum.
-const HEADER_LABELS_MIN = 400;
+// The header's fixed parts with words: view switch 150, `⋯` 26, Insert 70,
+// gaps and padding 60. The icon form fits the result pane's 320px minimum.
+const HEADER_LABELS_MIN = 320;
 // The References control, measured with its gap, as a labelled button.
 const REFERENCES_LABEL_WIDTH = 141;
 

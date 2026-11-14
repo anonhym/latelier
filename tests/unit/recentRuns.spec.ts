@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mergeConsecutive } from '../../src/pages/Workspace/views/recentRuns';
-import type { RecentQuery } from '@shared/types';
+import { mergeConsecutive, queryPreview } from '../../src/pages/Workspace/views/recentRuns';
+import type { RecentQuery, SavedPayload } from '@shared/types';
 
 let seq = 0;
 function run(overrides: Partial<RecentQuery> = {}): RecentQuery {
@@ -90,5 +90,47 @@ describe('mergeConsecutive', () => {
     const a = run();
     const b = run(diff);
     expect(mergeConsecutive([a, b]).map((m) => m.ids)).toEqual([[a.id], [b.id]]);
+  });
+});
+
+describe('queryPreview', () => {
+  const find = (builder: { sort?: string; limit?: string }, queryRaw = '{"a":1}'): SavedPayload => ({
+    kind: 'find',
+    builder: { projection: [], sort: '', limit: '', ...builder },
+    queryRaw,
+  });
+
+  it('is the filter alone when no sort or limit is set', () => {
+    expect(queryPreview(find({}))).toBe('{"a":1}');
+    expect(queryPreview(find({ sort: '  ', limit: ' ' }))).toBe('{"a":1}');
+  });
+
+  it('adds the sort, then the limit, each on its own line and trimmed', () => {
+    expect(queryPreview(find({ sort: ' {"a":-1} ' }))).toBe('{"a":1}\nsort {"a":-1}');
+    expect(queryPreview(find({ limit: ' 10 ' }))).toBe('{"a":1}\nlimit 10');
+    expect(queryPreview(find({ sort: '{"a":-1}', limit: '10' }))).toBe('{"a":1}\nsort {"a":-1}\nlimit 10');
+  });
+
+  it('is null for a row stored before the query text was kept', () => {
+    expect(queryPreview(find({ sort: '{"a":1}' }, ''))).toBeNull();
+  });
+
+  it('reads a legacy row that carries no builder', () => {
+    const legacy = JSON.parse('{"kind":"find","queryRaw":"{}"}') as SavedPayload;
+    expect(queryPreview(legacy)).toBe('{}');
+    const bare = JSON.parse('{"kind":"find","queryRaw":"{}","builder":{}}') as SavedPayload;
+    expect(queryPreview(bare)).toBe('{}');
+  });
+
+  it('lists a pipeline one stage per line', () => {
+    expect(
+      queryPreview({
+        kind: 'aggregation',
+        stages: [
+          { id: 1, op: '$match', body: '{"a":1}', enabled: true },
+          { id: 2, op: '$limit', body: '5', enabled: true },
+        ],
+      } as SavedPayload),
+    ).toBe('$match {"a":1}\n$limit 5');
   });
 });

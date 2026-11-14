@@ -11,21 +11,20 @@ const ORDERS = [
 ];
 
 /**
- * #323 / ADR 0007 item 4 — a field dragged from the results onto the query
- * bar's sort cell sorts by it, ascending. A real drag: jsdom has no native
+ * #323 / ADR 0007 item 4 — a field dragged from the results onto the Filter
+ * Bar row's Sort pill sorts by it, ascending. A real drag: jsdom has no native
  * drag-and-drop, so the component spec can only dispatch the drop event.
  */
 test('dragging a result field onto Sort sorts by it, ascending', async () => {
   await withOpenOrders('Sort Drop Target', ORDERS, 'cherry-003', async (win, ws) => {
-    await ws.queryBarAdvancedToggle.click();
-    await expect(ws.queryBarSort).toBeVisible();
+    await expect(ws.optionPill('sort')).toHaveText('Sort');
 
     // Documents open collapsed; the field rows are the expanded document's.
     await win.getByRole('button', { name: /^Expand document/ }).first().click();
     const skuRow = win.getByTitle(/Drag to add "sku/).first();
     await expect(skuRow).toBeVisible({ timeout: 8000 });
     await skuRow.dragTo(win.getByTestId('query-bar-sort-drop'));
-    await expect(ws.queryBarSort).toHaveValue('{"sku":1}');
+    await expect(ws.optionPill('sort')).toHaveText('Sort: sku ↑');
 
     await ws.queryBarRunButton.click();
     const docs = win.getByRole('treeitem', { name: /^Select document/ });

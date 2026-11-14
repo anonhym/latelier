@@ -7,13 +7,19 @@ import { api, getErrorMessage, isIpcError } from '../../../api/atelier';
 import { confirmDeleteSaved } from '../savedActions';
 import { consumeSavedRename, peekSavedRename, subscribeTabRequests } from '../tabRequest';
 import { notify } from '../../../theme/notifications';
+import { logFailure } from '../../../utils/rendererLog';
 import type { SavedKind, SavedQuery, SavedQuerySummary } from '@shared/types';
+import { queryPreview } from './recentRuns';
+import { useListPreview } from './useListPreview';
 
 const KIND_LABEL: Record<SavedKind, string> = {
   find: 'Find',
   aggregation: 'Aggregation',
   script: 'Script',
 };
+
+// Stable, so it runs once per mount: an inline ref would refocus on every render.
+const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
 
 interface SavedTabProps {
   connectionId: string;
@@ -58,6 +64,13 @@ export function SavedTab({
   // Whether a list has landed: a rename request waits for it.
   const [loaded, setLoaded] = React.useState(false);
   const [editing, setEditing] = React.useState<Editing | null>(null);
+  const [search, setSearch] = React.useState('');
+  const rows = React.useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return needle
+      ? items.filter((i) => `${i.name}\n${i.description ?? ''}`.toLowerCase().includes(needle))
+      : items;
+  }, [items, search]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -160,6 +173,32 @@ export function SavedTab({
     }
   };
 
+  // W05 §9.6: ↑↓ in the search box move the highlight, Enter loads it. The
+  // list carries summaries only, so the highlighted entry's text is fetched
+  // once and kept: `undefined` is not fetched yet, `null` has nothing to show.
+  const list = useListPreview(rows, (item) => void handlePrimary(item));
+  const [previews, setPreviews] = React.useState<Record<string, string | null>>({});
+  const activeId = list.active?.id;
+  const activePreview = activeId === undefined ? undefined : previews[activeId];
+  React.useEffect(() => {
+    if (activeId === undefined || activePreview !== undefined) return undefined;
+    let current = true;
+    void api.saved
+      .get({ id: activeId })
+      .then((full) => queryPreview(full.payload))
+      .catch((err: unknown) => {
+        // The entry still loads on Enter; only its preview is missing.
+        logFailure('loading a saved query preview', err);
+        return null;
+      })
+      .then((text) => {
+        if (current) setPreviews((prev) => ({ ...prev, [activeId]: text }));
+      });
+    return () => {
+      current = false;
+    };
+  }, [activeId, activePreview]);
+
   // N4.7 — this used to be a hand-rolled `role="alertdialog"` overlay
   // with its own backdrop, its own Escape listener and its own focus
   // behaviour, one tab away from the drawer's Reset, which already used the
@@ -211,6 +250,23 @@ export function SavedTab({
         </SubmitButton>
       </Group>
 
+      <TextInput
+        size="xs"
+        mx={10}
+        mb={6}
+        // The popover opens on this box, so the list is under the keyboard at once.
+        ref={focusOnMount}
+        leftSection={I.search}
+        placeholder="Search saved queries"
+        aria-label="Search saved queries"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.currentTarget.value);
+          list.highlight(0);
+        }}
+        onKeyDown={list.onKeyDown}
+      />
+
       {loading && (
         <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
           Loading…
@@ -229,7 +285,13 @@ export function SavedTab({
         </Text>
       )}
 
-      {!loading && !err && items.map((item) => (
+      {!loading && !err && items.length > 0 && rows.length === 0 && (
+        <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
+          No saved query matches this search.
+        </Text>
+      )}
+
+      {!loading && !err && rows.map((item, index) => (
         <Group
           key={item.id}
           gap={themeVars.gapXs}
@@ -237,7 +299,12 @@ export function SavedTab({
           px={10}
           py={7}
           fz={T.fsSm}
-          style={{ borderBottom: `1px solid ${T.border}` }}
+          data-highlighted={item === list.active || undefined}
+          onMouseEnter={() => list.highlight(index)}
+          style={{
+            borderBottom: `1px solid ${T.border}`,
+            background: item === list.active ? T.accentSoft : undefined,
+          }}
         >
           {/* Kind label. `Badge` with this size/variant/color is the
               existing small-badge pattern in this file's siblings
@@ -329,6 +396,31 @@ export function SavedTab({
           </Tooltip>
         </Group>
       ))}
+
+      {/* The highlighted entry's query, whole: read before it is loaded. Live,
+          so moving the highlight with the keyboard reads it out. */}
+      {!loading && !err && list.active && (
+        <div
+          data-testid="saved-preview"
+          aria-live="polite"
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            maxHeight: 120,
+            overflowY: 'auto',
+            padding: '6px 10px',
+            borderTop: `1px solid ${T.border}`,
+            background: T.surfaceRaised,
+            color: activePreview ? T.text : T.textGhost,
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: T.fsXs,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {activePreview === undefined ? 'Loading…' : (activePreview ?? 'no stored query')}
+        </div>
+      )}
     </div>
   );
 }

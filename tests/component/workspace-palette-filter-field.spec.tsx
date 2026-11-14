@@ -56,7 +56,12 @@ const DOCS = [
   { status: 'open', customer: 'bob', createdAt: { $date: '2026-11-02T00:00:00Z' } },
 ];
 
-const ordersTab = (state: Partial<CollectionTabState> = { queryRaw: BEFORE, filterDraft: DRAFT }): CollectionTab => {
+// The tab already ran: one restored with a filter and no result runs once by
+// itself at launch, which is not the palette's doing and would hide what is.
+const RAN: CollectionTabState['lastRun'] = { documents: [], durationMs: 0, ranAt: '2026-11-03T00:00:00Z' };
+const ordersTab = (
+  state: Partial<CollectionTabState> = { queryRaw: BEFORE, filterDraft: DRAFT, lastRun: RAN },
+): CollectionTab => {
   const tab = collectionTabFixture({ id: 't1', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true });
   return { ...tab, state: { ...tab.state, ...state } };
 };
@@ -106,7 +111,7 @@ function mount(opts: { tabs?: CollectionTab[]; opened?: CollectionTab; sample?: 
 const dialog = () => within(screen.getByRole('dialog', { name: 'Command palette' }));
 const input = () => dialog().getByRole('combobox');
 const key = (k: string, extra: Partial<KeyboardEvent> = {}) => fireEvent.keyDown(input(), { key: k, ...extra });
-const filterBar = () => screen.getByLabelText('Query filter') as HTMLTextAreaElement;
+const filterBar = () => screen.getByLabelText('Filter', { selector: 'textarea' }) as HTMLTextAreaElement;
 const undoButton = () => screen.getByRole('button', { name: 'Undo filter edit' }) as HTMLButtonElement;
 
 /** ⌘K, the collection's action list, then `title`. */
@@ -359,7 +364,7 @@ describe('a tab on another view with no result', () => {
     fireEvent.change(input(), { target: { value: 'exists' } });
     await waitFor(() => expect(stepRows()).toEqual([['Exists and is not null', '']]));
     key('Enter');
-    await waitFor(() => expect(screen.getByLabelText('Query filter')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Filter', { selector: 'textarea' })).toBeTruthy());
     await waitFor(() => expect(document.querySelectorAll('[data-row-path]').length).toBe(1));
     await settle();
     expect(m.find).not.toHaveBeenCalled();

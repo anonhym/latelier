@@ -74,7 +74,7 @@ describe('QueryBar - the hint that the next Run leaves this page (W07 §3)', () 
         actions={emptyWorkspaceActions()}
         meta={emptyWorkspaceMeta()}
       >
-        <QueryBar suggestionContext={null} loadGen={0} />
+        <QueryBar suggestionContext={null} />
       </CollectionWorkspaceProvider>,
     );
     return screen.queryByTestId('page-reset-hint');
@@ -271,12 +271,13 @@ describe('QueryBar - Run button', () => {
     const runBtn = await screen.findByTestId('query-run-btn');
     fireEvent.click(runBtn);
 
+    // The restored tab already ran once by itself; the click is the second find.
     await waitFor(() => {
-      expect(findSpy).toHaveBeenCalledTimes(1);
+      expect(findSpy).toHaveBeenCalledTimes(2);
     });
 
-    expect(findSpy.mock.calls[0]?.[0]?.limit).toBe(2);
-    expect(findSpy.mock.calls[0]?.[0]?.skip).toBe(0);
+    expect(findSpy.mock.calls[1]?.[0]?.limit).toBe(2);
+    expect(findSpy.mock.calls[1]?.[0]?.skip).toBe(0);
   });
 
   it('builder.limit larger than pageSize still paginates within the cap', async () => {
@@ -334,12 +335,13 @@ describe('QueryBar - Run button', () => {
     const runBtn = await screen.findByTestId('query-run-btn');
     fireEvent.click(runBtn);
 
+    // The restored tab already ran once by itself; the click is the second find.
     await waitFor(() => {
-      expect(findSpy).toHaveBeenCalledTimes(1);
+      expect(findSpy).toHaveBeenCalledTimes(2);
     });
 
-    expect(findSpy.mock.calls[0]?.[0]?.limit).toBe(20);
-    expect(findSpy.mock.calls[0]?.[0]?.skip).toBe(100);
+    expect(findSpy.mock.calls[1]?.[0]?.limit).toBe(20);
+    expect(findSpy.mock.calls[1]?.[0]?.skip).toBe(100);
   });
 
   it('builder.limit reached on a later page moves back inside the cap instead of finding with limit 0', async () => {
@@ -395,10 +397,13 @@ describe('QueryBar - Run button', () => {
     const runBtn = await screen.findByTestId('query-run-btn');
     fireEvent.click(runBtn);
 
-    // limit=0 never reaches the find: the page moves back inside the cap.
-    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
-    expect(findSpy.mock.calls[0]?.[0]?.skip).toBe(0);
-    expect(findSpy.mock.calls[0]?.[0]?.limit).toBe(10);
+    // limit=0 never reaches the find: the page moves back inside the cap, on
+    // the restored tab's own run and again on the click.
+    await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(2));
+    for (const [request] of findSpy.mock.calls) {
+      expect(request?.skip).toBe(0);
+      expect(request?.limit).toBe(10);
+    }
   });
 
   it('after a successful run, result count appears in result bar', async () => {

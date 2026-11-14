@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
-import { StatusBar } from '../../src/pages/Workspace/StatusBar';
+import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState, ResultViewMode } from '@shared/types';
 
@@ -21,25 +21,27 @@ function makeState(view: ResultViewMode): CollectionTabState {
   };
 }
 
-function renderBar(view: ResultViewMode) {
+function renderBars(view: ResultViewMode) {
   return render(
     <CollectionWorkspaceProvider
       state={makeState(view)}
       actions={emptyWorkspaceActions()}
       meta={emptyWorkspaceMeta()}
     >
-      <StatusBar connection={null} />
-      <ResultBar />
+      <QueryBar suggestionContext={null} />
+      <div data-testid="result-bar-host">
+        <ResultBar />
+      </div>
     </CollectionWorkspaceProvider>,
   );
 }
 
-// The Fields control used to be gated on `view === 'Table'`; it now
-// renders for every view (Tree/JSON don't consume the config yet, but the
-// control itself is shared, one list for every view).
-describe('ResultBar - Fields control visibility', () => {
-  it.each(['Tree', 'JSON', 'Table'] as const)('renders the Fields control in the %s view', (view) => {
-    renderBar(view);
-    expect(screen.getByRole('button', { name: /fields/i })).toBeTruthy();
+// The field chooser is the Filter Bar row's Project pill, one list for every
+// view. It used to sit in the result toolbar, and before that only in Table.
+describe('Project pill — where the fields are chosen', () => {
+  it.each(['Tree', 'JSON', 'Table'] as const)('is in the Filter Bar row in the %s view, not the result toolbar', (view) => {
+    renderBars(view);
+    expect(within(screen.getByTestId('filter-bar-row')).getByRole('button', { name: 'Project' })).toBeTruthy();
+    expect(within(screen.getByTestId('result-bar-host')).queryByRole('button', { name: /fields|project/i })).toBeNull();
   });
 });

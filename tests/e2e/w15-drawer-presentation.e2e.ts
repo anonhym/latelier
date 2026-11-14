@@ -46,6 +46,9 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
       await ws.openCollectionFromNavigator('shop', 'orders');
       await expect(win.getByText('banana-002')).toBeVisible({ timeout: 8000 });
 
+      // The Query Builder is closed by default (W05 §9.1); the drawer is what is under test.
+      await ws.openBuilder();
+
       // ── the empty tree explains itself ────────────────────────────────
       await expect(win.getByText(/matches every document/i)).toBeVisible();
 
@@ -76,22 +79,12 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
       await win.getByRole('dialog').getByRole('button', { name: 'Reset' }).click();
       await expect(bar).toHaveValue('{}');
 
-      // ── the tab strip is one tab stop that roves ──────────────────────
+      // ── Saved and Recent live in the row's popovers, not in the strip ─
       const strip = win.getByRole('tablist', { name: 'Query drawer' });
-      const filterTab = strip.getByRole('tab', { name: 'Filter' });
-      await expect(filterTab).toHaveAttribute('aria-selected', 'true');
+      await expect(strip.getByRole('tab')).toHaveCount(1);
+      await expect(strip.getByRole('tab', { name: 'Filter' })).toHaveAttribute('aria-selected', 'true');
 
-      await filterTab.focus();
-      await win.keyboard.press('ArrowRight');
-      await expect(strip.getByRole('tab', { name: 'Saved' })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
-      await win.keyboard.press('ArrowRight');
-      await expect(strip.getByRole('tab', { name: 'Recent' })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
+      await win.getByTestId('filter-bar-row').getByRole('button', { name: 'History' }).click();
 
       // ── a Recent row says what it would re-run ────────────────────────
       // The auto-run on tab open recorded the unfiltered `{}` find.

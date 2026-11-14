@@ -61,7 +61,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await ws.queryBarRunButton.click();
       await expect(planBadge).toHaveText('no index', { timeout: 8000 });
       await ws.queryBarRunOptionsButton.click();
-      await win.getByRole('menuitem', { name: 'queryPlanner' }).click();
+      await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
       const explainDrawer = win.getByRole('dialog', { name: 'Explain plan' });
       await expect(explainDrawer).toBeVisible({ timeout: 8000 });
@@ -106,7 +106,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       await expect(planBadge).toHaveText('status_1', { timeout: 8000 });
 
       await ws.queryBarRunOptionsButton.click();
-      await win.getByRole('menuitem', { name: 'queryPlanner' }).click();
+      await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
       const reExplainDrawer = win.getByRole('dialog', { name: 'Explain plan' });
       await expect(reExplainDrawer).toBeVisible({ timeout: 8000 });

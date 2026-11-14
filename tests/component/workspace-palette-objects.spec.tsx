@@ -458,7 +458,7 @@ describe('Saved objects', () => {
   it('a saved Open into the same tab clears the complaint the replaced filter left', async () => {
     mount();
     await screen.findByTestId('nav-coll-shop-orders');
-    const field = screen.getByLabelText('Query filter');
+    const field = screen.getByLabelText('Filter', { selector: 'textarea' });
     fireEvent.change(field, { target: { value: '{ nope' } });
     fireEvent.blur(field);
     await waitFor(() => expect(screen.queryAllByRole('alert').length).toBeGreaterThan(0));
@@ -495,7 +495,9 @@ describe('Saved objects', () => {
 
     const field = (await screen.findByLabelText('New name for "Orders by region"')) as HTMLInputElement;
     expect(field.value).toBe('Orders by region');
-    expect(screen.getByRole('tab', { name: 'Saved', selected: true })).toBeTruthy();
+    // In the Filter Bar row's Saved popover, the list's only home.
+    expect(screen.getByRole('textbox', { name: 'Search saved queries' })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Saved' })).toBeNull();
     fireEvent.change(field, { target: { value: 'Region totals' } });
     fireEvent.keyDown(field, { key: 'Enter' });
     await waitFor(() => expect(m.savedUpdate).toHaveBeenCalledWith({ id: 'q2', patch: { name: 'Region totals' } }));

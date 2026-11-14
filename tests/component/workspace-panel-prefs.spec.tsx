@@ -420,3 +420,38 @@ describe('useWorkspacePanelPrefs — a layout setting that could not be saved sa
     expect(await screen.findByText('Could not save the layout')).toBeTruthy();
   });
 });
+
+// W15 §16 — the Query Builder is closed until the user opens it: the Filter Bar
+// row carries the query, and a first launch has stored no choice yet.
+describe('useWorkspacePanelPrefs — the Query Builder is closed by default', () => {
+  afterEach(() => uninstallAtelierMock());
+
+  async function mountWith(stored: boolean | null) {
+    const set = vi.fn(async () => undefined);
+    installAtelierMock({
+      prefs: {
+        get: (async (key: string) => (key === 'ui.workspace.builderCollapsed' ? stored : null)) as never,
+        set: set as never,
+      },
+    });
+    const hook = renderHook(() => useWorkspacePanelPrefs());
+    await waitFor(() => expect(hook.result.current.prefsReady).toBe(true));
+    return { ...hook, set };
+  }
+
+  it.each([
+    ['no stored choice', null, true],
+    ['a stored open builder', false, false],
+    ['a stored closed builder', true, true],
+  ])('with %s', async (_what, stored, collapsed) => {
+    const { result } = await mountWith(stored);
+    expect(result.current.builderCollapsed).toBe(collapsed);
+  });
+
+  it('opening it is stored, so the next launch opens on it', async () => {
+    const { result, set } = await mountWith(null);
+    act(() => result.current.commitBuilderCollapsed(false));
+    expect(result.current.builderCollapsed).toBe(false);
+    expect(set).toHaveBeenCalledWith('ui.workspace.builderCollapsed', false);
+  });
+});

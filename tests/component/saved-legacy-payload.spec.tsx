@@ -139,6 +139,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** A list's "open in this tab" button, in its popover in the Filter Bar row (W05 §9.6). */
+async function runHereButton(list: 'Saved' | 'Recent' = 'Saved'): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole('button', { name: list === 'Saved' ? 'Saved queries' : 'History' }));
+  return screen.findByRole('button', { name: /in this tab$/ });
+}
+
 // W13-2 — the §8 shim. A saved find payload written before `queryRaw`
 // existed must still hydrate to its original filter (not `{}`) when the user
 // clicks "Run here", with its sort/limit/projection intact. This drives the
@@ -148,7 +154,7 @@ describe(' legacy saved-find payload hydrates through the shim', () => {
   it('a pre-queryRaw saved find compiles its filter, not {}, on Run here', async () => {
     mountWith(makeState());
 
-    const runHere = await screen.findByRole('button', { name: /in this tab$/ });
+    const runHere = await runHereButton();
     fireEvent.click(runHere);
 
     const textarea = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
@@ -169,7 +175,7 @@ describe(' legacy saved-find payload hydrates through the shim', () => {
     // real output of the hydrated builder, not a hand-constructed stand-in.
     const { findSpy } = mountWith(makeState());
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
@@ -189,7 +195,7 @@ describe(' a saved raw projection survives Run here', () => {
   it('sends the saved `projectionRaw` verbatim, not the empty inclusion list', async () => {
     const { findSpy } = mountWith(makeState(), RAW_PROJECTION_SAVED);
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     expect(findSpy.mock.calls[0]?.[0]?.projection).toBe('{"_id":0}');
@@ -205,7 +211,7 @@ describe(' a saved raw projection survives Run here', () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const sent = findSpy.mock.calls[0]?.[0]?.projection;
@@ -239,7 +245,7 @@ describe('saved find options survive Run here', () => {
   it('sends the saved collation, hint, maxTimeMS and read preference', async () => {
     const { findSpy } = mountWith(makeState(), OPTIONS_SAVED);
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     expect(findSpy.mock.calls[0]?.[0]).toMatchObject({
@@ -259,7 +265,7 @@ describe('saved find options survive Run here', () => {
       RAW_PROJECTION_SAVED,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
@@ -290,7 +296,7 @@ describe('saved find options survive Run here', () => {
       NO_BUILDER_SAVED,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+    fireEvent.click(await runHereButton());
 
     await waitFor(() => expect(findSpy).toHaveBeenCalledTimes(1));
     const call = findSpy.mock.calls[0]?.[0];
@@ -302,12 +308,10 @@ describe('saved find options survive Run here', () => {
   });
 });
 
-// A Saved or Recent load into a tab whose advanced row already held a sort
-// and was collapsed leaves "has advanced values" true → true; only the load
-// count BuilderPane bumps tells QueryBar a different query arrived. Driven
-// through the real Workspace so dropping the bump from either Run here fails
-// here, not only in QueryBar's own harness.
-describe('Run here shows the loaded advanced values', () => {
+// A Saved or History load replaces the tab's options wholesale, and the pills
+// are read off the tab's state: the loaded sort is what the Sort pill says.
+// Driven through the real Workspace, from each list's popover.
+describe('Run here shows the loaded options', () => {
   const RECENT: RecentQuery = {
     id: 'r1',
     connectionId: 'c1',
@@ -321,21 +325,16 @@ describe('Run here shows the loaded advanced values', () => {
   };
 
   for (const list of ['Saved', 'Recent'] as const) {
-    it(`${list}: opens a row the user had collapsed over a sort of its own`, async () => {
-      mountWith(
-        makeState({ activeBuilderTab: list, builder: { projection: [], sort: '{"name":1}', limit: '' } }),
-        LEGACY_SAVED,
-        [RECENT],
-      );
+    it(`${list}: replaces the sort the tab held, on its pill`, async () => {
+      mountWith(makeState({ builder: { projection: [], sort: '{"name":1}', limit: '' } }), LEGACY_SAVED, [RECENT]);
 
-      await screen.findByTestId('query-bar-sort');
-      fireEvent.click(document.querySelector('[aria-controls="query-bar-advanced"]')!);
-      expect(document.getElementById('query-bar-advanced')).toBeNull();
+      expect((await screen.findByTestId('option-pill-sort')).textContent).toBe('Sort: name ↑');
 
-      fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
+      fireEvent.click(await runHereButton(list));
 
-      await waitFor(() => expect(document.getElementById('query-bar-advanced')).not.toBeNull());
-      expect((screen.getByTestId('query-bar-sort') as HTMLInputElement).value).toBe('{"age":1}');
+      await waitFor(() => expect(screen.getByTestId('option-pill-sort').textContent).toBe('Sort: age ↑'));
+      // The list closed behind the load.
+      expect(screen.queryByRole('button', { name: /in this tab$/ })).toBeNull();
     });
   }
 });

@@ -1,4 +1,22 @@
-import type { RecentQuery } from '@shared/types';
+import type { RecentQuery, SavedPayload } from '@shared/types';
+
+/**
+ * What a Saved or Recent entry would load, as text to read before loading it
+ * (W05 §9.6): the filter, then the sort and limit when set; a pipeline's
+ * stages one per line. Null for a row stored before the query text was kept.
+ */
+export function queryPreview(payload: SavedPayload): string | null {
+  if (payload.kind === 'aggregation') {
+    return payload.stages.map((stage) => `${stage.op} ${stage.body}`).join('\n');
+  }
+  if (!payload.queryRaw) return null;
+  const lines = [payload.queryRaw];
+  // Read off the wire: a legacy row may carry no builder at all.
+  const builder = payload.builder as { sort?: string; limit?: string } | undefined;
+  if (builder?.sort?.trim()) lines.push(`sort ${builder.sort.trim()}`);
+  if (builder?.limit?.trim()) lines.push(`limit ${builder.limit.trim()}`);
+  return lines.join('\n');
+}
 
 /** A displayed Recent row. `ids` holds every stored run it stands for,
  * newest first (`ids[0] === id`), so a delete can remove the whole group. */

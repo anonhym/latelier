@@ -18,7 +18,9 @@ import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
 import { runUndo, useLatestUndo } from './undoStore';
 import { findProblem, isUnfilteredFirstPage } from './builder';
-import { resultPaneKind, revertTarget, type ResultPaneKind } from './resultPaneState';
+import { isResultStale, resultPaneKind, revertTarget, type ResultPaneKind } from './resultPaneState';
+import { errorHint } from './errorHints';
+import { themeVars } from '../../theme/themeVars';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
 
 /**
@@ -90,12 +92,13 @@ function Body({
   // placeholder rows in place of the body. Any re-run keeps the body as it is,
   // with the band above saying so, and the result replaces it when it lands.
   const showSkeleton = meta.isLoading && !state.lastRun;
-  // X14 §5 — dimmed, not hidden or inert, while the query above cannot
-  // run: these rows still describe a real earlier query, and a user editing a
-  // filter is often reading them to decide what to type next. Same rule as the
-  // count marker in `ResultBar`, so the two never disagree. Opacity only — no
-  // `pointer-events: none`, which would take selection and row expansion away.
-  const isStale = kind === 'rows' && findProblem(state) !== null;
+  // W06 §8.2 — rows that answer another query than the one in the bar stay
+  // at full contrast: these rows still describe a real earlier query, and a
+  // user editing a filter is often reading them to decide what to type next.
+  // Dimmed, a stale table read as a disabled or broken one. The band above
+  // them says so instead (`SelectionActionBar`), by the same rule as the
+  // status bar's count, so the three never disagree.
+  const isStale = kind === 'rows' && isResultStale(state);
   const hasSelection = useResultSelection(state.lastRun?.documents ?? EMPTY_DOCUMENTS).indices.size > 0;
   const undo = useLatestUndo(meta);
 
@@ -117,6 +120,8 @@ function Body({
       data-stale={isStale ? 'true' : undefined}
       // Every row's checkbox shows once anything is selected (`index.css`).
       data-has-selection={hasSelection ? '' : undefined}
+      // W05 §9.5: a find is in flight over whatever this region shows.
+      aria-busy={meta.isLoading || undefined}
       onKeyDown={onKeyDown}
       style={{
         flex: 1,
@@ -124,7 +129,6 @@ function Body({
         flexDirection: 'column',
         overflow: 'hidden',
         position: 'relative',
-        opacity: isStale ? 0.45 : undefined,
       }}
     >
       {showSkeleton ? (
@@ -240,7 +244,7 @@ function EmptyState({
         <PaneState
           tone="error"
           title="The query could not finish"
-          detail={errorText(state)}
+          detail={<ErrorDetail state={state} />}
           actions={runAgain('Run again')}
         />
       );
@@ -250,7 +254,7 @@ function EmptyState({
         <PaneState
           tone="error"
           title="This query failed"
-          detail={errorText(state)}
+          detail={<ErrorDetail state={state} />}
           actions={
             revert ? (
               <Button
@@ -280,9 +284,32 @@ function EmptyState({
   }
 }
 
-function errorText(state: CollectionTabState): string {
+/**
+ * W06 §8.15 — the failure in the user's terms: the message without its
+ * internal code, one hint when the app can tell what to do about it, and the
+ * code with the raw message under a disclosure for a bug report.
+ */
+function ErrorDetail({ state }: { state: CollectionTabState }) {
+  const T = themeVars;
   const error = state.lastRun?.error;
-  return error ? `${error.code}: ${error.message}` : '';
+  if (!error) return null;
+  const hint = errorHint(error);
+  return (
+    <>
+      <div>{error.message}</div>
+      {hint && (
+        <div data-testid="error-hint" style={{ marginTop: 6, fontFamily: 'inherit', color: T.textMuted }}>
+          {hint}
+        </div>
+      )}
+      <details style={{ marginTop: 6, color: T.textMuted }}>
+        <summary style={{ cursor: 'pointer' }}>Details</summary>
+        <div data-testid="error-details" style={{ marginTop: 4 }}>
+          {error.code}: {error.message}
+        </div>
+      </details>
+    </>
+  );
 }
 
 interface TreeSlotProps {

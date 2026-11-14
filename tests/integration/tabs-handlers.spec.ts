@@ -305,6 +305,20 @@ describe('tabs:update — the filter draft, via router and SQLite', () => {
     expect((await update({ lastValidQuery: undefined })).ok).toBe(true);
     expect('lastValidQuery' in storedState()).toBe(false);
   });
+
+  it('persists "Keep options expanded" per tab, and refuses a value that is not a boolean', async () => {
+    expect('optionsExpanded' in storedState()).toBe(false);
+    expect((await update({ optionsExpanded: true })).ok).toBe(true);
+    expect(storedState().optionsExpanded).toBe(true);
+
+    const env = await update({ optionsExpanded: 'yes' });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    expect(storedState().optionsExpanded).toBe(true);
+
+    expect((await update({ optionsExpanded: false })).ok).toBe(true);
+    expect(storedState().optionsExpanded).toBe(false);
+  });
 });
 
 /**

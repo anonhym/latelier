@@ -382,7 +382,7 @@ function QueryBarHarness({ initial }: { initial: BuilderState }) {
   );
   return (
     <CollectionWorkspaceProvider state={state} actions={actions} meta={emptyWorkspaceMeta()}>
-      <QueryBar suggestionContext={null} loadGen={0} />
+      <QueryBar suggestionContext={null} />
     </CollectionWorkspaceProvider>
   );
 }
@@ -398,23 +398,25 @@ function mountQueryBar(initial: BuilderState, prefs = memoryPrefs()) {
 }
 
 describe('find.options hint', () => {
-  it('shows when the builder carries a hint, anchored on the options row', async () => {
+  it('shows when the builder carries a hint, anchored on the option pills', async () => {
     mountQueryBar(b({ hint: '_id_' }));
     await waitFor(() => expect(hintDialog('find.options')).not.toBeNull(), { timeout: 3000 });
-    expect(document.querySelector('[data-hint-anchor="find.options"]')).toBe(
-      screen.getByTestId('query-bar-collation').parentElement!.parentElement,
-    );
+    const anchor = document.querySelector('[data-hint-anchor="find.options"]');
+    expect(anchor).toBe(screen.getByTestId('query-bar-options'));
+    expect(anchor!.contains(screen.getByTestId('option-pill-hint'))).toBe(true);
   });
 
   it('stays hidden when neither collation nor hint is set', async () => {
     mountQueryBar(b({ sort: '{"a":1}' }));
-    await screen.findByTestId('query-bar-collation');
+    await screen.findByTestId('option-pill-sort');
     await settle();
     expect(hintDialog('find.options')).toBeNull();
   });
 
   it('follows the builder: appears once a collation is typed, goes when it is cleared', async () => {
     mountQueryBar(b({ sort: '{"a":1}' }));
+    fireEvent.click(await screen.findByTestId('query-bar-more'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Collation' }));
     const collation = await screen.findByTestId('query-bar-collation');
     await settle();
     fireEvent.change(collation, { target: { value: '{"locale":"en"}' } });

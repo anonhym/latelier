@@ -95,7 +95,7 @@ describe('QueryBar - Explain menu', () => {
     mountWorkspace();
 
     await openExplainMenu();
-    const explainItem = await screen.findByRole('menuitem', { name: 'queryPlanner' });
+    const explainItem = await screen.findByRole('menuitem', { name: 'Explain plan' });
     fireEvent.click(explainItem);
 
     await waitFor(() => {
@@ -142,7 +142,7 @@ describe('QueryBar - Explain menu', () => {
 
     mountWorkspace();
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
 
     await waitFor(() => expect(explainSpy).toHaveBeenCalledTimes(1));
     expect(explainSpy.mock.calls[0]![0]).toMatchObject({
@@ -188,7 +188,7 @@ describe('QueryBar - Explain menu', () => {
     mountWorkspace();
 
     await openExplainMenu();
-    const explainItem = await screen.findByRole('menuitem', { name: 'queryPlanner' });
+    const explainItem = await screen.findByRole('menuitem', { name: 'Explain plan' });
     fireEvent.click(explainItem);
 
     await waitFor(() => {
@@ -265,7 +265,7 @@ describe('QueryBar - Explain menu', () => {
     expect(chevron).toHaveProperty('disabled', false);
     fireEvent.click(chevron);
 
-    const explainItem = await screen.findByRole('menuitem', { name: 'queryPlanner' });
+    const explainItem = await screen.findByRole('menuitem', { name: 'Explain plan' });
     expect(explainItem).toHaveProperty('disabled', false);
   });
 
@@ -292,7 +292,7 @@ describe('QueryBar - Explain menu', () => {
     mountWorkspace();
 
     await openExplainMenu();
-    const explainItem = await screen.findByRole('menuitem', { name: 'executionStats' });
+    const explainItem = await screen.findByRole('menuitem', { name: 'Explain with execution stats' });
     fireEvent.click(explainItem);
 
     await waitFor(() => {
@@ -324,7 +324,7 @@ describe('QueryBar - Explain menu', () => {
     mountWorkspace();
 
     await openExplainMenu();
-    const explainItem = await screen.findByRole('menuitem', { name: 'queryPlanner' });
+    const explainItem = await screen.findByRole('menuitem', { name: 'Explain plan' });
     fireEvent.click(explainItem);
 
     const dialog = await screen.findByRole('dialog', { name: 'Explain plan' });
@@ -377,23 +377,26 @@ describe('QueryBar — Explain reads through the X14 repair', () => {
     mountWorkspace();
   }
 
-  it('gates Explain on Shell Syntax exactly as it gates Run — one rule, not two', async () => {
+  it('opens Explain on Shell Syntax exactly as it opens Run — one rule, not two', async () => {
     const explainSpy = vi.fn<IpcApi['query']['explain']>(async () => ({
       plan: { ok: 1 },
       verbosity: 'queryPlanner',
     }));
     // A tab can open holding Shell Syntax: state written before X14, or a
-    // saved query from elsewhere. `isDefaultQueryState` refuses to auto-run a
-    // non-default filter, so nothing repairs it until the user commits the
-    // box. Until then Run and Explain are both closed — which is the property
-    // worth pinning. This repair was about the two disagreeing; they must not.
+    // saved query from elsewhere. It runs on ⌘↵, so neither control may call
+    // it invalid (X14 §11) — and the two must never disagree.
     mountWith(tabWith('{age: {$gt: 60}}', false), explainSpy);
 
     const chevron = await screen.findByTestId('query-run-options-btn');
     const run = await screen.findByTestId('query-run-btn');
-    expect(chevron).toHaveProperty('disabled', true);
-    expect(run).toHaveProperty('disabled', true);
-    expect(explainSpy).not.toHaveBeenCalled();
+    expect(chevron).toHaveProperty('disabled', false);
+    expect(run).toHaveProperty('disabled', false);
+
+    // Explain reads the filter through the repair, as Run does.
+    await openExplainMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
+    await waitFor(() => expect(explainSpy).toHaveBeenCalled());
+    expect(explainSpy.mock.calls[0]?.[0]?.filter).toBe('{"age": {"$gt": 60}}');
   });
 
   // The Run gate trims, so NBSP padding opens Explain; the repair Explain
@@ -406,7 +409,7 @@ describe('QueryBar — Explain reads through the X14 repair', () => {
     mountWith(tabWith('\u00a0{"foo":1}\u00a0', true), explainSpy);
 
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
 
     await waitFor(() => expect(explainSpy).toHaveBeenCalledTimes(1));
     expect(explainSpy.mock.calls[0]?.[0]?.filter).toBe('{"foo":1}');
@@ -426,7 +429,7 @@ describe('QueryBar — Explain reads through the X14 repair', () => {
     mountWith(tabWith(hand, true), explainSpy);
 
     await openExplainMenu();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'queryPlanner' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Explain plan' }));
 
     await waitFor(() => expect(explainSpy).toHaveBeenCalledTimes(1));
     expect(explainSpy.mock.calls[0]?.[0]?.filter).toBe(hand);

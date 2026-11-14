@@ -5,6 +5,7 @@ import { act, renderHook, waitFor } from '../helpers/render';
 import { resultQueryKey } from '../../src/pages/Workspace/builder';
 import { useQueryRunner } from '../../src/pages/Workspace/useQueryRunner';
 import type { RunnerTarget } from '../../src/pages/Workspace/useQueryRunner';
+import { CANCELLED_NOTICE_MS, _resetRunClocksForTests, useRunClock } from '../../src/pages/Workspace/runClock';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState } from '@shared/types';
 
@@ -35,6 +36,7 @@ function makeTarget(stateOverrides: Partial<CollectionTabState> = {}): RunnerTar
 }
 
 afterEach(() => {
+  _resetRunClocksForTests();
   vi.useRealTimers();
   uninstallAtelierMock();
   vi.restoreAllMocks();
@@ -1576,5 +1578,94 @@ describe('useQueryRunner', () => {
     await waitFor(() => expect(written).toBe(2));
 
     expect(queryObjects(ResultRow, { format: 'count' })).toBe(0);
+  });
+});
+
+// W05 §9.5 — the status bar and the band above the rows read how long a find
+// has run from one clock, which the runner starts, settles and cancels.
+describe('useQueryRunner — the run clock', () => {
+  /** A runner on `t1` whose find stays in flight until the test settles it. */
+  function mountRunning() {
+    let settle: (v: { documents: unknown[]; durationMs: number; hasMore: boolean }) => void = () => {};
+    const findSpy = vi.fn<IpcApi['query']['find']>(
+      () => new Promise((res) => { settle = res; }),
+    );
+    installAtelierMock({
+      query: { find: findSpy, count: async () => ({ count: 0 }), cancel: async () => {} },
+    });
+    const runner = renderHook(() =>
+      useQueryRunner({ active: makeTarget(), patchCollectionState: vi.fn(), loadingDelayMs: 0 }),
+    );
+    const clock = renderHook(() => useRunClock('t1'));
+    const other = renderHook(() => useRunClock('t2'));
+    let running: Promise<void> = Promise.resolve();
+    const start = async () => {
+      act(() => { running = runner.result.current.run(); });
+      await waitFor(() => expect(findSpy).toHaveBeenCalled());
+    };
+    const answer = async () => {
+      await act(async () => {
+        settle({ documents: [], durationMs: 1, hasMore: false });
+        await running;
+      });
+    };
+    return { runner, clock, other, start, answer };
+  }
+
+  it('has no clock before a run', () => {
+    const { clock } = mountRunning();
+    expect(clock.result.current).toBeNull();
+  });
+
+  it('counts whole seconds while the find is in flight, for that tab only', async () => {
+    const { clock, other, start } = mountRunning();
+    await start();
+    expect(clock.result.current).toEqual({ kind: 'running', elapsedMs: 0 });
+
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(clock.result.current?.kind).toBe('running');
+    expect(Math.floor(clock.result.current!.elapsedMs / 1000)).toBe(3);
+    expect(other.result.current).toBeNull();
+  });
+
+  it('drops the clock when the find answers', async () => {
+    const { clock, start, answer } = mountRunning();
+    await start();
+    await answer();
+    expect(clock.result.current).toBeNull();
+  });
+
+  it('holds how long a cancelled find ran, then lets it go', async () => {
+    const { runner, clock, start, answer } = mountRunning();
+    await start();
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => runner.result.current.cancel());
+
+    expect(clock.result.current?.kind).toBe('cancelled');
+    expect(Math.floor(clock.result.current!.elapsedMs / 1000)).toBe(2);
+
+    // The cancelled find settling late does not take the notice down early.
+    await answer();
+    expect(clock.result.current?.kind).toBe('cancelled');
+
+    act(() => { vi.advanceTimersByTime(CANCELLED_NOTICE_MS - 1); });
+    expect(clock.result.current?.kind).toBe('cancelled');
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(clock.result.current).toBeNull();
+  });
+
+  it('a new run replaces the cancelled notice and starts again from zero', async () => {
+    const { runner, clock, start } = mountRunning();
+    await start();
+    act(() => { vi.advanceTimersByTime(2000); });
+    act(() => runner.result.current.cancel());
+    act(() => { vi.advanceTimersByTime(500); });
+    await start();
+    expect(clock.result.current).toEqual({ kind: 'running', elapsedMs: 0 });
+
+    // The replaced notice's timer is gone: when it would have fired, between
+    // two ticks of the new count, the running clock is still there.
+    act(() => { vi.advanceTimersByTime(CANCELLED_NOTICE_MS - 300); });
+    expect(clock.result.current?.kind).toBe('running');
   });
 });

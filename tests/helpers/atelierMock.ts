@@ -110,7 +110,12 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       profileTail: async () => ({ docs: [] }),
     },
     prefs: {
-      get: async () => null,
+      // The Builder is closed on a profile with no stored choice. Most specs
+      // that render the Workspace are about the builder, so the default
+      // profile here has chosen to keep it open; the closed default has its
+      // own spec (`workspace-panel-prefs`).
+      get: (async (key: string) =>
+        key === 'ui.workspace.builderCollapsed' ? false : null) as IpcApi['prefs']['get'],
       set: async (_k, v) => v,
       getTheme: async () => 'system' as const,
       setTheme: async () => undefined,

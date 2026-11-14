@@ -16,8 +16,11 @@ async function open(win: Page) {
     { ...baseConnInput(host, port), name: 'Drawer Limits' },
     { dbName: 'shop', collection: 'orders', docs: [{ name: 'doc-1' }] },
   );
-  await new WorkspacePage(win).openCollectionFromNavigator('shop', 'orders');
+  const ws = new WorkspacePage(win);
+  await ws.openCollectionFromNavigator('shop', 'orders');
   await expect(win.getByText('doc-1')).toBeVisible({ timeout: 8000 });
+  // Closed by default (W05 §9.1); the drawer's limits are what these tests measure.
+  await ws.openBuilder();
 }
 
 const drawerWidth = (win: Page) =>

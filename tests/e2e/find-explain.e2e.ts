@@ -46,9 +46,9 @@ test('find explain: chevron menu runs a find and opens the explain drawer', asyn
       // it to settle before driving the menu, matching w04's pattern.
       await expect(win.getByText('banana-002')).toBeVisible({ timeout: 8000 });
 
-      // Open the "Run options" menu and choose Explain (queryPlanner).
+      // Open the "Run options" menu and choose Explain plan.
       await ws.queryBarRunOptionsButton.click();
-      await win.getByRole('menuitem', { name: 'queryPlanner' }).click();
+      await win.getByRole('menuitem', { name: 'Explain plan' }).click();
 
       const drawer = win.getByRole('dialog', { name: 'Explain plan' });
       await expect(drawer).toBeVisible({ timeout: 8000 });

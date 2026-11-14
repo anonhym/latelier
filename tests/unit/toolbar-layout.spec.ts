@@ -3,17 +3,17 @@ import { canvasHeaderLayout, statusCountLayout } from '../../src/pages/Workspace
 
 describe('canvasHeaderLayout', () => {
   it.each([
-    [400, false],
-    [399, true],
-    [320, true],
+    [320, false],
+    [319, true],
+    [240, true],
   ])('at %i px, icons: %s', (width, iconControls) => {
     expect(canvasHeaderLayout(width)).toEqual({ iconControls });
   });
 
   // The References button shifts the step by its own width.
   it.each([
-    [541, false],
-    [540, true],
+    [461, false],
+    [460, true],
   ])('with References, at %i px, icons: %s', (width, iconControls) => {
     expect(canvasHeaderLayout(width, true)).toEqual({ iconControls });
   });
