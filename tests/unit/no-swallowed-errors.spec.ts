@@ -24,6 +24,11 @@ const ALLOWED: ReadonlyArray<{ file: string; text: string; why: string }> = [
     why: 'a stage body that does not parse falls back to a first-line summary',
   },
   {
+    file: 'src/state/workspaceTabs.ts',
+    text: 'result.catch(() => undefined)',
+    why: 'the caller still gets the rejection through `result`; only the serialisation link that the next open waits on drops it',
+  },
+  {
     file: 'src/pages/Workspace/projection.ts',
     text: 'catch { // Fall through to lenient parsing. }',
     why: 'text that is not strict JSON is parsed leniently right after',
