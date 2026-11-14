@@ -14,6 +14,15 @@ export function StructureViewConnected(props: Props) {
   const { state, actions } = useCollectionWorkspace();
   const addToFilter = useAddToFilter({ state, actions });
   // A null value starts the condition at `field: null`, to be edited in the filter.
-  const onFilterField = React.useCallback((path: string) => void addToFilter(path, null), [addToFilter]);
+  // The builder and filter bar only exist on Documents, so go there first: the
+  // result is visible, and the "filter drawer is open" prompt concerns a drawer the user can see.
+  const openDocuments = actions.openDocuments;
+  const onFilterField = React.useCallback(
+    (path: string) => {
+      openDocuments?.();
+      void addToFilter(path, null);
+    },
+    [addToFilter, openDocuments],
+  );
   return <StructureView {...props} onFilterField={onFilterField} />;
 }

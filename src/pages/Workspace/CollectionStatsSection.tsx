@@ -63,12 +63,17 @@ export function CollectionStatsSection({ details, error, loading }: Props) {
           <Tile label="Data size" value={size(stats.sizeBytes)} />
           <Tile label="Storage" value={size(stats.storageSizeBytes)} />
           <Tile label="Avg document" value={size(stats.avgObjSizeBytes)} />
-          <Tile label="Indexes" value={`${stats.indexCount ?? '—'} · ${size(stats.totalIndexSizeBytes)}`} />
+          <Tile label="Indexes" value={indexesFigure(stats.indexCount, stats.totalIndexSizeBytes)} />
           {details.capped && <Tile label="Capped" value="Yes" />}
         </div>
       )}
     </section>
   );
+}
+
+function indexesFigure(count: number | undefined, bytes: number | undefined): string {
+  if (count === undefined && bytes === undefined) return '—';
+  return `${count ?? '—'} · ${bytes === undefined ? '—' : humanBytes(bytes)}`;
 }
 
 /** A 64px tile: a 13px label over an 18px value (W16 §16.3). */

@@ -38,7 +38,8 @@ export function SchemaView({
   const openMenu = (path: string, x: number, y: number, returnFocusTo: HTMLElement | null) => {
     const items: ContextMenuState['items'] = [];
     if (onFilterField) items.push({ kind: 'item', label: 'Filter by this field', onClick: () => onFilterField(path) });
-    if (onCreateIndex) items.push({ kind: 'item', label: 'Create index on this field', onClick: () => onCreateIndex(path) });
+    // An index on `_id` always exists.
+    if (onCreateIndex && path !== '_id') items.push({ kind: 'item', label: 'Create index on this field', onClick: () => onCreateIndex(path) });
     if (items.length > 0) setMenu({ x, y, items, returnFocusTo });
   };
   const hasMenu = !!(onFilterField || onCreateIndex);

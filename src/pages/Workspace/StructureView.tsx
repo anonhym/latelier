@@ -65,7 +65,7 @@ export function StructureView({
   const hasValidation = details?.type === 'collection';
   const pills: { key: SectionKey; label: string }[] = [
     { key: 'Indexes', label: `Indexes${details?.stats?.indexCount === undefined ? '' : ` ${details.stats.indexCount}`}` },
-    { key: 'Schema', label: `Schema${state.entries ? ` ${state.entries.length} fields` : ''}` },
+    { key: 'Schema', label: `Schema${state.entries && !state.errorMessage ? ` ${state.entries.length} ${state.entries.length === 1 ? 'field' : 'fields'}` : ''}` },
     ...(hasValidation ? [{ key: 'Validation' as const, label: 'Validation' }] : []),
   ];
   const ready = !!(details || error);
@@ -106,6 +106,10 @@ export function StructureView({
       <div
         style={{
           flex: 'none',
+          // The marked pill is only useful while it is in view.
+          position: 'sticky',
+          top: 0,
+          zIndex: 2,
           display: 'flex',
           alignItems: 'center',
           gap: T.gapSm,
@@ -151,8 +155,10 @@ export function StructureView({
             expectedCount={details?.stats?.indexCount}
             initialCreate={rowCreate ?? initialCreate}
             onInitialCreateConsumed={() => {
-              setRowCreate(null);
-              onInitialCreateConsumed?.();
+              // Only the request that opened the drawer is spent; a pending
+              // explain-drawer request behind a row's one still opens next.
+              if (rowCreate) setRowCreate(null);
+              else onInitialCreateConsumed?.();
             }}
             reloadSignal={indexesReload}
             onChanged={() => {

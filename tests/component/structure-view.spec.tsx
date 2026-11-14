@@ -2,6 +2,10 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
+import { StructureViewConnected } from '../../src/pages/Workspace/StructureViewConnected';
+import { emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
+import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 import Workspace from '../../src/pages/Workspace';
 import { StructureView } from '../../src/pages/Workspace/StructureView';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
@@ -287,7 +291,7 @@ describe('StructureView — statistics section', () => {
     const documents = within(stats).getByText('Documents').parentElement!;
     expect(within(documents).getByText('—')).toBeTruthy();
     expect(within(stats).queryByText('0')).toBeNull();
-    expect(within(stats).getByText('— · —')).toBeTruthy();
+    expect(within(within(stats).getByText('Indexes').parentElement!).getByText('—')).toBeTruthy();
   });
 
   it('holds every section below the statistics until the details arrive, so none is pushed down', async () => {
@@ -1211,5 +1215,119 @@ describe('StructureView — the statistics header follows writes', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(collectionDetails).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('StructureView — review fixes', () => {
+  const state = (entries: SchemaSampleEntry[], extra = {}) => ({
+    ...DEFAULT_SCHEMA_TAB_STATE,
+    entries,
+    sampledCount: 2,
+    ranAt: '2026-04-21T00:00:00.000Z',
+    ...extra,
+  });
+  const base = () =>
+    installAtelierMock({
+      index: { list: async () => [] },
+      meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
+    });
+
+  it('keeps the pill bar pinned to the top of the scrolling pane', async () => {
+    base();
+    renderStructure(state([]));
+    const nav = await screen.findByRole('navigation', { name: 'Sections' });
+    const bar = nav.parentElement!;
+    expect(bar.style.position).toBe('sticky');
+    expect(bar.style.top).toBe('0px');
+  });
+
+  it('pluralises the field count and omits it after a failed sample', async () => {
+    base();
+    const one: SchemaSampleEntry[] = [{ path: 'sku', frequency: 1, types: { string: 1 } }];
+    const { rerender } = renderStructure(state(one));
+    const nav = await screen.findByRole('navigation', { name: 'Sections' });
+    expect(await within(nav).findByRole('button', { name: 'Schema 1 field' })).toBeTruthy();
+
+    rerender(
+      <StructureView connectionId="c1" dbName="shop" collection="orders" state={state([], { errorMessage: 'boom' })} onPatch={vi.fn()} />,
+    );
+    expect(await within(nav).findByRole('button', { name: 'Schema' })).toBeTruthy();
+  });
+
+  it('offers no Create index on _id', async () => {
+    base();
+    render(
+      <StructureView
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        state={state([{ path: '_id', frequency: 1, types: { objectid: 2 } }])}
+        onPatch={vi.fn()}
+        onFilterField={vi.fn()}
+      />,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for _id' }));
+    expect(await screen.findByRole('menuitem', { name: 'Filter by this field' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Create index on this field' })).toBeNull();
+  });
+
+  it('shows one dash on the Indexes tile when neither figure was reported', async () => {
+    installAtelierMock({
+      index: { list: async () => [] },
+      meta: {
+        collectionDetails: async () => ({ ...DETAILS, stats: { documentCount: 1 } }),
+        sampleSchema: async () => ({ docs: [] }),
+      },
+    });
+    renderStructure(state([]));
+    const stats = await screen.findByRole('region', { name: 'Statistics' });
+    const tile = (await within(stats).findByText('Indexes')).parentElement!;
+    expect(within(tile).getByText('—')).toBeTruthy();
+    expect(within(stats).queryByText('— · —')).toBeNull();
+  });
+
+  it('a row\'s Create index does not consume a pending explain-drawer request', async () => {
+    base();
+    const onConsumed = vi.fn();
+    render(
+      <StructureView
+        connectionId="c1"
+        dbName="shop"
+        collection="orders"
+        state={state([{ path: 'sku', frequency: 1, types: { string: 1 } }])}
+        onPatch={vi.fn()}
+        initialCreate={null}
+        onInitialCreateConsumed={onConsumed}
+      />,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for sku' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Create index on this field' }));
+    await screen.findByDisplayValue('sku');
+    expect(onConsumed).not.toHaveBeenCalled();
+  });
+
+  it('Filter by this field switches to Documents, then adds the field to the filter', async () => {
+    base();
+    const openDocuments = vi.fn();
+    const patch = vi.fn();
+    render(
+      <CollectionWorkspaceProvider
+        state={{ ...DEFAULT_COLLECTION_TAB_STATE, activeBuilderTab: 'Raw' } as never}
+        actions={emptyWorkspaceActions({ patch, openDocuments })}
+        meta={emptyWorkspaceMeta()}
+      >
+        <StructureViewConnected
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          state={state([{ path: 'sku', frequency: 1, types: { string: 1 } }])}
+          onPatch={vi.fn()}
+        />
+      </CollectionWorkspaceProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for sku' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Filter by this field' }));
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    expect(openDocuments).toHaveBeenCalledTimes(1);
   });
 });
