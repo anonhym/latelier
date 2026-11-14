@@ -77,6 +77,8 @@ test('the options follow the Focused Tab: its sort on the pill, its grid where i
       await ws.openOption('sort');
       await ws.queryBarSort.fill('{"name":1}');
       await expect(ws.queryBarSort).toHaveValue('{"name":1}');
+      // The open field-suggestion list takes the first Escape; the second closes the editor.
+      await ws.queryBarSort.press('Escape');
       await ws.queryBarSort.press('Escape');
       await expect(ws.queryBarSort).toHaveCount(0);
       await expect(ws.optionPill('sort')).toHaveText('Sort: name ↑');
