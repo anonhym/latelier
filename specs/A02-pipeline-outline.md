@@ -1,6 +1,6 @@
 # A02 — Pipeline outline + model
 
-> **Status: Accepted.** The model, validation, persistence and stage counts (§1, §2, §4, §5) shipped and stand. §8 is agreed and not built yet: the outline component of §3 is removed, because the stages column of [A01 §9](./A01-aggregation-shell.md) is the outline.
+> **Status: Implemented.** The model, validation, persistence and stage counts (§1, §2, §4, §5) shipped and stand. §8 is built: the outline component of §3 is removed, because the stages column of [A01 §9](./A01-aggregation-shell.md) is the outline.
 
 ## Purpose
 
@@ -135,7 +135,7 @@ Reuse existing `OP_COLOR` map (from `Aggregation.tsx`). Extend for `$replaceRoot
 
 ## 8. Amendment — the outline component is removed
 
-> **Accepted, not built.** The design is [A01 §9](./A01-aggregation-shell.md).
+> The design is [A01 §9](./A01-aggregation-shell.md).
 
 - §3's `PipelineOutline` panel is removed. For a short pipeline it drew the same list twice, 200px apart. The stages column is the outline: collapsed stage cards are one row each, numbered, in order.
 - What the outline did moves to the cards: "jump to stage" is selecting the card; the active marker is the card's selected state; the per-stage count of §5 is the card's footer; the source and output rows are the source chip and the `Output` row.
