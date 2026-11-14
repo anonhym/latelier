@@ -658,12 +658,13 @@ export function AggregationTab({
         loading: previewLoading.has(activeStage.id),
       }
     : null;
-  const runShortcut = formatShortcut('⌘↵', isMacRenderer());
+  const mac = isMacRenderer();
+  const runShortcut = formatShortcut('⌘↵', mac);
   // Unavailable Run and Explain stay hoverable (aria-disabled, not disabled) so
   // their tooltips can say why; their handlers refuse the click themselves.
   const runBlocked = !running && blockedReason !== null;
   const explainBlocked = running || blockedReason !== null;
-  let explainTip = `Explain the pipeline (${formatShortcut('⌘E', isMacRenderer())})`;
+  let explainTip = `Explain the pipeline (${formatShortcut('⌘E', mac)})`;
   if (running) explainTip = 'Explain waits for the run to finish';
   else if (blockedReason) explainTip = blockedReason;
   let runTip = `Run the pipeline (${runShortcut})`;
@@ -824,7 +825,11 @@ export function AggregationTab({
             size="compact-xs"
             variant="filled"
             leftSection={running ? I.close : I.play}
-            rightSection={running ? undefined : <span aria-hidden="true" style={{ opacity: 0.7 }}>{runShortcut}</span>}
+            // The glyphs fit the fixed width; "Ctrl+Enter" would not, so off a
+            // Mac the shortcut is the tooltip's alone.
+            rightSection={
+              running || !mac ? undefined : <span aria-hidden="true" style={{ opacity: 0.7 }}>{runShortcut}</span>
+            }
             disabled={stopping}
             {...submittingProps(runBlocked)}
             onClick={running ? onCancelRun : onRun}

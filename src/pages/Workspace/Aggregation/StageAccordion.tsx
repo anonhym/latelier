@@ -792,10 +792,11 @@ function StageRow({
               {stage.enabled ? 'ON' : 'OFF'}
             </Button>
           </Tooltip>
-          {/* In the card, not portaled: the focus move after a delete keys off
-              focus being inside the stages column. The dropdown stops its own
-              clicks and Escape so they never reach the header's select toggle. */}
-          <Menu position="bottom-end" shadow="md" withinPortal={false}>
+          {/* Portaled, so the card's `overflow: hidden` cannot clip it. React
+              events still bubble through a portal to the header, so the
+              dropdown stops its own clicks and Escape before they reach the
+              header's select toggle. */}
+          <Menu position="bottom-end" shadow="md">
             <Menu.Target>
               <ActionIcon
                 variant="subtle"

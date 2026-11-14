@@ -282,6 +282,9 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
       for (const [width, height] of SIZES) {
         await win.setViewportSize({ width, height });
         await win.waitForTimeout(300);
+        const pipelineBar = await readBar(win, 'pipeline-bar');
+        expect(pipelineBar.overflow, `${width}: pipeline bar overflow`).toBeLessThanOrEqual(0);
+        expect(pipelineBar.clipped, `${width}: pipeline bar clipped`).toEqual([]);
         const bar = await readBar(win, 'output-bar');
         expect(bar.overflow, `${width}: bar overflow`).toBeLessThanOrEqual(0);
         expect(bar.clipped, `${width}: clipped`).toEqual([]);
