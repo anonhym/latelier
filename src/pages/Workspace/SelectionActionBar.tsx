@@ -2,7 +2,7 @@ import React from 'react';
 import { ActionIcon, Button, Group, Menu } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { copyToClipboard } from '../../utils/clipboard';
-import { COPY_FORMATS, COPY_FORMAT_LABELS, formatDocsForCopy, type CopyFormat } from '../../utils/copyFormat';
+import { COPY_FORMATS, COPY_FORMAT_LABELS, MONGOSH_HINT, formatDocsForCopy, type CopyFormat } from '../../utils/copyFormat';
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
@@ -198,6 +198,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
                     {COPY_FORMAT_LABELS[f]}
                   </Menu.Item>
                 ))}
+                <Menu.Label data-testid="copy-as-hint">mongosh: {MONGOSH_HINT}</Menu.Label>
               </Menu.Dropdown>
             </Menu>
           </Button.Group>

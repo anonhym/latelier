@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm';
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import {
@@ -34,7 +35,14 @@ const regexValue = fc
   )
   .map(([pattern, flags]) => new BSONRegExp(pattern, flags));
 
-const scalar = fc.oneof(
+// Shell Syntax (the app's own paste-back parser) has no Double constructor, so
+// only the doubles a plain number already spells exactly belong in its round trip.
+const fractionalDouble = fc
+  .double({ noNaN: true, noDefaultInfinity: true })
+  .filter((n) => !Number.isInteger(n))
+  .map((n) => new Double(n));
+
+const shellScalar = fc.oneof(
   fc.string(),
   fc.boolean(),
   fc.constant(null),
@@ -43,13 +51,18 @@ const scalar = fc.oneof(
   longValue,
   decimalValue,
   fc.integer({ min: -(2 ** 31), max: 2 ** 31 - 1 }).map((n) => new Int32(n)),
-  fc.float({ noNaN: true }).map((n) => new Double(n)),
-  fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => new Double(n)),
+  fractionalDouble,
   regexValue,
 );
-// Types the mongosh printer leaves as EJSON objects (ADR 0004 has no
-// constructor for them): they must still survive the trip.
-const unprintable = fc.oneof(
+// Every double mongosh can write, integral and special ones included.
+const anyDouble = fc.oneof(
+  fc.double().map((n) => new Double(n)),
+  fc.constantFrom(0, -0, 1, -1, 10, 1e21, Number.NaN, Infinity, -Infinity).map((n) => new Double(n)),
+);
+const scalar = fc.oneof(shellScalar, anyDouble);
+// Types only mongosh can spell (Shell Syntax has no constructor for them):
+// every format must still carry them.
+const mongoshOnly = fc.oneof(
   fc.uint8Array({ maxLength: 16 }).map((b) => new Binary(b, 0)),
   fc.constant(null).map(() => new MinKey()),
   fc.constant(null).map(() => new MaxKey()),
@@ -73,7 +86,8 @@ function docOf(leaf: fc.Arbitrary<unknown>): fc.Arbitrary<Record<string, unknown
   return fc.dictionary(key, tree, { maxKeys: 6 });
 }
 
-const anyDoc = docOf(fc.oneof(scalar, unprintable));
+const anyDoc = docOf(fc.oneof(scalar, mongoshOnly));
+const shellDoc = docOf(shellScalar);
 const printableDoc = docOf(scalar);
 
 const canonicalOf = (v: unknown) => ejsonStringify(v);
@@ -109,15 +123,38 @@ describe('copy formats: every format parses back to the same BSON values', () =>
     );
   });
 
-  it('the mongosh literal repairs to text that parses back to the same BSON', () => {
+  it('the mongosh literal repairs to text that parses back to the same BSON, for the types Shell Syntax covers', () => {
     fc.assert(
-      fc.property(anyDoc, (d) => {
+      fc.property(shellDoc, (d) => {
         for (const source of [d, asWire(d)]) {
           const literal = toMongoshLiteral(source);
           const outcome = repairToCanonicalEjson(literal);
           expect(outcome.kind === 'repaired' || outcome.kind === 'unchanged').toBe(true);
           const text = outcome.kind === 'repaired' ? outcome.text : literal;
           expect(canonicalOf(ejsonParse(text))).toBe(canonicalOf(d));
+        }
+      }),
+    );
+  });
+
+  it('mongosh evaluates the literal back to the same BSON, every type it can spell included', () => {
+    // Stand-ins for the shell's own constructors, built on the driver's.
+    const shell = {
+      ObjectId: (hex: string) => new ObjectId(hex),
+      ISODate: (iso: string) => new Date(iso),
+      NumberLong: (n: string) => Long.fromString(n),
+      NumberDecimal: (n: string) => Decimal128.fromString(n),
+      Double: (n: number) => new Double(n),
+      BinData: (sub: number, b64: string) => new Binary(Buffer.from(b64, 'base64'), sub),
+      Timestamp: (v: { t: number; i: number }) => new Timestamp(v),
+      MinKey: () => new MinKey(),
+      MaxKey: () => new MaxKey(),
+    };
+    fc.assert(
+      fc.property(anyDoc, (d) => {
+        for (const source of [d, asWire(d)]) {
+          const evaluated = runInNewContext(`(${toMongoshLiteral(source)})`, shell);
+          expect(canonicalOf(evaluated)).toBe(canonicalOf(d));
         }
       }),
     );

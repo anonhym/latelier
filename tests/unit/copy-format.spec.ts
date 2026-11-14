@@ -1,9 +1,11 @@
+import { runInNewContext } from 'node:vm';
 import { describe, it, expect } from 'vitest';
-import { ObjectId, Long, Decimal128, Int32, Double, Binary, BSONRegExp, Timestamp } from 'bson';
+import { ObjectId, Long, Decimal128, Int32, Double, Binary, BSONRegExp, Timestamp, MinKey, MaxKey, Code, BSONSymbol } from 'bson';
 import {
   COPY_FORMATS,
   COPY_FORMAT_LABELS,
   DEFAULT_COPY_FORMAT,
+  MONGOSH_HINT,
   formatDocsForCopy,
   toMongoshLiteral,
 } from '../../src/utils/copyFormat';
@@ -97,15 +99,100 @@ describe('toMongoshLiteral', () => {
     expect(out).not.toMatch(/r: \//);
   });
 
-  it('leaves the types without a constructor as EJSON objects', () => {
+  it('spells Double, BinData, Timestamp, MinKey and MaxKey as mongosh constructors', () => {
     const out = toMongoshLiteral({
-      b: new Binary(new Uint8Array([1, 2]), 0),
-      t: new Timestamp({ t: 5, i: 1 }),
       whole: new Double(2),
+      neg: new Double(-0),
+      nan: new Double(Number.NaN),
+      inf: new Double(Number.NEGATIVE_INFINITY),
+      big: new Double(1e300),
+      frac: new Double(1.5),
+      b: new Binary(new Uint8Array([1, 2]), 0),
+      u: new Binary(new Uint8Array([1, 2]), 4),
+      t: new Timestamp({ t: 5, i: 1 }),
+      lo: new MinKey(),
+      hi: new MaxKey(),
     });
-    expect(out).toContain('$binary: {');
-    expect(out).toContain('$timestamp: {');
-    expect(out).toContain('$numberDouble: "2.0"');
+    expect(out).toContain('whole: Double(2)');
+    expect(out).toContain('neg: Double(-0)');
+    expect(out).toContain('nan: Double(NaN)');
+    expect(out).toContain('inf: Double(-Infinity)');
+    expect(out).toContain('big: Double(1e+300)');
+    expect(out).toContain('frac: 1.5');
+    expect(out).toContain('b: BinData(0, "AQI=")');
+    expect(out).toContain('u: BinData(4, "AQI=")');
+    expect(out).toContain('t: Timestamp({ t: 5, i: 1 })');
+    expect(out).toContain('lo: MinKey()');
+    expect(out).toContain('hi: MaxKey()');
+    expect(out).not.toContain('$');
+  });
+
+  it.each([
+    ['a $numberDouble that is not text', { $numberDouble: 5 }],
+    ['a $numberDouble that is not a number', { $numberDouble: '0x10' }],
+    ['a $numberDouble that is empty', { $numberDouble: '' }],
+    ['a $binary that is not an object', { $binary: 'x' }],
+    ['a $binary with an extra key', { $binary: { base64: 'AQI=', subType: '00', more: 1 } }],
+    ['a $binary whose subType is not hex', { $binary: { base64: 'AQI=', subType: 'zz' } }],
+    ['a $binary whose subType is too long', { $binary: { base64: 'AQI=', subType: '000' } }],
+    ['a $binary whose base64 is not base64', { $binary: { base64: 'AQ"I=', subType: '00' } }],
+    ['a $binary whose base64 is not text', { $binary: { base64: 5, subType: '00' } }],
+    ['a $binary whose subType is not text', { $binary: { base64: 'AQI=', subType: 0 } }],
+    ['a $timestamp that is a list', { $timestamp: [1, 2] }],
+    ['a $timestamp with an extra key', { $timestamp: { t: 1, i: 1, more: 1 } }],
+    ['a $timestamp with a missing part', { $timestamp: { t: 1 } }],
+    ['a $timestamp with a negative part', { $timestamp: { t: -1, i: 1 } }],
+    ['a $timestamp with a fractional part', { $timestamp: { t: 1, i: 1.5 } }],
+    ['a $timestamp with an oversized part', { $timestamp: { t: 2 ** 32, i: 1 } }],
+    ['a $timestamp with a text part', { $timestamp: { t: '1', i: 1 } }],
+    ['a $timestamp with a text i', { $timestamp: { t: 1, i: '1' } }],
+    ['a $minKey that is not 1', { $minKey: 2 }],
+    ['a $maxKey that is not 1', { $maxKey: 0 }],
+  ])('keeps %s as an object', (_why, sentinel) => {
+    const out = toMongoshLiteral({ x: sentinel });
+    const key = Object.keys(sentinel)[0];
+    const ctor = { $numberDouble: 'Double(', $binary: 'BinData(', $timestamp: 'Timestamp(', $minKey: 'MinKey(', $maxKey: 'MaxKey(' }[key];
+    expect(out).not.toContain(`x: ${ctor}`);
+    expect(out).toContain(key);
+  });
+
+  it('spells the edges: padded and empty base64, the smallest timestamp, +Infinity', () => {
+    const out = toMongoshLiteral({
+      one: new Binary(new Uint8Array([1]), 0),
+      none: new Binary(new Uint8Array([]), 0),
+      t: new Timestamp({ t: 0, i: 0 }),
+      inf: new Double(Number.POSITIVE_INFINITY),
+    });
+    expect(out).toContain('one: BinData(0, "AQ==")');
+    expect(out).toContain('none: BinData(0, "")');
+    expect(out).toContain('t: Timestamp({ t: 0, i: 0 })');
+    expect(out).toContain('inf: Double(Infinity)');
+  });
+
+  it('reads a document straight from the wire, whose sentinel slots arrive wrapped', () => {
+    const wire = JSON.parse(
+      ejsonStringify({ t: new Timestamp({ t: 5, i: 2 ** 32 - 1 }), hi: new MaxKey(), lo: new MinKey() }),
+    ) as unknown;
+    const out = toMongoshLiteral(wire);
+    expect(out).toContain(`t: Timestamp({ t: 5, i: ${2 ** 32 - 1} })`);
+    expect(out).toContain('hi: MaxKey()');
+    expect(out).toContain('lo: MinKey()');
+  });
+
+  it.each([
+    ['a wrapper that is not text', { $timestamp: { t: { $numberInt: 5 }, i: 1 } }],
+    ['a wrapper with company', { $timestamp: { t: { $numberInt: '5', more: 1 }, i: 1 } }],
+    ['a wrapper that is not a whole number', { $timestamp: { t: { $numberInt: '5.5' }, i: 1 } }],
+    ['a wrapper past the safe integers', { $timestamp: { t: { $numberLong: '9007199254740993' }, i: 1 } }],
+  ])('keeps a timestamp with %s as an object', (_why, sentinel) => {
+    expect(toMongoshLiteral({ x: sentinel })).not.toContain('x: Timestamp(');
+  });
+
+  it('leaves Code, Symbol and DBRef as EJSON objects, as the hint says', () => {
+    const out = toMongoshLiteral({ c: new Code('x'), s: new BSONSymbol('y') });
+    expect(out).toContain('$code: "x"');
+    expect(out).toContain('$symbol: "y"');
+    for (const word of ['Code', 'Symbol', 'DBRef', 'undefined']) expect(MONGOSH_HINT).toContain(word);
   });
 
   it('quotes a key that is not a plain identifier, and keeps $-prefixed names bare', () => {
@@ -116,9 +203,16 @@ describe('toMongoshLiteral', () => {
     expect(out).toContain('"": 4');
   });
 
-  it('keeps a key named __proto__ as an own key', () => {
-    const withProto = JSON.parse('{"__proto__": 1, "a": 2}') as unknown;
-    expect(toMongoshLiteral(withProto)).toContain('__proto__: 1');
+  it('writes a key named __proto__ in the computed form, which keeps it an own key', () => {
+    // Built from JSON text: an object literal would set the prototype instead.
+    const withProto = JSON.parse('{"__proto__": 1, "a": {"__proto__": {"x": 2}}}') as unknown;
+    const out = toMongoshLiteral(withProto);
+    expect(out).toContain('["__proto__"]: 1');
+    expect(out).toContain('["__proto__"]: {');
+    expect(out).not.toMatch(/^\s*__proto__:/m);
+    // What mongosh evaluates keeps both fields.
+    const back = runInNewContext(`(${out})`) as Record<string, unknown>;
+    expect(Object.keys(back)).toEqual(['__proto__', 'a']);
   });
 
   it('prints empty and nested containers', () => {
