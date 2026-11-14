@@ -35,7 +35,7 @@ export function useDocumentDialogs(deps: {
   /** The Focused Tab is a view: it has no writes, and Edit opens the read-only dialog. */
   isView: boolean;
 }): {
-  editing: { doc: unknown; target: DocTarget; focusPath?: string } | null;
+  editing: { doc: unknown; target: DocTarget; focusPath?: string; siblings?: readonly unknown[] } | null;
   viewing: { doc: unknown; target: DocTarget } | null;
   closeViewer: () => void;
   deleteDoc: unknown | null;
@@ -74,7 +74,7 @@ export function useDocumentDialogs(deps: {
 
   // Target travels inside editing/inserting with the payload, captured at
   // open time, so a tab switch mid-edit can't retarget the eventual write.
-  const [editing, setEditing] = React.useState<{ doc: unknown; target: DocTarget; focusPath?: string } | null>(null);
+  const [editing, setEditing] = React.useState<{ doc: unknown; target: DocTarget; focusPath?: string; siblings?: readonly unknown[] } | null>(null);
   const [viewing, setViewing] = React.useState<{ doc: unknown; target: DocTarget } | null>(null);
   const [deleteDoc, setDeleteDocState] = React.useState<unknown | null>(null);
   // A view has no deletes; the guard sits here so no caller has to remember it.
@@ -117,7 +117,9 @@ export function useDocumentDialogs(deps: {
         });
         return;
       }
-      setEditing({ doc, target: targetOf(a), focusPath });
+      // The result the document was opened from, for the editor's ‹ ›: a
+      // snapshot, so a re-run behind the dialog cannot reorder it mid-walk.
+      setEditing({ doc, target: targetOf(a), focusPath, siblings: a.state.lastRun?.documents });
     },
     [activeCollectionRef, readOnly, isView],
   );

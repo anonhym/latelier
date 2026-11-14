@@ -1,4 +1,6 @@
 import React from 'react';
+import { notifications } from '@mantine/notifications';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { DocumentEditor } from '../../src/pages/Workspace/DocumentEditor';
@@ -79,6 +81,8 @@ function setup({
   doc = DOC as unknown,
   updateOne = vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 1, modifiedCount: 1 })),
   findOne,
+  insert,
+  siblings,
   prefs,
   sample,
   focusPath,
@@ -86,6 +90,8 @@ function setup({
   doc?: unknown;
   updateOne?: ReturnType<typeof vi.fn<IpcApi['doc']['updateOne']>>;
   findOne?: IpcApi['query']['findOne'];
+  insert?: IpcApi['doc']['insert'];
+  siblings?: readonly unknown[];
   prefs?: Partial<IpcApi['prefs']>;
   sample?: unknown[];
   focusPath?: string;
@@ -93,7 +99,7 @@ function setup({
   const onClose = vi.fn();
   const onSaved = vi.fn();
   installAtelierMock({
-    doc: { updateOne },
+    doc: { updateOne, ...(insert ? { insert } : {}) },
     ...(findOne ? { query: { findOne } } : {}),
     ...(prefs ? { prefs } : {}),
     ...(sample ? { meta: { sampleSchema: async () => ({ docs: sample }) } as never } : {}),
@@ -106,6 +112,7 @@ function setup({
       collection="orders"
       doc={doc}
       focusPath={focusPath}
+      siblings={siblings}
       onClose={onClose}
       onSaved={onSaved}
     />,
@@ -161,6 +168,9 @@ const settle = async () => {
     await Promise.resolve();
   });
 };
+
+/** Lets Mantine's focus trap finish its own initial-focus pass (a `setTimeout(0)` after mount). */
+const trapSettled = () => act(async () => void (await new Promise((r) => setTimeout(r, 5))));
 
 describe('DocumentEditor — the surface', () => {
   it('is a dialog named "Edit document" with the namespace beneath the title', () => {
@@ -442,73 +452,254 @@ describe('DocumentEditor — saving', () => {
 
 describe('DocumentEditor — conflicts', () => {
   const conflicted = () => vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 }));
-
-  it('keeps the editor open with the draft intact when nothing matched', async () => {
-    const { onSaved } = setup({ updateOne: conflicted() });
-    fireEvent.change(field('name'), { target: { value: 'gadget' } });
-    fireEvent.click(save());
-    expect(await within(editor()).findByText(/changed since you opened it/)).toBeTruthy();
-    expect(field('name').value).toBe('gadget');
-    expect(onSaved).not.toHaveBeenCalled();
-  });
-
-  it('Overwrite resends the same update with only _id as the filter', async () => {
-    const updateOne = conflicted();
-    setup({ updateOne });
-    fireEvent.change(field('name'), { target: { value: 'gadget' } });
-    fireEvent.click(save());
-    fireEvent.click(await within(editor()).findByRole('button', { name: 'Overwrite' }));
-    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
-    const [first, second] = updateOne.mock.calls.map((c) => c[0]);
-    expect(second!.updateJson).toBe(first!.updateJson);
-    expect(JSON.parse(second!.filterJson)).toEqual({ _id: { $oid: OID } });
-  });
-
-  it('Reload puts the edits on top of the fresh copy, and the next save guards the fresh values', async () => {
-    const updateOne = conflicted();
-    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
+  /** The server's copy: `name` and `qty` changed since the editor opened. */
+  const serverCopy = () =>
+    vi.fn<IpcApi['query']['findOne']>(async () => ({
       document: { ...DOC, name: 'server-name', qty: { $numberInt: '7' } },
       durationMs: 0,
     }));
-    setup({ updateOne, findOne });
+  const conflictRow = (path: string) => editor().querySelector(`[data-conflict-path="${path}"]`) as HTMLElement;
+  const choose = (path: string, label: 'Keep mine' | 'Take theirs') =>
+    fireEvent.click(within(conflictRow(path)).getByRole('button', { name: label }));
+  const saveInto = async (updateOne: ReturnType<typeof conflicted>, findOne: IpcApi['query']['findOne']) => {
+    const out = setup({ updateOne, findOne });
     fireEvent.change(field('name'), { target: { value: 'gadget' } });
     fireEvent.click(save());
-    fireEvent.click(await within(editor()).findByRole('button', { name: 'Reload' }));
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    return out;
+  };
 
-    await waitFor(() => expect(field('qty').value).toBe('7'));
+  it('lists the clash by field, with Save disabled until the field has a choice', async () => {
+    const findOne = serverCopy();
+    const { onSaved } = await saveInto(conflicted(), findOne);
     expect(JSON.parse(findOne.mock.calls[0]![0].filter)).toEqual({ _id: { $oid: OID } });
     expect(field('name').value).toBe('gadget');
-    expect(row('name').dataset.edited).toBe('true');
-    expect(row('qty').dataset.edited).toBeUndefined();
-    expect(within(editor()).queryByText(/changed since you opened it/)).toBeNull();
+    const name = conflictRow('name');
+    expect(within(name).getByText('"gadget"')).toBeTruthy();
+    expect(within(name).getByText('"server-name"')).toBeTruthy();
+    expect(within(name).getByText('both')).toBeTruthy();
+    expect(within(conflictRow('qty')).getByText('theirs')).toBeTruthy();
+    expect(within(conflictRow('qty')).queryByRole('button')).toBeNull();
+    expect((save() as HTMLButtonElement).disabled).toBe(true);
+    expect(onSaved).not.toHaveBeenCalled();
 
+    choose('name', 'Keep mine');
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Keep mine saves the user value against the fresh guards and leaves the server-only field alone', async () => {
+    const updateOne = conflicted();
+    await saveInto(updateOne, serverCopy());
+    updateOne.mockImplementation(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+    choose('name', 'Keep mine');
     fireEvent.click(save());
     await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(lastCall(updateOne).filterJson)).toEqual({ _id: { $oid: OID }, name: { $eq: 'server-name' } });
+    const call = lastCall(updateOne);
+    expect(JSON.parse(call.updateJson)).toEqual({ $set: { name: 'gadget' } });
+    expect(JSON.parse(call.filterJson)).toEqual({ _id: { $oid: OID }, name: { $eq: 'server-name' } });
   });
 
-  it('says the document was deleted when Reload finds nothing, and offers only Cancel', async () => {
-    setup({ updateOne: conflicted(), findOne: async () => ({ document: null, durationMs: 0 }) });
-    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+  it('Take theirs sends no write for that path, and closes once nothing is left to send', async () => {
+    const updateOne = conflicted();
+    const { onClose, onSaved } = await saveInto(updateOne, serverCopy());
+    choose('name', 'Take theirs');
     fireEvent.click(save());
-    fireEvent.click(await within(editor()).findByRole('button', { name: 'Reload' }));
-    expect(await within(editor()).findByText(/was deleted/)).toBeTruthy();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    // The list behind the editor still shows the old copy: the close reports it.
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('Take theirs on one field and Keep mine on another sends only the kept one', async () => {
+    const updateOne = conflicted();
+    const findOne = serverCopy();
+    setup({ updateOne, findOne });
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.change(field('qty'), { target: { value: '9' } });
+    fireEvent.click(save());
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    updateOne.mockImplementation(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+    choose('name', 'Take theirs');
+    choose('qty', 'Keep mine');
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { qty: { $numberInt: '9' } } });
+  });
+
+  it('Keep all mine and Take all theirs choose every clashing field at once', async () => {
+    const findOne = serverCopy();
+    setup({ updateOne: conflicted(), findOne });
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.change(field('qty'), { target: { value: '9' } });
+    fireEvent.click(save());
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Keep all mine' }));
+    expect(within(conflictRow('name')).getByRole('button', { name: 'Keep mine' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(conflictRow('qty')).getByRole('button', { name: 'Keep mine' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Take all theirs' }));
+    expect(within(conflictRow('name')).getByRole('button', { name: 'Take theirs' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(conflictRow('qty')).getByRole('button', { name: 'Take theirs' }).getAttribute('aria-pressed')).toBe('true');
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a change only the server made is listed, needs no choice and is not overwritten', async () => {
+    const updateOne = conflicted();
+    // Only `qty` changed on the server: the user's `name` edit does not clash.
+    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
+      document: { ...DOC, qty: { $numberInt: '7' } },
+      durationMs: 0,
+    }));
+    await saveInto(updateOne, findOne);
+    expect(within(conflictRow('qty')).getByText('theirs')).toBeTruthy();
+    expect(within(conflictRow('name')).getByText('yours')).toBeTruthy();
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
+    updateOne.mockImplementation(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { name: 'gadget' } });
+    expect(JSON.parse(lastCall(updateOne).filterJson)).toEqual({ _id: { $oid: OID }, name: { $eq: 'widget' } });
+  });
+
+  it('a second concurrent change shows the table again', async () => {
+    const updateOne = conflicted();
+    const findOne = serverCopy();
+    await saveInto(updateOne, findOne);
+    // Someone changes it again before the confirmed write lands.
+    findOne.mockImplementation(async () => ({ document: { ...DOC, name: 'server-name-2', qty: { $numberInt: '7' } }, durationMs: 0 }));
+    choose('name', 'Keep mine');
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    // The new table starts with no choices.
     expect((save() as HTMLButtonElement).disabled).toBe(true);
-    expect(within(editor()).queryByRole('button', { name: 'Reload' })).toBeNull();
   });
 
-  it('⌘↵ after a deleted conflict does not resend, and leaves the deleted notice in place', async () => {
-    const { updateOne } = setup({ updateOne: conflicted() });
-    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+  it('the JSON view is refreshed from the resolved draft, and text typed after the notice is kept', async () => {
+    const updateOne = conflicted();
+    setup({ updateOne, findOne: serverCopy() });
+    fireEvent.click(viewSwitch('JSON'));
+    const first = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    first.price = 6;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(first) } });
     fireEvent.click(save());
-    fireEvent.click(await within(editor()).findByRole('button', { name: 'Overwrite' }));
-    await waitFor(() => expect(within(editor()).getByText(/was deleted/)).toBeTruthy());
-    updateOne.mockClear();
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    // `price` clashes with nothing; the server's own `qty` and `name` are theirs.
+    expect((save() as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.keyDown(field('name'), { key: 'Enter', metaKey: true });
+    // Typed after the table appeared and never committed by a blur: Save must
+    // commit it, not drop it.
+    const second = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    second.cost = 9;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(second) } });
+    updateOne.mockImplementation(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(2));
+    const sent = (JSON.parse(lastCall(updateOne).updateJson) as { $set: Record<string, unknown> }).$set;
+    expect(Object.keys(sent).sort((a, b) => a.localeCompare(b))).toEqual(['cost', 'price']);
+  });
+
+  it('a clash that only the late JSON text introduces gets its own choice before anything is sent', async () => {
+    const updateOne = conflicted();
+    setup({ updateOne, findOne: serverCopy() });
+    fireEvent.click(viewSwitch('JSON'));
+    const first = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    first.price = 6;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(first) } });
+    fireEvent.click(save());
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    const second = JSON.parse(jsonBox().value) as Record<string, unknown>;
+    second.qty = 1;
+    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(second) } });
+    fireEvent.click(save());
     await settle();
-    expect(updateOne).not.toHaveBeenCalled();
-    expect(within(editor()).getByText(/was deleted/)).toBeTruthy();
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect(within(conflictRow('qty')).getByText('both')).toBeTruthy();
+  });
+
+  describe('when the server copy is what the editor opened with', () => {
+    const unchanged = () => vi.fn<IpcApi['query']['findOne']>(async () => ({ document: DOC, durationMs: 0 }));
+
+    it('retries the write once with fresh guards and saves if it now matches', async () => {
+      const updateOne = vi
+        .fn<IpcApi['doc']['updateOne']>()
+        .mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 })
+        .mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+      const { onClose } = setup({ updateOne, findOne: unchanged() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(updateOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('says what happened instead of showing an empty table when the retry matches nothing too', async () => {
+      const updateOne = conflicted();
+      const { onClose } = setup({ updateOne, findOne: unchanged() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      expect(await within(editor()).findByText(/nothing was written/i)).toBeTruthy();
+      expect(updateOne).toHaveBeenCalledTimes(2);
+      expect(within(editor()).queryByRole('region', { name: 'Conflicting changes' })).toBeNull();
+      expect(field('name').value).toBe('gadget');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when the document was deleted', () => {
+    const gone = () => vi.fn<IpcApi['query']['findOne']>(async () => ({ document: null, durationMs: 0 }));
+
+    it('says so, disables Save, and offers the two exits and Close', async () => {
+      setup({ updateOne: conflicted(), findOne: gone() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      expect(await within(editor()).findByText(/was deleted/)).toBeTruthy();
+      expect((save() as HTMLButtonElement).disabled).toBe(true);
+      expect(within(editor()).getByRole('button', { name: 'Insert as new document' })).toBeTruthy();
+      expect(within(editor()).getByRole('button', { name: 'Copy my version' })).toBeTruthy();
+      // Next to Save in the footer (Mantine's own title-bar X is named Close too).
+      expect(within(save().parentElement as HTMLElement).getByRole('button', { name: 'Close' })).toBeTruthy();
+      expect(within(editor()).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    });
+
+    it('Insert as new document sends the draft with its original _id', async () => {
+      const insert = vi.fn<IpcApi['doc']['insert']>(async () => ({ insertedId: { $oid: OID } }));
+      const { onClose, onSaved } = setup({ updateOne: conflicted(), findOne: gone(), insert });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      fireEvent.click(await within(editor()).findByRole('button', { name: 'Insert as new document' }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      const doc = JSON.parse(insert.mock.calls[0]![0].docJson) as Record<string, unknown>;
+      expect(doc._id).toEqual({ $oid: OID });
+      expect(doc.name).toBe('gadget');
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+
+    it('Copy my version puts the draft on the clipboard in the readable form', async () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+      setup({ updateOne: conflicted(), findOne: gone() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      fireEvent.click(await within(editor()).findByRole('button', { name: 'Copy my version' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      const copied = JSON.parse((writeText.mock.calls[0] as unknown as [string])[0]) as Record<string, unknown>;
+      expect(copied.name).toBe('gadget');
+      expect(copied._id).toEqual({ $oid: OID });
+      vi.unstubAllGlobals();
+      act(() => notifications.clean());
+    });
+
+    it('⌘↵ does not resend, and leaves the deleted notice in place', async () => {
+      const { updateOne } = setup({ updateOne: conflicted(), findOne: gone() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      await within(editor()).findByText(/was deleted/);
+      updateOne.mockClear();
+
+      fireEvent.keyDown(field('name'), { key: 'Enter', metaKey: true });
+      await settle();
+      expect(updateOne).not.toHaveBeenCalled();
+      expect(within(editor()).getByText(/was deleted/)).toBeTruthy();
+    });
   });
 });
 
@@ -949,53 +1140,6 @@ describe('DocumentEditor — view switching', () => {
     await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
     expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { name: 'gadget' } });
   });
-
-  it('Reload refreshes the JSON view text too, not just Fields', async () => {
-    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
-      document: { ...DOC, name: 'server-name' },
-      durationMs: 0,
-    }));
-    setup({
-      updateOne: vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 })),
-      findOne,
-    });
-    fireEvent.click(viewSwitch('JSON'));
-    const next = JSON.parse(jsonBox().value) as Record<string, unknown>;
-    next.qty = 6;
-    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(next) } });
-    fireEvent.click(save());
-    fireEvent.click(await within(editor()).findByRole('button', { name: 'Reload' }));
-    await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
-    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
-  });
-
-  it('commits a JSON edit typed after a failed Save before Reload merges, instead of dropping it', async () => {
-    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({
-      document: { ...DOC, name: 'server-name' },
-      durationMs: 0,
-    }));
-    setup({
-      updateOne: vi.fn<IpcApi['doc']['updateOne']>(async () => ({ matchedCount: 0, modifiedCount: 0 })),
-      findOne,
-    });
-    fireEvent.click(viewSwitch('JSON'));
-    const first = JSON.parse(jsonBox().value) as Record<string, unknown>;
-    first.qty = 6;
-    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(first) } });
-    fireEvent.click(save());
-    await within(editor()).findByRole('button', { name: 'Reload' });
-
-    // Typed after the conflict notice appeared, and never committed by a
-    // blur or another Save — this is the text Reload must not drop.
-    const second = JSON.parse(jsonBox().value) as Record<string, unknown>;
-    second.price = 9;
-    fireEvent.change(jsonBox(), { target: { value: JSON.stringify(second) } });
-
-    fireEvent.click(within(editor()).getByRole('button', { name: 'Reload' }));
-    await waitFor(() => expect((JSON.parse(jsonBox().value) as Record<string, unknown>).name).toBe('server-name'));
-    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).qty).toBe(6);
-    expect((JSON.parse(jsonBox().value) as Record<string, unknown>).price).toBe(9);
-  });
 });
 
 describe('DocumentEditor — filter box', () => {
@@ -1259,5 +1403,426 @@ describe('DocumentEditor — focusPath (W18 §8)', () => {
     setupInsert();
     await settleFocusTrap();
     expect(document.activeElement).toBe(within(insertEditor()).getByRole('textbox', { name: 'New field name' }));
+  });
+});
+
+describe('DocumentEditor — keyboard order and row mode (W18 §13.1)', () => {
+  const eight = () => {
+    const out: Record<string, unknown> = { _id: { $oid: OID } };
+    for (let i = 0; i < 8; i++) out[`f${i}`] = i % 2 === 0 ? `v${i}` : { $numberInt: String(i) };
+    return out;
+  };
+  const rowEl = (name: string) => row(name).querySelector('[data-field-row]') as HTMLElement;
+
+  it('Tab goes from one field value to the next: eight scalar fields, eight stops', async () => {
+    setup({ doc: eight() });
+    const user = userEvent.setup();
+    field('f0').focus();
+    for (let i = 1; i < 8; i++) {
+      await user.tab();
+      expect(document.activeElement).toBe(field(`f${i}`));
+    }
+  });
+
+  it('keeps the type selector and Remove out of the Tab order, and still named and clickable', () => {
+    setup({ doc: eight() });
+    expect(typeSelect('f0').tabIndex).toBe(-1);
+    const remove = within(row('f0')).getByRole('button', { name: 'Remove f0' });
+    expect(remove.tabIndex).toBe(-1);
+    fireEvent.change(typeSelect('f0'), { target: { value: 'int32' } });
+    fireEvent.click(remove);
+    expect(row('f0')).toBeNull();
+  });
+
+  it('an Object row has no value input: its stop is its expand control', async () => {
+    setup({ doc: { _id: { $oid: OID }, a: 'x', o: { k: 'v' }, z: 'y' } });
+    const user = userEvent.setup();
+    field('a').focus();
+    await user.tab();
+    expect(document.activeElement).toBe(within(row('o')).getByRole('button', { name: 'Collapse o' }));
+  });
+
+  it('Escape in a value focuses the row and does not close the editor; a second Escape asks to discard', async () => {
+    const { onClose } = setup({ doc: eight() });
+    await trapSettled();
+    fireEvent.change(field('f0'), { target: { value: 'changed' } });
+    field('f0').focus();
+    // jsdom does not fire the blur that leaving a focused control causes in a
+    // browser; dispatch it with the Escape so no trailing-blur guard goes untested.
+    act(() => {
+      fireEvent.keyDown(field('f0'), { key: 'Escape' });
+      fireEvent.blur(field('f0'));
+    });
+    await settle();
+    expect(document.activeElement).toBe(rowEl('f0'));
+    expect(field('f0').value).toBe('changed');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+
+    fireEvent.keyDown(rowEl('f0'), { key: 'Escape' });
+    expect(await screen.findByRole('dialog', { name: 'Discard changes?' })).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('Escape on a boolean Switch and on an expand control also goes up to the row, without closing', async () => {
+    const { onClose } = setup({ doc: { _id: { $oid: OID }, on: true, o: { k: 'v' } } });
+    await trapSettled();
+    const toggle = within(row('on')).getByRole('switch', { name: 'on' });
+    toggle.focus();
+    fireEvent.keyDown(toggle, { key: 'Escape' });
+    expect(document.activeElement).toBe(rowEl('on'));
+    const expand = within(row('o')).getByRole('button', { name: 'Collapse o' });
+    expand.focus();
+    fireEvent.keyDown(expand, { key: 'Escape' });
+    expect(document.activeElement).toBe(rowEl('o'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('⌫ on an array element keeps focus on a row, though removing it remounts its siblings', () => {
+    setup({ doc: { _id: { $oid: OID }, tags: ['a', 'b', 'c'] } });
+    const element = (i: number) => row('tags').querySelector(`[data-field="tags.${i}"] [data-field-row]`) as HTMLElement;
+    element(0).focus();
+    fireEvent.keyDown(element(0), { key: 'Backspace' });
+    // The next element, now one index lower.
+    expect(document.activeElement).toBe(element(0));
+    expect((document.activeElement as HTMLElement).closest('[data-field]')?.getAttribute('data-field')).toBe('tags.0');
+    expect(within(row('tags')).getByRole('textbox', { name: 'tags.0' })).toHaveProperty('value', 'b');
+    // And again, from the last element: the one above it.
+    fireEvent.keyDown(element(1), { key: 'Backspace' });
+    expect(document.activeElement).toBe(element(0));
+  });
+
+  it('Escape from a value of a clean document, then a second Escape, closes without a prompt', async () => {
+    const { onClose } = setup({ doc: eight() });
+    field('f0').focus();
+    fireEvent.keyDown(field('f0'), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(rowEl('f0'), { key: 'Escape' });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('the Escape that leaves a value is consumed: no ancestor sees it', async () => {
+    const onParentKeyDown = vi.fn();
+    installAtelierMock({ doc: { updateOne: vi.fn() } });
+    render(
+      <div onKeyDown={onParentKeyDown}>
+        <DocumentEditor mode="edit" connectionId="c1" dbName="shop" collection="orders" doc={eight()} onClose={vi.fn()} onSaved={vi.fn()} />
+      </div>,
+    );
+    await trapSettled();
+    field('f0').focus();
+    fireEvent.keyDown(field('f0'), { key: 'Escape' });
+    expect(document.activeElement).toBe(rowEl('f0'));
+    expect(onParentKeyDown).not.toHaveBeenCalled();
+    // The row's own Escape is not consumed: it is the one that closes.
+    fireEvent.keyDown(rowEl('f0'), { key: 'Escape' });
+    expect(onParentKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('on the row, T opens the type selector', () => {
+    setup({ doc: eight() });
+    const showPicker = vi.fn();
+    typeSelect('f1').showPicker = showPicker;
+    rowEl('f1').focus();
+    fireEvent.keyDown(rowEl('f1'), { key: 't' });
+    expect(document.activeElement).toBe(typeSelect('f1'));
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('on the row, ⌫ and Delete remove the field and focus the next row', () => {
+    setup({ doc: eight() });
+    rowEl('f1').focus();
+    fireEvent.keyDown(rowEl('f1'), { key: 'Backspace' });
+    expect(row('f1')).toBeNull();
+    expect(document.activeElement).toBe(rowEl('f2'));
+    fireEvent.keyDown(rowEl('f2'), { key: 'Delete' });
+    expect(row('f2')).toBeNull();
+    expect(document.activeElement).toBe(rowEl('f3'));
+  });
+
+  it('removing the last row focuses the one above it', () => {
+    setup({ doc: eight() });
+    rowEl('f7').focus();
+    fireEvent.keyDown(rowEl('f7'), { key: 'Backspace' });
+    expect(document.activeElement).toBe(rowEl('f6'));
+  });
+
+  it('typing T or ⌫ in a value is just typing: only keys on the row act on it', () => {
+    setup({ doc: eight() });
+    field('f0').focus();
+    fireEvent.keyDown(field('f0'), { key: 'Backspace' });
+    fireEvent.keyDown(field('f0'), { key: 't' });
+    expect(row('f0')).not.toBeNull();
+    expect(document.activeElement).toBe(field('f0'));
+  });
+
+  it('Enter on the row returns to the value; ↑ ↓ move between rows', () => {
+    setup({ doc: eight() });
+    rowEl('f2').focus();
+    fireEvent.keyDown(rowEl('f2'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(rowEl('f3'));
+    fireEvent.keyDown(rowEl('f3'), { key: 'ArrowUp' });
+    fireEvent.keyDown(rowEl('f2'), { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(rowEl('f1'));
+    fireEvent.keyDown(rowEl('f1'), { key: 'Enter' });
+    expect(document.activeElement).toBe(field('f1'));
+  });
+
+  it('_id ignores T and ⌫ and can still be passed over with the arrows', () => {
+    setup({ doc: eight() });
+    rowEl('_id').focus();
+    fireEvent.keyDown(rowEl('_id'), { key: 'Backspace' });
+    fireEvent.keyDown(rowEl('_id'), { key: 't' });
+    expect(row('_id')).not.toBeNull();
+    expect(document.activeElement).toBe(rowEl('_id'));
+    fireEvent.keyDown(rowEl('_id'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(rowEl('f0'));
+  });
+
+  it('shows Decimal128 in a type column wide enough for it', () => {
+    setup({ doc: eight() });
+    expect(Number.parseInt((typeSelect('f0').closest('div[style*="width"]') as HTMLElement).style.width, 10)).toBeGreaterThanOrEqual(130);
+    expect(Array.from(typeSelect('f0').options).map((o) => o.textContent)).toContain('Decimal128');
+  });
+});
+
+describe('DocumentEditor — change strip and type preview (W18 §13.2)', () => {
+  const strip = () => screen.queryByTestId('document-editor-changes');
+
+  it('is absent while nothing changed', () => {
+    setup();
+    expect(strip()).toBeNull();
+  });
+
+  it('reads "2 changes", names the operators, and lists both with old and new values', () => {
+    setup();
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.click(within(row('gone')).getByRole('button', { name: 'Remove gone' }));
+    fireEvent.click(within(strip()!).getByRole('button', { name: /2 changes/ }));
+    expect(within(strip()!).getByText('$set 1 · $unset 1')).toBeTruthy();
+    const items = within(strip()!).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual(['name: "widget" → "gadget"', 'gone: removed']);
+  });
+
+  it('lists an added field with a plus, and a nested change by its dotted path', () => {
+    setup();
+    fireEvent.change(within(addFieldBox()).getByRole('textbox'), { target: { value: 'note' } });
+    fireEvent.click(within(addFieldBox()).getByRole('button', { name: 'Add field' }));
+    fireEvent.change(field('note'), { target: { value: 'call back' } });
+    fireEvent.change(field('nested.city'), { target: { value: 'B' } });
+    fireEvent.click(within(strip()!).getByRole('button', { name: /2 changes/ }));
+    const items = within(strip()!).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual(expect.arrayContaining(['note: + "call back"', 'nested.city: "A" → "B"']));
+  });
+
+  it('lists exactly the paths the save request carries', async () => {
+    const { updateOne } = setup();
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    fireEvent.change(field('nested.city'), { target: { value: 'B' } });
+    fireEvent.click(within(strip()!).getByRole('button', { name: /2 changes/ }));
+    const paths = within(strip()!).getAllByRole('listitem').map((li) => li.textContent!.split(':')[0]);
+    fireEvent.click(save());
+    await waitFor(() => expect(updateOne).toHaveBeenCalledTimes(1));
+    expect(Object.keys((JSON.parse(lastCall(updateOne).updateJson) as { $set: object }).$set).sort((a, b) => a.localeCompare(b))).toEqual(
+      [...paths].sort((a, b) => a.localeCompare(b)),
+    );
+  });
+
+  it('says "1 change" for one', () => {
+    setup();
+    fireEvent.change(field('name'), { target: { value: 'gadget' } });
+    expect(within(strip()!).getByRole('button', { name: /^▸ 1 change\b/ })).toBeTruthy();
+  });
+
+  it('shows both types under the row as soon as the type is changed, before Save', () => {
+    setup();
+    fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
+    expect(within(row('qty')).getByTestId('document-editor-type-change').textContent).toBe('5 Int32 → 5 Double');
+  });
+
+  it('says "value cleared" when the conversion kept nothing', () => {
+    setup();
+    fireEvent.change(typeSelect('name'), { target: { value: 'int32' } });
+    expect(within(row('name')).getByTestId('document-editor-type-change').textContent).toBe('"widget" String → 0 Int32 · value cleared');
+  });
+
+  it('puts the type change in the strip too', () => {
+    setup();
+    fireEvent.change(typeSelect('qty'), { target: { value: 'double' } });
+    fireEvent.click(within(strip()!).getByRole('button', { name: /1 change/ }));
+    expect(within(strip()!).getByText('qty: 5 Int32 → 5 Double')).toBeTruthy();
+  });
+
+  it('is not drawn when creating a document', () => {
+    setupInsert({ initialDocJson: '{"a":1}' });
+    expect(screen.queryByTestId('document-editor-changes')).toBeNull();
+  });
+});
+
+describe('DocumentEditor — the save key (W18 §13.6)', () => {
+  it('shows ⌘↵ as a key cap beside the label, and the button is still named Save', () => {
+    setup();
+    expect(save().textContent).toMatch(/⌘↵|Ctrl\+Enter/);
+    expect(save().getAttribute('aria-keyshortcuts')).toMatch(/Enter/);
+    expect(within(editor()).getByRole('button', { name: 'Save' })).toBe(save());
+  });
+
+  it('keeps the name "Insert 2 documents" with the key cap on', () => {
+    setupInsert();
+    fireEvent.click(within(insertEditor()).getByRole('radio', { name: 'JSON' }));
+    fireEvent.change(within(insertEditor()).getByRole('textbox', { name: 'Document JSON' }), { target: { value: '[{"a":1},{"a":2}]' } });
+    const button = within(insertEditor()).getByRole('button', { name: 'Insert 2 documents' });
+    expect(button.textContent).toMatch(/⌘↵|Ctrl\+Enter/);
+  });
+});
+
+describe('DocumentEditor — previous and next (W18 §13.5)', () => {
+  const docs = [1, 2, 3].map((n) => ({ _id: { $oid: `${n}`.repeat(24) }, name: `doc${n}`, qty: { $numberInt: String(n) } }));
+  const prev = () => within(editor()).getByRole('button', { name: 'Previous document' }) as HTMLButtonElement;
+  const next = () => within(editor()).getByRole('button', { name: 'Next document' }) as HTMLButtonElement;
+  const open = (index: number, extra: Parameters<typeof setup>[0] = {}) => setup({ doc: docs[index], siblings: docs, ...extra });
+  const guard = () => screen.findByRole('dialog', { name: 'Unsaved changes' });
+
+  it('› opens the next document of the list, in place, and ‹ the previous', async () => {
+    const { onClose } = open(0);
+    expect(within(editor()).getByText('1 of 3')).toBeTruthy();
+    fireEvent.click(next());
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    expect(within(editor()).getByText('2 of 3')).toBeTruthy();
+    fireEvent.click(prev());
+    await waitFor(() => expect(field('name').value).toBe('doc1'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('lands on the first value of the new document', async () => {
+    open(0);
+    fireEvent.click(next());
+    await waitFor(() => expect(document.activeElement).toBe(field('name')));
+  });
+
+  it('disables ‹ on the first document and › on the last', () => {
+    open(0);
+    expect(prev().disabled).toBe(true);
+    expect(next().disabled).toBe(false);
+  });
+
+  it('disables › on the last document', () => {
+    open(2);
+    expect(next().disabled).toBe(true);
+    expect(prev().disabled).toBe(false);
+  });
+
+  it('is not drawn without a list, or when creating', () => {
+    setup({ doc: docs[0] });
+    expect(within(editor()).queryByRole('button', { name: 'Next document' })).toBeNull();
+    uninstallAtelierMock();
+    setupInsert();
+    expect(within(insertEditor()).queryByRole('button', { name: 'Next document' })).toBeNull();
+  });
+
+  it('finds the document in the list by _id when it is not the same object', () => {
+    setup({ doc: JSON.parse(JSON.stringify(docs[1])), siblings: docs });
+    expect(within(editor()).getByText('2 of 3')).toBeTruthy();
+  });
+
+  it('moves without asking while the edit is clean', async () => {
+    open(0);
+    fireEvent.click(next());
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull();
+  });
+
+  it('Stay keeps the edit on the same document', async () => {
+    open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    fireEvent.click(within(await guard()).getByRole('button', { name: 'Stay' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull());
+    expect(field('name').value).toBe('edited');
+    expect(within(editor()).getByText('1 of 3')).toBeTruthy();
+  });
+
+  it('Discard and go moves on and drops the edit', async () => {
+    const { updateOne } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    fireEvent.click(within(await guard()).getByRole('button', { name: 'Discard and go' }));
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('document-editor-changes')).toBeNull();
+  });
+
+  it('Save and go saves through the normal write and then moves; ⌘↵ in the prompt does the same', async () => {
+    const { updateOne, onSaved, onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    const dialog = await guard();
+    expect(within(dialog).getByRole('button', { name: /Save and go/ }).textContent).toMatch(/⌘↵|Ctrl\+Enter/);
+    fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Stay' }), { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastCall(updateOne).updateJson)).toEqual({ $set: { name: 'edited' } });
+    // The query re-runs once, when the editor closes — not on the way.
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closing after a Save and go reports the save once, and stepping back shows what was saved', async () => {
+    const { onSaved, onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    fireEvent.click(within(await guard()).getByRole('button', { name: /Save and go/ }));
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    fireEvent.click(prev());
+    await waitFor(() => expect(field('name').value).toBe('edited'));
+    expect(screen.queryByTestId('document-editor-changes')).toBeNull();
+    fireEvent.click(within(editor()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('a conflict on Save and go keeps the editor on the current document, with the table', async () => {
+    const findOne = vi.fn<IpcApi['query']['findOne']>(async () => ({ document: { ...docs[0], name: 'server' }, durationMs: 0 }));
+    open(0, { updateOne: vi.fn(async () => ({ matchedCount: 0, modifiedCount: 0 })), findOne });
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    fireEvent.click(within(await guard()).getByRole('button', { name: /Save and go/ }));
+    await within(editor()).findByRole('region', { name: 'Conflicting changes' });
+    expect(within(editor()).getByText('1 of 3')).toBeTruthy();
+    expect(field('name').value).toBe('edited');
+  });
+
+  it('Save and go is unavailable while the save itself is blocked', async () => {
+    open(0);
+    fireEvent.change(field('qty'), { target: { value: 'abc' } });
+    fireEvent.click(next());
+    expect((within(await guard()).getByRole('button', { name: /Save and go/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(await guard()).getByRole('button', { name: 'Stay' }));
+  });
+
+  it('Escape with focus on the prompt itself (after clicking its text) answers Stay and opens no second prompt', async () => {
+    const { onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    const dialog = await guard();
+    // A click on the body text focuses the nearest focusable ancestor: Mantine's content element.
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(field('name').value).toBe('edited');
+  });
+
+  it('Escape in the prompt answers Stay and opens no second prompt', async () => {
+    const { onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    const dialog = await guard();
+    fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Stay' }), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(field('name').value).toBe('edited');
   });
 });

@@ -1,31 +1,34 @@
-import { isRecord } from '../../../utils/displayValue';
+import { isRecord, toDisplayValue } from '../../../utils/displayValue';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../../utils/ejson';
 import type { Kind } from '../documentFieldTypes';
 
+const ID_CUT = 12;
+
 /**
- * Short, human-scannable row identifier — last 8 chars of an `$oid`, or a
- * truncated stringification for non-ObjectId `_id`s. Used as the visible
- * label in the Tree view's collapsed row and (T2.5) the Table's expand
- * gutter.
- *
- * Extracted from `TreeView.tsx` (T2.5) so both Tree and Table views share the
- * identical docId scheme — expansion state (`state.expandedRows`) is keyed
- * by `getFullDocId`, not this short form, but the short form is what the
- * two views must agree on to render corresponding rows the same way.
+ * The full text a row's `_id` shows: its display value (what a Table cell
+ * reads), never its EJSON wrapper. `(no _id)` when absent.
  */
-export function getDocId(doc: unknown): string {
-  if (!isRecord(doc)) return JSON.stringify(doc).slice(0, 12);
+export function getDocIdText(doc: unknown): string {
+  if (!isRecord(doc)) return toDisplayValue(doc).display;
   const id = doc._id;
   if (id === null || id === undefined) return '(no _id)';
-  if (isRecord(id) && typeof id.$oid === 'string') {
-    return id.$oid.slice(-8);
-  }
-  // A custom-object `_id` (not `$oid`-shaped) needs JSON, not `String()` —
-  // `String({...})` is always the useless "[object Object]".
-  // Matches `getFullDocId`'s treatment of the same case; primitive
-  // `_id`s (string/number) keep the plainer `String()` form.
-  if (isRecord(id)) return JSON.stringify(id).slice(0, 12);
-  return String(id).slice(0, 12);
+  return toDisplayValue(id).display;
+}
+
+/**
+ * Short, human-scannable row identifier built from the `_id`'s display value:
+ * an ObjectId as `…` plus its last eight hex digits, anything else as its
+ * display text cut to twelve characters with an ellipsis. Shared by the
+ * views' visible id and the accessible names of every row action.
+ *
+ * Expansion state (`state.expandedRows`) is keyed by `getFullDocId`, not this
+ * short form, so changing how a row is *labelled* never moves a persisted key.
+ */
+export function getDocId(doc: unknown): string {
+  const text = getDocIdText(doc);
+  const id = isRecord(doc) ? doc._id : undefined;
+  if (toDisplayValue(id).type === 'objectid') return `…${text.slice(-8)}`;
+  return text.length > ID_CUT ? `${text.slice(0, ID_CUT)}…` : text;
 }
 
 /**

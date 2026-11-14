@@ -71,7 +71,7 @@ function renderBar(
 function selectFirstCard() {
   // A plain click on the card no longer selects it — the visible checkbox
   // (or ⌘/Ctrl+click) is the way in now.
-  fireEvent.click(screen.getByRole('button', { name: 'Select document 99439011' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Select document …99439011' }));
 }
 
 describe('SelectionActionBar', () => {

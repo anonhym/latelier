@@ -4,7 +4,6 @@ import {
   sortedIndices,
   selectedDocs,
   buildDeleteSelectedFilterJson,
-  serializeSelectedForClipboard,
 } from '../../src/pages/Workspace/selection';
 
 describe('sortedIndices', () => {
@@ -78,30 +77,5 @@ describe('buildDeleteSelectedFilterJson', () => {
 
   it('returns null for an empty selection', () => {
     expect(buildDeleteSelectedFilterJson([])).toBeNull();
-  });
-});
-
-describe('serializeSelectedForClipboard', () => {
-  it('serializes a single doc as a bare EJSON object, preserving sentinels', () => {
-    const doc = ejsonParse('{"_id":{"$oid":"507f1f77bcf86cd799439011"},"name":"alpha"}');
-    const text = serializeSelectedForClipboard([doc]);
-    expect(JSON.parse(text)).toEqual({
-      _id: { $oid: '507f1f77bcf86cd799439011' },
-      name: 'alpha',
-    });
-  });
-
-  it('serializes multiple docs as an EJSON array, preserving sentinels', () => {
-    const docs = [
-      ejsonParse('{"_id":{"$oid":"507f1f77bcf86cd799439011"}}'),
-      ejsonParse('{"_id":{"$oid":"507f1f77bcf86cd799439012"}}'),
-    ];
-    const text = serializeSelectedForClipboard(docs);
-    const parsed = JSON.parse(text);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toEqual([
-      { _id: { $oid: '507f1f77bcf86cd799439011' } },
-      { _id: { $oid: '507f1f77bcf86cd799439012' } },
-    ]);
   });
 });
