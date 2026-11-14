@@ -57,6 +57,27 @@ describe('useScrollMemory', () => {
     expect(other.result.current.defaultScrollOffset).toBe(0);
   });
 
+  it('follows a tab switch on a reused view: each tab gets its own offset and a fresh list key', () => {
+    forgetScroll('sw-a');
+    forgetScroll('sw-b');
+    rememberScroll('sw-a', 'Tree', 300);
+    let tabId = 'sw-a';
+    const { result, rerender } = renderHook(() => useScrollMemory('Tree'), {
+      wrapper: ({ children }: { children: React.ReactNode }) => wrapperFor(tabId)({ children }),
+    });
+    expect(result.current).toMatchObject({ defaultScrollOffset: 300, listKey: 'sw-a' });
+
+    tabId = 'sw-b';
+    rerender();
+    expect(result.current).toMatchObject({ defaultScrollOffset: 0, listKey: 'sw-b' });
+    result.current.onScroll({ currentTarget: { scrollTop: 40 } } as React.UIEvent<HTMLElement>);
+
+    tabId = 'sw-a';
+    rerender();
+    expect(result.current.defaultScrollOffset).toBe(300);
+    expect(recallScroll('sw-b', 'Tree')).toBe(40);
+  });
+
   it('records the element scrollTop on scroll', () => {
     forgetScroll('hook-rec');
     const { result } = renderHook(() => useScrollMemory('Table'), { wrapper: wrapperFor('hook-rec') });

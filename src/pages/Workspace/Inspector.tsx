@@ -4,6 +4,7 @@ import type { ExplainVerbosity } from '@shared/types';
 import { I } from '../../icons';
 import { themeVars } from '../../theme/themeVars';
 import { ExplainBody } from './Aggregation/ExplainDrawer';
+import { compileFindOptions } from './builder';
 import { useCollectionWorkspace } from './context';
 import { useFindExplain } from './useFindExplain';
 
@@ -26,10 +27,23 @@ const OWN_ESCAPE = '[role="dialog"], [role="alertdialog"], [role="menu"], [role=
 function PlanPane({ request, onClose }: { request: PlanRequest; onClose: () => void }) {
   const { state } = useCollectionWorkspace();
   // The committed filter text, like every read surface (the Run menu commits first).
-  const { runExplain, onCreateIndex } = useFindExplain(() => state.queryRaw);
+  const { runExplain: explainNow, onCreateIndex } = useFindExplain(() => state.queryRaw);
+  // The query as it stands now, and as it stood when the plan on screen was made.
+  const nowQuery = JSON.stringify([state.queryRaw.trim(), compileFindOptions(state.builder)]);
+  // A plan the caller marked stale matches no query on screen until a fetch replaces it.
+  const [explainedQuery, setExplainedQuery] = React.useState<string | null>(request.stale ? null : nowQuery);
+  const runExplain = React.useCallback(
+    async (verbosity: ExplainVerbosity) => {
+      const res = await explainNow(verbosity);
+      setExplainedQuery(nowQuery);
+      return res;
+    },
+    [explainNow, nowQuery],
+  );
+  const stale = explainedQuery !== nowQuery;
   return (
     <>
-      {request.stale && (
+      {stale && (
         <div
           style={{
             padding: '6px 14px',
@@ -49,7 +63,7 @@ function PlanPane({ request, onClose }: { request: PlanRequest; onClose: () => v
         initialPlan={request.plan}
         runExplain={runExplain}
         // A suggestion built from the query now on screen would not be about the plan being read.
-        onCreateIndex={request.stale ? undefined : onCreateIndex}
+        onCreateIndex={stale ? undefined : onCreateIndex}
       />
     </>
   );
@@ -133,7 +147,7 @@ export function Inspector({ tab, onTabChange, onClose, plan, children }: Inspect
           {children}
         </Tabs.Panel>
         <Tabs.Panel value="plan" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {plan && <PlanPane request={plan} onClose={onClose} />}
+          {plan && <PlanPane key={plan.seq} request={plan} onClose={onClose} />}
         </Tabs.Panel>
       </Tabs>
     </div>

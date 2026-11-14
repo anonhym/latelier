@@ -568,7 +568,7 @@ export function TreeView({
   // identical wiring (and `useRovingFocus`'s docstring) for why the scroll
   // has to happen synchronously with the index change.
   const listRef = useListRef(null);
-  const scrollMemory = useScrollMemory('Tree');
+  const { listKey, ...scrollMemory } = useScrollMemory('Tree');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'tree-row-',
@@ -779,6 +779,7 @@ export function TreeView({
           aria-label="Documents"
           // #20 — the tree is the widget's only tab stop; see `roving` above.
           listRef={listRef}
+          key={listKey}
           {...scrollMemory}
           tabIndex={roving.containerProps.tabIndex}
           aria-activedescendant={roving.containerProps['aria-activedescendant']}
