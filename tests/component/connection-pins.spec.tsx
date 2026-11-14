@@ -41,6 +41,7 @@ function renderTable(connections: ConnectionSummary[]) {
       onManage={vi.fn()}
       onEdit={vi.fn()}
       onDelete={vi.fn()}
+      onDisconnect={vi.fn()}
       onAdd={vi.fn()}
       onImport={vi.fn()}
       tabCountFor={() => 0}
@@ -207,8 +208,9 @@ describe('server version badge', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Connection: / }));
     const listbox = await screen.findByRole('listbox', { name: 'Connections' });
-    expect(within(listbox).getByText('v7.0.5')).toBeTruthy();
-    expect(within(listbox).queryByText('v6.0.1')).toBeNull();
-    expect(within(listbox).getAllByText(/^v\d/)).toHaveLength(1);
+    // One line per row now: the version closes the muted "— host · v…" run.
+    expect(within(listbox).getByText(/ · v7\.0\.5$/)).toBeTruthy();
+    expect(within(listbox).queryByText(/v6\.0\.1/)).toBeNull();
+    expect(within(listbox).getAllByText(/ · v\d/)).toHaveLength(1);
   });
 });

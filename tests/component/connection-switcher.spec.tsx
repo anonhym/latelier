@@ -145,6 +145,17 @@ function deletableBacking(initial: ConnectionSummary[]) {
  * the specs that do focus a tab. The Main pane's empty state renders a second
  * trigger with the same name, hence the TitleBar scope.
  */
+/** Opens the `⋯` on a Connection's row (the Switcher's highlighted one, or the table's selected one). */
+async function openRowMenu(name: string): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole('button', { name: `Actions for ${name}` }));
+  return screen.findByRole('menu');
+}
+
+async function rowAction(name: string, item: string): Promise<void> {
+  const menu = await openRowMenu(name);
+  await userEvent.click(within(menu).getByRole('menuitem', { name: item }));
+}
+
 async function openSwitcher() {
   const trigger = await titleBar().findByRole('button', { name: /^Connection: / });
   await userEvent.click(trigger);
@@ -279,23 +290,6 @@ describe('ConnectionSwitcher', () => {
     }
   });
 
-  it('shows a "no connections yet" empty state rather than an empty quoted search when none are saved', async () => {
-    mount({ connections: [] });
-
-    // With no Connections the trigger reads "Select a connection", and its
-    // accessible name reports the absence rather than naming a Connection
-    // that doesn't exist. Scoped to the TitleBar — with zero Connections the
-    // Main pane's empty state renders its own `variant="cta"` trigger with
-    // the same accessible name, so an unscoped query would find two.
-    await userEvent.click(
-      await titleBar().findByRole('button', { name: /Connection: none selected/i }),
-    );
-    const listbox = await screen.findByRole('listbox', { name: 'Connections' });
-
-    expect(within(listbox).getByText(/No connections yet/i)).toBeTruthy();
-    expect(within(listbox).queryByText(/No connections match/i)).toBeNull();
-  });
-
   it('reconnects when a Connection whose last attempt failed is clicked, rather than doing nothing', async () => {
     const connectSpy = vi.fn(async () => undefined as never);
     // c1's last attempt failed. Clicking its row is the obvious retry
@@ -370,8 +364,8 @@ describe('ConnectionSwitcher', () => {
     expect(
       within(listbox).getByRole('option', { name: 'Staging' }).getAttribute('aria-selected'),
     ).toBe('true');
-    // Two check marks, not one — the visible half of the same fact.
-    expect(within(listbox).getAllByLabelText('Connected')).toHaveLength(2);
+    // Two rows say so in words, not one — the visible half of the same fact.
+    expect(within(listbox).getAllByText('Connected')).toHaveLength(2);
     // A Connection with no live client is not marked.
     expect(
       within(listbox).getByRole('option', { name: 'Local Dev' }).getAttribute('aria-selected'),
@@ -642,7 +636,7 @@ describe('ConnectionSwitcher — add/edit', () => {
     expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
   });
 
-  it('"Manage connections" is guarded against Enter falling through to the roving-highlight contract', async () => {
+  it('"Manage all" is guarded against Enter falling through to the roving-highlight contract', async () => {
     // Regression: the button lives inside `Popover.Dropdown`, whose own
     // `onKeyDown` is `handleKeyDown` — its Enter case unconditionally acts on
     // the *highlighted row*. Without a `stopPropagation` guard on the button
@@ -654,8 +648,9 @@ describe('ConnectionSwitcher — add/edit', () => {
     mount({ mongo: { connect } });
 
     await openSwitcher();
-    await userEvent.tab(); // search field → "Manage connections", the first tab stop
-    expect(screen.getByRole('button', { name: 'Manage connections' })).toBe(document.activeElement);
+    const manage = screen.getByRole('button', { name: 'Manage all' });
+    manage.focus();
+    expect(manage).toBe(document.activeElement);
 
     await userEvent.keyboard('{Enter}');
 
@@ -663,13 +658,12 @@ describe('ConnectionSwitcher — add/edit', () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it('⌘E still opens the table while "Manage connections" holds focus', async () => {
-    // With zero Connections this button is where focus lands on open; its
-    // Enter guard must not swallow the shortcut the legend advertises.
-    mount({ connections: [] });
-    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
-    const manage = await screen.findByRole('button', { name: 'Manage connections' });
-    await waitFor(() => expect(document.activeElement).toBe(manage));
+  it('⌘E still opens the table while "Manage all" holds focus', async () => {
+    // Its Enter guard must not swallow the shortcut it advertises.
+    mount();
+    await openSwitcher();
+    const manage = screen.getByRole('button', { name: 'Manage all' });
+    manage.focus();
 
     fireEvent.keyDown(manage, { key: 'e', metaKey: true });
 
@@ -677,24 +671,32 @@ describe('ConnectionSwitcher — add/edit', () => {
     expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
   });
 
-  it('offers no Add, Import or Export of its own — those live in the table', async () => {
+  it('offers New connection in its footer, and no Import or Export of its own — those live in the table', async () => {
     mount();
     const listbox = await openSwitcher();
     const dropdown = listbox.parentElement!;
-    expect(within(dropdown).queryByRole('button', { name: /add connection/i })).toBeNull();
+    await userEvent.click(within(dropdown).getByRole('button', { name: '+ New connection' }));
+    await screen.findByRole('dialog', { name: 'New Connection' });
+    expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
+  });
+
+  it('offers no Import or Export of its own — those live in the table', async () => {
+    mount();
+    const listbox = await openSwitcher();
+    const dropdown = listbox.parentElement!;
     expect(within(dropdown).queryByRole('button', { name: /import/i })).toBeNull();
     expect(within(dropdown).queryByRole('button', { name: /export/i })).toBeNull();
   });
 
-  it('a row’s edit button opens the same form as a modal, prefilled from that Connection, without switching to it', async () => {
+  it('a row’s Edit… opens the same form as a modal, prefilled from that Connection, without switching to it', async () => {
     const getSpy = vi.fn(async () => CANNED_STAGING);
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
     mount({ mongo: { connect }, conn: { get: getSpy as never } });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('Staging');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Edit Staging' }));
+    await rowAction('Staging', 'Edit…');
 
     expect(getSpy).toHaveBeenCalledWith('c3');
     const dialog = await screen.findByRole('dialog', { name: 'Edit Connection' });
@@ -706,31 +708,28 @@ describe('ConnectionSwitcher — add/edit', () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it('the highlighted row’s edit button is guarded against Enter falling through to the roving-highlight contract', async () => {
+  it('the highlighted row’s ⋯ is guarded against Enter falling through to the roving-highlight contract', async () => {
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
     mount({ mongo: { connect }, conn: { get: async () => CANNED_STAGING } });
 
     await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('Staging');
-    // search field → "Manage connections" → manage → the highlighted row's
-    // edit button. Staging has never been tried this session, so the disconnect
-    // button doesn't sit between manage and edit here — see the "only for a
-    // connected Connection" case elsewhere for that row's tab order.
+    // search field → the highlighted row's ⋯, the first tab stop.
     await userEvent.tab();
-    await userEvent.tab();
-    await userEvent.tab();
-    expect(screen.getByRole('button', { name: 'Edit Staging' })).toBe(document.activeElement);
+    expect(screen.getByRole('button', { name: 'Actions for Staging' })).toBe(document.activeElement);
 
     await userEvent.keyboard('{Enter}');
 
+    // Enter opens the menu, and Enter on its item edits. A row-select (switch)
+    // is the failure mode the button's own `stopPropagation` guards against.
+    const menu = await screen.findByRole('menu');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Edit…' }));
     await screen.findByRole('dialog', { name: 'Edit Connection' });
-    // A row-select (switch), not just a management-screen detour, is the
-    // failure mode this button's own `stopPropagation` guards against.
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it('creating a Connection from the modal connects it and does not navigate away', async () => {
+  it('Save & connect on a new Connection connects it and does not navigate away', async () => {
     // Mutated in place, not rebound: `mount` closes over this array by
     // reference, so a fresh binding would never reach `conn.list`.
     const backing = [...NINE_CONNECTIONS];
@@ -745,10 +744,12 @@ describe('ConnectionSwitcher — add/edit', () => {
     await screen.findByRole('dialog', { name: 'New Connection' });
 
     await userEvent.type(screen.getByPlaceholderText(/My MongoDB Server/i), 'Fresh');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'fresh.example.com');
-    await userEvent.click(screen.getByText('Auth'));
+    const host = screen.getByLabelText(/^Hostname/);
+    await userEvent.clear(host);
+    await userEvent.type(host, 'fresh.example.com');
+    await userEvent.click(screen.getByRole('tab', { name: 'Authentication' }));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
-    fireEvent.click(screen.getByText(/^Save$/));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & connect' }));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     await waitFor(() => expect(connect).toHaveBeenCalledWith('new1'));
@@ -764,11 +765,11 @@ describe('ConnectionSwitcher — add/edit', () => {
     const updateSpy = vi.fn(async () => CANNED_STAGING as never);
     mount({ mongo: { connect }, conn: { get: async () => CANNED_STAGING, update: updateSpy as never } , focusedConnectionId: 'c1' });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Edit Staging' }));
-    await screen.findByRole('dialog', { name: 'Edit Connection' });
-    fireEvent.click(screen.getByText(/Save changes/i));
+    await rowAction('Staging', 'Edit…');
+    const form = await screen.findByRole('dialog', { name: 'Edit Connection' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Connection' })).toBeNull());
@@ -800,10 +801,9 @@ describe('ConnectionSwitcher — add/edit', () => {
     // c1 ("Prod — US East") is the open Connection and the default highlight.
     await screen.findByLabelText('Close orders');
     await openSwitcher();
-    const listbox = screen.getByRole('listbox', { name: 'Connections' });
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Edit Prod — US East' }));
-    await screen.findByRole('dialog', { name: 'Edit Connection' });
-    fireEvent.click(screen.getByText(/Save changes/i));
+    await rowAction('Prod — US East', 'Edit…');
+    const form = await screen.findByRole('dialog', { name: 'Edit Connection' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     await waitFor(() => expect(connect).toHaveBeenCalledWith('c1'));
@@ -831,12 +831,12 @@ describe('ConnectionSwitcher — add/edit', () => {
       },
     });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('QA Sandbox');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Edit QA Sandbox' }));
-    await screen.findByRole('dialog', { name: 'Edit Connection' });
-    fireEvent.click(screen.getByText(/Save changes/i));
+    await rowAction('QA Sandbox', 'Edit…');
+    const form = await screen.findByRole('dialog', { name: 'Edit Connection' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     await waitFor(() => expect(connect).toHaveBeenCalledWith('c5'));
@@ -861,49 +861,105 @@ describe('ConnectionSwitcher — add/edit', () => {
   });
 });
 
-// the remaining ADR 0001 row actions (manage, disconnect, delete),
-// reachable inline on the highlighted row rather than a per-row `⋯` menu.
-// Manage and disconnect already have keyboard coverage above (⌘↵, ⌫); these
-// specs cover the pointer path plus delete, which has none.
-describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
-  it('shows manage, disconnect, edit and delete only on the highlighted row — no per-row menu anywhere else', async () => {
+// The ADR 0001 row actions, behind the one `⋯` the highlighted row carries
+// (C03 §13.3). Manage and disconnect keep their keyboard coverage above (⌘↵,
+// ⌫); these specs cover the menu, and delete, which has no key.
+describe('ConnectionSwitcher — the row ⋯ menu', () => {
+  it('the highlighted row carries one ⋯ and no other row does; its menu lists five actions, Delete last after a divider', async () => {
     mount();
     const listbox = await openSwitcher();
-    // c1 ("Prod — US East") is highlighted on open and is connected.
-    expect(within(listbox).getByRole('button', { name: 'Manage Prod — US East' })).toBeTruthy();
-    expect(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' })).toBeTruthy();
-    expect(within(listbox).getByRole('button', { name: 'Edit Prod — US East' })).toBeTruthy();
-    expect(within(listbox).getByRole('button', { name: 'Delete Prod — US East' })).toBeTruthy();
-    // Every other row — including another live one — has no actions and no
-    // `⋯`-style menu trigger. ADR 0001's original per-row menu was replaced,
-    // not supplemented.
+    // c1 ("Prod — US East") is highlighted on open and is connected. One
+    // button on it, not a strip of icons one slip of the pointer from Delete.
+    const row = within(listbox).getByRole('option', { name: 'Prod — US East' });
+    expect(within(row).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Actions for Prod — US East',
+    ]);
+    // Every other row — including another live one — has no trigger.
     expect(within(listbox).queryByRole('button', { name: /Prod — EU West/ })).toBeNull();
-    expect(within(listbox).queryByRole('button', { name: /^More/i })).toBeNull();
-    expect(within(listbox).queryByLabelText(/options|actions menu/i)).toBeNull();
+
+    const menu = await openRowMenu('Prod — US East');
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Open server overview',
+      'Edit…',
+      'Disconnect',
+      'Copy connection string',
+      'Delete…',
+    ]);
+    const deleteItem = within(menu).getByRole('menuitem', { name: 'Delete…' });
+    expect(deleteItem.previousElementSibling?.className).toContain('Menu-divider');
   });
 
-  it('the manage button opens the highlighted Connection’s management screen and closes the popover, without switching to it', async () => {
+  it('Shift+F10 opens the highlighted row’s menu from the search field', async () => {
+    const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
+    mount({ mongo: { connect } });
+    await openSwitcher();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    expect(highlightedName()).toBe('Staging');
+
+    fireEvent.keyDown(searchField(), { key: 'F10', shiftKey: true });
+
+    const menu = await screen.findByRole('menu');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Open server overview' }));
+    await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('Copy connection string copies the URI main builds, which carries no password', async () => {
+    const getUri = vi.fn(async () => ({ uri: 'mongodb://ana@staging.internal:27017/' }));
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    mount({ conn: { getUri: getUri as never } });
+    await openSwitcher();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+
+    await rowAction('Staging', 'Copy connection string');
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('mongodb://ana@staging.internal:27017/'));
+    expect(getUri).toHaveBeenCalledWith('c3');
+  });
+
+  it('says in words what each row is: Connected, Connecting, Dormant, and Connect ↵ on the highlighted row that is not open', async () => {
+    mount();
+    const listbox = await openSwitcher();
+    const status = (name: string) =>
+      within(within(listbox).getByRole('option', { name })).getByTestId('connection-row-status').textContent;
+    expect(status('Prod — US East')).toBe('Connected');
+    expect(status('Customer Support Read Replica (us-west-2)')).toBe('Connecting');
+    expect(status('Staging')).toBe('Dormant');
+
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    expect(highlightedName()).toBe('Staging');
+    expect(status('Staging')).toMatch(/^Connect /);
+    expect(status('Prod — US East')).toBe('Connected');
+  });
+
+  it('Open server overview opens the highlighted Connection’s management screen and closes the popover, without switching to it', async () => {
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
     mount({ mongo: { connect } });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('Staging');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Manage Staging' }));
+    await rowAction('Staging', 'Open server overview');
 
     await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
     expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it('offers the disconnect button only for a Connection that is actually connected', async () => {
-    mount();
-    const listbox = await openSwitcher();
-    expect(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' })).toBeTruthy();
-
+  it('Disconnect is live only for a Connection that is actually connected', async () => {
+    const disconnect = vi.fn(async (id: string) => ({ id }));
+    mount({ mongo: { disconnect } });
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}'); // c3, Staging — never tried this session
     expect(highlightedName()).toBe('Staging');
-    expect(within(listbox).queryByRole('button', { name: /^Disconnect/ })).toBeNull();
+
+    const menu = await openRowMenu('Staging');
+    const item = within(menu).getByRole('menuitem', { name: 'Disconnect' });
+    expect(item.hasAttribute('disabled') || item.getAttribute('aria-disabled') === 'true').toBe(true);
+    fireEvent.click(item);
+    expect(screen.queryByRole('dialog', { name: 'Disconnect "Staging"?' })).toBeNull();
+    expect(disconnect).not.toHaveBeenCalled();
   });
 
   // X16.6, spec §4.3 — Cancel. The one row action that is deliberately
@@ -925,11 +981,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     // Still no per-row action set anywhere else: the never-tried rows carry
     // nothing, and the connecting row carries Cancel and nothing more.
     expect(within(listbox).queryByRole('button', { name: /Prod — EU West/ })).toBeNull();
-    expect(
-      within(listbox).queryByRole('button', {
-        name: /^(Manage|Edit|Delete|Disconnect) Customer Support/,
-      }),
-    ).toBeNull();
+    expect(within(listbox).queryByRole('button', { name: /^Actions for Customer Support/ })).toBeNull();
   });
 
   it('Cancel calls disconnect for the connecting Connection and leaves every other row alone', async () => {
@@ -957,7 +1009,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
 
   // X16 §4.6 — the button now opens a confirmation naming the
   // Connection and its tab count before it disconnects anything.
-  it('the disconnect button opens a confirmation naming the Connection and its tab count, and disconnect is not called until confirmed', async () => {
+  it('Disconnect opens a confirmation naming the Connection and its tab count, and disconnect is not called until confirmed', async () => {
     const disconnect = vi.fn(async (id: string) => ({ id }));
     const store = tabStore([
       collectionTab({ id: 't1', connectionId: 'c1', collection: 'orders', isActive: true }),
@@ -965,9 +1017,9 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     ]);
     mount({ mongo: { disconnect }, tabs: store });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     expect(highlightedName()).toBe('Prod — US East');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' }));
+    await rowAction('Prod — US East', 'Disconnect');
 
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
     expect(within(dialog).getByText(/closes 2 open tabs/)).toBeTruthy();
@@ -989,9 +1041,9 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     mount({ connections: twoOpen, tabs: store, mongo: { disconnect } });
 
     await screen.findByLabelText('Close orders');
-    const listbox = await openSwitcher();
+    await openSwitcher();
     // c1 ("Prod — US East") is highlighted on open.
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' }));
+    await rowAction('Prod — US East', 'Disconnect');
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
 
@@ -1002,27 +1054,25 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     expect(disconnect).not.toHaveBeenCalledWith('c3');
   });
 
-  it('confirming the disconnect dialog disconnects the highlighted Connection and leaves the popover open, without navigating away', async () => {
+  it('confirming the disconnect dialog disconnects the highlighted Connection, without navigating away', async () => {
     const disconnect = vi.fn(async (id: string) => ({ id }));
     mount({ mongo: { disconnect } });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     expect(highlightedName()).toBe('Prod — US East');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' }));
+    await rowAction('Prod — US East', 'Disconnect');
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
     // Zero-tabs case gets its own sentence, not "closes 0 open tabs".
     expect(within(dialog).getByText(/has no open tabs/)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
 
     await waitFor(() => expect(disconnect).toHaveBeenCalledWith('c1'));
-    // Scoped by name: the Switcher popover itself also carries `role="dialog"`
-    // and, unlike Delete, stays open behind Disconnect's confirm — a bare
-    // `queryByRole('dialog')` would match the popover forever.
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Disconnect "Prod — US East"?' })).toBeNull(),
     );
-    // Matches the ⌫ shortcut: dropping a client is not leaving the Switcher.
-    expect(screen.getByRole('listbox', { name: 'Connections' })).toBeTruthy();
+    // Unlike ⌫, which stays: a click on the menu is already a click outside
+    // the popover, so every menu action leaves the Switcher.
+    expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
     // The acceptance criterion's actual wording is "no redirect" — assert
     // the pathname itself, not just that some listbox is on screen.
     expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
@@ -1040,7 +1090,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
    * `requestDisconnect` and the first assertion goes red: the confirm opens
    * on an empty tab list.
    */
-  it('the disconnect button waits for the tab list rather than confirming "no open tabs"', async () => {
+  it('Disconnect waits for the tab list rather than confirming "no open tabs"', async () => {
     const disconnect = vi.fn(async (id: string) => ({ id }));
     const store = tabStore([
       collectionTab({ id: 't1', connectionId: 'c1', collection: 'orders', isActive: true }),
@@ -1055,8 +1105,8 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
       tabs: { ...store, list: async () => { await landed; return store.list(); } },
     });
 
-    const listbox = await openSwitcher();
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' }));
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Disconnect');
 
     expect(screen.queryByRole('dialog', { name: 'Disconnect "Prod — US East"?' })).toBeNull();
     expect(disconnect).not.toHaveBeenCalled();
@@ -1067,10 +1117,9 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     });
     await screen.findByLabelText('Close orders');
 
-    await userEvent.click(
-      within(await screen.findByRole('listbox', { name: 'Connections' }))
-        .getByRole('button', { name: 'Disconnect Prod — US East' }),
-    );
+    // Reopened: the refused click cost the popover, as every menu action does.
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Disconnect');
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
     expect(within(dialog).getByText(/closes 2 open tabs/)).toBeTruthy();
   });
@@ -1083,7 +1132,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
    * MUTATION TARGET — drop `if (tabsRef.current.loading) return;` from
    * `openDeleteConnectionModal` and the first assertion goes red.
    */
-  it('the delete button waits for the tab list rather than confirming "no open tabs"', async () => {
+  it('Delete… waits for the tab list rather than confirming "no open tabs"', async () => {
     const deleteSpy = vi.fn(async () => undefined);
     const store = tabStore([
       collectionTab({ id: 't1', connectionId: 'c1', collection: 'orders', isActive: true }),
@@ -1098,8 +1147,8 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
       tabs: { ...store, list: async () => { await landed; return store.list(); } },
     });
 
-    const listbox = await openSwitcher();
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Prod — US East' }));
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Delete…');
 
     expect(screen.queryByRole('dialog', { name: 'Delete "Prod — US East"?' })).toBeNull();
     expect(deleteSpy).not.toHaveBeenCalled();
@@ -1111,12 +1160,11 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     await screen.findByLabelText('Close orders');
 
     // Reopened, not re-queried: the delete action closes the popover before
-    // the handler runs (unlike disconnect), so the refused click costs the
-    // popover as well. Still the right trade against destroying a Connection
-    // under a confirm that undercounted its tabs.
-    await userEvent.click(
-      within(await openSwitcher()).getByRole('button', { name: 'Delete Prod — US East' }),
-    );
+    // the handler runs, so the refused click costs the popover as well. Still
+    // the right trade against destroying a Connection under a confirm that
+    // undercounted its tabs.
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Delete…');
     const dialog = await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' });
     expect(within(dialog).getByText(/2 open tabs/)).toBeTruthy();
   });
@@ -1130,8 +1178,8 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     store.close = closeSpy as never;
     mount({ mongo: { disconnect }, tabs: store });
 
-    const listbox = await openSwitcher();
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Prod — US East' }));
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Disconnect');
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
     fireEvent.click(within(dialog).getByText('Cancel'));
 
@@ -1140,98 +1188,49 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     );
     expect(disconnect).not.toHaveBeenCalled();
     expect(closeSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole('listbox', { name: 'Connections' })).toBeTruthy();
-  });
-
-  it('recovers focus to the search field when the live status event that follows a disconnect click unmounts the button holding it', async () => {
-    // Regression: the disconnect button is gated on `presentation.live`
-    // (its own acceptance criterion — only offered while actually connected),
-    // and it's the one row action that deliberately leaves the popover open
-    // rather than closing it. Click it, and the pool's `mongo:status-event`
-    // repaints the row to `disconnected` — which unmounts the very button
-    // that still holds focus. With nothing else to claim it, focus would
-    // otherwise fall to `<body>`, and since `handleKeyDown` only lives on the
-    // dropdown, every keyboard path into the still-open popover — Escape
-    // included — would go dead until the user clicks out or reopens it.
-    const listeners = new Set<(r: { id: string; status: string }) => void>();
-    const disconnect = vi.fn(async (id: string) => ({ id }));
-    mount({
-      mongo: {
-        disconnect,
-        onStatus: (cb: (r: { id: string; status: string }) => void) => {
-          listeners.add(cb);
-          return () => listeners.delete(cb);
-        },
-      } as never,
-    });
-
-    const listbox = await openSwitcher();
-    const disconnectButton = within(listbox).getByRole('button', {
-      name: 'Disconnect Prod — US East',
-    });
-    await userEvent.click(disconnectButton);
-    // the click opens the confirmation; only confirming it disconnects.
-    const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Prod — US East"?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
-    await waitFor(() => expect(disconnect).toHaveBeenCalledWith('c1'));
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Disconnect "Prod — US East"?' })).toBeNull(),
-    );
-    await waitFor(() => expect(listeners.size).toBeGreaterThan(0));
-
-    act(() => {
-      for (const cb of listeners) cb({ id: 'c1', status: 'disconnected' });
-    });
-    // The row repainted and the button that held focus is gone.
-    await waitFor(() =>
-      expect(within(listbox).queryByRole('button', { name: /^Disconnect/ })).toBeNull(),
-    );
-
-    // Focus landed back on the search field, not `<body>` — so the popover
-    // is still drivable...
-    expect(document.activeElement).toBe(searchField());
-    // ...which this proves directly: Escape still closes it.
-    await userEvent.keyboard('{Escape}');
-    expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
+    expect(screen.getByLabelText('Close orders')).toBeTruthy();
   });
 
   it('recovers focus to the search field when moving the mouse to a different row unmounts the button holding it', async () => {
-    // A second, independent path to the same focus loss as the test above:
-    // the whole row-actions cluster is gated on `isHighlighted`, so
-    // Tab-focusing a button on one row and then moving the mouse over a
-    // *different* row unmounts the first row's buttons — no click, no
-    // status event, just the highlight moving — out from under whichever
-    // button held focus.
+    // The row's ⋯ is gated on `isHighlighted`, so Tab-focusing it on one row
+    // and then moving the mouse over a *different* row unmounts it — no
+    // click, no status event, just the highlight moving — out from under
+    // focus. With nothing else to claim it, focus would fall to `<body>`, and
+    // since `handleKeyDown` only lives on the dropdown, every keyboard path
+    // into the still-open popover — Escape included — would go dead.
     mount();
     const listbox = await openSwitcher();
-    const manageButton = within(listbox).getByRole('button', { name: 'Manage Prod — US East' });
-    manageButton.focus();
-    expect(manageButton).toBe(document.activeElement);
+    const actions = within(listbox).getByRole('button', { name: 'Actions for Prod — US East' });
+    actions.focus();
+    expect(actions).toBe(document.activeElement);
 
     fireEvent.mouseMove(within(listbox).getByRole('option', { name: 'Prod — EU West' }));
 
     await waitFor(() => expect(highlightedName()).toBe('Prod — EU West'));
     await waitFor(() =>
-      expect(within(listbox).queryByRole('button', { name: 'Manage Prod — US East' })).toBeNull(),
+      expect(within(listbox).queryByRole('button', { name: 'Actions for Prod — US East' })).toBeNull(),
     );
     expect(document.activeElement).toBe(searchField());
   });
 
-  it('the delete button opens a confirmation dialog naming the Connection and closes the popover', async () => {
+  it('Delete… opens the type-the-name confirmation and closes the popover', async () => {
     mount();
-    const listbox = await openSwitcher();
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Prod — US East' }));
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Delete…');
 
     expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
-    expect(await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' })).toBeTruthy();
+    const dialog = await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' });
+    // docs/adr/0013 — still gated on the name typed back, menu or not.
+    expect(within(dialog).getByRole('textbox', { name: 'Confirm connection name' })).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('cancelling the delete confirmation leaves the Connection saved and unchanged', async () => {
     const deleteSpy = vi.fn(async () => undefined);
     mount({ conn: { delete: deleteSpy as never } , focusedConnectionId: 'c1' });
 
-    const listbox = await openSwitcher();
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Prod — US East' }));
+    await openSwitcher();
+    await rowAction('Prod — US East', 'Delete…');
     const dialog = await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' });
     fireEvent.click(within(dialog).getByText('Cancel'));
 
@@ -1244,10 +1243,10 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     const { backing, deleteSpy } = deletableBacking(NINE_CONNECTIONS);
     mount({ connections: backing, conn: { delete: deleteSpy as never } , focusedConnectionId: 'c1' });
 
-    const listbox = await openSwitcher();
+    await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}'); // c3, Staging — not the Focused Tab's
     expect(highlightedName()).toBe('Staging');
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Staging' }));
+    await rowAction('Staging', 'Delete…');
     await screen.findByRole('dialog', { name: 'Delete "Staging"?' });
     // docs/adr/0013 — Delete stays disabled until the name is typed back.
     fireEvent.change(screen.getByRole('textbox', { name: 'Confirm connection name' }), {
@@ -1283,9 +1282,9 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     mount({ connections: backing, tabs: store, conn: { delete: deleteSpy as never } });
 
     await screen.findByLabelText('Close orders');
-    const listbox = await openSwitcher();
+    await openSwitcher();
     // c1 ("Prod — US East") is highlighted on open.
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Prod — US East' }));
+    await rowAction('Prod — US East', 'Delete…');
     const dialog = await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' });
     // the count is c1's own tab (1), not both Connections' combined (2).
     expect(within(dialog).getByText(/closes 1 open tab\b/)).toBeTruthy();
@@ -1302,18 +1301,15 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     expect(screen.getByLabelText('Close invoices')).toBeTruthy();
   });
 
-  it('deleting the only saved Connection leaves the trigger showing no Connection selected, not broken', async () => {
-    // A dedicated "Empty state" is a later ticket's UI — this only
-    // asserts the trigger's accessible name falls back correctly once
-    // `connections` is empty, not that a dedicated empty-state screen exists.
+  it('deleting the only saved Connection lands on the welcome canvas, with no Switcher left to name nothing', async () => {
     const { backing, deleteSpy } = deletableBacking([conn({ id: 'c1', name: 'Solo', status: 'connected' })]);
     mount({ connections: backing, conn: { delete: deleteSpy as never } , focusedConnectionId: 'c1' });
 
     // The only Connection is the Focused Tab's — not "Prod — US East", so
     // this can't use the shared `openSwitcher()` helper.
     await userEvent.click(await screen.findByRole('button', { name: /^Connection: Solo/i }));
-    const listbox = await screen.findByRole('listbox', { name: 'Connections' });
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Solo' }));
+    await screen.findByRole('listbox', { name: 'Connections' });
+    await rowAction('Solo', 'Delete…');
     await screen.findByRole('dialog', { name: 'Delete "Solo"?' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Confirm connection name' }), {
       target: { value: 'Solo' },
@@ -1321,35 +1317,8 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     fireEvent.click(screen.getByText('Delete'));
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('c1'));
-    // Scoped to the TitleBar: with zero Connections left, the Main pane's
-    // empty state also renders its own `variant="cta"` Switcher trigger with
-    // the same accessible name, so an unscoped query would find two.
-    await waitFor(() =>
-      expect(titleBar().getByRole('button', { name: 'Connection: none selected' })).toBeTruthy(),
-    );
-  });
-
-  it('the highlighted row’s delete button is guarded against Enter falling through to the roving-highlight contract', async () => {
-    const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
-    mount({ mongo: { connect } });
-
-    await openSwitcher();
-    // c1 ("Prod — US East") is highlighted on open and connected, so all four
-    // actions render: search field → Manage connections → manage →
-    // disconnect → edit → delete.
-    await userEvent.tab();
-    await userEvent.tab();
-    await userEvent.tab();
-    await userEvent.tab();
-    await userEvent.tab();
-    expect(screen.getByRole('button', { name: 'Delete Prod — US East' })).toBe(document.activeElement);
-
-    await userEvent.keyboard('{Enter}');
-
-    // A row-select (switch, closing tabs) is the failure mode this button's
-    // own `stopPropagation` guards against — not just a missing confirm.
-    await screen.findByRole('dialog', { name: 'Delete "Prod — US East"?' });
-    expect(connect).not.toHaveBeenCalled();
+    await screen.findByRole('heading', { name: 'Connect to MongoDB' });
+    expect(screen.queryByRole('button', { name: /^Connection: / })).toBeNull();
   });
 
   it('Esc still closes the popover while focus is on a row action button', async () => {
@@ -1362,7 +1331,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     // `stopPropagation` on the button ever runs.
     mount();
     const listbox = await openSwitcher();
-    const manageButton = within(listbox).getByRole('button', { name: 'Manage Prod — US East' });
+    const manageButton = within(listbox).getByRole('button', { name: 'Actions for Prod — US East' });
     manageButton.focus();
     expect(manageButton).toBe(document.activeElement);
 
@@ -1381,13 +1350,13 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     // one of these buttons.
     mount();
     const listbox = await openSwitcher();
-    const manageButton = within(listbox).getByRole('button', { name: 'Manage Prod — US East' });
+    const manageButton = within(listbox).getByRole('button', { name: 'Actions for Prod — US East' });
     manageButton.focus();
 
     await userEvent.keyboard('{ArrowDown}');
 
     expect(document.activeElement).toBe(manageButton);
-    expect(within(listbox).getByRole('button', { name: 'Manage Prod — US East' })).toBeTruthy();
+    expect(within(listbox).getByRole('button', { name: 'Actions for Prod — US East' })).toBeTruthy();
   });
 });
 
@@ -1403,7 +1372,7 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
 async function openExpandedTable() {
   await openSwitcher();
   // Pinned above the listbox, a sibling of it — not inside it.
-  await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Manage all' }));
   return screen.findByRole('dialog', { name: 'Connections' });
 }
 
@@ -1455,7 +1424,7 @@ describe('ConnectionSwitcher — expanded table', () => {
     await userEvent.type(searchField(), 'prod');
     expect(within(listbox).queryByRole('option', { name: 'Staging' })).toBeNull();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Manage all' }));
     const dialog = await screen.findByRole('dialog', { name: 'Connections' });
 
     expect(
@@ -1497,7 +1466,7 @@ describe('ConnectionSwitcher — expanded table', () => {
 
     await userEvent.click(ctaTrigger);
     await screen.findByRole('listbox', { name: 'Connections' });
-    await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Manage all' }));
     await screen.findByRole('dialog', { name: 'Connections' });
 
     await userEvent.keyboard('{Escape}');
@@ -1506,53 +1475,21 @@ describe('ConnectionSwitcher — expanded table', () => {
     await waitFor(() => expect(document.activeElement).toBe(ctaTrigger));
   });
 
-  it('shows a filled "New connection" CTA, not the picker, in the empty state when none are saved', async () => {
-    mount({ connections: [] });
-    const cta = await screen.findByRole('button', { name: 'New connection' });
-
-    // Not a popover trigger: nothing to pick, so no "Select a connection".
-    expect(screen.queryByRole('button', { name: 'Select a connection' })).toBeNull();
-    expect(cta.getAttribute('aria-haspopup')).toBeNull();
-
-    await userEvent.click(cta);
-
-    await screen.findByRole('dialog', { name: 'New Connection' });
-  });
-
-  it('offers "New connection" in the empty list of the Switcher popover', async () => {
-    mount({ connections: [] });
-    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
-    const listbox = await screen.findByRole('listbox', { name: 'Connections' });
-
-    // A listbox owns only options and groups: the button sits beside it.
-    // Scoped to the popover: the empty state's own CTA has the same name.
-    const add = within(listbox.parentElement as HTMLElement).getByRole('button', { name: 'New connection' });
-    expect(listbox.contains(add)).toBe(false);
-    await userEvent.click(add);
-
-    await screen.findByRole('dialog', { name: 'New Connection' });
-    await waitFor(() => expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull());
-  });
-
   it('keeps the "Select a connection" picker once a Connection is saved', async () => {
     mount({ connections: [conn({ status: 'unknown' })] });
 
     expect(await screen.findByRole('button', { name: 'Select a connection' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'New connection' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Connect to MongoDB' })).toBeNull();
   });
 
   it('offers "+ New" instead of a dead end when there are no saved Connections', async () => {
     // With zero Connections there is nothing to select, so no row action ever
     // renders — without this, a first-run `⌘E` could only be escaped, never
-    // acted on. This button is a permanent footer fixture (not only shown
-    // in the empty-state cell), and the only place a Connection is added.
+    // acted on. The button is a permanent header fixture, not only shown in
+    // the empty-state cell.
     mount({ connections: [] });
-    // Scoped to the TitleBar — with zero Connections the Main pane's empty
-    // state renders its own `variant="cta"` trigger with the same accessible
-    // name, so an unscoped query would find two.
-    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
-    await screen.findByRole('listbox', { name: 'Connections' });
-    await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
+    await screen.findByRole('heading', { name: 'Connect to MongoDB' });
+    fireEvent.keyDown(document.body, { key: 'e', metaKey: true });
     const dialog = await screen.findByRole('dialog', { name: 'Connections' });
 
     await userEvent.click(within(dialog).getByRole('button', { name: '+ New' }));
@@ -1594,7 +1531,8 @@ describe('ConnectionSwitcher — expanded table', () => {
 
     fireEvent.keyDown(document.body, { key: 'E', ctrlKey: true });
     const table = await screen.findByRole('dialog', { name: 'Connections' });
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Paste URIs…' }));
     const add = await screen.findByRole('dialog', { name: 'Import Connections' });
     fireEvent.keyDown(within(add).getByRole('textbox', { name: /paste connection strings/i }), { key: 'e', metaKey: true });
     // Still exactly one table, and the Import Wizard is still on top of it.
@@ -1830,22 +1768,25 @@ describe('ConnectionSwitcher — expanded table', () => {
     mount({ conn: { get: async () => CANNED_STAGING } });
     const dialog = await openExpandedTable();
 
-    // the footer action bar is gone; Connect/Manage/Edit/Delete
-    // render on the selected row only, matching the popover's own
-    // aria-labels (`Manage ${name}` / `Edit ${name}` / `Delete ${name}`).
-    // Connect alone stays a plain-labelled button — it's the reason the
-    // surface exists.
+    // Connect and one `⋯` render on the selected row only. The `⋯` is the
+    // popover's own menu, so the two surfaces list the same actions. Connect
+    // alone stays a plain-labelled button — it's the reason the surface exists.
     expect(within(dialog).queryByRole('button', { name: 'Connect' })).toBeNull();
-    expect(within(dialog).queryByRole('button', { name: 'Manage Staging' })).toBeNull();
-    expect(within(dialog).queryByRole('button', { name: 'Edit Staging' })).toBeNull();
-    expect(within(dialog).queryByRole('button', { name: 'Delete Staging' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Actions for Staging' })).toBeNull();
 
     await userEvent.click(tableRow(dialog, 'Staging'));
 
     expect(within(dialog).getByRole('button', { name: 'Connect' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'Manage Staging' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'Edit Staging' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'Delete Staging' })).toBeTruthy();
+    const menu = await openRowMenu('Staging');
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Open server overview',
+      'Edit…',
+      'Disconnect',
+      'Copy connection string',
+      'Delete…',
+    ]);
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
 
     // Deselecting (second click) drops the actions again — they belong to
     // "selected", not "was ever selected this session".
@@ -1872,7 +1813,7 @@ describe('ConnectionSwitcher — expanded table', () => {
     const dialog = await openExpandedTable();
 
     await userEvent.click(tableRow(dialog, 'Staging'));
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Edit Staging' }));
+    await rowAction('Staging', 'Edit…');
 
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
     expect(getSpy).toHaveBeenCalledWith('c3');
@@ -1901,7 +1842,7 @@ describe('ConnectionSwitcher — expanded table', () => {
     const dialog = await openExpandedTable();
 
     await userEvent.click(tableRow(dialog, 'Staging'));
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Manage Staging' }));
+    await rowAction('Staging', 'Open server overview');
 
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
     await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
@@ -1917,7 +1858,7 @@ describe('ConnectionSwitcher — expanded table', () => {
     const dialog = await openExpandedTable();
 
     await userEvent.click(tableRow(dialog, 'Staging'));
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete Staging' }));
+    await rowAction('Staging', 'Delete…');
 
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
     await screen.findByRole('dialog', { name: 'Delete "Staging"?' });
@@ -2167,39 +2108,36 @@ describe('ConnectionSwitcher keyboard contract', () => {
     });
   });
 
-  it('lists three shortcuts in a footer, the rest taught by row-action tooltips', async () => {
+  it('carries no shortcut legend: the footer holds New connection and Manage all, which shows ⌘E', async () => {
     (window as unknown as { __atelierEnv__?: unknown }).__atelierEnv__ = { platform: 'darwin' };
     mount();
 
-    await openSwitcher();
+    const listbox = await openSwitcher();
 
-    // down from six entries to the three a pointer user cannot
-    // otherwise discover; ⌘↵ manage / ⌫ disconnect / esc close are taught by
-    // the row-action tooltips and platform convention instead.
-    const legend = screen.getByRole('note', { name: 'Keyboard shortcuts' });
-    const text = legend.textContent ?? '';
-    expect(text).toContain('↑↓');
-    expect(text).toContain('navigate');
-    expect(text).toContain('↵');
-    expect(text).toContain('connect');
-    expect(text).toContain('⌘E');
-    // "manage" here is ⌘E's "Manage connections", not the per-row ⌘↵.
-    expect(text).toContain('manage');
-    expect(text).not.toContain('⌘↵');
-    expect(text).not.toContain('disconnect');
-    expect(text).not.toContain('esc close');
+    // The legend is gone; ↵ is taught on the highlighted row ("Connect ↵")
+    // and ⌘E on the button it triggers.
+    expect(screen.queryByRole('note', { name: 'Keyboard shortcuts' })).toBeNull();
+    const dropdown = listbox.parentElement!;
+    expect(within(dropdown).getByRole('button', { name: '+ New connection' })).toBeTruthy();
+    const manage = within(dropdown).getByRole('button', { name: 'Manage all' });
+    expect(manage.textContent).toContain('⌘E');
+    expect(manage.getAttribute('aria-keyshortcuts')).toBe('Meta+E');
   });
 
-  it('writes the footer shortcuts for Windows and Linux off a Mac', async () => {
+  it('writes the shortcuts for Windows and Linux off a Mac', async () => {
     (window as unknown as { __atelierEnv__?: unknown }).__atelierEnv__ = { platform: 'win32' };
     mount();
 
-    await openSwitcher();
+    const listbox = await openSwitcher();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
 
-    const text = screen.getByRole('note', { name: 'Keyboard shortcuts' }).textContent ?? '';
-    expect(text).toContain('Ctrl+E');
-    expect(text).toContain('Enter');
-    expect(text).not.toContain('⌘');
+    const manage = screen.getByRole('button', { name: 'Manage all' });
+    expect(manage.textContent).toContain('Ctrl+E');
+    expect(manage.getAttribute('aria-keyshortcuts')).toBe('Control+E');
+    expect(
+      within(within(listbox).getByRole('option', { name: 'Staging' })).getByTestId('connection-row-status')
+        .textContent,
+    ).toBe('Connect Enter');
   });
 
   it('does not let a key it handles reach the Data View’s window shortcuts', async () => {

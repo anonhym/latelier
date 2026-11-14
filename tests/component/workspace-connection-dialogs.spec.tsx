@@ -112,7 +112,8 @@ describe('workspace connection dialogs (T3)', () => {
       const trigger = await titleBar().findByRole('button', { name: /^Connection: /i });
       await userEvent.click(trigger);
       const listbox = await screen.findByRole('listbox', { name: 'Connections' });
-      await userEvent.click(within(listbox).getByRole('button', { name: 'Delete Alpha' }));
+      await userEvent.click(within(listbox).getByRole('button', { name: 'Actions for Alpha' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
 
       const dialog = await screen.findByRole('dialog', { name: 'Delete "Alpha"?' });
       expect(within(dialog).getByText(/closes 2 open tabs/)).toBeTruthy();
@@ -154,13 +155,14 @@ describe('workspace connection dialogs (T3)', () => {
       const trigger = await titleBar().findByRole('button', { name: /^Connection: /i });
       await userEvent.click(trigger);
       await screen.findByRole('listbox', { name: 'Connections' });
-      await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Manage all' }));
       const table = await screen.findByRole('dialog', { name: 'Connections' });
 
       const row = within(table).getByText('Alpha').closest('tr');
       if (!row) throw new Error('no table row found for "Alpha"');
       await userEvent.click(row);
-      await userEvent.click(within(table).getByRole('button', { name: 'Delete Alpha' }));
+      await userEvent.click(within(table).getByRole('button', { name: 'Actions for Alpha' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
 
       expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
       const confirm = await screen.findByRole('dialog', { name: 'Delete "Alpha"?' });

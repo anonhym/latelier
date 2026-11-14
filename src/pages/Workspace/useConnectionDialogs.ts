@@ -42,6 +42,7 @@ export function useConnectionDialogs(deps: {
   manageFromExpandedTable: (id: string) => void;
   editFromExpandedTable: (id: string) => void;
   deleteFromExpandedTable: (id: string) => void;
+  disconnectFromExpandedTable: (id: string) => void;
   addFromExpandedTable: () => void;
   importFromExpandedTable: () => void;
   /** Open tabs across these Connections; `null` while tabs are still loading. */
@@ -49,7 +50,7 @@ export function useConnectionDialogs(deps: {
   /** Deletes each in turn, the same way as one; resolves once all are done. */
   deleteConnections: (ids: string[]) => Promise<void>;
   confirmDeleteConnection: () => Promise<void>;
-  handleConnectionSaved: (id: string) => Promise<void>;
+  handleConnectionSaved: (id: string, opts?: { connect?: boolean }) => Promise<void>;
 } {
   const {
     connections,
@@ -176,6 +177,10 @@ export function useConnectionDialogs(deps: {
     (id: string) => closeTableThen(openDeleteConnectionModal)(id),
     [closeTableThen, openDeleteConnectionModal],
   );
+  const disconnectFromExpandedTable = React.useCallback(
+    (id: string) => closeTableThen((target: string) => requestDisconnect(target))(id),
+    [closeTableThen, requestDisconnect],
+  );
   const addFromExpandedTable = React.useCallback(
     () => closeTableThen(openAddConnectionModal)(),
     [closeTableThen, openAddConnectionModal],
@@ -233,21 +238,21 @@ export function useConnectionDialogs(deps: {
   );
 
   // useConnections() only refetches on window focus or a live status event,
-  // so an explicit awaited refresh is needed here. On edit, a mongo-relevant
+  // so an explicit awaited refresh is needed here. Save & connect asks for the
+  // connect. A plain Save connects nothing new, but on edit a mongo-relevant
   // field change drops the server-side client, so a connected/connecting/error
   // Connection is reconnected — read its status before the refresh, which is
   // where the drop shows up.
   const handleConnectionSaved = React.useCallback(
-    async (id: string) => {
-      const wasCreate = connectionFormTarget === 'new';
+    async (id: string, opts?: { connect?: boolean }) => {
       const status = connections.find((c) => c.id === id)?.status;
       const wasInPlay = status === 'connected' || status === 'connecting' || status === 'error';
       setConnectionFormTarget(null);
       setTableReturnFocus(null);
       await refreshConnections();
-      if (wasCreate || wasInPlay) openConnection(id);
+      if (opts?.connect || wasInPlay) openConnection(id);
     },
-    [connectionFormTarget, connections, refreshConnections, openConnection],
+    [connections, refreshConnections, openConnection],
   );
 
   return {
@@ -271,6 +276,7 @@ export function useConnectionDialogs(deps: {
     manageFromExpandedTable,
     editFromExpandedTable,
     deleteFromExpandedTable,
+    disconnectFromExpandedTable,
     addFromExpandedTable,
     importFromExpandedTable,
     tabCountFor,
