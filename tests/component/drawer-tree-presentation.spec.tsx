@@ -396,3 +396,24 @@ describe('The bottom actions wrap instead of clipping', () => {
     }
   });
 });
+
+// X14 §11 — typed mongosh literals are a runnable filter before any blur: Run
+// stays open, the note says so, and the tree already shows their conditions.
+describe('Shell Syntax typed into the filter, before blur', () => {
+  it.each([
+    ['ObjectId(...)', '{_id: ObjectId("0123456789abcdef01234567")}', 'Remove condition _id'],
+    ['ISODate(...)', '{createdAt: {$gt: ISODate("2026-02-01")}}', 'Remove condition createdAt'],
+    ['a /regex/', '{status: /ship/i}', 'Remove raw clause 1'],
+  ])('%s keeps Run enabled, shows the note, and fills the builder', async (_name, text, removeName) => {
+    mountWith(makeState({ queryRaw: '{}' }));
+    fireEvent.change(await screen.findByTestId('query-bar-input'), { target: { value: text } });
+
+    await screen.findByRole('button', { name: removeName });
+    expect((screen.getByTestId('query-run-btn') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId('query-bar-syntax-note').textContent).toBe(
+      'mongosh syntax — rewritten as EJSON when you run',
+    );
+    expect(screen.queryByText('Invalid text. Showing last valid filter.')).toBeNull();
+    expect((screen.getByTestId('query-bar-input') as HTMLTextAreaElement).value).toBe(text);
+  });
+});
