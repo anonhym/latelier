@@ -866,8 +866,8 @@ export function DocumentEditor(props: DocumentEditorProps) {
     setList((l) => l.map((d, i) => (i === index ? stored : d)));
   };
 
-  /** W18 §13.3 — the guarded write matched nothing: look at what is on the server now. */
-  const loadConflict = async () => {
+  /** The document as the server has it now: `null` when it is gone, `undefined` when it could not be read. */
+  const fetchServerCopy = async (): Promise<Doc | null | undefined> => {
     try {
       const res = await api.query.findOne({
         connectionId,
@@ -875,19 +875,15 @@ export function DocumentEditor(props: DocumentEditorProps) {
         collection,
         filter: ejsonStringify({ _id: original._id }),
       });
-      if (res.document === null) {
-        setConflict({ kind: 'deleted' });
-        return;
-      }
-      setChoices(new Map());
-      setConflict({ kind: 'changed', server: revive(res.document) });
+      return res.document === null ? null : revive(res.document);
     } catch (e) {
       setErr(getErrorMessage(e, 'Could not load the current version of this document'));
+      return undefined;
     }
   };
 
   /** One guarded write of `next` over `base`. True: it landed, or there was nothing to send. */
-  const writeEdit = async (base: Doc, next: Doc): Promise<boolean> => {
+  const writeEdit = async (base: Doc, next: Doc, retry = true): Promise<boolean> => {
     let request;
     try {
       request = buildUpdateRequest(base, next);
@@ -906,10 +902,7 @@ export function DocumentEditor(props: DocumentEditorProps) {
         filterJson: request.filterJson,
         updateJson: request.updateJson,
       });
-      if (res.matchedCount === 0) {
-        await loadConflict();
-        return false;
-      }
+      if (res.matchedCount === 0) return await onNoMatch(base, next, retry);
       recordSaved(res.auditId, next);
       return true;
     } catch (e) {
@@ -918,6 +911,27 @@ export function DocumentEditor(props: DocumentEditorProps) {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** W18 §13.3 — the guarded write matched nothing: look at what is on the server now. */
+  const onNoMatch = async (base: Doc, next: Doc, retry: boolean): Promise<boolean> => {
+    const server = await fetchServerCopy();
+    if (server === undefined) return false;
+    if (server === null) {
+      setConflict({ kind: 'deleted' });
+      return false;
+    }
+    if (isEmptyDiff(diff(base, server))) {
+      // The server holds what this write was guarded on, so a table would list
+      // nothing to decide: it changed and changed back, or the guard cannot
+      // match this value. Try once more, then say so.
+      if (retry) return writeEdit(base, next, false);
+      setErr('The server refused the save although the document there matches what you opened. Nothing was written. Try again, or copy your edit from the JSON view.');
+      return false;
+    }
+    setChoices(new Map());
+    setConflict({ kind: 'changed', server });
+    return false;
   };
 
   /**

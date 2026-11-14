@@ -512,6 +512,14 @@ describe('classifyConflict', () => {
     expect(rowsOf({ ...original, qty: 7 }, { ...original, qty: 7 })).toEqual([['qty', 'yours']]);
   });
 
+  it('needs no choice when both sides removed the same field', () => {
+    const gone: Record<string, unknown> = { ...original };
+    delete gone.note;
+    expect(rowsOf(gone, gone)).toEqual([['note', 'yours']]);
+    const [row] = classifyConflict(original, gone, gone);
+    expect(row).toMatchObject({ yours: null, theirs: null });
+  });
+
   it('counts a user path under a server path (and the reverse) as a clash', () => {
     expect(rowsOf({ ...original, o: { x: 2, y: 1 } }, { ...original, o: 'flat' })).toEqual([['o.x', 'both']]);
     expect(rowsOf({ ...original, o: 'flat' }, { ...original, o: { x: 2, y: 1 } })).toEqual([['o', 'both']]);

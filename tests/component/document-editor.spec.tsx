@@ -616,6 +616,34 @@ describe('DocumentEditor — conflicts', () => {
     expect(within(conflictRow('qty')).getByText('both')).toBeTruthy();
   });
 
+  describe('when the server copy is what the editor opened with', () => {
+    const unchanged = () => vi.fn<IpcApi['query']['findOne']>(async () => ({ document: DOC, durationMs: 0 }));
+
+    it('retries the write once with fresh guards and saves if it now matches', async () => {
+      const updateOne = vi
+        .fn<IpcApi['doc']['updateOne']>()
+        .mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 })
+        .mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+      const { onClose } = setup({ updateOne, findOne: unchanged() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(updateOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('says what happened instead of showing an empty table when the retry matches nothing too', async () => {
+      const updateOne = conflicted();
+      const { onClose } = setup({ updateOne, findOne: unchanged() });
+      fireEvent.change(field('name'), { target: { value: 'gadget' } });
+      fireEvent.click(save());
+      expect(await within(editor()).findByText(/nothing was written/i)).toBeTruthy();
+      expect(updateOne).toHaveBeenCalledTimes(2);
+      expect(within(editor()).queryByRole('region', { name: 'Conflicting changes' })).toBeNull();
+      expect(field('name').value).toBe('gadget');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
   describe('when the document was deleted', () => {
     const gone = () => vi.fn<IpcApi['query']['findOne']>(async () => ({ document: null, durationMs: 0 }));
 
@@ -1770,6 +1798,20 @@ describe('DocumentEditor — previous and next (W18 §13.5)', () => {
     fireEvent.click(next());
     expect((within(await guard()).getByRole('button', { name: /Save and go/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(await guard()).getByRole('button', { name: 'Stay' }));
+  });
+
+  it('Escape with focus on the prompt itself (after clicking its text) answers Stay and opens no second prompt', async () => {
+    const { onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    const dialog = await guard();
+    // A click on the body text focuses the nearest focusable ancestor: Mantine's content element.
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull());
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(field('name').value).toBe('edited');
   });
 
   it('Escape in the prompt answers Stay and opens no second prompt', async () => {

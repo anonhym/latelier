@@ -412,7 +412,8 @@ export function classifyConflict(original: Doc, draft: Doc, server: Doc): Confli
   for (const p of mine) {
     const clash = theirs.some((t) => touches(p, t));
     const r = row(p, 'yours');
-    const differs = !r.yours || !r.theirs || !same(r.yours.value, r.theirs.value);
+    // Two absences are the same outcome too: both sides removed the field.
+    const differs = r.yours && r.theirs ? !same(r.yours.value, r.theirs.value) : r.yours !== r.theirs;
     rows.push(clash && differs ? { ...r, changedBy: 'both' } : r);
   }
   for (const t of theirs) if (!mine.some((p) => touches(p, t))) rows.push(row(t, 'theirs'));

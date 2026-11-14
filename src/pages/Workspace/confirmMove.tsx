@@ -26,20 +26,24 @@ export function confirmMove(opts: { canSave: boolean }): Promise<MoveChoice> {
       title: 'Unsaved changes',
       closeOnEscape: false,
       withCloseButton: false,
+      // Mantine's content element is focusable (tabIndex -1) and takes focus
+      // when the text is clicked: it carries the marker too, or Escape there
+      // reaches the editor's own listener.
+      attributes: { content: stop },
+      // On the modal root, so a key pressed with focus anywhere in the prompt
+      // (its content element included) is answered here.
+      onKeyDown: (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          answer('stay');
+        } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          if (opts.canSave) answer('save');
+        }
+      },
       onClose: () => resolve('stay'),
       children: (
-        <div
-          {...stop}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              answer('stay');
-            } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
-              e.preventDefault();
-              if (opts.canSave) answer('save');
-            }
-          }}
-        >
+        <div {...stop}>
           <Text size="sm">This document has edits that are not saved.</Text>
           <Group justify="flex-end" gap="xs" mt="md">
             <Button {...stop} data-autofocus variant="default" onClick={() => answer('stay')}>

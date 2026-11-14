@@ -78,6 +78,17 @@ describe('document conflict — properties', () => {
     );
   });
 
+  it('a both row always has two different outcomes: identical ones (both removed, same value) need no choice', () => {
+    fc.assert(
+      fc.property(triple, ([original, draft, server]) => {
+        for (const r of classifyConflict(original, draft, server).filter((x) => x.changedBy === 'both')) {
+          if (r.yours === null || r.theirs === null) expect(r.yours === null && r.theirs === null).toBe(false);
+          else expect(ejsonStringify(r.yours.value)).not.toBe(ejsonStringify(r.theirs.value));
+        }
+      }),
+    );
+  });
+
   it('the change list has one entry per path of the diff', () => {
     fc.assert(
       fc.property(fc.tuple(topDoc, topDoc), ([original, draft]) => {
