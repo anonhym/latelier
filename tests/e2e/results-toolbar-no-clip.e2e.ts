@@ -167,7 +167,7 @@ test('the page-reset hint beside Run leaves the filter its room at 960', async (
       await win.waitForTimeout(300);
       // 60 docs at 50 a page: page 2, then an edit that would send Run back to page 1.
       await win.getByRole('button', { name: 'Next page', exact: true }).click();
-      await expect(win.getByTestId('status-bar')).toContainText('2 / 2', { timeout: 8000 });
+      await expect(win.getByTestId('status-bar')).toContainText('51–60 of 60', { timeout: 8000 });
       await win.getByTestId('query-bar-input').fill('{"n":{"$gte":0}}');
       await expect(win.getByTestId('page-reset-hint')).toBeVisible();
       await expectQueryRowWhole(win, '960 page-reset hint');

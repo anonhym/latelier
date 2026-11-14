@@ -109,16 +109,15 @@ describe('ResultBar collapses by width alone', () => {
   });
 
   it.each([
-    [320, /60 documents/, /1–50 of 60/],
-    [200, /1–50 of 60/, /^$/],
-    [150, /60 documents/, /^$/],
-  ])('at a %i px count the count merges, with the rest in a tooltip', (width, shown, also) => {
+    [320],
+    [200],
+    [150],
+  ])('at a %i px count the count reads "60 documents · 2 ms", the range left to the pager', (width) => {
     giveCountWidth(width);
     render(bar(barState()));
     const slot = screen.getByTestId('result-count-slot');
-    expect(slot.textContent).toMatch(shown);
-    if (also.source !== '^$') expect(slot.textContent).toMatch(also);
-    else expect(slot.querySelector('[title*="1–50 of 60"]')).not.toBeNull();
+    expect(slot.textContent).toMatch(/^60 documents · 2 ms/);
+    expect(slot.textContent).not.toMatch(/of 60/);
   });
 
   it('the narrowest count keeps the noun and the duration, and marks a stale result with a dot', () => {

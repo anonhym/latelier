@@ -122,7 +122,6 @@ function ResultStatusContent() {
       : null;
   const [countRef, countWidth] = useElementWidth<HTMLDivElement>();
   const layout = statusCountLayout(countWidth);
-  const countForm = layout.count;
 
   // The limit that actually applies (a coerced one shows as what it runs as).
   const limitChip = limitChipText(compileFindOptions(state.builder).limit);
@@ -145,11 +144,12 @@ function ResultStatusContent() {
   const totalLabel = `${(totalCount ?? docCount ?? 0).toLocaleString()}${hasMore && totalCount === undefined ? '+' : ''}`;
   const rangeLabel =
     start !== null && end !== null && docCount !== 0 ? `${start.toLocaleString()}–${end.toLocaleString()}` : null;
-  // The merged forms drop words, never facts: the rest stays one hover away.
+  // Where the user is in the result. An unknown total leaves the range alone.
+  const pagerLabel =
+    docCount === null
+      ? '–'
+      : (rangeLabel ?? '0') + (totalCount !== undefined ? ` of ${totalLabel}` : '');
   const noun = (totalCount ?? docCount) === 1 && !hasMore ? 'document' : 'documents';
-  const countDetail = `${totalLabel} ${noun}${duration !== null ? ` · ${duration} ms` : ''}${
-    rangeLabel ? ` · ${rangeLabel} of ${totalLabel}` : ''
-  }`;
 
   // Patch + re-run with the same override so `run` doesn't close over a stale `page`.
   const goToPage = (p: number) => {
@@ -199,39 +199,11 @@ function ResultStatusContent() {
         ) : docCount !== null ? (
           <>
             <span
-              title={countForm === 'full' ? undefined : countDetail}
               style={{ flex: '0 0 auto', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
-              {countForm === 'full' && (
-                <>
-                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
-                  {duration !== null && (
-                    <>
-                      {' · '}
-                      <CountFigure>{duration}</CountFigure> ms
-                    </>
-                  )}
-                  {/* An empty page has no range: "1–0" reads as a bug. */}
-                  {rangeLabel && <span>{` · ${rangeLabel} of ${totalLabel}`}</span>}
-                </>
-              )}
-              {countForm === 'range' &&
-                (rangeLabel ? (
-                  <>
-                    <CountFigure stale={isStale}>{rangeLabel}</CountFigure> of {totalLabel}
-                  </>
-                ) : (
-                  <>
-                    <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
-                  </>
-                ))}
-              {countForm === 'total' && (
-                <>
-                  <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
-                </>
-              )}
+              <CountFigure stale={isStale}>{totalLabel}</CountFigure> {noun}
               {/* W01 §14.6: the duration is always shown, whatever else gives way. */}
-              {countForm !== 'full' && duration !== null && (
+              {duration !== null && (
                 <>
                   {' · '}
                   <CountFigure>{duration}</CountFigure> ms
@@ -315,18 +287,17 @@ function ResultStatusContent() {
       <Group gap={0} wrap="nowrap" style={{ flexShrink: 0 }}>
         <PagerButton label="First page" reason={backReason} enabled={canPrev} onClick={() => goToPage(0)} icon={I.chevLL} />
         <PagerButton label="Previous page" reason={backReason} enabled={canPrev} onClick={() => goToPage(page - 1)} icon={I.chevL} />
-        {/* Room for "2400 / 2400", the widest this page count reaches, so Next and Last hold still. */}
+        {/* Room for "999,999–999,999 of 999,999", the widest this total reaches, so Next and Last hold still. */}
         <span
           data-testid="page-label"
           style={{
-            minWidth: `max(48px, ${2 * String(totalPages ?? '').length + 3}ch)`,
+            minWidth: `max(48px, ${3 * totalLabel.length + 5}ch)`,
             textAlign: 'center',
             color: T.text,
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {page + 1}
-          {totalPages !== null ? ` / ${totalPages}` : ''}
+          {pagerLabel}
         </span>
         <PagerButton label="Next page" reason={nextReason} enabled={canNext} onClick={() => goToPage(page + 1)} icon={I.chevR} />
         <PagerButton

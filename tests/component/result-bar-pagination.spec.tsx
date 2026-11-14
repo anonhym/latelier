@@ -62,9 +62,19 @@ function renderBar(overrides: BarStateOverride = {}) {
 }
 
 describe('ResultBar - page label', () => {
-  it('reserves room for the widest page this count reaches, so Next and Last hold still', () => {
+  it('reserves room for the widest range this total reaches, so Next and Last hold still', () => {
     renderBar({ page: 0, pageSize: 50, totalCount: 120_000, docCount: 50 });
-    expect(screen.getByTestId('page-label').style.minWidth).toBe('max(48px, 11ch)');
+    expect(screen.getByTestId('page-label').style.minWidth).toBe('max(48px, 26ch)');
+  });
+
+  it.each([
+    [{ page: 0, pageSize: 50, totalCount: 60, docCount: 50 }, '1–50 of 60'],
+    [{ page: 1, pageSize: 50, totalCount: 60, docCount: 10 }, '51–60 of 60'],
+    [{ page: 0, pageSize: 50, totalCount: 0, docCount: 0 }, '0 of 0'],
+    [{ page: 0, pageSize: 50, docCount: 50, hasMore: true }, '1–50'],
+  ])('reads %j as "%s"', (props, text) => {
+    renderBar(props);
+    expect(screen.getByTestId('page-label').textContent).toBe(text);
   });
 });
 
@@ -280,7 +290,7 @@ describe('ResultBar - the limit that caps the results is visible beside the coun
 
   it('says "1 document" in the singular', () => {
     renderBar({ page: 0, pageSize: 50, totalCount: 1, docCount: 1, durationMs: 5 });
-    expect(screen.getByTestId('result-count-slot').textContent).toBe('1 document · 5 ms · 1–1 of 1');
+    expect(screen.getByTestId('result-count-slot').textContent).toBe('1 document · 5 ms');
   });
 
   it('still shows the range for a page that has documents', () => {

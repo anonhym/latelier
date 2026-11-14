@@ -10,8 +10,6 @@
  * truncates before any control moves.
  */
 
-export type CountForm = 'full' | 'range' | 'total';
-
 /**
  * The canvas header (W06 §8.1): the view switch, References, `⋯` and Insert.
  * Nothing in it depends on the query, so labels or icons is its only step.
@@ -38,22 +36,15 @@ export function canvasHeaderLayout(width: number | null, withReferences = false)
 
 /** The status bar's middle part (W01 §14.6): the width it gets is the count's own. */
 export interface StatusCountLayout {
-  /** full: "60 documents · 2 ms · 1–50 of 60". range: "1–50 of 60". total: "60 documents". */
-  count: CountForm;
   /** The query-plan badge takes count room the narrowest bars do not have. */
   planBadge: boolean;
 }
 
-// Widest each form gets at the band's 11px text, plus the plan badge's 44px
-// minimum beside it: "6,382+ documents · 1234 ms · 6,351–6,382 of 6,382+" is about 300.
-const COUNT_FULL_MIN = 320;
-const COUNT_RANGE_MIN = 160;
+// The count ("6,382+ documents · 1234 ms", about 150 wide at the band's 11px
+// text) has one form; the plan badge's 44px minimum beside it is what gives way.
 const PLAN_BADGE_MIN = 200;
 
 export function statusCountLayout(width: number | null): StatusCountLayout {
   const w = width ?? Number.POSITIVE_INFINITY;
-  let count: CountForm = 'total';
-  if (w >= COUNT_FULL_MIN) count = 'full';
-  else if (w >= COUNT_RANGE_MIN) count = 'range';
-  return { count, planBadge: w >= PLAN_BADGE_MIN };
+  return { planBadge: w >= PLAN_BADGE_MIN };
 }
