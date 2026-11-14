@@ -3,7 +3,8 @@ import { ActionIcon } from '@mantine/core';
 import { I } from '../../../icons';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { isRecord } from '../../../utils/displayValue';
-import { getDocId, getDocIdText } from './docId';
+import { getDocId, getDocIdCopyText, getDocIdText } from './docId';
+import { useCopyFormat } from './useCopyFormat';
 
 /**
  * A row's visible id (W06 §8.4): plain monospace in the neutral text colour,
@@ -15,6 +16,7 @@ export function DocIdLabel({ doc }: { doc: unknown }) {
   const [shown, setShown] = React.useState(false);
   const short = getDocId(doc);
   const full = getDocIdText(doc);
+  const [copyFormat] = useCopyFormat();
   const hasId = isRecord(doc) && doc._id !== undefined && doc._id !== null;
   return (
     <span
@@ -48,7 +50,7 @@ export function DocIdLabel({ doc }: { doc: unknown }) {
           title="Copy _id"
           onClick={(e) => {
             e.stopPropagation();
-            void copyToClipboard(full, 'Document id copied to the clipboard.');
+            void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.');
           }}
           style={{ opacity: shown ? 1 : 0 }}
         >

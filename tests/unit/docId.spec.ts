@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   getDocId,
   getDocIdText,
+  getDocIdCopyText,
   getFullDocId,
   buildIdFilter,
   isInlineEditableKind,
   reviveTableValue,
   stripIdForDuplicate,
 } from '../../src/pages/Workspace/views/docId';
+import { ObjectId, Binary } from 'bson';
+import { ejsonParse, ejsonStringify } from '../../src/utils/ejson';
 import { kindOf } from '../../src/pages/Workspace/documentFieldTypes';
 
 // The same pipeline `TableCell` runs on a raw wire value.
@@ -62,6 +65,51 @@ describe('getDocIdText', () => {
     expect(getDocIdText({ _id: { $oid: '507f1f77bcf86cd799439011' } })).toBe('507f1f77bcf86cd799439011');
     expect(getDocIdText({ _id: { $numberLong: '9007199254740993' } })).toBe('9007199254740993');
     expect(getDocIdText({})).toBe('(no _id)');
+  });
+});
+
+describe('getDocIdCopyText', () => {
+  it.each([
+    ['ObjectId', { $oid: '507f1f77bcf86cd799439011' }, '507f1f77bcf86cd799439011'],
+    ['string', 'abc', 'abc'],
+    ['int', 42, '42'],
+    ['Int32', { $numberInt: '1' }, '1'],
+  ])('keeps a scalar %s _id as its display text', (_n, id, expected) => {
+    for (const f of ['readable', 'canonical', 'mongosh'] as const) {
+      expect(getDocIdCopyText({ _id: id }, f)).toBe(expected);
+    }
+  });
+
+  it('copies an embedded-document _id whole, not as {2}', () => {
+    const text = getDocIdCopyText({ _id: { tenant: 'a', id: { $numberInt: '1' } } }, 'readable');
+    expect(JSON.parse(text)).toEqual({ tenant: 'a', id: 1 });
+  });
+
+  it('copies an array _id whole', () => {
+    expect(JSON.parse(getDocIdCopyText({ _id: [1, 2] }, 'readable'))).toEqual([1, 2]);
+  });
+
+  it.each([
+    ['UUID', Binary.createFromHexString('0123456789abcdef0123456789abcdef', Binary.SUBTYPE_UUID)],
+    ['Binary', new Binary(Buffer.from('0123456789abcdef0123456789abcdef0123', 'hex'))],
+  ])('copies a %s _id losslessly: it parses back to the same _id', (_n, bin) => {
+    const wire = JSON.parse(ejsonStringify(bin)) as unknown;
+    const text = getDocIdCopyText({ _id: wire }, 'canonical');
+    expect(text).not.toContain('Binary(');
+    expect(ejsonStringify(ejsonParse(text))).toBe(ejsonStringify(bin));
+  });
+
+  it('an object id holding an ObjectId round-trips in canonical format', () => {
+    const wire = JSON.parse(ejsonStringify({ k: new ObjectId('507f1f77bcf86cd799439011') })) as unknown;
+    expect(JSON.parse(getDocIdCopyText({ _id: wire }, 'canonical'))).toEqual(wire);
+  });
+
+  it('uses mongosh spelling when that format is chosen', () => {
+    expect(getDocIdCopyText({ _id: { tenant: 'a' } }, 'mongosh')).toBe('{\n  tenant: "a"\n}');
+  });
+
+  it('falls back to the placeholder without an _id', () => {
+    expect(getDocIdCopyText({}, 'readable')).toBe('(no _id)');
   });
 });
 

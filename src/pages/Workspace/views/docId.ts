@@ -1,5 +1,6 @@
 import { isRecord, toDisplayValue } from '../../../utils/displayValue';
 import { ejsonParse, ejsonStringify, ejsonStringifyReadable } from '../../../utils/ejson';
+import { formatDocsForCopy, type CopyFormat } from '../../../utils/copyFormat';
 import type { Kind } from '../documentFieldTypes';
 
 const ID_CUT = 12;
@@ -13,6 +14,20 @@ export function getDocIdText(doc: unknown): string {
   const id = doc._id;
   if (id === null || id === undefined) return '(no _id)';
   return toDisplayValue(id).display;
+}
+
+/**
+ * What "Copy _id" puts on the clipboard. A scalar id keeps its display text
+ * (the bare hex, string or number); an object, array or Binary id has no
+ * faithful display text, so it is serialised whole in the row-copy format and
+ * can be pasted into a filter.
+ */
+export function getDocIdCopyText(doc: unknown, format: CopyFormat): string {
+  const id = isRecord(doc) ? doc._id : undefined;
+  if (id === null || id === undefined) return getDocIdText(doc);
+  const type = toDisplayValue(id).type;
+  if (type === 'object' || type === 'array' || type === 'binary') return formatDocsForCopy([id], format);
+  return getDocIdText(doc);
 }
 
 /**
