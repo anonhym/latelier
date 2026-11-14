@@ -256,13 +256,26 @@ function walk(node: AnyNode, text: string, edits: Edit[]): void {
         if (prop.type !== 'Property') {
           throw new UnsupportedSyntax('A spread element is not supported here.', prop.start);
         }
-        if (prop.computed || prop.kind !== 'init' || prop.method) {
+        // `["__proto__"]` is how mongosh spells that field (a plain `__proto__:`
+        // sets the prototype), and the Copy formats emit it. Only a quoted string
+        // literal is accepted inside the brackets, so no expression is evaluated.
+        const computedKey = prop.computed && prop.key.type === 'Literal' && typeof prop.key.value === 'string';
+        if ((prop.computed && !computedKey) || prop.kind !== 'init' || prop.method) {
           throw new UnsupportedSyntax('This is not a plain field and value.', prop.start);
         }
         if (prop.shorthand) {
           throw new UnsupportedSyntax('A field must have a value.', prop.start);
         }
-        edits.push({ start: prop.key.start, end: prop.key.end, replacement: keyText(prop.key, text) });
+        if (computedKey) {
+          // Replace the brackets with the key: `[ "a" ]` → `"a"`.
+          const close = text.indexOf(']', prop.key.end);
+          if (!/^\s*$/.test(text.slice(prop.key.end, close))) {
+            throw new UnsupportedSyntax('This is not a plain field and value.', prop.start);
+          }
+          edits.push({ start: prop.start, end: close + 1, replacement: keyText(prop.key, text) });
+        } else {
+          edits.push({ start: prop.key.start, end: prop.key.end, replacement: keyText(prop.key, text) });
+        }
         walk(prop.value as AnyNode, text, edits);
       }
       if (node.properties.length > 0) {
