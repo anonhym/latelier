@@ -1,7 +1,15 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '../helpers/render';
+import { MemoryRouter } from 'react-router-dom';
+import Workspace from '../../src/pages/Workspace';
 import { useWorkspaceTabs } from '../../src/state/workspaceTabs';
-import { collectionTabFixture, installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import {
+  collectionTabFixture,
+  connectionFixture,
+  installAtelierMock,
+  uninstallAtelierMock,
+} from '../helpers/atelierMock';
 import type { CollectionTab, ScriptTab, WorkspaceTab } from '@shared/types';
 
 // W01 §14.9 — the preview tab lives in the hook's own state, so these drive
@@ -53,9 +61,19 @@ function store(initial: WorkspaceTab[] = []) {
     rows = [...rows, tab];
     return tab;
   });
+  const openAggregation = vi.fn(async (input: { connectionId: string; dbName: string; collection: string }) => {
+    const tab = await openCollection({ ...input, reuseExisting: true });
+    rows = rows.map((t) => (t.id === tab.id ? { ...tab, state: { ...tab.state, activeView: 'aggregation' } } : t));
+    return tab;
+  });
   return {
     api: {
       list: async () => rows,
+      openAggregation: openAggregation as never,
+      setActive: async (id: string) => {
+        rows = rows.map((t) => ({ ...t, isActive: t.id === id }));
+        return { id } as never;
+      },
       openCollection: openCollection as never,
       openScript: openScript as never,
       close: close as never,
@@ -134,6 +152,14 @@ describe('preview tab', () => {
     expect(c.id).toBe(hook.result.current.tabs[2]!.id);
   });
 
+  it('opening its Aggregation view keeps it', async () => {
+    const { hook } = await mount();
+    const a = await act(() => hook.result.current.openCollection({ ...ns('orders'), preview: true }));
+    await act(() => hook.result.current.openAggregation(ns('orders')));
+    expect(hook.result.current.previewId).toBeNull();
+    expect(a.id).toBe(hook.result.current.tabs[0]!.id);
+  });
+
   it('clicking a collection that already has a kept tab focuses it and leaves the preview alone', async () => {
     const { hook, close } = await mount();
     await act(() => hook.result.current.openCollection({ ...ns('orders') }));
@@ -180,5 +206,43 @@ describe('script titles', () => {
     const { hook, openScript } = await mount();
     await act(() => hook.result.current.openScript({ connectionId: 'c1', initialState: { title: 'Saved' } }));
     expect(openScript.mock.calls[0]![0].initialState?.title).toBe('Saved');
+  });
+});
+
+describe('preview tab in the mounted Workspace', () => {
+  it('a tab whose views have mounted and run is still replaced by the next single click', async () => {
+    // The views, the query bar and the auto-run all write to a tab when it
+    // opens; none of those writes may count as an edit.
+    const s = store();
+    installAtelierMock({
+      tabs: s.api,
+      conn: { list: async () => [connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' })] },
+      meta: {
+        listDatabases: async () => [{ name: 'db', sizeOnDisk: 1, empty: false }],
+        listCollections: async () =>
+          ['alpha', 'bravo'].map((name) => ({ name, type: 'collection' as const, capped: false })),
+      },
+      query: { find: async () => ({ documents: [{ _id: '1', sku: 'widget' }], durationMs: 1, hasMore: false }) },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+
+    // No tab yet, so no root is open: open Prod's, then its database.
+    const tree = within(await screen.findByRole('tree', { name: 'Databases and collections' }));
+    if (!screen.queryByTestId('nav-db-db')) fireEvent.click(await tree.findByText('Prod'));
+    fireEvent.click(await screen.findByTestId('nav-db-db'));
+    fireEvent.click(await screen.findByTestId('nav-coll-db-alpha'));
+    await screen.findByText(/widget/);
+    // Past the 250ms debounce, so any write the mount made has landed.
+    await new Promise((r) => setTimeout(r, 300));
+
+    fireEvent.click(await screen.findByTestId('nav-coll-db-bravo'));
+    const strip = within(screen.getByRole('tablist', { name: 'Open tabs' }));
+    await waitFor(() => expect(strip.getAllByRole('tab').map((t) => t.getAttribute('aria-label'))).toEqual(['bravo — Prod']));
+    expect(strip.getByRole('tab').getAttribute('data-preview')).toBe('true');
+    expect(s.close).toHaveBeenCalledTimes(1);
   });
 });

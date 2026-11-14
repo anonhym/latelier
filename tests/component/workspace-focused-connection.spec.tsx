@@ -258,9 +258,10 @@ describe('The Focused Tab’s Connection', () => {
     expect(await screen.findByRole('dialog', { name: 'New Connection' })).toBeTruthy();
   });
 
-  it('zero Connections: the title bar draws no breadcrumb', async () => {
-    // W01 §14.2 — with nothing saved there is no location to state; the
-    // empty state's own CTA is the way in.
+  it('zero Connections: the TitleBar Switcher still opens in add-mode, focusing "Manage connections"', async () => {
+    // ADR 0001's add-mode: with nothing to search, focus lands on the way to
+    // add one. The empty-state CTA is no longer a popover here, so the
+    // TitleBar trigger is the way in.
     installAtelierMock({
       tabs: { list: async () => [] },
       conn: { list: async () => [] },
@@ -272,9 +273,10 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('button', { name: 'New connection' })).toBeTruthy();
-    expect(screen.queryByRole('navigation', { name: 'Location' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Toggle sidebar' })).toBeTruthy();
+    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
+
+    const manageButton = await screen.findByRole('button', { name: 'Manage connections' });
+    await waitFor(() => expect(document.activeElement).toBe(manageButton));
   });
 
   it('one saved Connection, none open: the empty-state CTA is still the "Select a connection" picker', async () => {

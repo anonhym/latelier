@@ -6,7 +6,7 @@ import { getErrorMessage } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import type { WorkspaceTab, ConnectionSummary } from '@shared/types';
 import type { WorkspaceTabsState } from '../../state/workspaceTabs';
-import type { ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
+import { ConnectionSwitcher, type ConnectionSwitcherProps } from '../../features/connections/ConnectionSwitcher';
 import { TitleBar } from './TitleBar';
 import { LocationBreadcrumb } from './LocationBreadcrumb';
 import { locationModel } from './locationModel';
@@ -36,6 +36,8 @@ export interface ShellSectionProps {
   setShellOpen: React.Dispatch<React.SetStateAction<boolean>>;
   tabs: WorkspaceTabsState;
   connections: ConnectionSummary[];
+  /** True until the first Connections list arrives: an empty list then is not "none saved". */
+  connectionsLoading: boolean;
   connectionsWithTabs: Set<string>;
   active: WorkspaceTab | null;
   scratchConnectionId: string | null;
@@ -69,6 +71,7 @@ export function ShellSection({
   setShellOpen,
   tabs,
   connections,
+  connectionsLoading,
   connectionsWithTabs,
   active,
   scratchConnectionId,
@@ -165,7 +168,12 @@ export function ShellSection({
       >
         <TitleBar
           breadcrumb={
-            location && (
+            // Nothing saved: W01 §14.2 draws no breadcrumb because the welcome
+            // canvas fills the window. Until that canvas exists, the bare
+            // Switcher stays the title bar's way to add or import one.
+            !location ? (
+              !connectionsLoading && <ConnectionSwitcher {...switcherProps} />
+            ) : (
               <LocationBreadcrumb
                 model={location}
                 active={active}

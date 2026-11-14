@@ -344,10 +344,12 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         delete pending.activeView;
         if (replaces) delete pending.aggregation;
       }
+      // Main switched the view without a patch; a view change keeps the tab.
+      keepTab(tab.id);
       await refresh();
       return tab;
     },
-    [refresh],
+    [refresh, keepTab],
   );
 
   const openScript: WorkspaceTabsState['openScript'] = useCallback(

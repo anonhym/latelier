@@ -1612,6 +1612,7 @@ function WorkspaceInner() {
         setShellOpen={setShellOpen}
         tabs={tabs}
         connections={connections}
+        connectionsLoading={connectionsLoading}
         connectionsWithTabs={connectionsWithTabs}
         active={active}
         scratchConnectionId={scratchConnectionId}

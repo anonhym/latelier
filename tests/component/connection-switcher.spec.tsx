@@ -5,7 +5,6 @@ import { itReturnsFocusToPopoverTrigger } from '../helpers/popoverFocusReturn';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
-import { ConnectionSwitcher } from '../../src/features/connections/ConnectionSwitcher';
 import { ConnectionTransferProvider } from '../../src/features/connections/ConnectionTransferProvider';
 import { collectionTabFixture, installAtelierMock, multiConnectionMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
@@ -146,26 +145,6 @@ function deletableBacking(initial: ConnectionSummary[]) {
  * the specs that do focus a tab. The Main pane's empty state renders a second
  * trigger with the same name, hence the TitleBar scope.
  */
-/**
- * With no saved Connection the title bar draws no breadcrumb (W01 §14.2), so
- * the Switcher's own empty states are exercised on a bare instance.
- */
-function mountEmptySwitcher() {
-  const props = {
-    connections: [] as ConnectionSummary[],
-    focusedConnectionId: null,
-    onSwitch: vi.fn(),
-    onManage: vi.fn(),
-    onDisconnect: vi.fn(),
-    onEdit: vi.fn(),
-    onDelete: vi.fn(),
-    onExpand: vi.fn(),
-    onAdd: vi.fn(),
-  };
-  render(<ConnectionSwitcher {...props} />);
-  return props;
-}
-
 async function openSwitcher() {
   const trigger = await titleBar().findByRole('button', { name: /^Connection: / });
   await userEvent.click(trigger);
@@ -301,11 +280,16 @@ describe('ConnectionSwitcher', () => {
   });
 
   it('shows a "no connections yet" empty state rather than an empty quoted search when none are saved', async () => {
-    mountEmptySwitcher();
+    mount({ connections: [] });
 
-    // With no Connections the trigger's accessible name reports the absence
-    // rather than naming a Connection that doesn't exist.
-    await userEvent.click(screen.getByRole('button', { name: /Connection: none selected/i }));
+    // With no Connections the trigger reads "Select a connection", and its
+    // accessible name reports the absence rather than naming a Connection
+    // that doesn't exist. Scoped to the TitleBar — with zero Connections the
+    // Main pane's empty state renders its own `variant="cta"` trigger with
+    // the same accessible name, so an unscoped query would find two.
+    await userEvent.click(
+      await titleBar().findByRole('button', { name: /Connection: none selected/i }),
+    );
     const listbox = await screen.findByRole('listbox', { name: 'Connections' });
 
     expect(within(listbox).getByText(/No connections yet/i)).toBeTruthy();
@@ -682,14 +666,15 @@ describe('ConnectionSwitcher — add/edit', () => {
   it('⌘E still opens the table while "Manage connections" holds focus', async () => {
     // With zero Connections this button is where focus lands on open; its
     // Enter guard must not swallow the shortcut the legend advertises.
-    const { onExpand } = mountEmptySwitcher();
-    await userEvent.click(screen.getByRole('button', { name: /Connection: none selected/i }));
+    mount({ connections: [] });
+    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
     const manage = await screen.findByRole('button', { name: 'Manage connections' });
     await waitFor(() => expect(document.activeElement).toBe(manage));
 
     fireEvent.keyDown(manage, { key: 'e', metaKey: true });
-    expect(onExpand).toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull());
+
+    await screen.findByRole('dialog', { name: 'Connections' });
+    expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
   });
 
   it('offers no Add, Import or Export of its own — those live in the table', async () => {
@@ -1336,10 +1321,12 @@ describe('ConnectionSwitcher — manage/disconnect/delete row actions', () => {
     fireEvent.click(screen.getByText('Delete'));
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('c1'));
-    // With no saved Connection left the title bar draws no breadcrumb, and
-    // the empty state offers a new one.
-    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Location' })).toBeNull());
-    expect(screen.getByRole('button', { name: 'New connection' })).toBeTruthy();
+    // Scoped to the TitleBar: with zero Connections left, the Main pane's
+    // empty state also renders its own `variant="cta"` Switcher trigger with
+    // the same accessible name, so an unscoped query would find two.
+    await waitFor(() =>
+      expect(titleBar().getByRole('button', { name: 'Connection: none selected' })).toBeTruthy(),
+    );
   });
 
   it('the highlighted row’s delete button is guarded against Enter falling through to the roving-highlight contract', async () => {
@@ -1533,16 +1520,17 @@ describe('ConnectionSwitcher — expanded table', () => {
   });
 
   it('offers "New connection" in the empty list of the Switcher popover', async () => {
-    const { onAdd } = mountEmptySwitcher();
-    await userEvent.click(screen.getByRole('button', { name: /Connection: none selected/i }));
+    mount({ connections: [] });
+    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
     const listbox = await screen.findByRole('listbox', { name: 'Connections' });
 
     // A listbox owns only options and groups: the button sits beside it.
+    // Scoped to the popover: the empty state's own CTA has the same name.
     const add = within(listbox.parentElement as HTMLElement).getByRole('button', { name: 'New connection' });
     expect(listbox.contains(add)).toBe(false);
     await userEvent.click(add);
 
-    expect(onAdd).toHaveBeenCalled();
+    await screen.findByRole('dialog', { name: 'New Connection' });
     await waitFor(() => expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull());
   });
 
@@ -1559,9 +1547,12 @@ describe('ConnectionSwitcher — expanded table', () => {
     // acted on. This button is a permanent footer fixture (not only shown
     // in the empty-state cell), and the only place a Connection is added.
     mount({ connections: [] });
-    // No breadcrumb with nothing saved: ⌘E is the way to the table.
-    await screen.findByRole('button', { name: 'New connection' });
-    fireEvent.keyDown(document.body, { key: 'e', metaKey: true });
+    // Scoped to the TitleBar — with zero Connections the Main pane's empty
+    // state renders its own `variant="cta"` trigger with the same accessible
+    // name, so an unscoped query would find two.
+    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
+    await screen.findByRole('listbox', { name: 'Connections' });
+    await userEvent.click(screen.getByRole('button', { name: 'Manage connections' }));
     const dialog = await screen.findByRole('dialog', { name: 'Connections' });
 
     await userEvent.click(within(dialog).getByRole('button', { name: '+ New' }));
