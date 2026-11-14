@@ -46,3 +46,25 @@ describe('tokenizeJson (property)', () => {
     );
   });
 });
+
+describe('tokenizeJson shell regex (property)', () => {
+  it('any BSONRegExp printed by toMongoshLiteral tokenizes losslessly with braces balanced', async () => {
+    const { BSONRegExp } = await import('bson');
+    const { toMongoshLiteral } = await import('../../src/utils/copyFormat');
+    fc.assert(
+      fc.property(
+        fc.string({ unit: fc.constantFrom('a', '{', '}', '[', ']', '"', '\\', '.', '*', ',', ':', ' ') }),
+        fc.constantFrom('', 'i', 'im', 'ims', 'imsu'),
+        (pattern, flags) => {
+          const text = toMongoshLiteral({ re: new BSONRegExp(pattern, flags), z: 1 });
+          const tokens = tokenizeJson(text, { shell: true });
+          expect(tokens.map((t) => t.text).join('')).toBe(text);
+          if (text.includes(`/${pattern}/${flags}`)) {
+            expect(tokens.some((t) => t.text === `/${pattern}/${flags}`)).toBe(true);
+          }
+          expect(tokens.filter((t) => t.text === '{')).toHaveLength(tokens.filter((t) => t.text === '}').length);
+        },
+      ),
+    );
+  });
+});
