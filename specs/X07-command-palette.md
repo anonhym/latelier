@@ -1,6 +1,6 @@
 # X07 — Command palette
 
-> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is built, except the key caps and titles §14.4 gives to commands other work adds (they come with those commands, from `Command.shortcut`, and the three `Copy query as mongosh`, `Copy query as Node.js` and `Copy query as Python` commands); where it names a part of §13, §14 is what ships.
+> **Status: Implemented.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) shipped, including the three `Copy query as mongosh`, `Copy query as Node.js` and `Copy query as Python` commands; key caps come from `Command.shortcut`; where it names a part of §13, §14 is what ships.
 
 ## Purpose
 

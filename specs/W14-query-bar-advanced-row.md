@@ -1,6 +1,6 @@
 # W14 — Query bar advanced row: correctness, affordance, projection
 
-> **Status: Accepted.** §1–§10 shipped
+> **Status: Accepted.** §1–§10 shipped; the option pills of [W05 §9](./W05-query-bar.md) replaced the `QUERY` disclosure, and the grid survives behind a per-tab "Keep options expanded".
 
 ## Purpose
 

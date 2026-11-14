@@ -1,6 +1,6 @@
 # W06 — Result views (Tree / JSON / Table)
 
-> **Status: Accepted.** §1–§8 shipped
+> **Status: Accepted.** §1–§8 shipped; the preview-fields picker in §2 was removed and the Fields control replaced it.
 
 ## Purpose
 

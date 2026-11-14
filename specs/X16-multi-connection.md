@@ -1,6 +1,6 @@
 # X16 — Multi-connection Data View
 
-> **Status: Implemented.** §1–§12 shipped. §13 (the conditional group chip, the breadcrumb as the Switcher's trigger, the Switcher and Connections table rows) is agreed and not built yet; where it names a part of §4.4 or §4.6, §13 is what ships.
+> **Status: Implemented.** §1–§13 shipped, §13 being the conditional group chip, the breadcrumb as the Switcher's trigger, the Switcher and Connections table rows; where it names a part of §4.4 or §4.6, §13 is what ships.
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 # W02 — DB / collection navigator sidebar
 
-> **Status: Implemented.** §1–§15 shipped; §16 (one selection style, labelled counts, the Server entry, the footer's Add connection, Escape in the filter, a credentials action on an authentication failure) is agreed and not built yet. [X16](./X16-multi-connection.md) supersedes §1b's single active connection. The status lists in §10 predate later work: some "Deferred" items have since shipped, others have not.
+> **Status: Implemented.** §1–§16 shipped, §16 being one selection style, labelled counts, the Server entry, the footer's Add connection, Escape in the filter, a credentials action on an authentication failure. [X16](./X16-multi-connection.md) supersedes §1b's single active connection. The status lists in §10 predate later work: some "Deferred" items have since shipped, others have not.
 
 > **Amended 2026-04-22.** v2 grows the action surface to match MongoDB Compass's parity features (context menus on every row type, destructive-action convention, optional hover action bar). Additions are gated behind new IPC channels (see §12) and new sub-specs (see §13). The amendment keeps multi-connection deferred.
 

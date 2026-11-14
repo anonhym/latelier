@@ -1,6 +1,6 @@
 # W16 — Structure: the collection's shape and access paths
 
-> **Status: Implemented.** §0–§15 shipped. §16 is built except the tab label rename ("Schema & indexes" in the UI), which ships with the view-header slice: stat strip, sticky section pills, one Refresh, Sample/Resample, frequency bars, a schema row menu and the one-line validation state.
+> **Status: Implemented.** §0–§15 shipped. §16 shipped, with the tab labelled "Schema & indexes": stat strip, sticky section pills, one Refresh, Sample/Resample, frequency bars, a schema row menu and the one-line validation state.
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 # W10 — Recent queries + preview field preferences
 
-> **Status: Accepted.** §1–§6 shipped
+> **Status: Accepted.** §1–§6 shipped; the preview-field preferences in §2 were removed and §6 moved the Recent list into the Filter Bar's History popover.
 
 ## Purpose
 

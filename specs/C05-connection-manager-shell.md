@@ -1,6 +1,6 @@
 # C05 — ConnectionManager deep detail screen
 
-> **Status: Implemented.** §1–§10 shipped; ADR 0001 retired the list sidebar and `/connections` redirects to the workspace. §11, which moves this screen into the Data View as a server tab, is agreed and not built yet.
+> **Status: Implemented.** §1–§10 shipped; ADR 0001 retired the list sidebar and `/connections` redirects to the workspace. §11, which moves this screen into the Data View as a server tab, shipped.
 
 ## Purpose
 
