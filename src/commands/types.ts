@@ -33,6 +33,14 @@ export const GROUP_LABEL: Record<CommandGroup, string> = {
 export interface PaletteContext {
   pathname: string;
   connectionId: string | null;
+  /**
+   * The Connection whose collections the empty palette lists: the Focused
+   * Tab's, or with no tab the most recently connected Open Connection. Absent
+   * or null when none is open.
+   */
+  collectionsConnectionId?: string | null;
+  /** That Connection's collections are still being listed (X07 §14.5). */
+  collectionsPending?: boolean;
 }
 
 /** The parts of a row built from the query itself. */
@@ -132,6 +140,8 @@ export interface PaletteObject {
   /** Shown as the row title and matched as the match text. */
   name: string;
   subtitle?: string;
+  /** The Connection a database or collection belongs to; unset on the other kinds. */
+  connectionId?: string;
   /** What the row's tag reads, at its right (`Open tab`, `Query`); shown instead of `Recent`. */
   tag?: string;
   keywords?: string[];

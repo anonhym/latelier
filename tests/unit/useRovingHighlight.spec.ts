@@ -235,4 +235,38 @@ describe('useRovingHighlight', () => {
     rerender({ count: 3 });
     expect(result.current.index).toBe(0);
   });
+
+  describe('initialIndex', () => {
+    it('is where an untouched highlight stands, clamped to the list', () => {
+      const { result, rerender } = renderHook(({ count, start }) => useRovingHighlight(count, 'k', start), {
+        initialProps: { count: 5, start: 2 },
+      });
+      expect(result.current.index).toBe(2);
+      // A list that settles into a different first row follows it while untouched.
+      rerender({ count: 5, start: 3 });
+      expect(result.current.index).toBe(3);
+      rerender({ count: 2, start: 3 });
+      expect(result.current.index).toBe(1);
+    });
+
+    it('moves from it, wrapping', () => {
+      const { result } = renderHook(() => useRovingHighlight(4, 'k', 1));
+      act(() => { result.current.move(1); });
+      expect(result.current.index).toBe(2);
+      act(() => { result.current.move(-3); });
+      expect(result.current.index).toBe(3);
+    });
+
+    it('is left once a setter wrote, even index 0, and comes back with a new key', () => {
+      const { result, rerender } = renderHook(({ key }) => useRovingHighlight(4, key, 2), {
+        initialProps: { key: 'a' },
+      });
+      act(() => { result.current.setIndex(0); });
+      expect(result.current.index).toBe(0);
+      rerender({ key: 'b' });
+      expect(result.current.index).toBe(2);
+      rerender({ key: 'a' });
+      expect(result.current.index).toBe(2);
+    });
+  });
 });

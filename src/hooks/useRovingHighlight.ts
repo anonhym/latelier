@@ -14,10 +14,10 @@ export interface RovingHighlight {
  * comes back (a query retyped), so a highlight stored under it no longer
  * applies.
  */
-type Stored = { raw: number; key: unknown; epoch: number };
+type Stored = { raw: number | null; key: unknown; epoch: number };
 
-function clampedIndex(stored: Stored, count: number, resetKey: unknown, epoch: number): number {
-  const raw = stored.key === resetKey && stored.epoch === epoch ? stored.raw : 0;
+function clampedIndex(stored: Stored, count: number, resetKey: unknown, epoch: number, initial: number): number {
+  const raw = (stored.key === resetKey && stored.epoch === epoch ? stored.raw : null) ?? initial;
   return count === 0 ? 0 : Math.min(raw, count - 1);
 }
 
@@ -44,18 +44,23 @@ function clampedIndex(stored: Stored, count: number, resetKey: unknown, epoch: n
  * doesn't own the search input's `onChange` directly. Omit it for a
  * component that resets the highlight itself (an explicit `setIndex(0)`
  * alongside its own query handler).
+ *
+ * `initialIndex`: where the highlight stands until a setter moves it, and again
+ * after a reset (a palette that must not start on an unavailable row). It is
+ * read at render, so a list that settles into a different first row while
+ * untouched follows it.
  */
-export function useRovingHighlight(count: number, resetKey?: unknown): RovingHighlight {
-  const [state, setState] = React.useState<Stored>({ raw: 0, key: resetKey, epoch: 0 });
+export function useRovingHighlight(count: number, resetKey?: unknown, initialIndex = 0): RovingHighlight {
+  const [state, setState] = React.useState<Stored>({ raw: null, key: resetKey, epoch: 0 });
   // A new key resets the highlight, adjusted while rendering (#745): going
   // back to an earlier key starts from the top too, not from the row it had.
   let current = state;
   if (state.key !== resetKey) {
-    current = { raw: 0, key: resetKey, epoch: state.epoch + 1 };
+    current = { raw: null, key: resetKey, epoch: state.epoch + 1 };
     setState(current);
   }
   const { epoch } = current;
-  const index = clampedIndex(current, count, resetKey, epoch);
+  const index = clampedIndex(current, count, resetKey, epoch, initialIndex);
 
   // #126 — the latest value either setter wrote, before React re-renders.
   // Two key events can reach a handler before the first one's render
@@ -76,12 +81,12 @@ export function useRovingHighlight(count: number, resetKey?: unknown): RovingHig
   const move = React.useCallback(
     (delta: number) => {
       if (count === 0) return 0;
-      const next = (clampedIndex(latest.current, count, resetKey, epoch) + delta + count) % count;
+      const next = (clampedIndex(latest.current, count, resetKey, epoch, initialIndex) + delta + count) % count;
       latest.current = { raw: next, key: resetKey, epoch };
       setState(latest.current);
       return next;
     },
-    [count, resetKey, epoch],
+    [count, resetKey, epoch, initialIndex],
   );
 
   return { index, setIndex, move };
