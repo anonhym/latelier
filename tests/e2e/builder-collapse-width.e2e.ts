@@ -59,6 +59,8 @@ test('collapsing the query drawer does not destroy its stored width', async () =
         collection: 'orders',
       });
       await api.prefs.set('ui.workspace.innerHSplit', 30);
+      // The drawer is closed unless a stored choice opens it (W05 §9.1).
+      await api.prefs.set('ui.workspace.builderCollapsed', false);
     }, baseConnInput(host, port));
     await win.reload();
     await win.waitForLoadState('domcontentloaded');

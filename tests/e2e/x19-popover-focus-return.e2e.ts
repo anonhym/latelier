@@ -63,7 +63,7 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       await ws.viewTableButton.click();
 
       // --- FieldsControl: uncontrolled Popover, `returnFocus` fix. ---
-      const fieldsTrigger = win.getByRole('button', { name: 'Fields', exact: true });
+      const fieldsTrigger = ws.fieldsButton;
       await expect(fieldsTrigger).toBeVisible();
 
       await fieldsTrigger.click();

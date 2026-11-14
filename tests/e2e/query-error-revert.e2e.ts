@@ -65,11 +65,11 @@ test('Run on a failing query shows the error, Revert restores the last valid que
       await expect(win.getByText('banana-002')).toBeVisible();
       expect(await layout(win)).toEqual(idle);
 
-      // Running: the band says so, over no row.
+      // Running: the band marks the rows left on screen as the previous ones, over no row.
       await ws.queryBarTextarea.fill('{"$where":"sleep(400)||true"}');
       await ws.queryBarTextarea.blur();
       await ws.queryBarRunButton.click();
-      await expect(win.getByTestId('selection-bar').getByRole('status')).toHaveText('Running…');
+      await expect(win.getByTestId('selection-bar').getByRole('status')).toHaveText('Previous results');
       expect(await layout(win)).toEqual(idle);
       await expect(win.getByTestId('selection-bar').getByRole('status')).toHaveCount(0, { timeout: 8000 });
 
