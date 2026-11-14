@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   checkFieldType,
+  fieldDisplay,
   inferType,
   summarizeSchema,
 } from '../../src/pages/Workspace/schemaSummary';
@@ -412,5 +413,15 @@ describe('inferType', () => {
     expect(inferType({ $minKey: 1 })).toBe('object');
     // CodeWithScope: the other isExactSentinel shape (two keys), same gap.
     expect(inferType({ $code: 'function(){}', $scope: {} })).toBe('object');
+  });
+});
+
+describe('fieldDisplay', () => {
+  it.each([
+    ['_id', 0, '_id'],
+    ['items.qty', 1, 'qty'],
+    ['a.b.c', 2, 'c'],
+  ])('%s sits at depth %i and is named %s', (path, depth, name) => {
+    expect(fieldDisplay(path)).toEqual({ depth, name });
   });
 });

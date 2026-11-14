@@ -271,9 +271,7 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
     await expectConsoleClean(win, async () => {
       await open(win);
       await new WorkspacePage(win).tablist.getByRole('tab', { name: /Aggregation/ }).click();
-      await win.getByRole('button', { name: /Add stage/ }).first().click();
-      await win.getByRole('textbox', { name: 'Search stages' }).fill('match');
-      await win.getByText('$match', { exact: true }).first().click();
+      await win.getByRole('button', { name: '$match', exact: true }).click();
       const body = win.locator('[data-testid="stage-body-editor-1"] .cm-content');
       await body.click();
       await win.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
@@ -290,11 +288,14 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
       for (const [width, height] of SIZES) {
         await win.setViewportSize({ width, height });
         await win.waitForTimeout(300);
+        const pipelineBar = await readBar(win, 'pipeline-bar');
+        expect(pipelineBar.overflow, `${width}: pipeline bar overflow`).toBeLessThanOrEqual(0);
+        expect(pipelineBar.clipped, `${width}: pipeline bar clipped`).toEqual([]);
         const bar = await readBar(win, 'output-bar');
         expect(bar.overflow, `${width}: bar overflow`).toBeLessThanOrEqual(0);
         expect(bar.clipped, `${width}: clipped`).toEqual([]);
         expect(bar.barHeight, `${width}: one row`).toBe(42);
-        // Below some width the editor stacks over its preview instead of shrinking.
+        // Side by side the stages column keeps its width; stacked, the editor has the full width.
         const editor = await win.getByTestId('stage-body-editor-1').boundingBox();
         expect(editor!.width, `${width}: stage editor width`).toBeGreaterThanOrEqual(300);
       }

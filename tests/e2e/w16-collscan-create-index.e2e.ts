@@ -115,3 +115,46 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
     });
   });
 });
+
+/** W16 §16.6 — a schema row's menu opens the create drawer on that field. */
+test('Schema row menu -> Create index on this field -> drawer prefilled -> index listed', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Schema Row Index Target' },
+        {
+          dbName: 'shop',
+          collection: 'orders',
+          docs: [
+            { sku: 'apple-001', status: 'paid' },
+            { sku: 'banana-002', status: 'pending' },
+          ],
+        },
+      );
+      await expectStatusDot(win, 'Schema Row Index Target', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await ws.tablist.getByRole('tab', { name: /Structure/ }).click();
+
+      await win.getByRole('button', { name: 'Actions for sku' }).click();
+      await win.getByRole('menuitem', { name: 'Create index on this field' }).click();
+
+      const createDrawer = win.getByRole('dialog', { name: /New index/ });
+      await expect(createDrawer).toBeVisible({ timeout: 8000 });
+      await expect(createDrawer.getByLabel('Field 1', { exact: true })).toHaveValue('sku');
+
+      await createDrawer.getByRole('button', { name: 'Create index' }).click();
+      await expect(createDrawer).not.toBeVisible({ timeout: 8000 });
+      await expect(
+        win.getByRole('region', { name: 'Indexes' }).getByText('sku_1', { exact: true }),
+      ).toBeVisible({ timeout: 8000 });
+    });
+  });
+});

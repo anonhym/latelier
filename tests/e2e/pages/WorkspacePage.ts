@@ -41,7 +41,7 @@ export class WorkspacePage {
 
   /**
    * The navigator's connection-level "Refresh" button — re-fetches the DB list.
-   * Scoped to the navigator: Structure has Refresh buttons of its own.
+   * Scoped to the navigator: Schema & indexes has a Refresh button of its own.
    */
   get navigatorRefreshButton() { return this.navigator.getByRole('button', { name: 'Refresh' }); }
 

@@ -13,8 +13,9 @@ test.afterAll(stopAllMemoryServers);
 
 /**
  * A01 + A02 + A04 — Aggregation tab basics. Switch to the Aggregation sub-tab
- * on a collection, add a `$match` stage, fill its body with a JSON filter,
- * click Run, and verify the matching documents appear in the Pipeline output.
+ * on a collection, add a `$match` stage from the empty pipeline's starter
+ * chips, fill its body with a JSON filter, click Run, and verify the matching
+ * documents appear in the preview column.
  *
  * Stage bodies are a CodeMirror 6 `ScriptEditor` (T2.4), marked with
  * `data-testid="stage-body-editor-<id>"` (`StageAccordion.tsx`) — the first
@@ -56,17 +57,10 @@ test('aggregation: add $match stage, run, output shows filtered docs', async () 
       // strip: since X16.2 a workspace tab is named for its collection
       // *and* its Connection, and this Connection is "Aggregation Target".
       await ws.tablist.getByRole('tab', { name: /Aggregation/ }).click();
-      await expect(win.getByText('Pipeline', { exact: true })).toBeVisible({ timeout: 5000 });
-      await expect(win.getByText('Pipeline output')).toBeVisible();
-
-      // Add a $match stage. The "Add stage" pill opens a search dropdown.
-      // Multiple AddStagePill buttons exist (one between each stage + one at
-      // the end); the first is the only one visible when the pipeline is empty.
-      await win.getByRole('button', { name: /Add stage/ }).first().click();
-      const stageSearch = win.getByRole('textbox', { name: 'Search stages' });
-      await stageSearch.fill('match');
-      // Pick the $match operator from the dropdown.
-      await win.getByText('$match', { exact: true }).first().click();
+      // An empty pipeline offers starter chips, and its preview says why Run waits.
+      await expect(win.getByText('Add a first stage')).toBeVisible({ timeout: 5000 });
+      await expect(win.getByRole('region', { name: 'Preview' }).getByText('Add a stage to run')).toBeVisible();
+      await win.getByRole('button', { name: '$match', exact: true }).click();
 
       // Stage body editor — the first stage added to an empty pipeline gets
       // id 1, so `stage-body-editor-1` is unique and stable.
@@ -90,6 +84,87 @@ test('aggregation: add $match stage, run, output shows filtered docs', async () 
       await expect(win.getByText('apple-001').first()).toBeVisible({ timeout: 8000 });
       await expect(win.getByText('cherry-003').first()).toBeVisible();
       await expect(win.getByText('banana-002')).not.toBeVisible();
+    });
+  });
+});
+
+/**
+ * A01 §9.7 — stages beside their preview. Build the pipeline from a starter
+ * chip, run it, run up to the first stage and read its preview, then export
+ * the full result. Selecting a card or the Output row never runs anything;
+ * Export results acts on the full run whatever is selected.
+ */
+test('aggregation: starter chip, run, run up to stage 1, export the result', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Side By Side' },
+        {
+          dbName: 'shop',
+          collection: 'orders',
+          docs: [
+            { sku: 'apple-001', status: 'paid' },
+            { sku: 'banana-002', status: 'pending' },
+            { sku: 'cherry-003', status: 'paid' },
+          ],
+        },
+      );
+      await expectStatusDot(win, 'Side By Side', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await ws.tablist.getByRole('tab', { name: /Aggregation/ }).click();
+      const preview = win.getByRole('region', { name: 'Preview' });
+      const heading = win.getByTestId('preview-heading');
+
+      // Stage 1 from a starter chip: $match on the paid orders.
+      await win.getByRole('button', { name: '$match', exact: true }).click();
+      const matchBody = win.locator('[data-testid="stage-body-editor-1"] .cm-content');
+      await expect(matchBody).toBeVisible({ timeout: 5000 });
+      await matchBody.click();
+      await win.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+      await win.keyboard.press('Backspace');
+      await win.keyboard.type('{ "status": "paid" }');
+
+      // Stage 2 from the tail pill: $count, whose default body is valid.
+      await win.getByRole('button', { name: /Add stage/ }).last().click();
+      await win.getByRole('textbox', { name: 'Search stages' }).fill('count');
+      await win.getByRole('option').filter({ hasText: '$count' }).first().click();
+      await expect(win.locator('[data-stage-summary="2"]')).toBeVisible();
+
+      await win.getByRole('button', { name: 'Run', exact: true }).click();
+
+      // The Output row shows the full run. The heading's title carries the
+      // count at every width; its text drops it in a narrow column.
+      await win.getByRole('button', { name: /^Output/ }).click();
+      await expect(heading).toHaveAttribute('title', /^Output · 1 docs/, { timeout: 8000 });
+      await expect(preview).toContainText('totalCount');
+
+      // Stage 1, run up to: its preview reads the two paid orders.
+      await win.locator('[data-stage-summary="1"]').click();
+      await win.getByRole('button', { name: 'Run to here' }).click();
+      await expect(heading).toHaveAttribute('title', 'Stage 1 · $match · 2 docs', { timeout: 8000 });
+      await expect(preview.getByText('apple-001').first()).toBeVisible();
+      await expect(preview.getByText('cherry-003').first()).toBeVisible();
+      await expect(preview.getByText('banana-002')).toHaveCount(0);
+
+      // The card's ⋯ menu is not clipped by its 32px row: Duplicate is reachable.
+      await win.getByRole('button', { name: 'Actions for stage 2' }).click();
+      await win.getByRole('menuitem', { name: 'Duplicate' }).click();
+      await expect(win.locator('[data-stage-summary]')).toHaveCount(3);
+
+      // Export results → Copy copies the full run, not a stage sample.
+      await win.getByRole('button', { name: 'Export results' }).click();
+      await win.getByRole('menuitem', { name: 'Copy' }).click();
+      await expect
+        .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toContain('"totalCount": 2');
     });
   });
 });

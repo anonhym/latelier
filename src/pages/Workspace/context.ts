@@ -85,6 +85,8 @@ export interface CollectionWorkspaceActions {
    * `QueryBar` passes no `onCreateIndex` to `ExplainDrawer` when it's absent.
    */
   openCreateIndex?: (suggestion: IndexSuggestion | null) => void;
+  /** Switches the tab to its Documents view. Optional like `openCreateIndex`. */
+  openDocuments?: () => void;
 }
 
 /**

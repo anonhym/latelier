@@ -1,11 +1,8 @@
 import React from 'react';
-import { ActionIcon, Button, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Button, Menu, Tooltip, UnstyledButton } from '@mantine/core';
 import { themeVars } from '../../../theme/themeVars';
 import { I } from '../../../icons';
 import type { Stage, StageOp } from '@shared/types';
-import { ejsonStringifyReadable } from '../../../utils/ejson';
-import { HighlightedJson } from '../views/JsonView';
-import { docKey } from '../../../utils/displayValue';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { formatShortcut } from '../../../commands/shortcutLabel';
 import { isMacRenderer } from '../../../utils/platform';
@@ -40,14 +37,18 @@ interface AccordionProps {
   collection: string;
   sourceCount: number | null;
   outputCount: number | null;
+  /** True when a stage was edited since the last full run. */
+  outputStale: boolean;
   stageCounts: Record<number, number>;
-  stageSamples: Record<number, unknown[]>;
   staleStageIds: ReadonlySet<number>;
   previewLoading: ReadonlySet<number>;
   darkMode: boolean;
   suggestionContext: SuggestionContext | null;
   onAdd: (op: StageOp | string, afterIndex?: number) => void;
+  /** Clicking a card's header: selects it, or deselects it when it is already selected. */
   onToggleActive: (id: number) => void;
+  /** ↑↓ and the Output row: selects a stage, or null for the whole pipeline. */
+  onSelect: (id: number | null) => void;
   onToggleEnabled: (id: number) => void;
   onChangeOp: (id: number, op: StageOp | string) => void;
   onBodyChange: (id: number, body: string) => void;
@@ -57,8 +58,10 @@ interface AccordionProps {
   onRemove: (id: number) => void;
   onDuplicate: (id: number) => void;
   onRunToStage: (id: number) => void;
-  onRefreshPreview: (id: number) => void;
 }
+
+/** The empty pipeline's starter chips (A01 §9.5); each adds its default body. */
+const STARTER_OPS: readonly StageOp[] = ['$match', '$group', '$sort', '$project', '$lookup', '$unwind'];
 
 function opColor(op: string, dark: boolean) {
   return brightenBadgeForDark(
@@ -440,9 +443,10 @@ interface StageRowProps {
   count: number | undefined;
   stale: boolean;
   previewLoading: boolean;
-  sample: unknown[];
   suggestionContext: SuggestionContext | null;
   onToggleActive: () => void;
+  /** ↑↓ on the summary button move the selection. */
+  onSummaryKeyDown: (e: React.KeyboardEvent) => void;
   onToggleEnabled: () => void;
   onChangeOp: (op: StageOp | string) => void;
   onBodyChange: (body: string) => void;
@@ -451,7 +455,6 @@ interface StageRowProps {
   onRemove: () => void;
   onDuplicate: () => void;
   onRunToStage: () => void;
-  onRefreshPreview: () => void;
   dragging: boolean;
   dragOver: boolean;
   onGripDragStart: () => void;
@@ -469,9 +472,9 @@ function StageRow({
   count,
   stale,
   previewLoading,
-  sample,
   suggestionContext,
   onToggleActive,
+  onSummaryKeyDown,
   onToggleEnabled,
   onChangeOp,
   onBodyChange,
@@ -480,7 +483,6 @@ function StageRow({
   onRemove,
   onDuplicate,
   onRunToStage,
-  onRefreshPreview,
   dragging,
   dragOver,
   onGripDragStart,
@@ -492,15 +494,6 @@ function StageRow({
   const c = opColor(stage.op, darkMode);
   const [localBody, setLocalBody] = React.useState(stage.body);
   const [bodyErr, setBodyErr] = React.useState<string | null>(null);
-  const [previewCollapsedKeys, setPreviewCollapsedKeys] = React.useState<Set<string>>(() => new Set());
-  const togglePreviewCollapse = React.useCallback((key: string) => {
-    setPreviewCollapsedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
   const dirtyRef = React.useRef(false);
   const idleTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Read via getter closures (mirrors ScriptEditor's own `getCollections`
@@ -659,7 +652,10 @@ function StageRow({
           display: 'flex',
           alignItems: 'center',
           gap: T.gapSm,
-          padding: '8px 10px',
+          // A collapsed card is this one row, so a long pipeline reads as a list.
+          height: 32,
+          boxSizing: 'border-box',
+          padding: '0 10px',
           cursor: 'pointer',
           background: active ? T.accentSoft : 'transparent',
         }}
@@ -740,6 +736,7 @@ function StageRow({
           type="button"
           data-stage-summary={stage.id}
           aria-expanded={active}
+          onKeyDown={onSummaryKeyDown}
           onClick={(e) => {
             e.stopPropagation();
             onToggleActive();
@@ -757,7 +754,8 @@ function StageRow({
         >
           {bodyErr ? '(invalid)' : summary}
         </UnstyledButton>
-        {typeof count === 'number' && (
+        {/* Collapsed, the count sits in the row; expanded, it is the card's footer. */}
+        {typeof count === 'number' && !active && (
           <span
             style={{
               fontSize: T.fsXs,
@@ -794,64 +792,42 @@ function StageRow({
               {stage.enabled ? 'ON' : 'OFF'}
             </Button>
           </Tooltip>
-          <Tooltip label="Move up" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMoveUp();
+          {/* Portaled, so the card's `overflow: hidden` cannot clip it. React
+              events still bubble through a portal to the header, so the
+              dropdown stops its own clicks and Escape before they reach the
+              header's select toggle. */}
+          <Menu position="bottom-end" shadow="md">
+            <Menu.Target>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="sm"
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Actions for stage ${index + 1}`}
+              >
+                {I.more}
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') e.stopPropagation();
               }}
-              disabled={index === 0}
-              aria-label="Move stage up"
             >
-              {I.chevU}
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Move down" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMoveDown();
-              }}
-              disabled={index === total - 1}
-              aria-label="Move stage down"
-            >
-              {I.chevD}
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Duplicate" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicate();
-              }}
-              aria-label="Duplicate stage"
-            >
-              {I.copy}
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Delete" withArrow>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove();
-              }}
-              aria-label="Delete stage"
-            >
-              {I.trash}
-            </ActionIcon>
-          </Tooltip>
+              <Menu.Item leftSection={I.chevU} onClick={onMoveUp} disabled={index === 0}>
+                Move up
+              </Menu.Item>
+              <Menu.Item leftSection={I.chevD} onClick={onMoveDown} disabled={index === total - 1}>
+                Move down
+              </Menu.Item>
+              <Menu.Item leftSection={I.copy} onClick={onDuplicate}>
+                Duplicate
+              </Menu.Item>
+              <Menu.Item leftSection={I.trash} onClick={onRemove}>
+                Delete
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
           <span style={{ display: 'flex', color: T.textGhost }}>
             {active ? I.chevU : I.chevD}
           </span>
@@ -859,9 +835,8 @@ function StageRow({
       </div>
 
       {active && (
-        // One fixed height in every state (`.stage-body` in index.css). This is also
-        // what turns on the preview's own scroll: without a limit, its documents set
-        // the card's height and push everything below it down the page.
+        // One fixed height in every state (`.stage-body` in index.css), so an
+        // error line or a run elsewhere never moves the cards below this one.
         <div className="stage-body" style={{ boxSizing: 'border-box', borderTop: `1px solid ${T.border}` }}>
           <div style={{ flex: 1, minWidth: 0, padding: 10, display: 'flex', flexDirection: 'column' }}>
             <div
@@ -927,84 +902,24 @@ function StageRow({
               <div style={{ flex: 1 }} />
             </div>
           </div>
-          <div className="stage-preview" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                padding: '6px 10px',
-                flexShrink: 0,
-                borderBottom: `1px solid ${T.border}`,
-                fontSize: T.fsXs,
-                color: T.textMuted,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                Stage preview {typeof count === 'number' && `· ${fmt(count)} docs`}
-                {stale && <span title="Stage edited after last run"> · ⚠ stale</span>}
-              </span>
-              <Tooltip label="Refresh preview" withArrow>
-                <Button
-                  variant="default"
-                  size="compact-xs"
-                  c={previewLoading ? undefined : T.textMuted}
-                  onClick={onRefreshPreview}
-                  disabled={previewLoading}
-                >
-                  Refresh
-                </Button>
-              </Tooltip>
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8, scrollbarGutter: 'stable' }}>
-              {!stage.enabled ? (
-                <div style={{ fontSize: T.fsXs, color: T.textMuted, padding: 8 }}>
-                  Stage is disabled.
-                </div>
-              ) : sample.length === 0 ? (
-                <div style={{ fontSize: T.fsXs, color: T.textMuted, padding: 8 }}>
-                  {previewLoading ? 'Running preview…' : 'Run to see output.'}
-                </div>
-              ) : (
-                sample.slice(0, 5).map((doc, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      marginBottom: 6,
-                      padding: '6px 8px',
-                      background: T.surfaceRaised,
-                      borderRadius: T.rs,
-                      border: `1px solid ${T.border}`,
-                    }}
-                  >
-                    <HighlightedJson
-                      json={safeStringify(doc)}
-                      docKey={docKey(doc, i)}
-                      collapsedKeys={previewCollapsedKeys}
-                      onToggle={togglePreviewCollapse}
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+        </div>
+      )}
+      {active && typeof count === 'number' && (
+        <div
+          title={stale ? 'Stale (edited since last run)' : undefined}
+          style={{
+            padding: '4px 10px',
+            borderTop: `1px solid ${T.border}`,
+            fontSize: T.fsXs,
+            color: T.textMuted,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          → {fmt(count)} documents{stale ? ' ⚠' : ''}
         </div>
       )}
     </div>
   );
-}
-
-/** For the per-stage preview, rendered like every other result surface. */
-function safeStringify(v: unknown): string {
-  try {
-    return ejsonStringifyReadable(v, 1);
-  } catch {
-    try {
-      return JSON.stringify(v, null, 1);
-    } catch {
-      return String(v);
-    }
-  }
 }
 
 // ─── Accordion ────────────────────────────────────────────────────────────
@@ -1017,14 +932,15 @@ export function StageAccordion(props: AccordionProps) {
     collection,
     sourceCount,
     outputCount,
+    outputStale,
     stageCounts,
-    stageSamples,
     staleStageIds,
     previewLoading,
     darkMode,
     suggestionContext,
     onAdd,
     onToggleActive,
+    onSelect,
     onToggleEnabled,
     onChangeOp,
     onBodyChange,
@@ -1034,14 +950,13 @@ export function StageAccordion(props: AccordionProps) {
     onRemove,
     onDuplicate,
     onRunToStage,
-    onRefreshPreview,
   } = props;
 
   const rootRef = React.useRef<HTMLDivElement>(null);
   const prevIdsRef = React.useRef<number[]>(stages.map((s) => s.id));
 
   // Keep keyboard focus anchored when a stage appears or disappears: the
-  // button that held it (a picker option, the stage's own delete button) is
+  // button that held it (a picker option, the stage's own delete item) is
   // gone, and focus would otherwise drop to <body>. Only a single add or a
   // single removal moves focus, and only when focus is already lost or inside
   // the accordion, so loading a pipeline or an edit elsewhere never steals it.
@@ -1069,6 +984,21 @@ export function StageAccordion(props: AccordionProps) {
     )?.focus();
   }, [stages]);
 
+  // ↑↓ walk the cards and the Output row, selecting as they go. Every card's
+  // summary button is rendered whether or not it is selected, so focus can
+  // move at once.
+  const onSelectionKey = (e: React.KeyboardEvent, current: number | null) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const order: Array<number | null> = [...stages.map((s) => s.id), null];
+    const next = order[order.indexOf(current) + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (next === undefined) return;
+    onSelect(next);
+    rootRef.current
+      ?.querySelector<HTMLElement>(next === null ? '[data-output-row]' : `[data-stage-summary="${next}"]`)
+      ?.focus();
+  };
+
   const [dragStageId, setDragStageId] = React.useState<number | null>(null);
   const [dragOverStageId, setDragOverStageId] = React.useState<number | null>(null);
 
@@ -1086,6 +1016,8 @@ export function StageAccordion(props: AccordionProps) {
     setDragStageId(null);
     setDragOverStageId(null);
   };
+
+  const outputSelected = activeId === null;
 
   return (
     <div ref={rootRef} className="stage-list" style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
@@ -1120,9 +1052,9 @@ export function StageAccordion(props: AccordionProps) {
             count={stageCounts[stage.id]}
             stale={staleStageIds.has(stage.id)}
             previewLoading={previewLoading.has(stage.id)}
-            sample={stageSamples[stage.id] ?? []}
             suggestionContext={suggestionContext}
             onToggleActive={() => onToggleActive(stage.id)}
+            onSummaryKeyDown={(e) => onSelectionKey(e, stage.id)}
             onToggleEnabled={() => onToggleEnabled(stage.id)}
             onChangeOp={(op) => onChangeOp(stage.id, op)}
             onBodyChange={(b) => onBodyChange(stage.id, b)}
@@ -1131,7 +1063,6 @@ export function StageAccordion(props: AccordionProps) {
             onRemove={() => onRemove(stage.id)}
             onDuplicate={() => onDuplicate(stage.id)}
             onRunToStage={() => onRunToStage(stage.id)}
-            onRefreshPreview={() => onRefreshPreview(stage.id)}
             dragging={dragStageId === stage.id}
             dragOver={dragOverStageId === stage.id && dragStageId !== stage.id}
             onGripDragStart={() => setDragStageId(stage.id)}
@@ -1145,27 +1076,83 @@ export function StageAccordion(props: AccordionProps) {
         </div>
       ))}
 
-      <div data-add-stage-tail>
-        <AddStagePill onAdd={(op) => onAdd(op)} />
-      </div>
+      {stages.length === 0 ? (
+        <StarterChips onAdd={(op) => onAdd(op)} />
+      ) : (
+        <div data-add-stage-tail>
+          <AddStagePill onAdd={(op) => onAdd(op)} />
+        </div>
+      )}
 
-      <div
+      <UnstyledButton
+        type="button"
+        data-output-row
+        aria-pressed={outputSelected}
+        onClick={() => onSelect(null)}
+        onKeyDown={(e) => onSelectionKey(e, null)}
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: T.gapSm,
+          width: '100%',
+          boxSizing: 'border-box',
           marginTop: 4,
           padding: '7px 12px',
-          background: T.accentSoft,
-          border: `1px solid ${T.accentBorder}`,
+          font: 'inherit',
+          background: outputSelected ? T.accentSoft : T.surfaceRaised,
+          border: `1px solid ${outputSelected ? T.accentBorder : T.border}`,
           borderRadius: T.rs,
         }}
       >
-        <span style={{ color: T.accentInk, display: 'flex' }}>{I.arrowR}</span>
-        <span style={{ fontSize: T.fsSm, color: T.accentInk, fontWeight: 600 }}>Output</span>
+        <span style={{ color: outputSelected ? T.accentInk : T.textMuted, display: 'flex' }}>{I.arrowR}</span>
+        <span style={{ fontSize: T.fsSm, color: outputSelected ? T.accentInk : T.text, fontWeight: 600 }}>Output</span>
         {outputCount !== null && (
-          <span style={{ fontSize: T.fsXs, color: T.accentInk }}>{fmt(outputCount)} documents</span>
+          <span
+            title={outputStale ? 'Stale (edited since last run)' : undefined}
+            style={{ fontSize: T.fsXs, color: outputSelected ? T.accentInk : T.textMuted, fontVariantNumeric: 'tabular-nums' }}
+          >
+            {fmt(outputCount)} documents{outputStale ? ' ⚠' : ''}
+          </span>
         )}
+      </UnstyledButton>
+    </div>
+  );
+}
+
+// ─── Empty pipeline ───────────────────────────────────────────────────────
+
+/**
+ * What an empty pipeline shows under the source chip: the six stages most
+ * pipelines start with, and the full picker behind `All stages…`. The
+ * `data-add-stage-tail` marker is where focus lands when the last stage goes.
+ */
+function StarterChips({ onAdd }: { onAdd: (op: StageOp | string) => void }) {
+  const T = themeVars;
+  return (
+    <div data-add-stage-tail style={{ padding: '10px 0' }}>
+      <div style={{ fontSize: T.fsSm, color: T.textMuted, marginBottom: 8 }}>Add a first stage</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: themeVars.gapXs }}>
+        {STARTER_OPS.map((op) => (
+          <Button
+            key={op}
+            variant="default"
+            size="compact-xs"
+            radius="xl"
+            onClick={() => onAdd(op)}
+            style={{ fontFamily: 'JetBrains Mono, monospace' }}
+          >
+            {op}
+          </Button>
+        ))}
+        <StageOpPicker
+          onPick={onAdd}
+          align="left"
+          renderTrigger={(_open, toggle) => (
+            <Button variant="subtle" size="compact-xs" radius="xl" c={T.textMuted} onClick={toggle}>
+              All stages…
+            </Button>
+          )}
+        />
       </div>
     </div>
   );

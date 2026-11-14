@@ -919,6 +919,10 @@ export interface AggregationLastRun {
   stageSamples: Record<number, unknown[]>;
   hasMore?: boolean;
   error?: LastRunError;
+  /** `pipelineSigs(...).byStage` of the run, so a later edit can mark its counts and samples stale. Renderer-only, like the run itself. */
+  stageSigs?: Record<number, string>;
+  /** `pipelineSigs(...).pipeline` of the run, for the Output row's staleness. */
+  pipelineSig?: string;
 }
 
 export interface AggregationTabState {

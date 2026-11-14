@@ -13,8 +13,10 @@ import {
   isWriteStage,
   moveStage,
   nextStageId,
+  pipelineSigs,
   removeStage,
   restoreStage,
+  runBlockedReason,
   setBody,
   setOp,
   stageSig,
@@ -428,6 +430,66 @@ describe('validatePipeline', () => {
     const v = validatePipeline(stages);
     expect(v.ok).toBe(true);
     expect(v.warnings).toEqual([{ id: 1, reason: 'unknown op: $fakeOp' }]);
+  });
+});
+
+describe('pipelineSigs', () => {
+  const st = (id: number, body: string, enabled = true): Stage => ({ id, op: '$match', body, enabled });
+
+  it('a stage depends on itself and every enabled stage before it, nothing after', () => {
+    const before = pipelineSigs([st(1, '{}'), st(2, '{"a":1}'), st(3, '{"b":1}')]);
+    const after = pipelineSigs([st(1, '{"x":1}'), st(2, '{"a":1}'), st(3, '{"b":1}')]);
+    expect(after.byStage[1]).not.toBe(before.byStage[1]);
+    expect(after.byStage[2]).not.toBe(before.byStage[2]);
+    expect(after.byStage[3]).not.toBe(before.byStage[3]);
+    expect(after.pipeline).not.toBe(before.pipeline);
+
+    const tail = pipelineSigs([st(1, '{}'), st(2, '{"a":1}'), st(3, '{"c":1}')]);
+    expect(tail.byStage[1]).toBe(before.byStage[1]);
+    expect(tail.byStage[2]).toBe(before.byStage[2]);
+    expect(tail.byStage[3]).not.toBe(before.byStage[3]);
+  });
+
+  it('editing a disabled stage changes nothing; switching one off changes what follows', () => {
+    const base = pipelineSigs([st(1, '{}'), st(2, '{"a":1}', false), st(3, '{}')]);
+    const edited = pipelineSigs([st(1, '{}'), st(2, '{"zz":1}', false), st(3, '{}')]);
+    expect(edited).toEqual(base);
+    const on = pipelineSigs([st(1, '{}'), st(2, '{"a":1}'), st(3, '{}')]);
+    expect(on.byStage[1]).toBe(base.byStage[1]);
+    expect(on.byStage[3]).not.toBe(base.byStage[3]);
+  });
+
+  it('keeps stage boundaries apart, and the pipeline sig is the last stage’s', () => {
+    const a = pipelineSigs([st(1, 'x'), st(2, 'y')]);
+    const b = pipelineSigs([st(1, 'x y'), st(2, '')]);
+    expect(a.byStage[2]).not.toBe(b.byStage[2]);
+    expect(a.pipeline).toBe(a.byStage[2]);
+    expect(pipelineSigs([]).pipeline).toBe('');
+  });
+});
+
+describe('runBlockedReason', () => {
+  const reason = (stages: Stage[]) => runBlockedReason(stages, validatePipeline(stages));
+
+  it('is null when the pipeline validates', () => {
+    expect(reason([{ id: 1, op: '$match', body: '{}', enabled: true }])).toBeNull();
+  });
+
+  it('asks for a stage when there is none', () => {
+    expect(reason([])).toBe('Add a stage to run');
+  });
+
+  it('asks for a stage to be enabled when every stage is off', () => {
+    expect(reason([{ id: 1, op: '$match', body: '{}', enabled: false }])).toBe('Enable a stage to run');
+  });
+
+  it('names the first broken stage by its 1-based position, with the body problem', () => {
+    const stages: Stage[] = [
+      { id: 7, op: '$match', body: '{}', enabled: true },
+      { id: 3, op: '$sort', body: '', enabled: true },
+      { id: 9, op: '$limit', body: '', enabled: true },
+    ];
+    expect(reason(stages)).toBe('Fix stage 2 to run: body is empty');
   });
 });
 

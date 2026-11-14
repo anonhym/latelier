@@ -91,10 +91,8 @@ async function openEmptyMatchStage(
   const ws = new WorkspacePage(win);
   await ws.openCollectionFromNavigator('shop', 'orders');
   await ws.tablist.getByRole('tab', { name: /Aggregation/ }).click();
-  await expect(win.getByText('Pipeline output')).toBeVisible({ timeout: 5000 });
-  await win.getByRole('button', { name: /Add stage/ }).first().click();
-  await win.getByRole('textbox', { name: 'Search stages' }).fill('match');
-  await win.getByText('$match', { exact: true }).first().click();
+  await expect(win.getByText('Add a first stage')).toBeVisible({ timeout: 5000 });
+  await win.getByRole('button', { name: '$match', exact: true }).click();
   const body = win.locator('[data-testid="stage-body-editor-1"] .cm-content');
   await expect(body).toBeVisible({ timeout: 5000 });
   await body.click();

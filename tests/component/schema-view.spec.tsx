@@ -68,7 +68,7 @@ describe('SchemaView — a failed sample is an error, not an empty collection', 
     await screen.findByRole('alert');
 
     fail = false;
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Resample' }));
 
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(screen.getByText('No fields found in the sample.')).toBeTruthy();
@@ -104,7 +104,7 @@ describe('SchemaView — the sampled line describes the sample on screen', () =>
     await line('Sampled 100 of 100 documents');
 
     await userEvent.selectOptions(screen.getByLabelText('Sample size'), '50');
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Resample' }));
 
     expect(await line('Sampled 50 of 50 documents')).toBeTruthy();
   });

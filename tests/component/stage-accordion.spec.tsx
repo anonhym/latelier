@@ -2,10 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, fireEvent, screen, within, act } from '../helpers/render';
-import { Int32, Long } from 'bson';
 import { StageAccordion } from '../../src/pages/Workspace/Aggregation/StageAccordion';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import { DEFAULT_BODIES } from '../../src/pages/Workspace/Aggregation/pipeline';
+import { DEFAULT_BODIES, KNOWN_STAGE_OPS } from '../../src/pages/Workspace/Aggregation/pipeline';
 import type { Stage } from '@shared/types';
 import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
 
@@ -64,15 +63,16 @@ function renderAccordion(stages: Stage[], overrides: Partial<AccordionProps> = {
         activeId={overrides.activeId ?? null}
         collection="orders"
         sourceCount={1234}
-        outputCount={null}
+        outputCount={overrides.outputCount ?? null}
+        outputStale={false}
         stageCounts={overrides.stageCounts ?? {}}
-        stageSamples={overrides.stageSamples ?? {}}
         staleStageIds={overrides.staleStageIds ?? new Set()}
         previewLoading={new Set()}
         darkMode={false}
         suggestionContext={null}
         onAdd={overrides.onAdd ?? noop}
         onToggleActive={overrides.onToggleActive ?? noop}
+        onSelect={overrides.onSelect ?? noop}
         onToggleEnabled={overrides.onToggleEnabled ?? noop}
         onChangeOp={overrides.onChangeOp ?? noop}
         onBodyChange={overrides.onBodyChange ?? noop}
@@ -82,9 +82,15 @@ function renderAccordion(stages: Stage[], overrides: Partial<AccordionProps> = {
         onRemove={overrides.onRemove ?? noop}
         onDuplicate={overrides.onDuplicate ?? noop}
         onRunToStage={overrides.onRunToStage ?? noop}
-        onRefreshPreview={noop}
       />
   );
+}
+
+/** Opens stage `n`'s `⋯` menu and returns its items by name. */
+async function stageMenu(n: number) {
+  await userEvent.click(screen.getByRole('button', { name: `Actions for stage ${n}` }));
+  const items = await screen.findAllByRole('menuitem');
+  return (name: string) => items.find((i) => i.textContent === name)!;
 }
 
 /**
@@ -170,19 +176,177 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(within(header).queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('disables move-up on the first stage and move-down on the last', () => {
+  it('disables move-up on the first stage and move-down on the last', async () => {
     renderAccordion([
       stage({ id: 1, op: '$match' }),
       stage({ id: 2, op: '$sort' }),
     ]);
-    const moveUps = screen.getAllByLabelText('Move stage up');
-    const moveDowns = screen.getAllByLabelText('Move stage down');
-    // first stage's move-up disabled; last stage's move-down disabled
-    expect(moveUps[0]!.hasAttribute('disabled')).toBe(true);
-    expect(moveDowns[moveDowns.length - 1]!.hasAttribute('disabled')).toBe(true);
-    // and the symmetric counterparts are enabled
-    expect(moveDowns[0]!.hasAttribute('disabled')).toBe(false);
-    expect(moveUps[moveUps.length - 1]!.hasAttribute('disabled')).toBe(false);
+    const first = await stageMenu(1);
+    expect(first('Move up').hasAttribute('disabled')).toBe(true);
+    expect(first('Move down').hasAttribute('disabled')).toBe(false);
+    await userEvent.keyboard('{Escape}');
+    const last = await stageMenu(2);
+    expect(last('Move up').hasAttribute('disabled')).toBe(false);
+    expect(last('Move down').hasAttribute('disabled')).toBe(true);
+  });
+
+  it('the ⋯ menu holds Move up, Move down, Duplicate and Delete, and none toggles the card', async () => {
+    const onMoveDown = vi.fn();
+    const onDuplicate = vi.fn();
+    const onRemove = vi.fn();
+    const onToggleActive = vi.fn();
+    renderAccordion([stage({ id: 1 }), stage({ id: 2 })], { onMoveDown, onDuplicate, onRemove, onToggleActive });
+
+    fireEvent.click((await stageMenu(1))('Move down'));
+    fireEvent.click((await stageMenu(1))('Duplicate'));
+    fireEvent.click((await stageMenu(1))('Delete'));
+
+    expect(onMoveDown).toHaveBeenCalledWith(0);
+    expect(onDuplicate).toHaveBeenCalledWith(1);
+    expect(onRemove).toHaveBeenCalledWith(1);
+    expect(onToggleActive).not.toHaveBeenCalled();
+  });
+
+  it('Escape closing the ⋯ menu stops at the menu', async () => {
+    const parentKeyDown = vi.fn();
+    render(
+      <div role="presentation" onKeyDown={parentKeyDown}>
+        <StageAccordionHarness />
+      </div>,
+    );
+    await stageMenu(1);
+    await userEvent.keyboard('{Escape}');
+    expect(parentKeyDown.mock.calls.filter(([e]) => (e as KeyboardEvent).key === 'Escape')).toHaveLength(0);
+  });
+
+  it('a collapsed card is one 32px row with its number, operator and count', () => {
+    renderAccordion([stage({ id: 7, op: '$group' })], { stageCounts: { 7: 1234 } });
+    const header = screen.getByRole('group', { name: 'Stage 1: $group' });
+    expect(header.style.height).toBe('32px');
+    expect(header.textContent).toContain('1');
+    expect(header.textContent).toContain('$group');
+    expect(header.textContent).toContain('1,234');
+  });
+
+  it('an expanded card moves its count to the footer', () => {
+    const { container } = renderAccordion([stage({ id: 7 })], { activeId: 7, stageCounts: { 7: 12 } });
+    expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).not.toContain('12');
+    const card = container.querySelector('[data-testid="stage-row-7"]')!;
+    const footer = card.lastElementChild as HTMLElement;
+    expect(footer.textContent).toBe('→ 12 documents');
+    expect(footer.style.fontVariantNumeric).toBe('tabular-nums');
+  });
+
+  it('draws no stage preview in the card: the preview column shows it', () => {
+    const { container } = renderAccordion([stage({ id: 7 })], { activeId: 7, stageCounts: { 7: 12 } });
+    expect(container.querySelector('.stage-preview')).toBeNull();
+    expect(screen.queryByText(/Stage preview/)).toBeNull();
+  });
+});
+
+function StageAccordionHarness() {
+  return (
+    <StageAccordion
+      stages={[stage({ id: 1 })]}
+      activeId={null}
+      collection="orders"
+      sourceCount={1}
+      outputCount={null}
+      outputStale={false}
+      stageCounts={{}}
+      staleStageIds={new Set()}
+      previewLoading={new Set()}
+      darkMode={false}
+      suggestionContext={null}
+      onAdd={noop}
+      onToggleActive={noop}
+      onSelect={noop}
+      onToggleEnabled={noop}
+      onChangeOp={noop}
+      onBodyChange={noop}
+      onMoveUp={noop}
+      onMoveDown={noop}
+      onReorder={noop}
+      onRemove={noop}
+      onDuplicate={noop}
+      onRunToStage={noop}
+    />
+  );
+}
+
+describe('StageAccordion — selection (A01 §9.3)', () => {
+  it('the Output row selects the whole pipeline and shows as selected when nothing else is', () => {
+    const onSelect = vi.fn();
+    renderAccordion([stage({ id: 1 })], { onSelect, outputCount: 5 });
+    const output = screen.getByRole('button', { name: /^Output/ });
+    expect(output.getAttribute('aria-pressed')).toBe('true');
+    expect(output.textContent).toContain('5 documents');
+    fireEvent.click(output);
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it('the Output row is not selected while a stage is', () => {
+    renderAccordion([stage({ id: 1 })], { activeId: 1 });
+    expect(screen.getByRole('button', { name: /^Output/ }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('↓ and ↑ on a card walk the selection through the cards and the Output row, with focus', () => {
+    const onSelect = vi.fn();
+    renderAccordion([stage({ id: 1 }), stage({ id: 2 })], { onSelect });
+    const summary = (id: number) => document.querySelector<HTMLElement>(`[data-stage-summary="${id}"]`)!;
+
+    summary(1).focus();
+    fireEvent.keyDown(summary(1), { key: 'ArrowDown' });
+    expect(onSelect).toHaveBeenLastCalledWith(2);
+    expect(document.activeElement).toBe(summary(2));
+
+    fireEvent.keyDown(summary(2), { key: 'ArrowDown' });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+    const output = screen.getByRole('button', { name: /^Output/ });
+    expect(document.activeElement).toBe(output);
+
+    fireEvent.keyDown(output, { key: 'ArrowUp' });
+    expect(onSelect).toHaveBeenLastCalledWith(2);
+    expect(onSelect).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops at the ends', () => {
+    const onSelect = vi.fn();
+    renderAccordion([stage({ id: 1 })], { onSelect });
+    fireEvent.keyDown(document.querySelector('[data-stage-summary="1"]')!, { key: 'ArrowUp' });
+    fireEvent.keyDown(screen.getByRole('button', { name: /^Output/ }), { key: 'ArrowDown' });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('StageAccordion — empty pipeline (A01 §9.5)', () => {
+  const STARTERS = ['$match', '$group', '$sort', '$project', '$lookup', '$unwind'];
+
+  it('offers the six starter stages and All stages…, all from the catalog', () => {
+    renderAccordion([]);
+    expect(screen.getByText('Add a first stage')).toBeTruthy();
+    for (const op of STARTERS) {
+      expect(screen.getByRole('button', { name: op })).toBeTruthy();
+      expect(KNOWN_STAGE_OPS).toContain(op);
+      expect(DEFAULT_BODIES[op]).toBeDefined();
+    }
+    expect(screen.getByRole('button', { name: 'All stages…' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Add stage/ })).toBeNull();
+  });
+
+  it('a chip adds its stage', () => {
+    const onAdd = vi.fn();
+    renderAccordion([], { onAdd });
+    fireEvent.click(screen.getByRole('button', { name: '$lookup' }));
+    expect(onAdd).toHaveBeenCalledWith('$lookup');
+  });
+
+  it('All stages… opens the full picker', () => {
+    const onAdd = vi.fn();
+    renderAccordion([], { onAdd });
+    fireEvent.click(screen.getByRole('button', { name: 'All stages…' }));
+    fireEvent.click(screen.getAllByRole('option').find((el) => el.textContent?.startsWith('$facet'))!);
+    expect(onAdd).toHaveBeenCalledWith('$facet');
   });
 });
 
@@ -221,14 +385,15 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
           collection="orders"
           sourceCount={1234}
           outputCount={null}
+          outputStale={false}
           stageCounts={{}}
-          stageSamples={{}}
           staleStageIds={new Set()}
           previewLoading={new Set()}
           darkMode={false}
           suggestionContext={null}
           onAdd={vi.fn()}
           onToggleActive={vi.fn()}
+          onSelect={vi.fn()}
           onToggleEnabled={vi.fn()}
           onChangeOp={vi.fn()}
           onBodyChange={vi.fn()}
@@ -238,7 +403,6 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
           onRemove={vi.fn()}
           onDuplicate={vi.fn()}
           onRunToStage={vi.fn()}
-          onRefreshPreview={vi.fn()}
         />
       </div>,
     );
@@ -400,14 +564,15 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
         collection="orders"
         sourceCount={1234}
         outputCount={null}
+        outputStale={false}
         stageCounts={{}}
-        stageSamples={{}}
         staleStageIds={new Set()}
         previewLoading={new Set()}
         darkMode={false}
         suggestionContext={null}
         onAdd={vi.fn()}
         onToggleActive={vi.fn()}
+        onSelect={vi.fn()}
         onToggleEnabled={vi.fn()}
         onChangeOp={vi.fn()}
         onBodyChange={vi.fn()}
@@ -417,7 +582,6 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
         onRemove={vi.fn()}
         onDuplicate={vi.fn()}
         onRunToStage={vi.fn()}
-        onRefreshPreview={vi.fn()}
       />,
     );
     expect(screen.queryByText('Unknown op')).toBeNull();
@@ -532,14 +696,15 @@ describe('StageAccordion — stage body editor (T2.4)', () => {
           collection="orders"
           sourceCount={1234}
           outputCount={null}
+          outputStale={false}
           stageCounts={{}}
-          stageSamples={{}}
           staleStageIds={new Set()}
           previewLoading={new Set()}
           darkMode={false}
           suggestionContext={null}
           onAdd={vi.fn()}
           onToggleActive={vi.fn()}
+          onSelect={vi.fn()}
           onToggleEnabled={vi.fn()}
           onChangeOp={onChangeOp}
           onBodyChange={onBodyChange}
@@ -549,7 +714,6 @@ describe('StageAccordion — stage body editor (T2.4)', () => {
           onRemove={vi.fn()}
           onDuplicate={vi.fn()}
           onRunToStage={vi.fn()}
-          onRefreshPreview={vi.fn()}
         />
       );
     }
@@ -811,52 +975,6 @@ describe('StageAccordion — stage body editor (T2.4)', () => {
   });
 });
 
-describe('StageAccordion — readable EJSON in the stage preview', () => {
-  it('shows a count as a number rather than a wrapped string', () => {
-    // UX review §4.1: the preview and the Documents view must use the same
-    // renderer. Before this fix, this read `{"$numberInt":"102"}`.
-    const { container } = renderAccordion([stage({ id: 3, op: '$group' })], {
-      activeId: 3,
-      stageSamples: { 3: [{ _id: 'a', n: new Int32(102) }] },
-    });
-
-    expect(container.textContent).toContain('102');
-    expect(container.textContent).not.toContain('$numberInt');
-  });
-
-  it('keeps an int64 wrapped, because the preview is read as data', () => {
-    const { container } = renderAccordion([stage({ id: 3, op: '$group' })], {
-      activeId: 3,
-      stageSamples: { 3: [{ big: Long.fromString('9007199254740993') }] },
-    });
-
-    expect(container.textContent).toContain('9007199254740993');
-    expect(container.textContent).not.toContain('9007199254740992');
-  });
-});
-
-describe('StageAccordion — expanded preview header (N5.8, N5.9)', () => {
-  it('shows a stale marker with an explanatory title when the stage was edited after the last run', () => {
-    renderAccordion([stage({ id: 7 })], {
-      activeId: 7,
-      stageCounts: { 7: 12 },
-      staleStageIds: new Set([7]),
-    });
-
-    const marker = screen.getByTitle('Stage edited after last run');
-    expect(marker.textContent).toContain('stale');
-  });
-
-  it('omits the marker for a fresh stage and sets tabular numerals on the doc count', () => {
-    renderAccordion([stage({ id: 7 })], { activeId: 7, stageCounts: { 7: 12 } });
-
-    expect(screen.queryByTitle('Stage edited after last run')).toBeNull();
-    const header = screen.getByText(/Stage preview/);
-    expect(header.textContent).toContain('12 docs');
-    expect(header.style.fontVariantNumeric).toBe('tabular-nums');
-  });
-});
-
 describe('StageAccordion — focus after adding or deleting a stage (N5.23)', () => {
   // A real useState wrapper: the focus move only exists once the add/remove
   // has round-tripped back into the `stages` prop.
@@ -870,8 +988,8 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
         collection="orders"
         sourceCount={1}
         outputCount={null}
+        outputStale={false}
         stageCounts={{}}
-        stageSamples={{}}
         staleStageIds={new Set()}
         previewLoading={new Set()}
         darkMode={false}
@@ -881,6 +999,7 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
           setStages((prev) => [...prev, stage({ id: nextId.current++, op: op as Stage['op'] })]);
         }}
         onToggleActive={noop}
+        onSelect={noop}
         onToggleEnabled={noop}
         onChangeOp={noop}
         onBodyChange={noop}
@@ -890,7 +1009,6 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
         onRemove={(id) => setStages((prev) => prev.filter((s) => s.id !== id))}
         onDuplicate={noop}
         onRunToStage={noop}
-        onRefreshPreview={noop}
       />
     );
   }
@@ -910,35 +1028,36 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
     expect(summary(100).getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('focuses the neighbour that took the removed stage place', () => {
+  it('focuses the neighbour that took the removed stage place', async () => {
     render(<Harness initial={[stage({ id: 1 }), stage({ id: 2 }), stage({ id: 3 })]} />);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[1]!);
+    fireEvent.click((await stageMenu(2))('Delete'));
 
     expect(document.querySelector('[data-stage-summary="2"]')).toBeNull();
     expect(document.activeElement).toBe(summary(3));
   });
 
-  it('focuses the previous stage when the last one is removed, and the add pill when none is left', () => {
+  it('focuses the previous stage when the last one is removed, and the first starter chip when none is left', async () => {
     render(<Harness initial={[stage({ id: 1 }), stage({ id: 2 })]} />);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[1]!);
+    fireEvent.click((await stageMenu(2))('Delete'));
     expect(document.activeElement).toBe(summary(1));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete stage' }));
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Add stage/ }));
+    fireEvent.click((await stageMenu(1))('Delete'));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '$match' }));
   });
 
-  it('leaves focus alone when it sits outside the accordion', () => {
+  it('leaves focus alone when it sits outside the accordion', async () => {
     render(
       <>
         <button>elsewhere</button>
         <Harness initial={[stage({ id: 1 }), stage({ id: 2 })]} />
       </>,
     );
+    const remove = (await stageMenu(1))('Delete');
     screen.getByText('elsewhere').focus();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete stage' })[0]!);
+    fireEvent.click(remove);
 
     expect(document.activeElement).toBe(screen.getByText('elsewhere'));
   });
@@ -949,17 +1068,6 @@ describe('StageAccordion body height', () => {
   // loads; the aggregation e2e measures it.
   const fixedBody = (container: HTMLElement) =>
     container.querySelector<HTMLElement>('[data-testid="stage-row-7"] .stage-body')!;
-
-  it('is fixed however many preview documents arrive, and the preview scrolls inside', () => {
-    const docs = Array.from({ length: 5 }, (_, i) => ({ _id: i, note: 'x'.repeat(200) }));
-    const { container } = renderAccordion([stage({ id: 7 })], { activeId: 7, stageSamples: { 7: docs } });
-    const body = fixedBody(container);
-    expect(body).not.toBeNull();
-    // Without `minHeight: 0` the flex row ignores the limit and the documents set the height.
-    const preview = [...body.querySelectorAll<HTMLElement>('div')].find((d) => d.style.overflowY === 'auto');
-    expect(preview!.style.minHeight).toBe('0px');
-    expect(preview!.textContent).toContain('note');
-  });
 
   it('reserves the error line, so an error cannot move the buttons below it', () => {
     const { container } = renderAccordion([stage({ id: 7 })], { activeId: 7 });
