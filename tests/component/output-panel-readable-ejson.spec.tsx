@@ -167,8 +167,8 @@ describe('OutputPanel — readable EJSON', () => {
       ...runMeta,
       rows: [],
       durationMs: 0,
-      stageSamples: { 3: [{ _id: 'a', n: new Int32(102), big: Long.fromString('9007199254740993') }] },
     };
+    const sample = [{ _id: 'a', n: new Int32(102), big: Long.fromString('9007199254740993') }];
     const { container } = render(
       <OutputPanel
         stacked={false}
@@ -178,7 +178,7 @@ describe('OutputPanel — readable EJSON', () => {
         outputStale={false}
         running={false}
         pipelineName={null}
-        stage={{ id: 3, index: 0, op: '$group', enabled: true, stale: false, loading: false }}
+        stage={{ id: 3, index: 0, op: '$group', enabled: true, stale: false, loading: false, sample }}
         onRunToStage={vi.fn()}
         onHeightChange={vi.fn()}
         onHeightCommit={vi.fn()}

@@ -14,6 +14,27 @@ import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/s
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationTabState, AggStagePreview } from '@shared/types';
 
+// CodeMirror needs layout APIs jsdom lacks; an <input> stands in, forwarding
+// the props the stage card uses. Mod-Shift-Enter is claimed (preventDefault)
+// the way CodeMirror's keymap claims a handled key.
+vi.mock('../../src/components/ScriptEditor', () => ({
+  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel }: import('../../src/components/ScriptEditor').ScriptEditorProps) => (
+    <input
+      data-testid={testId}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => onBlur?.()}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter' && onRunAlt) {
+          e.preventDefault();
+          onRunAlt();
+        }
+      }}
+    />
+  ),
+}));
+
 // Spied so each write path can be checked for dropping the cached enum suggestions.
 vi.mock('../../src/features/fieldSuggestions/sources/schemaEnumSource', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/features/fieldSuggestions/sources/schemaEnumSource')>()),
@@ -1337,5 +1358,207 @@ describe('AggregationTab — Run unavailable says why (A01 §9.2, §9.5)', () =>
     fireEvent.click(screen.getByRole('button', { name: '$group' }));
     expect(screen.getByRole('group', { name: 'Stage 1: $group' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Run' }).hasAttribute('aria-disabled')).toBe(false);
+  });
+});
+
+// ─── Review follow-ups: previews, staleness, keys ─────────────────────────
+
+describe('AggregationTab — a stage preview is not a run', () => {
+  afterEach(() => notifications.clean());
+
+  const preview = (sample: unknown[], count: number) =>
+    vi.fn<IpcApi['agg']['previewUpToStage']>(async (input) => ({
+      stageId: input.stages[input.stages.length - 1]!.id,
+      sample,
+      count,
+    }));
+
+  it('a preview with no run before it is fresh, and leaves the Output row with nothing to show', async () => {
+    installAtelierMock({ agg: { previewUpToStage: preview([{ _id: 'p' }], 1) } });
+    renderStatefulTab(DEFAULT_AGGREGATION_TAB_STATE);
+    fireEvent.click(screen.getByRole('button', { name: '$match' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('"p"'));
+    expect(screen.queryByTitle('Stage edited after last run')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Output/ }).textContent).toBe('Output');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
+    expect(screen.getByText('Run the pipeline to see output')).toBeTruthy();
+    expect(screen.queryByText('The pipeline returned no documents')).toBeNull();
+  });
+
+  it('after a run, editing stage 2 and previewing it again reads fresh', async () => {
+    installAtelierMock({
+      agg: {
+        run: (async () => ({
+          rows: [{ _id: 'r' }],
+          durationMs: 1,
+          stageCounts: { 1: 2, 2: 1 },
+          stageSamples: { 1: [{ _id: 'a' }], 2: [{ _id: 'r' }] },
+          hasMore: false,
+        })) as never,
+        previewUpToStage: preview([{ _id: 'again' }], 1),
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 · \$group · 1 docs$/));
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-2'), { target: { value: '{"_id": "$b"}' } });
+    await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('again'));
+    expect(screen.queryByTitle('Stage edited after last run')).toBeNull();
+  });
+
+  it('editing stage 1 after a run makes stage 2 read stale too', async () => {
+    installAtelierMock({
+      agg: {
+        run: (async () => ({
+          rows: [{ _id: 'r' }],
+          durationMs: 1,
+          stageCounts: { 1: 2, 2: 1 },
+          stageSamples: { 1: [{ _id: 'a' }], 2: [{ _id: 'r' }] },
+          hasMore: false,
+        })) as never,
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 · \$match · 2 docs$/));
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{"a": 1}' } });
+
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'Stage 2: $group' }).textContent).toContain('⚠'),
+    );
+  });
+});
+
+describe('AggregationTab — a late preview never overwrites a newer result (#778)', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it('a preview that lands after a Run leaves the Run’s output in place', async () => {
+    const late = deferred<AggStagePreview>();
+    installAtelierMock({
+      agg: {
+        previewUpToStage: () => late.promise,
+        run: (async () => ({
+          rows: [{ _id: 'from-run' }],
+          durationMs: 1,
+          stageCounts: { 1: 1, 2: 1 },
+          stageSamples: { 1: [], 2: [] },
+          hasMore: false,
+        })) as never,
+      },
+    });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Output · 1 docs/));
+
+    await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'stale-preview' }], count: 9 }));
+
+    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('from-run');
+    expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).not.toContain('9');
+  });
+
+  it('a preview that lands after the tab changed is dropped', async () => {
+    const late = deferred<AggStagePreview>();
+    installAtelierMock({ agg: { previewUpToStage: () => late.promise } });
+    const onPatch = vi.fn();
+    const props = {
+      connectionId: 'c1',
+      dbName: 'app',
+      darkMode: false,
+      sourceCount: 1,
+      onPatch,
+    };
+    const state = { ...twoStages, activeStageId: 1 };
+    const { rerender } = render(<AggregationTab {...props} collection="orders" tabId="a" state={state} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+
+    rerender(<AggregationTab {...props} collection="users" tabId="b" state={state} />);
+    await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'from-tab-a' }], count: 1 }));
+
+    expect(screen.getByRole('region', { name: 'Preview' }).textContent).not.toContain('from-tab-a');
+    expect(onPatch.mock.calls.some(([p]) => 'lastRun' in (p as object))).toBe(false);
+  });
+});
+
+describe('AggregationTab — keys', () => {
+  afterEach(() => notifications.clean());
+
+  it('⇧⌘↵ runs up to the selected stage with focus outside its editor', async () => {
+    const previewUpToStage = vi.fn<IpcApi['agg']['previewUpToStage']>(async () => ({ stageId: 2, sample: [], count: 0 }));
+    installAtelierMock({ agg: { previewUpToStage } });
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    summary(2).focus();
+
+    fireEvent.keyDown(summary(2), { key: 'Enter', metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(previewUpToStage).toHaveBeenCalledTimes(1));
+    expect(previewUpToStage.mock.calls[0]![0].stages.map((s) => s.id)).toEqual([1, 2]);
+  });
+
+  it('⇧⌘↵ in the stage editor runs once, not twice', async () => {
+    const previewUpToStage = vi.fn<IpcApi['agg']['previewUpToStage']>(async () => ({ stageId: 1, sample: [], count: 0 }));
+    installAtelierMock({ agg: { previewUpToStage } });
+    renderStatefulTab({ ...twoStages, activeStageId: 1 });
+
+    fireEvent.keyDown(screen.getByTestId('stage-body-editor-1'), { key: 'Enter', metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(previewUpToStage).toHaveBeenCalled());
+    expect(previewUpToStage).toHaveBeenCalledTimes(1);
+  });
+
+  it('⇧⌘↵ with Output selected runs nothing', () => {
+    const previewUpToStage = vi.fn();
+    installAtelierMock({ agg: { previewUpToStage } as never });
+    renderStatefulTab(twoStages);
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true, shiftKey: true });
+    expect(previewUpToStage).not.toHaveBeenCalled();
+  });
+
+  it('⌘↵ and ⌘E on a pipeline that cannot run say why', async () => {
+    renderTab();
+    // The preview column already states it once; the key adds a notice.
+    const shown = () => screen.getAllByText('Add a stage to run').length;
+    expect(shown()).toBe(1);
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(shown()).toBe(2));
+    act(() => notifications.clean());
+    await waitFor(() => expect(shown()).toBe(1));
+    fireEvent.keyDown(window, { key: 'e', metaKey: true });
+    await waitFor(() => expect(shown()).toBe(2));
+  });
+});
+
+describe('AggregationTab — the stages divider drag', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('starts without selecting text, and an unmount mid-drag leaves no window listener', () => {
+    stubNarrowWindow(false);
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const { unmount } = renderTab(twoStages);
+    const divider = screen.getByRole('separator', { name: 'Resize stages column' });
+
+    const notPrevented = fireEvent.mouseDown(divider, { clientX: 100 });
+    expect(notPrevented).toBe(false);
+
+    unmount();
+    expect(remove.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['mousemove', 'mouseup']));
   });
 });

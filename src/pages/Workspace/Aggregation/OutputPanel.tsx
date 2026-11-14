@@ -21,6 +21,9 @@ export interface PreviewStage {
   enabled: boolean;
   stale: boolean;
   loading: boolean;
+  /** Its latest "run up to here" sample, or the full run's; undefined when never run. */
+  sample?: unknown[];
+  count?: number;
 }
 
 interface OutputPanelProps {
@@ -168,8 +171,8 @@ export function OutputPanel({
   const noRows = rows.length === 0;
   const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
   const compact = barWidth !== null && barWidth < COMPACT_BAR_PX;
-  const sample = stage ? lastRun?.stageSamples[stage.id] : undefined;
-  const stageCount = stage ? lastRun?.stageCounts[stage.id] : undefined;
+  const sample = stage?.sample;
+  const stageCount = stage?.count;
   const runUpToShortcut = formatShortcut('⇧⌘↵', isMacRenderer());
 
   const runButton = (label: string) => (
@@ -398,6 +401,8 @@ export function OutputPanel({
             )}
           </Menu.Target>
           <Menu.Dropdown>
+            {/* What every item acts on, whatever the column shows. */}
+            <Menu.Label>Full pipeline output</Menu.Label>
             <Menu.Item leftSection={I.copy} onClick={copyAll} disabled={noRows}>
               Copy
             </Menu.Item>

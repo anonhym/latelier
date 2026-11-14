@@ -25,7 +25,7 @@ import {
   restoreStage,
   setBody as setBodyOp,
   setOp as setOpOp,
-  stageSig,
+  pipelineSigs,
   toggleEnabled as toggleEnabledOp,
   validatePipeline,
   isWriteStage,
@@ -62,6 +62,13 @@ const STAGES_MIN_PX = 320;
 
 function stagesMaxPx(): number {
   return Math.max(STAGES_MIN_PX, Math.floor(window.innerWidth * 0.6));
+}
+
+/** One stage's sample and count, with the `pipelineSigs` signature it was taken under. */
+interface StagePreviewResult {
+  sample?: unknown[];
+  count?: number;
+  sig?: string;
 }
 
 interface Props {
@@ -109,9 +116,6 @@ export function AggregationTab({
   const runIsWriteRef = React.useRef(false);
   const stoppingRef = React.useRef(false);
   const [stopping, setStopping] = React.useState(false);
-  const [lastRunSig, setLastRunSig] = React.useState<Map<number, string>>(
-    () => new Map(),
-  );
   // Per-stage preview race guard (N0.4): a dedicated monotonic token per
   // stageId, separate from the main Run path's runTokenRef/running above —
   // reusing those would let the two paths clobber each other.
@@ -119,18 +123,54 @@ export function AggregationTab({
   const [previewLoading, setPreviewLoading] = React.useState<Set<number>>(
     () => new Set(),
   );
+  // "Run up to this stage" results. They are not a run, so they never become
+  // `lastRun` (whose rows are the Output row's); a full run replaces them, as
+  // it re-samples every stage. Local, so they go when the tab does.
+  const [previews, setPreviews] = React.useState<Record<number, StagePreviewResult>>({});
+  // One AggregationTab serves every collection tab, and `onPatch` writes to
+  // whichever tab is active when it is called: a result that lands after a tab
+  // change belongs to another tab, so it is dropped rather than written here.
+  // `previewGenRef` also moves when a full run lands, so an older preview
+  // cannot replace the run's fresher sample.
+  const tabKey = [tabId ?? '', connectionId, dbName, collection].join('\u0000');
+  const tabKeyRef = useLatest(tabKey);
+  const previewGenRef = React.useRef(0);
+  const [previewsFor, setPreviewsFor] = React.useState(tabKey);
+  if (previewsFor !== tabKey) {
+    setPreviewsFor(tabKey);
+    setPreviews({});
+    setPreviewLoading(new Set());
+  }
+  const lastRunRef = useLatest(state.lastRun);
 
-  const staleStageIds = React.useMemo(() => {
-    const set = new Set<number>();
-    if (!state.lastRun) return set;
+  // What each card shows: its own preview, else the full run's sample, each
+  // with the signature it was taken under, so an edit upstream marks it stale.
+  const sigs = React.useMemo(() => pipelineSigs(stages), [stages]);
+  const stageResults = React.useMemo(() => {
+    const out: Record<number, StagePreviewResult> = {};
+    const run = state.lastRun;
     for (const s of stages) {
-      const prev = lastRunSig.get(s.id);
-      if (prev === undefined || prev !== stageSig(s)) {
-        set.add(s.id);
+      const preview = previews[s.id];
+      if (preview) out[s.id] = preview;
+      else if (run && (run.stageSamples[s.id] !== undefined || run.stageCounts[s.id] !== undefined)) {
+        out[s.id] = { sample: run.stageSamples[s.id], count: run.stageCounts[s.id], sig: run.stageSigs?.[s.id] };
       }
     }
+    return out;
+  }, [stages, previews, state.lastRun]);
+  const staleStageIds = React.useMemo(() => {
+    const set = new Set<number>();
+    for (const s of stages) {
+      const r = stageResults[s.id];
+      if (r && r.sig !== sigs.byStage[s.id]) set.add(s.id);
+    }
     return set;
-  }, [stages, state.lastRun, lastRunSig]);
+  }, [stages, stageResults, sigs]);
+  const stageCounts = React.useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const [id, r] of Object.entries(stageResults)) if (r.count !== undefined) out[Number(id)] = r.count;
+    return out;
+  }, [stageResults]);
 
   const validation = React.useMemo(() => validatePipeline(stages), [stages]);
   const blockedReason = runBlockedReason(stages, validation);
@@ -144,6 +184,9 @@ export function AggregationTab({
   const [stackChoice, setStackChoice] = React.useState(false);
   const stacked = narrow || stackChoice;
   const [stagesWidth, setStagesWidth] = React.useState(STAGES_DEFAULT_PX);
+  // A drag's window listeners, removed by mouseup or, mid-drag, by unmount.
+  const dividerDragStopRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => dividerDragStopRef.current?.(), []);
 
   const markDirty = React.useCallback(() => {
     if (!state.dirty) onPatch({ dirty: true });
@@ -284,6 +327,8 @@ export function AggregationTab({
     async (allowWrite: boolean) => {
       if (!validation.ok) return;
       const runStages = repairStageBodies();
+      const runSigs = pipelineSigs(runStages);
+      const startedFor = tabKey;
       const token = crypto.randomUUID();
       runTokenRef.current = token;
       runIsWriteRef.current = allowWrite;
@@ -300,16 +345,21 @@ export function AggregationTab({
           allowWrite,
         });
         if (runTokenRef.current !== token) return;
-        const lastRun: AggregationLastRun = {
-          rows: result.rows,
-          durationMs: result.durationMs,
-          ranAt: new Date().toISOString(),
-          stageCounts: result.stageCounts,
-          stageSamples: result.stageSamples,
-          hasMore: result.hasMore,
-        };
-        onPatch({ lastRun });
-        setLastRunSig(new Map(runStages.map((s) => [s.id, stageSig(s)])));
+        if (tabKeyRef.current === startedFor) {
+          const lastRun: AggregationLastRun = {
+            rows: result.rows,
+            durationMs: result.durationMs,
+            ranAt: new Date().toISOString(),
+            stageCounts: result.stageCounts,
+            stageSamples: result.stageSamples,
+            hasMore: result.hasMore,
+            stageSigs: runSigs.byStage,
+            pipelineSig: runSigs.pipeline,
+          };
+          onPatch({ lastRun });
+          previewGenRef.current += 1;
+          setPreviews({});
+        }
         // Fire-and-forget, as after a find: the values the leading `$match`
         // stages carried feed the value-suggestion popover. Never blocks or
         // fails the run; main re-filters by op and secret field path.
@@ -339,6 +389,7 @@ export function AggregationTab({
           }
           return;
         }
+        if (tabKeyRef.current !== startedFor) return;
         if (isIpcError(e)) {
           const details = (e.details ?? {}) as {
             kind?: string;
@@ -352,28 +403,26 @@ export function AggregationTab({
             });
             return;
           }
-          onPatch({
-            lastRun: {
-              rows: state.lastRun?.rows ?? [],
-              durationMs: 0,
-              ranAt: new Date().toISOString(),
-              stageCounts: state.lastRun?.stageCounts ?? {},
-              stageSamples: state.lastRun?.stageSamples ?? {},
-              error: { code: e.code, message: e.message, details: e.details },
-            },
-          });
-        } else {
-          onPatch({
-            lastRun: {
-              rows: state.lastRun?.rows ?? [],
-              durationMs: 0,
-              ranAt: new Date().toISOString(),
-              stageCounts: state.lastRun?.stageCounts ?? {},
-              stageSamples: state.lastRun?.stageSamples ?? {},
-              error: { code: 'INTERNAL', message: String(e) },
-            },
-          });
         }
+        // The failure is this pipeline's; the counts and samples kept beside
+        // it are the previous run's, under that run's signatures. Read at
+        // settle time, not from the closure: a preview or a run may have
+        // landed while this one was in flight.
+        const prev = lastRunRef.current;
+        onPatch({
+          lastRun: {
+            rows: prev?.rows ?? [],
+            durationMs: 0,
+            ranAt: new Date().toISOString(),
+            stageCounts: prev?.stageCounts ?? {},
+            stageSamples: prev?.stageSamples ?? {},
+            stageSigs: prev?.stageSigs,
+            pipelineSig: runSigs.pipeline,
+            error: isIpcError(e)
+              ? { code: e.code, message: e.message, details: e.details }
+              : { code: 'INTERNAL', message: String(e) },
+          },
+        });
       } finally {
         // A confirmed run is one with a `$out`/`$merge` stage, whose target
         // main parses out of the stage body, so the renderer can't name the
@@ -392,11 +441,19 @@ export function AggregationTab({
         }
       }
     },
-    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, state.lastRun],
+    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, tabKey, tabKeyRef, lastRunRef],
   );
 
+  // Every way of asking for a run that cannot start — the fake-disabled
+  // button, ⌘↵, the palette — hears why, once, in the same words as the tooltip.
+  const sayBlocked = (reason: string) => notify.info(reason, { id: 'agg-run-blocked' });
+
   const onRun = () => {
-    if (running || !validation.ok) return;
+    if (running) return;
+    if (blockedReason) {
+      sayBlocked(blockedReason);
+      return;
+    }
     void executeRun(false);
   };
 
@@ -427,8 +484,13 @@ export function AggregationTab({
     if (idx === -1) return;
     const upto = runStages.slice(0, idx + 1).filter((s) => s.enabled);
     if (upto.length === 0) return;
+    const sig = pipelineSigs(runStages).byStage[stageId];
+    const startedFor = tabKey;
+    const gen = previewGenRef.current;
     const token = (previewTokenRef.current.get(stageId) ?? 0) + 1;
     previewTokenRef.current.set(stageId, token);
+    // Still the newest call for this stage, on this tab.
+    const latest = () => previewTokenRef.current.get(stageId) === token && tabKeyRef.current === startedFor;
     setPreviewLoading((prev) => {
       const next = new Set(prev);
       next.add(stageId);
@@ -442,38 +504,18 @@ export function AggregationTab({
         stages: upto,
         limit: 5,
       });
-      // A newer call for this same stage superseded us — drop this stale
-      // response instead of clobbering what it already committed.
-      if (previewTokenRef.current.get(stageId) !== token) return;
-      const nextRun: AggregationLastRun = state.lastRun
-        ? { ...state.lastRun }
-        : {
-            rows: [],
-            durationMs: 0,
-            ranAt: new Date().toISOString(),
-            stageCounts: {},
-            stageSamples: {},
-          };
-      nextRun.stageSamples = {
-        ...nextRun.stageSamples,
-        [stageId]: preview.sample,
-      };
-      if (typeof preview.count === 'number') {
-        nextRun.stageCounts = {
-          ...nextRun.stageCounts,
-          [stageId]: preview.count,
-        };
-      }
-      nextRun.ranAt = new Date().toISOString();
-      onPatch({ lastRun: nextRun });
+      // Superseded by a newer call for this stage, by a full run that landed
+      // first, or by a tab change: drop it rather than clobber the newer result.
+      if (!latest() || previewGenRef.current !== gen) return;
+      setPreviews((prev) => ({ ...prev, [stageId]: { sample: preview.sample, count: preview.count, sig } }));
     } catch (e) {
       // Same guard: a superseded failed preview must not toast over a
       // newer success (or a newer failure already surfaced).
-      if (previewTokenRef.current.get(stageId) !== token) return;
+      if (!latest() || previewGenRef.current !== gen) return;
       const msg = isIpcError(e) ? e.message : String(e);
       notify.error(msg, { title: 'Preview failed' });
     } finally {
-      if (previewTokenRef.current.get(stageId) === token) {
+      if (latest()) {
         setPreviewLoading((prev) => {
           const next = new Set(prev);
           next.delete(stageId);
@@ -522,7 +564,11 @@ export function AggregationTab({
   // ── Explain ──────────────────────────────────────────────────────
 
   const onExplain = () => {
-    if (running || !validation.ok) return;
+    if (running) return;
+    if (blockedReason) {
+      sayBlocked(blockedReason);
+      return;
+    }
     setExplainOpen(true);
   };
 
@@ -578,6 +624,9 @@ export function AggregationTab({
   const onSaveRef = useLatest(onSave);
   const onExplainRef = useLatest(onExplain);
   const runningRef = useLatest(running);
+  const onRunToStageRef = useLatest(onRunToStage);
+  const activeStageIdRef = useLatest(state.activeStageId);
+  const previewLoadingRef = useLatest(previewLoading);
 
   // The palette's Run on a saved pipeline: the Run button's own handler, once.
   const runRequested = React.useSyncExternalStore(
@@ -627,7 +676,15 @@ export function AggregationTab({
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && e.shiftKey) {
+        // ⇧⌘↵ runs up to the selected stage wherever focus is in the view.
+        // The stage editor claims the key itself (and prevents its default),
+        // so a press there is already handled.
+        const id = activeStageIdRef.current;
+        if (e.defaultPrevented || id === null || previewLoadingRef.current.has(id)) return;
+        e.preventDefault();
+        void onRunToStageRef.current(id);
+      } else if (e.key === 'Enter') {
         e.preventDefault();
         if (runningRef.current) onCancelRunRef.current();
         else onRunRef.current();
@@ -638,13 +695,13 @@ export function AggregationTab({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onCancelRunRef, onExplainRef, onRunRef, runningRef]);
+  }, [activeStageIdRef, onCancelRunRef, onExplainRef, onRunRef, onRunToStageRef, previewLoadingRef, runningRef]);
 
   // ── Derived UI values ───────────────────────────────────────────
 
   const outputCount =
     state.lastRun?.rows.length !== undefined ? state.lastRun.rows.length : null;
-  const outputStale = state.lastRun ? staleStageIds.size > 0 : false;
+  const outputStale = state.lastRun ? state.lastRun.pipelineSig !== sigs.pipeline : false;
   const hasWriteStage = stages.some((s) => s.enabled && isWriteStage(s.op));
   const activeIndex = stages.findIndex((s) => s.id === state.activeStageId);
   const activeStage = stages[activeIndex];
@@ -656,6 +713,8 @@ export function AggregationTab({
         enabled: activeStage.enabled,
         stale: staleStageIds.has(activeStage.id),
         loading: previewLoading.has(activeStage.id),
+        sample: stageResults[activeStage.id]?.sample,
+        count: stageResults[activeStage.id]?.count,
       }
     : null;
   const mac = isMacRenderer();
@@ -691,16 +750,20 @@ export function AggregationTab({
   };
 
   const onStagesDividerDown = (e: React.MouseEvent) => {
+    // No text selection while dragging across the editors.
+    e.preventDefault();
     const startX = e.clientX;
     const startW = stagesWidth;
     const onMove = (ev: MouseEvent) =>
       setStagesWidth(Math.max(STAGES_MIN_PX, Math.min(stagesMaxPx(), startW + ev.clientX - startX)));
-    const onUp = () => {
+    const stop = () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('mouseup', stop);
+      dividerDragStopRef.current = null;
     };
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mouseup', stop);
+    dividerDragStopRef.current = stop;
   };
   const onStagesDividerKey = (e: React.KeyboardEvent) => {
     const next = resizeKeyStep(e.key, 'horizontal', stagesWidth, STAGES_MIN_PX, stagesMaxPx());
@@ -860,7 +923,7 @@ export function AggregationTab({
             sourceCount={sourceCount}
             outputCount={outputCount}
             outputStale={outputStale}
-            stageCounts={state.lastRun?.stageCounts ?? {}}
+            stageCounts={stageCounts}
             staleStageIds={staleStageIds}
             previewLoading={previewLoading}
             darkMode={darkMode}

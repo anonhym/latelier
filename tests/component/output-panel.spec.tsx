@@ -324,6 +324,12 @@ describe('OutputPanel resize keyboard support (#56)', () => {
 });
 
 describe('OutputPanel — Export results', () => {
+  it('says the menu acts on the full pipeline output', async () => {
+    renderPanel({ stage: previewStage({ sample: [{ _id: 1 }] }) });
+    await userEvent.click(screen.getByRole('button', { name: 'Export results' }));
+    expect(await screen.findByText('Full pipeline output')).toBeTruthy();
+  });
+
   const withRows: AggregationLastRun = { ...runMeta, rows: [{ _id: 1 }], durationMs: 3 };
 
   it('is one menu of four items, and nothing in the header is named "Save as"', async () => {
@@ -387,8 +393,8 @@ describe('OutputPanel — Export results', () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderPanel({
-      lastRun: { ...runMeta, rows: [{ _id: 'final' }], durationMs: 3, stageSamples: { 4: [{ _id: 'sample' }] } },
-      stage: previewStage({ id: 4 }),
+      lastRun: { ...runMeta, rows: [{ _id: 'final' }], durationMs: 3 },
+      stage: previewStage({ id: 4, sample: [{ _id: 'sample' }] }),
     });
 
     fireEvent.click(await exportItem('Copy'));
@@ -406,14 +412,8 @@ describe('OutputPanel — the selected stage', () => {
   it('shows the stage sample, its heading and count, not the full output', () => {
     renderPanel({
       view: 'JSON',
-      lastRun: {
-        ...runMeta,
-        rows: [{ _id: 'final' }],
-        durationMs: 3,
-        stageCounts: { 4: 12 },
-        stageSamples: { 4: [{ _id: 'sample' }] },
-      },
-      stage: previewStage(),
+      lastRun: { ...runMeta, rows: [{ _id: 'final' }], durationMs: 3 },
+      stage: previewStage({ sample: [{ _id: 'sample' }], count: 12 }),
     });
     expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 · $group · 12 docs');
     const body = screen.getByTestId('output-bar').nextElementSibling as HTMLElement;
@@ -448,20 +448,13 @@ describe('OutputPanel — the selected stage', () => {
   });
 
   it('marks a stage edited after its sample as stale', () => {
-    renderPanel({
-      lastRun: { ...runMeta, rows: [], durationMs: 0, stageSamples: { 4: [{ _id: 1 }] } },
-      stage: previewStage({ stale: true }),
-    });
+    renderPanel({ stage: previewStage({ stale: true, sample: [{ _id: 1 }] }) });
     expect(screen.getByTitle('Stage edited after last run').textContent).toContain('stale');
   });
 
   it('refreshes a stage sample from the header', () => {
     const onRunToStage = vi.fn();
-    renderPanel({
-      lastRun: { ...runMeta, rows: [], durationMs: 0, stageSamples: { 4: [{ _id: 1 }] } },
-      stage: previewStage(),
-      onRunToStage,
-    });
+    renderPanel({ stage: previewStage({ sample: [{ _id: 1 }] }), onRunToStage });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh preview' }));
     expect(onRunToStage).toHaveBeenCalledWith(4);
   });
