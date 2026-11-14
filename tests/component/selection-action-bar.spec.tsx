@@ -151,6 +151,17 @@ describe('SelectionActionBar', () => {
     expect(container.querySelector('[data-testid="selection-bar"]')).toBeNull();
   });
 
+  // Mounted before the first selection: a live region that appears with its
+  // text is not announced, so the count would go unheard.
+  it('announces the count through a polite live region that is there before anything is selected', () => {
+    renderBar(vi.fn());
+    const live = screen.getByTestId('selection-live');
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent).toBe('');
+    selectFirstCard();
+    expect(live.textContent).toBe('1 selected');
+  });
+
   it('AC2 — shows the selection count once a row is selected', () => {
     const { container } = renderBar(vi.fn());
     selectFirstCard();

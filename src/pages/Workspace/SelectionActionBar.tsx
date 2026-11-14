@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Button, Group, Menu } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { copyToClipboard } from '../../utils/clipboard';
 import { COPY_FORMATS, COPY_FORMAT_LABELS, MONGOSH_HINT, formatDocsForCopy, type CopyFormat } from '../../utils/copyFormat';
@@ -140,6 +140,12 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
           </>
         )}
       </Group>
+      {/* The pill mounts with its count, which a screen reader would not
+          announce, so the count is spoken from here, mounted all along. No
+          `role="status"`: the band's own status lines keep that query to themselves. */}
+      <VisuallyHidden data-testid="selection-live" aria-live="polite" aria-atomic="true">
+        {selection.indices.size > 0 ? `${selection.indices.size} selected` : ''}
+      </VisuallyHidden>
       {/* W06 §8.3: the selection floats at the bottom centre of the canvas, over
           the rows, so making or clearing one moves nothing. */}
       {selection.indices.size > 0 && (
