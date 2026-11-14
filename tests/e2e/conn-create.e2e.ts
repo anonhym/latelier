@@ -43,7 +43,7 @@ test('create connection: fill form, test probe succeeds, save appears in list', 
       // Test probe.
       await form.clickTab('General');
       await form.testButton.click();
-      await expect(win.getByText('Connection successful')).toBeVisible({ timeout: 10000 });
+      await expect(win.getByText(/Connected in \d+ ms/)).toBeVisible({ timeout: 10000 });
 
       // Save closes the modal; the new Connection becomes Active over the
       // Data View (there is no more standalone list screen to land

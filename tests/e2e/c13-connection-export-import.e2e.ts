@@ -142,7 +142,7 @@ test('export two of three Connections with passwords, import into a fresh profil
       await winB.evaluate(() => (window as unknown as { atelier: Atelier }).atelier.secrets.setPlaintextFallback(true));
     }
 
-    await winB.getByRole('button', { name: 'Import connections' }).click();
+    await winB.getByRole('button', { name: 'Import from Compass or a file' }).click();
     const wizard = winB.getByRole('dialog', { name: 'Import Connections', exact: true });
     await wizard.getByRole('button', { name: 'Choose file…' }).click();
 

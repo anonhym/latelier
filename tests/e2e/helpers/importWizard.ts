@@ -71,7 +71,7 @@ export async function allowSecretStorage(app: ElectronApplication, win: Page): P
 
 /** Opens the wizard from the first-launch screen, which shows it only with no Connections. */
 export async function openWizardFromEmptyScreen(win: Page) {
-  await win.getByRole('button', { name: 'Import connections' }).click();
+  await win.getByRole('button', { name: 'Import from Compass or a file' }).click();
   const dialog = wizardDialog(win);
   await expect(dialog).toBeVisible();
   return dialog;
