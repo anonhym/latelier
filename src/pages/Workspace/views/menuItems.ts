@@ -2,7 +2,7 @@ import type { ContextMenuItem } from '../../../components/ContextMenu';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { formatDocsForCopy, type CopyFormat } from '../../../utils/copyFormat';
 import { isRecord, valueToClipboardText } from '../../../utils/displayValue';
-import { getDocIdText } from './docId';
+import { getDocIdCopyText } from './docId';
 
 export interface FieldMenuInput {
   fieldPath: string;
@@ -89,7 +89,7 @@ export function docMenuItems({
     items.push({
       kind: 'item',
       label: 'Copy _id',
-      onClick: () => void copyToClipboard(getDocIdText(doc), 'Document id copied to the clipboard.'),
+      onClick: () => void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.'),
     });
   }
   items.push({
