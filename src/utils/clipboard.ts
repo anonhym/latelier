@@ -1,5 +1,7 @@
 import { notify } from '../theme/notifications';
 
+const CLIPBOARD_TOAST_ID = 'clipboard-copied';
+
 /**
  * Copy `text` and say so. W15 §13.7: a copy button that reports
  * nothing is indistinguishable from a broken one, and `navigator.clipboard`
@@ -16,7 +18,8 @@ import { notify } from '../theme/notifications';
 export async function copyToClipboard(text: string, successMessage?: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
-    if (successMessage) notify.success(successMessage);
+    // One fixed id: six copies in a row leave one toast, not six.
+    if (successMessage) notify.success(successMessage, { id: CLIPBOARD_TOAST_ID, autoClose: 1500 });
     return true;
   } catch {
     notify.error('Could not copy to the clipboard.');

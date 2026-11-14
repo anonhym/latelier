@@ -12,6 +12,7 @@ import { isContextMenuKey, isDeleteKey, isEditKey, anchorForRow, anchorFromRect 
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
 import { ownGet, ownSet } from '../../../utils/ownProperty';
+import { copyToClipboard } from '../../../utils/clipboard';
 import {
   DRAGGED_FIELD_MIME,
   classifySort,
@@ -33,6 +34,8 @@ import { RowActionsMenu } from './RowActionsMenu';
 import { FieldActionsMenu } from './FieldActionsMenu';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
+import { useCopyFormat } from './useCopyFormat';
+import { copyDocument, copyShortcutOf } from './copyShortcut';
 import { useDeepPaths } from './useDeepPaths';
 import { useDocMenu } from './useDocMenu';
 import {
@@ -365,6 +368,7 @@ function TableCell({
       // valid, and unlike `option` it is free to hold the drag, copy and
       // inline-edit controls this cell owns.
       role="gridcell"
+      data-cell-key={cellKey}
       draggable={draggable && !editing}
       onDragStart={draggable && !editing ? handleDragStart : undefined}
       onDoubleClick={(e) => {
@@ -408,7 +412,7 @@ function TableCell({
           : dv.type === 'number' || dv.type === 'long' || dv.type === 'decimal'
           ? 'var(--atelier-color-number)'
           : 'var(--atelier-text)',
-        textAlign: isCopied ? 'center' : 'left',
+        textAlign: isCopied || !draggable ? 'center' : 'left',
         fontWeight: isCopied ? 600 : 400,
         boxSizing: 'border-box',
       }}
@@ -418,7 +422,7 @@ function TableCell({
       title={
         draggable
           ? `Drag to add "${fieldPath} $eq …" to builder · double-click to copy`
-          : undefined
+          : 'Field not present'
       }
     >
       {canInlineEdit && kind === 'boolean' ? (
@@ -515,6 +519,10 @@ function TableCell({
             </span>
           )}
         </>
+      ) : !draggable ? (
+        // W06 §8.5 — the document has no such field. `null` and a stored value
+        // keep their own text, so a sparse collection stays tellable apart.
+        '—'
       ) : isCopied ? (
         '✓ Copied'
       ) : rule ? (
@@ -633,6 +641,12 @@ function TableCell({
       )}
     </div>
   );
+}
+
+/** What a document holds under a column; `undefined` when it has no such field. */
+function columnValue(doc: unknown, col: ResolvedColumn): unknown {
+  if (!isRecord(doc)) return undefined;
+  return col.kind === 'field' ? doc[col.field] : getValueAtPath(doc, col.path);
 }
 
 interface TableRowProps {
@@ -879,14 +893,7 @@ function TableRowImpl({
         </div>
 
         {columns.map((col) => {
-          const val =
-            col.kind === 'field'
-              ? isRecord(doc)
-                ? doc[col.field]
-                : undefined
-              : isRecord(doc)
-              ? getValueAtPath(doc, col.path)
-              : undefined;
+          const val = columnValue(doc, col);
           const fieldPath = col.kind === 'field' ? col.field : col.label ?? col.path;
           const cellKey = `${index}:${col.field}`;
           const isCopied = copiedCell === cellKey;
@@ -1120,6 +1127,10 @@ export function TableView({
   const selection = useResultSelection(documents);
   // Badge, not toast — a toast per cell copy would be noise; a failed copy toasts instead.
   const { copied: copiedCell, flash: copyCell } = useCopiedFlash<string>();
+  const [copyFormat] = useCopyFormat();
+  // The cell a click last landed in (`data-cell-key`): the grid has one active
+  // row but no active cell, and ⌘C needs to know which value is meant.
+  const clickedCellRef = React.useRef<string | null>(null);
 
   const expandedRows = React.useMemo(
     () => expandedRowsProp ?? EMPTY_EXPANDED_ROWS,
@@ -1176,6 +1187,11 @@ export function TableView({
     () => resolveColumns(derivedFields, columnConfig),
     [derivedFields, columnConfig],
   );
+  // A new result (a re-run, another page) or a changed column set leaves the
+  // remembered cell pointing at a position that now holds something else.
+  React.useEffect(() => {
+    clickedCellRef.current = null;
+  }, [documents, columns]);
   const sortMap = React.useMemo(() => parseSortString(sort ?? ''), [sort]);
   // Excludes computed columns — a computed column named after a sort key
   // must not count as "drawn" and silence the note.
@@ -1490,6 +1506,30 @@ export function TableView({
         );
         return;
       }
+      // W06 §8.6 — ⌘C copies the cell last clicked in the active row, ⌘⇧C the
+      // whole document. With no clicked cell in that row, ⌘C copies the
+      // document rather than doing nothing. A clicked cell whose field the
+      // document lacks (drawn as a dash) holds nothing to copy: no write, no toast.
+      const copyKind = copyShortcutOf(e);
+      if (copyKind !== null) {
+        if (documents.length === 0) return;
+        e.preventDefault();
+        const doc = documents[roving.activeIndex];
+        const [cellRow, ...cellField] = (clickedCellRef.current ?? '').split(':');
+        const col =
+          copyKind === 'primary' && Number(cellRow) === roving.activeIndex
+            ? columns.find((c) => c.field === cellField.join(':'))
+            : undefined;
+        if (col) {
+          const value = columnValue(doc, col);
+          if (value !== undefined) {
+            void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.');
+          }
+        } else {
+          void copyDocument(doc, copyFormat);
+        }
+        return;
+      }
       if (isEditKey(e)) {
         if (documents.length === 0) return;
         e.preventDefault();
@@ -1513,7 +1553,7 @@ export function TableView({
     // `roving` itself is a fresh object every render (see `handleSelect`
     // above) — depend on the members this actually reads instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, onDeleteDoc, canDelete, openDocMenu],
+    [roving.onKeyDown, roving.activeIndex, roving.rowId, documents, handleSelect, listRef, onEditDoc, onDeleteDoc, canDelete, openDocMenu, columns, copyFormat],
   );
 
   const rowProps = React.useMemo<TableRowProps>(
@@ -1855,6 +1895,10 @@ export function TableView({
         onFocus={roving.containerProps.onFocus}
         onBlur={roving.containerProps.onBlur}
         onKeyDown={handleGridKeyDown}
+        onClickCapture={(e) => {
+          const cell = e.target instanceof HTMLElement ? e.target.closest('[data-cell-key]') : null;
+          clickedCellRef.current = cell?.getAttribute('data-cell-key') ?? null;
+        }}
         rowComponent={TableRowImpl}
         rowCount={documents.length}
         rowHeight={rowHeight}

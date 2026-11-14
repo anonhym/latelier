@@ -343,11 +343,11 @@ describe('TableView — rendering and interaction', () => {
     it('the gutter checkbox selects a row without moving it via a plain click, and names the document', () => {
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'a' }];
       const { getByRole } = renderTable(docs);
-      const checkbox = getByRole('button', { name: 'Select document 99439011' });
+      const checkbox = getByRole('button', { name: 'Select document …99439011' });
 
       fireEvent.click(checkbox);
       expect(checkbox.getAttribute('aria-pressed')).toBe('true');
-      expect(getByRole('button', { name: 'Deselect document 99439011' })).toBe(checkbox);
+      expect(getByRole('button', { name: 'Deselect document …99439011' })).toBe(checkbox);
     });
 
     it('double-click on a cell copies its value to the clipboard', () => {
