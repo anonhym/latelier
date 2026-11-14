@@ -304,25 +304,28 @@ function DocRowImpl({
             setActiveIndex(index);
           }}
         />
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size={24}
-          tabIndex={buttonTabIndex}
-          c="var(--atelier-text-ghost)"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRowExpand(docId, !isExpanded);
-          }}
-          aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
-          style={{
-            flexShrink: 0,
-            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-            transition: 'transform 120ms',
-          }}
-        >
-          {I.chevD}
-        </ActionIcon>
+        {/* Space on the focused row toggles it too (the tree's own key handler). */}
+        <Tooltip label={`${isExpanded ? 'Collapse document' : 'Expand document'} (Space)`} withArrow openDelay={400}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={24}
+            tabIndex={buttonTabIndex}
+            c="var(--atelier-text-ghost)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRowExpand(docId, !isExpanded);
+            }}
+            aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
+            style={{
+              flexShrink: 0,
+              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms',
+            }}
+          >
+            {I.chevD}
+          </ActionIcon>
+        </Tooltip>
 
         <DocIdLabel doc={doc} />
 

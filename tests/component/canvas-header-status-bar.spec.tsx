@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { installAtelierMock, uninstallAtelierMock, connectionFixture } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { StatusBar } from '../../src/pages/Workspace/StatusBar';
+import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { DEFAULT_VIEW_PREF_KEY } from '../../src/state/workspaceTabs';
 import type { CollectionTabState, ConnectionSummary } from '@shared/types';
@@ -108,5 +109,26 @@ describe('status bar', () => {
     mount();
     fireEvent.mouseEnter(screen.getByRole('button', { name: 'Last page' }).parentElement!);
     expect((await screen.findByRole('tooltip')).textContent).toBe('Last page');
+  });
+});
+
+describe('Expand document tooltips', () => {
+  it.each([
+    ['Tree', 'Expand document (Space)'],
+    ['Table', 'Expand document'],
+  ] as const)('the %s view names its expand control on hover', async (view, tooltip) => {
+    render(
+      <CollectionWorkspaceProvider
+        state={state({ view, lastRun: { documents: [{ _id: 1, a: { b: 1 } }], durationMs: 1, ranAt: '2026-01-01T00:00:00.000Z' } })}
+        actions={emptyWorkspaceActions()}
+        meta={emptyWorkspaceMeta()}
+      >
+        <ResultViewer>
+          <ResultViewer.Body onClearFilter={() => {}} onColumnResize={() => {}} onRowExpand={() => {}} />
+        </ResultViewer>
+      </CollectionWorkspaceProvider>,
+    );
+    fireEvent.mouseEnter(screen.getAllByRole('button', { name: 'Expand document' })[0]!);
+    expect((await screen.findByRole('tooltip')).textContent).toBe(tooltip);
   });
 });
