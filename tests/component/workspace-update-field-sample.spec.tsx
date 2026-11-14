@@ -18,6 +18,7 @@ import { installAtelierMock, uninstallAtelierMock, connectionFixture, multiConne
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTab } from '@shared/types';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
+import { rerunCollection } from '../../src/pages/Workspace/undoStore';
 
 // Mocked at the exact module Workspace.tsx imports; the rest stays real
 // because the page reaches the suggestion sources through their barrel.
@@ -181,7 +182,7 @@ describe('Quick Edit re-runs the tab it edited', () => {
   });
 
   /** Mounts `orders` (focused) and `users`, then starts a Quick Edit on orders whose write stays in flight. */
-  async function startEditOnOrders() {
+  async function startEditOnOrders(secondOrdersTab = false) {
     let land!: (v: unknown) => void;
     const updateOne = vi.fn(() => new Promise((r) => { land = r; }));
     const find = vi.fn(async () => ({ documents: [DOC], durationMs: 1, hasMore: false }));
@@ -193,6 +194,7 @@ describe('Quick Edit re-runs the tab it edited', () => {
         tabs: [
           { dbName: 'shop', collection: 'orders', isActive: true, state },
           { dbName: 'shop', collection: 'users', state },
+          ...(secondOrdersTab ? [{ dbName: 'shop', collection: 'orders', state }] : []),
         ],
       }),
       query: { find },
@@ -252,5 +254,32 @@ describe('Quick Edit re-runs the tab it edited', () => {
     await landWrite();
 
     expect(find).not.toHaveBeenCalled();
+  });
+
+  // The undo is the collection's, so ⌘Z can run it from any tab on orders:
+  // another one stays current even after the edited tab has gone.
+  it('its Undo re-runs another tab on the same collection once the edited tab has closed', async () => {
+    const { find, undo, landWrite } = await startEditOnOrders(true);
+    await landWrite();
+    // Two tabs on one collection are told apart by their database.
+    const [edited] = screen.getAllByRole('tab', { name: /^shop\.orders/ });
+    fireEvent.keyDown(edited!, { key: 'ContextMenu' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close tab' }));
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: /orders/ })).toHaveLength(1));
+
+    find.mockClear();
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+    await waitFor(() => expect(undo).toHaveBeenCalledWith({ entryId: 'a1' }));
+    await waitFor(() => expect(collectionsQueried(find)).toEqual(['orders']));
+  });
+
+  // An import's Undo has no tab list at hand; the page registers how to re-run
+  // every open tab on a collection, and only those.
+  it('the page re-runs every open tab on a collection when an undo asks it to', async () => {
+    const { find } = await startEditOnOrders(true);
+    find.mockClear();
+    act(() => rerunCollection({ connectionId: 'c1', dbName: 'shop', collection: 'orders' }));
+    await waitFor(() => expect(collectionsQueried(find)).toEqual(['orders', 'orders']));
   });
 });

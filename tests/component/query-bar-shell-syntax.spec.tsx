@@ -264,8 +264,8 @@ describe('QueryBar — Shell Syntax input (X14 T2)', () => {
     await typeAndBlur('{age: {$gt: 60}}');
     fireEvent.click(await screen.findByTestId('query-run-btn'));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }));
-    fireEvent.click(await screen.findByText(/Delete all matching/));
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
+    fireEvent.click(await screen.findByText(/Delete matching/));
 
     await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     expect(confirmSpy.mock.calls[0]?.[0].filterJson).toBe('{"age": {"$gt": 60}}');

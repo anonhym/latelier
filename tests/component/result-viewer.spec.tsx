@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceMeta } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
@@ -85,7 +86,7 @@ describe('ResultViewer compound', () => {
       </ResultViewer>,
     );
     expect(container.textContent).toContain('This collection is empty');
-    expect(screen.getByRole('button', { name: /import documents/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Import…' })).toBeTruthy();
   });
 
   it('keeps the import dialog open when the import refresh fills the empty collection', () => {
@@ -100,7 +101,7 @@ describe('ResultViewer compound', () => {
       </ResultViewer>
     );
     const { rerender } = renderViewer(empty, {}, body);
-    fireEvent.click(screen.getByRole('button', { name: /import documents/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import…' }));
     expect(screen.getByRole('dialog', { name: /import into/i })).toBeTruthy();
 
     // The import's own refresh lands rows, which unmounts the empty state.
@@ -148,7 +149,7 @@ describe('ResultViewer compound', () => {
         </ResultViewer>
       </CollectionWorkspaceProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: /import documents/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import…' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Choose file…' }));
 
     expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
@@ -178,7 +179,7 @@ describe('ResultViewer compound', () => {
       </ResultViewer>,
     );
     expect(container.textContent).toContain('This collection is empty');
-    expect(screen.queryByRole('button', { name: /import documents/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Import…' })).toBeNull();
   });
 
   it('Body says to run the query when the tab has never run, with no Clear-filter button', () => {
@@ -351,7 +352,7 @@ describe('ResultViewer compound', () => {
     expect(container.textContent).toContain('alpha');
   });
 
-  it('Pagination slot renders ResultBar against the same provider', () => {
+  it('Pagination slot renders ResultBar against the same provider, its pager in the status bar', () => {
     const state = makeState({
       view: 'Tree',
       page: 0,
@@ -368,11 +369,12 @@ describe('ResultViewer compound', () => {
       state,
       {},
       <ResultViewer>
+        <StatusBar connection={null} />
         <ResultViewer.Pagination />
       </ResultViewer>,
     );
     // 100 / 10 = 10 pages — pager shows "1 / 10"
-    expect(container.textContent).toContain('1 / 10');
+    expect(container.querySelector('[data-testid="status-bar"]')!.textContent).toContain('1 / 10');
   });
 
   it('individual Tree slot can be used without Body for custom composition', () => {

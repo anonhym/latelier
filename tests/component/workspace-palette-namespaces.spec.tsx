@@ -144,6 +144,23 @@ function openRows(): string[] {
     .map((o) => o.querySelector('[data-title]')?.getAttribute('data-title') ?? '');
 }
 
+/** The collection rows under the group headed `label`, by id. */
+function groupIds(label: string): string[] {
+  const head = within(screen.getByRole('dialog')).getByText(label);
+  const group = head.closest('[role="group"]');
+  return Array.from(group?.querySelectorAll('[role="option"]') ?? [])
+    .filter((o) => o.id.includes('-opt-tab.open:'))
+    .map((o) => o.id.slice(o.id.indexOf('tab.open:')));
+}
+
+/** The collection rows under the group headed `label`, by name. */
+function groupOf(label: string): string[] {
+  const head = within(screen.getByRole('dialog')).getByText(label);
+  return Array.from(head.closest('[role="group"]')?.querySelectorAll('[role="option"] [data-title]') ?? []).map(
+    (el) => el.getAttribute('data-title') ?? '',
+  );
+}
+
 /** Waits for the palette sweep to reach every database of `c1`. */
 async function settled(listCollections: ReturnType<typeof mount>['listCollections']) {
   await waitFor(() => {
@@ -189,13 +206,14 @@ describe('palette namespace rows', () => {
     await waitFor(() => expect(openRows()).toEqual(['shop.orders']));
   });
 
-  it('lists no namespace rows on an empty query', async () => {
+  it('lists the collections of the Connection on an empty query, under their own group', async () => {
     const { listCollections } = mount();
     await settled(listCollections);
 
     openPalette();
     expect(screen.getByText('Close current tab')).toBeTruthy();
-    expect(openRows()).toEqual([]);
+    expect(openRows()).toEqual(['crm.leads', 'shop.customers', 'shop.orders']);
+    expect(groupOf('Collections in this connection')).toEqual(['crm.leads', 'shop.customers', 'shop.orders']);
   });
 
   it('shows a namespace opened from the palette under Recent on an empty query', async () => {
@@ -236,13 +254,9 @@ describe('palette namespace rows', () => {
     await waitFor(() => expect(openRows()).toEqual(['shop.orders', 'shop.orders']));
     search('');
 
-    // Only c1's was opened, so only c1's is recent.
-    expect(
-      within(screen.getByRole('dialog'))
-        .queryAllByRole('option')
-        .filter((o) => o.id.includes('-opt-tab.open:'))
-        .map((o) => o.id.slice(o.id.indexOf('tab.open:'))),
-    ).toEqual(['tab.open:c1:shop:orders']);
+    // Only c1's was opened, so only c1's is recent; c2's is just a collection of the focused Connection.
+    expect(groupIds('Recent')).toEqual(['tab.open:c1:shop:orders']);
+    expect(groupIds('Collections in this connection')).toEqual(['tab.open:c2:shop:orders']);
   });
 
   it('does not match every namespace on the letters of “Open”', async () => {
@@ -585,7 +599,7 @@ describe('palette Collection actions', () => {
     );
   });
 
-  it.each(['Schema', 'Indexes'])('%s on a collection with no tab opens one on Structure', async (action) => {
+  it.each(['Schema', 'Indexes'])('%s on a collection with no tab opens one on Schema & indexes', async (action) => {
     const { listCollections, openCollection } = mount(SERVER, [], { listOpened: true });
     await settled(listCollections);
     openPalette();
@@ -596,7 +610,7 @@ describe('palette Collection actions', () => {
     fireEvent.keyDown(screen.getByLabelText('Filter actions'), { key: 'Enter' });
 
     await waitFor(() => expect(openCollection).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Structure', selected: true })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Schema & indexes', selected: true })).toBeTruthy());
   });
 
   it('disables the writing actions on a view, with a reason', async () => {

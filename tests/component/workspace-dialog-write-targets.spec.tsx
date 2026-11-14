@@ -54,8 +54,8 @@ afterEach(() => {
 type Kind = 'delete' | 'delete-all' | 'update-all';
 
 const DIALOG_NAME: Record<Kind, string | RegExp> = {
-  delete: 'Delete document?',
-  'delete-all': /Delete .* matching documents?\?/,
+  delete: /^Delete document from /,
+  'delete-all': /^Delete .* matching documents? from /,
   'update-all': 'Update all matching documents',
 };
 
@@ -64,8 +64,8 @@ async function openDialog(kind: Kind) {
   if (kind === 'delete') {
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
   } else {
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText(kind === 'delete-all' ? 'Delete all matching…' : 'Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText(kind === 'delete-all' ? 'Delete matching…' : 'Update matching…'));
   }
   return screen.findByRole('dialog', { name: DIALOG_NAME[kind] });
 }

@@ -42,6 +42,7 @@ import { useLatest } from '../../../commands/useLatest';
 import { useDialogFocusReturn } from '../../../hooks/useDialogFocusReturn';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { invalidateSampleSchemaCache } from '../../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { forgetUndoOn } from '../undoStore';
 import { invalidateSchemaEnumCache } from '../../../features/fieldSuggestions/sources/schemaEnumSource';
 import { invalidateRecentValuesCache } from '../../../features/fieldSuggestions/sources/recentValuesSource';
 import { fieldValueEntriesFromStages } from '../../../features/fieldSuggestions/fieldValueEntries';
@@ -432,6 +433,8 @@ export function AggregationTab({
           invalidateSampleSchemaCache(connectionId);
           // A `$out` / `$merge` can create or replace its target collection.
           invalidateSchemaEnumCache(connectionId);
+          // Nor can it say whose older undo the write superseded.
+          forgetUndoOn(connectionId);
         }
         if (runTokenRef.current === token) {
           runTokenRef.current = null;

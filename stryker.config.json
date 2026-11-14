@@ -106,6 +106,8 @@
     "src/utils/humanBytes.ts",
     "src/commands/rank.ts",
     "src/commands/layout.ts",
+    "src/commands/paletteAnchor.ts",
+    "src/pages/Workspace/collectionSweep.ts",
     "src/commands/verbs.ts",
     "src/pages/Workspace/collectionObject.ts",
     "src/pages/Workspace/tabRequest.ts",

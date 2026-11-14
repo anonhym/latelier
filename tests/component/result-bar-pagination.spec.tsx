@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications';
 import { render, screen, fireEvent, waitFor, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionTabState } from '@shared/types';
 
@@ -53,6 +54,7 @@ function renderBar(overrides: BarStateOverride = {}) {
         actions={actions}
         meta={meta}
       >
+        <StatusBar connection={null} />
         <ResultBar />
       </CollectionWorkspaceProvider>
   );
@@ -82,10 +84,10 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const nextBtn = screen.getByLabelText('Next page') as HTMLButtonElement;
-    expect(nextBtn.disabled).toBe(true);
+    expect(nextBtn.getAttribute('aria-disabled')).toBe('true');
 
     const lastBtn = screen.getByLabelText('Last page') as HTMLButtonElement;
-    expect(lastBtn.disabled).toBe(true);
+    expect(lastBtn.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('enables Next when page < totalPages - 1', () => {
@@ -98,7 +100,7 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const nextBtn = screen.getByLabelText('Next page') as HTMLButtonElement;
-    expect(nextBtn.disabled).toBe(false);
+    expect(nextBtn.getAttribute('aria-disabled')).toBeNull();
     fireEvent.click(nextBtn);
     expect(actions.patch).toHaveBeenCalledWith({ page: 11 });
     expect(actions.run).toHaveBeenCalledWith({ page: 11 });
@@ -114,7 +116,7 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const nextBtn = screen.getByLabelText('Next page') as HTMLButtonElement;
-    expect(nextBtn.disabled).toBe(false);
+    expect(nextBtn.getAttribute('aria-disabled')).toBeNull();
   });
 
   it('disables Next when totalCount is in flight and hasMore is false', () => {
@@ -127,7 +129,7 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const nextBtn = screen.getByLabelText('Next page') as HTMLButtonElement;
-    expect(nextBtn.disabled).toBe(true);
+    expect(nextBtn.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('Last page button jumps to the final page', () => {
@@ -140,7 +142,7 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const lastBtn = screen.getByLabelText('Last page') as HTMLButtonElement;
-    expect(lastBtn.disabled).toBe(false);
+    expect(lastBtn.getAttribute('aria-disabled')).toBeNull();
     fireEvent.click(lastBtn);
     expect(actions.patch).toHaveBeenCalledWith({ page: 25 });
     expect(actions.run).toHaveBeenCalledWith({ page: 25 });
@@ -156,7 +158,7 @@ describe('ResultBar - pagination canNext', () => {
       durationMs: 5,
     });
     const firstBtn = screen.getByLabelText('First page') as HTMLButtonElement;
-    expect(firstBtn.disabled).toBe(false);
+    expect(firstBtn.getAttribute('aria-disabled')).toBeNull();
     fireEvent.click(firstBtn);
     expect(actions.patch).toHaveBeenCalledWith({ page: 0 });
     expect(actions.run).toHaveBeenCalledWith({ page: 0 });

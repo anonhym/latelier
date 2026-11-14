@@ -71,7 +71,7 @@ export function displayText(cmd: Command): string {
   return cmd.matchText ?? cmd.title;
 }
 
-function isVisible(cmd: Command, ctx: PaletteContext): boolean {
+export function isVisible(cmd: Command, ctx: PaletteContext): boolean {
   if (!cmd.when) return true;
   try {
     return cmd.when(ctx);

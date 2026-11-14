@@ -304,6 +304,7 @@ function DocRowImpl({
             setActiveIndex(index);
           }}
         />
+        {/* Space on the focused row toggles it too (the tree's own key handler). */}
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -315,6 +316,7 @@ function DocRowImpl({
             onRowExpand(docId, !isExpanded);
           }}
           aria-label={isExpanded ? 'Collapse document' : 'Expand document'}
+          title={`${isExpanded ? 'Collapse document' : 'Expand document'} (Space)`}
           style={{
             flexShrink: 0,
             transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',

@@ -10,6 +10,7 @@ import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { logFailure } from '../../utils/rendererLog';
 import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
+import { forgetUndoOn } from './undoStore';
 import { invalidateSchemaEnumCache } from '../../features/fieldSuggestions/sources/schemaEnumSource';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
@@ -128,6 +129,8 @@ function ScriptTabInner({ tab, defaultDb, connectionName, onPatch }: ScriptTabPr
       // written before that.
       invalidateSampleSchemaCache(tab.connectionId);
       invalidateSchemaEnumCache(tab.connectionId);
+      // For the same reason, no collection's older undo there is its last change any more.
+      forgetUndoOn(tab.connectionId);
       cancelTokenRef.current = null;
       runningRef.current = false;
       setRunning(false);

@@ -20,6 +20,7 @@ import { DocumentEditor } from './DocumentEditor';
 import { DeleteConfirm } from './DeleteConfirm';
 import { UpdateConfirm } from './UpdateConfirm';
 import { resolveDeleteDialog } from './deleteMode';
+import { isConnectionActive } from '../../state/connections';
 import { currentFilterJson } from './builder';
 import type { ReferenceDrawerState } from './useReferenceDrawer';
 import { targetOf, type useDocumentDialogs } from './useDocumentDialogs';
@@ -191,7 +192,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
             >
               <option value="documents">Documents</option>
               <option value="aggregation">Aggregation</option>
-              <option value="structure">Structure</option>
+              <option value="structure">Schema &amp; indexes</option>
             </select>
           </label>
         </div>
@@ -436,6 +437,9 @@ export function DialogStack({
             readOnly={focusedConnectionReadOnly}
             docs={dialog.docs}
             filter={dialog.filter}
+            source={dialog.source}
+            connectionName={connections.find((c) => c.id === activeCollection.connectionId)?.name ?? activeCollection.connectionId}
+            nameConnection={connections.filter((c) => isConnectionActive(c.status)).length > 1}
             // Only when the dialog deletes by the tab's own filter. A
             // selection deletes the selected documents by `_id`, the same set
             // with or without the collation or hint, and DeleteConfirm refuses

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { render, screen, waitFor, fireEvent } from '../helpers/render';
 import { MongoShellPane } from '../../src/pages/Workspace/MongoShellPane';
+import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { IpcApi } from '@shared/ipc';
 import type { ShellOutputEvent, ShellSessionInfo } from '@shared/types';
@@ -392,6 +393,20 @@ describe('MongoShellPane', () => {
     fireEvent.change(input, { target: { value: line } });
     fireEvent.keyDown(input, { key: 'Enter' });
   }
+
+  // Any line can write anywhere on the Connection, and the renderer can't tell
+  // which: ⌘Z must not reach past it to an older undo there.
+  it('drops every undo on its Connection once a line is sent', async () => {
+    installDrivable();
+    const ns = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
+    recordUndo(ns, { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} });
+    mount();
+    const input = await readyInput();
+    expect(latestUndo(ns)).toBeDefined();
+    submit(input, 'db.orders.insertOne({})');
+    expect(latestUndo(ns)).toBeUndefined();
+    clearUndoStore();
+  });
 
   it('shows that a command is running from the moment it is sent until the shell is ready again', async () => {
     const { push } = installDrivable();

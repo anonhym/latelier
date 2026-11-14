@@ -1092,16 +1092,17 @@ describe('Structure view — header count across view switches', () => {
       </MemoryRouter>,
     );
 
-    // Matched by the header's own text: Structure's statistics also print the count.
+    // Matched by the header's own test id: Schema & indexes' statistics also print the count.
     const headerStats = (n: number) =>
-      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.startsWith(`${n} docs in collection`));
+      screen.getAllByTestId('collection-figures').find((el) => el.textContent?.startsWith(`${n} documents`));
     await waitFor(() => expect(headerStats(10)).toBeTruthy());
 
     await waitFor(() => expect(collectionDetails).toHaveBeenCalled());
     const callsBefore = collectionDetails.mock.calls.length;
 
     await userEvent.click(screen.getByRole('tab', { name: /Aggregation/i }));
-    await screen.findByRole('button', { name: /Add stage/ });
+    // An empty pipeline offers starter chips rather than an Add stage button.
+    await screen.findByText('Add a first stage');
     await userEvent.click(screen.getByRole('tab', { name: /Documents/i }));
     await screen.findByTestId('query-bar-input');
     await new Promise((r) => setTimeout(r, 50));

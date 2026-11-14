@@ -11,6 +11,7 @@ import {
 } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
+import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { TreeView } from '../../src/pages/Workspace/views/TreeView';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
@@ -54,12 +55,12 @@ function withProvider(view: CollectionTabState['view'], isView: boolean, childre
 
 describe.each([true, false])('result bar writes, isView=%s', (isView) => {
   it('offers Insert and the write items of the Documents menu only on a collection', async () => {
-    withProvider('Tree', isView, <ResultBar />);
+    withProvider('Tree', isView, <><StatusBar connection={null} /><ResultBar /></>);
     expect(!!screen.queryByRole('button', { name: 'Insert document' })).toBe(!isView);
-    await userEvent.click(screen.getByRole('button', { name: /Documents/ }));
-    expect(!!screen.queryByText('Update all matching…')).toBe(!isView);
-    expect(!!screen.queryByText('Import documents…')).toBe(!isView);
-    expect(!!screen.queryByText('Delete all matching…')).toBe(!isView);
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(!!screen.queryByText('Update matching…')).toBe(!isView);
+    expect(!!screen.queryByText('Import…')).toBe(!isView);
+    expect(!!screen.queryByText('Delete matching…')).toBe(!isView);
     // Reading a view's documents out is not a write.
     expect(screen.getByText('Export…')).toBeTruthy();
   });
@@ -128,7 +129,7 @@ describe('empty view', () => {
       </CollectionWorkspaceProvider>,
     );
     expect(screen.getByText('This collection is empty')).toBeTruthy();
-    expect(screen.queryByText('Import documents…')).toBeNull();
+    expect(screen.queryByText('Import…')).toBeNull();
   });
 });
 
@@ -150,6 +151,7 @@ describe('useDocumentDialogs on a view', () => {
         queryRunner: { run: () => Promise.resolve(), cancel: () => {}, isLoading: false, isRunning: () => false },
         activeTabId: 't1',
         resolveRunnerTarget: () => null,
+        resolveNamespaceTargets: () => [],
         readOnly: false,
         isView,
       }),

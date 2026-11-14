@@ -57,7 +57,7 @@ test('the admin drawers fill their panel', async () => {
     // namespace-scoped, no DB/collection picker.
     const ws = new WorkspacePage(win);
     await ws.openCollectionFromNavigator('shop', 'orders');
-    await win.getByRole('tab', { name: /Structure/ }).click();
+    await win.getByRole('tab', { name: /Schema & indexes/ }).click();
     await win.getByRole('button', { name: /New index/ }).first().click();
     await expect(win.getByRole('dialog', { name: /New index/ })).toBeVisible({ timeout: 8000 });
     expect(await fillOf()).toBeGreaterThan(50);

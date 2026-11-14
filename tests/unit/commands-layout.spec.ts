@@ -3,7 +3,9 @@ import { kindOf, matchText, rankCapped, QUERY_ROW_LABEL } from '../../src/comman
 import {
   ACTION_LIST_HINTS,
   ALL_CAP,
+  CONNECTION_COLLECTIONS_LABEL,
   HISTORY_CAP,
+  RECENT_CAP,
   KIND_LAYOUT,
   KIND_ORDER,
   SCOPE_LABEL,
@@ -252,7 +254,7 @@ describe('layoutPalette — empty query in All', () => {
       cmd({ id: 'plain' }),
     ];
     const l = layoutPalette(all, '', ctx, [], 'all');
-    expect(rows(l.entries).map((e) => e.disabled)).toEqual(['Type a filter first', null, null]);
+    expect(rows(l.entries).map((e) => e.disabled)).toEqual([null, null, 'Type a filter first']);
     expect(seen).toEqual([ctx]);
   });
 });
@@ -391,6 +393,176 @@ describe('layoutPalette — a single scope', () => {
       expect(layoutPalette([pasted, coll('abc')], 'abc', ctx, [], scope).entries.some((e) => e.id === 'q')).toBe(false);
     }
     expect(layoutPalette([pasted], 'abc', ctx, [], 'all').entries.map((e) => e.id)).toEqual(['q']);
+  });
+});
+
+describe('layoutPalette: collections in this connection (X07 §14.2)', () => {
+  const own: PaletteContext = { ...ctx, collectionsConnectionId: 'c1' };
+  const collOf = (connectionId: string, name: string, over: Partial<Command> = {}): Command => ({
+    ...objectRow({
+      id: `tab.open:${connectionId}:shop:${name}`,
+      kind: 'collection',
+      name: `shop.${name}`,
+      connectionId,
+      actions: [act('Open', 'open')],
+    }),
+    ...over,
+  });
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const mine = names.map((n) => collOf('c1', n));
+  const groupKeys = (l: ReturnType<typeof layoutPalette>) => l.groups.map((g) => g.key);
+
+  it('lists five of them after Recent, with a Show more row, then the rest of the catalog', () => {
+    const all = [cmd({ id: 'run', group: 'query' }), cmd({ id: 'prefs' }), cmd({ id: 'other' }), ...mine];
+    const l = layoutPalette(all, '', own, ['prefs'], 'all');
+    expect(groupKeys(l)).toEqual(['recent', 'connection-collections', 'query', 'general']);
+    const group = l.groups[1]!;
+    expect(group.label).toBe(CONNECTION_COLLECTIONS_LABEL);
+    expect(group.entries.map((e) => e.id)).toEqual([
+      'tab.open:c1:shop:a',
+      'tab.open:c1:shop:b',
+      'tab.open:c1:shop:c',
+      'tab.open:c1:shop:d',
+      'tab.open:c1:shop:e',
+      'more:collection',
+    ]);
+    const more = group.entries[5] as MoreEntry;
+    expect(more.label).toBe('Show 3 more collections');
+    expect(more.scope).toBe('collections');
+  });
+
+  it('starts with the collections when nothing is recent', () => {
+    const l = layoutPalette([cmd({ id: 'prefs' }), ...mine], '', own, [], 'all');
+    expect(groupKeys(l)).toEqual(['connection-collections', 'general']);
+  });
+
+  it('has no Show more row for five or fewer, and says "1 collection" in the singular', () => {
+    expect(layoutPalette(mine.slice(0, 5), '', own, [], 'all').entries.some((e) => e.type === 'more')).toBe(false);
+    const six = layoutPalette(mine.slice(0, 6), '', own, [], 'all').entries.find((e) => e.type === 'more') as MoreEntry;
+    expect(six.label).toBe('Show 1 more collection');
+  });
+
+  it('has no group without an Open Connection, or without collections of it', () => {
+    expect(groupKeys(layoutPalette([cmd({ id: 'prefs' }), ...mine], '', ctx, [], 'all'))).toEqual(['general']);
+    expect(groupKeys(layoutPalette([cmd({ id: 'prefs' }), ...mine], '', { ...ctx, collectionsConnectionId: null }, [], 'all'))).toEqual(['general']);
+    expect(groupKeys(layoutPalette([cmd({ id: 'prefs' }), collOf('c2', 'x')], '', own, [], 'all'))).toEqual(['general']);
+  });
+
+  it('lists only the collections of that Connection', () => {
+    const l = layoutPalette([...mine.slice(0, 2), collOf('c2', 'zz')], '', own, [], 'all');
+    expect(ids(l.entries)).toEqual(['tab.open:c1:shop:a', 'tab.open:c1:shop:b']);
+  });
+
+  it('puts the recently used first, then the rest by name, and does not repeat what Recent shows', () => {
+    const recent = ['tab.open:c1:shop:g', 'tab.open:c1:shop:c'];
+    const l = layoutPalette([...mine].reverse(), '', own, recent, 'all');
+    expect(l.groups[0]!.entries.map((e) => e.id)).toEqual(recent);
+    expect(l.groups[1]!.entries.map((e) => e.id).slice(0, 5)).toEqual(
+      ['a', 'b', 'd', 'e', 'f'].map((n) => `tab.open:c1:shop:${n}`),
+    );
+    expect((l.groups[1]!.entries[5] as MoreEntry).label).toBe('Show 1 more collection');
+  });
+
+  it('puts a recent collection past the Recent cap first among the collections', () => {
+    const ids6 = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => `tab.open:c1:shop:${n}`);
+    const l = layoutPalette(mine, '', own, ids6, 'all');
+    expect(l.groups[0]!.entries).toHaveLength(RECENT_CAP);
+    expect(l.groups[1]!.entries[0]!.id).toBe('tab.open:c1:shop:f');
+  });
+
+  it('caps Recent at five', () => {
+    const all = names.map((n) => cmd({ id: n }));
+    const l = layoutPalette(all, '', ctx, names, 'all');
+    expect(l.groups[0]!.entries).toHaveLength(5);
+    expect(l.groups[0]!.entries.map((e) => e.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('lists them on an empty Collections scope, up to the scope cap, and counts the rest as hidden', () => {
+    const l = layoutPalette(mine, '', own, ['tab.open:c1:shop:c'], 'collections');
+    expect(l.groups).toHaveLength(1);
+    expect(l.groups[0]!.label).toBeNull();
+    expect(ids(l.entries)).toEqual(['c', 'a', 'b', 'd', 'e', 'f', 'g', 'h'].map((n) => `tab.open:c1:shop:${n}`));
+    expect(l.hidden).toBe(0);
+    const many = Array.from({ length: SCOPE_CAP + 4 }, (_, i) => collOf('c1', `c${String(i).padStart(3, '0')}`));
+    const big = layoutPalette(many, '', own, [], 'collections');
+    expect(big.entries).toHaveLength(SCOPE_CAP);
+    expect(big.hidden).toBe(4);
+  });
+
+  it('reads each registry snapshot afresh, and the MRU afresh on the same one', () => {
+    const first = [...mine.slice(0, 3)];
+    expect(ids(layoutPalette(first, '', own, [], 'all').entries)).toEqual(
+      ['a', 'b', 'c'].map((n) => `tab.open:c1:shop:${n}`),
+    );
+    // A new snapshot (a registration changed): the cache of the old one is not reused.
+    const second = [...first, collOf('c1', '0first')];
+    expect(layoutPalette(second, '', own, [], 'all').entries[0]!.id).toBe('tab.open:c1:shop:0first');
+    // The same snapshot with another MRU, and another Connection.
+    expect(layoutPalette(second, '', own, ['tab.open:c1:shop:c'], 'all').groups[0]!.entries[0]!.id).toBe(
+      'tab.open:c1:shop:c',
+    );
+    expect(layoutPalette(second, '', own, ['tab.open:c1:shop:c'], 'collections').entries[0]!.id).toBe(
+      'tab.open:c1:shop:c',
+    );
+    const other = layoutPalette([...second, collOf('c2', 'x')], '', { ...own, collectionsConnectionId: 'c2' }, [], 'all');
+    expect(ids(other.entries)).toEqual(['tab.open:c2:shop:x']);
+  });
+
+  it('counts what Recent shows out of the Show more row, for a collection in the MRU twice', () => {
+    const recent = ['tab.open:c1:shop:a', 'tab.open:c1:shop:a', 'tab.open:c1:shop:b'];
+    const l = layoutPalette(mine, '', own, recent, 'all');
+    expect(l.groups[0]!.entries.map((e) => e.id)).toEqual(['tab.open:c1:shop:a', 'tab.open:c1:shop:b']);
+    // Eight in all, two under Recent: six left, five shown, one more.
+    expect((l.groups[1]!.entries[5] as MoreEntry).label).toBe('Show 1 more collection');
+  });
+
+  it('falls back to the recent collections in Collections when none is listed for the Connection', () => {
+    const l = layoutPalette([collOf('c2', 'zz')], '', own, ['tab.open:c2:shop:zz'], 'collections');
+    expect(ids(l.entries)).toEqual(['tab.open:c2:shop:zz']);
+  });
+});
+
+describe('layoutPalette: unavailable rows (X07 §14.3)', () => {
+  const off = (id: string, over: Partial<Command> = {}) => cmd({ id, disabledReason: () => 'Not now', ...over });
+
+  it('sorts them after the available rows of their group, each side keeping its order', () => {
+    const all = [off('x1'), cmd({ id: 'y1' }), off('x2'), cmd({ id: 'y2' })];
+    const l = layoutPalette(all, '', ctx, [], 'all');
+    expect(ids(l.entries)).toEqual(['y1', 'y2', 'x1', 'x2']);
+  });
+
+  it('does so within each group, not across them', () => {
+    const all = [off('q1', { group: 'query' }), cmd({ id: 'q2', group: 'query' }), cmd({ id: 'g1' })];
+    const l = layoutPalette(all, '', ctx, [], 'all');
+    expect(l.groups.map((g) => g.entries.map((e) => e.id))).toEqual([['q2', 'q1'], ['g1']]);
+  });
+
+  it('does so on a typed query too', () => {
+    const l = layoutPalette([off('Explain query'), cmd({ id: 'Explain plan' })], 'explain', ctx, [], 'actions');
+    expect(ids(l.entries)).toEqual(['Explain plan', 'Explain query']);
+  });
+
+  it('starts the cursor on the first available row', () => {
+    expect(layoutPalette([off('x'), cmd({ id: 'y' })], '', ctx, [], 'all').initialCursor).toBe(0);
+    const recent = layoutPalette([off('x'), cmd({ id: 'y' })], '', ctx, ['x'], 'all');
+    // Recent holds the unavailable row alone; the cursor skips to the next group.
+    expect(ids(recent.entries)).toEqual(['x', 'y']);
+    expect(recent.initialCursor).toBe(1);
+  });
+
+  it('starts on no row when every row is unavailable, and on a Show more row before an unavailable one', () => {
+    expect(layoutPalette([off('x'), off('z')], '', ctx, [], 'all').initialCursor).toBe(-1);
+    expect(layoutPalette([], '', ctx, [], 'all').initialCursor).toBe(-1);
+    const own: PaletteContext = { ...ctx, collectionsConnectionId: 'c1' };
+    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => coll(n));
+    const l = layoutPalette(
+      [...six.map((c) => ({ ...c, object: { ...c.object!, connectionId: 'c1' } })), off('x')],
+      '',
+      own,
+      [],
+      'all',
+    );
+    expect(l.initialCursor).toBe(0);
   });
 });
 

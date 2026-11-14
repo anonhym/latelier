@@ -1,6 +1,6 @@
 # X07 — Command palette
 
-> **Status: Accepted.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is agreed and not built yet; where it names a part of §13, §14 is what ships.
+> **Status: Accepted.** Rebuilt on Mantine Spotlight during [X12](./X12-mantine-migration.md), then extended by the v2 amendment in §13; both shipped, and where §13 names a part of §1–§12, §13 is what ships. §14 (anchoring, the empty query, unavailable rows, collections before any tab) is built, except the key caps and titles §14.4 gives to commands other work adds (they come with those commands, from `Command.shortcut`, and the `Copy query as…` command); where it names a part of §13, §14 is what ships.
 
 ## Purpose
 
@@ -742,7 +742,7 @@ Each step ships on its own and leaves the palette working. Two things come befor
 
 ## 14. Amendment — anchored palette, collections first
 
-> **Accepted, not built.** Decided in the 2026-11-13 design review. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
+> **Built.** Decided in the 2026-11-13 design review; the anchoring, empty query, unavailable rows, row icons and the sweep with no tab shipped in One Spine S8. `Loading collections…` takes the place of `No matches` in the list's empty state, so it shows when nothing at all matches while the sweep is in flight; the Collections scope also lists the Connection's collections on an empty query, which is what `Show <n> more collections` leads to. A Focused Tab on a Dormant Connection gives no Collections group, even while another Connection is open: the group names whose collections it holds. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
 
 ### 14.1 Anchoring
 

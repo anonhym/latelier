@@ -1,10 +1,10 @@
 import React from 'react';
-import { Group } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { api } from '../../api/atelier';
 import { useElementWidth } from '../../hooks/useElementWidth';
+import { humanBytes } from '../../utils/humanBytes';
 
-/** Below this the counts would crowd the name; Structure's Statistics still has them. */
+/** Below this the counts would crowd the name; Schema & indexes still has them. */
 const STATS_MIN_WIDTH = 480;
 
 interface CollectionHeaderProps {
@@ -23,11 +23,8 @@ interface CollectionHeaderProps {
 }
 
 /**
- * Breadcrumb header, on the sub-tab row beside Documents / Aggregation /
- * Structure, so it shows in all three. It fills what the tabs leave; the
- * breadcrumb ellipsizes first. The Tree|JSON|Table view switch, Insert and
- * References live in `<ResultBar/>`, References beside Fields; it is also in
- * the navigator's collection context menu and the command palette.
+ * The collection's figures, on the view-header row beside Documents /
+ * Aggregation / Schema & indexes, so they show in all three (W01 §14.5).
  */
 export function CollectionHeader({
   connectionId,
@@ -41,10 +38,9 @@ export function CollectionHeader({
     key: string;
     docCount: number | null;
     indexCount: number | null;
+    sizeBytes: number | null;
   } | null>(null);
   const current = stats && stats.key === cacheKey ? stats : null;
-  const docCount = current?.docCount ?? null;
-  const indexCount = current?.indexCount ?? null;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -57,6 +53,7 @@ export function CollectionHeader({
           key: cacheKey,
           docCount: figures?.documentCount ?? null,
           indexCount: figures?.indexCount ?? null,
+          sizeBytes: figures?.sizeBytes ?? null,
         });
       } catch {
         // Best-effort — but a failed refresh must not leave a pre-write count
@@ -72,49 +69,25 @@ export function CollectionHeader({
   // A count shows whole or not at all: "1…" would read as one document.
   const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
   const roomForStats = rowWidth === null || rowWidth >= STATS_MIN_WIDTH;
+  const figure = (n: number) => <strong style={{ fontWeight: 500, color: T.text }}>{n.toLocaleString()}</strong>;
+  const parts: React.ReactNode[] = [];
+  if (current?.docCount != null) parts.push(<>{figure(current.docCount)}{current.docCount === 1 ? ' document' : ' documents'}</>);
+  if (current?.indexCount != null) parts.push(<>{figure(current.indexCount)}{current.indexCount === 1 ? ' index' : ' indexes'}</>);
+  if (current?.sizeBytes != null) parts.push(humanBytes(current.sizeBytes));
 
   return (
-    <Group
-      ref={rowRef}
-      gap={themeVars.gapSm}
-      wrap="nowrap"
-      style={{
-        flex: 1,
-        minWidth: 0,
-        padding: '0 10px 0 14px',
-      }}
-    >
-      {/* The namespace is the title bar's breadcrumb (W01 §14.2); only the figures stay here. */}
-      <Group gap={T.gapSm} align="baseline" wrap="nowrap" style={{ minWidth: 0, flex: '0 1 auto', overflow: 'hidden' }}>
-        {roomForStats && (docCount !== null || indexCount !== null) && (
-          <span
-            style={{
-              fontSize: T.fsXs,
-              color: T.textMuted,
-              marginLeft: 4,
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {docCount !== null && (
-              <>
-                <strong style={{ fontWeight: 500, color: T.text }}>
-                  {docCount.toLocaleString()}
-                </strong>
-                {' docs in collection'}
-              </>
-            )}
-            {docCount !== null && indexCount !== null && ' · '}
-            {indexCount !== null && (
-              <>
-                <strong style={{ fontWeight: 500, color: T.text }}>{indexCount}</strong>
-                {indexCount === 1 ? ' index' : ' indexes'}
-              </>
-            )}
-          </span>
-        )}
-      </Group>
-
-    </Group>
+    <div ref={rowRef} style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end', padding: '0 14px 0 10px' }}>
+      {/* The namespace is the title bar's breadcrumb (W01 §14.2); only the figures stay here, muted, at the right. */}
+      {roomForStats && parts.length > 0 && (
+        <span data-testid="collection-figures" style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}>
+          {parts.map((part, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && ' · '}
+              {part}
+            </React.Fragment>
+          ))}
+        </span>
+      )}
+    </div>
   );
 }

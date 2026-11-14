@@ -1,6 +1,6 @@
 # W07 — Pagination control
 
-> **Status: Accepted.** §1–§6 shipped. §7, which moves the pager into the status bar, is agreed and not built yet.
+> **Status: Implemented.** §1–§7 shipped; the pager is in the status bar.
 
 ## Purpose
 
@@ -80,7 +80,7 @@ In the result bar (already reserved by W05), right-aligned:
 
 ## 7. Amendment — the pager lives in the status bar
 
-> **Accepted, not built.**
+> **Implemented.**
 
 - The pager of §2 moves from the result bar to the right end of the status bar ([W01 §14.6](./W01-workspace-shell.md)): `1–50 of 6 382  ‹ ›  50 / page`, with First and Last kept as controls. Paging is about where the user is in the result, which is what the status bar states; in the toolbar it was one of eight controls of equal weight.
 - State and behaviour (§1, §3) are unchanged, including the page reset on the next run and its "Will jump to page 1 on run" hint, which stays beside Run.

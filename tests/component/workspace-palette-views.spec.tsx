@@ -82,7 +82,7 @@ function paletteTitles(q: string): string[] {
 
 function structureTab() {
   return within(screen.getByRole('tablist', { name: 'Collection view' })).getByRole('tab', {
-    name: /Structure/,
+    name: /Schema & indexes/,
   });
 }
 

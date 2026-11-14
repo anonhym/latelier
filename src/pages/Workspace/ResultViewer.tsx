@@ -3,9 +3,10 @@
 // internal slot components. The react-refresh rule wants one component per
 // file, but co-locating the slots is the whole point — and they're not
 // addressed as top-level exports, only via the namespace.
-import { useState, type ReactNode } from 'react';
+import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Button, Skeleton, Stack } from '@mantine/core';
 import { PaneState } from '../../components/PaneState';
+import { I } from '../../icons';
 import { TreeView } from './views/TreeView';
 import { JsonView } from './views/JsonView';
 import { TableView } from './views/TableView';
@@ -14,7 +15,8 @@ import { ResultSelectionProvider } from './ResultSelectionProvider';
 import { SelectionActionBar } from './SelectionActionBar';
 import { ImportDialog } from './ImportDialog';
 import { useCollectionWorkspace } from './context';
-import { EMPTY_DOCUMENTS } from './resultSelection';
+import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
+import { runUndo, useLatestUndo } from './undoStore';
 import { findProblem, isUnfilteredFirstPage } from './builder';
 import { resultPaneKind, revertTarget, type ResultPaneKind } from './resultPaneState';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
@@ -94,10 +96,28 @@ function Body({
   // count marker in `ResultBar`, so the two never disagree. Opacity only — no
   // `pointer-events: none`, which would take selection and row expansion away.
   const isStale = kind === 'rows' && findProblem(state) !== null;
+  const hasSelection = useResultSelection(state.lastRun?.documents ?? EMPTY_DOCUMENTS).indices.size > 0;
+  const undo = useLatestUndo(meta);
+
+  // X13 §13: ⌘Z on the results runs this collection's newest undo, the same
+  // one the toast offered. In a text field it stays the field's own undo, and
+  // under a dialog (whose events still bubble here through its portal) it is
+  // the dialog's.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return;
+    if (meta.isReadOnly || !undo || e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+    e.preventDefault();
+    void runUndo(undo);
+  };
 
   return (
     <div
       data-stale={isStale ? 'true' : undefined}
+      // Every row's checkbox shows once anything is selected (`index.css`).
+      data-has-selection={hasSelection ? '' : undefined}
+      onKeyDown={onKeyDown}
       style={{
         flex: 1,
         display: 'flex',
@@ -200,9 +220,15 @@ function EmptyState({
             meta.isReadOnly || meta.isView ? (
               runAgain('Run again')
             ) : (
-              <Button variant="default" size="xs" onClick={onImport}>
-                Import documents…
-              </Button>
+              // W06 §8.14: the lighter way in first.
+              <>
+                <Button variant="default" size="xs" leftSection={I.plus} onClick={() => actions.openInsert()}>
+                  Insert document
+                </Button>
+                <Button variant="default" size="xs" onClick={onImport}>
+                  Import…
+                </Button>
+              </>
             )
           }
         />

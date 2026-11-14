@@ -7,11 +7,9 @@
 // `<Workspace />` and drives it through the DOM — no reaching into
 // `WorkspaceInner`.
 //
-// T1.4/T1.5 ("Delete selected" and its `$in`-derivation refusal) are
-// deliberately NOT here — per the plan's carved exception, result-row
-// selection isn't reachable from a full-page mount in jsdom (both existing
-// selection tests mount `ResultBar`/`ResultViewer` in isolation instead).
-// Those land as unit tests on `resolveDeleteMode` in R1.
+// The `$in`-derivation refusal is a unit test on `resolveDeleteDialog`. A
+// selection is reachable here through each row's checkbox, so the delete
+// tier's wiring (W08 §10) is pinned at the end of this file.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
@@ -81,7 +79,7 @@ describe('workspace delete modes (T1)', () => {
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     // Single-doc mode carries no "type the collection name" confirmation —
     // that's the tell for the filter-scoped mode (isMulti).
     expect(within(dialog).queryByPlaceholderText('orders')).toBeNull();
@@ -98,7 +96,7 @@ describe('workspace delete modes (T1)', () => {
     );
   });
 
-  it('"Delete all matching…" with a valid filter carries that filter to confirmDeleteMany', async () => {
+  it('"Delete matching…" with a valid filter carries that filter to confirmDeleteMany', async () => {
     const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok-1' }));
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{"status":"pending"}' })] },
@@ -108,8 +106,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     await waitFor(() =>
       expect(confirmDeleteMany).toHaveBeenCalledWith({
@@ -119,13 +117,13 @@ describe('workspace delete modes (T1)', () => {
         filterJson: '{"status":"pending"}',
       }),
     );
-    expect(await screen.findByText('Delete 2 matching documents?')).toBeTruthy();
+    expect(await screen.findByText('Delete 2 matching documents from shop.orders?')).toBeTruthy();
   });
 
   // W14 §9 — the doc channels send only the filter, so with a collation on
   // the tab a write by filter would act on a different set than the one on
   // screen. The tab's collation has to reach the dialogs for them to refuse.
-  it('"Delete all matching…" and "Update all matching…" refuse while the tab has a collation', async () => {
+  it('"Delete matching…" and "Update matching…" refuse while the tab has a collation', async () => {
     const collated = tab({
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', collation: '{"locale":"en","strength":2}' },
@@ -139,9 +137,9 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
-    const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
+    const del = await screen.findByRole('dialog', { name: /^Delete matching documents from / });
     expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(
       within(del).getByText('Clear the collation to delete by filter: it would change which documents match.'),
@@ -150,8 +148,8 @@ describe('workspace delete modes (T1)', () => {
     fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Update matching…'));
     const upd = await screen.findByRole('dialog', { name: 'Update all matching documents' });
     expect(
       within(upd).getByText('Clear the collation to update by filter: it would change which documents match.'),
@@ -169,14 +167,14 @@ describe('workspace delete modes (T1)', () => {
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     expect(within(dialog).queryByText(/Clear the collation/)).toBeNull();
     expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   // W14 §9 — a hint naming a sparse index can show fewer documents than the
   // filter matches, so the tab's hint has to reach the dialogs too.
-  it('"Delete all matching…" and "Update all matching…" refuse while the tab has a hint', async () => {
+  it('"Delete matching…" and "Update matching…" refuse while the tab has a hint', async () => {
     const hinted = tab({
       queryRaw: '{"status":"pending"}',
       builder: { projection: [], sort: '', limit: '', hint: 'status_1_sparse' },
@@ -190,17 +188,17 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
-    const del = await screen.findByRole('dialog', { name: 'Delete matching documents?' });
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
+    const del = await screen.findByRole('dialog', { name: /^Delete matching documents from / });
     expect(confirmDeleteMany).not.toHaveBeenCalled();
     expect(within(del).getByText(/^Clear the hint to delete by filter/)).toBeTruthy();
     expect((within(del).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(del).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Update all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Update matching…'));
     const upd = await screen.findByRole('dialog', { name: 'Update all matching documents' });
     expect(within(upd).getByText(/^Clear the hint to update by filter/)).toBeTruthy();
   });
@@ -216,7 +214,7 @@ describe('workspace delete modes (T1)', () => {
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     expect(within(dialog).queryByText(/Clear the hint/)).toBeNull();
     expect((within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -225,7 +223,7 @@ describe('workspace delete modes (T1)', () => {
   // would count/delete the *entire* collection. `openDeleteAllModal` must
   // refuse to open the dialog at all when the tab's filter text is blank or
   // not valid EJSON.
-  it('"Delete all matching…" refuses to open when the filter is blank', async () => {
+  it('"Delete matching…" refuses to open when the filter is blank', async () => {
     const confirmDeleteMany = vi.fn();
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '' })] },
@@ -235,14 +233,14 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
   });
 
-  it('"Delete all matching…" refuses to open when the filter text is invalid EJSON', async () => {
+  it('"Delete matching…" refuses to open when the filter text is invalid EJSON', async () => {
     const confirmDeleteMany = vi.fn();
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{not json' })] },
@@ -252,8 +250,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(confirmDeleteMany).not.toHaveBeenCalled();
@@ -266,7 +264,7 @@ describe('workspace delete modes (T1)', () => {
   // dialog is already open (editing the query bar behind it). Without that
   // guard, `filter` would reach DeleteConfirm as `undefined` and its own
   // `filter ?? '{}'` default would count/delete the whole collection.
-  it('an already-open "Delete all matching…" dialog closes itself if the filter goes invalid while it is up', async () => {
+  it('an already-open "Delete matching…" dialog closes itself if the filter goes invalid while it is up', async () => {
     installAtelierMock({
       tabs: { list: async () => [tab({ queryRaw: '{"status":"pending"}' })] },
       conn: { list: async () => [connectionFixture({ id: 'c1' })] },
@@ -275,8 +273,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     await screen.findByRole('dialog');
 
     // Edit the query bar's raw filter — still mounted behind the modal —
@@ -287,7 +285,7 @@ describe('workspace delete modes (T1)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('onClose clears the row-delete state — canceling it does not leak into a later "Delete all matching…"', async () => {
+  it('onClose clears the row-delete state — canceling it does not leak into a later "Delete matching…"', async () => {
     // Regression for the mutual-exclusivity guardrail: DeleteConfirm's `docs`
     // ternary checks `deleteDoc !== null` first, so if Cancel failed to null
     // it out, the *next* dialog opened (delete-all, a different mode) would
@@ -301,12 +299,12 @@ describe('workspace delete modes (T1)', () => {
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
-    const rowDialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const rowDialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     fireEvent.click(within(rowDialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
 
     const dialog = await screen.findByRole('dialog');
     // The filter-scoped mode's tell — present only when isMulti (docs.length
@@ -328,8 +326,8 @@ describe('workspace delete modes (T1)', () => {
     mountWorkspace();
 
     await screen.findByText(/widget/);
-    fireEvent.click(screen.getByRole('button', { name: 'Documents' }));
-    fireEvent.click(screen.getByText('Delete all matching…'));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByText('Delete matching…'));
     const allDialog = await screen.findByRole('dialog');
     expect(within(allDialog).getByPlaceholderText('orders')).toBeTruthy();
     fireEvent.click(within(allDialog).getByRole('button', { name: 'Cancel' }));
@@ -337,7 +335,7 @@ describe('workspace delete modes (T1)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     // A leaked `deleteAllOpen` would render the filter-scoped dialog instead,
     // which carries this confirmation input.
     expect(within(dialog).queryByPlaceholderText('orders')).toBeNull();
@@ -356,7 +354,7 @@ describe('workspace delete modes (T1)', () => {
 
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(deleteOne).toHaveBeenCalledTimes(1));
@@ -388,12 +386,51 @@ describe('workspace delete modes (T1)', () => {
     await screen.findByText(/widget/);
     fireEvent.click(screen.getByRole('button', { name: /^Delete document/ }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Delete document?' });
+    const dialog = await screen.findByRole('dialog', { name: /^Delete document from / });
     expect(
       within(dialog).getByText('This connection is read-only. Deleting is disabled.'),
     ).toBeTruthy();
     expect(
       (within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+// W08 §10, through the real dialog stack: how the documents were chosen, and
+// how many Connections are open, reach the dialog's title and tier.
+describe('the delete tier, from the selection pill', () => {
+  it('2 selected with two Connections open: a plain confirm naming the namespace and the Connection', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok' }));
+    installAtelierMock({
+      tabs: { list: async () => [tab({ lastRun: { documents: [DOC, { _id: '2', sku: 'gadget' }], durationMs: 1, ranAt: NOW } })] },
+      conn: {
+        list: async () => [
+          connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' }),
+          connectionFixture({ id: 'c2', name: 'Staging', status: 'connected' }),
+        ],
+      },
+      doc: { confirmDeleteMany },
+    });
+    mountWorkspace();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select document 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select document 2' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Selection' })).getByRole('button', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete 2 selected documents from shop.orders on Prod?' });
+    expect(within(dialog).queryByRole('textbox')).toBeNull();
+    expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['1', '2']);
+  });
+
+  it('with one Connection open the title names only the namespace', async () => {
+    installAtelierMock({
+      tabs: { list: async () => [tab()] },
+      conn: { list: async () => [connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' })] },
+      doc: { confirmDeleteMany: async () => ({ count: 1, confirmToken: 'tok' }) },
+    });
+    mountWorkspace();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select document 1' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Selection' })).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByRole('dialog', { name: 'Delete 1 selected document from shop.orders?' })).toBeTruthy();
   });
 });

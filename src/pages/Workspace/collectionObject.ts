@@ -97,6 +97,7 @@ export function collectionObject(args: {
     id: `tab.open:${connectionId}:${db}:${coll}`,
     kind: 'collection',
     name: `${db}.${coll}`,
+    connectionId,
     subtitle: args.connectionName,
     actions: [
       { id: 'open', verb: 'open', title: 'Open', perform: async () => void (await openReusing()) },

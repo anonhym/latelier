@@ -48,10 +48,13 @@ export interface NavigatorOpenInput {
   collection: string;
 }
 
-/** A row to reveal: a collection, or a database on its own. */
+/** Past the 10 ms Mantine waits before it returns focus to a closed dialog's opener. */
+const TREE_FOCUS_DELAY_MS = 60;
+
+/** A row to reveal: a collection, a database on its own, or a Connection's root (no `dbName`). */
 export interface NavigatorRevealInput {
   connectionId: string;
-  dbName: string;
+  dbName?: string;
   collection?: string;
 }
 
@@ -769,13 +772,36 @@ export function DbCollectionNavigator({
   // already in flight): once that settles without the collection — dropped, or
   // the listing failed — the request is spent, so it never fires later.
   const pendingRevealRef = React.useRef<{ req: NavigatorRevealInput; listed: boolean } | null>(null);
+  // A Connection's root is revealed to be used with the keyboard, so the tree
+  // takes focus. The palette that asked for it is still closing: Mantine's
+  // focus return runs 10 ms after, and answers to whatever holds focus then.
+  // Waiting it out leaves the tree the last to ask, whichever came first.
+  const focusTimerRef = React.useRef<number | null>(null);
+  const focusTreeSoon = React.useCallback(() => {
+    if (focusTimerRef.current !== null) window.clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = window.setTimeout(() => {
+      focusTimerRef.current = null;
+      // A dialog that opened meanwhile keeps the keyboard.
+      if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')) return;
+      treeRef.current?.focus();
+    }, TREE_FOCUS_DELAY_MS);
+  }, []);
+  React.useEffect(
+    () => () => {
+      if (focusTimerRef.current !== null) window.clearTimeout(focusTimerRef.current);
+    },
+    [],
+  );
   const [revealListed, setRevealListed] = React.useState(0);
   React.useEffect(() => {
     if (!revealRequest) return;
-    const pending = { req: revealRequest, listed: false };
+    const { dbName } = revealRequest;
+    // A root needs no listing: it is drawn once the Connection is.
+    const pending = { req: revealRequest, listed: dbName === undefined };
     pendingRevealRef.current = pending;
     queueMicrotask(() => setFilter(''));
-    void loadColls(revealRequest.connectionId, revealRequest.dbName).then(() => {
+    if (dbName === undefined) return;
+    void loadColls(revealRequest.connectionId, dbName).then(() => {
       pending.listed = true;
       setRevealListed((n) => n + 1);
     });
@@ -784,10 +810,13 @@ export function DbCollectionNavigator({
     const pending = pendingRevealRef.current;
     if (!pending) return;
     const { req } = pending;
+    const { dbName } = req;
     const id =
-      req.collection === undefined
-        ? `db:${req.connectionId}:${req.dbName}`
-        : `coll:${req.connectionId}:${req.dbName}:${req.collection}`;
+      dbName === undefined
+        ? `conn:${req.connectionId}`
+        : req.collection === undefined
+        ? `db:${req.connectionId}:${dbName}`
+        : `coll:${req.connectionId}:${dbName}:${req.collection}`;
     const idx = rows.findIndex((r) => r.id === id);
     if (idx >= 0) {
       pendingRevealRef.current = null;
@@ -796,18 +825,21 @@ export function DbCollectionNavigator({
       listRef.current?.scrollToRow({ index: idx, align: 'auto' });
       queueMicrotask(() => {
         setFocusedId(id);
+        if (dbName === undefined) focusTreeSoon();
         onRevealHandled?.();
       });
       return;
     }
+    // A root that is not drawn yet is waited for; it is never "gone" like a listed row.
+    if (dbName === undefined) return;
     const c = ownGet(caches, req.connectionId);
-    if (!pending.listed || ownGet(c?.collsLoading ?? {}, req.dbName)) return;
+    if (!pending.listed || ownGet(c?.collsLoading ?? {}, dbName)) return;
     // A database's own row is drawn from its listing already: absent once its
     // collections are in, it is gone.
-    if (req.collection !== undefined && ownGet(c?.colls ?? {}, req.dbName)?.some((x) => x.name === req.collection)) return;
+    if (req.collection !== undefined && ownGet(c?.colls ?? {}, dbName)?.some((x) => x.name === req.collection)) return;
     pendingRevealRef.current = null;
     queueMicrotask(() => onRevealHandled?.());
-  }, [rows, revealListed, onRevealHandled, caches, listRef]);
+  }, [rows, revealListed, onRevealHandled, caches, listRef, focusTreeSoon]);
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 26 });
 
   React.useEffect(() => {
@@ -1457,6 +1489,7 @@ export function DbCollectionNavigator({
           onClose={closeImport}
           onImported={handleImported}
           onPartialImport={handleImported}
+          onUndone={handleImported}
         />
       )}
 
