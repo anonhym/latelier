@@ -6,7 +6,7 @@ import { COPY_FORMATS, COPY_FORMAT_LABELS, MONGOSH_HINT, formatDocsForCopy, type
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
-import { bandOccupant, resultPaneKind } from './resultPaneState';
+import { bandOccupant } from './resultPaneState';
 import { buildDeleteSelectedFilterJson, selectedDocs } from './selection';
 import { useCopyFormat } from './views/useCopyFormat';
 
@@ -31,10 +31,10 @@ interface SelectionActionBarProps {
 const BAR_HEIGHT = 31;
 
 /**
- * The fixed band above the rows: a lost connection, a running find, or the
- * bulk actions for a selection (T0.4), one at a time. The outer strip always
- * renders when the workspace isn't read-only (#106 — see `BAR_HEIGHT`), so none
- * of them can move or cover a row. `ResultViewer` composes this as the
+ * The fixed band above the rows says a connection was lost or a find is
+ * running; it always renders when the workspace isn't read-only (see
+ * `BAR_HEIGHT`), so neither can move a row. A selection's actions are a
+ * floating pill instead (W06 §8.3), and nothing fills the band while idle. `ResultViewer` composes this as the
  * `SelectionBar` slot; `ScriptTab`'s read-only snapshot composition never
  * renders it at all (AC7), and `meta.isReadOnly` is checked here too so a
  * future composition mistake can't surface destructive actions there.
@@ -79,87 +79,94 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
   };
 
   return (
-    <Group
-      data-testid="selection-bar"
-      gap={themeVars.gapSm}
-      wrap="nowrap"
-      style={{
-        height: BAR_HEIGHT,
-        boxSizing: 'border-box',
-        padding: '4px 14px',
-        borderBottom: `1px solid ${T.border}`,
-        background:
-          occupant === 'selection' ? T.accentSoft : occupant === 'lost' ? T.warnSoft : 'transparent',
-        flexShrink: 0,
-        fontSize: T.fsXs,
-      }}
-    >
-      {occupant === 'lost' && connectionLost && (
-        <>
-          <span
-            role="status"
-            data-testid="band-connection-lost"
-            title={connectionLost.reason}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: T.warnText,
-            }}
-          >
-            <strong>Connection lost.</strong> {connectionLost.reason}
-          </span>
-          <Button
-            size="compact-xs"
-            variant="default"
-            style={{ flexShrink: 0 }}
-            onClick={connectionLost.onReconnect}
-            disabled={connectionLost.reconnecting}
-          >
-            {connectionLost.reconnecting ? 'Reconnecting…' : 'Reconnect'}
-          </Button>
-        </>
-      )}
-      {occupant === 'running' && (
-        <>
-          <span role="status" style={{ color: T.textMuted }}>
-            Running…
-          </span>
-          <span style={{ flex: 1 }} />
-          <Button
-            data-testid="band-cancel"
-            size="compact-xs"
-            variant="subtle"
-            color="gray"
-            onClick={() => actions.cancel()}
-          >
-            Cancel
-          </Button>
-        </>
-      )}
-      {/* Only above rows: the empty, error and never-run panes have nothing to select. */}
-      {occupant === 'none' && resultPaneKind(state) === 'rows' && (
-        <span
-          data-testid="band-hint"
+    <>
+      <Group
+        data-testid="selection-bar"
+        gap={themeVars.gapSm}
+        wrap="nowrap"
+        style={{
+          height: BAR_HEIGHT,
+          boxSizing: 'border-box',
+          padding: '4px 14px',
+          borderBottom: `1px solid ${T.border}`,
+          background: occupant === 'lost' ? T.warnSoft : 'transparent',
+          flexShrink: 0,
+          fontSize: T.fsXs,
+        }}
+      >
+        {occupant === 'lost' && connectionLost && (
+          <>
+            <span
+              role="status"
+              data-testid="band-connection-lost"
+              title={connectionLost.reason}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: T.warnText,
+              }}
+            >
+              <strong>Connection lost.</strong> {connectionLost.reason}
+            </span>
+            <Button
+              size="compact-xs"
+              variant="default"
+              style={{ flexShrink: 0 }}
+              onClick={connectionLost.onReconnect}
+              disabled={connectionLost.reconnecting}
+            >
+              {connectionLost.reconnecting ? 'Reconnecting…' : 'Reconnect'}
+            </Button>
+          </>
+        )}
+        {occupant === 'running' && (
+          <>
+            <span role="status" style={{ color: T.textMuted }}>
+              Running…
+            </span>
+            <span style={{ flex: 1 }} />
+            <Button
+              data-testid="band-cancel"
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              onClick={() => actions.cancel()}
+            >
+              Cancel
+            </Button>
+          </>
+        )}
+      </Group>
+      {/* W06 §8.3: the selection floats at the bottom centre of the canvas, over
+          the rows, so making or clearing one moves nothing. */}
+      {selection.indices.size > 0 && (
+        <Group
+          role="toolbar"
+          aria-label="Selection"
+          data-testid="selection-pill"
+          gap={themeVars.gapXs}
+          wrap="nowrap"
           style={{
-            color: T.textGhost,
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            position: 'absolute',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 5,
+            padding: '4px 6px 4px 12px',
+            borderRadius: 999,
+            border: `1px solid ${T.border}`,
+            background: T.surfaceRaised,
+            boxShadow: T.shadowLg,
+            fontSize: T.fsXs,
             whiteSpace: 'nowrap',
           }}
         >
-          {`Select rows with the checkbox or ⌘/Ctrl-click to copy${meta.isView ? '' : ' or delete'} them`}
-        </span>
-      )}
-      {occupant === 'selection' && (
-        <>
-          <span data-testid="selection-bar-count" style={{ color: T.text, fontWeight: 600 }}>
+          <span data-testid="selection-bar-count" style={{ color: T.text, fontWeight: 600, marginRight: 4 }}>
             {selection.indices.size} selected
           </span>
-          <span style={{ flex: 1 }} />
           <Button.Group>
             <Button
               data-testid="selection-bar-copy"
@@ -226,8 +233,8 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
           >
             {I.close}
           </ActionIcon>
-        </>
+        </Group>
       )}
-    </Group>
+    </>
   );
 }

@@ -6,6 +6,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Skeleton, Stack } from '@mantine/core';
 import { PaneState } from '../../components/PaneState';
+import { I } from '../../icons';
 import { TreeView } from './views/TreeView';
 import { JsonView } from './views/JsonView';
 import { TableView } from './views/TableView';
@@ -14,7 +15,7 @@ import { ResultSelectionProvider } from './ResultSelectionProvider';
 import { SelectionActionBar } from './SelectionActionBar';
 import { ImportDialog } from './ImportDialog';
 import { useCollectionWorkspace } from './context';
-import { EMPTY_DOCUMENTS } from './resultSelection';
+import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
 import { findProblem, isUnfilteredFirstPage } from './builder';
 import { resultPaneKind, revertTarget, type ResultPaneKind } from './resultPaneState';
 import type { CollectionTabState, ReferenceRule } from '@shared/types';
@@ -94,10 +95,13 @@ function Body({
   // count marker in `ResultBar`, so the two never disagree. Opacity only — no
   // `pointer-events: none`, which would take selection and row expansion away.
   const isStale = kind === 'rows' && findProblem(state) !== null;
+  const hasSelection = useResultSelection(state.lastRun?.documents ?? EMPTY_DOCUMENTS).indices.size > 0;
 
   return (
     <div
       data-stale={isStale ? 'true' : undefined}
+      // Every row's checkbox shows once anything is selected (`index.css`).
+      data-has-selection={hasSelection ? '' : undefined}
       style={{
         flex: 1,
         display: 'flex',
@@ -200,9 +204,15 @@ function EmptyState({
             meta.isReadOnly || meta.isView ? (
               runAgain('Run again')
             ) : (
-              <Button variant="default" size="xs" onClick={onImport}>
-                Import documents…
-              </Button>
+              // W06 §8.14: the lighter way in first.
+              <>
+                <Button variant="default" size="xs" leftSection={I.plus} onClick={() => actions.openInsert()}>
+                  Insert document
+                </Button>
+                <Button variant="default" size="xs" onClick={onImport}>
+                  Import…
+                </Button>
+              </>
             )
           }
         />

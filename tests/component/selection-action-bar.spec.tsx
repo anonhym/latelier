@@ -81,84 +81,69 @@ describe('SelectionActionBar', () => {
   });
 
   // #106 — jsdom has no layout, so this can't measure the rendered height;
-  // it guards that the strip stays mounted and keeps the same fixed inline
-  // height in both states. The e2e measures the real grid position.
-  it('#106 — the strip stays mounted at the same fixed height, with or without a selection', () => {
+  // it guards that the strip stays mounted at the same fixed inline height in
+  // both states, and that a selection never lands in it. The e2e measures the
+  // real grid position.
+  it('#106 — the strip stays mounted at the same fixed height, and a selection floats outside it', () => {
     const { container } = renderBar(vi.fn());
     const strip = () => container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!;
     expect(strip()).not.toBeNull();
-    expect(container.querySelector('[data-testid="selection-bar-count"]')).toBeNull();
     expect(strip().style.height).toBe('31px');
     expect(strip().style.boxSizing).toBe('border-box');
     selectFirstCard();
-    expect(container.querySelector('[data-testid="selection-bar-count"]')).not.toBeNull();
     expect(strip().style.height).toBe('31px');
-    expect(strip().style.boxSizing).toBe('border-box');
+    expect(strip().contains(screen.getByTestId('selection-bar-count'))).toBe(false);
   });
 
-  it('with nothing else to say, the band holds a one-line hint naming how to select', () => {
+  it('draws no hint row with nothing selected (W06 §8.1)', () => {
     const { container } = renderBar(vi.fn());
-    const hint = () => container.querySelector<HTMLElement>('[data-testid="band-hint"]');
-    expect(hint()?.textContent).toBe(
-      'Select rows with the checkbox or ⌘/Ctrl-click to copy or delete them',
-    );
-    selectFirstCard();
-    expect(hint()).toBeNull();
-  });
-
-  it('shows no hint when there are no rows to select (empty, never-run)', () => {
-    const empty = render(
-      <CollectionWorkspaceProvider
-        state={makeState({ lastRun: { documents: [], durationMs: 1, ranAt: new Date().toISOString() } })}
-        actions={emptyWorkspaceActions()}
-        meta={makeMeta()}
-      >
-        <ResultViewer>
-          <ResultViewer.SelectionBar onDeleteSelected={vi.fn()} />
-          <ResultViewer.Json />
-        </ResultViewer>
-      </CollectionWorkspaceProvider>,
-    );
-    expect(empty.container.querySelector('[data-testid="band-hint"]')).toBeNull();
-    expect(empty.container.querySelector('[data-testid="selection-bar"]')).not.toBeNull();
-    empty.unmount();
-
-    const neverRun = render(
-      <CollectionWorkspaceProvider
-        state={makeState({ lastRun: undefined })}
-        actions={emptyWorkspaceActions()}
-        meta={makeMeta()}
-      >
-        <ResultViewer>
-          <ResultViewer.SelectionBar onDeleteSelected={vi.fn()} />
-          <ResultViewer.Json />
-        </ResultViewer>
-      </CollectionWorkspaceProvider>,
-    );
-    expect(neverRun.container.querySelector('[data-testid="band-hint"]')).toBeNull();
-  });
-
-  it('the hint stays on one line inside the fixed band', () => {
-    const { container } = renderBar(vi.fn());
-    const hint = container.querySelector<HTMLElement>('[data-testid="band-hint"]')!;
-    expect(hint.style.whiteSpace).toBe('nowrap');
-    expect(hint.style.overflow).toBe('hidden');
-    expect(hint.style.textOverflow).toBe('ellipsis');
-    expect(hint.style.minWidth).toBe('0px');
-  });
-
-  it('the hint gives way to Running… and keeps the band height', () => {
-    const { container } = renderBar(vi.fn(), { isLoading: true });
     expect(container.querySelector('[data-testid="band-hint"]')).toBeNull();
+    expect(container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!.textContent).toBe('');
+    expect(container.textContent).not.toMatch(/Select rows with the checkbox/);
+  });
+
+  it('a selection is a floating pill at the bottom centre: count · Copy ▾ · Delete · ✕', () => {
+    renderBar(vi.fn());
+    expect(screen.queryByRole('toolbar', { name: 'Selection' })).toBeNull();
+    selectFirstCard();
+    const pill = screen.getByRole('toolbar', { name: 'Selection' });
+    expect(pill.style.position).toBe('absolute');
+    expect(pill.style.left).toBe('50%');
+    expect(pill.style.bottom).toBe('16px');
+    expect([...pill.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
+      'Copy',
+      'Copy as…',
+      'Delete',
+      'Clear selection',
+    ]);
+  });
+
+  it('checkboxes carry the hook that hides them off hover, and the canvas flags a selection so every row shows its own', () => {
+    const { container } = render(
+      <CollectionWorkspaceProvider state={makeState()} actions={emptyWorkspaceActions()} meta={makeMeta()}>
+        <ResultViewer>
+          <ResultViewer.Body onClearFilter={() => {}} onColumnResize={() => {}} onRowExpand={() => {}} />
+        </ResultViewer>
+      </CollectionWorkspaceProvider>,
+    );
+    const toggles = container.querySelectorAll('[data-select-toggle]');
+    expect(toggles).toHaveLength(DOCS.length);
+    expect(container.querySelector('[data-has-selection]')).toBeNull();
+    selectFirstCard();
+    expect(container.querySelector('[data-has-selection]')).not.toBeNull();
+  });
+
+  it('Running… keeps the band height', () => {
+    const { container } = renderBar(vi.fn(), { isLoading: true });
     expect(container.textContent).toContain('Running…');
     expect(container.querySelector<HTMLElement>('[data-testid="selection-bar"]')!.style.height).toBe('31px');
   });
 
-  it('on a view the hint does not offer delete', () => {
-    const { container } = renderBar(vi.fn(), { isView: true });
-    expect(container.querySelector('[data-testid="band-hint"]')?.textContent).toBe(
-      'Select rows with the checkbox or ⌘/Ctrl-click to copy them',
-    );
+  it('on a view the pill has no Delete', () => {
+    renderBar(vi.fn(), { isView: true });
+    selectFirstCard();
+    expect(screen.getByRole('toolbar', { name: 'Selection' })).toBeTruthy();
+    expect(screen.queryByTestId('selection-bar-delete')).toBeNull();
   });
 
   it('#106 — read-only still renders nothing at all, strip included', () => {

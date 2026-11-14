@@ -513,7 +513,8 @@ export function PanelBody({
                   minSize={320}
                   style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}
                 >
-                  <Tabs.Panel value="documents" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
+                  {/* Positioned: the selection pill floats at the bottom centre of this canvas. */}
+                  <Tabs.Panel value="documents" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
                     <>
                       <QueryBar
                         suggestionContext={collection.suggestionContext}
