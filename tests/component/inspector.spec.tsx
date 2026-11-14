@@ -57,7 +57,7 @@ function tabOf(activeView: CollectionView = 'documents'): CollectionTab {
 /** `builderCollapsed`: undefined is a profile that never chose. */
 function mountWorkspace(options: { view?: CollectionView; builderCollapsed?: boolean; explain?: (...args: unknown[]) => Promise<unknown> } = {}) {
   const tab = tabOf(options.view);
-  const explain = vi.fn(
+  const explain = vi.fn<(...args: unknown[]) => Promise<unknown>>(
     options.explain ??
       (async () => ({ plan: { queryPlanner: { winningPlan: { stage: 'COLLSCAN' } } }, verbosity: 'queryPlanner' })),
   );
@@ -165,6 +165,17 @@ describe('the Inspector panel', () => {
 
     await waitFor(() => expect(strip()).toBeNull());
     expect(screen.getByRole('button', { name: 'Builder' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('Esc in an operator box cancels that edit and leaves the Inspector open', async () => {
+    mountWorkspace({ builderCollapsed: false });
+    await ready();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const op = (await screen.findByPlaceholderText('$op')) as HTMLInputElement;
+    fireEvent.change(op, { target: { value: '>' } });
+    fireEvent.keyDown(op, { key: 'Escape' });
+    expect(screen.getByTestId('inspector')).toBeTruthy();
+    expect(strip()).not.toBeNull();
   });
 
   it('the Builder button keeps its name and shows ⌘⇧B in its tooltip', async () => {
@@ -358,6 +369,7 @@ describe('every shortcut is in the cheat sheet', () => {
     const rows = STATIC_SHORTCUTS.flatMap((s) => s.items.map((i) => `${i.keys} ${i.title}`));
     expect(rows).toContain('⌘↓ From the filter, move to the first result row');
     expect(rows).toContain('Esc From the results, back to the filter');
+    expect(rows).toContain('Esc Close the Inspector');
   });
 
   it('offers Copy query as… for the three targets, beside the Run menu', async () => {

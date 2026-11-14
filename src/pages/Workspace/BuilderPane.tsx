@@ -666,6 +666,8 @@ function CondRow({
    */
   const handleOpKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
+      // Consumed: the Inspector around the builder closes on an Escape nobody took.
+      e.preventDefault();
       revertOpDraft();
       opInputRef.current?.blur();
       return;

@@ -129,7 +129,26 @@ const parse = (text: string): unknown => parseJsonKeepingBigInts(text);
 
 const jsArg = (text: string): string => literal(parse(text), JS);
 /** A clause as mongosh source: the app's shell literals, on one line. */
-const shellArg = (text: string): string => toMongoshLiteral(ejsonParse(text), 'inline');
+const shellArg = (text: string): string => {
+  const tree = parse(text);
+  const fallbacks: string[] = [];
+  const marked = JSON.stringify(tree, (_k, v: unknown) => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+    const obj = v as Record<string, unknown>;
+    if (!isExactSentinel(obj)) return v;
+    const json = JSON.stringify(obj);
+    // A sentinel the shell has no literal for prints as a plain `{ $x: … }`
+    // document, which mongosh would run as a different query.
+    if (!toMongoshLiteral(ejsonParse(json), 'inline').startsWith('{')) return v;
+    fallbacks.push(`EJSON.parse(${str(json)}, { relaxed: false })`);
+    return `\u0000sentinel${fallbacks.length - 1}`;
+  });
+  if (fallbacks.length === 0) return toMongoshLiteral(ejsonParse(text), 'inline');
+  return toMongoshLiteral(ejsonParse(marked), 'inline').replace(
+    /"\\u0000sentinel(\d+)"/g,
+    (_m, i: string) => fallbacks[Number(i)]!,
+  );
+};
 const pyArg = (text: string): string => literal(parse(text), PY);
 
 /** The direction words a find sort accepts (`builder.ts`'s SORT_DIRECTIONS). */

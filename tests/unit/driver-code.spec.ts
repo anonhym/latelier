@@ -85,6 +85,21 @@ describe('findCode', () => {
     );
   });
 
+  it('mongosh: a sentinel the shell has no literal for goes through EJSON.parse, at any depth', () => {
+    const re = '{"$regularExpression":{"pattern":"a/b","options":""}}';
+    expect(findCode('mongosh', { ...base, filter: `{"n":${re}}` })).toBe(
+      `db.getCollection("users").find({ n: ${ej(re)} }).limit(20)`,
+    );
+    expect(findCode('mongosh', { ...base, filter: `{"n":{"$in":[${re},{"$oid":"64b7f0c2a1b2c3d4e5f60718"}]}}` })).toBe(
+      `db.getCollection("users").find({ n: { $in: [${ej(re)}, ObjectId("64b7f0c2a1b2c3d4e5f60718")] } }).limit(20)`,
+    );
+    expect(findCode('mongosh', { ...base, filter: re })).toBe(`db.getCollection("users").find(${ej(re)}).limit(20)`);
+    const code = '{"$code":"function(){}"}';
+    const out = findCode('mongosh', { ...base, filter: `{"f":${code}}` });
+    expect(out).toBe(`db.getCollection("users").find({ f: ${ej(code)} }).limit(20)`);
+    expect(((runJs(out).args as [unknown[]])[0][0] as { f: unknown }).f).toEqual(EJSON.parse(code, { relaxed: false }));
+  });
+
   it('writes an int32 and a fractional double bare, which every driver sends as that type', () => {
     const filter =
       '{"i":{"$numberInt":"-12"},"f":{"$numberDouble":"1.5"},"d":{"$numberDouble":"2.0"},"n":{"$numberDouble":"NaN"},"x":{"$numberInt":"1e3"}}';
