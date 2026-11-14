@@ -1,6 +1,6 @@
 # X13 — Operation audit log & undo
 
-> **Status: Accepted.** §1–§12 shipped. §13, undo beyond the toast, is agreed and not built yet.
+> **Status: Implemented.** §1–§13 shipped; ⌘Z and `Undo last change` hold the newest undo per collection in renderer session memory.
 
 ## Purpose
 
@@ -294,7 +294,7 @@ Three known ceilings, recorded so nobody mistakes them for oversights:
 
 ## 13. Amendment — undo beyond the toast
 
-> **Accepted, not built.**
+> **Implemented.**
 
 Undo existed only as a button on an 8-second toast. Once the toast left, the only way back was the audit log.
 
