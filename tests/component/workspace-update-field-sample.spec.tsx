@@ -18,6 +18,7 @@ import { installAtelierMock, uninstallAtelierMock, connectionFixture, multiConne
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTab } from '@shared/types';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
+import { rerunCollection } from '../../src/pages/Workspace/undoStore';
 
 // Mocked at the exact module Workspace.tsx imports; the rest stays real
 // because the page reaches the suggestion sources through their barrel.
@@ -271,5 +272,14 @@ describe('Quick Edit re-runs the tab it edited', () => {
 
     await waitFor(() => expect(undo).toHaveBeenCalledWith({ entryId: 'a1' }));
     await waitFor(() => expect(collectionsQueried(find)).toEqual(['orders']));
+  });
+
+  // An import's Undo has no tab list at hand; the page registers how to re-run
+  // every open tab on a collection, and only those.
+  it('the page re-runs every open tab on a collection when an undo asks it to', async () => {
+    const { find } = await startEditOnOrders(true);
+    find.mockClear();
+    act(() => rerunCollection({ connectionId: 'c1', dbName: 'shop', collection: 'orders' }));
+    await waitFor(() => expect(collectionsQueried(find)).toEqual(['orders', 'orders']));
   });
 });

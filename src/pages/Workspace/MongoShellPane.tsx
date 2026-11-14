@@ -3,6 +3,7 @@ import { ActionIcon, Button, Group, Tooltip } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
+import { forgetUndoOn } from './undoStore';
 import type { ShellOutputEvent } from '@shared/types';
 import { useLatest } from '../../commands/useLatest';
 import { logToMain } from '../../utils/rendererLog';
@@ -226,6 +227,9 @@ export function MongoShellPane({ connectionId, connectionName, dbName, height, o
     // they see their own command in the transcript.
     append(`> ${line}\n`);
     setPending((n) => n + 1);
+    // Any line can write anywhere on the Connection, unseen by the renderer,
+    // so no collection's older undo there is its last change any more.
+    forgetUndoOn(connectionId);
     // A refused write (read-only switch, session gone) never gets a prompt back,
     // so it is taken off the busy count here and its reason printed.
     void api.mshell.write({ sessionId: state.sessionId, data: line + '\n' }).catch((err: unknown) => {

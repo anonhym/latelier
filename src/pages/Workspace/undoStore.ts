@@ -53,6 +53,37 @@ export function forgetUndo(target: UndoTarget): void {
   if (newest.delete(keyOf(target))) emit();
 }
 
+/**
+ * A write somewhere on `connectionId` that the renderer can't place (a
+ * script, a `$out`/`$merge`): every collection's newest undo there goes.
+ */
+export function forgetUndoOn(connectionId: string): void {
+  const prefix = `${connectionId}\u0000`;
+  let dropped = false;
+  for (const key of newest.keys()) {
+    if (key.startsWith(prefix)) dropped = newest.delete(key) || dropped;
+  }
+  if (dropped) emit();
+}
+
+let rerunTabsOn: (target: UndoTarget) => void = () => {};
+
+/**
+ * The Workspace registers how to re-run every open tab on a collection, for
+ * an undo raised where no tab list is at hand: an import's toast outlives its
+ * dialog. Returns the unregister.
+ */
+export function registerCollectionRerun(rerun: (target: UndoTarget) => void): () => void {
+  rerunTabsOn = rerun;
+  return () => {
+    if (rerunTabsOn === rerun) rerunTabsOn = () => {};
+  };
+}
+
+export function rerunCollection(target: UndoTarget): void {
+  rerunTabsOn(target);
+}
+
 /** Drops `auditId` wherever it is still the newest entry: it has run, or it was refused. */
 function forget(auditId: string) {
   for (const [key, entry] of newest) {

@@ -7,7 +7,7 @@ import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
+import { clearUndoStore, latestUndo, recordUndo, registerCollectionRerun } from '../../src/pages/Workspace/undoStore';
 import type { CsvPreview, DataImportInput, DataImportProgressEvent, ImportReport } from '@shared/types';
 import type { PickFilePurpose } from '@shared/ipc';
 
@@ -345,6 +345,19 @@ describe('ImportDialog — field-suggestion sample', () => {
     clearUndoStore();
   });
 
+  // Nothing landed is no write: the older undo is still the last change.
+  it('keeps the collection’s older undo when the import landed nothing', async () => {
+    const ns = { connectionId: 'c1', dbName: 'shop', collection: 'people' };
+    const older = { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} };
+    recordUndo(ns, older);
+    mockApi({ report: { ...REPORT, inserted: 0, failed: 2 } });
+    renderDialog();
+    choose();
+    await screen.findByRole('status');
+    expect(latestUndo(ns)).toBe(older);
+    clearUndoStore();
+  });
+
   it.each([
     ['carries insertedCount: 0', { insertedCount: 0 }],
     ['carries no details', undefined],
@@ -379,6 +392,28 @@ describe('ImportDialog — field-suggestion sample', () => {
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
     expect(undo).toHaveBeenCalledWith({ entryId: 'a9' });
     expect(invalidate).toHaveBeenLastCalledWith('c1', 'shop', 'people');
+  });
+
+  // The toast outlives the dialog, and ⌘Z runs the undo from any tab on the
+  // collection: the re-run is every tab on the imported collection, not
+  // whichever tab has focus by then, which `onImported` would re-run.
+  it('Undo re-runs every tab on the imported collection, and the host hears of it through onUndone', async () => {
+    const rerun = vi.fn();
+    const unregister = registerCollectionRerun(rerun);
+    const onUndone = vi.fn();
+    mockApi({ report: { ...REPORT, auditId: 'a9' }, undo: vi.fn(async () => ({ restored: 1200, skipped: 0 })) });
+    const { onImported } = renderDialog({ onUndone });
+    choose();
+    await screen.findByRole('status');
+    expect(onImported).toHaveBeenCalledOnce();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+    await vi.waitFor(() => expect(rerun).toHaveBeenCalledExactlyOnceWith({ connectionId: 'c1', dbName: 'shop', collection: 'people' }));
+    expect(onUndone).toHaveBeenCalledOnce();
+    expect(onImported).toHaveBeenCalledOnce();
+    unregister();
+    clearUndoStore();
   });
 });
 

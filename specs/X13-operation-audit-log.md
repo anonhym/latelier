@@ -300,15 +300,19 @@ Undo existed only as a button on an 8-second toast. Once the toast left, the onl
 
 - **`⌘Z`** in the result area (focus on the results, not in a text field or a dialog) triggers the newest still-valid undo of the Focused Tab's collection: the same action the toast's button runs. In a text field ⌘Z stays the field's own undo.
 - **`Undo last change`** is an item in the canvas header's `⋯` menu ([W06 §8.1](./W06-result-views.md)), present while such an undo exists, naming what it reverses (`Undo: document updated`).
-- "Still valid" is §6's rule unchanged: the entry has captured data, has not been undone, and has not expired. When it is refused (the target changed underneath), the refusal is shown as it is from the toast.
-- Nothing is added to the main process: both entry points call the existing undo channel with the newest entry the renderer already holds for that tab.
+- "Still valid" is §6's rule unchanged: the entry has captured data, has not been undone, and has not expired. When it is refused (the target changed underneath, already undone, expired, not reversible, or the `_id` exists again), the refusal is shown as it is from the toast and the entry is dropped. Any other failure (a dropped Connection, a server error) is shown the same way but keeps the entry, so the undo can be tried again.
+- The newest entry belongs to the collection, not to the tab that wrote. A newer write on that collection that records nothing to undo drops it, so ⌘Z never reaches past the last change: an insert, a partial import, a bulk write over §5's capture ceiling, and a Save as collection on its target. A Script run, a line sent to the shell, or a confirmed `$out`/`$merge`, whose target the renderer can't name, drops every entry on its Connection. A write that changed nothing (an import that landed no document) keeps it.
+- After an undo lands, every open tab on that collection re-runs, whichever tab ran it and whether or not the tab that wrote is still open.
+- Nothing is added to the main process: both entry points call the existing undo channel with the newest entry the renderer already holds for that collection.
 
 ### Acceptance criteria
 
 - After a document update, with the toast gone, ⌘Z on the results reverts it and the list re-runs.
 - ⌘Z in the filter editor undoes typing, not the write.
 - `Undo last change` is present after a write and absent once it is undone or expired.
-- A refused undo reports why and removes the item.
+- A refused undo reports why and removes the item; a transient failure reports why and keeps it.
+- After an insert, or a write too large to capture, on the same collection, ⌘Z does nothing and the item is gone.
+- An undo run from a second tab on the collection re-runs both tabs, and the second alone once the writing tab is closed.
 
 ### Test cases
 

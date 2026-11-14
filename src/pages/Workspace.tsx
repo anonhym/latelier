@@ -29,7 +29,7 @@ import { useQueryRunner } from './Workspace/useQueryRunner';
 import { recordFilterStep } from './Workspace/filterStep';
 import { parsePastedObjectId } from '../commands/pastedId';
 import type { RunnerTarget } from './Workspace/useQueryRunner';
-import type { UndoTarget } from './Workspace/undoStore';
+import { registerCollectionRerun, type UndoTarget } from './Workspace/undoStore';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useNavigatorData, useNavigatorStatusSync } from './Workspace/useNavigatorData';
 import { ownGet } from '../utils/ownProperty';
@@ -571,6 +571,13 @@ function WorkspaceInner() {
           : [],
       ),
     [resolveRunnerTarget, tabsRef],
+  );
+  React.useEffect(
+    () =>
+      registerCollectionRerun((ns) => {
+        for (const t of resolveNamespaceTargets(ns)) void run(undefined, t);
+      }),
+    [resolveNamespaceTargets, run],
   );
   const activeIsView =
     activeCollection !== null &&

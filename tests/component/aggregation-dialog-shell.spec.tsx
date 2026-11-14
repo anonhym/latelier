@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
+import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
 import { WriteStageConfirm } from '../../src/pages/Workspace/Aggregation/AggregationTab';
 import { SavePipelineModal } from '../../src/pages/Workspace/Aggregation/SavePipelineModal';
 import { SaveAsCollectionModal } from '../../src/pages/Workspace/Aggregation/SaveAsCollectionModal';
@@ -810,6 +811,40 @@ describe('SaveAsCollectionModal — dialog shell + guard (X15 T6)', () => {
       await screen.findByText(/merge failed/);
       expect(invalidateSampleSchemaCache).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'monthlyByAccount');
       expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'monthlyByAccount');
+    });
+
+    it('drops the target collection’s undo, even when the write fails', async () => {
+      const target = { connectionId: 'c1', dbName: 'shop', collection: 'monthlyByAccount' };
+      const source = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
+      const entry = { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} };
+      recordUndo(target, entry);
+      recordUndo(source, entry);
+      installAtelierMock({
+        agg: {
+          runAndSave: (async () => {
+            throw { code: 'INTERNAL', message: 'merge failed' };
+          }) as never,
+        },
+      });
+      render(
+        <SaveAsCollectionModal
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          stages={[{ id: 1, op: '$match', body: '{}', enabled: true }]}
+          onClose={vi.fn()}
+          onWritten={() => undefined}
+        />,
+      );
+      fireEvent.change(targetCollInput(), { target: { value: 'monthlyByAccount' } });
+      fireEvent.change(confirmInput(), { target: { value: 'monthlyByAccount' } });
+
+      fireEvent.click(confirmButton());
+
+      await screen.findByText(/merge failed/);
+      expect(latestUndo(target)).toBeUndefined();
+      expect(latestUndo(source)).toBe(entry);
+      clearUndoStore();
     });
 
     it('leaves the sample alone when the submit is blocked by a mismatched confirmation', async () => {

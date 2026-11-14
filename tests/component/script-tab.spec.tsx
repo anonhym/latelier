@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { IpcApi } from '@shared/ipc';
 import {
@@ -385,6 +386,27 @@ describe('ScriptTab — field-suggestion sample', () => {
 
     await waitFor(() => expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1'));
     await waitFor(() => expect(invalidateSchemaEnumCache).toHaveBeenCalledExactlyOnceWith('c1'));
+  });
+
+  // A script can write anywhere on its Connection: ⌘Z must not reach past it
+  // to an older undo there. Another Connection's is not touched.
+  it('drops every undo on its Connection, even when the run fails', async () => {
+    const entry = { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} };
+    recordUndo({ connectionId: 'c1', dbName: 'shop', collection: 'orders' }, entry);
+    recordUndo({ connectionId: 'c2', dbName: 'shop', collection: 'orders' }, entry);
+    const run = vi.fn<IpcApi['script']['run']>(async () => {
+      throw { code: 'SCRIPT_ERROR', message: 'boom' };
+    });
+    installAtelierMock({ script: { run, cancel: async () => undefined } });
+    const onPatch = vi.fn();
+    render(<ScriptTab tab={tab()} onPatch={onPatch} />);
+
+    fireEvent.click(screen.getByTestId('script-run-btn'));
+
+    await waitFor(() => expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({ lastError: expect.anything() })));
+    expect(latestUndo({ connectionId: 'c1', dbName: 'shop', collection: 'orders' })).toBeUndefined();
+    expect(latestUndo({ connectionId: 'c2', dbName: 'shop', collection: 'orders' })).toBe(entry);
+    clearUndoStore();
   });
 
   it('drops them when the run fails too, since it may have written before throwing', async () => {
