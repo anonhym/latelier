@@ -634,6 +634,9 @@ function TableCell({
         <FullValuePopover
           display={String(display)}
           isString={dv.type === 'string'}
+          fieldPath={fieldPath}
+          typeLabel={dv.type}
+          onOpenInEditor={isFieldColumn && !meta.isReadOnly ? () => actions.openEdit(doc, fieldPath) : undefined}
           opened={expandOpen}
           onChange={setExpandOpen}
           visible={affordanceVisible}
@@ -760,7 +763,8 @@ function TableRowImpl({
   detailLeft,
   detailWidth,
 }: RowComponentProps<TableRowProps>) {
-  const isView = !!useCollectionWorkspace().meta.isView;
+  const { meta, actions: { openEdit } } = useCollectionWorkspace();
+  const isView = !!meta.isView;
   const doc = documents[index];
   const isSelected = indices.has(index);
   const isActive = index === activeIndex;
@@ -1044,6 +1048,7 @@ function TableRowImpl({
             expandedPaths={deepPaths}
             onToggle={toggleDeepPath}
             onSetPaths={setDeepPaths}
+            onOpenInEditor={(fieldPath) => openEdit(doc, fieldPath)}
             copiedPath={fieldCopiedPath}
             onCopy={handleCopyField}
             onOpenMenu={handleOpenFieldMenu}

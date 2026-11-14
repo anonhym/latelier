@@ -213,7 +213,8 @@ function DocRowImpl({
   rowId,
   setActiveIndex,
 }: RowComponentProps<DocRowProps>) {
-  const isView = !!useCollectionWorkspace().meta.isView;
+  const { meta, actions: { openEdit } } = useCollectionWorkspace();
+  const isView = !!meta.isView;
   const doc = documents[index];
   const docId = getFullDocId(doc);
   const shortId = getDocId(doc);
@@ -403,6 +404,7 @@ function DocRowImpl({
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
           onSetPaths={setDeepPaths}
+          onOpenInEditor={(fieldPath) => openEdit(doc, fieldPath)}
           copiedPath={copiedPath}
           onCopy={handleCopy}
           onOpenMenu={handleOpenMenu}

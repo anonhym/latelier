@@ -87,6 +87,8 @@ interface FieldNodeProps {
   onToggle: (path: string) => void;
   /** Expands or collapses a whole subtree at once (`⌥`-click on a chevron). */
   onSetPaths?: (paths: string[], expanded: boolean) => void;
+  /** Opens the Document Editor on a field; the full-value popover's `Open in editor`. */
+  onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
   // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` before
@@ -130,6 +132,7 @@ function FieldNodeImpl({
   expandedPaths,
   onToggle,
   onSetPaths,
+  onOpenInEditor,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -353,13 +356,15 @@ function FieldNodeImpl({
                 <FullValuePopover
                   display={dv.display}
                   isString={dv.type === 'string'}
+                  fieldPath={fieldPath}
+                  typeLabel={dv.type}
+                  onOpenInEditor={onOpenInEditor && (() => onOpenInEditor(fieldPath))}
                   opened={fullValueOpen}
                   onChange={(opened) => onFullValueChange(path, opened)}
                   visible={hovered || focused || isActive || fullValueOpen}
                   ariaLabel="Expand field value"
                   // Tab must not walk every leaf of a wide document.
                   tabIndex={-1}
-                  focusOnOpen
                 />
               )}
               {rule && (
@@ -391,6 +396,7 @@ function FieldNodeImpl({
             expandedPaths={expandedPaths}
             onToggle={onToggle}
             onSetPaths={onSetPaths}
+            onOpenInEditor={onOpenInEditor}
             copiedPath={copiedPath}
             onCopy={onCopy}
             onOpenMenu={onOpenMenu}
@@ -419,6 +425,7 @@ export const FieldNode = React.memo(FieldNodeImpl, (prev, next) => {
     prev.depth !== next.depth ||
     prev.onToggle !== next.onToggle ||
     prev.onSetPaths !== next.onSetPaths ||
+    prev.onOpenInEditor !== next.onOpenInEditor ||
     prev.onCopy !== next.onCopy ||
     prev.onOpenMenu !== next.onOpenMenu ||
     prev.refsByField !== next.refsByField ||
@@ -490,6 +497,8 @@ export interface DocFieldTreeProps {
   onToggle: (path: string) => void;
   /** Expands or collapses several paths at once — `⌥`-click, `⌥→`, `⌥←`. */
   onSetPaths?: (paths: string[], expanded: boolean) => void;
+  /** Opens the Document Editor on a field (the full-value popover's `Open in editor`). */
+  onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
   // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
@@ -527,6 +536,7 @@ export function DocFieldTree({
   expandedPaths,
   onToggle,
   onSetPaths,
+  onOpenInEditor,
   copiedPath,
   onCopy,
   onOpenMenu,
@@ -745,6 +755,7 @@ export function DocFieldTree({
           expandedPaths={expandedPaths}
           onToggle={onToggle}
           onSetPaths={onSetPaths}
+          onOpenInEditor={onOpenInEditor}
           copiedPath={copiedPath}
           onCopy={onCopy}
           onOpenMenu={handleOpenMenu}
