@@ -141,7 +141,7 @@ test('Schema row menu -> Create index on this field -> drawer prefilled -> index
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.tablist.getByRole('tab', { name: /Structure/ }).click();
+      await ws.tablist.getByRole('tab', { name: 'Schema & indexes' }).click();
 
       await win.getByRole('button', { name: 'Actions for sku' }).click();
       await win.getByRole('menuitem', { name: 'Create index on this field' }).click();
