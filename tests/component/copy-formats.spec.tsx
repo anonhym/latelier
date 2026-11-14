@@ -17,7 +17,7 @@ import { ResultViewer } from '../../src/pages/Workspace/ResultViewer';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { copyToClipboard } from '../../src/utils/clipboard';
 import type { CollectionTabState } from '@shared/types';
-import type { CopyFormat } from '../../src/utils/copyFormat';
+import { MONGOSH_HINT, type CopyFormat } from '../../src/utils/copyFormat';
 
 const OID = '507f1f77bcf86cd799439011';
 const DOCS = [
@@ -154,6 +154,39 @@ describe('⌘C and ⌘⇧C (W06 §8.6)', () => {
     expect(JSON.parse(copied()[0]!).name).toBe('alpha');
   });
 
+  it('Table: ⌘C on a clicked cell whose field the document lacks copies nothing and toasts nothing', async () => {
+    storedFormat('readable');
+    renderTable([
+      { _id: { $oid: OID }, note: 'kept' },
+      { _id: { $oid: '507f1f77bcf86cd799439012' } },
+    ]);
+    await settle();
+    const grid = screen.getByRole('grid', { name: 'Documents' });
+    fireEvent.click(document.querySelector('[data-cell-key="1:note"]')!);
+    const notPrevented = fireEvent.keyDown(grid, { key: 'c', metaKey: true });
+    await settle();
+    expect(copied()).toEqual([]);
+    expect(document.querySelectorAll('.mantine-Notifications-notification')).toHaveLength(0);
+    // The key is still ours: the browser must not copy the grid's own text instead.
+    expect(notPrevented).toBe(false);
+  });
+
+  it('Table: a new result forgets the clicked cell, so ⌘C copies the active document', async () => {
+    storedFormat('readable');
+    const view = (docs: unknown[]) =>
+      inWorkspace('Table', <TableView documents={docs} onColumnResize={vi.fn()} onRowExpand={vi.fn()} />, docs);
+    const { rerender } = render(view(DOCS));
+    await settle();
+    fireEvent.click(document.querySelector('[data-cell-key="0:name"]')!);
+    const next = [{ _id: { $oid: OID }, qty: { $numberInt: '7' }, name: 'gamma' }, DOCS[1]];
+    rerender(view(next));
+    await settle();
+    fireEvent.keyDown(screen.getByRole('grid', { name: 'Documents' }), { key: 'c', metaKey: true });
+    await settle();
+    expect(JSON.parse(copied()[0]!).name).toBe('gamma');
+    expect(copied()[0]).not.toBe('gamma');
+  });
+
   it('copies in the stored format', async () => {
     storedFormat('mongosh');
     renderTree();
@@ -227,6 +260,8 @@ describe('Copy ▾ on the selection bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy as…' }));
     const items = await screen.findAllByRole('menuitem');
     expect(items.map((i) => i.textContent)).toEqual(['EJSON (readable)', 'Canonical EJSON', 'mongosh']);
+    // What mongosh cannot spell is named, not silently left as objects.
+    expect(screen.getByTestId('copy-as-hint').textContent).toBe(`mongosh: ${MONGOSH_HINT}`);
     // Mantine draws the check as an svg in the item's right section.
     expect(items[1]!.querySelector('svg')).not.toBeNull();
     expect(items[0]!.querySelector('svg')).toBeNull();
@@ -291,6 +326,22 @@ describe('the row id and the document menu', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More actions for document (no _id)' }));
     expect(screen.queryByRole('button', { name: 'Copy _id' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Copy document' })).toBeTruthy();
+  });
+});
+
+describe('the JSON card copy button follows the format', () => {
+  it.each([
+    ['readable', /^Copy JSON for document/, 'Copy JSON'],
+    ['canonical', /^Copy canonical EJSON for document/, 'Copy canonical EJSON'],
+    ['mongosh', /^Copy as mongosh for document/, 'Copy as mongosh'],
+  ] as const)('%s', async (format, name, tooltip) => {
+    storedFormat(format);
+    renderJson();
+    await settle();
+    const [button] = screen.getAllByRole('button', { name });
+    expect(button).toBeTruthy();
+    fireEvent.focus(button!);
+    expect((await screen.findByRole('tooltip')).textContent).toBe(tooltip);
   });
 });
 

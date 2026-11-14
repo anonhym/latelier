@@ -2,6 +2,7 @@ import { beforeEach } from 'vitest';
 import { configure } from '@testing-library/react';
 import { uninstallAtelierMock } from './atelierMock';
 import { installJsdomTeardown } from './jsdomTeardown';
+import { resetCopyFormatStore } from '../../src/pages/Workspace/views/useCopyFormat';
 
 // jsdom doesn't implement ResizeObserver, and reports offsetWidth/offsetHeight
 // as 0 for every element. react-window reads both to compute the visible
@@ -94,6 +95,7 @@ if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !=
 //      leaves a permissive stub instead of `undefined` (see atelierMock.ts),
 //      so cleanup-time effects never crash regardless of hook ordering.
 beforeEach(() => {
+  resetCopyFormatStore();
   uninstallAtelierMock();
 });
 

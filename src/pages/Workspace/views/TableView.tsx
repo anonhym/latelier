@@ -1187,6 +1187,11 @@ export function TableView({
     () => resolveColumns(derivedFields, columnConfig),
     [derivedFields, columnConfig],
   );
+  // A new result (a re-run, another page) or a changed column set leaves the
+  // remembered cell pointing at a position that now holds something else.
+  React.useEffect(() => {
+    clickedCellRef.current = null;
+  }, [documents, columns]);
   const sortMap = React.useMemo(() => parseSortString(sort ?? ''), [sort]);
   // Excludes computed columns — a computed column named after a sort key
   // must not count as "drawn" and silence the note.
@@ -1503,7 +1508,8 @@ export function TableView({
       }
       // W06 §8.6 — ⌘C copies the cell last clicked in the active row, ⌘⇧C the
       // whole document. With no clicked cell in that row, ⌘C copies the
-      // document rather than doing nothing.
+      // document rather than doing nothing. A clicked cell whose field the
+      // document lacks (drawn as a dash) holds nothing to copy: no write, no toast.
       const copyKind = copyShortcutOf(e);
       if (copyKind !== null) {
         if (documents.length === 0) return;
@@ -1515,7 +1521,10 @@ export function TableView({
             ? columns.find((c) => c.field === cellField.join(':'))
             : undefined;
         if (col) {
-          void copyToClipboard(valueToClipboardText(columnValue(doc, col)), 'Value copied to the clipboard.');
+          const value = columnValue(doc, col);
+          if (value !== undefined) {
+            void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.');
+          }
         } else {
           void copyDocument(doc, copyFormat);
         }

@@ -11,7 +11,7 @@ import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { docKey, isRecord } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
-import { formatDocsForCopy } from '../../../utils/copyFormat';
+import { COPY_ACTION_LABELS, formatDocsForCopy } from '../../../utils/copyFormat';
 import { anchorForRow, anchorFromRect, isContextMenuKey, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
 import { useCollectionWorkspace } from '../context';
@@ -268,6 +268,8 @@ function DocCard({
 }: DocCardProps) {
   const isView = !!useCollectionWorkspace().meta.isView;
   const buttonTabIndex = isTabStop ? undefined : -1;
+  const [copyFormat] = useCopyFormat();
+  const copyLabel = COPY_ACTION_LABELS[copyFormat];
   const json = React.useMemo(() => {
     const visible = redactHidden(doc, hiddenFields);
     try {
@@ -333,7 +335,7 @@ function DocCard({
           onToggle={() => onToggle(idx)}
           tabIndex={buttonTabIndex}
         />
-        <Tooltip label="Copy JSON" withArrow openDelay={400}>
+        <Tooltip label={copyLabel} withArrow openDelay={400}>
           <ActionIcon
             variant="default"
             size="sm"
@@ -343,7 +345,7 @@ function DocCard({
               onCopy(doc, idx);
             }}
             tabIndex={buttonTabIndex}
-            aria-label={`Copy JSON for document ${getDocId(doc)}`}
+            aria-label={`${copyLabel} for document ${getDocId(doc)}`}
           >
             {isCopied ? I.check : I.copy}
           </ActionIcon>
