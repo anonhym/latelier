@@ -31,6 +31,7 @@ import {
   IconFileText,
   IconFilter,
   IconGripVertical,
+  IconLayoutSidebar,
   IconLink,
   IconList,
   IconLock,
@@ -107,6 +108,7 @@ export const I = {
   // is accurate. Parentheses are how a nested boolean group is written.
   group: <IconParentheses size={13} stroke={s} />,
   link: <IconLink size={13} stroke={s} />,
+  sidebar: <IconLayoutSidebar size={14} stroke={s} />,
   undo: <IconArrowBackUp size={13} stroke={s} />,
   redo: <IconArrowForwardUp size={13} stroke={s} />,
 };

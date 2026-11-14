@@ -180,13 +180,13 @@ describe('TreeView — rendering and interaction', () => {
     const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
     const onRowExpand = vi.fn();
     const { getByRole, container } = renderTree(docs, { onRowExpand });
-    const checkbox = getByRole('button', { name: 'Select document 99439011' });
+    const checkbox = getByRole('button', { name: 'Select document …99439011' });
 
     fireEvent.click(checkbox);
 
     expect(onRowExpand).not.toHaveBeenCalled();
     expect(checkbox.getAttribute('aria-pressed')).toBe('true');
-    expect(getByRole('button', { name: 'Deselect document 99439011' })).toBe(checkbox);
+    expect(getByRole('button', { name: 'Deselect document …99439011' })).toBe(checkbox);
     expect(container.querySelector('[data-selected="true"]')).not.toBeNull();
   });
 
@@ -194,7 +194,7 @@ describe('TreeView — rendering and interaction', () => {
   it('an unselected checkbox is empty and shows a check only once selected', () => {
     const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
     const { getByRole } = renderTree(docs);
-    const checkbox = getByRole('button', { name: 'Select document 99439011' });
+    const checkbox = getByRole('button', { name: 'Select document …99439011' });
 
     expect(checkbox.getAttribute('aria-pressed')).toBe('false');
     expect(checkbox.querySelector('svg')).toBeNull();
@@ -319,11 +319,11 @@ describe('TreeView — rendering and interaction', () => {
         screen.getAllByRole('button').filter((b) => b.getAttribute('tabindex') !== '-1').map((b) => b.getAttribute('aria-label'));
 
       expect(tabStops()).toEqual([
-        'Select document 99439011',
+        'Select document …99439011',
         'Expand document',
-        'Edit document 99439011',
-        'Delete document 99439011',
-        'More actions for document 99439011',
+        'Edit document …99439011',
+        'Delete document …99439011',
+        'More actions for document …99439011',
       ]);
 
       fireEvent.keyDown(tree, { key: 'ArrowDown' });

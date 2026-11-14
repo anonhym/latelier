@@ -74,6 +74,8 @@ export function _resetPaletteStoreForTests(): void {
 
 interface PaletteApi {
   open: () => void;
+  /** Opens on the Collections scope, as ⌘P does. */
+  openCollections: () => void;
   close: () => void;
   toggle: () => void;
   isOpen: () => boolean;
@@ -85,6 +87,7 @@ const ApiRefCtx = React.createContext<ApiRef | null>(null);
 
 const NOOP_API: PaletteApi = {
   open: () => {},
+  openCollections: () => {},
   close: () => {},
   toggle: () => {},
   isOpen: () => false,
@@ -102,6 +105,7 @@ export function usePaletteApi(): PaletteApi {
   return React.useMemo<PaletteApi>(
     () => ({
       open: () => ref?.current?.open() ?? NOOP_API.open(),
+      openCollections: () => ref?.current?.openCollections() ?? NOOP_API.openCollections(),
       close: () => ref?.current?.close() ?? NOOP_API.close(),
       toggle: () => ref?.current?.toggle() ?? NOOP_API.toggle(),
       isOpen: () => ref?.current?.isOpen() ?? false,
@@ -1400,6 +1404,12 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
     setOpenScope('all');
   }, []);
 
+  const openCollections = React.useCallback(() => {
+    hints.recordSessionEvent('palette', 'opened');
+    setOpenScope('collections');
+    paletteControls.open();
+  }, [hints]);
+
   // ⌘P opens on Collections. The same rules as ⌘N and ⌘, (GlobalCommands): a
   // dialog that is already open keeps the key, and in a text field only ⌘
   // reaches it, since a bare Ctrl+P is macOS's previous-line.
@@ -1410,13 +1420,11 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
       if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (origin?.closest('input, textarea, select, [contenteditable]') && !e.metaKey) return;
       e.preventDefault();
-      hints.recordSessionEvent('palette', 'opened');
-      setOpenScope('collections');
-      paletteControls.open();
+      openCollections();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [hints]);
+  }, [openCollections]);
 
   // Capture phase, registered once: focus has usually moved onto the search
   // input before Mantine reports the palette open, so the opener has to be
@@ -1430,11 +1438,12 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
   React.useEffect(() => {
     registerApi({
       open: openPalette,
+      openCollections,
       close: closePalette,
       toggle: togglePalette,
       isOpen: () => paletteStore.getState().opened,
     });
-  }, [registerApi, openPalette, closePalette, togglePalette]);
+  }, [registerApi, openPalette, openCollections, closePalette, togglePalette]);
 
   // History is a convenience: a failed read or write leaves the palette fully
   // usable. A failed read is logged, like the theme's; a failed write is a toast,

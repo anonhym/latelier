@@ -1,6 +1,6 @@
 # W18 — Document Editor
 
-> **Status: Accepted.** §1–§12 shipped. §13 is agreed and not built yet: the editor stays this modal and gains a value-to-value Tab order, a visible change list, a per-field conflict table, exits for a deleted document, and previous/next document.
+> **Status: Implemented.** §1–§13 shipped. The editor stays this modal and gained a value-to-value Tab order, a visible change list, a per-field conflict table, exits for a deleted document, and previous/next document.
 
 ## Purpose
 
@@ -199,7 +199,7 @@ None new. `doc:updateOne` already returns `{ matchedCount, modifiedCount }`, whi
 
 ## 13. Amendment — keyboard order, visible changes, conflicts by field, previous and next
 
-> **Accepted, not built.** Decided in the 2026-11-13 design review. It supersedes §5c's Reload / Overwrite banner and adds to §1, §3 and §7. The container does not change: the Document Editor is this modal, opened the way §7 says. A side panel was considered for editing and declined; the right-hand Inspector hosts only the Query Builder and the query plan.
+> **Implemented.** Decided in the 2026-11-13 design review. It supersedes §5c's Reload / Overwrite banner and adds to §1, §3 and §7. The container does not change: the Document Editor is this modal, opened the way §7 says. A side panel was considered for editing and declined; the right-hand Inspector hosts only the Query Builder and the query plan.
 
 ### 13.1 One tab stop per field
 

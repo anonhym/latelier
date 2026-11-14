@@ -203,6 +203,21 @@ describe('ConnectionService', () => {
     expect(byName.get('Idle')!.lostReason).toBeUndefined();
   });
 
+  it("list carries a connected client's connect time, and none for one not connected", async () => {
+    const live = await svc.create(validInput({ name: 'Live' }));
+    await svc.create(validInput({ name: 'Idle' }));
+    const status = pool.status.bind(pool);
+    vi.spyOn(pool, 'status').mockImplementation((id) =>
+      id === live.id
+        ? { ...status(id), status: 'connected', connectedAt: '2026-11-14T10:00:00.000Z' }
+        : status(id),
+    );
+
+    const byName = new Map(svc.list().map((s) => [s.name, s]));
+    expect(byName.get('Live')!.connectedAt).toBe('2026-11-14T10:00:00.000Z');
+    expect(byName.get('Idle')!.connectedAt).toBeUndefined();
+  });
+
   it('touchUsed updates last_used_at', async () => {
     const c = await svc.create(validInput());
     expect(repo.findById(c.id)!.last_used_at).toBeNull();

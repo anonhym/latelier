@@ -1,16 +1,14 @@
 import React from 'react';
-import { ActionIcon, Button, Group } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { copyToClipboard } from '../../utils/clipboard';
+import { COPY_FORMATS, COPY_FORMAT_LABELS, MONGOSH_HINT, formatDocsForCopy, type CopyFormat } from '../../utils/copyFormat';
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS, useResultSelection } from './resultSelection';
 import { bandOccupant, resultPaneKind } from './resultPaneState';
-import {
-  buildDeleteSelectedFilterJson,
-  selectedDocs,
-  serializeSelectedForClipboard,
-} from './selection';
+import { buildDeleteSelectedFilterJson, selectedDocs } from './selection';
+import { useCopyFormat } from './views/useCopyFormat';
 
 interface SelectionActionBarProps {
   /** Fires with the selected documents (ascending index order) when the
@@ -47,6 +45,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const selection = useResultSelection(documents);
   const [copied, setCopied] = React.useState(false);
+  const [copyFormat, setCopyFormat] = useCopyFormat();
 
   if (meta.isReadOnly) return null;
 
@@ -62,8 +61,8 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
   // falling back to an unfiltered delete-everything call.
   const deleteFilterJson = buildDeleteSelectedFilterJson(docs);
 
-  const handleCopy = () => {
-    const text = serializeSelectedForClipboard(docs);
+  const handleCopy = (format: CopyFormat) => {
+    const text = formatDocsForCopy(docs, format);
     // The button's own "Copied" label is the success feedback, so it waits
     // for the write to resolve. A failure toasts and leaves the label
     // alone.
@@ -161,15 +160,48 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
             {selection.indices.size} selected
           </span>
           <span style={{ flex: 1 }} />
-          <Button
-            data-testid="selection-bar-copy"
-            size="compact-xs"
-            variant="subtle"
-            leftSection={copied ? I.check : I.copy}
-            onClick={handleCopy}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
+          <Button.Group>
+            <Button
+              data-testid="selection-bar-copy"
+              size="compact-xs"
+              variant="subtle"
+              leftSection={copied ? I.check : I.copy}
+              onClick={() => handleCopy(copyFormat)}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+            <Menu position="top" withinPortal>
+              <Menu.Target>
+                <ActionIcon
+                  data-testid="selection-bar-copy-as"
+                  variant="subtle"
+                  size="sm"
+                  aria-label="Copy as…"
+                  title="Copy as…"
+                >
+                  {I.chevD}
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Copy as</Menu.Label>
+                {COPY_FORMATS.map((f) => (
+                  <Menu.Item
+                    key={f}
+                    rightSection={f === copyFormat ? I.check : undefined}
+                    onClick={() => {
+                      // The choice is the default from now on, so the clipboard
+                      // never holds a form the menu did not name.
+                      setCopyFormat(f);
+                      handleCopy(f);
+                    }}
+                  >
+                    {COPY_FORMAT_LABELS[f]}
+                  </Menu.Item>
+                ))}
+                <Menu.Label data-testid="copy-as-hint">mongosh: {MONGOSH_HINT}</Menu.Label>
+              </Menu.Dropdown>
+            </Menu>
+          </Button.Group>
           {!meta.isView && (
             <Button
               data-testid="selection-bar-delete"

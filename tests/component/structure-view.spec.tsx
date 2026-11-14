@@ -1090,7 +1090,7 @@ describe('Structure view — header count across view switches', () => {
 
     // Matched by the header's own text: Structure's statistics also print the count.
     const headerStats = (n: number) =>
-      screen.getByText((_, el) => el?.textContent?.startsWith(`${n} docs in collection`) ?? false);
+      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.startsWith(`${n} docs in collection`));
     await waitFor(() => expect(headerStats(10)).toBeTruthy());
 
     await waitFor(() => expect(collectionDetails).toHaveBeenCalled());

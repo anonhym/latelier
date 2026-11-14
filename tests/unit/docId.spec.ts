@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getDocId,
+  getDocIdText,
   getFullDocId,
   buildIdFilter,
   isInlineEditableKind,
@@ -14,9 +15,9 @@ const isInlineEditable = (value: unknown, fieldPath: string) =>
   isInlineEditableKind(kindOf(reviveTableValue(value)), fieldPath);
 
 describe('getDocId', () => {
-  it('takes the last 8 chars of an $oid', () => {
+  it('shows an ObjectId as an ellipsis and its last 8 hex digits', () => {
     const doc = { _id: { $oid: '507f1f77bcf86cd799439011' } };
-    expect(getDocId(doc)).toBe('99439011');
+    expect(getDocId(doc)).toBe('…99439011');
   });
 
   it('returns "(no _id)" when _id is missing or null', () => {
@@ -24,32 +25,43 @@ describe('getDocId', () => {
     expect(getDocId({ _id: null })).toBe('(no _id)');
   });
 
-  it('renders a readable JSON form for a custom-object _id, not "[object Object]"', () => {
-    // Reviewer-bot finding: a non-$oid record `_id` fell through to
-    // `String(id)`, which stringifies any plain object to "[object Object]".
-    const doc = { _id: { a: 1, b: 2 } };
-    const result = getDocId(doc);
-    expect(result).not.toBe('[object Object]');
-    expect(result).toBe(JSON.stringify({ a: 1, b: 2 }).slice(0, 12));
+  // W06 §8.4 — the id reads like the Table cell does, never as its EJSON wrapper.
+  it.each([
+    ['Int32', { $numberInt: '1' }, '1'],
+    ['Int64', { $numberLong: '9007199254740993' }, '900719925474…'],
+    ['Decimal128', { $numberDecimal: '1.5' }, '1.5'],
+    ['Double', { $numberDouble: '2.5' }, '2.5'],
+    ['Date', { $date: '2025-01-31T10:00:00.000Z' }, '2025-01-31T1…'],
+    ['string', 'abc123', 'abc123'],
+    ['number', 42, '42'],
+  ])('shows a %s _id as its display text', (_name, id, expected) => {
+    expect(getDocId({ _id: id })).toBe(expected);
   });
 
-  it('still uses plain stringification for a primitive (non-record) _id', () => {
-    expect(getDocId({ _id: 'abc123' })).toBe('abc123');
-    expect(getDocId({ _id: 42 })).toBe('42');
-  });
-
-  it('falls back to a truncated JSON form for non-record input', () => {
-    // Long enough that `.slice(0, 12)` actually cuts something off — a
-    // shorter fixture can't tell a truncating slice from a dropped one.
-    const input = 'this string is much longer than twelve characters';
-    expect(getDocId(input)).toBe(JSON.stringify(input).slice(0, 12));
-    expect(getDocId(input).length).toBe(12);
-  });
-
-  it('truncates a long primitive _id to 12 chars', () => {
+  it('cuts a long string _id to 12 characters and an ellipsis', () => {
     const id = 'a-primitive-id-well-past-twelve-characters-long';
-    expect(getDocId({ _id: id })).toBe(String(id).slice(0, 12));
-    expect(getDocId({ _id: id }).length).toBe(12);
+    expect(getDocId({ _id: id })).toBe('a-primitive-…');
+  });
+
+  it('keeps a 12 character _id whole', () => {
+    expect(getDocId({ _id: 'abcdefghijkl' })).toBe('abcdefghijkl');
+  });
+
+  it('shows an object or array _id by its size, not its JSON', () => {
+    expect(getDocId({ _id: { a: 1, b: 2 } })).toBe('{2}');
+    expect(getDocId({ _id: [1, 2, 3] })).toBe('[3]');
+  });
+
+  it('falls back to the display text for non-record input', () => {
+    expect(getDocId('this string is much longer than twelve characters')).toBe('this string …');
+  });
+});
+
+describe('getDocIdText', () => {
+  it('is the full display text of the id, uncut', () => {
+    expect(getDocIdText({ _id: { $oid: '507f1f77bcf86cd799439011' } })).toBe('507f1f77bcf86cd799439011');
+    expect(getDocIdText({ _id: { $numberLong: '9007199254740993' } })).toBe('9007199254740993');
+    expect(getDocIdText({})).toBe('(no _id)');
   });
 });
 

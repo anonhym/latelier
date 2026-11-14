@@ -1,5 +1,5 @@
 import React from 'react';
-import { Group, Tooltip } from '@mantine/core';
+import { Group } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { api } from '../../api/atelier';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -84,25 +84,8 @@ export function CollectionHeader({
         padding: '0 10px 0 14px',
       }}
     >
-      {/* Breadcrumb + stats */}
+      {/* The namespace is the title bar's breadcrumb (W01 §14.2); only the figures stay here. */}
       <Group gap={T.gapSm} align="baseline" wrap="nowrap" style={{ minWidth: 0, flex: '0 1 auto', overflow: 'hidden' }}>
-        <span style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{dbName} /</span>
-        <Tooltip label={collection} withArrow disabled={collection.length < 24}>
-          <span
-            style={{
-              fontSize: T.fsMd,
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-              color: T.text,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {collection}
-          </span>
-        </Tooltip>
         {roomForStats && (docCount !== null || indexCount !== null) && (
           <span
             style={{

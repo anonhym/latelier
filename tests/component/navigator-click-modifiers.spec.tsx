@@ -51,13 +51,13 @@ afterEach(() => {
 });
 
 describe('DbCollectionNavigator — click modifiers', () => {
-  it('plain click activates existing (reuseExisting: true)', async () => {
+  it('plain click previews, activating an existing tab (reuseExisting: true)', async () => {
     const { onOpenCollection, onOpenAggregation } = setup();
     const row = await screen.findByTestId('nav-coll-app-users');
     fireEvent.click(row);
     expect(onOpenCollection).toHaveBeenCalledWith(
       { connectionId: 'c1', dbName: 'app', collection: 'users' },
-      { reuseExisting: true },
+      { reuseExisting: true, preview: true },
     );
     expect(onOpenAggregation).not.toHaveBeenCalled();
   });
@@ -68,7 +68,30 @@ describe('DbCollectionNavigator — click modifiers', () => {
     fireEvent.click(row, { metaKey: true });
     expect(onOpenCollection).toHaveBeenCalledWith(
       { connectionId: 'c1', dbName: 'app', collection: 'users' },
-      { reuseExisting: false },
+      { reuseExisting: false, preview: false },
+    );
+  });
+
+  it('the second click of a double-click keeps the tab rather than previewing', async () => {
+    const { onOpenCollection } = setup();
+    const row = await screen.findByTestId('nav-coll-app-users');
+    fireEvent.click(row, { detail: 2 });
+    expect(onOpenCollection).toHaveBeenCalledWith(
+      { connectionId: 'c1', dbName: 'app', collection: 'users' },
+      { reuseExisting: true, preview: false },
+    );
+  });
+
+  it('Enter on a collection row opens a kept tab', async () => {
+    const { onOpenCollection } = setup();
+    const row = await screen.findByTestId('nav-coll-app-users');
+    fireEvent.click(row);
+    onOpenCollection.mockClear();
+    // The tree owns the keyboard (aria-activedescendant); the click focused this row.
+    fireEvent.keyDown(screen.getByRole('tree', { name: 'Databases and collections' }), { key: 'Enter' });
+    expect(onOpenCollection).toHaveBeenCalledWith(
+      { connectionId: 'c1', dbName: 'app', collection: 'users' },
+      { reuseExisting: true, preview: undefined },
     );
   });
 

@@ -53,7 +53,9 @@ import {
 import { useConnectionTransfer } from '../../features/connections/ConnectionTransferProvider';
 import { useWorkspacePanelPrefs } from './useWorkspacePanelPrefs';
 import { ONE_PANEL_BUILDER_PX } from './sidePanels';
-import { GENERIC_CONNECT_ERROR } from './useNavigatorData';
+import { GENERIC_CONNECT_ERROR, type NavigatorData } from './useNavigatorData';
+import { ConnectedCanvas } from './ConnectedCanvas';
+import { mostRecentlyConnected } from './locationModel';
 import type { ConnectErrorInfo } from './navigatorTreeReducer';
 import { latestFailedConnection } from './resultPaneState';
 import { useCollectionTabActions } from './useCollectionTabActions';
@@ -227,7 +229,10 @@ export interface PanelBodyProps {
   initialLoadPending: boolean;
   anyConnectionOpen: boolean;
   switcherProps: Omit<ConnectionSwitcherProps, 'variant'>;
-  setNewTabOpen: (open: boolean) => void;
+  /** The navigator's cache and loaders, read by the no-tab canvas. */
+  navigatorData: Pick<NavigatorData, 'tree' | 'loadDbs' | 'loadColls'>;
+  /** The palette on its Collections scope. */
+  onSearchCollections: () => void;
   active: WorkspaceTab | null;
   openConnection: (id: string) => void;
   activeScript: ScriptTabType | null;
@@ -258,7 +263,8 @@ export function PanelBody({
   initialLoadPending,
   anyConnectionOpen,
   switcherProps,
-  setNewTabOpen,
+  navigatorData,
+  onSearchCollections,
   active,
   openConnection,
   activeScript,
@@ -272,6 +278,8 @@ export function PanelBody({
   connectErrors,
 }: PanelBodyProps) {
   const T = themeVars;
+  // The Connection the breadcrumb names with no tab in front; the canvas names the same one.
+  const recentConnection = mostRecentlyConnected(switcherProps.connections);
   const failedConnection = anyConnectionOpen
     ? null
     : latestFailedConnection(switcherProps.connections, connectErrors);
@@ -399,30 +407,32 @@ export function PanelBody({
             onConnect={() => openConnection(failedConnection.id)}
             extraActions={<ConnectionSwitcher {...switcherProps} variant="cta" />}
           />
+        ) : tabs.tabs.length === 0 && recentConnection ? (
+          <ConnectedCanvas
+            key={recentConnection.id}
+            connection={recentConnection}
+            cache={ownGet(navigatorData.tree.caches, recentConnection.id)}
+            loadDbs={(id) => void navigatorData.loadDbs(id)}
+            loadColls={(id, db) => void navigatorData.loadColls(id, db)}
+            onOpen={(input) => void tabs.openCollection({ ...input, reuseExisting: true })}
+            onSearch={onSearchCollections}
+          />
         ) : tabs.tabs.length === 0 ? (
           <CenteredPane>
             <div style={{ textAlign: 'center', maxWidth: 320 }}>
               <div style={{ color: T.textMuted, marginBottom: 12 }}>
-                {anyConnectionOpen
-                  ? 'Select a collection from the sidebar to get started.'
-                  : switcherProps.connections.length === 0
-                    ? 'No connections yet. Add one to get started.'
-                    : 'No connection is open. Select one to get started.'}
+                {switcherProps.connections.length === 0
+                  ? 'No connections yet. Add one to get started.'
+                  : 'No connection is open. Select one to get started.'}
               </div>
-              {anyConnectionOpen ? (
-                <Button variant="filled" size="xs" leftSection={I.plus} onClick={() => setNewTabOpen(true)}>
-                  Open a collection
-                </Button>
-              ) : (
-                <Group gap="xs" justify="center">
-                  <ConnectionSwitcher {...switcherProps} variant="cta" />
-                  {switcherProps.connections.length === 0 && (
-                    <Button variant="default" size="xs" onClick={() => openImport()}>
-                      Import connections
-                    </Button>
-                  )}
-                </Group>
-              )}
+              <Group gap="xs" justify="center">
+                <ConnectionSwitcher {...switcherProps} variant="cta" />
+                {switcherProps.connections.length === 0 && (
+                  <Button variant="default" size="xs" onClick={() => openImport()}>
+                    Import connections
+                  </Button>
+                )}
+              </Group>
             </div>
           </CenteredPane>
         ) : active && isKnownNotConnected(focusedConnection) && !connectionLost ? (

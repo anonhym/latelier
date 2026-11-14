@@ -10,6 +10,7 @@ const VALID: Record<string, unknown> = {
   'ui.hints.dismissed': { dismissedIds: ['run.execute'], resetAt: '2026-01-01T00:00:00.000Z' },
   'ui.workspace.defaultPageSize': 50,
   'ui.workspace.defaultView': 'JSON',
+  'ui.workspace.copyFormat': 'mongosh',
   'ui.editor.fontSize': 14,
   'ui.workspace.leftWidth': 240,
   'ui.workspace.refDrawerWidth': 320,
@@ -65,6 +66,9 @@ describe('prefKeys', () => {
     ['ui.workspace.defaultView', 'Grid'],
     ['ui.workspace.defaultView', 'table'],
     ['ui.workspace.defaultView', null],
+    ['ui.workspace.copyFormat', 'relaxed'],
+    ['ui.workspace.copyFormat', 'Canonical'],
+    ['ui.workspace.copyFormat', null],
     ['ui.editor.fontSize', 9],
     ['ui.editor.fontSize', 21],
     ['ui.editor.fontSize', 13.5],
@@ -103,6 +107,12 @@ describe('prefKeys', () => {
   it('the default result view accepts each view the tab can show', () => {
     for (const v of ['Table', 'Tree', 'JSON']) {
       expect(prefSetSchema('ui.workspace.defaultView')?.safeParse(v).success).toBe(true);
+    }
+  });
+
+  it('the copy format accepts each format the Copy menu names', () => {
+    for (const f of ['readable', 'canonical', 'mongosh']) {
+      expect(prefSetSchema('ui.workspace.copyFormat')?.safeParse(f).success).toBe(true);
     }
   });
 

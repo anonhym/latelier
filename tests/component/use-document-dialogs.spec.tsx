@@ -302,6 +302,16 @@ describe('useDocumentDialogs', () => {
     });
   });
 
+  it('openEdit carries the result the document was opened from, for the editor\'s previous and next', () => {
+    const docs = [DOC, { _id: '2', sku: 'gadget' }];
+    const { result, activeCollectionRef } = mountDialogs(undefined, 't1', tab());
+    activeCollectionRef.current = tab({ state: { ...tab().state, lastRun: { documents: docs } as never } });
+
+    act(() => result.current.openEdit(DOC));
+
+    expect(result.current.editing?.siblings).toBe(docs);
+  });
+
   it('openInsertModal pins the target captured at open time; a later activeTabId change does not retarget the draft', () => {
     const { result, rerender, activeCollectionRef } = mountDialogs(undefined, 't1', tab());
 

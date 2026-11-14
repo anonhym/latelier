@@ -114,10 +114,10 @@ test('a Connection connected with no tabs open yields the empty state on relaunc
       await win.reload();
       await win.waitForLoadState('domcontentloaded');
       // A renderer reload leaves the main process — and so the pooled client —
-      // alive, so this Connection is still Open. X16.4: no tabs plus
-      // something connected is the "pick a collection" prompt, not the
-      // Switcher CTA. Either way it is the empty state: no tab was invented.
-      await expect(win.getByText(/Select a collection from the sidebar/i)).toBeVisible({
+      // alive, so this Connection is still Open. No tabs plus something
+      // connected is the connected canvas, not the Switcher CTA. Either way
+      // no tab was invented.
+      await expect(win.getByText(/ is connected$/)).toBeVisible({
         timeout: 10_000,
       });
     });
