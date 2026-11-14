@@ -7,11 +7,9 @@
 // `<Workspace />` and drives it through the DOM — no reaching into
 // `WorkspaceInner`.
 //
-// T1.4/T1.5 ("Delete selected" and its `$in`-derivation refusal) are
-// deliberately NOT here — per the plan's carved exception, result-row
-// selection isn't reachable from a full-page mount in jsdom (both existing
-// selection tests mount `ResultBar`/`ResultViewer` in isolation instead).
-// Those land as unit tests on `resolveDeleteMode` in R1.
+// The `$in`-derivation refusal is a unit test on `resolveDeleteDialog`. A
+// selection is reachable here through each row's checkbox, so the delete
+// tier's wiring (W08 §10) is pinned at the end of this file.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
@@ -395,5 +393,44 @@ describe('workspace delete modes (T1)', () => {
     expect(
       (within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+// W08 §10, through the real dialog stack: how the documents were chosen, and
+// how many Connections are open, reach the dialog's title and tier.
+describe('the delete tier, from the selection pill', () => {
+  it('2 selected with two Connections open: a plain confirm naming the namespace and the Connection', async () => {
+    const confirmDeleteMany = vi.fn(async () => ({ count: 2, confirmToken: 'tok' }));
+    installAtelierMock({
+      tabs: { list: async () => [tab({ lastRun: { documents: [DOC, { _id: '2', sku: 'gadget' }], durationMs: 1, ranAt: NOW } })] },
+      conn: {
+        list: async () => [
+          connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' }),
+          connectionFixture({ id: 'c2', name: 'Staging', status: 'connected' }),
+        ],
+      },
+      doc: { confirmDeleteMany },
+    });
+    mountWorkspace();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select document 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select document 2' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Selection' })).getByRole('button', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete 2 selected documents from shop.orders on Prod?' });
+    expect(within(dialog).queryByRole('textbox')).toBeNull();
+    expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['1', '2']);
+  });
+
+  it('with one Connection open the title names only the namespace', async () => {
+    installAtelierMock({
+      tabs: { list: async () => [tab()] },
+      conn: { list: async () => [connectionFixture({ id: 'c1', name: 'Prod', status: 'connected' })] },
+      doc: { confirmDeleteMany: async () => ({ count: 1, confirmToken: 'tok' }) },
+    });
+    mountWorkspace();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select document 1' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Selection' })).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByRole('dialog', { name: 'Delete 1 selected document from shop.orders?' })).toBeTruthy();
   });
 });

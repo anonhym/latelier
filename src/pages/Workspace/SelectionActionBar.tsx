@@ -144,7 +144,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
           the rows, so making or clearing one moves nothing. */}
       {selection.indices.size > 0 && (
         <Group
-          role="toolbar"
+          role="group"
           aria-label="Selection"
           data-testid="selection-pill"
           gap={themeVars.gapXs}

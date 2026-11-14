@@ -104,9 +104,9 @@ describe('SelectionActionBar', () => {
 
   it('a selection is a floating pill at the bottom centre: count · Copy ▾ · Delete · ✕', () => {
     renderBar(vi.fn());
-    expect(screen.queryByRole('toolbar', { name: 'Selection' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Selection' })).toBeNull();
     selectFirstCard();
-    const pill = screen.getByRole('toolbar', { name: 'Selection' });
+    const pill = screen.getByRole('group', { name: 'Selection' });
     expect(pill.style.position).toBe('absolute');
     expect(pill.style.left).toBe('50%');
     expect(pill.style.bottom).toBe('16px');
@@ -142,7 +142,7 @@ describe('SelectionActionBar', () => {
   it('on a view the pill has no Delete', () => {
     renderBar(vi.fn(), { isView: true });
     selectFirstCard();
-    expect(screen.getByRole('toolbar', { name: 'Selection' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Selection' })).toBeTruthy();
     expect(screen.queryByTestId('selection-bar-delete')).toBeNull();
   });
 
