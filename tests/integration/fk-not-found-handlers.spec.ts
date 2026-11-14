@@ -84,6 +84,11 @@ const cases: Array<{
     payload: (connectionId) => ({ connectionId }),
   },
   {
+    channel: IPC_CHANNELS.tabsOpenServer,
+    table: 'workspace_tabs',
+    payload: (connectionId) => ({ connectionId }),
+  },
+  {
     channel: IPC_CHANNELS.recentRecordFieldValues,
     table: 'recent_field_values',
     payload: (connectionId) => ({

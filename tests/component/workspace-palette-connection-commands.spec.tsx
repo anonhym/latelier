@@ -94,7 +94,7 @@ afterEach(() => {
 
 /**
  * Each saved Connection is one Connection object (X07 §13.4) whose actions are
- * Open · Edit · Disconnect (while connected) · Delete…, registered by
+ * Open · Open server overview · Edit · Disconnect (while connected) · Delete…, registered by
  * `ConnectionPaletteCommands`. The id is baked into each action at creation
  * time, which is what keeps an action's gate and its target from disagreeing:
  * a Connection open with no tab (the normal state) keeps its actions.
@@ -119,7 +119,7 @@ describe('Workspace palette Connection objects', () => {
     expect(footer.textContent).not.toContain('Open in new tab');
   });
 
-  it('lists Edit, Disconnect and Delete… for a connected Connection with no tabs open', async () => {
+  it('lists Open server overview, Edit, Disconnect and Delete… for a connected Connection with no tabs open', async () => {
     installAtelierMock({
       conn: { list: async () => [conn()] },
       tabs: { list: async () => [] },
@@ -130,7 +130,7 @@ describe('Workspace palette Connection objects', () => {
     openPalette('prod');
     await waitFor(() => expect(optionTitles()).toEqual(['Prod']));
     fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', altKey: true });
-    expect(optionTitles()).toEqual(['Open', 'Edit', 'Disconnect', 'Delete…']);
+    expect(optionTitles()).toEqual(['Open', 'Open server overview', 'Edit', 'Disconnect', 'Delete…']);
     // Refresh is a whole-list refetch, still a command gated on the route.
     fireEvent.keyDown(screen.getByLabelText('Filter actions'), { key: 'Escape' });
     fireEvent.change(screen.getByLabelText('Search commands'), { target: { value: 'refresh connection' } });
@@ -148,7 +148,7 @@ describe('Workspace palette Connection objects', () => {
     openPalette('prod');
     await waitFor(() => expect(optionTitles()).toEqual(['Prod']));
     fireEvent.keyDown(screen.getByLabelText('Search commands'), { key: 'Enter', altKey: true });
-    expect(optionTitles()).toEqual(['Open', 'Edit', 'Delete…']);
+    expect(optionTitles()).toEqual(['Open', 'Open server overview', 'Edit', 'Delete…']);
   });
 
   // Two Connections, tabs on both, Focused Tab on Staging (c2) — not the

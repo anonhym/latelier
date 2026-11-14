@@ -123,6 +123,22 @@ function tabStore(initial: WorkspaceTab[]) {
   };
 }
 
+/** `tabs:openServer` stand-in: records the call and hands back a server tab. */
+function serverTabSpy() {
+  return vi.fn(async (input: { connectionId: string }) => ({
+    id: `server-${input.connectionId}`,
+    kind: 'server' as const,
+    connectionId: input.connectionId,
+    dbName: '',
+    collection: '',
+    position: 0,
+    isActive: true,
+    openedAt: '2026-01-01T00:00:00.000Z',
+    pinned: false,
+    state: { section: 'overview' as const },
+  }));
+}
+
 /**
  * A `conn.list` backing array plus a `conn.delete` spy that actually mutates
  * it — so a delete-then-reopen spec sees the Connection really gone, not
@@ -890,8 +906,9 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
   });
 
   it('Shift+F10 opens the highlighted row’s menu from the search field', async () => {
+    const openServer = serverTabSpy();
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
-    mount({ mongo: { connect } });
+    mount({ tabs: { list: async () => [], openServer: openServer as never }, mongo: { connect } });
     await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('Staging');
@@ -900,7 +917,8 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
 
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Open server overview' }));
-    await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c3' }));
+    expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -933,16 +951,18 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
     expect(status('Prod — US East')).toBe('Connected');
   });
 
-  it('Open server overview opens the highlighted Connection’s management screen and closes the popover, without switching to it', async () => {
+  it('Open server overview opens the highlighted Connection’s server tab and closes the popover, without switching to it', async () => {
+    const openServer = serverTabSpy();
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
-    mount({ mongo: { connect } });
+    mount({ tabs: { list: async () => [], openServer: openServer as never }, mongo: { connect } });
 
     await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlightedName()).toBe('Staging');
     await rowAction('Staging', 'Open server overview');
 
-    await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c3' }));
+    expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
     expect(screen.queryByRole('listbox', { name: 'Connections' })).toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
@@ -1836,16 +1856,18 @@ describe('ConnectionSwitcher — expanded table', () => {
     );
   });
 
-  it('Manage closes the table and opens the Collections & indexes screen, without switching', async () => {
+  it('Open server overview closes the table and opens the server tab, without switching', async () => {
+    const openServer = serverTabSpy();
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
-    mount({ mongo: { connect }, conn: { get: async () => CANNED_STAGING } });
+    mount({ tabs: { list: async () => [], openServer: openServer as never }, mongo: { connect }, conn: { get: async () => CANNED_STAGING } });
     const dialog = await openExpandedTable();
 
     await userEvent.click(tableRow(dialog, 'Staging'));
     await rowAction('Staging', 'Open server overview');
 
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
-    await waitFor(() => expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'));
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c3' }));
+    expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -1988,9 +2010,10 @@ describe('ConnectionSwitcher keyboard contract', () => {
     expect(screen.getByLabelText('Close orders')).toBeTruthy();
   });
 
-  it('⌘↵ opens the highlighted Connection’s management screen without switching to it', async () => {
+  it('⌘↵ opens the highlighted Connection’s server tab without switching to it', async () => {
+    const openServer = serverTabSpy();
     const connect = vi.fn(async (id: string) => ({ id, status: 'connecting' as const }));
-    mount({ mongo: { connect } });
+    mount({ tabs: { list: async () => [], openServer: openServer as never }, mongo: { connect } });
 
     await openSwitcher();
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
@@ -1998,10 +2021,9 @@ describe('ConnectionSwitcher keyboard contract', () => {
 
     await userEvent.keyboard('{Meta>}{Enter}{/Meta}');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('pathname').textContent).toBe('/connections/c3'),
-    );
-    // Manage is a detour, not a switch — it must not connect on the way.
+    await waitFor(() => expect(openServer).toHaveBeenCalledWith({ connectionId: 'c3' }));
+    expect(screen.getByTestId('pathname').textContent).toBe('/workspace');
+    // Opening the server tab is a detour, not a switch — it must not connect on the way.
     expect(connect).not.toHaveBeenCalled();
   });
 
