@@ -3,7 +3,7 @@ import { Collection, MongoClient, ObjectId } from 'mongodb';
 import { Int32, Long } from 'bson';
 import { repairToCanonicalEjson } from '../../src/utils/shellSyntax';
 import { ejsonParse, ejsonStringifyReadable } from '../../src/utils/ejson';
-import { buildUpdateRequest } from '../../src/pages/Workspace/documentDiff';
+import { buildUpdateRequest, classifyConflict, resolveConflict } from '../../src/pages/Workspace/documentDiff';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { DocumentService } from '../../electron/mongo/DocumentService';
 import { DEFAULT_MAX_EJSON_BYTES } from '../../electron/mongo/ejson';
@@ -1774,5 +1774,29 @@ describe('DocumentService.updateOne — the Document Editor compare-and-set', ()
 
     expect((await save(req)).matchedCount).toBe(1);
     expect((await client.db(dbName).collection(coll).findOne({ _id: id }))!.addr).toEqual({ city: 'Y', zip: '9' });
+  });
+
+  // W18 §13.3: the per-field table's two answers, on one conflict.
+  it('Take theirs on one path and Keep mine on another leaves the server value on the first and the user value on the second', async () => {
+    const { id, loaded } = await seed();
+    const client = await pool.write(connId).client();
+    const draft = { ...loaded, name: 'mine-name', qty: new Int32(9) };
+    const first = buildUpdateRequest(loaded, draft)!;
+    // Both fields change underneath, and a third one the user never touched.
+    await client.db(dbName).collection(coll).updateOne({ _id: id }, { $set: { name: 'theirs-name', qty: new Int32(7), extra: 'x' } });
+    expect((await save(first)).matchedCount).toBe(0);
+
+    const stored = await client.db(dbName).collection(coll).findOne({ _id: id });
+    const server = ejsonParse<Record<string, unknown>>(JSON.stringify({
+      _id: { $oid: id.toHexString() }, name: stored!.name, qty: { $numberInt: String(stored!.qty) }, addr: stored!.addr, extra: stored!.extra,
+    }));
+    const rows = classifyConflict(loaded, draft, server);
+    expect(rows.filter((r) => r.changedBy === 'both').map((r) => r.path).sort((a, b) => a.localeCompare(b))).toEqual(['name', 'qty']);
+
+    const resolved = resolveConflict(loaded, draft, server, new Map([['name', 'theirs'], ['qty', 'mine']]));
+    const second = buildUpdateRequest(server, resolved)!;
+    expect((await save(second)).matchedCount).toBe(1);
+
+    expect(await client.db(dbName).collection(coll).findOne({ _id: id })).toMatchObject({ name: 'theirs-name', qty: 9, extra: 'x' });
   });
 });
