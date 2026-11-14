@@ -151,10 +151,17 @@ describe('redactSecrets property: URI query secrets', () => {
     fc.array(fc.boolean(), { minLength: name.length, maxLength: name.length }).map((flips) =>
       [...name].map((c, i) => (flips[i] ? `%${c.charCodeAt(0).toString(16).padStart(2, '0')}` : c)).join(''));
 
+  // A value that already occurs in the redacted text around it (e.g. `Prop` inside
+  // `authMechanismProperties`) would fail `not.toContain` without any leak.
+  const surrounds = (k: string, value: string) =>
+    JSON.stringify(redactSecrets({ k: k.split(value).join('') })).includes(value);
+
   it('never lets a secret parameter value through, however its name is percent-encoded', () => {
     fc.assert(
       fc.property(scheme, secretParam.chain(encoded), secretValue, (sch, name, value) => {
-        const out = JSON.stringify(redactSecrets({ k: `${sch}://h/?${name}=${value}&tls=true` }));
+        const k = `${sch}://h/?${name}=${value}&tls=true`;
+        fc.pre(!surrounds(k, value));
+        const out = JSON.stringify(redactSecrets({ k }));
         expect(out).not.toContain(value);
         expect(out).toContain('tls=true');
       }),
@@ -166,7 +173,9 @@ describe('redactSecrets property: URI query secrets', () => {
       fc.property(scheme, secretParam, secretValue, fc.boolean(), fc.boolean(), (sch, name, value, first, aws) => {
         const secret = aws ? `authMechanismProperties=AWS_SESSION_TOKEN:${value}` : `${name}=${value}`;
         const query = first ? `${secret}&tls=true` : `tls=true&${secret}`;
-        const out = JSON.stringify(redactSecrets({ k: `see ${sch}://h/?${query} end` }));
+        const k = `see ${sch}://h/?${query} end`;
+        fc.pre(!surrounds(k, value));
+        const out = JSON.stringify(redactSecrets({ k }));
         expect(out).not.toContain(value);
         expect(out).toContain('tls=true');
       }),
