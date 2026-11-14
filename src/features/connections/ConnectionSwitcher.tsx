@@ -69,8 +69,10 @@ import type { ConnectionSummary } from '@shared/types';
 export interface ConnectionSwitcherProps {
   connections: ConnectionSummary[];
   /**
-   * X16.4 — the Focused Tab's Connection, and the trigger's subject
-   * alone. It is deliberately *not* what marks the rows: several Connections
+   * X16.4 — the trigger's subject alone: the Focused Tab's Connection, or
+   * with no tab in front the most recently connected Open Connection (§13.2),
+   * so the trigger reads "Select a connection" only when none is open. It is
+   * deliberately *not* what marks the rows: several Connections
    * can be open at once (§4.6), so "is this one connected" is a per-row fact
    * the row reads off its own `status`.
    */
@@ -105,8 +107,8 @@ export interface ConnectionSwitcherProps {
    */
   onExpand: (query: string, trigger: HTMLElement | null) => void;
   /**
-   * `'title'` (default) is the compact inline trigger docked in the
-   * TitleBar. `'cta'` renders the same popover behind a full-size
+   * `'title'` (default) is the first segment of the title-bar breadcrumb
+   * (§13.2). `'cta'` renders the same popover behind a full-size
    * call-to-action button; the Data View's empty state uses it so the
    * Switcher is reachable from there too (ADR 0001: "both open the
    * switcher").
@@ -678,7 +680,10 @@ export function ConnectionSwitcher({
         ) : (
           <Button
             ref={triggerRef}
-            variant="default"
+            // Drawn as a breadcrumb segment, not a pill: it is part of the
+            // location, the same popover on the same anchor.
+            variant="subtle"
+            color="gray"
             size="compact-xs"
             // Without this the accessible name is bare user data — a screen
             // reader announces "Prod, button" with no hint that it opens a
@@ -720,20 +725,16 @@ export function ConnectionSwitcher({
               ) : undefined
             }
             rightSection={
-              <span aria-hidden style={{ display: 'flex', alignItems: 'center', gap: T.gapXs }}>
-                {focusedConnection?.readOnly && (
-                  <span title="Read-only connection" style={{ display: 'flex', color: T.textMuted }}>
-                    {I.lock}
-                  </span>
-                )}
-                {I.chevD}
-              </span>
+              focusedConnection?.readOnly ? (
+                <span aria-hidden title="Read-only connection" style={{ display: 'flex', color: T.textMuted }}>
+                  {I.lock}
+                </span>
+              ) : undefined
             }
-            styles={{ label: { fontWeight: focusedConnection ? 600 : 500 } }}
+            styles={{ root: { color: T.text }, label: { fontWeight: 500 } }}
           >
-            {/* ADR 0001's "Select a connection ▾" copy, replacing the
-                bare em dash: this is the TitleBar's "no Connection active"
-                trigger the acceptance criteria asks for, not new wiring. */}
+            {/* ADR 0001's "Select a connection" copy: only for the state it
+                describes, saved Connections with none open. */}
             {focusedConnection?.name ?? 'Select a connection'}
           </Button>
         )}

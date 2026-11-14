@@ -200,15 +200,14 @@ describe('keyboard shortcuts cheat sheet', () => {
 });
 
 describe('shortcut hints in tooltips', () => {
-  it('the title bar search button names the platform shortcut', async () => {
+  it('the title bar search field shows the platform shortcut in its key cap', async () => {
     const { TitleBar } = await import('../../src/pages/Workspace/TitleBar');
-    const open = async (platform: string) => {
+    const open = (platform: string) => {
       setPlatform(platform);
       const view = render(
         <TitleBar
-          dark={false}
-          toggle={() => {}}
-          connectionName={null}
+          sidebarCollapsed={false}
+          onToggleSidebar={() => {}}
           onOpenSettings={() => {}}
           onOpenPalette={() => {}}
           shellOpen={false}
@@ -216,14 +215,12 @@ describe('shortcut hints in tooltips', () => {
           onToggleShell={() => {}}
         />,
       );
-      fireEvent.mouseEnter(screen.getByRole('button', { name: 'Search actions' }));
-      const tip = await screen.findByRole('tooltip');
-      const text = tip.textContent;
+      const text = screen.getByRole('button', { name: 'Search collections and actions' }).textContent;
       view.unmount();
       return text;
     };
-    expect(await open('win32')).toBe('Search actions (Ctrl+K)');
-    expect(await open('darwin')).toBe('Search actions (⌘K)');
+    expect(open('win32')).toBe('Search collections and actionsCtrl+K');
+    expect(open('darwin')).toBe('Search collections and actions⌘K');
   });
 
 });

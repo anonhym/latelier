@@ -67,7 +67,8 @@ export interface DbCollectionNavigatorProps {
   width?: number;
   onOpenCollection: (
     input: NavigatorOpenInput,
-    opts: { reuseExisting: boolean },
+    /** `preview`: a single click, which opens the preview tab (W01 §14.9). */
+    opts: { reuseExisting: boolean; preview?: boolean },
   ) => void;
   onOpenAggregation: (input: NavigatorOpenInput) => void;
   /** `returnFocusTo`: the row to refocus, since the menu item that opened the form unmounts first. */
@@ -837,7 +838,7 @@ export function DbCollectionNavigator({
   const openFromRow = React.useCallback(
     (
       row: Extract<TreeRow, { kind: 'coll' }>,
-      opts: { newTab?: boolean; aggregation?: boolean },
+      opts: { newTab?: boolean; aggregation?: boolean; preview?: boolean },
     ) => {
       const input: NavigatorOpenInput = {
         connectionId: row.connectionId,
@@ -847,7 +848,7 @@ export function DbCollectionNavigator({
       if (opts.aggregation) {
         onOpenAggregation(input);
       } else {
-        onOpenCollection(input, { reuseExisting: !opts.newTab });
+        onOpenCollection(input, { reuseExisting: !opts.newTab, preview: opts.preview });
       }
     },
     [onOpenCollection, onOpenAggregation],
@@ -863,7 +864,10 @@ export function DbCollectionNavigator({
       openFromRow(row, { aggregation: true });
       return;
     }
-    openFromRow(row, { newTab: e.metaKey || e.ctrlKey });
+    const newTab = e.metaKey || e.ctrlKey;
+    // A single click previews; the second click of a double-click (detail 2)
+    // keeps the tab the first one opened, as does ⌘-click's new tab.
+    openFromRow(row, { newTab, preview: !newTab && e.detail < 2 });
   }, [openFromRow]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {

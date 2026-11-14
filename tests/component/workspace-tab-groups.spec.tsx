@@ -1084,6 +1084,42 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     expect(screen.queryByRole('button', { name: 'New collection tab' })).toBeNull();
   });
 
+  it('draws no chip while one Connection has tabs; each tab still carries its colour', async () => {
+    mountTabs([
+      { id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true },
+      { id: 'b', connectionId: 'c1', collection: 'bravo' },
+    ]);
+    await waitFor(() => expect(tabOrder()).toHaveLength(2));
+    expect(strip().queryByRole('button', { name: 'Prod' })).toBeNull();
+    expect(tab('alpha').style.borderLeft).toContain('3px solid');
+  });
+
+  it('closing the second Connection\u2019s last tab removes the chips and expands a collapsed group', async () => {
+    mountTabs([
+      { id: 'a', connectionId: 'c1', collection: 'alpha' },
+      { id: 'b', connectionId: 'c1', collection: 'bravo' },
+      { id: 'x', connectionId: 'c2', collection: 'xray', isActive: true },
+    ]);
+    await waitFor(() => expect(tabOrder()).toHaveLength(3));
+    fireEvent.click(strip().getByRole('button', { name: 'Prod' }));
+    await waitFor(() => expect(tabOrder()).toEqual(['xray — Staging']));
+
+    fireEvent.click(strip().getByRole('button', { name: 'Close xray' }));
+    await waitFor(() => expect(tabOrder()).toEqual(['alpha — Prod', 'bravo — Prod']));
+    expect(strip().queryByRole('button', { name: 'Prod' })).toBeNull();
+  });
+
+  it('two open tabs on same-named collections read database.collection; closing one restores the bare name', async () => {
+    mountTabs([
+      { id: 'a', connectionId: 'c1', dbName: 'shop', collection: 'orders', isActive: true },
+      { id: 'b', connectionId: 'c1', dbName: 'archive', collection: 'orders' },
+    ]);
+    await waitFor(() => expect(tabOrder()).toEqual(['shop.orders — Prod', 'archive.orders — Prod']));
+    fireEvent.click(strip().getByRole('button', { name: 'Close archive.orders' }));
+    await waitFor(() => expect(tabOrder()).toEqual(['orders — Prod']));
+    expect(strip().getByRole('button', { name: 'Close orders' })).toBeTruthy();
+  });
+
   it('leaves the tabs of a collapsed group alone: they are not on screen', async () => {
     const { close } = mountTabs([
       { id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true },
@@ -1222,7 +1258,7 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     ]);
     await waitFor(() => expect(tabOrder()).toHaveLength(2));
     await screen.findByTestId('nav-coll-db-alpha');
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
 
     fireEvent.contextMenu(tab('bravo'));
@@ -1253,9 +1289,9 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
 
     fireEvent.click(tab('alpha'));
     await waitFor(() => expect(tab('alpha').getAttribute('aria-selected')).toBe('true'));
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
 
     const alphaRow = await screen.findByTestId('nav-coll-db-alpha', {}, { timeout: 4000 });
     await waitFor(() => expect(tree().getAttribute('aria-activedescendant')).toBe(alphaRow.id));

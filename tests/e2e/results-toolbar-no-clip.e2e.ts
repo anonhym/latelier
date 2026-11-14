@@ -208,10 +208,10 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
 
       const openBuilder = win.getByRole('button', { name: 'Open Query Builder', exact: true });
       await expect(openBuilder).toBeVisible();
-      await expect(win.getByRole('button', { name: 'Collapse navigator', exact: true })).toBeVisible();
+      await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
       await openBuilder.click();
-      await expect(win.getByRole('button', { name: 'Open navigator', exact: true })).toBeVisible();
+      await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'false');
       await expect(win.getByRole('tablist', { name: 'Query drawer' })).toBeVisible();
       await win.waitForTimeout(300);
       const drawer = await win.getByRole('tablist', { name: 'Query drawer' }).boundingBox();
@@ -225,7 +225,7 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
 
       // The wide layout comes back untouched: both panels, the drawer at its stored share.
       await win.setViewportSize({ width: 1280, height: 800 });
-      await expect(win.getByRole('button', { name: 'Collapse navigator', exact: true })).toBeVisible();
+      await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(win.getByRole('button', { name: 'Collapse Query Builder', exact: true })).toBeVisible();
       await win.waitForTimeout(300);
       const wide = await win.getByRole('tablist', { name: 'Query drawer' }).boundingBox();

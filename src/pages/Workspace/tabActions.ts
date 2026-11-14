@@ -6,9 +6,54 @@ import { confirmDestructive } from '../../utils/confirm';
 // What a tab's own controls do, shared by the tab strip, its keyboard
 // shortcut and the palette's Tab objects so they cannot drift apart.
 
-/** The tab's name, as its tab strip button shows it. */
-export function tabLabel(tab: WorkspaceTab): string {
-  return tab.kind === 'script' ? tab.state.title || 'Script' : tab.collection || '(empty)';
+const bareLabel = (tab: WorkspaceTab): string =>
+  tab.kind === 'script' ? tab.state.title || 'Script' : tab.collection || '(empty)';
+
+/**
+ * The tab's name, as its tab strip button shows it. Given the open tabs, a
+ * collection tab whose bare name another open tab also shows reads
+ * `database.collection` instead: the database is what tells two `orders` apart.
+ */
+export function tabLabel(tab: WorkspaceTab, allTabs?: readonly WorkspaceTab[]): string {
+  const bare = bareLabel(tab);
+  if (tab.kind !== 'collection' || !allTabs) return bare;
+  const clash = allTabs.some((t) => t.id !== tab.id && bareLabel(t) === bare);
+  return clash ? `${tab.dbName}.${bare}` : bare;
+}
+
+const DEFAULT_SCRIPT_TITLE = /^Script (\d+)$/;
+
+/**
+ * The title a new script tab opens with: one more than the highest number
+ * among the open scripts still carrying a default title. Stored at open, so it
+ * stays put when another script closes.
+ */
+export function nextScriptTitle(tabs: readonly WorkspaceTab[]): string {
+  let max = 0;
+  for (const t of tabs) {
+    const m = t.kind === 'script' ? DEFAULT_SCRIPT_TITLE.exec(t.state.title) : null;
+    if (m) max = Math.max(max, Number.parseInt(m[1]!, 10));
+  }
+  return `Script ${max + 1}`;
+}
+
+// The state a person edits; anything else in a patch (results, counts, run
+// bookkeeping, column widths) is the app writing after a run.
+const PREVIEW_KEEPING_KEYS: ReadonlySet<string> = new Set([
+  'activeView',
+  'view',
+  'queryRaw',
+  'builder',
+  'filterDraft',
+  'columnConfig',
+  'page',
+  'pageSize',
+  'aggregation',
+]);
+
+/** Whether a collection-state patch keeps the preview tab (W01 §14.9). */
+export function keepsPreview(patch: object): boolean {
+  return Object.keys(patch).some((key) => PREVIEW_KEEPING_KEYS.has(key));
 }
 
 /** Closes tab `id`, asking first when it holds unsaved pipeline edits. */

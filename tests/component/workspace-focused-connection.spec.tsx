@@ -71,9 +71,11 @@ function tabStore(initial: WorkspaceTab[]) {
   };
 }
 
-/** The TitleBar and the tab strip both live in the AppShell header. */
-function header() {
-  return within(screen.getByRole('banner'));
+/** Picks `item` from the tab strip's `+ ▾` menu. */
+async function newTabMenu(item: string) {
+  await userEvent.click(await screen.findByRole('button', { name: 'New tab' }));
+  const menu = await screen.findByRole('menu');
+  await userEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(`^${item}`) }));
 }
 
 afterEach(() => {
@@ -82,12 +84,10 @@ afterEach(() => {
 });
 
 describe('The Focused Tab’s Connection', () => {
-  it('names no Connection on a launch with no tab open, however many are saved', async () => {
-    // X16.1, spec §4.7 — the Focused Tab is where Connection identity
-    // comes from, and a launch with no tabs has none. Quitting with a
-    // Connection connected but nothing open used to be restored from a pref;
-    // it now lands on the empty state, which is the right answer for a
-    // Connection that was not being used.
+  it('with no tab open, the breadcrumb names the open Connection and asks for a collection', async () => {
+    // W01 §14.2 / X16 §13.2 — the bar never reads "Select a connection"
+    // while one is open: the navigator shows it connected, and the two must
+    // not disagree.
     installAtelierMock({
       tabs: { list: async () => [] },
       conn: { list: async () => [conn()] },
@@ -99,16 +99,16 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText(/Select a collection from the sidebar/i)).toBeTruthy());
-    expect(titleBar().queryByText('Prod')).toBeNull();
+    await waitFor(() => expect(screen.getByText('Prod is connected')).toBeTruthy());
+    const location = within(titleBar().getByRole('navigation', { name: 'Location' }));
+    expect(location.getByRole('button', { name: /^Connection: Prod/ })).toBeTruthy();
+    expect(location.getByRole('button', { name: 'Choose a collection…' })).toBeTruthy();
+    expect(titleBar().queryByRole('button', { name: /Connection: none selected/ })).toBeNull();
   });
 
-  it('stops naming a Connection once the last tab is closed', async () => {
-    // X16.4 — the inverse of what this used to assert. The session pin
-    // is what kept the Connection named after its last tab closed, and the
-    // pin is retired: identity is the Focused Tab's, and there is no Focused
-    // Tab. The navigator still shows the Connection's root, which is where
-    // you re-open something from.
+  it('drops the namespace from the breadcrumb once the last tab is closed', async () => {
+    // With no Focused Tab the breadcrumb keeps the most recently connected
+    // Open Connection and asks for a collection instead of naming one.
     const store = tabStore([collectionTab()]);
     installAtelierMock({
       tabs: store,
@@ -126,16 +126,15 @@ describe('The Focused Tab’s Connection', () => {
 
     await waitFor(() => expect(screen.queryByLabelText('Close coll')).toBeNull());
     await waitFor(() =>
-      expect(titleBar().getByRole('button', { name: 'Connection: none selected' })).toBeTruthy(),
+      expect(titleBar().getByRole('button', { name: 'Choose a collection…' })).toBeTruthy(),
     );
+    expect(titleBar().queryByRole('button', { name: /^Collection:/ })).toBeNull();
+    expect(titleBar().getByRole('button', { name: /^Connection: Prod/ })).toBeTruthy();
   });
 
-  it('does not repeat the collection path in the TitleBar', async () => {
-    // The TitleBar used to breadcrumb `dbName › collection` next to the
-    // Connection name — the same path CollectionHeader already owns. The
-    // TabStrip legitimately shows the tab's collection as its label, but
-    // dbName never renders anywhere but the retired breadcrumb, so its
-    // absence from the banner is the regression guard.
+  it('states the Focused Tab\u2019s namespace once, in the breadcrumb', async () => {
+    // W01 §14.2 — the title bar's breadcrumb is the one place the database
+    // shows; the view header no longer repeats `{db} /` or the collection.
     const store = tabStore([collectionTab({ dbName: 'salesdb', collection: 'orders' })]);
     installAtelierMock({
       tabs: store,
@@ -148,10 +147,10 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(header().getByText('orders')).toBeTruthy());
-    expect(header().queryByText('salesdb')).toBeNull();
-    expect(header().queryByText('(no db)')).toBeNull();
-    expect(header().queryByText('(no collection)')).toBeNull();
+    const location = within(await screen.findByRole('navigation', { name: 'Location' }));
+    await waitFor(() => expect(location.getByRole('button', { name: 'Collection: orders' })).toBeTruthy());
+    expect(location.getByRole('button', { name: 'Database: salesdb' })).toBeTruthy();
+    expect(screen.queryByText('salesdb /')).toBeNull();
   });
 
   it('does not drift when the Connection list is reordered underneath it', async () => {
@@ -389,17 +388,18 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await userEvent.click(await screen.findByRole('button', { name: 'New script tab' }));
+    await newTabMenu('New script');
 
     // c1 is the only one with a live client — not the only one saved, and not
     // simply the first.
-    await waitFor(() => expect(openScript).toHaveBeenCalledWith({ connectionId: 'c1' }));
+    await waitFor(() =>
+      expect(openScript).toHaveBeenCalledWith({ connectionId: 'c1', initialState: { title: 'Script 1' } }),
+    );
   });
 
-  it('opens the empty state\u2019s picker on the only Open Connection', async () => {
-    // Same question as "New script", so it takes the same answer: this empty
-    // state only renders with something connected, and exactly one open
-    // Connection resolves the picker without a guess.
+  it('opens the collection picker on the only Open Connection', async () => {
+    // Same question as "New script", so it takes the same answer: exactly one
+    // open Connection resolves the picker without a guess.
     installAtelierMock({
       tabs: { list: async () => [] },
       conn: {
@@ -419,7 +419,7 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await userEvent.click(await screen.findByRole('button', { name: /Open a collection/i }));
+    await newTabMenu('Open collection…');
 
     // Populated from c1, the only one with a live client.
     const dbSelect = (await screen.findByLabelText('Database')) as HTMLSelectElement;
@@ -441,8 +441,8 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText(/Select a collection from the sidebar/i);
-    await userEvent.click(screen.getByRole('button', { name: 'New script tab' }));
+    await screen.findByText(/ is connected$/);
+    await newTabMenu('New script');
 
     await new Promise((r) => setTimeout(r, 20));
     expect(openScript).not.toHaveBeenCalled();

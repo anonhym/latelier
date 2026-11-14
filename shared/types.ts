@@ -174,6 +174,8 @@ export interface ConnectionSummary {
   defaultDb?: string;
   status: 'unknown' | 'connected' | 'disconnected' | 'connecting' | 'error';
   serverVersion?: string;
+  /** When the live client connected; absent while not connected. */
+  connectedAt?: string;
   readOnly: boolean;
   /** See `ConnectionRuntime.lostReason`. */
   lostReason?: string;

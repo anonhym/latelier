@@ -268,11 +268,11 @@ test('the Document Editor survives switching to a Script tab (no active collecti
 
       // Open the Script tab *before* the editor — the Modal's overlay blocks
       // pointer events to everything outside it (same as `DeleteConfirm`'s
-      // modal, per an earlier reachability finding), so "+ Script" can't be
+      // modal, per an earlier reachability finding), so the `+ ▾` menu can't be
       // clicked once the editor is open. Opening it up front, then jumping to
       // it by keyboard once the editor is up, is the reachable path a user
       // actually has.
-      await ws.newScriptTab.click();
+      await ws.openNewScript();
       await expect(win.locator('[data-testid="script-editor"]')).toBeVisible({ timeout: 5000 });
       await ws.tabByName('orders').click();
       await expect(ws.tabByName('orders')).toHaveAttribute('aria-selected', 'true');
@@ -285,7 +285,7 @@ test('the Document Editor survives switching to a Script tab (no active collecti
 
       // ⌘2/Ctrl+2 jumps to the Script tab while the editor opened against
       // orders is still up — a keyboard shortcut, so the overlay above
-      // doesn't block it the way a click on "+ Script" would.
+      // doesn't block it the way a click on the `+ ▾` menu would.
       await win.keyboard.press(`${MOD}+2`);
       await expect(win.locator('[data-testid="script-editor"]')).toBeVisible({ timeout: 5000 });
 
