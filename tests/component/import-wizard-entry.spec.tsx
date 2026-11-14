@@ -18,6 +18,12 @@ const wizard = () => screen.findByRole('dialog', { name: 'Import Connections' })
 const fileButton = () => screen.getByRole('button', { name: 'Choose file…' });
 const pasteBox = () => screen.getByRole('textbox', { name: /paste connection strings/i });
 
+/** The table header's `Import ▾` menu: a file, Compass, or pasted URIs. */
+async function importFrom(table: HTMLElement, item: string) {
+  await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
+
 /** The Source step shows both halves; the entry point decides which one has focus. */
 async function expectOpenAt(source: 'file' | 'paste') {
   await wizard();
@@ -50,7 +56,7 @@ function mountWorkspace(connections: ConnectionSummary[], conn: Omit<NonNullable
 async function openTable() {
   const titleBar = within(await screen.findByRole('banner'));
   await userEvent.click(await titleBar.findByRole('button', { name: /^Connection: / }));
-  await userEvent.click(await screen.findByRole('button', { name: 'Manage connections' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Manage all' }));
   return screen.findByRole('dialog', { name: 'Connections' });
 }
 
@@ -67,24 +73,29 @@ describe('Import Wizard entry points', () => {
     await expectOpenAt('file');
   });
 
-  it('the empty first-launch screen opens the wizard at the file source', async () => {
+  it("the welcome canvas's two import links open the wizard at the file and at the paste source", async () => {
     mountWorkspace([]);
-    await userEvent.click(await screen.findByRole('button', { name: 'Import connections' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Import from Compass or a file' }));
     await expectOpenAt('file');
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Import Connections' })).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Paste several URIs' }));
+    await expectOpenAt('paste');
   });
 
-  it("the table footer's Import leaves the table for the wizard at the file source", async () => {
+  it("the table's Import ▾ From a file… leaves the table for the wizard at the file source", async () => {
     mountWorkspace([row('c1', 'Prod')]);
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Import' }));
+    await importFrom(table, 'From a file…');
     await expectOpenAt('file');
     expect(screen.queryByRole('dialog', { name: 'Connections' })).toBeNull();
   });
 
-  it("the table footer's Paste URIs stacks the wizard on the table at the paste source", async () => {
+  it("the table's Import ▾ Paste URIs… stacks the wizard on the table at the paste source", async () => {
     mountWorkspace([row('c1', 'Prod')]);
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await importFrom(table, 'Paste URIs…');
     await expectOpenAt('paste');
     expect(screen.getByRole('dialog', { name: 'Connections' })).toBeTruthy();
   });
@@ -92,7 +103,7 @@ describe('Import Wizard entry points', () => {
   it('Escape closes only the wizard stacked on the table', async () => {
     mountWorkspace([row('c1', 'Prod')]);
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await importFrom(table, 'Paste URIs…');
     await wizard();
 
     await userEvent.keyboard('{Escape}');
@@ -124,7 +135,7 @@ describe('Import Wizard: one instance', () => {
     }));
     const { fireMenu } = mountWorkspace([row('c1', 'Prod')], { importOpen, importUris, importCommit });
     const table = await openTable();
-    await userEvent.click(within(table).getByRole('button', { name: 'Paste URIs' }));
+    await importFrom(table, 'Paste URIs…');
     await expectOpenAt('paste');
     fireEvent.change(pasteBox(), { target: { value: 'mongodb://db1.example.com' } });
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));

@@ -12,6 +12,8 @@ interface TitleBarProps {
    * Omitted when no Connection is saved.
    */
   breadcrumb?: React.ReactNode;
+  /** The welcome canvas's bar: with nothing saved there is no sidebar to toggle and no Console to open. */
+  bare?: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   onOpenSettings: () => void;
@@ -25,6 +27,7 @@ const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
 export function TitleBar({
   breadcrumb,
+  bare = false,
   sidebarCollapsed,
   onToggleSidebar,
   onOpenSettings,
@@ -51,19 +54,21 @@ export function TitleBar({
       } as React.CSSProperties}
     >
       <div style={{ width: 70, flexShrink: 0 }} />
-      <Tooltip label="Toggle sidebar" withArrow>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="md"
-          onClick={onToggleSidebar}
-          aria-label="Toggle sidebar"
-          aria-pressed={!sidebarCollapsed}
-          style={NO_DRAG}
-        >
-          {I.sidebar}
-        </ActionIcon>
-      </Tooltip>
+      {!bare && (
+        <Tooltip label="Toggle sidebar" withArrow>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="md"
+            onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
+            aria-pressed={!sidebarCollapsed}
+            style={NO_DRAG}
+          >
+            {I.sidebar}
+          </ActionIcon>
+        </Tooltip>
+      )}
       {breadcrumb && (
         // Only the breadcrumb's own buttons opt out of dragging; the bar
         // around them stays part of the window's drag area.
@@ -114,20 +119,22 @@ export function TitleBar({
           {formatShortcut('⌘K', isMacRenderer())}
         </kbd>
       </UnstyledButton>
-      <Tooltip label={shellTooltip} withArrow>
-        <Button
-          variant={shellOpen ? 'light' : 'default'}
-          color={shellOpen ? 'violet' : 'gray'}
-          size="compact-xs"
-          onClick={onToggleShell}
-          disabled={!shellAvailable}
-          aria-pressed={shellOpen}
-          leftSection={I.terminal}
-          style={NO_DRAG}
-        >
-          Console
-        </Button>
-      </Tooltip>
+      {!bare && (
+        <Tooltip label={shellTooltip} withArrow>
+          <Button
+            variant={shellOpen ? 'light' : 'default'}
+            color={shellOpen ? 'violet' : 'gray'}
+            size="compact-xs"
+            onClick={onToggleShell}
+            disabled={!shellAvailable}
+            aria-pressed={shellOpen}
+            leftSection={I.terminal}
+            style={NO_DRAG}
+          >
+            Console
+          </Button>
+        </Tooltip>
+      )}
       <Tooltip label="Settings" withArrow>
         <ActionIcon
           variant="default"

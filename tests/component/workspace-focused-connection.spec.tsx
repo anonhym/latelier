@@ -221,23 +221,7 @@ describe('The Focused Tab’s Connection', () => {
     expect(titleBar().getByText('Prod')).toBeTruthy();
   });
 
-  it.each([
-    { saved: 0, rows: [] as ConnectionSummary[], offered: true },
-    { saved: 1, rows: [conn({ status: 'unknown' })], offered: false },
-  ])('Import connections on the empty screen with $saved saved: shown=$offered', async ({ rows, offered }) => {
-    installAtelierMock({ tabs: { list: async () => [] }, conn: { list: async () => rows } });
-    render(
-      <MemoryRouter initialEntries={['/workspace']}>
-        <Workspace />
-      </MemoryRouter>,
-    );
-    await waitFor(() =>
-      expect(screen.getByText(offered ? /No connections yet\. Add one/i : /No connection is open/i)).toBeTruthy(),
-    );
-    expect(screen.queryByRole('button', { name: 'Import connections' }) !== null).toBe(offered);
-  });
-
-  it('first run: zero Connections show a "New connection" CTA that opens the add form', async () => {
+  it('first run: zero Connections show the welcome canvas, whose manual link opens the add form', async () => {
     installAtelierMock({
       tabs: { list: async () => [] },
       conn: { list: async () => [] },
@@ -249,34 +233,12 @@ describe('The Focused Tab’s Connection', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText(/No connections yet\. Add one to get started/i)).toBeTruthy());
-    const emptyState = within(
-      screen.getByText(/No connections yet\. Add one to get started/i).parentElement as HTMLElement,
-    );
-    await userEvent.click(emptyState.getByRole('button', { name: 'New connection' }));
+    await screen.findByRole('heading', { name: 'Connect to MongoDB' });
+    // No Switcher with nothing to switch between: the canvas is the way in.
+    expect(screen.queryByRole('button', { name: /^Connection: / })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Enter details manually' }));
 
     expect(await screen.findByRole('dialog', { name: 'New Connection' })).toBeTruthy();
-  });
-
-  it('zero Connections: the TitleBar Switcher still opens in add-mode, focusing "Manage connections"', async () => {
-    // ADR 0001's add-mode: with nothing to search, focus lands on the way to
-    // add one. The empty-state CTA is no longer a popover here, so the
-    // TitleBar trigger is the way in.
-    installAtelierMock({
-      tabs: { list: async () => [] },
-      conn: { list: async () => [] },
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/workspace']}>
-        <Workspace />
-      </MemoryRouter>,
-    );
-
-    await userEvent.click(await titleBar().findByRole('button', { name: /Connection: none selected/i }));
-
-    const manageButton = await screen.findByRole('button', { name: 'Manage connections' });
-    await waitFor(() => expect(document.activeElement).toBe(manageButton));
   });
 
   it('one saved Connection, none open: the empty-state CTA is still the "Select a connection" picker', async () => {
@@ -356,7 +318,8 @@ describe('The Focused Tab’s Connection', () => {
     await userEvent.click(trigger);
     const listbox = await screen.findByRole('listbox', { name: 'Connections' });
     await userEvent.hover(within(listbox).getByRole('option', { name: 'Staging' }));
-    await userEvent.click(within(listbox).getByRole('button', { name: 'Disconnect Staging' }));
+    await userEvent.click(within(listbox).getByRole('button', { name: 'Actions for Staging' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Disconnect' }));
     // the click opens a confirmation now; only confirming disconnects.
     const dialog = await screen.findByRole('dialog', { name: 'Disconnect "Staging"?' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
