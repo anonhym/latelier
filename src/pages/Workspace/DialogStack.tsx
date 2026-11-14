@@ -191,7 +191,7 @@ export function NewTabPicker({ connectionId, onCancel, onPick }: NewTabPickerPro
             >
               <option value="documents">Documents</option>
               <option value="aggregation">Aggregation</option>
-              <option value="structure">Structure</option>
+              <option value="structure">Schema &amp; indexes</option>
             </select>
           </label>
         </div>
