@@ -19,8 +19,6 @@ test.afterAll(stopAllMemoryServers);
  * --atelier-surface, and the raised tone --atelier-surface-raised, which must
  * be a third, lighter step. The token values are read off the page through a
  * probe element, so the spec follows src/index.css instead of copying hex.
- *
- * Not captured here: the Console and the Document Editor with a conflict.
  */
 
 const MAC = process.platform === 'darwin';
@@ -138,7 +136,7 @@ test('dark captures: Documents (Table, Tree, JSON), stale result and error strip
     await win.waitForLoadState('domcontentloaded');
     await expectConsoleClean(win, async () => {
       await setDark(win);
-      await seedActiveConnectionWithDocs(
+      const conn = await seedActiveConnectionWithDocs(
         win,
         { ...baseConnInput(host, port), name: 'Dark Target' },
         {
@@ -180,6 +178,32 @@ test('dark captures: Documents (Table, Tree, JSON), stale result and error strip
       await ws.queryBarRunButton.click();
       await expect(win.getByTestId('band-stale')).toHaveCount(0);
 
+      // Document Editor in its conflict state: the server copy changes under an open edit.
+      // The Table's row actions are covered by a cell until hovered; the Tree's are not.
+      await ws.viewTreeButton.click();
+      await win.getByRole('button', { name: /^Edit document/ }).first().click();
+      const editor = win.getByRole('dialog', { name: 'Edit document' });
+      await expect(editor).toBeVisible({ timeout: 5000 });
+      await editor.getByRole('textbox', { name: 'status' }).fill('shipped');
+      await win.evaluate(
+        (id) =>
+          (window as unknown as { atelier: { doc: { updateOne: (i: object) => Promise<unknown> } } }).atelier.doc.updateOne({
+            connectionId: id,
+            dbName: 'shop',
+            collection: 'orders',
+            filterJson: '{"sku":"apple-001"}',
+            updateJson: '{"$set":{"status":"refunded"}}',
+          }),
+        conn.id,
+      );
+      await editor.getByRole('button', { name: 'Save' }).click();
+      await expect(editor.getByRole('region', { name: 'Conflicting changes' })).toBeVisible({ timeout: 8000 });
+      await expectDarkTones(win, 'Document Editor, conflict', { panel: editor });
+      await editor.getByRole('button', { name: 'Cancel' }).click();
+      await win.getByRole('button', { name: 'Discard', exact: true }).click();
+      await expect(editor).toBeHidden();
+      await ws.viewTableButton.click();
+
       // Inspector (the Plan tab).
       await ws.queryBarRunOptionsButton.click();
       await win.getByRole('menuitem', { name: 'Explain plan' }).click();
@@ -201,6 +225,12 @@ test('dark captures: Documents (Table, Tree, JSON), stale result and error strip
       await ws.openNewScript();
       await expect(win.getByTestId('script-run-btn')).toBeVisible({ timeout: 8000 });
       await expectDarkTones(win, 'script tab', { panel: statusBar });
+
+      // Console (the Mongo shell pane).
+      await win.getByRole('button', { name: 'Console', exact: true }).click();
+      const shellInput = win.locator('input[aria-label="Mongo shell input"]');
+      await expect(shellInput).toBeVisible({ timeout: 10000 });
+      await expectDarkTones(win, 'Console', { panel: win.getByTestId('mongo-shell-pane') });
     });
   });
 });

@@ -266,8 +266,8 @@ describe('active-row outline contrast against every plain row surface (WCAG 1.4.
 describe('dark theme pass (X10 amendment)', () => {
   const pct = (block: string, name: string) => Number.parseFloat(readVar(block, name));
 
-  it('keeps connection tints at or above 24% in dark, light unchanged', () => {
-    expect(pct(darkBlock, '--atelier-conn-tint')).toBeGreaterThanOrEqual(24);
+  it('holds the dark connection tint floor at 24%, light unchanged', () => {
+    expect(pct(darkBlock, '--atelier-conn-tint')).toBe(24);
     expect(pct(darkBlock, '--atelier-conn-tint-active')).toBeGreaterThan(pct(darkBlock, '--atelier-conn-tint'));
     expect(pct(lightBlock, '--atelier-conn-tint')).toBe(14);
   });
