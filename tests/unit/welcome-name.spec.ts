@@ -53,6 +53,10 @@ describe('redactUriSecrets', () => {
     expect(redactUriSecrets('a@b', 'mongodb://localhost#a@b')).toBe('a@b');
   });
 
+  it('takes a typed password whole when it holds a colon', () => {
+    expect(redactUriSecrets('bad password p:w', 'mongodb://ana:p:w@db')).toBe('bad password •••');
+  });
+
   it('treats a userinfo with no colon as a username only', () => {
     expect(redactUriSecrets('user ana, host db', 'mongodb://ana@db')).toBe('user •••, host db');
   });

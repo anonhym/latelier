@@ -30,10 +30,10 @@ const REDACTED = '•••';
 export function redactUriSecrets(message: string, uri: string, password?: string): string {
   const trimmed = uri.trim();
   // Up to the last `@` before the path: a password may itself hold an `@`.
-  const userinfo = /^[a-z+]+:\/\/([^/?#]*)@/i.exec(trimmed)?.[1] ?? '';
-  const colon = userinfo.indexOf(':');
-  const typedPassword = colon === -1 ? '' : userinfo.slice(colon + 1);
-  return [trimmed, userinfo, typedPassword, password ?? '']
-    .filter((secret) => secret !== '')
+  const userinfo = /^[a-z+]+:\/\/([^/?#]*)@/i.exec(trimmed)?.[1];
+  // Everything after the first colon: a password may itself hold one.
+  const typedPassword = userinfo?.split(':').slice(1).join(':');
+  return [trimmed, userinfo, typedPassword, password]
+    .filter((secret): secret is string => !!secret)
     .reduce((text, secret) => text.split(secret).join(REDACTED), message);
 }
