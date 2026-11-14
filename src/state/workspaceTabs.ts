@@ -7,6 +7,8 @@ import type {
   ResultViewMode,
   ScriptTab,
   ScriptTabState,
+  ServerTab,
+  ServerTabState,
   WorkspaceTab,
 } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
@@ -94,6 +96,8 @@ export interface WorkspaceTabsState {
     connectionId: string;
     initialState?: Partial<ScriptTabState>;
   }) => Promise<ScriptTab>;
+  /** C05 §11 — opens or focuses the Connection's server tab. */
+  openServer: (input: { connectionId: string }) => Promise<ServerTab>;
   /**
    * Closes one tab. A script tab holding source says so in a toast with Undo,
    * and every tab closed this way joins the reopen list (W01 §14.8).
@@ -171,6 +175,7 @@ export interface WorkspaceTabsState {
    * as collection-tab patches.
    */
   patchScriptState: (id: string, patch: Partial<ScriptTabState>) => void;
+  patchServerState: (id: string, patch: Partial<ServerTabState>) => void;
 }
 
 const DEBOUNCE_MS = 250;
@@ -393,6 +398,15 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       return tab;
     },
     [refresh, openTabsNow],
+  );
+
+  const openServer: WorkspaceTabsState['openServer'] = useCallback(
+    async (input) => {
+      const tab = await api.tabs.openServer(input);
+      await refresh();
+      return tab;
+    },
+    [refresh],
   );
 
   // W01 §14.8: renderer memory, newest first, capped. A ref for the list (a
@@ -777,10 +791,29 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     [scheduleFlush],
   );
 
+  const patchServerState: WorkspaceTabsState['patchServerState'] = useCallback(
+    (id, patch) => {
+      const current = tabsRef.current.find((t) => t.id === id);
+      if (!current || current.kind !== 'server') return;
+      if (isNoOpPatch(current.state as unknown as Record<string, unknown>, patch as unknown as Partial<Record<string, unknown>>)) return;
+      setTabs((ts) => ts.map((t) => (t.id === id && t.kind === 'server' ? { ...t, state: { ...t.state, ...patch } } : t)));
+      const existing = pendingPatches.current.get(id) as Partial<ServerTabState> | undefined;
+      pendingPatches.current.set(id, { ...(existing ?? {}), ...patch } as unknown as Partial<CollectionTabState>);
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
   const reopen = useCallback(
     async (entry: ClosedTab) => {
       if (entry.kind === 'script') {
         const tab = await openScript({ connectionId: entry.connectionId, initialState: entry.state });
+        if (entry.pinned) await setPinned(tab.id, true);
+        return;
+      }
+      if (entry.kind === 'server') {
+        const tab = await openServer({ connectionId: entry.connectionId });
+        patchServerState(tab.id, entry.state);
         if (entry.pinned) await setPinned(tab.id, true);
         return;
       }
@@ -793,7 +826,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       patchCollectionState(tab.id, entry.state);
       if (entry.pinned) await setPinned(tab.id, true);
     },
-    [openScript, openCollection, setPinned, patchCollectionState],
+    [openScript, openServer, openCollection, setPinned, patchCollectionState, patchServerState],
   );
 
   // An entry leaves the list only once its tab is open: a reopen that fails
@@ -843,6 +876,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     openCollection,
     openAggregation,
     openScript,
+    openServer,
     close,
     closedCount,
     reopenClosed,
@@ -856,6 +890,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     patchCollectionState,
     patchCollectionStateWith,
     patchScriptState,
+    patchServerState,
     patchAggregationState,
   };
 }

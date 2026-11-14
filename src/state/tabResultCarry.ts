@@ -26,7 +26,7 @@ export function carryResultFields(
   const prevById = new Map(prev.map((t) => [t.id, t]));
   return next.map((t): WorkspaceTab => {
     const old = prevById.get(t.id);
-    if (old?.kind !== t.kind) return t;
+    if (old?.kind !== t.kind || t.kind === 'server') return t;
     if (t.kind === 'script') {
       const { lastResult, lastError } = (old as ScriptTab).state;
       if (lastResult === undefined && lastError === undefined) return t;

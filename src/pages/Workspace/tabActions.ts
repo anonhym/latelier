@@ -7,7 +7,7 @@ import { confirmDestructive } from '../../utils/confirm';
 // shortcut and the palette's Tab objects so they cannot drift apart.
 
 const bareLabel = (tab: WorkspaceTab): string =>
-  tab.kind === 'script' ? tab.state.title || 'Script' : tab.collection || '(empty)';
+  tab.kind === 'script' ? tab.state.title || 'Script' : tab.kind === 'server' ? 'Server' : tab.collection || '(empty)';
 
 /**
  * The tab's name, as its tab strip button shows it. Given the open tabs, a

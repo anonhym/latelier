@@ -95,7 +95,7 @@ async function mount(initial: WorkspaceTab[] = []) {
   return { ...s, hook };
 }
 
-const labels = (tabs: WorkspaceTab[]) => tabs.map((t) => (t.kind === 'collection' ? t.collection : t.state.title));
+const labels = (tabs: WorkspaceTab[]) => tabs.map((t) => (t.kind === 'collection' ? t.collection : t.kind === 'script' ? t.state.title : 'Server'));
 
 afterEach(() => {
   uninstallAtelierMock();

@@ -1041,7 +1041,21 @@ export interface ScriptTab extends WorkspaceTabBase {
   state: ScriptTabState;
 }
 
-export type WorkspaceTab = CollectionTab | ScriptTab;
+export type ServerSection = 'overview' | 'monitor' | 'collections' | 'users' | 'roles';
+
+export interface ServerTabState {
+  section: ServerSection;
+}
+
+/** One per Connection (C05 §11). `dbName` / `collection` are empty, as for a script tab. */
+export interface ServerTab extends WorkspaceTabBase {
+  kind: 'server';
+  dbName: string;
+  collection: string;
+  state: ServerTabState;
+}
+
+export type WorkspaceTab = CollectionTab | ScriptTab | ServerTab;
 
 // ─── Script tab IPC (W12) ───────────────────────────────────────────────────
 

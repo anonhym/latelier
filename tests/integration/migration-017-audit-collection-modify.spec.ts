@@ -66,7 +66,7 @@ describe('migration 017 — audit collectionModify', () => {
     ).run();
     const before = d.prepare('SELECT * FROM audit_log').all();
 
-    runMigrations(d, all);
+    runMigrations(d, all.filter((m) => m.version <= 17));
 
     expect(d.prepare('SELECT * FROM audit_log').all()).toEqual(before);
     expect(before).toHaveLength(1);

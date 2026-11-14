@@ -151,6 +151,7 @@ export function LocationBreadcrumb({
           </Button>
         );
       case 'script':
+      case 'server':
         return (
           <span
             key={seg.kind}
