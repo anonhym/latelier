@@ -44,8 +44,7 @@ describe('ResultBar — JSON display toggle', () => {
     const { patch } = renderBar();
     fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
 
-    const item = await screen.findByRole('menuitem', { name: /Canonical EJSON/ });
-    expect(item.getAttribute('data-checked')).toBe('false');
+    const item = await screen.findByRole('menuitemcheckbox', { name: 'Canonical EJSON', checked: false });
     fireEvent.click(item);
 
     expect(patch).toHaveBeenCalledWith({ jsonDisplay: 'canonical' });
@@ -55,8 +54,7 @@ describe('ResultBar — JSON display toggle', () => {
     const { patch } = renderBar({ jsonDisplay: 'canonical' });
     fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
 
-    const item = await screen.findByRole('menuitem', { name: /Canonical EJSON/ });
-    expect(item.getAttribute('data-checked')).toBe('true');
+    const item = await screen.findByRole('menuitemcheckbox', { name: 'Canonical EJSON', checked: true });
     fireEvent.click(item);
 
     expect(patch).toHaveBeenCalledWith({ jsonDisplay: 'shell' });
@@ -65,14 +63,14 @@ describe('ResultBar — JSON display toggle', () => {
   it('is absent on the other views', () => {
     renderBar({ view: 'Table' });
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
-    expect(screen.queryByRole('menuitem', { name: /Canonical EJSON/ })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Canonical EJSON' })).toBeNull();
   });
 
   it('stays reachable on a read-only collection, with only the display group in it', async () => {
     renderBar({}, { isReadOnly: true });
     fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
 
-    expect(await screen.findByRole('menuitem', { name: /Canonical EJSON/ })).toBeTruthy();
+    expect(await screen.findByRole('menuitemcheckbox', { name: 'Canonical EJSON' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: /Export…/ })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /Delete all/ })).toBeNull();
   });

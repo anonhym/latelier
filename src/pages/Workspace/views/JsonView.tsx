@@ -539,8 +539,7 @@ export function JsonView({ documents }: JsonViewProps) {
     });
   }, [copyFormat]);
 
-  // "More actions" per-card menu — Duplicate only, since Edit/Delete already
-  // have their own always-visible buttons on the card.
+  // "More actions" per-card menu: the card's Duplicate and Delete path.
   const { docMenu, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
 
   // Cards are variable-height (driven by the doc's serialized size). The

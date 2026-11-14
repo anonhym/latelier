@@ -46,9 +46,5 @@ export function scrollLeftToReveal({
 }: ColumnReveal): number {
   const farthestLeft = left - leftObstruction;
   const nearestRight = right - (clientWidth - rightObstruction);
-  // Stryker disable next-line EqualityOperator: at equality the clamped result is scrollLeft itself either way
-  if (scrollLeft > farthestLeft) return Math.max(0, farthestLeft);
-  // Stryker disable next-line EqualityOperator: at equality the clamped result is scrollLeft itself either way
-  if (scrollLeft < nearestRight) return Math.max(0, Math.min(nearestRight, farthestLeft));
-  return scrollLeft;
+  return Math.max(0, Math.min(farthestLeft, Math.max(nearestRight, scrollLeft)));
 }

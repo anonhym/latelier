@@ -72,3 +72,15 @@ describe('column scroll requests', () => {
     expect(() => requestColumnScroll('nobody')).not.toThrow();
   });
 });
+
+describe('scrollLeftToReveal edges', () => {
+  it('keeps the scroll when the column sits exactly on either visible edge', () => {
+    expect(scrollLeftToReveal({ ...base, scrollLeft: 200, left: 200, right: 360 })).toBe(200);
+    expect(scrollLeftToReveal({ ...base, scrollLeft: 260, left: 700, right: 860 })).toBe(260);
+  });
+
+  it('clears the pinned edges and never scrolls below zero', () => {
+    expect(scrollLeftToReveal({ ...base, scrollLeft: 500, left: 50, right: 210, leftObstruction: 80 })).toBe(0);
+    expect(scrollLeftToReveal({ ...base, scrollLeft: 0, left: 100, right: 900, leftObstruction: 40 })).toBe(60);
+  });
+});

@@ -4,6 +4,7 @@ import { useWorkspaceTabs } from '../../src/state/workspaceTabs';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { rememberScroll, recallScroll } from '../../src/pages/Workspace/views/scrollMemory';
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 
 const now = '2026-04-21T12:00:00.000Z';
@@ -391,5 +392,27 @@ describe('useWorkspaceTabs — opening a saved pipeline over unsaved edits', () 
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
       await pending;
     });
+  });
+});
+
+describe('useWorkspaceTabs — closing a tab drops its remembered scroll', () => {
+  it('close forgets the tab offsets and keeps the others', async () => {
+    rememberScroll('t1', 'Table', 120);
+    rememberScroll('t2', 'Table', 80);
+    installAtelierMock({
+      tabs: {
+        list: async () => [collectionTab({ id: 't1' }), collectionTab({ id: 't2', position: 1, isActive: false })],
+        close: (async () => ({ newActiveId: null })) as unknown as IpcApi['tabs']['close'],
+      },
+    });
+    const { result } = renderHook(() => useWorkspaceTabs());
+    await waitFor(() => expect(result.current.tabs).toHaveLength(2));
+
+    await act(async () => {
+      await result.current.close('t1');
+    });
+
+    expect(recallScroll('t1', 'Table')).toBe(0);
+    expect(recallScroll('t2', 'Table')).toBe(80);
   });
 });

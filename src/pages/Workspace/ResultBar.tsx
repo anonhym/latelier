@@ -34,6 +34,10 @@ interface ResultBarProps {
   references?: { count: number; onOpen: () => void };
 }
 
+// Mantine's Menu.Item hard-codes role="menuitem" after spreading its props, so a
+// `role` prop is overridden; a checkable item needs the checkbox role set on the node.
+const asMenuItemCheckbox = (el: HTMLButtonElement | null) => el?.setAttribute('role', 'menuitemcheckbox');
+
 export function ResultBar({ references }: ResultBarProps = {}) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -143,6 +147,8 @@ export function ResultBar({ references }: ResultBarProps = {}) {
                 <>
                   <Menu.Label>Display</Menu.Label>
                   <Menu.Item
+                    ref={asMenuItemCheckbox}
+                    aria-checked={canonicalJson}
                     data-checked={canonicalJson}
                     rightSection={canonicalJson ? I.check : undefined}
                     onClick={() => actions.patch({ jsonDisplay: canonicalJson ? 'shell' : 'canonical' })}
