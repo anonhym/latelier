@@ -248,7 +248,7 @@ test('filter status line holds its height, whatever the state', async () => {
     await expectConsoleClean(win, async () => {
       await open(win);
       // The builder is closed by default and lives in the Inspector (W05 §9.7).
-      await win.getByRole('button', { name: 'Builder', exact: true }).click();
+      await new WorkspacePage(win).openBuilder();
       const line = win.getByTestId('filter-status-line');
       const read = async () => {
         const box = await line.boundingBox();

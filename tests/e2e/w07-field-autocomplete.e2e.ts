@@ -161,7 +161,7 @@ test('autocomplete: a value from an aggregation $match is offered in the builder
 
       await ws.tablist.getByRole('tab', { name: /Documents/ }).click();
       // The builder is closed by default and lives in the Inspector (W05 §9.7).
-      await win.getByRole('button', { name: 'Builder', exact: true }).click();
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
       // Exact: the query bar's placeholder also contains the word "field".
       await win.getByPlaceholder('field', { exact: true }).fill('status');
