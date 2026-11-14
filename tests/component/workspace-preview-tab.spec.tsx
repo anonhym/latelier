@@ -202,6 +202,15 @@ describe('script titles', () => {
     expect(labels(hook.result.current.tabs)).toEqual(['Script 1', 'Script 2']);
   });
 
+  it('two scripts opened back to back, with no render between, get different numbers', async () => {
+    const { hook, openScript } = await mount();
+    await act(async () => {
+      await hook.result.current.openScript({ connectionId: 'c1' });
+      await hook.result.current.openScript({ connectionId: 'c1' });
+    });
+    expect(openScript.mock.calls.map((c) => c[0].initialState?.title)).toEqual(['Script 1', 'Script 2']);
+  });
+
   it('a title the caller passes wins', async () => {
     const { hook, openScript } = await mount();
     await act(() => hook.result.current.openScript({ connectionId: 'c1', initialState: { title: 'Saved' } }));

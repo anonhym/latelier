@@ -202,9 +202,9 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     },
     [setPreview],
   );
-  // The ids the last list returned. `tabsRef` only catches up after a render,
-  // too late for an open chained straight after another.
-  const listedIds = useRef<ReadonlySet<string>>(new Set());
+  // The tabs the last list returned, pending patches applied. `tabsRef` only
+  // catches up after a render, too late for an open straight after another.
+  const listed = useRef<readonly WorkspaceTab[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -213,7 +213,6 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       // answer and already out of `pendingPatches`: snapshot before dispatch.
       const before = new Map(pendingPatches.current);
       const list = await api.tabs.list();
-      listedIds.current = new Set(list.map((t) => t.id));
       // The list lags local state by whatever is still in the debounce, so
       // layer those patches back on first. Listed tabs also carry no result
       // documents (never persisted); keep the in-memory ones of tabs that
@@ -222,6 +221,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         applyPendingPatches(list, before),
         pendingPatches.current,
       );
+      listed.current = current;
       setTabs((prev) => carryResultFields(prev, current));
       setError(null);
     } catch (e) {
@@ -293,7 +293,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         keepTab(tab.id);
         return tab;
       }
-      const before = listedIds.current;
+      const before = new Set(listed.current.map((t) => t.id));
       const tab = await openCollectionTab({ ...input, reuseExisting: true });
       // Landing on a tab that was already open focuses it and leaves the
       // preview where it was.
@@ -302,7 +302,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       setPreview(tab.id);
       // The new tab is already in front, so closing the old one never
       // hands focus to a neighbour first.
-      if (replaced && listedIds.current.has(replaced)) {
+      if (replaced && listed.current.some((t) => t.id === replaced)) {
         await api.tabs.close(replaced);
         await refresh();
       }
@@ -352,16 +352,24 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     [refresh, keepTab],
   );
 
+  // Every open tab as of now: the rendered ones (renames included), plus any
+  // the last list returned that no render has shown yet, pending patches on top.
+  const openTabsNow = useCallback((): WorkspaceTab[] => {
+    const rendered = new Set(tabsRef.current.map((t) => t.id));
+    const fresh = listed.current.filter((t) => !rendered.has(t.id));
+    return applyPendingPatches([...tabsRef.current, ...fresh], pendingPatches.current);
+  }, []);
+
   const openScript: WorkspaceTabsState['openScript'] = useCallback(
     async (input) => {
       const tab = await api.tabs.openScript({
         ...input,
-        initialState: { title: nextScriptTitle(tabsRef.current), ...input.initialState },
+        initialState: { title: nextScriptTitle(openTabsNow()), ...input.initialState },
       });
       await refresh();
       return tab;
     },
-    [refresh],
+    [refresh, openTabsNow],
   );
 
   const close = useCallback(
