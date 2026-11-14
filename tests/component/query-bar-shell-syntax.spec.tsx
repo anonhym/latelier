@@ -98,6 +98,34 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// W05 §9.3 — the parser's position is underlined in the filter at the same
+// commit point as the strip, and goes when the text is fixed.
+describe('filter error range', () => {
+  it('underlines the offending token after a blur, and drops it once the filter is fixed', async () => {
+    setup('{}');
+
+    const ta = await typeAndBlur('{a: 1} nonsense');
+
+    const range = await screen.findByTestId('query-bar-error-range');
+    expect(range.querySelector('mark')?.textContent).toBe('nonsense');
+    expect(range.textContent).toBe('{a: 1} nonsense');
+
+    fireEvent.change(ta, { target: { value: '{"a": 1}' } });
+    fireEvent.blur(ta);
+
+    await waitFor(() => expect(screen.queryByTestId('query-bar-error-range')).toBeNull());
+  });
+
+  it('draws no underline while the user is still typing', async () => {
+    setup('{}');
+    const ta = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+
+    fireEvent.change(ta, { target: { value: '{a: 1} nonsense' } });
+
+    expect(screen.queryByTestId('query-bar-error-range')).toBeNull();
+  });
+});
+
 describe('QueryBar — Shell Syntax input (X14 T2)', () => {
   it('repairs unquoted keys on blur and enables Run', async () => {
     setup('{}');

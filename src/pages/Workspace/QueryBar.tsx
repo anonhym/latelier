@@ -326,6 +326,8 @@ function QueryBarInner({
     state.lastRun?.error && state.lastRun.documents.length > 0 && findProblem(state) !== null
       ? state.lastRun.error.message
       : null;
+  const mirrorRef = React.useRef<HTMLDivElement>(null);
+  const errorRange = shown?.notice.clause === 'filter' ? (shown.notice.range ?? null) : null;
   const noticeId = (clause: RunProblem['clause']) => (shown?.notice.clause === clause ? NOTICE_IDS[clause] : undefined);
 
   /** Repairs the filter and the sort, and hands back the query to act on this tick: a patch lands async. */
@@ -738,6 +740,7 @@ function QueryBarInner({
           Filter
         </label>
         <div style={{ ...groupStyle, alignItems: 'flex-start', flex: '1 1 220px', minWidth: 160, padding: '8px 0', boxSizing: 'border-box' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex' }}>
           <textarea
             id="query-bar-filter"
             ref={textareaRef}
@@ -747,6 +750,9 @@ function QueryBarInner({
             onClick={autocomplete.probe}
             onFocus={autocomplete.probe}
             onBlur={handleBlur}
+            onScroll={(e) => {
+              if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+            }}
             spellCheck={false}
             data-testid="query-bar-input"
             aria-invalid={shown?.notice.clause === 'filter'}
@@ -771,6 +777,45 @@ function QueryBarInner({
             }}
             rows={1}
           />
+          {errorRange ? (
+            // Same box and type as the textarea with transparent text, so the
+            // marked span sits exactly under the offending characters.
+            // ponytail: a visible textarea scrollbar narrows its text, which can wrap the mirror differently.
+            <div
+              ref={mirrorRef}
+              aria-hidden="true"
+              data-testid="query-bar-error-range"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                pointerEvents: 'none',
+                overflow: 'hidden',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'break-word',
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: T.fsSm,
+                padding: '3px 8px',
+                borderBottom: '1px solid transparent',
+                boxSizing: 'border-box',
+                lineHeight: 1.5,
+                color: 'transparent',
+              }}
+            >
+              {queryRaw.slice(0, errorRange.start)}
+              <mark
+                style={{
+                  background: 'transparent',
+                  color: 'transparent',
+                  textDecoration: `underline wavy ${T.redText}`,
+                  textUnderlineOffset: 3,
+                }}
+              >
+                {queryRaw.slice(errorRange.start, errorRange.end)}
+              </mark>
+              {queryRaw.slice(errorRange.end)}
+            </div>
+          ) : null}
+          </div>
           <Tooltip label="Expand" withArrow>
             <Button
               variant="subtle"
