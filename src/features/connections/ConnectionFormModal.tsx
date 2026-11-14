@@ -8,11 +8,11 @@ import { reportConnectionFormDirty } from './reportUnsavedForm';
 
 export interface ConnectionFormModalProps {
   connectionId?: string;
-  onSaved: (id: string) => void;
+  onSaved: (id: string, opts?: { connect?: boolean }) => void;
   onClose: () => void;
   // Where to send focus on dismiss, when the opener's own trigger element may already be detached.
   returnFocusTo?: HTMLElement | null;
-  /** Open on the Auth tab with the password field focused (#396). */
+  /** Open on the Authentication tab with the password field focused (#396). */
   initialFocus?: 'password';
 }
 
@@ -43,9 +43,10 @@ export function ConnectionFormModal({
   };
 
   const sharedFormProps = {
-    onSaved: (id: string) => {
+    // Passed on as called: a plain save has no second argument.
+    onSaved: (...args: Parameters<ConnectionFormModalProps['onSaved']>) => {
       reportConnectionFormDirty(false);
-      onSaved(id);
+      onSaved(...args);
     },
     onCancel: () => void requestClose(),
     onDirtyChange,
@@ -61,9 +62,10 @@ export function ConnectionFormModal({
       size="xl"
       centered
       closeOnClickOutside={false}
-      // The tallest tab (General) sets the height, so Save stays where it is
-      // across tabs; shorter tabs leave empty space rather than shrinking it.
-      styles={fixedModalStyles(654)}
+      // The tallest tab (General) under the connection string sets the height,
+      // so Save stays where it is across tabs; shorter tabs leave empty space
+      // rather than shrinking it.
+      styles={fixedModalStyles(700)}
     >
       {connectionId
         ? <ConnectionForm mode="edit" connectionId={connectionId} {...sharedFormProps} />

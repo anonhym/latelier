@@ -54,13 +54,14 @@ export default function NewConnection() {
   }, [blocker]);
 
   const sharedFormProps = {
-    onSaved: (id: string) => {
+    onSaved: (id: string, opts?: { connect?: boolean }) => {
       // A saved form is not unsaved work, even if the form still reads dirty.
       bypassRef.current = true;
       reportConnectionFormDirty(false);
-      void navigate(backTarget, {
+      // Save & connect lands on the Data View, which connects what it is handed.
+      void navigate(opts?.connect ? '/workspace' : backTarget, {
         replace: true,
-        state: isEdit ? undefined : { openConnectionId: id },
+        state: opts?.connect ? { openConnectionId: id } : undefined,
       });
     },
     onCancel: () => navigate(backTarget),

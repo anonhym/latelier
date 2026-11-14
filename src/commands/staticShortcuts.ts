@@ -27,8 +27,9 @@ export const STATIC_SHORTCUTS: ReadonlyArray<{
   {
     section: 'In the connection form',
     items: [
+      { keys: '⌘↵', title: 'Save and connect' },
       { keys: '⌘S', title: 'Save connection' },
-      { keys: '⌘↵', title: 'Test connection' },
+      { keys: '⌘⇧↵', title: 'Test connection' },
     ],
   },
 ];

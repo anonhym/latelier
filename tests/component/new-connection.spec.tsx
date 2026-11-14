@@ -125,11 +125,9 @@ describe('NewConnection (create mode)', () => {
       },
     });
     renderNew();
-    // Switch to Paste URI mode
-    await userEvent.click(await screen.findByText(/Paste URI/i));
-    const uriInput = screen.getByPlaceholderText(/mongodb\+srv/i) as HTMLInputElement;
-    await userEvent.type(uriInput, 'mongodb://alice:pw@db.example.com/mydb');
-    await userEvent.click(screen.getByText('Apply'));
+    // Typed rather than pasted: Enter applies it.
+    const uriInput = (await screen.findByLabelText('Connection string')) as HTMLInputElement;
+    await userEvent.type(uriInput, 'mongodb://alice:pw@db.example.com/mydb{Enter}');
     // URI applied message should appear.
     await waitFor(() => {
       expect(screen.getByText(/URI applied/i)).toBeTruthy();
@@ -145,9 +143,8 @@ describe('NewConnection (create mode)', () => {
       conn: { parseUri: (async () => ({ input, warnings, repick })) as never },
     });
     renderNew();
-    await userEvent.click(await screen.findByText(/Paste URI/i));
-    await userEvent.type(screen.getByPlaceholderText(/mongodb\+srv/i), 'mongodb://db.example.com/');
-    await userEvent.click(screen.getByText('Apply'));
+    await userEvent.click(await screen.findByLabelText('Connection string'));
+    await userEvent.paste('mongodb://db.example.com/');
   }
 
   it('pasting a URI that turns verification off says so in the toast and on the TLS tab', async () => {
@@ -156,7 +153,7 @@ describe('NewConnection (create mode)', () => {
       [{ code: 'TLS_VERIFY_DISABLED', detail: 'Certificate verification is turned off: anyone on the network path can impersonate this server' }],
     );
     expect((await screen.findByRole('status')).textContent).toMatch(/1 warning: Certificate verification is turned off/);
-    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
     expect((await screen.findByTestId('tls-warning')).textContent).toMatch(/impersonate/);
   });
 
@@ -177,7 +174,7 @@ describe('NewConnection (create mode)', () => {
     const text = (await screen.findByRole('status')).textContent;
     expect(text).toMatch(/URI applied\./);
     expect(text).toMatch(/re-pick CA file, re-pick client certificate/);
-    await userEvent.click(screen.getByRole('tab', { name: 'TLS' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'TLS / SSH' }));
     for (const box of screen.getAllByRole('textbox')) expect((box as HTMLInputElement).value).not.toMatch(/\.pem/);
   });
 
@@ -200,11 +197,10 @@ describe('NewConnection (create mode)', () => {
     const input = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(input, 'X');
     // Fill host
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    fireEvent.click(screen.getByText(/Test connection/));
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(testSpy).toHaveBeenCalled(), { timeout: 3000 });
     await waitFor(() => {
-      expect(screen.getByText(/Connection successful/i)).toBeTruthy();
+      expect(screen.getByText('Connected in 12 ms · v7.0.0')).toBeTruthy();
     });
   });
 
@@ -220,9 +216,8 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
     // Switch to Auth tab to supply a username so client-side form is otherwise populated.
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     const usernameInput = screen.getAllByPlaceholderText('admin')[0]!;
     await userEvent.type(usernameInput, 'alice');
     // Save
@@ -250,8 +245,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     const usernameInput = screen.getAllByPlaceholderText('admin')[0]!;
     await userEvent.type(usernameInput, 'alice');
@@ -289,8 +283,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
     await userEvent.type(await screen.findByPlaceholderText(/^••••••••$/), 'pw');
@@ -320,8 +313,7 @@ describe('NewConnection (create mode)', () => {
 
     renderNew();
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
     await userEvent.type(await screen.findByPlaceholderText(/^••••••••$/), 'pw');
@@ -372,8 +364,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
     const saveButton = screen.getByText(/^Save$/);
@@ -402,8 +393,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
 
     // First submit via button click leaves create() pending (in flight).
@@ -431,8 +421,7 @@ describe('NewConnection (create mode)', () => {
     renderNew();
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'Dup');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
     await waitFor(() => {
@@ -440,28 +429,39 @@ describe('NewConnection (create mode)', () => {
     });
   });
 
-  it('opens the newly created Connection via openConnectionId nav state (⌘N / full-page route)', async () => {
-    // Regression: this route used to discard the id `ConnectionForm.onSaved`
-    // passes it, so a Connection created here (reachable via GlobalCommands'
-    // always-on ⌘N) was never connected — unlike the Switcher's
-    // "+ Add connection" modal, which connects it through
-    // `handleConnectionSaved` (Workspace.tsx). `openConnectionId` is the same
-    // route-intent Workspace already handles for the command palette's
-    // "Open connection" action.
+  it('Save & connect opens the newly created Connection via openConnectionId nav state (⌘N / full-page route)', async () => {
+    // This route hands the saved id to the Data View the way the modal hands
+    // it to `handleConnectionSaved`: `openConnectionId` is the route-intent
+    // Workspace already handles for the command palette's "Open connection".
     const createSpy = vi.fn(async () => ({ id: 'new-c1' }));
     installAtelierMock({ conn: { create: createSpy as never } });
     const captured = renderNewCapturingWorkspaceState(['/connections/new']);
 
     const nameInput = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(nameInput, 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
-    fireEvent.click(screen.getByText(/^Save$/));
+    fireEvent.click(screen.getByRole('button', { name: 'Save & connect' }));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
     expect(captured.state).toEqual({ openConnectionId: 'new-c1' });
+  });
+
+  it('a plain Save of a new Connection connects nothing', async () => {
+    const createSpy = vi.fn(async () => ({ id: 'new-c1' }));
+    installAtelierMock({ conn: { create: createSpy as never } });
+    const captured = renderNewCapturingWorkspaceState(['/connections/new']);
+
+    await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
+    await userEvent.click(screen.getByText('Authentication'));
+    await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
+    fireEvent.click(screen.getByText(/^Save$/));
+
+    await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    // react-router normalizes a `state: undefined` navigate() to `null`.
+    expect(captured.state).toBeFalsy();
   });
 });
 
@@ -477,7 +477,7 @@ describe('NewConnection (edit mode)', () => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
     // Switch to Auth tab — password field should show stored placeholder.
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     expect(screen.getByPlaceholderText(/stored — enter new to replace/i)).toBeTruthy();
   });
 
@@ -496,16 +496,16 @@ describe('NewConnection (edit mode)', () => {
     await waitFor(() => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     fireEvent.click(screen.getByText(/Remove stored password/i));
     expect(screen.getByText(/Will be removed on save/i)).toBeTruthy();
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     const patch = updateSpy.mock.calls[0]?.[1] as { clearPassword?: boolean };
     expect(patch.clearPassword).toBe(true);
   });
 
-  it('does not set openConnectionId nav state on save — editing must never connect a Connection', async () => {
+  it('does not set openConnectionId nav state on a plain save — only Save & connect connects', async () => {
     const updateSpy = vi.fn(async () => ({ ...CANNED_CONNECTION, updatedAt: '2026-04-21T00:00:00Z' }));
     installAtelierMock({
       conn: {
@@ -520,7 +520,7 @@ describe('NewConnection (edit mode)', () => {
     await waitFor(() => {
       expect((screen.getByPlaceholderText(/My MongoDB Server/i) as HTMLInputElement).value).toBe('Stored');
     });
-    fireEvent.click(screen.getByText(/Save changes/i));
+    fireEvent.click(screen.getByText(/^Save$/));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText('workspace-route')).toBeTruthy());
@@ -590,8 +590,7 @@ describe('NewConnection (unsaved-changes guard)', () => {
     installAtelierMock({ conn: { create: (async () => ({ id: 'c1' })) as never } });
     const { router } = renderNew();
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     fireEvent.click(screen.getByText(/^Save$/));
     await waitFor(() => expect(router.state.location.pathname).toBe('/workspace'));
@@ -611,8 +610,7 @@ describe('NewConnection (unsaved-changes guard)', () => {
     });
     const { router } = renderNew();
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'scram256');
     await userEvent.type(screen.getAllByPlaceholderText('admin')[0]!, 'alice');
     await userEvent.type(await screen.findByPlaceholderText(/^••••••••$/), 'pw');
@@ -662,8 +660,7 @@ describe('NewConnection (unsaved-work report to main)', () => {
     const setUnsavedWork = installReporting({ conn: { create: (async () => ({ id: 'c1' })) as never } });
     const { router } = renderNew();
     await userEvent.type(await screen.findByPlaceholderText(/My MongoDB Server/i), 'X');
-    await userEvent.type(screen.getByPlaceholderText(/cluster\.mongodb\.net/i), 'localhost');
-    await userEvent.click(screen.getByText('Auth'));
+    await userEvent.click(screen.getByText('Authentication'));
     await userEvent.selectOptions(screen.getAllByRole('combobox')[0]!, 'none');
     const beforeSave = setUnsavedWork.mock.calls.length;
     fireEvent.click(screen.getByText(/^Save$/));

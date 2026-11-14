@@ -161,8 +161,10 @@ describe('keyboard shortcuts cheat sheet', () => {
     const form = section('In the connection form');
     expect(within(form).getByText('Save connection')).toBeTruthy();
     expect(within(form).getByText('Ctrl+S')).toBeTruthy();
-    expect(within(form).getByText('Test connection')).toBeTruthy();
-    expect(within(form).getByText('Ctrl+Enter')).toBeTruthy();
+    // Each key is listed against what it does: ⌘↵ is the primary action, not Test.
+    const keysOf = (title: string) => within(form).getByText(title).closest('li, tr, div')!.textContent;
+    expect(keysOf('Save and connect')).toContain('Ctrl+Enter');
+    expect(keysOf('Test connection')).toContain('Ctrl+Shift+Enter');
   });
 
   it('does nothing while a text field has focus', async () => {

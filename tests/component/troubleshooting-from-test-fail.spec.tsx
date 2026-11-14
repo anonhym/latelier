@@ -47,7 +47,7 @@ describe('NewConnection — troubleshooting trigger', () => {
     // Fill the minimum required fields and click Test.
     const name = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(name, 'My Conn');
-    await userEvent.click(screen.getByText('Test connection'));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
 
     // Help link appears next to the failure pill.
     const help = await screen.findByText(/Help me fix this/);
@@ -75,9 +75,9 @@ describe('NewConnection — troubleshooting trigger', () => {
     renderNew();
     const name = await screen.findByPlaceholderText(/My MongoDB Server/i);
     await userEvent.type(name, 'My Conn');
-    await userEvent.click(screen.getByText('Test connection'));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
 
-    await waitFor(() => expect(screen.getByText(/Connection successful/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Connected · v7.0.0')).toBeTruthy());
     expect(screen.queryByText(/Help me fix this/)).toBeNull();
   });
 });

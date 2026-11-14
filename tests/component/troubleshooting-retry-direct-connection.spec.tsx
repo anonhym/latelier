@@ -55,7 +55,7 @@ describe('NewConnection — Retry with Direct connection', () => {
       await screen.findByPlaceholderText(/My MongoDB Server/i),
       'My Conn',
     );
-    await userEvent.click(screen.getByText('Test connection'));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
 
     await userEvent.click(await screen.findByText(/Help me fix this/));
     const retry = await screen.findByText(/Retry with Direct connection/);
@@ -66,6 +66,6 @@ describe('NewConnection — Retry with Direct connection', () => {
     expect(probeCalls[1]!.direct).toBe(true);
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByText(/Connection successful/)).toBeTruthy();
+    expect(screen.getByText('Connected · v7.0.0')).toBeTruthy();
   });
 });

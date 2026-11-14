@@ -1,6 +1,6 @@
 import { themeVars } from '../../theme/themeVars';
 import { isConnectionActive } from '../../state/connections';
-import type { ConnectionSummary } from '@shared/types';
+import type { ConnectionSummary, ProbeResult } from '@shared/types';
 
 /**
  * How each status presents itself, in every channel at once — the band's
@@ -64,6 +64,34 @@ export const STATUS_PRESENTATION: Record<
     live: isConnectionActive('unknown'),
   },
 };
+
+/**
+ * A probe's outcome in one line, for the form's footer and the welcome
+ * canvas. A known failure code gets fixed wording; only an unclassified one
+ * falls back to the driver's own message.
+ */
+export function probeResultToText(r: ProbeResult): string {
+  if (r.ok) {
+    const timing = r.roundTripMs === undefined ? 'Connected' : `Connected in ${r.roundTripMs} ms`;
+    return r.serverVersion ? `${timing} · v${r.serverVersion}` : timing;
+  }
+  switch (r.errorCode) {
+    case 'AUTH':
+      return 'Authentication failed — check username, password, and auth database.';
+    case 'NETWORK':
+      return 'Could not reach the server. Check host, port, and firewall.';
+    case 'TIMEOUT':
+      return 'Connection timed out. Check host reachability or raise the timeout.';
+    case 'TLS':
+      return 'TLS handshake failed. Verify certificates and server TLS support.';
+    case 'TLS_HANDSHAKE':
+      return "Server doesn't speak TLS on this port. Try toggling TLS off.";
+    case 'UNAUTHORIZED':
+      return 'The user lacks permission on the target database.';
+    default:
+      return r.errorMessage ?? 'Connection failed.';
+  }
+}
 
 /**
  * The popover and the expanded table both filter the same Connection
