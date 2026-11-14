@@ -1362,7 +1362,7 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
 
 /**
  * the expanded surface the ADR 0001 prototype findings added. `⌘E` and
- * the popover's "Manage connections" button both open it; opening it always closes the
+ * the popover's "Manage all" button both open it; opening it always closes the
  * popover (ADR 0001: the two are never on screen together), and its footer
  * actions are deliberately routed through the same handlers the popover uses
  * for manage/edit/delete/switch, which the "closes the table" assertions
@@ -1390,7 +1390,7 @@ function tableRow(dialog: HTMLElement, name: string): HTMLElement {
 }
 
 describe('ConnectionSwitcher — expanded table', () => {
-  it('"Manage connections" opens the expanded table and closes the popover', async () => {
+  it('"Manage all" opens the expanded table and closes the popover', async () => {
     mount();
     const dialog = await openExpandedTable();
 
@@ -1440,7 +1440,7 @@ describe('ConnectionSwitcher — expanded table', () => {
     // `wasOpenRef` effect) for the same reason: without it, closing drops a
     // keyboard user at `<body>`, the top of the Data View's tab order.
     // Mantine `Modal`'s own `returnFocus` can't do this on its own — by the
-    // time the table mounts, the popover's "Manage connections" button it would have
+    // time the table mounts, the popover's "Manage all" button it would have
     // captured as "previous focus" is already unmounted.
     mount({ focusedConnectionId: 'c1' });
     const trigger = await screen.findByRole('button', { name: /Connection: Prod — US East/i });

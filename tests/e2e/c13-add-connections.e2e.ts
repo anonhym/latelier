@@ -7,7 +7,7 @@ import { wizardDialog } from './helpers/importWizard';
 
 /**
  * C13 §7–8 through the C14 Import Wizard — paste connection strings into the
- * Connections table's "Paste URIs" (one complete, one missing its credentials,
+ * Connections table's "Import ▾ → Paste URIs…" (one complete, one missing its credentials,
  * one bad), type the missing credentials in the final approval, connect with
  * them, then check both rows and delete them in one batch without the table
  * closing.
@@ -63,7 +63,8 @@ test('add Connections from pasted strings, with typed credentials, then batch-de
     const switcher = new WorkspacePage(win).switcher;
     await switcher.openExpandedTable();
     const table = switcher.expandedTableDialog;
-    await table.getByRole('button', { name: 'Paste URIs' }).click();
+    await table.getByRole('button', { name: 'Import', exact: true }).click();
+    await win.getByRole('menuitem', { name: 'Paste URIs…', exact: true }).click();
 
     const wizard = wizardDialog(win);
     await wizard.getByRole('textbox', { name: 'Or paste connection strings' }).fill(

@@ -116,10 +116,10 @@ test('secrets vault ui: SCRAM password is masked + stored on edit reopen', async
       await switcher.waitVisible();
       await expect(switcher.item('Vault Target')).toBeVisible({ timeout: 8000 });
 
-      // Reopen for edit via the row's inline Edit action.
+      // Reopen for edit via the row's `⋯` menu.
       await switcher.edit('Vault Target');
       await form.waitVisible();
-      await form.clickTab('Auth');
+      await form.clickTab('Authentication');
 
       // The password field's placeholder switches to the stored indicator
       // — the actual password is NEVER pre-filled or rendered.

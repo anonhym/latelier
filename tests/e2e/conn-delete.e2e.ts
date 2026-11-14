@@ -28,10 +28,12 @@ test('delete connection: confirm dialog removes item from list', async () => {
 
       await seedConnection(win, { ...baseConnInput(host, port), name: 'To Delete' });
       await seedConnection(win, { ...baseConnInput(host, port), name: 'To Keep' });
+      // Zero connections showed the welcome canvas; with some saved, open the popover.
+      await switcher.waitVisible();
       await expect(switcher.item('To Delete')).toBeVisible({ timeout: 8000 });
       await expect(switcher.item('To Keep')).toBeVisible();
 
-      // The row's inline Delete icon (hover to reveal it, then click) — the
+      // The row's `⋯` menu (hover to reveal it, then Delete…) — the
       // retired list screen's right-click context menu no longer exists.
       await switcher.delete('To Delete');
 

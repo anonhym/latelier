@@ -31,9 +31,11 @@ test('edit connection: rename and save reflects in the list', async () => {
         ...baseConnInput(host, port),
         name: 'Before Rename',
       });
+      // Zero connections showed the welcome canvas; with some saved, open the popover.
+      await switcher.waitVisible();
       await expect(switcher.item(name)).toBeVisible({ timeout: 8000 });
 
-      // The row's inline Edit icon opens the same form as a modal (the
+      // The row's `⋯` menu opens the same form as a modal (the
       // retired list screen's detail-panel Edit button no longer exists).
       await switcher.edit(name);
 
