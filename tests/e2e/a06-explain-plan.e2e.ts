@@ -38,13 +38,11 @@ test('explain plan: drawer opens with the dialog and renders plan content', asyn
       // X16.2 a workspace tab is named for its collection *and* its
       // Connection, so an unscoped /Aggregation/ can match two tabs.
       await ws.tablist.getByRole('tab', { name: /Aggregation/ }).click();
-      await expect(win.getByText('Pipeline', { exact: true })).toBeVisible({ timeout: 5000 });
+      await expect(win.getByText('Add a first stage')).toBeVisible({ timeout: 5000 });
 
-      // Add $match so the pipeline is valid (Explain is disabled until
-      // `validation.ok` — `AggregationTab.tsx:441`).
-      await win.getByRole('button', { name: /Add stage/ }).first().click();
-      await win.getByRole('textbox', { name: 'Search stages' }).fill('match');
-      await win.getByText('$match', { exact: true }).first().click();
+      // Add $match from the starter chips so the pipeline is valid (Explain
+      // is unavailable until `validation.ok`).
+      await win.getByRole('button', { name: '$match', exact: true }).click();
       // Stage body editor (T2.4, CodeMirror 6) — the first stage added to an
       // empty pipeline gets id 1, so this locator is unique and stable.
       const matchBody = win.locator('[data-testid="stage-body-editor-1"] .cm-content');

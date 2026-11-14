@@ -42,10 +42,8 @@ test('Save as view from the builder, then Modify view from the navigator', async
 
       // --- Save as view: a $match stage saved as "v1" ----------------------
       await ws.tablist.getByRole('tab', { name: /Aggregation/ }).click();
-      await expect(win.getByText('Pipeline output')).toBeVisible({ timeout: 5000 });
-      await win.getByRole('button', { name: /Add stage/ }).first().click();
-      await win.getByRole('textbox', { name: 'Search stages' }).fill('match');
-      await win.getByText('$match', { exact: true }).first().click();
+      await expect(win.getByText('Add a first stage')).toBeVisible({ timeout: 5000 });
+      await win.getByRole('button', { name: '$match', exact: true }).click();
       const matchBody = win.locator('[data-testid="stage-body-editor-1"] .cm-content');
       await expect(matchBody).toBeVisible({ timeout: 5000 });
       await matchBody.click();
@@ -53,7 +51,8 @@ test('Save as view from the builder, then Modify view from the navigator', async
       await win.keyboard.press('Backspace');
       await win.keyboard.type('{ "status": "paid" }');
 
-      await win.getByRole('button', { name: 'Save as view…' }).click();
+      await win.getByRole('button', { name: 'Export results' }).click();
+      await win.getByRole('menuitem', { name: 'Create view…' }).click();
       const saveDialog = win.getByRole('dialog', { name: 'Save pipeline as view' });
       await expect(saveDialog).toBeVisible({ timeout: 3000 });
       await saveDialog.getByLabel('View name').fill('v1');
