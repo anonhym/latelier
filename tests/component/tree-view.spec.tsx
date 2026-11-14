@@ -59,6 +59,9 @@ function renderTree(documents: unknown[], opts: {
  * pins the deepPaths-reset perf fix; these add the basic rendering /
  * interaction surface (collapsed preview, expansion, deletion).
  */
+const previewKeys = (c: HTMLElement) =>
+  [...c.querySelectorAll('[data-testid="tree-preview-key"]')].map((k) => k.textContent);
+
 describe('TreeView — rendering and interaction', () => {
   it('renders one row per document and shows a collapsed-preview slice of fields', () => {
     const docs = [
@@ -96,8 +99,8 @@ describe('TreeView — rendering and interaction', () => {
     const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
     const { container } = renderTree(docs);
 
-    expect(container.textContent).toContain('aa:');
-    expect(container.textContent).not.toContain('ee:');
+    expect(previewKeys(container)).toContain('aa');
+    expect(previewKeys(container)).not.toContain('ee');
   });
 
   it('reordering fields in the Fields control changes which 4 fields the Tree previews', () => {
@@ -107,9 +110,9 @@ describe('TreeView — rendering and interaction', () => {
     });
 
     // Reordered to the front — now inside the first-4 preview slice.
-    expect(container.textContent).toContain('ee:');
+    expect(previewKeys(container)).toContain('ee');
     // Pushed to 5th by the reorder — falls out of the slice.
-    expect(container.textContent).not.toContain('aa:');
+    expect(previewKeys(container)).not.toContain('aa');
   });
 
   it('hiding every field shows an empty collapsed preview, not the hidden fields', () => {
@@ -213,6 +216,22 @@ describe('TreeView — rendering and interaction', () => {
     expect(row.style.minHeight).toBe('32px');
     const previewBox = getByText('"alpha"').closest('div[style*="flex: 1"]') as HTMLElement;
     expect(previewBox.style.justifyContent).toBe('flex-start');
+  });
+
+  it('collapsed rows show their first fields as aligned key value pairs, without a colon', () => {
+    const docs = [
+      { _id: 1, name: 'alpha', city: 'Oslo' },
+      { _id: 2, name: 'a much longer name', city: 'Rome' },
+    ];
+    const { getAllByTestId, getAllByRole } = renderTree(docs);
+
+    const keys = getAllByTestId('tree-preview-key');
+    expect(keys.map((k) => k.textContent)).toEqual(['name', 'city', 'name', 'city']);
+    // Every key takes the same column, so a field starts at the same x on each row.
+    for (const k of keys) expect(k.style.flex).toBe('0 0 64px');
+    const pairs = keys.map((k) => k.parentElement as HTMLElement);
+    for (const p of pairs) expect(p.style.flex).toBe('0 0 190px');
+    expect(getAllByRole('treeitem')[0]!.textContent).not.toContain('name:');
   });
 
   // #20 — roving focus: the tree itself is the widget's only tab stop.

@@ -180,6 +180,15 @@ describe('TableView — rendering and interaction', () => {
     expect(container.textContent).toContain('alpha');
   });
 
+  it('draws a body row 30px tall: a 17px line, 6px above and below, and the 1px rule', () => {
+    const { container } = renderTable([{ _id: 1, name: 'alpha' }]);
+    const cell = container.querySelector<HTMLElement>('[data-cell-key$=":name"]')!;
+
+    expect(cell.style.padding).toBe('6px 8px');
+    expect(cell.style.borderBottom).toContain('1px');
+    expect(cell.closest<HTMLElement>('[data-testid="table-scroll-container"]')!.style.lineHeight).toBe('17px');
+  });
+
   it('renders a ReferenceChip for a column with a matching reference rule', () => {
     const rule: ReferenceRule = {
       id: 'r1',

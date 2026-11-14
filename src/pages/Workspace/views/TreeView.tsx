@@ -24,6 +24,7 @@ import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
 import { useCopyFormat } from './useCopyFormat';
 import { useDocMenu } from './useDocMenu';
+import { useScrollMemory } from './useScrollMemory';
 import { docMenuItems, fieldMenuItems } from './menuItems';
 import { allExpandablePaths } from './docFieldFlatten';
 import { enterFields } from './enterFields';
@@ -63,6 +64,8 @@ function getPreviewFields(
 const STICKY_HEADER_HEIGHT = 22;
 
 const PREVIEW_VALUE_MAX_CHARS = 25;
+const PREVIEW_KEY_WIDTH = 64;
+const PREVIEW_PAIR_WIDTH = 190;
 
 function truncatePreviewValue(s: string): string {
   return s.length > PREVIEW_VALUE_MAX_CHARS
@@ -89,7 +92,7 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
         flex: 1,
         display: 'flex',
         alignItems: 'center',
-        // Beside the id (W06 §2: `[shortId] [key: value …]`); `flex: 1` keeps the
+        // Beside the id (W06 §2: `[shortId] [key value …]`); `flex: 1` keeps the
         // row actions pinned right.
         justifyContent: 'flex-start',
         gap: 'var(--atelier-gap-sm)',
@@ -115,10 +118,24 @@ const CollapsedRowPreview = React.memo(function CollapsedRowPreview({
               color: 'var(--atelier-text-muted)',
               minWidth: 0,
               overflow: 'hidden',
-              flexShrink: 0,
+              // A fixed pair width, with the key in a fixed column of its own, so the
+              // same field sits at the same x on every row (W06 §8.12).
+              flex: `0 0 ${PREVIEW_PAIR_WIDTH}px`,
             }}
           >
-            <span style={{ color: 'var(--atelier-text-ghost)', flexShrink: 0 }}>{field}:</span>
+            <span
+              data-testid="tree-preview-key"
+              style={{
+                color: 'var(--atelier-text-ghost)',
+                flex: `0 0 ${PREVIEW_KEY_WIDTH}px`,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={field}
+            >
+              {field}
+            </span>
             <span
               style={{
                 color: 'var(--atelier-text)',
@@ -551,6 +568,7 @@ export function TreeView({
   // identical wiring (and `useRovingFocus`'s docstring) for why the scroll
   // has to happen synchronously with the index change.
   const listRef = useListRef(null);
+  const scrollMemory = useScrollMemory('Tree');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'tree-row-',
@@ -761,6 +779,7 @@ export function TreeView({
           aria-label="Documents"
           // #20 — the tree is the widget's only tab stop; see `roving` above.
           listRef={listRef}
+          {...scrollMemory}
           tabIndex={roving.containerProps.tabIndex}
           aria-activedescendant={roving.containerProps['aria-activedescendant']}
           onFocus={roving.containerProps.onFocus}

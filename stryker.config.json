@@ -31,6 +31,8 @@
     "src/state/closedTabs.ts",
     "src/pages/Workspace/scriptDestructiveScan.ts",
     "src/pages/Workspace/views/docFieldFlatten.ts",
+    "src/pages/Workspace/views/scrollMemory.ts",
+    "src/pages/Workspace/views/columnScroll.ts",
     "src/pages/Workspace/views/fieldPathKey.ts",
     "src/pages/Workspace/builder.ts",
     "src/pages/Workspace/builderToPipeline.ts",

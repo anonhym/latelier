@@ -21,6 +21,7 @@ import { SelectToggle } from './SelectToggle';
 import { ContextMenu } from '../../../components/ContextMenu';
 import { docMenuItems } from './menuItems';
 import { useDocMenu } from './useDocMenu';
+import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
 import { copyShortcutOf } from './copyShortcut';
 
@@ -550,6 +551,7 @@ export function JsonView({ documents }: JsonViewProps) {
   // scroll has to happen in the same handler that moves the index, so the
   // row `aria-activedescendant` names is mounted.
   const listRef = useListRef(null);
+  const scrollMemory = useScrollMemory('JSON');
   const roving = useRovingFocus({
     count: documents.length,
     idPrefix: 'json-row-',
@@ -659,6 +661,7 @@ export function JsonView({ documents }: JsonViewProps) {
         role="tree"
         aria-label="Documents"
         listRef={listRef}
+        {...scrollMemory}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
         onFocus={roving.containerProps.onFocus}

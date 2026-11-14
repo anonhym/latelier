@@ -40,6 +40,7 @@ import { useCopyFormat } from './useCopyFormat';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
 import { useDeepPaths } from './useDeepPaths';
 import { useDocMenu } from './useDocMenu';
+import { useScrollMemory } from './useScrollMemory';
 import {
   deriveColumns,
   resolveColumns,
@@ -404,7 +405,7 @@ function TableCell({
         position: 'relative',
         borderBottom: '1px solid var(--atelier-border)',
         borderRight: '1px solid var(--atelier-border)',
-        padding: '4px 8px',
+        padding: '6px 8px',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
         textOverflow: 'ellipsis',
@@ -1317,6 +1318,7 @@ export function TableView({
   // Declared here rather than beside `roving` below, which also uses it:
   // the actions offset reads the grid element too.
   const listRef = useListRef(null);
+  const scrollMemory = useScrollMemory('Table');
   const [actionsOffset, setActionsOffset] = React.useState(0);
   const [detail, setDetail] = React.useState({ left: 0, width: 0 });
   const { left: detailLeft, width: detailWidth } = detail;
@@ -1537,7 +1539,7 @@ export function TableView({
 
   // Row-expand makes rows variable-height; measure each rendered row rather
   // than assuming a fixed height (mirrors TreeView).
-  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 24 });
+  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 30 });
 
   const handleGridKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {
@@ -2018,6 +2020,7 @@ export function TableView({
         aria-owns="table-header-row"
         // #20 — the grid is the widget's only tab stop; see `roving` above.
         listRef={listRef}
+        {...scrollMemory}
         tabIndex={roving.containerProps.tabIndex}
         aria-activedescendant={roving.containerProps['aria-activedescendant']}
         onFocus={roving.containerProps.onFocus}
