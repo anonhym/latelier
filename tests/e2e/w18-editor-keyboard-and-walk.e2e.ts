@@ -46,13 +46,13 @@ test('keyboard only: tab value to value, save with ⌘↵; step three documents 
       await expect(editor.getByText('1 of 3')).toBeVisible();
 
       // The editor opens on the first value; one Tab per field after that.
-      await expect(editor.getByRole('textbox', { name: 'a' })).toBeFocused();
+      await expect(editor.getByRole('textbox', { name: 'a', exact: true })).toBeFocused();
       await win.keyboard.press('Tab');
-      await expect(editor.getByRole('textbox', { name: 'b' })).toBeFocused();
+      await expect(editor.getByRole('textbox', { name: 'b', exact: true })).toBeFocused();
       await win.keyboard.press('ControlOrMeta+a');
       await win.keyboard.type('b1-edited');
       await win.keyboard.press('Tab');
-      await expect(editor.getByRole('textbox', { name: 'c' })).toBeFocused();
+      await expect(editor.getByRole('textbox', { name: 'c', exact: true })).toBeFocused();
 
       // Moving on with unsaved edits asks first; ⌘↵ there is Save and go.
       await editor.getByRole('button', { name: 'Next document' }).click();
@@ -60,11 +60,11 @@ test('keyboard only: tab value to value, save with ⌘↵; step three documents 
       await expect(guard).toBeVisible();
       await win.keyboard.press('ControlOrMeta+Enter');
       await expect(editor.getByText('2 of 3')).toBeVisible({ timeout: 8000 });
-      await expect(editor.getByRole('textbox', { name: 'a' })).toHaveValue('a2');
+      await expect(editor.getByRole('textbox', { name: 'a', exact: true })).toHaveValue('a2');
 
       await editor.getByRole('button', { name: 'Next document' }).click();
       await expect(editor.getByText('3 of 3')).toBeVisible();
-      await expect(editor.getByRole('textbox', { name: 'a' })).toHaveValue('a3');
+      await expect(editor.getByRole('textbox', { name: 'a', exact: true })).toHaveValue('a3');
       await expect(editor.getByRole('button', { name: 'Next document' })).toBeDisabled();
 
       // Closing re-runs the tab's query once: the saved edit shows in the list.

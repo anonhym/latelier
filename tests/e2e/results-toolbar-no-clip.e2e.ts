@@ -64,10 +64,10 @@ function countIsCut(win: Page): Promise<boolean> {
 async function expectQueryRowWhole(win: Page, label: string, withNotice = false) {
   const actions = win.getByTestId('query-bar-actions');
   if (withNotice) {
-    // A refused ⌘↵ puts its reason beside Run: the case that could squeeze the row.
+    // A refused ⌘↵ puts its reason in the strip under the row (W05 §9.3): the row keeps its room.
     await win.getByTestId('query-bar-input').focus();
     await win.keyboard.press('ControlOrMeta+Enter');
-    await expect(actions.locator('[role="alert"]').first(), `${label}: notice`).toBeVisible();
+    await expect(win.getByTestId('query-bar-strip'), `${label}: notice`).toBeVisible();
   }
   const row = await readBar(win, 'query-bar-actions');
   expect(row.clipped, `${label}: query row clipped`).toEqual([]);
@@ -250,6 +250,8 @@ test('filter status line holds its height, whatever the state', async () => {
     await win.waitForLoadState('domcontentloaded');
     await expectConsoleClean(win, async () => {
       await open(win);
+      // The builder is closed by default and lives in the Inspector (W05 §9.7).
+      await new WorkspacePage(win).openBuilder();
       const line = win.getByTestId('filter-status-line');
       const read = async () => {
         const box = await line.boundingBox();
@@ -286,7 +288,11 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
       await win.getByRole('button', { name: 'Run', exact: true }).click();
       await expect(win.getByText(/5 docs|60 docs/).first()).toBeVisible({ timeout: 8000 });
       await win.waitForTimeout(300);
-      expect((await stageRow.boundingBox())!.height).toBe(before!.height);
+      // The card grows by its `→ n documents` footer (A01 §9.3) and by nothing else.
+      const footer = (await stageRow.getByText(/→ \d+ documents/).boundingBox())!;
+      const after = (await stageRow.boundingBox())!;
+      expect(after.height - before!.height).toBeCloseTo(footer.height, 0);
+      expect(after.y).toBe(before!.y);
 
       for (const [width, height] of SIZES) {
         await win.setViewportSize({ width, height });

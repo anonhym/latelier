@@ -157,9 +157,12 @@ test('autocomplete: a value from an aggregation $match is offered in the builder
       // Close the completion list (if any) so Run is not hidden under it.
       await win.keyboard.press('Escape');
       await win.getByRole('button', { name: 'Run', exact: true }).click();
-      await expect(win.getByText('The pipeline returned no documents')).toBeVisible({ timeout: 8000 });
+      // The selected stage keeps the preview (A01 §9.4); the full run's count is on the Output row.
+      await expect(win.getByRole('button', { name: 'Output 0 documents' })).toBeVisible({ timeout: 8000 });
 
       await ws.tablist.getByRole('tab', { name: /Documents/ }).click();
+      // The builder is closed by default and lives in the Inspector (W05 §9.7).
+      await ws.openBuilder();
       await win.getByRole('button', { name: 'Add condition' }).click();
       await win.getByPlaceholder('field', { exact: true }).first().fill('status');
       // The field popover stays open over the value box until dismissed.

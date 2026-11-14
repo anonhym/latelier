@@ -21,7 +21,7 @@ test.afterAll(stopAllMemoryServers);
  * on the number — the number does not change, because a refused filter never
  * re-runs. That is the whole problem.
  */
-test('a refused filter marks the result count not current, and clears on repair', async () => {
+test('a refused filter marks the result count not current, and clears on the next run', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -84,15 +84,22 @@ test('a refused filter marks the result count not current, and clears on repair'
       ).toBe(1);
       await expect(win.getByText('banana-002')).toBeVisible();
 
-      // Repairing the filter clears every part of it.
+      // Repairing the filter lifts the refusal and enables Run, but the rows are still the
+      // previous filter's (W06 §8.2): they stay marked until a run replaces them.
       await ws.queryBarTextarea.fill('{status: "paid"}');
       await ws.queryBarTextarea.blur();
 
       await expect(notice).toHaveCount(0);
+      await expect(ws.queryBarRunButton).toBeEnabled();
+      await expect(staleMarker).toBeVisible();
+      await expect(win.getByTestId('band-stale')).toBeVisible();
+
+      // Running it clears every part of the marking.
+      await ws.queryBarRunButton.click();
       await expect(staleMarker).toHaveCount(0);
       await expect(win.getByTestId('band-stale')).toHaveCount(0);
       await expect(resultBody).toHaveCount(0);
-      await expect(ws.queryBarRunButton).toBeEnabled();
+      await expect(win.getByText('banana-002')).toHaveCount(0);
     });
   });
 });

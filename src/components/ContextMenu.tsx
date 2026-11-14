@@ -70,7 +70,18 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
     (focusTo ?? menu.returnFocusTo)?.focus();
   };
   return (
-    <Menu opened onClose={handleClose} position="bottom-start" shadow="md" width={200}>
+    <Menu
+      opened
+      onClose={handleClose}
+      position="bottom-start"
+      shadow="md"
+      width={200}
+      // Mantine's Menu also dismisses on any outside `keydown`. A menu opened from
+      // a key (Shift+F10, the ContextMenu key) mounts while that same event is
+      // still on its way to the document, which then closed it before it showed.
+      // Focus is trapped in the menu, and Escape and Tab have their own paths.
+      clickOutsideEvents={['mousedown', 'touchstart']}
+    >
       <Menu.Target>
         <div
           data-testid="context-menu-anchor"

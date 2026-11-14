@@ -47,7 +47,7 @@ test('a case-insensitive collation matches the mixed-case row, and the count agr
       await expect(rows.getByText('"Bob"', { exact: true })).toHaveCount(0, { timeout: 8000 });
       await expect(rows.getByText('"ada"', { exact: true })).toBeVisible();
       await expect(rows.getByText('"Ada"', { exact: true })).toHaveCount(0);
-      await expect(win.getByText('1–1 of 1', { exact: true })).toBeVisible();
+      await expect(win.getByTestId('result-count-slot')).toContainText(/1 results · \d+ ms · showing 1–1/);
 
       // Collation is unset, so it waits in More; picking it draws its pill
       // with the editor open.
@@ -61,7 +61,7 @@ test('a case-insensitive collation matches the mixed-case row, and the count agr
 
       await expect(rows.getByText('"Ada"', { exact: true })).toBeVisible({ timeout: 8000 });
       await expect(rows.getByText('"ada"', { exact: true })).toBeVisible();
-      await expect(win.getByText('1–2 of 2', { exact: true })).toBeVisible();
+      await expect(win.getByTestId('result-count-slot')).toContainText(/2 results · \d+ ms · showing 1–2/);
     });
   });
 });

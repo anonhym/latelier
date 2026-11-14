@@ -53,7 +53,7 @@ test('COLLSCAN find -> Explain -> Create an index -> Structure lists it -> re-ex
       // The first run is `{}`: a scan is the only plan an empty filter has, so
       // the result bar does not flag it.
       const planBadge = win.getByTestId('plan-badge');
-      await expect(win.getByText(/^\d+–\d+ of/).first()).toBeVisible({ timeout: 8000 });
+      await expect(win.getByTestId('result-count-slot')).toContainText(/\d+ results · \d+ ms · showing \d+–\d+/, { timeout: 8000 });
       await expect(planBadge).toHaveCount(0);
 
       // A filter with no supporting index — explains to COLLSCAN, and the badge says so.
@@ -141,7 +141,7 @@ test('Schema row menu -> Create index on this field -> drawer prefilled -> index
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
-      await ws.tablist.getByRole('tab', { name: /Structure/ }).click();
+      await ws.tablist.getByRole('tab', { name: 'Schema & indexes' }).click();
 
       await win.getByRole('button', { name: 'Actions for sku' }).click();
       await win.getByRole('menuitem', { name: 'Create index on this field' }).click();
