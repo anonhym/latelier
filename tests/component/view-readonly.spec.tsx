@@ -151,6 +151,7 @@ describe('useDocumentDialogs on a view', () => {
         queryRunner: { run: () => Promise.resolve(), cancel: () => {}, isLoading: false, isRunning: () => false },
         activeTabId: 't1',
         resolveRunnerTarget: () => null,
+        resolveNamespaceTargets: () => [],
         readOnly: false,
         isView,
       }),

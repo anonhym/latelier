@@ -1,5 +1,5 @@
 import { notify } from '../../theme/notifications';
-import { recordUndo, runUndo, undoLabel, type UndoEntry, type UndoTarget } from './undoStore';
+import { forgetUndo, recordUndo, runUndo, undoLabel, type UndoEntry, type UndoTarget } from './undoStore';
 
 /**
  * Success toast for a write that was recorded Reversible, carrying an Undo
@@ -10,6 +10,7 @@ import { recordUndo, runUndo, undoLabel, type UndoEntry, type UndoTarget } from 
  *
  * With `target`, the undo also outlives the toast: it becomes that
  * collection's newest, for ⌘Z on the results and `Undo last change` (X13 §13).
+ * A write with no `auditId` still drops the older one, which it superseded.
  */
 export function offerUndo(
   message: string,
@@ -17,7 +18,10 @@ export function offerUndo(
   onUndone: () => void,
   target?: UndoTarget,
 ): void {
-  if (auditId === undefined) return;
+  if (auditId === undefined) {
+    if (target) forgetUndo(target);
+    return;
+  }
   const entry: UndoEntry = { auditId, label: undoLabel(message), onUndone };
   if (target) recordUndo(target, entry);
   notify.success(message, {

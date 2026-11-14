@@ -15,6 +15,7 @@ import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { invalidateSampleSchemaCache } from '../../features/fieldSuggestions/sources/sampleSchemaSource';
 import { offerUndo } from './offerUndo';
+import { forgetUndo } from './undoStore';
 
 interface ImportDialogProps {
   connectionId: string;
@@ -134,6 +135,8 @@ export function ImportDialog({
           : undefined;
       if (typeof insertedCount === 'number' && insertedCount > 0) {
         dropStaleSample();
+        // What landed has nothing to undo it: the older undo is no longer the last change.
+        forgetUndo({ connectionId, dbName, collection });
         onPartialImport();
       }
       throw err;

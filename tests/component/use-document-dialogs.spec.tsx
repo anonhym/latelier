@@ -21,6 +21,7 @@ import { targetOf, useDocumentDialogs, type DocTarget } from '../../src/pages/Wo
 import { DeleteConfirm } from '../../src/pages/Workspace/DeleteConfirm';
 import { UpdateConfirm } from '../../src/pages/Workspace/UpdateConfirm';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
+import { clearUndoStore, latestUndo, recordUndo, type UndoTarget } from '../../src/pages/Workspace/undoStore';
 import type { CollectionTab } from '@shared/types';
 import type {
   RunnerTarget,
@@ -69,6 +70,13 @@ function runnerTargetOf(t: CollectionTab): RunnerTarget {
   };
 }
 
+/** The same lookup `Workspace.tsx` does against its live tab list. */
+function namespaceTargetsIn(openTabs: CollectionTab[], ns: UndoTarget): RunnerTarget[] {
+  return openTabs
+    .filter((t) => t.connectionId === ns.connectionId && t.dbName === ns.dbName && t.collection === ns.collection)
+    .map(runnerTargetOf);
+}
+
 /**
  * Stands in for `useQueryRunner`, faithfully including the part that caused
  * the defect: a fresh result object on every render over a stable `run`.
@@ -94,6 +102,7 @@ function mountDialogs(
     const t = tabs.current.find((x) => x.id === tabId);
     return t ? runnerTargetOf(t) : null;
   };
+  const resolveNamespaceTargets = (ns: UndoTarget) => namespaceTargetsIn(tabs.current, ns);
   let renders = 0;
   const view = renderHook(
     (props: { activeTabId: string | null }) => {
@@ -104,6 +113,7 @@ function mountDialogs(
         queryRunner,
         activeTabId: props.activeTabId,
         resolveRunnerTarget,
+        resolveNamespaceTargets,
         readOnly: false,
         isView: false,
       });
@@ -565,6 +575,79 @@ describe('useDocumentDialogs', () => {
     });
   });
 
+  // ⌘Z and `Undo last change` act on the collection's newest undo, so a newer
+  // write that recorded none must drop it: otherwise ⌘Z would reverse an
+  // older write than the last change.
+  describe('a write with nothing to undo drops the collection’s newest undo', () => {
+    const older = { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} };
+    afterEach(() => {
+      notifications.clean();
+      act(() => clearUndoStore());
+    });
+
+    it.each([
+      ['a delete-all over the capture ceiling', (r: ReturnType<typeof mountDialogs>['result']) => r.current.handleDeleted(undefined, '1,001 documents deleted', T1_TARGET)],
+      ['an update-all over the capture ceiling', (r: ReturnType<typeof mountDialogs>['result']) => r.current.handleUpdatedAll(undefined, '5 matched, 5 modified', T1_TARGET)],
+      ['an insert', (r: ReturnType<typeof mountDialogs>['result']) => { r.current.openInsertModal(); }, 'handleInserted'],
+      ['a partial insert', (r: ReturnType<typeof mountDialogs>['result']) => { r.current.openInsertModal(); }, 'handlePartialInsert'],
+      ['an edit saved as a new document', (r: ReturnType<typeof mountDialogs>['result']) => { r.current.openEdit(DOC); }, 'handleDocSaved'],
+    ] as const)('after %s', (_name, write, complete?: 'handleInserted' | 'handlePartialInsert' | 'handleDocSaved') => {
+      const t1 = tab();
+      const { result } = mountDialogs(() => Promise.resolve(), 't1', t1);
+      act(() => recordUndo(T1_TARGET, older));
+      act(() => write(result));
+      if (complete) act(() => result.current[complete]());
+      expect(latestUndo(T1_TARGET)).toBeUndefined();
+    });
+
+    it('but leaves another collection’s alone', () => {
+      const users = { ...T1_TARGET, collection: 'users' };
+      const { result } = mountDialogs(() => Promise.resolve(), 't1', tab());
+      act(() => recordUndo(users, older));
+      act(() => result.current.handleDeleted(undefined, '1,001 documents deleted', T1_TARGET));
+      expect(latestUndo(users)).toBe(older);
+    });
+  });
+
+  // The undo store is keyed by collection, so ⌘Z can run in any tab on it:
+  // every open tab on that collection shows the reverted documents, whether
+  // or not the tab that wrote is still open.
+  describe('an undo refreshes every open tab on the collection', () => {
+    afterEach(() => {
+      notifications.clean();
+      uninstallAtelierMock();
+      act(() => clearUndoStore());
+    });
+
+    it('both tabs on it while the writing tab is open, and no tab on another collection', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t3 = tab({ id: 't3' });
+      const other = tab({ id: 't2', collection: 'users' });
+      const { result } = mountDialogs(run, 't1', t1, [t1, other, t3]);
+      act(() => result.current.handleDeleted('a1', 'Document deleted', targetOf(t1)));
+      run.mockClear();
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(run).toHaveBeenCalledWith(undefined, runnerTargetOf(t1));
+      expect(run).toHaveBeenCalledWith(undefined, runnerTargetOf(t3));
+    });
+
+    it('the remaining tab once the writing tab has closed', async () => {
+      installAtelierMock({ audit: { undo: async () => ({ restored: 1, skipped: 0 }) } });
+      const run = vi.fn(() => Promise.resolve());
+      const t1 = tab();
+      const t3 = tab({ id: 't3' });
+      const { result, tabs } = mountDialogs(run, 't1', t1, [t1, t3]);
+      act(() => result.current.handleUpdatedAll('a2', '1 matched, 1 modified', targetOf(t1)));
+      tabs.current = [t3];
+      run.mockClear();
+      fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(run).toHaveBeenCalledExactlyOnceWith(undefined, runnerTargetOf(t3)));
+    });
+  });
+
   // The field-suggestion sample is cached per collection for five minutes, so
   // a write that lands must drop it or the Update drawer's type warning and
   // the builder's field suggestions keep describing the pre-write documents.
@@ -705,6 +788,7 @@ describe('useDocumentDialogs', () => {
           const t = openTabs.find((x) => x.id === tabId);
           return t ? runnerTargetOf(t) : null;
         },
+        resolveNamespaceTargets: (ns) => namespaceTargetsIn(openTabs, ns),
         readOnly: false,
         isView: false,
       });

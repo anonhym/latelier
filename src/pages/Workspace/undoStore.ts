@@ -45,6 +45,14 @@ export function latestUndo(target: UndoTarget): UndoEntry | undefined {
   return newest.get(keyOf(target));
 }
 
+/**
+ * A write on `target` that recorded nothing to undo: its newest entry is no
+ * longer the last change, so ⌘Z must not reach past the write to it.
+ */
+export function forgetUndo(target: UndoTarget): void {
+  if (newest.delete(keyOf(target))) emit();
+}
+
 /** Drops `auditId` wherever it is still the newest entry: it has run, or it was refused. */
 function forget(auditId: string) {
   for (const [key, entry] of newest) {

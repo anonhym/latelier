@@ -29,6 +29,7 @@ import { useQueryRunner } from './Workspace/useQueryRunner';
 import { recordFilterStep } from './Workspace/filterStep';
 import { parsePastedObjectId } from '../commands/pastedId';
 import type { RunnerTarget } from './Workspace/useQueryRunner';
+import type { UndoTarget } from './Workspace/undoStore';
 import { useWorkspacePanelPrefs } from './Workspace/useWorkspacePanelPrefs';
 import { useNavigatorData, useNavigatorStatusSync } from './Workspace/useNavigatorData';
 import { ownGet } from '../utils/ownProperty';
@@ -558,6 +559,18 @@ function WorkspaceInner() {
     },
     [tabsRef],
   );
+  const resolveNamespaceTargets = React.useCallback(
+    (ns: UndoTarget): RunnerTarget[] =>
+      tabsRef.current.tabs.flatMap((t) =>
+        t.kind === 'collection' &&
+        t.connectionId === ns.connectionId &&
+        t.dbName === ns.dbName &&
+        t.collection === ns.collection
+          ? (resolveRunnerTarget(t.id) ?? [])
+          : [],
+      ),
+    [resolveRunnerTarget, tabsRef],
+  );
   const activeIsView =
     activeCollection !== null &&
     isViewCollection(
@@ -579,6 +592,7 @@ function WorkspaceInner() {
     queryRunner,
     activeTabId: tabs.activeId,
     resolveRunnerTarget,
+    resolveNamespaceTargets,
     readOnly: focusedConnection?.readOnly ?? false,
     isView: activeIsView,
   });
@@ -661,12 +675,14 @@ function WorkspaceInner() {
           // would re-enable it against the stale value, and a second click
           // there would guard its compare-and-set on that stale value too.
           const refreshed = rerunEdited();
+          // The undo is the collection's, and ⌘Z runs it from any tab on it:
+          // all of them re-run, whether or not the edited tab is still open.
           offerUndo(
             'Field updated',
             auditId,
             () => {
               invalidateSampleSchemaCache(a.connectionId, a.dbName, a.collection);
-              void rerunEdited();
+              for (const t of resolveNamespaceTargets(a)) void run(undefined, t);
             },
             a,
           );
@@ -678,7 +694,7 @@ function WorkspaceInner() {
           return { ok: false, message };
         });
     },
-    [activeCollectionRef, resolveRunnerTarget, run],
+    [activeCollectionRef, resolveNamespaceTargets, resolveRunnerTarget, run],
   );
   const workspaceActions = React.useMemo<CollectionWorkspaceActions>(
     () => ({

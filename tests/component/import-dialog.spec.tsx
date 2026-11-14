@@ -7,6 +7,7 @@ import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions
 import { ResultBar } from '../../src/pages/Workspace/ResultBar';
 import { StatusBar } from '../../src/pages/Workspace/StatusBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
+import { clearUndoStore, latestUndo, recordUndo } from '../../src/pages/Workspace/undoStore';
 import type { CsvPreview, DataImportInput, DataImportProgressEvent, ImportReport } from '@shared/types';
 import type { PickFilePurpose } from '@shared/ipc';
 
@@ -329,6 +330,19 @@ describe('ImportDialog — field-suggestion sample', () => {
     choose();
     expect((await screen.findByRole('alert')).textContent).toMatch(/batch 3 failed/);
     expect(invalidate).toHaveBeenCalledExactlyOnceWith('c1', 'shop', 'people');
+  });
+
+  // Those documents landed with nothing to undo them, so ⌘Z must not reach
+  // past them to the collection's older undo.
+  it('drops the collection’s older undo when the import fails after some batches landed', async () => {
+    const ns = { connectionId: 'c1', dbName: 'shop', collection: 'people' };
+    recordUndo(ns, { auditId: 'older', label: 'Undo: field updated', onUndone: () => {} });
+    mockApi({ fail: { code: 'MONGO_OP', message: 'batch 3 failed', details: { insertedCount: 2400 } } });
+    renderDialog();
+    choose();
+    await screen.findByRole('alert');
+    expect(latestUndo(ns)).toBeUndefined();
+    clearUndoStore();
   });
 
   it.each([

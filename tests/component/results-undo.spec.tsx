@@ -63,6 +63,19 @@ describe('⌘Z on the results (X13 §13)', () => {
     await waitFor(() => expect(onUndone).toHaveBeenCalledOnce());
   });
 
+  // A newer write with nothing to undo (an insert, a write over the capture
+  // ceiling) is the last change now, so ⌘Z must not reverse the one before it.
+  it('does nothing once a newer write on the collection recorded no undo', () => {
+    const undo = installUndo(async () => ({ restored: 1, skipped: 0 }));
+    mount();
+    act(() => {
+      offerUndo('Field updated', 'older', () => {}, NS);
+      offerUndo('Document inserted', undefined, () => {}, NS);
+    });
+    pressUndo(screen.getByRole('tree', { name: 'Documents' }));
+    expect(undo).not.toHaveBeenCalled();
+  });
+
   it('ignores another collection’s undo', () => {
     const undo = installUndo(async () => ({ restored: 1, skipped: 0 }));
     mount();
