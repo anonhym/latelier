@@ -414,7 +414,8 @@ describe('ConnectionSwitcher', () => {
     expect(screen.getByLabelText('Close orders')).toBeTruthy();
     expect(screen.getByLabelText('Close invoices')).toBeTruthy();
     // And no tab was opened for the Connection just clicked.
-    expect(screen.getAllByLabelText(/^Close /)).toHaveLength(2);
+    // (The Inspector's own "Close inspector" button also starts with "Close ".)
+    expect(screen.getAllByLabelText(/^Close (?!inspector$)/)).toHaveLength(2);
     // The Focused Tab did not move, so the TitleBar still names its Connection.
     expect(titleBar().getByText('Prod — US East')).toBeTruthy();
   });
