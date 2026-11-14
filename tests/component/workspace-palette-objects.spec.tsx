@@ -541,7 +541,7 @@ describe('Database objects and the collections of every connected Connection', (
   it('a database’s Enter reveals it in a collapsed navigator: expanded, its row focused', async () => {
     const m = mount();
     await listBoth(m);
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
     openPalette();
     search('ordering');

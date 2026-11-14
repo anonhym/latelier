@@ -17,6 +17,7 @@ import { logFailure } from '../utils/rendererLog';
 import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
+import { keepsPreview, nextScriptTitle } from '../pages/Workspace/tabActions';
 
 /**
  * Global sticky-default prefs key (T0.5 / W07 §1). Stores the last page size
@@ -53,11 +54,25 @@ export interface WorkspaceTabsState {
   loading: boolean;
   error: IpcError | null;
   refresh: () => Promise<void>;
+  /**
+   * W01 §14.9 — the one tab a single navigator click opens, replaced by the
+   * next such click until something keeps it. Renderer memory only: after a
+   * relaunch every restored tab is kept.
+   */
+  previewId: string | null;
+  /** Draws the preview tab upright for good; a no-op for any other tab. */
+  keepTab: (id: string) => void;
+  /**
+   * `preview`: open as the preview tab, replacing the current one. A
+   * collection that already has a tab is focused either way, and any open
+   * that is not a preview keeps the tab it lands on.
+   */
   openCollection: (input: {
     connectionId: string;
     dbName: string;
     collection: string;
     reuseExisting?: boolean;
+    preview?: boolean;
   }) => Promise<CollectionTab>;
   /**
    * Opens the collection's Aggregation view. With a `savedId`, a `name` or an
@@ -175,6 +190,22 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const activeId = tabs.find((t) => t.isActive)?.id ?? null;
 
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewRef = useRef<string | null>(null);
+  const setPreview = useCallback((id: string | null) => {
+    previewRef.current = id;
+    setPreviewId(id);
+  }, []);
+  const keepTab = useCallback(
+    (id: string) => {
+      if (previewRef.current === id) setPreview(null);
+    },
+    [setPreview],
+  );
+  // The ids the last list returned. `tabsRef` only catches up after a render,
+  // too late for an open chained straight after another.
+  const listedIds = useRef<ReadonlySet<string>>(new Set());
+
   const refresh = useCallback(async () => {
     try {
       // Main handles the list and the updates in dispatch order, so a flush
@@ -182,6 +213,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       // answer and already out of `pendingPatches`: snapshot before dispatch.
       const before = new Map(pendingPatches.current);
       const list = await api.tabs.list();
+      listedIds.current = new Set(list.map((t) => t.id));
       // The list lags local state by whatever is still in the debounce, so
       // layer those patches back on first. Listed tabs also carry no result
       // documents (never persisted); keep the in-memory ones of tabs that
@@ -205,8 +237,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     });
   }, [refresh]);
 
-  const openCollection: WorkspaceTabsState['openCollection'] = useCallback(
-    async (input) => {
+  const openCollectionTab = useCallback(
+    async (input: { connectionId: string; dbName: string; collection: string; reuseExisting?: boolean }) => {
       // Seed brand-new tabs from the sticky page-size default. A `null`
       // (never-set) pref is deliberately omitted rather than coerced to a
       // number — `WorkspaceStateService.openCollection` falls back to
@@ -254,6 +286,31 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     [refresh],
   );
 
+  const openCollection: WorkspaceTabsState['openCollection'] = useCallback(
+    async ({ preview, ...input }) => {
+      if (!preview) {
+        const tab = await openCollectionTab(input);
+        keepTab(tab.id);
+        return tab;
+      }
+      const before = listedIds.current;
+      const tab = await openCollectionTab({ ...input, reuseExisting: true });
+      // Landing on a tab that was already open focuses it and leaves the
+      // preview where it was.
+      if (before.has(tab.id)) return tab;
+      const replaced = previewRef.current;
+      setPreview(tab.id);
+      // The new tab is already in front, so closing the old one never
+      // hands focus to a neighbour first.
+      if (replaced && listedIds.current.has(replaced)) {
+        await api.tabs.close(replaced);
+        await refresh();
+      }
+      return tab;
+    },
+    [openCollectionTab, keepTab, setPreview, refresh],
+  );
+
   const openAggregation: WorkspaceTabsState['openAggregation'] = useCallback(
     async (input) => {
       // With a saved pipeline, a name or seeded stages, main replaces the
@@ -295,7 +352,10 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const openScript: WorkspaceTabsState['openScript'] = useCallback(
     async (input) => {
-      const tab = await api.tabs.openScript(input);
+      const tab = await api.tabs.openScript({
+        ...input,
+        initialState: { title: nextScriptTitle(tabsRef.current), ...input.initialState },
+      });
       await refresh();
       return tab;
     },
@@ -304,10 +364,11 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
 
   const close = useCallback(
     async (id: string) => {
+      keepTab(id);
       await api.tabs.close(id);
       await refresh();
     },
-    [refresh],
+    [refresh, keepTab],
   );
 
   const closeForConnection = useCallback(async (connectionId: string) => {
@@ -428,6 +489,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
   );
 
   const setPinned = useCallback(async (id: string, pinned: boolean) => {
+    keepTab(id);
     setTabs((ts) => {
       const updated = ts.map((t) => (t.id === id ? { ...t, pinned } : t));
       return [...updated].sort(
@@ -436,7 +498,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       );
     });
     await api.tabs.setPinned({ id, pinned });
-  }, []);
+  }, [keepTab]);
 
   const saveFailureShown = useRef(false);
   // Sends every pending patch now, dropping the debounce, and resolves once
@@ -491,8 +553,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     };
   }, [flushNow]);
 
-  const patchCollectionState = useCallback(
-    (id: string, patch: Partial<CollectionTabState>) => {
+  const applyCollectionPatch = useCallback(
+    (id: string, patch: Partial<CollectionTabState>, keep: boolean) => {
       const current = tabsRef.current.find((t) => t.id === id);
       if (!current || current.kind !== 'collection') return;
       if (
@@ -511,11 +573,17 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
             : t,
         ),
       );
+      if (keep) keepTab(id);
       const existing = pendingPatches.current.get(id);
       pendingPatches.current.set(id, { ...(existing ?? {}), ...patch });
       scheduleFlush();
     },
-    [scheduleFlush],
+    [scheduleFlush, keepTab],
+  );
+
+  const patchCollectionState = useCallback(
+    (id: string, patch: Partial<CollectionTabState>) => applyCollectionPatch(id, patch, keepsPreview(patch)),
+    [applyCollectionPatch],
   );
 
   const patchCollectionStateWith: WorkspaceTabsState['patchCollectionStateWith'] = useCallback(
@@ -546,11 +614,12 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
             : t,
         ),
       );
+      if (keepsPreview(patch)) keepTab(id);
       const existing = pendingPatches.current.get(id);
       pendingPatches.current.set(id, { ...(existing ?? {}), ...patch });
       scheduleFlush();
     },
-    [scheduleFlush],
+    [scheduleFlush, keepTab],
   );
 
   const setActiveView: WorkspaceTabsState['setActiveView'] = useCallback(
@@ -591,9 +660,10 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         return;
       }
       const merged: AggregationTabState = { ...base, ...patch };
-      patchCollectionState(id, { aggregation: merged });
+      // A run's output is the app's write; anything else is a pipeline edit.
+      applyCollectionPatch(id, { aggregation: merged }, Object.keys(patch).some((k) => k !== 'lastRun'));
     },
-    [patchCollectionState],
+    [applyCollectionPatch],
   );
 
   const patchScriptState: WorkspaceTabsState['patchScriptState'] = useCallback(
@@ -633,6 +703,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     loading,
     error,
     refresh,
+    previewId,
+    keepTab,
     openCollection,
     openAggregation,
     openScript,

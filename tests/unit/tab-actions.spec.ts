@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextScriptTitle, tabLabel } from '../../src/pages/Workspace/tabActions';
+import { keepsPreview, nextScriptTitle, tabLabel } from '../../src/pages/Workspace/tabActions';
 import type { CollectionTab, ScriptTab, WorkspaceTab } from '@shared/types';
 
 const coll = (id: string, dbName: string, collection: string): CollectionTab =>
@@ -65,5 +65,34 @@ describe('nextScriptTitle', () => {
       coll('g', 'shop', 'Script 40'),
     ];
     expect(nextScriptTitle(tabs)).toBe('Script 1');
+  });
+});
+
+describe('keepsPreview', () => {
+  it.each([
+    'activeView', 'view', 'queryRaw', 'builder', 'filterDraft', 'columnConfig', 'page', 'pageSize', 'aggregation',
+  ])('a patch to %s is an edit and keeps the preview tab', (key) => {
+    expect(keepsPreview({ [key]: undefined })).toBe(true);
+  });
+
+  it('results, counts and run bookkeeping are not edits', () => {
+    expect(
+      keepsPreview({
+        lastRun: undefined,
+        totalCount: 3,
+        lastRunHasMore: false,
+        lastRunQueryKey: 'k',
+        lastValidQuery: undefined,
+        columns: {},
+        expandedRows: {},
+        schema: undefined,
+        referenceDrawer: undefined,
+      }),
+    ).toBe(false);
+    expect(keepsPreview({})).toBe(false);
+  });
+
+  it('one edit among bookkeeping keys still keeps it', () => {
+    expect(keepsPreview({ totalCount: 3, queryRaw: '{}' })).toBe(true);
   });
 });

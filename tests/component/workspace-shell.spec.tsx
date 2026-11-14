@@ -40,9 +40,18 @@ afterEach(() => {
 });
 
 describe('Workspace shell', () => {
-  it('shows empty state when no tabs are open', async () => {
+  it('with a Connection open and no tab, the canvas lists its collections and the bar asks for one', async () => {
+    const openCollection = vi.fn(async (input: { collection: string }) =>
+      collectionTab({ id: 'new', collection: input.collection }),
+    );
     installAtelierMock({
-      tabs: { list: async () => [] },
+      tabs: { list: async () => [], openCollection: openCollection as never },
+      meta: {
+        listDatabases: async () => [{ name: 'app', sizeOnDisk: 0, empty: false }],
+        listCollections: async () => [
+          { name: 'users', type: 'collection', documentCount: 1234, sizeBytes: 0, indexCount: 1, capped: false },
+        ],
+      },
       conn: {
         list: async () => [
           {
@@ -63,8 +72,20 @@ describe('Workspace shell', () => {
         <Workspace />
       </MemoryRouter>,
     );
-    expect(await screen.findByText(/Select a collection from the sidebar/i)).toBeTruthy();
-    expect(screen.getByText(/Open a collection/i)).toBeTruthy();
+    expect(await screen.findByText('Prod is connected')).toBeTruthy();
+    expect(screen.queryByText(/Select a collection from the sidebar/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /^Search collections (⌘P|Ctrl\+P)$/ })).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Location' })).getByRole('button', { name: 'Choose a collection…' })).toBeTruthy();
+
+    const list = await screen.findByRole('list', { name: 'Collections' });
+    const row = await within(list).findByRole('button', { name: /app\.users/ });
+    expect(row.textContent).toContain('1,234');
+    fireEvent.click(row);
+    await waitFor(() =>
+      expect(openCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ connectionId: 'c1', dbName: 'app', collection: 'users', reuseExisting: true }),
+      ),
+    );
   });
 
   it('renders tabs from api.tabs.list', async () => {
@@ -179,14 +200,14 @@ describe('Workspace shell', () => {
         <Workspace />
       </MemoryRouter>,
     );
-    await screen.findByRole('button', { name: 'New script tab' });
+    await screen.findByRole('button', { name: 'New tab' });
     fireEvent.keyDown(document, { key: 't', metaKey: true });
     expect(await screen.findByText(/Open collection/i)).toBeTruthy();
     const dbSelect = screen.getByLabelText('Database') as HTMLSelectElement;
     await waitFor(() => expect(dbSelect.value).toBe('app'));
   });
 
-  it('shows the New script tab tooltip when keyboard focus lands on the + Script button', async () => {
+  it('the strip\'s + ▾ offers the three new-tab kinds, aggregation on the Focused Tab\'s collection', async () => {
     installAtelierMock({
       tabs: { list: async () => [collectionTab({ id: 'a', collection: 'alpha', isActive: true })] },
       conn: {
@@ -210,10 +231,11 @@ describe('Workspace shell', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.focus(await screen.findByRole('button', { name: 'New script tab' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New tab' }));
 
-    const tip = await screen.findByRole('tooltip');
-    expect(tip.textContent).toBe('New script tab');
+    const menu = await screen.findByRole('menu');
+    const items = within(menu).getAllByRole('menuitem').map((i) => i.textContent);
+    expect(items).toEqual([expect.stringMatching(/^Open collection…(⌘T|Ctrl\+T)$/), 'New script', 'New aggregation on alpha']);
   });
 });
 
@@ -273,7 +295,7 @@ async function openPicker(meta: Record<string, unknown>) {
   );
   // The tab strip has no "+" any more; ⌘T is the shortcut. Focus a real
   // button first so Mantine has somewhere to return focus to on close.
-  const trigger = await screen.findByRole('button', { name: 'New script tab' });
+  const trigger = await screen.findByRole('button', { name: 'New tab' });
   trigger.focus();
   fireEvent.keyDown(document, { key: 't', metaKey: true });
   return trigger;

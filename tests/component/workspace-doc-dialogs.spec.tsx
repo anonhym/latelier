@@ -132,7 +132,7 @@ describe('workspace doc dialogs (T2)', () => {
     // bare digit — a bare "1" also matches pagination/row-count text
     // elsewhere in the mounted Workspace.
     const headerStats = (n: number) =>
-      screen.getByText((_, el) => el?.textContent?.startsWith(`${n} docs`) ?? false);
+      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent?.startsWith(`${n} docs`));
 
     await screen.findByText(/widget/);
     await waitFor(() => expect(headerStats(1)).toBeTruthy());

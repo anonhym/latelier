@@ -40,22 +40,15 @@ test('renderer mounts the Data View with no console errors', async () => {
 
     await win.waitForLoadState('domcontentloaded');
 
-    // the Data View is the app's home now. Its TitleBar Connection
-    // Switcher trigger ("Connection: none selected" on a fresh, zero-
-    // connection launch) is the stable anchor a fresh boot always renders.
-    // Waiting for it to be visible is a deterministic mount signal; we
-    // intentionally avoid `networkidle` since persistent IPC subscriptions
-    // (theme broadcaster, status events) make it non-deterministic.
-    const trigger = win.getByRole('button', { name: /^Connection:/ });
-    await expect(trigger).toBeVisible({ timeout: 5000 });
-
-    // Opening it renders the popover's listbox and "Manage connections" row —
-    // both always present, even with zero saved Connections.
-    await trigger.click();
-    const listbox = win.locator('[role="listbox"][aria-label="Connections"]');
-    await expect(listbox).toBeVisible({ timeout: 5000 });
-    const manageButton = win.getByRole('button', { name: 'Manage connections' });
-    await expect(manageButton).toBeVisible();
+    // The Data View is the app's home. A fresh, zero-Connection launch draws
+    // the title bar's sidebar toggle and the empty state's "New connection"
+    // (no breadcrumb: nothing is saved to locate). Waiting for them is a
+    // deterministic mount signal; we intentionally avoid `networkidle` since
+    // persistent IPC subscriptions (theme broadcaster, status events) make it
+    // non-deterministic.
+    await expect(win.getByRole('button', { name: 'Toggle sidebar' })).toBeVisible({ timeout: 5000 });
+    await expect(win.getByRole('button', { name: 'New connection' })).toBeVisible({ timeout: 5000 });
+    await expect(win.getByRole('navigation', { name: 'Location' })).toHaveCount(0);
 
     // React must actually have populated #root.
     const rootHasChildren = await win.evaluate(() => {

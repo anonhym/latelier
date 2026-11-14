@@ -37,9 +37,8 @@ test('script editor ui: type 1 + 2, run, result panel shows 3', async () => {
 
       const ws = new WorkspacePage(win);
 
-      // Open a Script tab via the "+ Script" button at the end of the tab strip
-      // (`Workspace.tsx:377` — aria-label="New script tab").
-      await ws.newScriptTab.click();
+      // Open a Script tab from the tab strip's `+ ▾` menu.
+      await ws.openNewScript();
 
       // CodeMirror's editable content lives inside `[data-testid] .cm-content`.
       const cmContent = win.locator('[data-testid="script-editor"] .cm-content');

@@ -213,10 +213,17 @@ export class ConnectionSwitcherPage {
    * Opens the expanded table, opening the popover first if it isn't already
    * open. Expanding closes the popover — the two are never on screen together.
    *
-   * X16.4 — opens off the generic `Connection:` trigger rather than one
-   * named for a Connection: with no tab open the trigger names none.
+   * Opens off the generic `Connection:` trigger rather than one named for a
+   * Connection: with no tab open the trigger names the last one connected.
    */
   async openExpandedTable() {
+    // With no saved Connection the title bar draws no breadcrumb, so there is
+    // no trigger: ⌘E is the way to the table.
+    if ((await this.trigger.count()) === 0) {
+      await this.win.keyboard.press('ControlOrMeta+e');
+      await expect(this.expandedTableDialog).toBeVisible({ timeout: 8000 });
+      return;
+    }
     if (!(await this.listbox.isVisible().catch(() => false))) {
       await this.trigger.click();
     }

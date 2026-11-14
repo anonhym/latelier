@@ -41,8 +41,8 @@ test('switcher: keyboard-only find-and-switch, and focus returns to the trigger'
     await seedConnection(win, { ...baseConnInput(host, port), name: 'Beta Cluster' });
 
     const switcher = new WorkspacePage(win).switcher;
-    // X16.4 — the generic trigger: opening a Connection opens no tab,
-    // so the TitleBar names none.
+    // The generic trigger: opening a Connection opens no tab, so the
+    // breadcrumb names the last one connected rather than a Focused Tab's.
     const trigger = switcher.trigger;
     await expect(trigger).toBeVisible({ timeout: 8000 });
     await trigger.click();

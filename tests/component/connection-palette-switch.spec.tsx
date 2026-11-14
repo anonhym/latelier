@@ -277,8 +277,8 @@ describe('command palette connection opening', () => {
 
     await waitFor(() => expect(screen.queryByText('connection detail screen')).toBeNull());
     await waitFor(() => expect(connect).toHaveBeenCalledWith('c3'));
-    // No tab was opened, so the Data View names no Connection (§4.6).
-    expect(titleBar().getByRole('button', { name: 'Connection: none selected' })).toBeTruthy();
+    // No tab was opened (§4.6): the breadcrumb asks for a collection.
+    expect(titleBar().getByRole('button', { name: 'Choose a collection…' })).toBeTruthy();
   });
 
   it('opening the Connection that owns the persisted tabs, from OUTSIDE /workspace, destroys none of them', async () => {

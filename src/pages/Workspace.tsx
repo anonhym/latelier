@@ -87,7 +87,7 @@ function WorkspaceInner() {
     refresh: refreshConnections,
     removeLocal: removeConnectionLocal,
   } = useConnections();
-  const { dark, toggle } = useWorkspaceThemeBridge();
+  const { dark } = useWorkspaceThemeBridge();
   const [newTabOpen, setNewTabOpen] = React.useState(false);
 
   const panelPrefs = useWorkspacePanelPrefs();
@@ -1583,11 +1583,11 @@ function WorkspaceInner() {
   return (
     <AppShell
       mode="static"
-      header={{ height: 80 }}
+      header={{ height: 72 }}
       navbar={{
-        // Manual width, not Mantine's `collapsed` flag (display:none has no
-        // room for an expand affordance) — a 40px rail keeps it visible.
-        width: sidebarCollapsed ? 40 : leftWidth,
+        // Manual width, not Mantine's `collapsed` flag: the title bar's
+        // sidebar toggle is the expand affordance, so collapsed is no width.
+        width: sidebarCollapsed ? 0 : leftWidth,
         // Must be truthy or Mantine's static-mode navbar CSS vars never emit,
         // pushing the navbar below Main in grid auto-placement.
         breakpoint: 'xs',
@@ -1604,8 +1604,6 @@ function WorkspaceInner() {
       }}
     >
       <ShellSection
-        dark={dark}
-        toggle={toggle}
         focusedConnection={focusedConnection}
         switcherProps={switcherProps}
         settings={settings}
@@ -1617,6 +1615,7 @@ function WorkspaceInner() {
         connectionsWithTabs={connectionsWithTabs}
         active={active}
         scratchConnectionId={scratchConnectionId}
+        onOpenCollectionPicker={() => setNewTabOpen(true)}
         hints={hints}
         openConnection={openConnection}
         panelPrefs={panelPrefs}
@@ -1648,7 +1647,8 @@ function WorkspaceInner() {
         initialLoadPending={initialLoadPending}
         anyConnectionOpen={anyConnectionOpen}
         switcherProps={switcherProps}
-        setNewTabOpen={setNewTabOpen}
+        navigatorData={navigatorData}
+        onSearchCollections={palette.openCollections}
         active={active}
         openConnection={openConnection}
         activeScript={activeScript}

@@ -25,8 +25,14 @@ export class WorkspacePage {
   // Tab strip (uses role="tab" + aria-selected)
   get tablist() { return this.win.locator('[role="tablist"][aria-label="Collection view"]'); }
 
-  /** "+ Script" button in the top-level tab strip — opens a new Script tab. */
-  get newScriptTab() { return this.win.locator('[aria-label="New script tab"]'); }
+  /** The tab strip's `+ ▾` menu button. */
+  get newTabMenu() { return this.win.getByRole('button', { name: 'New tab', exact: true }); }
+
+  /** Opens a new Script tab from the tab strip's `+ ▾` menu. */
+  async openNewScript() {
+    await this.newTabMenu.click();
+    await this.win.getByRole('menuitem', { name: 'New script', exact: true }).click();
+  }
 
   /** Treeitem for a database — uses the data-testid baked into the navigator. */
   dbRow(dbName: string) {
@@ -163,7 +169,10 @@ export class WorkspacePage {
     // Expand the DB if not already; clicking the row toggles expansion.
     await this.dbRow(dbName).click();
     await expect(this.collectionRow(dbName, collection)).toBeVisible({ timeout: 5000 });
-    await this.collectionRow(dbName, collection).click();
+    // A double-click keeps the tab: a single click opens the preview tab,
+    // which the next single click on another collection replaces, and specs
+    // that open two collections expect both to stay.
+    await this.collectionRow(dbName, collection).dblclick();
     // The navigator row's own selection follows the focused tab's database
     // and collection. A tab-name check can't tell same-named collections in
     // two databases apart: with one already open it either matches both

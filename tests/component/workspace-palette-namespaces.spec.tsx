@@ -297,7 +297,7 @@ describe('the palette shares the navigator’s cache', () => {
     const dbCalls = listDatabases.mock.calls.length;
     const collCalls = listCollections.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByTestId('nav-coll-shop-orders')).toBeNull());
 
     openPalette();
@@ -312,9 +312,9 @@ describe('the palette shares the navigator’s cache', () => {
     await settled(listCollections);
     const dbCalls = listDatabases.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByTestId('nav-coll-shop-orders')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
 
     expect(await screen.findByTestId('nav-coll-shop-orders')).toBeTruthy();
     expect(screen.queryAllByTestId('nav-db-skeleton')).toHaveLength(0);
@@ -472,12 +472,12 @@ describe('the shared cache follows connection status while the navigator is coll
     fireEvent.click(screen.getByTestId('nav-db-crm'));
     await screen.findByTestId('nav-coll-crm-leads');
     await waitFor(() => expect(crmCalls(listCollections)).toBe(2));
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
 
     emit({ id: 'c1', status: 'disconnected' });
     emit({ id: 'c1', status: 'connected' });
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await screen.findByTestId('nav-coll-crm-leads');
 
     await waitFor(() => expect(crmCalls(listCollections)).toBe(3));
@@ -490,10 +490,10 @@ describe('the shared cache follows connection status while the navigator is coll
     // Both the navigator and the results pane say so.
     expect((await screen.findAllByText('connection refused')).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByRole('tree')).toBeNull());
     emit({ id: 'c1', status: 'connected' });
-    fireEvent.click(screen.getByRole('button', { name: 'Open navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
 
     await screen.findByRole('tree');
     expect(screen.queryByText('connection refused')).toBeNull();
@@ -624,7 +624,7 @@ describe('palette Collection actions', () => {
   it('Rename… opens the navigator’s rename dialog, opening a collapsed sidebar first', async () => {
     const { listCollections } = mount();
     await settled(listCollections);
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse navigator' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }));
     await waitFor(() => expect(screen.queryByTestId('nav-coll-shop-orders')).toBeNull());
 
     openPalette();
@@ -632,6 +632,6 @@ describe('palette Collection actions', () => {
     await waitFor(() => expect(openRows()).toEqual(['crm.leads']));
     press('Enter');
     expect(await screen.findByRole('dialog', { name: 'Rename "leads"' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Collapse navigator' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-pressed')).toBe('true');
   });
 });

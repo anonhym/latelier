@@ -611,7 +611,7 @@ describe('DbCollectionNavigator — an accordion of Connection roots', () => {
 
     expect(onOpenCollection).toHaveBeenCalledWith(
       { connectionId: 'c2', dbName: 'shop', collection: 'orders' },
-      { reuseExisting: true },
+      { reuseExisting: true, preview: true },
     );
   });
 });

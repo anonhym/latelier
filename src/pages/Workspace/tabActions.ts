@@ -37,6 +37,25 @@ export function nextScriptTitle(tabs: readonly WorkspaceTab[]): string {
   return `Script ${max + 1}`;
 }
 
+// The state a person edits; anything else in a patch (results, counts, run
+// bookkeeping, column widths) is the app writing after a run.
+const PREVIEW_KEEPING_KEYS: ReadonlySet<string> = new Set([
+  'activeView',
+  'view',
+  'queryRaw',
+  'builder',
+  'filterDraft',
+  'columnConfig',
+  'page',
+  'pageSize',
+  'aggregation',
+]);
+
+/** Whether a collection-state patch keeps the preview tab (W01 §14.9). */
+export function keepsPreview(patch: object): boolean {
+  return Object.keys(patch).some((key) => PREVIEW_KEEPING_KEYS.has(key));
+}
+
 /** Closes tab `id`, asking first when it holds unsaved pipeline edits. */
 export async function closeTabGuarded(tabs: Pick<WorkspaceTabsState, 'tabs' | 'close'>, id: string): Promise<void> {
   const t = tabs.tabs.find((x) => x.id === id);
