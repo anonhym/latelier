@@ -1384,6 +1384,8 @@ function WorkspaceInner() {
         const a = activeCollectionRef.current;
         if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
         if (!a || (a.state.activeView ?? 'documents') !== 'documents') return;
+        // Ctrl+L already handled below (the Console clears its output) is not ours to take.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         document.getElementById('query-bar-filter')?.focus();
       } else if (e.key === 'w') {

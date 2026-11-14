@@ -258,6 +258,20 @@ describe('⌘L focuses the filter', () => {
     expect(document.activeElement).not.toBe(filterInput());
   });
 
+  it('leaves a keystroke already handled below alone (the Console clearing on Ctrl+L)', async () => {
+    mountWorkspace();
+    await ready();
+    await screen.findByTestId('query-bar-input');
+    const handled = document.createElement('div');
+    handled.addEventListener('keydown', (ev) => ev.preventDefault());
+    document.body.appendChild(handled);
+
+    fireEvent.keyDown(handled, { key: 'l', ctrlKey: true, bubbles: true });
+
+    expect(document.activeElement).not.toBe(filterInput());
+    handled.remove();
+  });
+
   it('does nothing outside the Documents view', async () => {
     mountWorkspace({ view: 'aggregation' });
     await ready();
