@@ -155,10 +155,8 @@ export class ConnectionSwitcherPage {
   }
 
   /**
-   * Opens the deep detail screen for a row (`/connections/:id`) via the
-   * row menu's `Open server overview`. That screen is deep-link only — ADR 0001
-   * retired the standalone list it used to sit in — so a Manage action is the
-   * only route to it. This drives the popover's; the expanded Connections
+   * Opens the Connection's server tab (C05 §11) via the row menu's
+   * `Open server overview`. This drives the popover's; the expanded Connections
    * table has its own, reached via `expandedTableRowMenu(name, 'Open server overview')`.
    */
   async manage(name: string) {

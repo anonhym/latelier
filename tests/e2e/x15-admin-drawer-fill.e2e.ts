@@ -64,7 +64,7 @@ test('the admin drawers fill their panel', async () => {
     await win.getByRole('dialog', { name: /New index/ }).getByRole('button', { name: 'Close' }).click();
 
     // ── Users ───────────────────────────────────────────────────────────
-    // The deep detail screen is reached only via "Manage" (ADR 0001).
+    // The server tab opens from the Switcher row menu (C05 §11).
     const switcher = new ConnectionSwitcherPage(win);
     await switcher.ensureOpen();
     await switcher.waitVisible();
@@ -72,7 +72,7 @@ test('the admin drawers fill their panel', async () => {
     await win.getByRole('button', { name: 'Users', exact: true }).click();
     // "+ New user" is disabled until a specific database is picked — the
     // default is "All databases" (`UsersTab.tsx:272`).
-    await win.getByLabel('Database').selectOption('shop');
+    await win.getByLabel('Database', { exact: true }).selectOption('shop');
     await win.getByRole('button', { name: /New user/ }).first().click();
     // The title carries the database: `New user (shop)`.
     await expect(win.getByRole('dialog', { name: /New user/ })).toBeVisible({ timeout: 8000 });
