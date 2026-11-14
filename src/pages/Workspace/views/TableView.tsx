@@ -7,7 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { useMenuFocus } from '../../../hooks/useMenuFocus';
+import { ContextMenu } from '../../../components/ContextMenu';
 import { isContextMenuKey, isDeleteKey, isEditKey, anchorForRow, anchorFromRect } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -30,8 +30,8 @@ import { getDocId, getFullDocId, isInlineEditableKind, reviveTableValue } from '
 import { kindOf, parseAs, textOf, type FieldKind } from '../documentFieldTypes';
 import { SelectToggle } from './SelectToggle';
 import { FullValuePopover } from './FullValuePopover';
-import { RowActionsMenu } from './RowActionsMenu';
-import { FieldActionsMenu } from './FieldActionsMenu';
+import { docMenuItems, fieldMenuItems } from './menuItems';
+import { allExpandablePaths } from './docFieldFlatten';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useCopyFormat } from './useCopyFormat';
@@ -702,17 +702,14 @@ interface TableRowProps {
   onRefHoverLeave?: () => void;
   onRefOpen?: (rule: ReferenceRule, field: string, value: unknown) => void;
   onEditDoc: (doc: unknown) => void;
-  onDeleteDoc: (doc: unknown) => void;
   // Opens the same cell-level context menu the right-click/Shift+F10 paths
   // use (Edit/Duplicate/Delete), anchored to the "More actions" button
-  // rather than the cursor. `focus` carries the keyboard-open pair
-  // (`returnFocusTo`/`focusMenuOnOpen`) only when the click itself came
-  // from the keyboard — see the button's own `onClick` for how that's told
-  // apart from a mouse click.
+  // rather than the cursor. `focus.returnFocusTo` is set only when the click
+  // itself came from the keyboard — see the button's own `onClick`.
   onOpenRowMenu: (
     doc: unknown,
     anchor: { x: number; y: number },
-    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    focus?: { returnFocusTo?: HTMLElement | null },
   ) => void;
   // Hand-computed pin for the actions column — see `TableView`'s own
   // `actionsOffset` for why native `position: sticky` can't be used here.
@@ -755,7 +752,6 @@ function TableRowImpl({
   onRefOpen,
   rowId,
   onEditDoc,
-  onDeleteDoc,
   onOpenRowMenu,
   actionsOffset,
   detailLeft,
@@ -997,23 +993,6 @@ function TableRowImpl({
                 {I.edit}
               </ActionIcon>
             </Tooltip>
-            {!isView && (
-              <Tooltip label="Delete document" withArrow openDelay={400}>
-                <ActionIcon
-                  variant="default"
-                  size="sm"
-                  c="var(--atelier-red)"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteDoc(doc);
-                  }}
-                  tabIndex={buttonTabIndex}
-                  aria-label={`Delete document ${getDocId(doc)}`}
-                >
-                  {I.trash}
-                </ActionIcon>
-              </Tooltip>
-            )}
             <Tooltip label="More actions" withArrow openDelay={400}>
               <ActionIcon
                 variant="default"
@@ -1023,13 +1002,11 @@ function TableRowImpl({
                   e.stopPropagation();
                   // A keyboard-activated click (Enter/Space) reports `detail:
                   // 0` in Chromium (the app's only runtime — a mouse click is
-                  // always >= 1); only that path grabs focus into the menu and
-                  // returns it to this button on dismiss, matching the
-                  // keyboard-open convention the field/cell menus above use.
+                  // always >= 1); only that path returns focus to this button
+                  // on dismiss.
                   const viaKeyboard = e.detail === 0;
                   onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
                     returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-                    focusMenuOnOpen: viaKeyboard,
                   });
                 }}
                 tabIndex={buttonTabIndex}
@@ -1145,7 +1122,7 @@ export function TableView({
   );
 
   // Ephemeral, Table-local, reset when the document set changes (mirrors TreeView).
-  const { deepPaths, toggleDeepPath } = useDeepPaths(documents);
+  const { deepPaths, toggleDeepPath, setDeepPathsExpanded } = useDeepPaths(documents);
 
   // Badge, not toast — same ruling as `copyCell` above.
   const { copied: fieldCopiedPath, flash: flashField } = useCopiedFlash<string>();
@@ -1159,16 +1136,13 @@ export function TableView({
     y: number;
     fieldPath: string;
     value: unknown;
-    // #68/#69 — same split as the cell menu above: `returnFocusTo` is set on
-    // both the mouse and keyboard open paths (`DocFieldTree` injects it),
-    // `focusMenuOnOpen` only on the keyboard one.
+    // #68/#69 — `DocFieldTree` injects `returnFocusTo` on both the mouse and
+    // keyboard open paths.
     returnFocusTo?: HTMLElement | null;
-    focusMenuOnOpen?: boolean;
   } | null>(null);
-  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
   const handleOpenFieldMenu = React.useCallback(
-    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
-      setFieldContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
+    ({ anchor, fieldPath, value, returnFocusTo }: FieldMenuOpenPayload) => {
+      setFieldContextMenu({ ...anchor, fieldPath, value, returnFocusTo });
     },
     [],
   );
@@ -1181,7 +1155,6 @@ export function TableView({
   // (deliberate over-warn — it may hold newer local input this can't see).
   const handleAddToFilter = useAddToFilter({ state, actions });
   const closeFieldContextMenu = React.useCallback(() => setFieldContextMenu(null), []);
-  useMenuFocus(fieldMenuRef, fieldContextMenu, closeFieldContextMenu);
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const columns = React.useMemo(
@@ -1349,14 +1322,26 @@ export function TableView({
   // The cell menu, doc-level (Edit/Delete included) plus the clicked cell's
   // field items. #55/#69 — every open path sets `returnFocusTo`, so
   // Escape/click-away always has somewhere to send focus back to instead of
-  // stranding it on `<body>`; `focusMenuOnOpen` (grabbing focus *into* the
-  // menu) stays keyboard-only — see `useMenuFocus`'s docstring.
+  // stranding it on `<body>`.
   const {
     docMenu: contextMenu,
-    docMenuRef: cellMenuRef,
     openDocMenu,
     closeDocMenu: closeContextMenu,
   } = useDocMenu<CellMenuExtra>();
+
+  // Expand all / Collapse all in the document's menu: the row and every
+  // nested field below it.
+  const setDocSubtree = React.useCallback(
+    (doc: unknown, expanded: boolean) => {
+      if (!isRecord(doc)) return;
+      const id = getFullDocId(doc);
+      handleRowExpand(id, expanded);
+      setDeepPathsExpanded(allExpandablePaths(doc, id), expanded);
+    },
+    [handleRowExpand, setDeepPathsExpanded],
+  );
+  const handleExpandAll = React.useCallback((doc: unknown) => setDocSubtree(doc, true), [setDocSubtree]);
+  const handleCollapseAll = React.useCallback((doc: unknown) => setDocSubtree(doc, false), [setDocSubtree]);
 
   // #20 — the grid is the widget's single tab stop; `useRovingHighlight`
   // (via `useRovingFocus`) owns which row is "active" and this wires it to
@@ -1439,9 +1424,7 @@ export function TableView({
     ) => {
       // #69 — same restore-on-close target the keyboard path uses below, so
       // Escape/click-away no longer strands focus on `<body>` after a
-      // right-click. `focusMenuOnOpen` stays unset: a mouse open still
-      // doesn't grab focus into the menu, only Escape now has somewhere to
-      // send it back to.
+      // right-click.
       const { doc, ...extra } = payload;
       openDocMenu(doc, { x: e.clientX, y: e.clientY }, { returnFocusTo: listRef.current?.element ?? null }, extra);
     },
@@ -1455,15 +1438,12 @@ export function TableView({
     (
       doc: unknown,
       anchor: { x: number; y: number },
-      focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+      focus?: { returnFocusTo?: HTMLElement | null },
     ) => {
       openDocMenu(
         doc,
         anchor,
-        {
-          returnFocusTo: focus?.returnFocusTo ?? listRef.current?.element ?? null,
-          focusMenuOnOpen: focus?.focusMenuOnOpen,
-        },
+        { returnFocusTo: focus?.returnFocusTo ?? listRef.current?.element ?? null },
         ROW_MENU_EXTRA,
       );
     },
@@ -1502,7 +1482,7 @@ export function TableView({
         openDocMenu(
           documents[roving.activeIndex],
           anchor,
-          { returnFocusTo: listRef.current?.element ?? null, focusMenuOnOpen: true },
+          { returnFocusTo: listRef.current?.element ?? null },
           ROW_MENU_EXTRA,
         );
         return;
@@ -1583,7 +1563,6 @@ export function TableView({
       onRefOpen,
       rowId: roving.rowId,
       onEditDoc,
-      onDeleteDoc,
       onOpenRowMenu: handleOpenRowMenu,
       actionsOffset,
       detailLeft,
@@ -1614,7 +1593,6 @@ export function TableView({
       onRefOpen,
       roving.rowId,
       onEditDoc,
-      onDeleteDoc,
       handleOpenRowMenu,
       actionsOffset,
       detailLeft,
@@ -1914,117 +1892,67 @@ export function TableView({
         }}
       />
 
-      {/* Cell-level context menu (doc-aware — Edit/Delete included). */}
+      {/* Cell-level context menu (doc-aware — Edit/Delete included). Same
+          items and gates as the field-level menu below; this one has no
+          expand-first step, so it's the more discoverable surface for
+          Add to filter. Duplicate is omitted for read-only providers. */}
       {contextMenu && (
-        // S6848 — this div's onClick only stops propagation so a click
-        // inside the menu doesn't hit the window-level "click outside
-        // closes" listener above; every action lives on the real <button>s
-        // inside, already natively keyboard-operable. role="group", not
-        // "menu", which would need role="menuitem" on all six children.
-        //
-        // Escape is not handled on this element itself — it lives on the
-        // window, beside the click-outside dismiss, so it fires the same way
-        // whether or not this div happens to hold focus right now. A mouse
-        // open still never focuses it; a keyboard open does, via
-        // `useMenuFocus` (#55/#87) — which is also what returns focus to the
-        // grid once the window listener calls `closeContextMenu()`, unless
-        // the click that dismissed it landed on another focusable control.
-        <div
-          ref={cellMenuRef}
-          role="group"
-          aria-label="Cell actions"
-          tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'fixed',
-            top: contextMenu.y,
-            left: contextMenu.x,
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border-med)',
-            borderRadius: 'var(--atelier-radius-sm)',
-            boxShadow: 'var(--atelier-shadow)',
-            zIndex: 1000,
-            minWidth: 160,
-            padding: '4px 0',
+        <ContextMenu
+          menu={{
+            x: contextMenu.x,
+            y: contextMenu.y,
+            returnFocusTo: contextMenu.returnFocusTo,
+            items: [
+              ...(contextMenu.field
+                ? [
+                    ...fieldMenuItems({
+                      fieldPath: contextMenu.field,
+                      value: contextMenu.value,
+                      hasValue: contextMenu.hasValue ?? false,
+                      isReadOnly: meta.isReadOnly,
+                      filterBarValid,
+                      onAddToFilter: handleAddToFilter,
+                    }),
+                    { kind: 'sep' as const },
+                  ]
+                : []),
+              ...docMenuItems({
+                doc: contextMenu.doc,
+                copyFormat,
+                onEdit: onEditDoc,
+                onDuplicate: onDuplicateDoc,
+                onDelete: onDeleteDoc,
+                onExpandAll: handleExpandAll,
+                onCollapseAll: handleCollapseAll,
+                isReadOnly: meta.isReadOnly,
+                isView: meta.isView,
+              }),
+            ],
           }}
-        >
-          {/* Same items and gates as the field-level menu below (`hasValue`
-              is its `value !== undefined`, computed alongside `draggable`).
-              This menu has no expand-first step, so it's arguably the more
-              discoverable of the two surfaces for Add to filter. */}
-          {contextMenu.field && (
-            <FieldActionsMenu
-              fieldPath={contextMenu.field}
-              value={contextMenu.value}
-              hasValue={contextMenu.hasValue ?? false}
-              isReadOnly={meta.isReadOnly}
-              filterBarValid={filterBarValid}
-              onAddToFilter={handleAddToFilter}
-              onClose={closeContextMenu}
-            />
-          )}
-          {contextMenu.field && (
-            <div
-              style={{
-                height: 1,
-                background: 'var(--atelier-border)',
-                margin: '4px 0',
-              }}
-            />
-          )}
-          {/* T2.6 — Duplicate omitted for read-only providers
-              (preview/snapshot, ScriptTab's synthetic result provider),
-              which either set `meta.isReadOnly` or simply don't wire
-              `openDuplicate`. Shared with Tree/JSON's own "More actions"
-              menu, which has no field-specific items above it. */}
-          <RowActionsMenu
-            doc={contextMenu.doc}
-            onEdit={onEditDoc}
-            onDuplicate={onDuplicateDoc}
-            onDelete={onDeleteDoc}
-            isReadOnly={meta.isReadOnly}
-            isView={meta.isView}
-            onClose={closeContextMenu}
-          />
-        </div>
+          onClose={closeContextMenu}
+        />
       )}
 
       {/* Field-level context menu — from inside an expanded row's
-          DocFieldTree panel. Mirrors TreeView's (Copy value / Copy field
-          path only — no Edit/Delete, matching the Tree view's nested-field
-          menu). */}
+          DocFieldTree panel (Copy value / Copy field path / Add to filter —
+          no Edit/Delete, matching the Tree view's nested-field menu). */}
       {fieldContextMenu && (
-        // S6848 — same reasoning as the cell-level menu above, Escape
-        // included: it is a window listener, not an onKeyDown here.
-        <div
-          ref={fieldMenuRef}
-          role="group"
-          aria-label="Field actions"
-          tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'fixed',
-            top: fieldContextMenu.y,
-            left: fieldContextMenu.x,
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border-med)',
-            borderRadius: 'var(--atelier-radius-sm)',
-            boxShadow: 'var(--atelier-shadow)',
-            zIndex: 1000,
-            minWidth: 160,
-            padding: '4px 0',
+        <ContextMenu
+          menu={{
+            x: fieldContextMenu.x,
+            y: fieldContextMenu.y,
+            returnFocusTo: fieldContextMenu.returnFocusTo,
+            items: fieldMenuItems({
+              fieldPath: fieldContextMenu.fieldPath,
+              value: fieldContextMenu.value,
+              hasValue: fieldContextMenu.value !== undefined,
+              isReadOnly: meta.isReadOnly,
+              filterBarValid,
+              onAddToFilter: handleAddToFilter,
+            }),
           }}
-        >
-          <FieldActionsMenu
-            fieldPath={fieldContextMenu.fieldPath}
-            value={fieldContextMenu.value}
-            hasValue={fieldContextMenu.value !== undefined}
-            isReadOnly={meta.isReadOnly}
-            filterBarValid={filterBarValid}
-            onAddToFilter={handleAddToFilter}
-            onClose={closeFieldContextMenu}
-          />
-        </div>
+          onClose={closeFieldContextMenu}
+        />
       )}
     </div>
   );

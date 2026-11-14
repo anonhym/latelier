@@ -438,35 +438,34 @@ describe('TableView — rendering and interaction', () => {
       expect(getByText('Copy field path')).toBeTruthy();
     });
 
-    it('Escape closes the cell context menu', () => {
+    it('Escape closes the cell context menu', async () => {
+      const user = userEvent.setup();
       const docs = [{ _id: 1, name: 'alpha' }];
-      const { getByTitle, getByText, queryByText } = renderTable(docs);
+      const { getByTitle, queryByText } = renderTable(docs);
       const cell = getByTitle(/Drag to add "name/);
       fireEvent.contextMenu(cell);
-      expect(getByText('Copy value')).toBeTruthy();
+      await screen.findByText('Copy value');
 
-      // Fired at the window, not at the menu node. The menu opens from a
-      // `contextmenu` event and nothing focuses it, so a keydown dispatched
-      // straight at the element proves only that a handler exists — it is a
-      // path no keyboard user can take. An earlier version of this test did
-      // exactly that and passed against a handler that could never fire.
-      fireEvent.keyDown(window, { key: 'Escape' });
-      expect(queryByText('Copy value')).toBeNull();
+      // A real key press: the menu holds focus, so Escape reaches it the way
+      // a keyboard user's does.
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(queryByText('Copy value')).toBeNull());
     });
 
-    it('Escape closes the field context menu from an expanded row', () => {
+    it('Escape closes the field context menu from an expanded row', async () => {
+      const user = userEvent.setup();
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, visibleField: 'yes' }];
-      const { container, getByText, queryByText } = renderTable(docs, {
+      const { container, queryByText } = renderTable(docs, {
         expandedRows: { '507f1f77bcf86cd799439011': true },
       });
-      // The field menu is a second, independently-registered window listener;
-      // the cell menu passing says nothing about this one.
+      // The field menu is a second `ContextMenu` instance; the cell menu
+      // passing says nothing about this one.
       const fieldRow = container.querySelector('[role="treeitem"]')!;
       fireEvent.contextMenu(fieldRow);
-      expect(getByText('Copy field path')).toBeTruthy();
+      await screen.findByText('Copy field path');
 
-      fireEvent.keyDown(window, { key: 'Escape' });
-      expect(queryByText('Copy field path')).toBeNull();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(queryByText('Copy field path')).toBeNull());
     });
 
     it('resize handle is still present on a column header', () => {
@@ -622,12 +621,12 @@ describe('TableView — rendering and interaction', () => {
     });
 
     it('a click on a button of a row that is not active still acts', () => {
-      const openDelete = vi.fn();
-      const { container } = renderTable(THREE_DOCS, { actions: { openDelete } });
+      const openEdit = vi.fn();
+      const { container } = renderTable(THREE_DOCS, { actions: { openEdit } });
 
-      fireEvent.click(container.querySelector('#table-row-2 [aria-label^="Delete document"]')!);
+      fireEvent.click(container.querySelector('#table-row-2 [aria-label^="Edit document"]')!);
 
-      expect(openDelete).toHaveBeenCalledWith(THREE_DOCS[2]);
+      expect(openEdit).toHaveBeenCalledWith(THREE_DOCS[2]);
     });
 
     it.each([
@@ -761,9 +760,8 @@ describe('TableView — rendering and interaction', () => {
       expect(grid.getAttribute('aria-activedescendant')).toBe('table-row-2');
     });
 
-    // #55 — the shared ContextMenu had no keyboard open path; this cell menu
-    // is TableView's own hand-rolled one (not the shared `ContextMenu`
-    // component), so it needs its own keyboard trigger and focus management.
+    // #55 — the cell menu is the shared `ContextMenu`, which has no keyboard
+    // trigger of its own; the grid supplies one.
     describe('keyboard: opening the context menu (#55)', () => {
       it('Shift+F10 opens the menu for the active row, with Edit/Delete reachable', async () => {
         const docs = [{ _id: 1, name: 'a' }, { _id: 2, name: 'b' }];
@@ -772,7 +770,7 @@ describe('TableView — rendering and interaction', () => {
 
         fireEvent.keyDown(grid, { key: 'F10', shiftKey: true });
 
-        expect(await screen.findByText('Edit')).toBeTruthy();
+        expect(await screen.findByText('Edit document')).toBeTruthy();
         expect(getByText('Delete')).toBeTruthy();
       });
 
@@ -783,7 +781,7 @@ describe('TableView — rendering and interaction', () => {
 
         fireEvent.keyDown(grid, { key: 'ContextMenu' });
 
-        expect(await screen.findByText('Edit')).toBeTruthy();
+        expect(await screen.findByText('Edit document')).toBeTruthy();
       });
 
       it('F10 without Shift does not open the menu', () => {
@@ -793,7 +791,7 @@ describe('TableView — rendering and interaction', () => {
 
         fireEvent.keyDown(grid, { key: 'F10', shiftKey: false });
 
-        expect(queryByText('Edit')).toBeNull();
+        expect(queryByText('Edit document')).toBeNull();
       });
 
       it('anchors the menu to the active row, not a stale {0,0}', async () => {
@@ -815,60 +813,60 @@ describe('TableView — rendering and interaction', () => {
 
         fireEvent.keyDown(grid, { key: 'ContextMenu' });
 
-        const menu = await screen.findByRole('group', { name: 'Cell actions' });
-        expect(menu.style.left).toBe('42px');
-        expect(menu.style.top).toBe('84px');
+        await screen.findByRole('menu');
+        const anchor = screen.getByTestId('context-menu-anchor');
+        expect(anchor.style.left).toBe('42px');
+        expect(anchor.style.top).toBe('84px');
       });
 
       it('focus enters the menu on open and Escape returns it to the grid', async () => {
+        const user = userEvent.setup();
         const docs = [{ _id: 1, name: 'a' }];
         const { container } = renderTable(docs);
         const grid = container.querySelector('[role="grid"]')! as HTMLElement;
 
         fireEvent.keyDown(grid, { key: 'ContextMenu' });
-        await screen.findByRole('group', { name: 'Cell actions' });
+        await screen.findByRole('menu');
         await waitFor(() =>
-          expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+          expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
         );
 
-        // Same window-level Escape listener as the existing mouse-opened
-        // menu (`:869`/`:973`) — must not regress it.
-        fireEvent.keyDown(window, { key: 'Escape' });
+        await user.keyboard('{Escape}');
 
         await waitFor(() => expect(document.activeElement).toBe(grid));
       });
 
-      it('right-click does not force focus into the menu — unchanged from before #69', () => {
+      it('right-click opens a menu that holds focus, with the cell and document items', async () => {
         const docs = [{ _id: 1, name: 'a' }];
-        const { getByTitle, getByText } = renderTable(docs);
+        const { getByTitle } = renderTable(docs);
         const cell = getByTitle(/Drag to add "name/);
 
         fireEvent.contextMenu(cell);
-        expect(getByText('Edit')).toBeTruthy();
 
-        // A mouse open still doesn't grab focus into the menu the way a
-        // keyboard open does (`focusMenuOnOpen` stays unset on this path) —
-        // only the close-time restore below is new.
-        expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+        const menu = await screen.findByRole('menu');
+        expect(within(menu).getByRole('menuitem', { name: 'Copy value' })).toBeTruthy();
+        expect(within(menu).getByRole('menuitem', { name: 'Edit document' })).toBeTruthy();
+        await waitFor(() =>
+          expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+        );
       });
 
       // #69 — right-click open, then Escape, used to strand focus on
-      // `<body>` (nothing set `returnFocusTo` for a mouse open). Now both
-      // open paths share the same mechanism.
-      it('right-click open, then Escape, returns focus to the grid — not <body>', () => {
+      // `<body>` (nothing set `returnFocusTo` for a mouse open).
+      it('right-click open, then Escape, returns focus to the grid — not <body>', async () => {
+        const user = userEvent.setup();
         const docs = [{ _id: 1, name: 'a' }];
-        const { container, getByTitle, getByText } = renderTable(docs);
+        const { container, getByTitle } = renderTable(docs);
         const grid = container.querySelector('[role="grid"]')! as HTMLElement;
         const cell = getByTitle(/Drag to add "name/);
 
         fireEvent.contextMenu(cell);
-        expect(getByText('Edit')).toBeTruthy();
+        await screen.findByRole('menu');
 
-        fireEvent.keyDown(window, { key: 'Escape' });
+        await user.keyboard('{Escape}');
 
-        expect(document.querySelector('[aria-label="Cell actions"]')).toBeNull();
-        expect(document.activeElement).not.toBe(document.body);
-        expect(document.activeElement).toBe(grid);
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+        await waitFor(() => expect(document.activeElement).toBe(grid));
       });
     });
   });
@@ -1103,26 +1101,28 @@ describe('TableView — rendering and interaction', () => {
   // actions" button that opens the same context menu, keeping it reachable
   // by keyboard and under horizontal scroll.
   describe('per-row actions column', () => {
-    it('Edit and Delete buttons are named with the document and call the workspace actions', () => {
+    it('the Edit button is named with the document and calls the workspace action; Delete is only in the menu', async () => {
       const openEdit = vi.fn();
       const openDelete = vi.fn();
       const docs = [{ _id: 1, sku: 'a' }];
-      const { getByRole } = renderTable(docs, { actions: { openEdit, openDelete } });
+      const { getByRole, queryByRole } = renderTable(docs, { actions: { openEdit, openDelete } });
 
       fireEvent.click(getByRole('button', { name: 'Edit document 1' }));
       expect(openEdit).toHaveBeenCalledWith(docs[0]);
+      expect(queryByRole('button', { name: 'Delete document 1' })).toBeNull();
 
-      fireEvent.click(getByRole('button', { name: 'Delete document 1' }));
+      fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
       expect(openDelete).toHaveBeenCalledWith(docs[0]);
     });
 
-    it('shows the Delete document tooltip when keyboard focus lands on the icon button', async () => {
+    it('shows the Edit document tooltip when keyboard focus lands on the icon button', async () => {
       const { getByRole } = renderTable([{ _id: 1, sku: 'a' }]);
 
-      fireEvent.focus(getByRole('button', { name: 'Delete document 1' }));
+      fireEvent.focus(getByRole('button', { name: 'Edit document 1' }));
 
       const tip = await screen.findByRole('tooltip');
-      expect(tip.textContent).toBe('Delete document');
+      expect(tip.textContent).toBe('Edit document');
     });
 
     it('is not a data column: FieldsControl lists no "Actions" entry', () => {
@@ -1170,14 +1170,14 @@ describe('TableView — rendering and interaction', () => {
       expect(rows()[1].getAttribute('aria-selected')).toBe('false');
     });
 
-    it('"More actions" opens the same cell-level menu the right-click path opens, including Duplicate', () => {
+    it('"More actions" opens the same cell-level menu the right-click path opens, including Duplicate', async () => {
       const openDuplicate = vi.fn();
       const docs = [{ _id: 1, sku: 'a' }];
       const { getByRole } = renderTable(docs, { actions: { openDuplicate } });
 
       fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
 
-      const menu = getByRole('group', { name: 'Cell actions' });
+      const menu = await screen.findByRole('menu');
       expect(within(menu).getByText('Duplicate document')).toBeTruthy();
 
       fireEvent.click(within(menu).getByText('Duplicate document'));

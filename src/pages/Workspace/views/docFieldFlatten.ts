@@ -67,3 +67,44 @@ export function flattenVisibleFieldRows(
   visit(Object.entries(doc), null, '');
   return out;
 }
+
+function childEntries(value: unknown): Array<[string, unknown]> {
+  if (Array.isArray(value)) return value.map((v, i): [string, unknown] => [String(i), v]);
+  if (isRecord(value)) return Object.entries(value);
+  return [];
+}
+
+function isExpandable(value: unknown): boolean {
+  const type = toDisplayValue(value).type;
+  return type === 'object' || type === 'array';
+}
+
+/**
+ * Every expandable path strictly below the field at `path` whose value is
+ * `value` — what `⌥`-expand adds and `⌥←` removes. Same keys
+ * `flattenVisibleFieldRows` and `FieldNode` use for expansion state.
+ */
+export function expandablePathsBelow(value: unknown, path: string): string[] {
+  const out: string[] = [];
+  const visit = (v: unknown, p: string) => {
+    for (const [name, child] of childEntries(v)) {
+      if (!isExpandable(child)) continue;
+      const cp = childKey(p, name);
+      out.push(cp);
+      visit(child, cp);
+    }
+  };
+  visit(value, path);
+  return out;
+}
+
+/** Every expandable path anywhere in a document — Expand all / Collapse all. */
+export function allExpandablePaths(doc: Record<string, unknown>, docId: string): string[] {
+  const out: string[] = [];
+  for (const [name, child] of Object.entries(doc)) {
+    if (!isExpandable(child)) continue;
+    const p = rootKey(docId, name);
+    out.push(p, ...expandablePathsBelow(child, p));
+  }
+  return out;
+}

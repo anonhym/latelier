@@ -55,7 +55,7 @@ describe('JsonView — active row', () => {
         .map((el) => el.closest('[role="treeitem"]')!.id);
 
     const inCard0 = cardsOfTabbable();
-    expect(inCard0.length).toBeGreaterThan(5);
+    expect(inCard0.length).toBeGreaterThan(4);
     expect(new Set(inCard0)).toEqual(new Set([card(1).id]));
 
     fireEvent.keyDown(tree, { key: 'ArrowDown' });
@@ -128,7 +128,7 @@ describe('JsonView — active row', () => {
 
     fireEvent.keyDown(tree, { key: 'F10', shiftKey: true });
 
-    expect(screen.getByRole('group', { name: 'Document actions' })).toBeTruthy();
+    expect(await screen.findByRole('menu')).toBeTruthy();
   });
 
   it('Enter does not edit, select or open anything', async () => {
@@ -138,7 +138,7 @@ describe('JsonView — active row', () => {
     fireEvent.keyDown(tree, { key: 'Enter' });
 
     expect(actions.openEdit).not.toHaveBeenCalled();
-    expect(screen.queryByRole('group', { name: 'Document actions' })).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
     expect(tree.getAttribute('aria-activedescendant')).toBe(card(2).id);
   });
 

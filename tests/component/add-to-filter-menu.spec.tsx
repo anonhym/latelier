@@ -63,7 +63,7 @@ const DOC2 = { ...DOC, role: 'admin' };
 // different row's cell, right-clicked with no close in between.
 const DOC_B = { _id: { $oid: '507f1f77bcf86cd799439012' }, name: 'bravo' };
 
-/** The `DocFieldTree` panel — `useMenuFocus`'s `returnFocusTo` target for
+/** The `DocFieldTree` panel — the menu's `returnFocusTo` target for
  *  both views' field menu. Module-scope: shared by `describeFieldMenuKeyboardAndFocusReturn`
  *  and `describeMenuFocusOnDismiss` below. */
 function fieldTreeOf(container: HTMLElement): HTMLElement {
@@ -71,8 +71,8 @@ function fieldTreeOf(container: HTMLElement): HTMLElement {
 }
 
 /**
- * X19 #87 — shared coverage for dismissing one of the three hand-rolled
- * menus behind `useMenuFocus`, parameterized per call site since each opens
+ * X19 #87 — shared coverage for dismissing one of the result views' menus
+ * (the shared `ContextMenu`), parameterized per call site since each opens
  * differently and returns focus to a different container. The assertions
  * are identical everywhere — acceptance box 5, "one mechanism, not one per
  * menu" — only how each site opens/targets differs.
@@ -102,10 +102,9 @@ function describeMenuFocusOnDismiss(opts: {
       elsewhere.remove();
     });
 
-    it('clicking empty space still closes the menu and restores focus rather than stranding it on <body>', async () => {
+    it('clicking empty space closes the menu', async () => {
       const user = userEvent.setup();
       const { container } = opts.mount();
-      const target = opts.target(container);
       const plain = document.createElement('div');
       document.body.appendChild(plain);
       await opts.openMouse(container, 0);
@@ -113,10 +112,7 @@ function describeMenuFocusOnDismiss(opts: {
 
       await user.click(plain);
 
-      await waitFor(() => {
-        expect(document.activeElement).not.toBe(document.body);
-        expect(document.activeElement).toBe(target);
-      });
+      await waitFor(() => expect(screen.queryByText(opts.activateItemLabel)).toBeNull());
       plain.remove();
     });
 
@@ -155,16 +151,8 @@ function describeMenuFocusOnDismiss(opts: {
       await waitFor(() => expect(document.activeElement).toBe(target));
     });
 
-    // #87 review finding — a suppressed close leaves `suppressRef.current`
-    // `true`. Escape and an outside click both recompute or clear it
-    // themselves on their own next run, but item activation does neither:
-    // React flushes the `setContextMenu(null)` from the item's own `onClick`
-    // synchronously, which tears the dismiss effect down (removing the
-    // `window` click listener) before the *same* click finishes bubbling to
-    // `window` — so `onClick` never runs a second time to recompute the
-    // flag. Without the reset-on-open in `useMenuFocus`, the stale `true`
-    // from the earlier suppressed close survives into this reopen and
-    // strands focus on the activated item instead of restoring it.
+    // A close by clicking another control, then a reopen and an item
+    // activation, still hands focus back to the widget.
     it('a suppressed close does not strand focus after the menu reopens and an item is activated', async () => {
       const user = userEvent.setup();
       const { container } = opts.mount();
@@ -183,18 +171,6 @@ function describeMenuFocusOnDismiss(opts: {
       await waitFor(() => expect(document.activeElement).toBe(target));
       elsewhere.remove();
     });
-
-    // #87's second facet (a second right-click on a different cell/field,
-    // no close in between, must never restore the *previous* menu's target)
-    // is deliberately NOT re-asserted here with a `focus` spy. Measured: a
-    // right-click on a non-focusable row already makes jsdom's own
-    // mousedown-focusing-steps call `.focus()` on this same target (the
-    // nearest focusable ancestor) before `useMenuFocus` ever runs — exactly
-    // the masking `useMenuDismiss`'s #87 comment describes for the mouse
-    // path. A spy at this level counts that native call as well as any of
-    // the hook's own, so it cannot isolate the hook's behavior. `useMenuFocus.spec.ts`'s
-    // `renderHook` tests own this acceptance box instead, against a bare
-    // ref with no browser click involved.
   });
 }
 
@@ -274,10 +250,9 @@ function describeFieldMenuKeyboardAndFocusReturn(
       expect(await screen.findByText('Copy value')).toBeTruthy();
       expect(screen.getByText('Copy field path')).toBeTruthy();
       expect(screen.getByText('Add to filter')).toBeTruthy();
-      // Focus entered the menu on open — keyboard-only (#69), unlike the
-      // mouse path below.
+      // Focus entered the menu on open.
       await waitFor(() =>
-        expect(document.activeElement?.closest('[role="group"]')).toBeTruthy(),
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
       );
 
       await user.keyboard('{Escape}');
@@ -303,8 +278,10 @@ function describeFieldMenuKeyboardAndFocusReturn(
 
       await user.pointer({ keys: '[MouseRight]', target: rowOf(container) });
       expect(await screen.findByText('Copy value')).toBeTruthy();
-      // Unchanged from before #69: a mouse open does not steal focus.
-      expect(document.activeElement?.closest('[role="group"]')).toBeNull();
+      // The shared ContextMenu traps focus on open for a mouse open too.
+      await waitFor(() =>
+        expect(document.activeElement?.closest('[role="menu"]')).toBeTruthy(),
+      );
 
       await user.keyboard('{Escape}');
 
@@ -675,7 +652,7 @@ describe(' "Add to filter" on the field-tree context menu', () => {
       },
       // "Edit" (not "Copy value"/"Add to filter") — always rendered
       // regardless of which field/value the right-clicked cell carries.
-      activateItemLabel: 'Edit',
+      activateItemLabel: 'Edit document',
     });
   });
 

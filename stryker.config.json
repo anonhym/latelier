@@ -26,7 +26,6 @@
     "src/utils/hostLocality.ts",
     "src/hooks/useRovingHighlight.ts",
     "src/hooks/useRovingFocus.ts",
-    "src/hooks/useMenuFocus.ts",
     "src/utils/contextMenuKey.ts",
     "src/state/connectionPins.ts",
     "src/state/closedTabs.ts",

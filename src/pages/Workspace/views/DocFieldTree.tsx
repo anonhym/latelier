@@ -60,17 +60,14 @@ export function TypeBadge({ type }: { type: DisplayType }) {
  * Split into two interfaces rather than one with optional fields: a
  * `FieldNode`'s own mouse-driven `onContextMenu` can't reach `DocFieldTree`'s
  * roving-focus container, so it can't supply `returnFocusTo` itself —
- * `DocFieldTree` injects that (and `focusMenuOnOpen`, keyboard-open only) in
- * the wrapper it hands down to `FieldNode` instead. See `useMenuFocus`'s
- * docstring for why `focusMenuOnOpen` has to stay keyboard-only even though
- * `returnFocusTo` is now set on both paths.
+ * `DocFieldTree` injects that in the wrapper it hands down to `FieldNode`
+ * instead. The shared `ContextMenu` traps focus on open itself.
  */
 export interface FieldMenuOpenPayload {
   anchor: { x: number; y: number };
   fieldPath: string;
   value: unknown;
   returnFocusTo: HTMLElement | null;
-  focusMenuOnOpen?: boolean;
 }
 
 interface FieldNodeProps {
@@ -85,9 +82,9 @@ interface FieldNodeProps {
   onToggle: (path: string) => void;
   copiedPath: string | null;
   onCopy: (path: string, value: unknown) => void;
-  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` (and, for
-  // its own keyboard path, `focusMenuOnOpen`) before this reaches the caller.
-  onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => void;
+  // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` before
+  // this reaches the caller.
+  onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo'>) => void;
   refsByField?: Map<string, ReferenceRule>;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -558,11 +555,9 @@ export function DocFieldTree({
 
   // Injects `returnFocusTo` before handing a mouse-driven open up to the
   // caller — a `FieldNode`'s own `onContextMenu` can't reach `containerRef`
-  // itself. `focusMenuOnOpen` is left unset here, so this stays a no-op for
-  // the "no forced refocus on a mouse-opened menu" behaviour the caller's
-  // hand-rolled menus already have — only the keyboard branch below sets it.
+  // itself.
   const handleOpenMenu = React.useCallback(
-    (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo' | 'focusMenuOnOpen'>) => {
+    (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo'>) => {
       onOpenMenu({ ...payload, returnFocusTo: containerRef.current });
     },
     [onOpenMenu],
@@ -636,7 +631,6 @@ export function DocFieldTree({
           fieldPath: activeRow.fieldPath,
           value: activeRow.value,
           returnFocusTo: containerRef.current,
-          focusMenuOnOpen: true,
         });
         return;
       }

@@ -7,7 +7,7 @@ import {
   type RowComponentProps,
 } from 'react-window';
 import { useRovingFocus } from '../../../hooks/useRovingFocus';
-import { useMenuFocus } from '../../../hooks/useMenuFocus';
+import { ContextMenu } from '../../../components/ContextMenu';
 import { anchorFromRect, isDeleteKey, isEditKey } from '../../../utils/contextMenuKey';
 import { I } from '../../../icons';
 import { isRecord, toDisplayValue, valueToClipboardText } from '../../../utils/displayValue';
@@ -20,12 +20,12 @@ import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload }
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
 import { SelectToggle } from './SelectToggle';
-import { DocActionsPopup } from './RowActionsMenu';
 import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
 import { useCopyFormat } from './useCopyFormat';
 import { useDocMenu } from './useDocMenu';
-import { FieldActionsMenu } from './FieldActionsMenu';
+import { docMenuItems, fieldMenuItems } from './menuItems';
+import { allExpandablePaths } from './docFieldFlatten';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useDeepPaths } from './useDeepPaths';
@@ -161,14 +161,11 @@ interface DocRowProps {
   refsByField?: Map<string, ReferenceRule>;
   onRowExpand: (docId: string, expanded: boolean) => void;
   onEditDoc: (doc: unknown) => void;
-  onDeleteDoc: (doc: unknown) => void;
-  // Opens the shared `RowActionsMenu` (Duplicate — Edit/Delete already have
-  // their own visible buttons on this row) anchored to the "More actions"
-  // button.
+  // Opens the document's menu anchored to the "More actions" button.
   onOpenRowMenu: (
     doc: unknown,
     anchor: { x: number; y: number },
-    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    focus?: { returnFocusTo?: HTMLElement | null },
   ) => void;
   onSelect: (doc: unknown) => void;
   onToggleSelect: (index: number) => void;
@@ -201,7 +198,6 @@ function DocRowImpl({
   refsByField,
   onRowExpand,
   onEditDoc,
-  onDeleteDoc,
   onOpenRowMenu,
   onSelect,
   onToggleSelect,
@@ -354,23 +350,6 @@ function DocRowImpl({
               {I.edit}
             </ActionIcon>
           </Tooltip>
-          {!isView && (
-            <Tooltip label="Delete document" withArrow openDelay={400}>
-              <ActionIcon
-                variant="default"
-                size={24}
-                tabIndex={buttonTabIndex}
-                c="var(--atelier-red)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteDoc(doc);
-                }}
-                aria-label={`Delete document ${shortId}`}
-              >
-                {I.trash}
-              </ActionIcon>
-            </Tooltip>
-          )}
           <Tooltip label="More actions" withArrow openDelay={400}>
             <ActionIcon
               variant="default"
@@ -382,7 +361,6 @@ function DocRowImpl({
                 const viaKeyboard = e.detail === 0;
                 onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
                   returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-                  focusMenuOnOpen: viaKeyboard,
                 });
               }}
               aria-label={`More actions for document ${shortId}`}
@@ -471,7 +449,7 @@ export function TreeView({
   const onDuplicateDoc = actions.openDuplicate;
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
-  const { deepPaths, toggleDeepPath } = useDeepPaths(documents);
+  const { deepPaths, toggleDeepPath, setDeepPathsExpanded } = useDeepPaths(documents);
   const { copied: copiedPath, flash } = useCopiedFlash<string>();
   const [contextMenu, setContextMenu] = React.useState<{
     x: number;
@@ -479,12 +457,9 @@ export function TreeView({
     fieldPath: string;
     value: unknown;
     // #68/#69 — `DocFieldTree` sets `returnFocusTo` on both the mouse and
-    // keyboard open paths, `focusMenuOnOpen` only on the keyboard one. See
-    // `useMenuFocus`'s docstring.
+    // keyboard open paths.
     returnFocusTo?: HTMLElement | null;
-    focusMenuOnOpen?: boolean;
   } | null>(null);
-  const fieldMenuRef = React.useRef<HTMLDivElement | null>(null);
   // Memoized so `?? {}` doesn't allocate a fresh object every render, which
   // would cascade into the rowProps useMemo below.
   const expandedRows = React.useMemo(
@@ -502,15 +477,29 @@ export function TreeView({
   // field-level `contextMenu` above: this one is doc-level (opened from the
   // row strip, not from inside an expanded field). Declared here, ahead of
   // handleOpenMenu below, so both open handlers can close the other menu.
-  const { docMenu, docMenuRef, openDocMenu, closeDocMenu } = useDocMenu();
+  const { docMenu, openDocMenu, closeDocMenu } = useDocMenu();
   const [copyFormat] = useCopyFormat();
 
+  // Expand all / Collapse all in the document's menu: the row and every
+  // nested field below it.
+  const setDocSubtree = React.useCallback(
+    (doc: unknown, expanded: boolean) => {
+      if (!isRecord(doc)) return;
+      const id = getFullDocId(doc);
+      onRowExpand(id, expanded);
+      setDeepPathsExpanded(allExpandablePaths(doc, id), expanded);
+    },
+    [onRowExpand, setDeepPathsExpanded],
+  );
+  const handleExpandAll = React.useCallback((doc: unknown) => setDocSubtree(doc, true), [setDocSubtree]);
+  const handleCollapseAll = React.useCallback((doc: unknown) => setDocSubtree(doc, false), [setDocSubtree]);
+
   const handleOpenMenu = React.useCallback(
-    ({ anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen }: FieldMenuOpenPayload) => {
+    ({ anchor, fieldPath, value, returnFocusTo }: FieldMenuOpenPayload) => {
       // Symmetric with handleOpenRowMenu below: only one of the field-level
       // and doc-level menus should ever be open at once.
       closeDocMenu();
-      setContextMenu({ ...anchor, fieldPath, value, returnFocusTo, focusMenuOnOpen });
+      setContextMenu({ ...anchor, fieldPath, value, returnFocusTo });
     },
     [closeDocMenu],
   );
@@ -522,18 +511,11 @@ export function TreeView({
   // Shared with TableView; confirms whenever the Filter drawer is open.
   const handleAddToFilter = useAddToFilter({ state, actions });
 
-  // #68 — this menu previously had no Escape path at all, only
-  // click-outside; a keyboard-opened menu with no keyboard way out would
-  // fail #68's own acceptance. `useMenuFocus` owns dismiss and focus both.
   const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
-  useMenuFocus(fieldMenuRef, contextMenu, closeContextMenu);
 
   const handleOpenRowMenu = React.useCallback(
     (...args: Parameters<typeof openDocMenu>) => {
-      // The field-level context menu and this doc-level one both only close
-      // via useMenuFocus's window click listener, but this button already
-      // stops propagation — so opening one while the other is open would
-      // otherwise leave both on screen at once.
+      // Only one of the field-level and doc-level menus is ever open.
       setContextMenu(null);
       openDocMenu(...args);
     },
@@ -616,7 +598,6 @@ export function TreeView({
       refsByField,
       onRowExpand,
       onEditDoc,
-      onDeleteDoc,
       onOpenRowMenu: handleOpenRowMenu,
       onSelect,
       onToggleSelect: selection.toggle,
@@ -642,7 +623,6 @@ export function TreeView({
       refsByField,
       onRowExpand,
       onEditDoc,
-      onDeleteDoc,
       handleOpenRowMenu,
       onSelect,
       toggleDeepPath,
@@ -778,43 +758,41 @@ export function TreeView({
         )}
       </div>
       {contextMenu && (
-        <div
-          ref={fieldMenuRef}
-          role="group"
-          aria-label="Field actions"
-          style={{
-            position: 'fixed',
-            top: contextMenu.y,
-            left: contextMenu.x,
-            background: 'var(--atelier-surface)',
-            border: '1px solid var(--atelier-border-med)',
-            borderRadius: 'var(--atelier-radius-sm)',
-            boxShadow: 'var(--atelier-shadow)',
-            zIndex: 1000,
-            minWidth: 160,
-            padding: '4px 0',
+        <ContextMenu
+          menu={{
+            x: contextMenu.x,
+            y: contextMenu.y,
+            returnFocusTo: contextMenu.returnFocusTo,
+            items: fieldMenuItems({
+              fieldPath: contextMenu.fieldPath,
+              value: contextMenu.value,
+              hasValue: contextMenu.value !== undefined,
+              isReadOnly: meta.isReadOnly,
+              filterBarValid,
+              onAddToFilter: handleAddToFilter,
+            }),
           }}
-        >
-          <FieldActionsMenu
-            fieldPath={contextMenu.fieldPath}
-            value={contextMenu.value}
-            hasValue={contextMenu.value !== undefined}
-            isReadOnly={meta.isReadOnly}
-            filterBarValid={filterBarValid}
-            onAddToFilter={handleAddToFilter}
-            onClose={closeContextMenu}
-          />
-        </div>
+          onClose={closeContextMenu}
+        />
       )}
       {docMenu && (
-        <DocActionsPopup
-          menu={docMenu}
-          menuRef={docMenuRef}
-          onEdit={onEditDoc}
-          onDuplicate={onDuplicateDoc}
-          onDelete={onDeleteDoc}
-          isReadOnly={meta.isReadOnly}
-          isView={meta.isView}
+        <ContextMenu
+          menu={{
+            x: docMenu.x,
+            y: docMenu.y,
+            returnFocusTo: docMenu.returnFocusTo,
+            items: docMenuItems({
+              doc: docMenu.doc,
+              copyFormat,
+              onEdit: onEditDoc,
+              onDuplicate: onDuplicateDoc,
+              onDelete: onDeleteDoc,
+              onExpandAll: handleExpandAll,
+              onCollapseAll: handleCollapseAll,
+              isReadOnly: meta.isReadOnly,
+              isView: meta.isView,
+            }),
+          }}
           onClose={closeDocMenu}
         />
       )}

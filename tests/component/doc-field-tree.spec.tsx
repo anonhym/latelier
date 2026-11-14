@@ -336,7 +336,6 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
       fieldPath: 'a',
       value: 1,
       returnFocusTo: tree,
-      focusMenuOnOpen: true,
     });
   });
 
@@ -354,7 +353,6 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
       fieldPath: 'b',
       value: 'two',
       returnFocusTo: tree,
-      focusMenuOnOpen: true,
     });
   });
 
@@ -387,10 +385,8 @@ describe('DocFieldTree — field menu open payload (#68/#69)', () => {
 
   // A mouse-driven open can't reach the tree's own container ref (it fires
   // from a `FieldNode` deep in the recursion) — `DocFieldTree` injects
-  // `returnFocusTo` on the way up. `focusMenuOnOpen` stays unset: a
-  // right-click still shouldn't steal focus into the menu (#69's own
-  // "right-click behaviour is otherwise unchanged" requirement).
-  it('a right-click on a field row gets returnFocusTo but not focusMenuOnOpen', () => {
+  // `returnFocusTo` on the way up.
+  it('a right-click on a field row gets returnFocusTo', () => {
     const onOpenMenu = vi.fn();
     const { container } = renderFieldTree({ a: 1 }, { onOpenMenu });
     const tree = container.querySelector('[role="tree"]')! as HTMLElement;

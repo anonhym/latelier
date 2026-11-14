@@ -82,15 +82,13 @@ test('doc writes: insert adds a row; edit changes a field; delete removes the ro
       await expect(win.getByText('shipped')).toBeVisible({ timeout: 8000 });
 
       // ── Delete ──────────────────────────────────────────────────────────
-      // Per-row Delete: the trash-icon button named "Delete document".
-      // Its accessible name is "Delete document", which won't collide with
-      // the DeleteConfirm dialog's button (whose accessible name is "Delete").
-      // Click on the row containing 'to-be-deleted' to target that doc's
-      // delete button — `.first()` of the matched row's children.
-      await win.getByRole('button', { name: /^Delete document/ }).nth(1).click();
+      // Per-row Delete lives in the row's `⋯` menu; the second row is the
+      // one holding 'to-be-deleted'.
+      await win.getByRole('button', { name: /^More actions for document/ }).nth(1).click();
+      await win.getByRole('menuitem', { name: 'Delete' }).click();
 
       // DeleteConfirm dialog: button with exact text "Delete" — unique on the
-      // page when the dialog is open (per-row buttons name is "Delete document").
+      // page when the dialog is open (the menu item has the role menuitem).
       await expect(win.getByText(/^Delete document from /)).toBeVisible({ timeout: 4000 });
       await win.getByRole('button', { name: 'Delete', exact: true }).click();
 

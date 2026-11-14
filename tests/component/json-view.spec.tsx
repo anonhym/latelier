@@ -249,7 +249,7 @@ describe('JsonView — click selection semantics (N4.1)', () => {
 // Edit/Delete already had their own visible per-card buttons here; this adds
 // a "More actions" button for parity with Table's context menu (Duplicate).
 describe('JsonView — "More actions" per-card menu', () => {
-  it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+  it('opens a menu with Duplicate, and calls the workspace action on click', async () => {
     const openDuplicate = vi.fn();
     const docs = [{ _id: 1, name: 'alpha' }];
     const { getByRole } = renderJson(docs, {
@@ -257,17 +257,18 @@ describe('JsonView — "More actions" per-card menu', () => {
     });
 
     fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
-    const menu = getByRole('group', { name: 'Document actions' });
-    fireEvent.click(within(menu).getByText('Duplicate document'));
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate document' }));
 
     expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
   });
 
-  it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+  it('omits Duplicate when the workspace has no openDuplicate action wired', async () => {
     const docs = [{ _id: 1, name: 'alpha' }];
     const { getByRole, queryByText } = renderJson(docs);
 
     fireEvent.click(getByRole('button', { name: 'More actions for document 1' }));
+    await screen.findByRole('menu');
     expect(queryByText('Duplicate document')).toBeNull();
   });
 

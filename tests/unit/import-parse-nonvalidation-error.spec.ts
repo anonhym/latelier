@@ -16,9 +16,8 @@ vi.mock('../../electron/mongo/ejson.ts', async (importOriginal) => {
 // `toRecord`'s `if (!(err instanceof ValidationError)) throw err;` guard is a
 // deliberate fail-fast: `parseEjsonDocument` only ever throws `ValidationError`
 // today (every path inside it wraps whatever `ejsonParse` throws), so this is
-// unreachable via any real input — same reasoning `useRovingFocus.ts` and
-// `useMenuFocus.ts` document for their own currently-unreachable-but-load-bearing
-// guards. Mocking `parseEjsonDocument` to throw something else is the only way
+// unreachable via any real input — same reasoning `useRovingFocus.ts`
+// documents for its own currently-unreachable-but-load-bearing guards. Mocking `parseEjsonDocument` to throw something else is the only way
 // to actually exercise the rethrow rather than force-kill it as equivalent.
 describe('toRecord (via parseJsonlLine) — fail-fast on an unexpected error', () => {
   it('rethrows an error that is not a ValidationError instead of swallowing it into a per-line error record', async () => {

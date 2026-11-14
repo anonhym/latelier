@@ -322,13 +322,12 @@ describe('TreeView — rendering and interaction', () => {
         'Select document …99439011',
         'Expand document',
         'Edit document …99439011',
-        'Delete document …99439011',
         'More actions for document …99439011',
       ]);
 
       fireEvent.keyDown(tree, { key: 'ArrowDown' });
       expect(tabStops().every((label) => label?.includes('99439012') || label === 'Expand document')).toBe(true);
-      expect(tabStops()).toHaveLength(5);
+      expect(tabStops()).toHaveLength(4);
     });
 
     // Mirrors the existing per-row guard test above, at the container level:
@@ -440,23 +439,24 @@ describe('TreeView — rendering and interaction', () => {
   // adds a "More actions" button for parity with Table's context menu
   // (Duplicate), opening the same shared menu content.
   describe('"More actions" per-row menu', () => {
-    it('opens a menu with Duplicate, and calls the workspace action on click', () => {
+    it('opens a menu with Duplicate, and calls the workspace action on click', async () => {
       const openDuplicate = vi.fn();
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole } = renderTree(docs, { actions: { openDuplicate } });
 
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
-      const menu = getByRole('group', { name: 'Document actions' });
-      fireEvent.click(within(menu).getByText('Duplicate document'));
+      const menu = await screen.findByRole('menu');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate document' }));
 
       expect(openDuplicate).toHaveBeenCalledWith(docs[0]);
     });
 
-    it('omits Duplicate when the workspace has no openDuplicate action wired', () => {
+    it('omits Duplicate when the workspace has no openDuplicate action wired', async () => {
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole, queryByText } = renderTree(docs);
 
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
+      await screen.findByRole('menu');
       expect(queryByText('Duplicate document')).toBeNull();
     });
 
@@ -469,7 +469,7 @@ describe('TreeView — rendering and interaction', () => {
       expect(onRowExpand).not.toHaveBeenCalled();
     });
 
-    it('closes the field-level menu when the doc menu opens, and vice versa', () => {
+    it('closes the field-level menu when the doc menu opens, and vice versa', async () => {
       const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, name: 'alpha' }];
       const { getByRole, queryByRole } = renderTree(docs, {
         expanded: { '507f1f77bcf86cd799439011': true },
@@ -483,19 +483,17 @@ describe('TreeView — rendering and interaction', () => {
         'field-row-507f1f77bcf86cd799439011::name',
       )!;
       fireEvent.contextMenu(nameFieldRow);
-      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy field path' })).toBeTruthy();
 
-      // Opening the doc-level "More actions" menu must close the field menu —
-      // both are dismissed only by useMenuFocus's window click listener, and
-      // this button stops propagation, so it never fires for the other menu.
+      // Opening the doc-level "More actions" menu must close the field menu.
       fireEvent.click(getByRole('button', { name: /More actions for document/ }));
-      expect(queryByRole('group', { name: 'Field actions' })).toBeNull();
-      expect(getByRole('group', { name: 'Document actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy document' })).toBeTruthy();
+      expect(queryByRole('menuitem', { name: 'Copy field path' })).toBeNull();
 
       // And the reverse: opening a field menu closes the doc menu.
       fireEvent.contextMenu(nameFieldRow);
-      expect(queryByRole('group', { name: 'Document actions' })).toBeNull();
-      expect(getByRole('group', { name: 'Field actions' })).toBeTruthy();
+      expect(await screen.findByRole('menuitem', { name: 'Copy field path' })).toBeTruthy();
+      expect(queryByRole('menuitem', { name: 'Copy document' })).toBeNull();
     });
   });
 });
@@ -514,7 +512,7 @@ describe('TreeView row actions', () => {
     expect(first!.style.opacity).toBe('0');
     // Still mounted: hiding them must not take the width away, or Tab's reach.
     expect(within(first!).getByRole('button', { name: /^Edit document/ })).toBeTruthy();
-    expect(within(first!).getByRole('button', { name: /^Delete document/ })).toBeTruthy();
+    expect(within(first!).queryByRole('button', { name: /^Delete document/ })).toBeNull();
     expect(within(first!).getByRole('button', { name: /^More actions/ })).toBeTruthy();
   });
 

@@ -18,7 +18,8 @@ import { useCollectionWorkspace } from '../context';
 import { useResultSelection } from '../resultSelection';
 import { getDocId } from './docId';
 import { SelectToggle } from './SelectToggle';
-import { DocActionsPopup } from './RowActionsMenu';
+import { ContextMenu } from '../../../components/ContextMenu';
+import { docMenuItems } from './menuItems';
 import { useDocMenu } from './useDocMenu';
 import { useCopyFormat } from './useCopyFormat';
 import { copyShortcutOf } from './copyShortcut';
@@ -238,13 +239,11 @@ interface DocCardProps {
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
-  onDelete: (doc: unknown) => void;
-  // Opens the shared `RowActionsMenu` (Duplicate — Edit/Delete already have
-  // their own always-visible buttons on this card).
+  // Opens the document's menu (Duplicate, Delete, …) from the `⋯` button.
   onOpenRowMenu: (
     doc: unknown,
     anchor: { x: number; y: number },
-    focus?: { returnFocusTo?: HTMLElement | null; focusMenuOnOpen?: boolean },
+    focus?: { returnFocusTo?: HTMLElement | null },
   ) => void;
 }
 
@@ -263,7 +262,6 @@ function DocCard({
   onToggle,
   onCopy,
   onEdit,
-  onDelete,
   onOpenRowMenu,
 }: DocCardProps) {
   const isView = !!useCollectionWorkspace().meta.isView;
@@ -350,7 +348,7 @@ function DocCard({
             {isCopied ? I.check : I.copy}
           </ActionIcon>
         </Tooltip>
-        <Tooltip label={isView ? 'View document' : 'Edit'} withArrow openDelay={400}>
+        <Tooltip label={isView ? 'View document' : 'Edit document'} withArrow openDelay={400}>
           <ActionIcon
             variant="default"
             size="sm"
@@ -365,23 +363,6 @@ function DocCard({
             {I.edit}
           </ActionIcon>
         </Tooltip>
-        {!isView && (
-          <Tooltip label="Delete" withArrow openDelay={400}>
-            <ActionIcon
-              variant="default"
-              size="sm"
-              c="var(--atelier-red)"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(doc);
-              }}
-              tabIndex={buttonTabIndex}
-              aria-label={`Delete document ${getDocId(doc)}`}
-            >
-              {I.trash}
-            </ActionIcon>
-          </Tooltip>
-        )}
         <Tooltip label="More actions" withArrow openDelay={400}>
           <ActionIcon
             variant="default"
@@ -392,7 +373,6 @@ function DocCard({
               const viaKeyboard = e.detail === 0;
               onOpenRowMenu(doc, anchorFromRect(e.currentTarget.getBoundingClientRect()), {
                 returnFocusTo: viaKeyboard ? e.currentTarget : undefined,
-                focusMenuOnOpen: viaKeyboard,
               });
             }}
             tabIndex={buttonTabIndex}
@@ -431,7 +411,6 @@ interface JsonRowProps {
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
   onEdit: (doc: unknown) => void;
-  onDelete: (doc: unknown) => void;
   onOpenRowMenu: DocCardProps['onOpenRowMenu'];
 }
 
@@ -451,7 +430,6 @@ function JsonRow({
   onToggle,
   onCopy,
   onEdit,
-  onDelete,
   onOpenRowMenu,
 }: RowComponentProps<JsonRowProps>) {
   const doc = documents[index];
@@ -472,7 +450,6 @@ function JsonRow({
         onToggle={onToggle}
         onCopy={onCopy}
         onEdit={onEdit}
-        onDelete={onDelete}
         onOpenRowMenu={onOpenRowMenu}
       />
     </div>
@@ -533,7 +510,7 @@ export function JsonView({ documents }: JsonViewProps) {
 
   // "More actions" per-card menu — Duplicate only, since Edit/Delete already
   // have their own always-visible buttons on the card.
-  const { docMenu, docMenuRef, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
+  const { docMenu, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
 
   // Cards are variable-height (driven by the doc's serialized size). The
   // estimate is intentionally generous; useDynamicRowHeight refines on render.
@@ -570,10 +547,7 @@ export function JsonView({ documents }: JsonViewProps) {
         const anchor = anchorForRow(rowEl, listRef.current?.element ?? null);
         if (!anchor) return;
         if (!rowEl) listRef.current?.scrollToRow({ index: roving.activeIndex, align: 'auto' });
-        handleOpenRowMenu(doc, anchor, {
-          returnFocusTo: listRef.current?.element ?? null,
-          focusMenuOnOpen: true,
-        });
+        handleOpenRowMenu(doc, anchor, { returnFocusTo: listRef.current?.element ?? null });
         return;
       }
       if (isEditKey(e)) {
@@ -616,7 +590,6 @@ export function JsonView({ documents }: JsonViewProps) {
       onToggle: toggleSelect,
       onCopy: copyDoc,
       onEdit: onEditDoc,
-      onDelete: onDeleteDoc,
       onOpenRowMenu: handleOpenRowMenu,
     }),
     [
@@ -633,7 +606,6 @@ export function JsonView({ documents }: JsonViewProps) {
       toggleSelect,
       copyDoc,
       onEditDoc,
-      onDeleteDoc,
       handleOpenRowMenu,
     ],
   );
@@ -676,14 +648,21 @@ export function JsonView({ documents }: JsonViewProps) {
         }}
       />
       {docMenu && (
-        <DocActionsPopup
-          menu={docMenu}
-          menuRef={docMenuRef}
-          onEdit={onEditDoc}
-          onDuplicate={onDuplicateDoc}
-          onDelete={onDeleteDoc}
-          isReadOnly={meta.isReadOnly}
-          isView={meta.isView}
+        <ContextMenu
+          menu={{
+            x: docMenu.x,
+            y: docMenu.y,
+            returnFocusTo: docMenu.returnFocusTo,
+            items: docMenuItems({
+              doc: docMenu.doc,
+              copyFormat,
+              onEdit: onEditDoc,
+              onDuplicate: onDuplicateDoc,
+              onDelete: onDeleteDoc,
+              isReadOnly: meta.isReadOnly,
+              isView: meta.isView,
+            }),
+          }}
           onClose={closeDocMenu}
         />
       )}

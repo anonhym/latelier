@@ -219,7 +219,7 @@ test('table: Shift+F10 opens the row menu after the wheel scrolled the active ro
     await expect(grid).toBeFocused();
 
     await win.keyboard.press('Shift+F10');
-    await expect(win.getByRole('group', { name: 'Cell actions' })).toBeVisible();
+    await expect(win.getByRole('menu')).toBeVisible();
     await expect(row(0)).toBeInViewport();
   }));
 
@@ -419,13 +419,12 @@ test('tree roving focus: Tab crosses a 50-row page in one stop for the tree plus
       stops.push(here);
     }
 
-    expect(stops).toHaveLength(6);
-    expect(stops.slice(1).map((s) => s.row)).toEqual(Array(5).fill('tree-row-0'));
+    expect(stops).toHaveLength(5);
+    expect(stops.slice(1).map((s) => s.row)).toEqual(Array(4).fill('tree-row-0'));
     expect(stops.slice(1).map((s) => s.label)).toEqual([
       expect.stringMatching(/^Select document /),
       'Expand document',
       expect.stringMatching(/^Edit document /),
-      expect.stringMatching(/^Delete document /),
       expect.stringMatching(/^More actions for document /),
     ]);
 

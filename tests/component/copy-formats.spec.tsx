@@ -305,16 +305,16 @@ describe('the row id and the document menu', () => {
     renderJson();
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'More actions for document …99439011' }));
-    const menu = screen.getByRole('group', { name: 'Document actions' });
-    const labels = within(menu).getAllByRole('button').map((b) => b.textContent);
+    const menu = await screen.findByRole('menu');
+    const labels = within(menu).getAllByRole('menuitem').map((b) => b.textContent);
     expect(labels.slice(0, 2)).toEqual(['Copy document', 'Copy _id']);
 
-    fireEvent.click(within(menu).getByRole('button', { name: 'Copy _id' }));
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy _id' }));
     await settle();
     expect(copied()).toEqual([OID]);
 
     fireEvent.click(screen.getByRole('button', { name: 'More actions for document …99439011' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy document' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy document' }));
     await settle();
     expect(JSON.parse(copied()[1]!).qty).toEqual({ $numberInt: '7' });
   });
@@ -324,8 +324,8 @@ describe('the row id and the document menu', () => {
     render(inWorkspace('JSON', <JsonView documents={[{ name: 'x' }]} />, [{ name: 'x' }]));
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'More actions for document (no _id)' }));
-    expect(screen.queryByRole('button', { name: 'Copy _id' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Copy document' })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: 'Copy document' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Copy _id' })).toBeNull();
   });
 });
 
