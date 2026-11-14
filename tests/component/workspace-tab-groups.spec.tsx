@@ -978,6 +978,7 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
       'Close tab',
       'Close others',
       'Close to the right',
+      'Reopen closed tab',
       'Reveal in sidebar',
     ]);
   });

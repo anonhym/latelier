@@ -213,6 +213,12 @@ export function ShellSection({
             if (!scratchConnectionId) return;
             void tabs.openScript({ connectionId: scratchConnectionId });
           }}
+          canReopen={tabs.closedCount > 0}
+          onReopen={() =>
+            void tabs
+              .reopenClosed((id) => connections.some((c) => c.id === id))
+              .catch((err: unknown) => notify.error(getErrorMessage(err, 'Could not reopen the tab')))
+          }
           onActivate={activate}
           onClose={(id) => void closeTabGuarded(tabs, id)}
           onReorder={(ids) => void tabs.reorder(ids)}

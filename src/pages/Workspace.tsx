@@ -444,6 +444,15 @@ function WorkspaceInner() {
   const activeScriptRef = useLatest(activeScript);
   const tabsRef = useLatest(tabs);
   const focusedConnectionRef = useLatest(focusedConnection);
+  // W01 §14.8: reopens the newest closed tab whose Connection still exists.
+  const knownConnectionsRef = useLatest(connections);
+  const reopenClosedTab = React.useCallback(async () => {
+    try {
+      await tabsRef.current.reopenClosed((id) => knownConnectionsRef.current.some((c) => c.id === id));
+    } catch (err) {
+      notify.error(getErrorMessage(err, 'Could not reopen the tab'));
+    }
+  }, [tabsRef, knownConnectionsRef]);
 
   // "Go to Indexes" / "Go to Schema" from the palette: the Structure view may
   // not be mounted yet when the command runs, so the scroll waits for the
@@ -791,6 +800,15 @@ function WorkspaceInner() {
         },
       },
       {
+        id: 'tab.reopen',
+        title: 'Reopen closed tab',
+        group: 'workspace',
+        shortcut: '⌘⇧T',
+        keywords: ['undo', 'closed', 'restore'],
+        when: () => tabsRef.current.closedCount > 0,
+        perform: () => void reopenClosedTab(),
+      },
+      {
         id: 'tab.pin.toggle',
         title: 'Pin tab',
         group: 'workspace',
@@ -805,9 +823,10 @@ function WorkspaceInner() {
       },
       {
         id: 'shell.toggle',
-        title: 'Shell',
+        title: 'Console',
         group: 'workspace',
-        keywords: ['mongosh', 'repl', 'terminal', 'open', 'close', 'toggle'],
+        shortcut: '⌃`',
+        keywords: ['mongosh', 'repl', 'terminal', 'shell', 'open', 'close', 'toggle'],
         toggle: { checked: shellOpen },
         when: () => focusedConnectionRef.current !== null,
         perform: () => setShellOpen((v) => !v),
@@ -1190,9 +1209,17 @@ function WorkspaceInner() {
       const ids = groupTabsByConnection(tabs.tabs).flatMap((g) =>
         g.tabs.map((t) => t.id),
       );
-      if (e.key === 't') {
+      if (e.key === '`' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+        // The Console (W11 §8.2): from anywhere in the workspace outside a dialog.
+        const origin = e.target instanceof HTMLElement ? e.target : null;
+        if (origin?.closest('[role="dialog"], [role="alertdialog"]') || !focusedConnectionRef.current) return;
         e.preventDefault();
-        setNewTabOpen(true);
+        setShellOpen((v) => !v);
+      } else if (e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        // ⇧ held: the key reads 'T'. ⌘⇧T reopens, ⌘T opens (W01 §14.8).
+        if (e.shiftKey) void reopenClosedTab();
+        else setNewTabOpen(true);
       } else if (e.key === 'b') {
         // A dialog has no ⌘B handler, so the event bubbles here — must not
         // toggle the drawer behind an open modal. `instanceof`, not a cast:
@@ -1227,7 +1254,7 @@ function WorkspaceInner() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tabs, activeCollectionRef, toggleBuilderWithFocus]);
+  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosedTab, focusedConnectionRef]);
 
   const handlePick = async (input: {
     connectionId: string;

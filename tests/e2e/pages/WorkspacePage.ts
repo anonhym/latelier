@@ -34,6 +34,11 @@ export class WorkspacePage {
     await this.win.getByRole('menuitem', { name: 'New script', exact: true }).click();
   }
 
+  /** Closes the tab strip's tab with this label (the label its × names). */
+  async closeTab(label: string) {
+    await this.win.getByRole('button', { name: `Close ${label}`, exact: true }).click();
+  }
+
   /** Treeitem for a database — uses the data-testid baked into the navigator. */
   dbRow(dbName: string) {
     return this.win.locator(`[data-testid="nav-db-${dbName}"]`);

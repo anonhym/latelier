@@ -12,12 +12,13 @@ import type {
 import { DEFAULT_AGGREGATION_TAB_STATE } from '@shared/defaults';
 import type { AggregationSeed, IpcError } from '@shared/ipc';
 import { confirmDestructive } from '../utils/confirm';
-import { api, isIpcError } from '../api/atelier';
+import { api, getErrorMessage, isIpcError } from '../api/atelier';
 import { logFailure } from '../utils/rendererLog';
 import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
 import { keepsPreview, nextScriptTitle } from '../pages/Workspace/tabActions';
+import { closedTabOf, pushClosed, takeClosed, withoutClosed, type ClosedTab } from './closedTabs';
 
 /**
  * Global sticky-default prefs key (T0.5 / W07 §1). Stores the last page size
@@ -92,7 +93,18 @@ export interface WorkspaceTabsState {
     connectionId: string;
     initialState?: Partial<ScriptTabState>;
   }) => Promise<ScriptTab>;
+  /**
+   * Closes one tab. A script tab holding source says so in a toast with Undo,
+   * and every tab closed this way joins the reopen list (W01 §14.8).
+   */
   close: (id: string) => Promise<void>;
+  /** How many closed tabs `reopenClosed` can still bring back (before the Connection check). */
+  closedCount: number;
+  /**
+   * W01 §14.8 — reopens the newest closed tab whose Connection `isLive`, with
+   * its state. False when there was nothing to reopen.
+   */
+  reopenClosed: (isLive: (connectionId: string) => boolean) => Promise<boolean>;
   /**
    * X16 §7 — close one Connection's tabs. This inverts the old
    * `closeAll(keepConnectionId?)`, whose meaning was "close every tab NOT on
@@ -382,13 +394,40 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     [refresh, openTabsNow],
   );
 
+  // W01 §14.8: renderer memory, newest first, capped. A ref for the list (a
+  // close and a reopen read it at call time) and a count for what draws.
+  const closedList = useRef<ClosedTab[]>([]);
+  const [closedCount, setClosedCount] = useState(0);
+  const setClosedList = useCallback((next: ClosedTab[]) => {
+    closedList.current = next;
+    setClosedCount(next.length);
+  }, []);
+  // Set below, once the opens it needs exist: `close`'s Undo calls it.
+  const reopenEntry = useRef<(entry: ClosedTab) => Promise<void>>(() => Promise.resolve());
+
   const close = useCallback(
     async (id: string) => {
       keepTab(id);
+      const closing = openTabsNow().find((t) => t.id === id);
       await api.tabs.close(id);
       await refresh();
+      if (!closing) return;
+      const entry = closedTabOf(closing);
+      setClosedList(pushClosed(closedList.current, entry));
+      // A script is the one thing a user writes freehand and cannot get back.
+      if (entry.kind === 'script' && entry.state.source.trim() !== '') {
+        notify.info('Script tab closed', {
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              setClosedList(withoutClosed(closedList.current, entry));
+              void reopenEntry.current(entry).catch((err) => notify.error(getErrorMessage(err, 'Could not reopen the script tab')));
+            },
+          },
+        });
+      }
     },
-    [refresh, keepTab],
+    [refresh, keepTab, openTabsNow, setClosedList],
   );
 
   const closeForConnection = useCallback(async (connectionId: string) => {
@@ -717,6 +756,39 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     [scheduleFlush],
   );
 
+  const reopen = useCallback(
+    async (entry: ClosedTab) => {
+      if (entry.kind === 'script') {
+        const tab = await openScript({ connectionId: entry.connectionId, initialState: entry.state });
+        if (entry.pinned) await setPinned(tab.id, true);
+        return;
+      }
+      const tab = await openCollection({
+        connectionId: entry.connectionId,
+        dbName: entry.dbName,
+        collection: entry.collection,
+        reuseExisting: false,
+      });
+      patchCollectionState(tab.id, entry.state);
+      if (entry.pinned) await setPinned(tab.id, true);
+    },
+    [openScript, openCollection, setPinned, patchCollectionState],
+  );
+  useEffect(() => {
+    reopenEntry.current = reopen;
+  }, [reopen]);
+
+  const reopenClosed = useCallback(
+    async (isLive: (connectionId: string) => boolean) => {
+      const { entry, rest } = takeClosed(closedList.current, isLive);
+      setClosedList(rest);
+      if (!entry) return false;
+      await reopen(entry);
+      return true;
+    },
+    [setClosedList, reopen],
+  );
+
   return {
     tabs,
     activeId,
@@ -729,6 +801,8 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
     openAggregation,
     openScript,
     close,
+    closedCount,
+    reopenClosed,
     closeForConnection,
     closeForNamespace,
     retargetCollection,
