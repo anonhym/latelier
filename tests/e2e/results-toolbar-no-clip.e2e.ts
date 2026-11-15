@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { MongoClient } from 'mongodb';
 import { baseConnInput, startMemoryServer, stopAllMemoryServers, withApp } from '../helpers/e2eApp';
 import { WorkspacePage } from './pages';
 import { seedActiveConnectionWithDocs } from './helpers/uiSeed';
@@ -314,3 +315,74 @@ test('aggregation bar never clips, and a stage preview does not push the page', 
     });
   });
 });
+
+// A total of 3 characters ("123") and one of 7 ("123,456"): the pager label's reserved
+// room follows the total, so the steps move with it.
+const TOTALS = [123, 123_456];
+
+for (const total of TOTALS) {
+  test(`results toolbar holds every control at pane widths down to 320 (total ${total.toLocaleString()})`, async () => {
+    const server = await startMemoryServer();
+    // Seeded straight into the server: 123,456 documents through the bridge would take minutes.
+    const client = await MongoClient.connect(`mongodb://${server.host}:${server.port}/?directConnection=true`);
+    try {
+      const docs = Array.from({ length: total }, (_, n) => ({ n }));
+      for (let i = 0; i < docs.length; i += 20_000) {
+        await client.db('narrow').collection('orders').insertMany(docs.slice(i, i + 20_000));
+      }
+    } finally {
+      await client.close();
+    }
+    await withApp(async (app) => {
+      const win = await app.firstWindow();
+      await win.waitForLoadState('domcontentloaded');
+      await expectConsoleClean(win, async () => {
+        await seedActiveConnectionWithDocs(
+          win,
+          { ...baseConnInput(server.host, server.port), name: 'Narrow' },
+          { dbName: 'narrow', collection: 'orders', docs: [] },
+        );
+        await expectStatusDot(win, 'Narrow', 'connected');
+        await new WorkspacePage(win).openCollectionFromNavigator('narrow', 'orders');
+        await win.setViewportSize({ width: 1440, height: 900 });
+        const bar = win.getByTestId('result-bar');
+        await expect(bar.getByTestId('page-label')).toContainText(`of ${total.toLocaleString()}`, { timeout: 15_000 });
+
+        // The pane is at least 320 wide; the bar is the pane's width, so it is set to each.
+        for (const width of [320, 470, 520, 560, 700]) {
+          await win.evaluate((w) => {
+            const el = document.querySelector<HTMLElement>('[data-testid="result-bar"]')!;
+            el.style.width = `${w}px`;
+            el.style.alignSelf = 'flex-start';
+          }, width);
+          await win.waitForTimeout(250);
+          const read = await win.evaluate(() => {
+            const el = document.querySelector<HTMLElement>('[data-testid="result-bar"]')!;
+            const box = el.getBoundingClientRect();
+            const inside = (r: DOMRect) => r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1;
+            const controls: Record<string, boolean> = {};
+            for (const name of ['Insert document', 'Next page', 'More actions', 'Previous page']) {
+              controls[name] = inside(el.querySelector(`[aria-label="${name}"]`)!.getBoundingClientRect());
+            }
+            controls['page-label'] = inside(el.querySelector('[data-testid="page-label"]')!.getBoundingClientRect());
+            return { width: box.width, overflow: el.scrollWidth - el.clientWidth, controls };
+          });
+          const label = `${total} at ${width}`;
+          expect(read.width, `${label}: bar width`).toBe(width);
+          expect(read.overflow, `${label}: bar overflow`).toBeLessThanOrEqual(1);
+          expect(read.controls, `${label}: controls inside the bar`).toEqual({
+            'Insert document': true,
+            'Next page': true,
+            'More actions': true,
+            'Previous page': true,
+            'page-label': true,
+          });
+          for (const name of ['Insert document', 'Next page']) {
+            await expect(bar.getByLabel(name, { exact: true }), `${label}: ${name}`).toBeVisible();
+          }
+          await expect(bar.getByTestId('page-label'), `${label}: page label`).toBeVisible();
+        }
+      });
+    });
+  });
+}

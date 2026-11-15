@@ -64,7 +64,7 @@ function renderBar(overrides: BarStateOverride = {}) {
 describe('ResultBar - page label', () => {
   it('reserves room for the widest range this total reaches, so Next and Last hold still', () => {
     renderBar({ page: 0, pageSize: 50, totalCount: 120_000, docCount: 50 });
-    expect(screen.getByTestId('page-label').style.minWidth).toBe('max(48px, 26ch)');
+    expect(screen.getByTestId('page-label').style.minWidth).toBe('169px');
   });
 
   it.each([
@@ -72,9 +72,23 @@ describe('ResultBar - page label', () => {
     [{ page: 1, pageSize: 50, totalCount: 60, docCount: 10 }, '51–60 of 60'],
     [{ page: 0, pageSize: 50, totalCount: 0, docCount: 0 }, '0 of 0'],
     [{ page: 0, pageSize: 50, docCount: 50, hasMore: true }, '1–50'],
+    // Empty with no count back: nothing matched, so the total is known.
+    [{ page: 0, pageSize: 50, docCount: 0 }, '0 of 0'],
   ])('reads %j as "%s"', (props, text) => {
     renderBar(props);
     expect(screen.getByTestId('page-label').textContent).toBe(text);
+  });
+});
+
+describe('ResultBar - uncounted total', () => {
+  it('counts "50+" on the first page and the range end on a later one', () => {
+    renderBar({ page: 0, pageSize: 50, docCount: 50, hasMore: true });
+    expect(screen.getByTestId('result-count-slot').textContent).toContain('50+ documents');
+  });
+
+  it('uses the range end, not this page\'s own count, as the lower bound', () => {
+    renderBar({ page: 2, pageSize: 50, docCount: 50, hasMore: true });
+    expect(screen.getByTestId('result-count-slot').textContent).toContain('150+ documents');
   });
 });
 

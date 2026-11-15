@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip } from '@mantine/core';
+import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -11,13 +11,14 @@ import { DEFAULT_VIEW_PREF_KEY } from '../../state/workspaceTabs';
 import { ExportDialog } from './ExportDialog';
 import { consumeTabRequest, tabRequested, subscribeTabRequests } from './tabRequest';
 import { ImportDialog } from './ImportDialog';
-import { canvasHeaderLayout } from './toolbarLayout';
+import { canvasHeaderLayout, totalLabelText } from './toolbarLayout';
 import { ResultStatus } from './ResultStatus';
 import { runUndo, useLatestUndo } from './undoStore';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
 
 const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
+const VIEW_ICONS: Record<ResultViewMode, React.ReactNode> = { Table: I.table, Tree: I.tree, JSON: I.json };
 
 /**
  * The canvas header (W06 §8.1), a 28px row above the results:
@@ -63,7 +64,13 @@ export function ResultBar({ references }: ResultBarProps = {}) {
 
   const undo = useLatestUndo(meta);
   const [barRef, barWidth] = useElementWidth<HTMLDivElement>();
-  const layout = canvasHeaderLayout(barWidth, references !== undefined);
+  // The pager label's width follows the total's length; nothing else of the run reaches the layout.
+  const rangeEnd = state.page * state.pageSize + (docCount ?? 0);
+  const layout = canvasHeaderLayout(
+    barWidth,
+    references !== undefined,
+    totalLabelText(state.totalCount, rangeEnd, !!state.lastRunHasMore),
+  );
 
   // Choosing a view also makes it the default for tabs opened afterwards (W06 §8.1).
   const chooseView = (v: ResultViewMode) => {
@@ -96,11 +103,21 @@ export function ResultBar({ references }: ResultBarProps = {}) {
         size="xs"
         value={view}
         onChange={(v) => chooseView(v as ResultViewMode)}
-        data={VIEWS.map((v) => ({ label: v, value: v }))}
+        data={VIEWS.map((v) => ({
+          value: v,
+          label: layout.compactViews ? (
+            <span title={v} style={{ display: 'inline-flex', verticalAlign: 'middle' }}>
+              {VIEW_ICONS[v]}
+              <VisuallyHidden>{v}</VisuallyHidden>
+            </span>
+          ) : (
+            v
+          ),
+        }))}
         styles={{ label: { paddingBlock: 1 } }}
         style={{ flexShrink: 0 }}
       />
-      <ResultStatus pagerEnds={layout.pagerEnds} />
+      <ResultStatus layout={layout} />
 
       <Group gap={layout.iconControls ? 6 : 8} wrap="nowrap" style={{ flexShrink: 0, marginLeft: 'auto' }}>
         {references && (
