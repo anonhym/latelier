@@ -87,6 +87,9 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       }).toPass({ timeout: 8000 });
       // The palette reopens on its last query, selected, so typing replaces it.
       await expect(search).toHaveValue('new connection');
+      // Typing into a field that is not focused yet makes Playwright focus it
+      // and put the caret at the start; wait for the dialog to move focus in.
+      await expect(search).toBeFocused();
       await search.pressSequentially('dark mode');
       await expect(search).toHaveValue('dark mode');
       const darkMode = palette.getByRole('option', { name: /^Dark mode/ });
