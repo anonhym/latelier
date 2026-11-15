@@ -100,6 +100,16 @@ describe('findCode', () => {
     expect(((runJs(out).args as [unknown[]])[0][0] as { f: unknown }).f).toEqual(EJSON.parse(code, { relaxed: false }));
   });
 
+  it('mongosh: a user string that spells the fallback placeholder stays that string', () => {
+    const re = '{"$regularExpression":{"pattern":"a/b","options":""}}';
+    for (const s of ['\\u0000sentinel0', '\\u0000sentinel9', '\\u0000sentinel1x0']) {
+      const out = findCode('mongosh', { ...base, filter: `{"n":${re},"s":"${s}"}` });
+      const filter = (runJs(out).args as [Record<string, unknown>[]])[0][0]!;
+      expect(filter.s).toBe(JSON.parse(`"${s}"`));
+      expect(filter.n).toEqual(EJSON.parse(re, { relaxed: false }));
+    }
+  });
+
   it('writes an int32 and a fractional double bare, which every driver sends as that type', () => {
     const filter =
       '{"i":{"$numberInt":"-12"},"f":{"$numberDouble":"1.5"},"d":{"$numberDouble":"2.0"},"n":{"$numberDouble":"NaN"},"x":{"$numberInt":"1e3"}}';
