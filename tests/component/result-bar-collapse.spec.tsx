@@ -68,8 +68,8 @@ afterEach(() => {
 
 describe('ResultBar collapses by width alone', () => {
   it.each([
-    [700, 'label'],
-    [699, 'icon'],
+    [669, 'label'],
+    [668, 'icon'],
   ])('at %i px every state keeps the same control forms', (width, form) => {
     giveBarWidth(width);
     const { rerender } = render(bar(barState()));
@@ -83,10 +83,9 @@ describe('ResultBar collapses by width alone', () => {
     rerender(bar(barState(), true));
     expect(controlForms()).toEqual(fresh);
 
-    rerender(bar(barState({ lastRun: undefined, totalCount: undefined })));
-    expect(controlForms()).toEqual(fresh);
-
-    rerender(bar(barState({ lastRun: { ...RUN, documents: new Array(3).fill({}) }, totalCount: 3 })));
+    // A new result with a total as long as the old one: only a longer or shorter total
+    // changes the pager label's width, and so the step.
+    rerender(bar(barState({ totalCount: 99 })));
     expect(controlForms()).toEqual(fresh);
   });
 
@@ -100,12 +99,21 @@ describe('ResultBar collapses by width alone', () => {
     }
   });
 
-  it('Table, Tree and JSON keep their words at every width, in that order', () => {
-    giveBarWidth(320);
+  it('Table, Tree and JSON show their words while there is room, in that order', () => {
+    giveBarWidth(700);
     render(bar(barState()));
     const views = within(screen.getByRole('radiogroup')).getAllByRole('radio').map((r) => r.getAttribute('value'));
     expect(views).toEqual(['Table', 'Tree', 'JSON']);
     for (const view of ['Tree', 'JSON', 'Table']) expect(screen.getByText(view)).toBeTruthy();
+  });
+
+  it('at the narrowest pane the view switch is icons, and each radio keeps its name', () => {
+    giveBarWidth(320);
+    render(bar(barState()));
+    const group = within(screen.getByRole('radiogroup'));
+    expect(group.getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['Table', 'Tree', 'JSON']);
+    for (const name of ['Table', 'Tree', 'JSON']) expect(group.getByRole('radio', { name })).toBeTruthy();
+    expect(screen.getByTestId('result-bar').querySelectorAll('[class*="SegmentedControl-label"] svg')).toHaveLength(3);
   });
 
   it.each([
@@ -156,23 +164,37 @@ describe('ResultBar collapses by width alone', () => {
     expect(screen.getByTestId('status-bar').contains(slot)).toBe(false);
   });
 
-  it('the result bar is one 28px row at the narrowest pane, and the pager keeps Previous, Next and the page size', () => {
+  it('the result bar is one 28px row at the narrowest pane, and the pager keeps Previous, Next and its label', () => {
     giveBarWidth(320);
     render(bar(barState()));
     const header = screen.getByTestId('result-bar');
     expect(header.style.height).toBe('28px');
     expect(header.style.getPropertyValue('--group-wrap')).toBe('nowrap');
     for (const name of ['Previous page', 'Next page']) expect(within(header).getByRole('button', { name })).toBeTruthy();
-    expect(within(header).getByRole('combobox', { name: 'Rows per page' })).toBeTruthy();
+    expect(within(header).getByTestId('page-label').textContent).toBe('1–50 of 60');
+    expect(within(header).queryByRole('combobox', { name: 'Rows per page' })).toBeNull();
     expect(within(header).queryByRole('button', { name: 'First page' })).toBeNull();
     expect(within(header).queryByRole('button', { name: 'Last page' })).toBeNull();
     expect(within(screen.getByTestId('status-bar')).queryByRole('button', { name: 'Next page' })).toBeNull();
   });
 
-  it('from 520 px the pager has First and Last as well', () => {
-    giveBarWidth(520);
+  it('the pager has First and Last from 535 px', () => {
+    giveBarWidth(535);
     render(bar(barState()));
     const header = screen.getByTestId('result-bar');
     for (const name of ['First page', 'Last page']) expect(within(header).getByRole('button', { name })).toBeTruthy();
+  });
+
+  it('below 535 px First and Last go, and the page size stays down to 435 px', () => {
+    giveBarWidth(534);
+    render(bar(barState()));
+    expect(within(screen.getByTestId('result-bar')).queryByRole('button', { name: 'First page' })).toBeNull();
+    expect(within(screen.getByTestId('result-bar')).getByRole('combobox', { name: 'Rows per page' })).toBeTruthy();
+  });
+
+  it('the page size hides below 435 px', () => {
+    giveBarWidth(434);
+    render(bar(barState()));
+    expect(within(screen.getByTestId('result-bar')).queryByRole('combobox', { name: 'Rows per page' })).toBeNull();
   });
 });

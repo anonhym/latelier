@@ -13,16 +13,16 @@ import { formatElapsed, runProblem, stripText } from './optionPills';
 import { isResultStale } from './resultPaneState';
 import { useRunClock } from './runClock';
 import { LIMIT_EXPLANATION, limitChipText } from './queryCaps';
-import { statusCountLayout } from './toolbarLayout';
+import { pageLabelWidth, statusCountLayout, totalLabelText, type CanvasHeaderLayout } from './toolbarLayout';
 
 const PAGE_SIZE_DATA = PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: String(n) }));
 
 /**
  * The Documents view's count, plan badge and pager (W07 §7): the middle of the
- * result bar, right above the rows they describe. `pagerEnds` is the bar's
- * layout step: First and Last give way before Previous, Next and the page size.
+ * result bar, right above the rows they describe. `layout` is the bar's step:
+ * First and Last, then the page size, then the label's reserved room give way.
  */
-export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
+export function ResultStatus({ layout: bar }: { layout: CanvasHeaderLayout }) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
   const lastRun = state.lastRun;
@@ -76,14 +76,18 @@ export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
   const nextReason = isLoading ? busy : 'No more results';
   const lastReason = isLoading ? busy : onLastPage ? 'No more results' : 'The total is still being counted';
 
-  const totalLabel = `${(totalCount ?? docCount ?? 0).toLocaleString()}${hasMore && totalCount === undefined ? '+' : ''}`;
+  // An uncounted total is a lower bound: the end of the range, not this page's own count.
+  const totalLabel = totalLabelText(totalCount, end ?? 0, !!hasMore);
   const rangeLabel =
     start !== null && end !== null && docCount !== 0 ? `${start.toLocaleString()}–${end.toLocaleString()}` : null;
-  // Where the user is in the result. An unknown total leaves the range alone.
+  // Where the user is in the result. An unknown total leaves the range alone,
+  // except when empty: nothing matched, so "0 of 0" is known.
   const pagerLabel =
     docCount === null
       ? '–'
-      : (rangeLabel ?? '0') + (totalCount !== undefined ? ` of ${totalLabel}` : '');
+      : docCount === 0 && totalCount === undefined
+        ? '0 of 0'
+        : (rangeLabel ?? '0') + (totalCount !== undefined ? ` of ${totalLabel}` : '');
   const noun = (totalCount ?? docCount) === 1 && !hasMore ? 'document' : 'documents';
 
   // Patch + re-run with the same override so `run` doesn't close over a stale `page`.
@@ -219,16 +223,21 @@ export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
       </div>
 
       {/* Pager — first · prev · P/T · next · last · rows per page */}
-      <Group gap={0} wrap="nowrap" style={{ flexShrink: 0 }}>
-        {pagerEnds && (
+      <Group gap={0} wrap="nowrap" style={{ flex: '0 1 auto', minWidth: 0 }}>
+        {bar.pagerEnds && (
           <PagerButton label="First page" reason={backReason} enabled={canPrev} onClick={() => goToPage(0)} icon={I.chevLL} />
         )}
         <PagerButton label="Previous page" reason={backReason} enabled={canPrev} onClick={() => goToPage(page - 1)} icon={I.chevL} />
-        {/* Room for "999,999–999,999 of 999,999", the widest this total reaches, so Next and Last hold still. */}
+        {/* Room for the widest label this total reaches, so Next and Last hold still.
+            At the narrowest bar the reservation goes and the label itself truncates,
+            never the buttons beside it. */}
         <span
           data-testid="page-label"
           style={{
-            minWidth: `max(48px, ${3 * totalLabel.length + 5}ch)`,
+            flex: '0 1 auto',
+            minWidth: bar.labelReserve ? pageLabelWidth(totalLabel) : 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
             textAlign: 'center',
             color: T.text,
             fontVariantNumeric: 'tabular-nums',
@@ -237,7 +246,7 @@ export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
           {pagerLabel}
         </span>
         <PagerButton label="Next page" reason={nextReason} enabled={canNext} onClick={() => goToPage(page + 1)} icon={I.chevR} />
-        {pagerEnds && (
+        {bar.pagerEnds && (
           <PagerButton
             label="Last page"
             reason={lastReason}
@@ -248,6 +257,7 @@ export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
         )}
         {/* `keepMounted: false` unmounts the option list while closed, so its
             numeric labels never collide with text locators elsewhere. */}
+        {bar.pageSize && (
         <Tooltip label="Rows per page" withArrow openDelay={400}>
           <Select
             size="xs"
@@ -264,6 +274,7 @@ export function ResultStatus({ pagerEnds }: { pagerEnds: boolean }) {
             style={{ width: 52, flexShrink: 0, marginLeft: 4 }}
           />
         </Tooltip>
+        )}
       </Group>
     </>
   );
@@ -292,6 +303,7 @@ function PagerButton({
         color="gray"
         size="sm"
         onClick={() => enabled && onClick()}
+        style={{ flexShrink: 0 }}
         data-disabled={!enabled || undefined}
         aria-disabled={!enabled || undefined}
         aria-label={label}
