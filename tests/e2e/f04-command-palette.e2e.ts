@@ -39,6 +39,9 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       // (never while open, which would toggle it shut).
       await expect(async () => {
         if (!(await palette.isVisible())) {
+          // Off macOS a Ctrl+K typed in a text field stays the field's, and the
+          // welcome field can autofocus after an earlier blur: blur on every try.
+          await win.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
           await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
         }
         await expect(palette).toBeVisible({ timeout: 1000 });
@@ -75,6 +78,9 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       // The same lost-⌘K retry as the first open.
       await expect(async () => {
         if (!(await palette.isVisible())) {
+          // Off macOS a Ctrl+K typed in a text field stays the field's, and the
+          // welcome field can autofocus after an earlier blur: blur on every try.
+          await win.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
           await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
         }
         await expect(palette).toBeVisible({ timeout: 1000 });
