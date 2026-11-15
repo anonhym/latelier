@@ -12,7 +12,7 @@ import { ExportDialog } from './ExportDialog';
 import { consumeTabRequest, tabRequested, subscribeTabRequests } from './tabRequest';
 import { ImportDialog } from './ImportDialog';
 import { canvasHeaderLayout } from './toolbarLayout';
-import { ResultStatus } from './StatusBar';
+import { ResultStatus } from './ResultStatus';
 import { runUndo, useLatestUndo } from './undoStore';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
@@ -22,10 +22,10 @@ const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
 /**
  * The canvas header (W06 §8.1), a 28px row above the results:
  *
- *   [Table|Tree|JSON]                              References · ⋯ · + Insert
+ *   [Table|Tree|JSON]  500 documents · 39 ms  ‹‹ ‹ 1–25 of 500 › ››  [25▾]   References · ⋯ · + Insert
  *
- * The count, plan badge and pager are the status bar's (`ResultStatus`,
- * portalled from here so they read the same tab). Reads everything off the
+ * The count, plan badge and pager (`ResultStatus`) sit between the view switch
+ * and the right-hand group, above the rows they describe. Reads everything off the
  * collection-workspace context, so any provider can render it.
  */
 interface ResultBarProps {
@@ -100,7 +100,7 @@ export function ResultBar({ references }: ResultBarProps = {}) {
         styles={{ label: { paddingBlock: 1 } }}
         style={{ flexShrink: 0 }}
       />
-      <ResultStatus />
+      <ResultStatus pagerEnds={layout.pagerEnds} />
 
       <Group gap={layout.iconControls ? 6 : 8} wrap="nowrap" style={{ flexShrink: 0, marginLeft: 'auto' }}>
         {references && (

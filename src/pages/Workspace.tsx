@@ -1879,9 +1879,8 @@ function WorkspaceInner() {
         connectErrors={navigatorTree.connectErrors}
       />
 
-      {/* After Main in the DOM, so Tab and a screen reader reach the results
-          before the pager; the grid draws it at the bottom either way. Not on
-          the welcome canvas: with nothing saved there is nothing to state. */}
+      {/* After Main in the DOM; the grid draws it at the bottom either way. Not
+          on the welcome canvas: with nothing saved there is nothing to state. */}
       {connections.length > 0 && (
         <AppShell.Footer aria-label="Status bar">
           <StatusBar connection={focusedConnection} />

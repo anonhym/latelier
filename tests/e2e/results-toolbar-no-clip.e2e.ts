@@ -118,10 +118,14 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         expect(fresh.overflow, `${width}: bar overflow`).toBeLessThanOrEqual(0);
         expect(fresh.clipped, `${width}: clipped`).toEqual([]);
         expect(fresh.barHeight, `${width}: one row`).toBe(28);
-        // The count and pager are the status bar's (W01 §14.6): it never clips either.
+        // The count and pager sit in this row (W01 §14.6): the pager's buttons are in the read above.
+        for (const name of ['Previous page', 'Next page', 'Rows per page']) {
+          await expect(win.getByTestId('result-bar').getByLabel(name, { exact: true }).first(), `${width}: ${name}`).toBeVisible();
+        }
+        // The status bar keeps the connection and nothing of the results.
+        await expect(win.getByTestId('status-bar').getByTestId('page-label'), `${width}: pager in status bar`).toHaveCount(0);
         const status = await readBar(win, 'status-bar');
         expect(status.overflow, `${width}: status bar overflow`).toBeLessThanOrEqual(0);
-        expect(status.clipped, `${width}: status bar clipped`).toEqual([]);
         expect(status.barHeight, `${width}: status bar height`).toBeLessThanOrEqual(24);
         expect(await countIsCut(win), `${width}: count cut`).toBe(false);
         await expectQueryRowWhole(win, `${width}`);
@@ -131,7 +135,6 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
         const stale = await readBar(win, 'result-bar');
         expect(stale.clipped, `${width}: clipped when stale`).toEqual([]);
         expect(stale.left, `${width}: stale moved a control`).toEqual(fresh.left);
-        expect((await readBar(win, 'status-bar')).left, `${width}: stale moved the pager`).toEqual(status.left);
         expect(await countIsCut(win), `${width}: count cut when stale`).toBe(false);
         await expectQueryRowWhole(win, `${width} stale`, true);
         // From the default window up there is room to say it whole.
@@ -141,7 +144,7 @@ test('results toolbar never clips, and a stale query changes nothing about it', 
             text: el.scrollWidth,
             box: el.clientWidth,
             slot: el.parentElement?.clientWidth,
-            bar: el.closest('[data-testid="status-bar"]')?.clientWidth,
+            bar: el.closest('[data-testid="result-bar"]')?.clientWidth,
             font: `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`,
           };
         });
@@ -167,7 +170,7 @@ test('the page-reset hint beside Run leaves the filter its room at 960', async (
       await win.waitForTimeout(300);
       // 60 docs at 50 a page: page 2, then an edit that would send Run back to page 1.
       await win.getByRole('button', { name: 'Next page', exact: true }).click();
-      await expect(win.getByTestId('status-bar')).toContainText('51–60 of 60', { timeout: 8000 });
+      await expect(win.getByTestId('result-bar')).toContainText('51–60 of 60', { timeout: 8000 });
       await win.getByTestId('query-bar-input').fill('{"n":{"$gte":0}}');
       await expect(win.getByTestId('page-reset-hint')).toBeVisible();
       await expectQueryRowWhole(win, '960 page-reset hint');

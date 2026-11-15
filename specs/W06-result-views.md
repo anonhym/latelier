@@ -163,7 +163,7 @@ A 28px header replaces the result toolbar.
 - **Right**: `References` (icon and count; drawn when the collection has rules, or on hover and focus), a `⋯` menu, then `+ Insert`.
 - **`⋯`** (accessible name `More actions`) replaces the `Documents ▾` menu, whose name was also the name of the view. Two labelled groups: **Bulk actions** — `Update matching…`, `Delete matching…`; **Data** — `Export…`, `Import…`. A third item, `Undo last change`, appears while an undo is still valid ([X13 §13](./X13-operation-audit-log.md)).
 - **`+ Insert`** is a default (outline) button. Filled, it was the most prominent control in a read-mostly view, twenty pixels under Run.
-- The pager is in the status bar ([W07 §7](./W07-pagination.md)); projection is a pill in the Filter Bar row ([W05 §9.2](./W05-query-bar.md)).
+- The count, plan badge and pager sit on this row, between the view switch and References ([W07 §7](./W07-pagination.md)); projection is a pill in the Filter Bar row ([W05 §9.2](./W05-query-bar.md)).
 - The permanent selection hint row of §5 is removed.
 
 ### 8.2 Results that are not current
@@ -173,7 +173,7 @@ Supersedes §5's "the rows stay, dimmed, the count says not current".
 - A 28px warning strip at the top of the canvas: `These results are from the previous filter.` with a `Run ⌘↵` text button. When the query cannot run as written, the button is absent and the Filter Bar's error strip gives the reason.
 - While a query is running over earlier rows, the strip reads `Previous results`.
 - The rows stay at **full contrast**. At 45% opacity a stale table read as a disabled or broken one, and in the dark theme dimmed text over a dark surface fell below a readable contrast.
-- The status bar's count carries a warning dot.
+- The result bar's count carries a warning dot.
 
 ### 8.3 Selection
 

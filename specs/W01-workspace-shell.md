@@ -254,7 +254,7 @@ A review of the shipped shell found the location stated in six places (Switcher 
 | View header | 36 | Documents / Aggregation / Schema & indexes, collection figures |
 | Filter Bar row | 44 | [W05 §9](./W05-query-bar.md) |
 | Canvas header | 28 | [W06 §8](./W06-result-views.md) |
-| Status bar | 24 | connection, last run, pager |
+| Status bar | 24 | connection |
 
 The navigator's default width is 240px. Above the first row that is 180px instead of about 220, with no hint row.
 
@@ -299,12 +299,15 @@ Keeps the tablist semantics of §7's "Collection view strip" (`aria-label="Colle
 
 ### 14.6 Status bar
 
-A 24px band along the bottom of the window (`aria-label="Status bar"`), hidden on the welcome canvas.
+A 24px band along the bottom of the window (`aria-label="Status bar"`), hidden on the welcome canvas. It holds the Focused Tab's Connection and nothing else: `● {connection} · {host} · v{version}`, with a `Read-only` badge when set. The version shows only while connected.
 
-- **Left**: `● {connection} · {host} · v{version}` for the Focused Tab's Connection, with a `Read-only` badge when set. The version shows only while connected.
-- **Middle**, for a collection tab on Documents: the last run as `{n} documents · {ms} ms`, then the plan badge (`1 document` when the total is 1; `0 documents · {ms} ms` when empty; an uncounted total reads `6,382+`). The count has one form at every width; the range is not repeated here, the pager at the right end holds it as `{a}–{b} of {n}`. In a narrow bar the plan badge is what gives way. The plan badge moves here from the result bar; activating it opens the plan in the Inspector ([W05 §9.7](./W05-query-bar.md)). While a query runs it reads `Running · {elapsed}`; after a cancel, `Cancelled after {elapsed}` for a few seconds. When the results are not current the count carries a warning dot.
-- **Right**: the pager ([W07 §7](./W07-pagination.md)): its label reads `{a}–{b} of {n}`.
-- On a script or server tab, and on the Aggregation and Schema & indexes views, the middle and right are empty.
+The last run's count, the plan badge and the pager are not here. They sit on the result bar (§14.5, [W06 §8.1](./W06-result-views.md)), the 28px row right above the rows they describe, between the view switch and the right-hand controls:
+
+`[Table|Tree|JSON]  {n} documents · {ms} ms  [plan badge]   ‹‹ ‹ {a}–{b} of {n} › ››  [25 ▾]   References · ⋯ · + Insert`
+
+- **Count**: the last run as `{n} documents · {ms} ms` (`1 document` when the total is 1; `0 documents · {ms} ms` when empty; an uncounted total reads `6,382+`). It has one form at every width; the range is not repeated, the pager holds it as `{a}–{b} of {n}`. It is the row's one flexible part: it truncates before any control moves, and the plan badge is what gives way first. Activating the plan badge opens the plan in the Inspector ([W05 §9.7](./W05-query-bar.md)). While a query runs it reads `Running · {elapsed}`; after a cancel, `Cancelled after {elapsed}` for a few seconds. When the results are not current the count carries a warning dot.
+- **Pager** ([W07 §7](./W07-pagination.md)): its label reads `{a}–{b} of {n}`. Below 520px the row drops First and Last; Previous, Next and the page size always stay.
+- On a script or server tab, and on the Aggregation and Schema & indexes views, there is no result bar, so none of this shows.
 
 ### 14.7 A Connection open, no tab
 
@@ -373,7 +376,7 @@ A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections
 - The group chip is absent with one Connection's tabs open and present with two.
 - `+ ▾` offers Open collection, New script and New aggregation; the last is disabled without a collection tab.
 - The view tabs read Documents, Aggregation, Schema & indexes; a tab stored with `activeView: 'structure'` opens on Schema & indexes.
-- The status bar shows the Connection, the last run with its duration, and the pager; it shows `Running · {elapsed}` during a run.
+- The status bar shows the Connection. The result bar shows the last run with its duration and the pager, and `Running · {elapsed}` during a run.
 - ⌘⇧T reopens the most recently closed tab with its filter or source; the toast's Undo does the same for a script tab.
 - A single click on a second navigator collection replaces the preview tab; editing the filter keeps it.
 - After a relaunch the Focused Tab runs once and focus is in its filter.
@@ -382,5 +385,5 @@ A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections
 ### 14.14 Test cases
 
 - **Unit**: the tab label rule (bare name, `database.collection` on a clash, back again); the next script title; the closed-tab list (cap of ten, newest first, entries of a deleted Connection dropped); the breadcrumb model for each state (collection, script, server, no tab, no open Connection, none saved).
-- **Component**: breadcrumb segments and their dropdowns; the no-tab canvas; the group chip appearing with a second Connection; `+ ▾`; the view header labels and ⌥1–3 (ignored in a text field); the status bar's three regions and its running state; reopen from the menu, the key and the toast; the preview tab being replaced, and kept by an edit; ⌘B and ⌘⇧B, each inert under a dialog.
+- **Component**: breadcrumb segments and their dropdowns; the no-tab canvas; the group chip appearing with a second Connection; `+ ▾`; the view header labels and ⌥1–3 (ignored in a text field); the status bar's Connection, and the result bar's count, pager and running state; reopen from the menu, the key and the toast; the preview tab being replaced, and kept by an edit; ⌘B and ⌘⇧B, each inert under a dialog.
 - **E2E**: connect, open two same-named collections from two databases and read both tab labels; browse three collections by single click and end with one tab; close a script tab and reopen it with its source; relaunch and find the Focused Tab run and the filter focused.

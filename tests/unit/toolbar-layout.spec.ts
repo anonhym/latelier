@@ -3,24 +3,34 @@ import { canvasHeaderLayout, statusCountLayout } from '../../src/pages/Workspace
 
 describe('canvasHeaderLayout', () => {
   it.each([
-    [320, false],
-    [319, true],
-    [240, true],
+    [700, false],
+    [699, true],
+    [520, true],
   ])('at %i px, icons: %s', (width, iconControls) => {
-    expect(canvasHeaderLayout(width)).toEqual({ iconControls });
+    expect(canvasHeaderLayout(width).iconControls).toBe(iconControls);
   });
 
   // The References button shifts the step by its own width.
   it.each([
-    [461, false],
-    [460, true],
+    [841, false],
+    [840, true],
   ])('with References, at %i px, icons: %s', (width, iconControls) => {
-    expect(canvasHeaderLayout(width, true)).toEqual({ iconControls });
+    expect(canvasHeaderLayout(width, true).iconControls).toBe(iconControls);
+  });
+
+  // The pager's First and Last go before anything else of the pager does.
+  it.each([
+    [520, true],
+    [519, false],
+    [320, false],
+  ])('at %i px, pager ends: %s', (width, pagerEnds) => {
+    expect(canvasHeaderLayout(width).pagerEnds).toBe(pagerEnds);
+    expect(canvasHeaderLayout(width, true).pagerEnds).toBe(pagerEnds);
   });
 
   it('with no measured width (no layout), keeps the labels', () => {
-    expect(canvasHeaderLayout(null)).toEqual({ iconControls: false });
-    expect(canvasHeaderLayout(null, true)).toEqual({ iconControls: false });
+    expect(canvasHeaderLayout(null)).toEqual({ iconControls: false, pagerEnds: true });
+    expect(canvasHeaderLayout(null, true)).toEqual({ iconControls: false, pagerEnds: true });
   });
 
   // The rule is enforced by the signature: nothing about the query can reach it.

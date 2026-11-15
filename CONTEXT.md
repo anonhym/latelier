@@ -36,7 +36,7 @@ The breadcrumb in the title bar — Connection, Database, Collection — stating
 _Avoid_: switcher pill, header breadcrumb
 
 **Status Bar**:
-The band along the bottom of the Data View: the Focused Tab's Connection, the last Run (count, duration, plan) and the pager.
+The band along the bottom of the Data View: the Focused Tab's Connection and nothing else. The last Run (count, duration, plan) and the pager are on the result bar above the rows.
 
 **Inspector**:
 The right-hand panel of a Collection tab, closed by default. It hosts the Query Builder and the query plan, one at a time. It never hosts document editing; that is the Document Editor.
