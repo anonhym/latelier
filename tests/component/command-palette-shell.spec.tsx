@@ -71,6 +71,39 @@ describe('<CommandPalette>', () => {
     expect(screen.queryByRole('dialog')).not.toBeTruthy();
   });
 
+  // ⌘K works anywhere (X07), so a focused field must not swallow it (#787).
+  it.each([
+    ['a textarea (the Filter)', () => document.createElement('textarea')],
+    ['an input', () => document.createElement('input')],
+    // contenteditable (CodeMirror) is covered in e2e: jsdom does not implement
+    // `isContentEditable`, so a case here would pass with or without the fix.
+  ])('opens on ⌘K while %s has focus', (_label, make) => {
+    render(harness(<RegisterTest perform={() => {}} />));
+    const field = make();
+    document.body.appendChild(field);
+    field.focus();
+    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+    act(() => {
+      field.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'k', bubbles: true, cancelable: true, metaKey: isMac, ctrlKey: !isMac,
+      }));
+    });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    field.remove();
+  });
+
+  it('⌘K pressed in the open palette closes it', async () => {
+    render(harness(<RegisterTest perform={() => {}} />));
+    act(() => dispatchToggle());
+    const search = screen.getByLabelText('Search commands');
+    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+    act(() => {
+      fireEvent.keyDown(search, { key: 'k', metaKey: isMac, ctrlKey: !isMac });
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole('dialog')).not.toBeTruthy();
+  });
+
   it('renders registered commands and filters on substring', () => {
     render(harness(<RegisterTest perform={() => {}} />));
     act(() => dispatchToggle());

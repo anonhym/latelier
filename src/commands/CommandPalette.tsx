@@ -956,6 +956,14 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   // the palette answers is bound on it.
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
+    // ⌘K toggles (X07). Spotlight's own shortcut only ever opens, so close
+    // here and keep the keydown from reaching that document-level listener.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      e.stopPropagation();
+      paletteControls.close();
+      return;
+    }
     if (inStep) {
       onStepKeyDown(e);
       return;
@@ -1520,6 +1528,12 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
         data-command-palette
         store={paletteStore}
         shortcut="mod + K"
+        // ⌘K works anywhere (X07), including from the Filter textarea, inputs
+        // and the CodeMirror editors. Mantine's defaults drop it from INPUT,
+        // TEXTAREA, SELECT and contenteditable, which left the palette dead
+        // whenever a field had focus.
+        tagsToIgnore={[]}
+        triggerOnContentEditable
         // The last query comes back on the next open (X07 §13.3).
         clearQueryOnClose={false}
         onSpotlightClose={onPaletteClose}
