@@ -72,8 +72,13 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
         }).atelier.prefs.getTheme();
       });
 
-      await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
-      await expect(palette).toBeVisible({ timeout: 4000 });
+      // The same lost-⌘K retry as the first open.
+      await expect(async () => {
+        if (!(await palette.isVisible())) {
+          await win.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+        }
+        await expect(palette).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 8000 });
       // The palette reopens on its last query, selected, so typing replaces it.
       await expect(search).toHaveValue('new connection');
       await search.pressSequentially('dark mode');

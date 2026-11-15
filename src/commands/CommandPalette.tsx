@@ -761,7 +761,10 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
   }, [recordRecentRef]);
 
   const inputRef = React.useRef<HTMLInputElement>(null);
-  // The last query comes back selected, so typing replaces it.
+  // The last query comes back selected, so typing replaces it. Until the user
+  // edits it, every focus selects it again: the modal moves focus in after
+  // mount, and that focus can drop the selection, leaving the caret at the start.
+  const editedRef = React.useRef(false);
   React.useEffect(() => {
     inputRef.current?.select();
   }, []);
@@ -1070,9 +1073,13 @@ function PaletteContent({ onClose, recentIds, recordRecent, initialScope, histor
       <input
         ref={inputRef}
         data-autofocus
+        onFocus={(e) => {
+          if (!editedRef.current) e.currentTarget.select();
+        }}
         className="atelier-palette-input"
         value={inStep ? stepQuery : inActions ? actionQuery : query}
         onChange={(e) => {
+          editedRef.current = true;
           const v = e.currentTarget.value;
           if (inStep) setStepQuery(v);
           else if (inActions) setActionQuery(v);

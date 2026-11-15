@@ -81,6 +81,23 @@ describe('the last query', () => {
     expect(screen.getAllByRole('option').map((o) => o.querySelector('[data-title]')?.getAttribute('data-title'))).toEqual(['Gamma']);
   });
 
+  it('is selected again by a focus that lands with the caret at the start, until edited', async () => {
+    mount();
+    await search('gam');
+    await toggle();
+    const el = input();
+    el.blur();
+    el.setSelectionRange(0, 0);
+    act(() => el.focus());
+    expect([el.selectionStart, el.selectionEnd]).toEqual([0, 3]);
+    // Once the user has edited it, a focus leaves the caret where they put it.
+    type('ga');
+    el.blur();
+    el.setSelectionRange(1, 1);
+    act(() => el.focus());
+    expect([el.selectionStart, el.selectionEnd]).toEqual([1, 1]);
+  });
+
   it('comes back after a perform, so Enter repeats it', async () => {
     mount();
     await toggle();
