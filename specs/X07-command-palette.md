@@ -740,14 +740,13 @@ Each step ships on its own and leaves the palette working. Two things come befor
 - **Additions from the design review.** The footer key hints, the scope counts, the verb line, the row tags and the Connections-only state were not in the first draft; the review kept them (§13.3, "Agreed design").
 - **Reveal in navigator** for a database: `DbCollectionNavigator`'s reveal request accepts a database on its own, which it expands, scrolls to and focuses. The request lives in `Workspace.tsx`, so the palette and the tab menu share it. `reveal` is not a verb (§13.4), like `create`: under `open` it would list every database.
 
-## 14. Amendment — anchored palette, collections first
+## 14. Amendment — collections first
 
 > **Built.** Decided in the 2026-11-13 design review; the anchoring, empty query, unavailable rows, row icons and the sweep with no tab shipped in One Spine S8. `Loading collections…` takes the place of `No matches` in the list's empty state, so it shows when nothing at all matches while the sweep is in flight; the Collections scope also lists the Connection's collections on an empty query, which is what `Show <n> more collections` leads to. A Focused Tab on a Dormant Connection gives no Collections group, even while another Connection is open: the group names whose collections it holds. It supersedes the parts of §13.2 and §13.3 it names and leaves the rest of §13 standing.
 
-### 14.1 Anchoring
+### 14.1 Position
 
-- The palette opens **anchored under the title-bar search field** ([W01 §14.3](./W01-workspace-shell.md)), 640px wide, its top edge just below the bar, instead of floating centred over the window. The field is where the user clicked or looked; the list should grow from it.
-- On a screen with no title-bar search field (the connection form's page, a window narrower than the palette), it falls back to the centred position.
+- The palette stays **centred over the window**, 640px wide, as in §13.3. Anchoring it under the title-bar search field ([W01 §14.3](./W01-workspace-shell.md)) was tried and dropped: the palette's own input is a different field from the title-bar one, and a second search box hanging off the first read as a mismatch rather than a continuation.
 - Everything else about the surface (scopes, rows, footer, action list, field step) is §13.3's.
 
 ### 14.2 Empty query
@@ -784,7 +783,7 @@ Adds to §13.3's "Unavailable commands".
 
 ### 14.6 Acceptance criteria
 
-- Opened from the workspace, the palette's top edge sits under the title bar, horizontally aligned with the search field; opened on the connection form's page, it is centred.
+- Opened from the workspace or the connection form's page, the palette is centred over the window.
 - With an empty query and a Connection open, the second group lists five of its collections and a `Show <n> more collections` row.
 - With an empty query and no Connection open, there is no collections group.
 - The cursor's first row is never an unavailable one; unavailable rows are last in their group.

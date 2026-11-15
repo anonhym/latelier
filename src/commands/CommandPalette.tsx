@@ -38,7 +38,6 @@ import {
   type VerbEntry,
   failureTitle,
 } from './layout';
-import { measurePaletteAnchor, PALETTE_WIDTH } from './paletteAnchor';
 import { verbLine } from './verbs';
 import { useLatest } from './useLatest';
 import { _resetPaletteOpenerForTests, setPaletteOpener } from './paletteOpener';
@@ -1400,17 +1399,6 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
   const discoverHint = useFeatureHint('palette.discover', paletteOpenedCount === 0);
   const { opened } = useSpotlight(paletteStore);
   React.useEffect(() => setPaletteOpen(opened), [opened]);
-  // Measured when the palette opens, before the first paint, and again when
-  // the window is resized, which moves the field.
-  const [resizes, setResizes] = React.useState(0);
-  React.useEffect(() => {
-    if (!opened) return undefined;
-    const onResize = () => setResizes((n) => n + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [opened]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `resizes` only says the window changed size
-  const anchor = React.useMemo(() => (opened ? measurePaletteAnchor() : null), [opened, resizes]);
 
   const openPalette = React.useCallback(() => {
     hints.recordSessionEvent('palette', 'opened');
@@ -1552,12 +1540,10 @@ export function CommandPalette({ registerApi }: PaletteShellProps) {
             color: 'var(--atelier-text)',
             fontSize: 'var(--atelier-fs-md)',
             overflow: 'hidden',
-            // Under the title-bar search field (X07 §14.1); centred when there is none.
-            ...(anchor ? { position: 'fixed' as const, top: anchor.top, left: anchor.left, margin: 0 } : {}),
           },
           body: { padding: 0 },
         }}
-        size={PALETTE_WIDTH}
+        size={640}
         yOffset={80}
       >
         {/* Only mount palette content while opened — keeps registry memos and

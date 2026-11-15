@@ -275,7 +275,7 @@ Supersedes §10.
 
 ### 14.3 Search field
 
-A 320×26 button drawn as an input: a magnifier, the placeholder `Search collections and actions`, a `⌘K` key cap at the right. Its accessible name is the placeholder. A click or ⌘K opens the palette anchored under it ([X07 §14](./X07-command-palette.md)). It replaces the two-glyph `⌘ K` button, which advertised the app's fastest path with the least text, and keeps that button's `palette.discover` hint anchor.
+A 320×26 button drawn as an input: a magnifier, the placeholder `Search collections and actions`, a `⌘K` key cap at the right. Its accessible name is the placeholder. A click or ⌘K opens the palette, centred over the window ([X07 §14.1](./X07-command-palette.md)). It replaces the two-glyph `⌘ K` button, which advertised the app's fastest path with the least text, and keeps that button's `palette.discover` hint anchor.
 
 ### 14.4 Tab strip
 

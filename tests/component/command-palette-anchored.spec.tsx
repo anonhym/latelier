@@ -1,4 +1,4 @@
-// X07 §14: the anchored palette, the empty query's collections group, unavailable
+// X07 §14: the empty query's collections group, unavailable
 // rows and the kind icons.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within, act } from '../helpers/render';
@@ -70,57 +70,7 @@ afterEach(() => {
   commandRegistry._resetForTests();
   _resetPaletteStoreForTests();
   _resetPaletteCollectionsForTests();
-  document.querySelectorAll('[data-palette-anchor]').forEach((el) => el.remove());
   vi.restoreAllMocks();
-});
-
-describe('anchoring (X07 §14.1)', () => {
-  function addField(rect: Partial<DOMRect>) {
-    const field = document.createElement('button');
-    field.setAttribute('data-palette-anchor', '');
-    field.getBoundingClientRect = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, ...rect }) as DOMRect;
-    document.body.append(field);
-  }
-
-  it('opens with its top edge under the title-bar field, centred on it', () => {
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1600);
-    addField({ left: 700, width: 320, bottom: 33, height: 26 });
-    mount();
-    open();
-    expect(dialog().style.position).toBe('fixed');
-    expect(dialog().style.top).toBe('37px');
-    expect(dialog().style.left).toBe(`${700 + 160 - 320}px`);
-  });
-
-  it('follows the field when the window is resized while it is open', () => {
-    const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1600);
-    addField({ left: 700, width: 320, bottom: 33, height: 26 });
-    mount();
-    open();
-    expect(dialog().style.left).toBe('540px');
-    width.mockReturnValue(1200);
-    const field = document.querySelector('[data-palette-anchor]') as HTMLElement;
-    field.getBoundingClientRect = () => ({ left: 300, top: 0, right: 620, bottom: 33, width: 320, height: 26, x: 300, y: 0 }) as DOMRect;
-    act(() => {
-      window.dispatchEvent(new Event('resize'));
-    });
-    expect(dialog().style.left).toBe('140px');
-  });
-
-  it('opens centred when no field is drawn', () => {
-    mount();
-    open();
-    expect(dialog().style.position).not.toBe('fixed');
-    expect(dialog().style.top).toBe('');
-  });
-
-  it('opens centred when the window is too narrow for it', () => {
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(600);
-    addField({ left: 100, width: 320, bottom: 33, height: 26 });
-    mount();
-    open();
-    expect(dialog().style.position).not.toBe('fixed');
-  });
 });
 
 describe('collections in this connection (X07 §14.2)', () => {
