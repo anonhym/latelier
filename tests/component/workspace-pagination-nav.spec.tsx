@@ -187,7 +187,7 @@ describe('Workspace pagination navigation', () => {
   });
 });
 
-describe('the pager lives in the status bar', () => {
+describe('the pager lives in the result bar', () => {
   it('leaves with the Documents view and comes back on the same page', async () => {
     installAtelierMock({
       tabs: {
@@ -207,17 +207,14 @@ describe('the pager lives in the status bar', () => {
     });
     mountWorkspace();
     const statusBar = await screen.findByRole('contentinfo', { name: 'Status bar' });
-    // Drawn below the canvas by the grid, and after it for Tab and a screen
-    // reader too: the pager is reached once the results have been.
-    expect(screen.getByRole('main').compareDocumentPosition(statusBar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await waitFor(() => expect(within(statusBar).getByTestId('page-label')).toBeTruthy());
-    expect(within(screen.getByTestId('result-bar')).queryByTestId('page-label')).toBeNull();
+    await waitFor(() => expect(within(screen.getByTestId('result-bar')).getByTestId('page-label')).toBeTruthy());
+    expect(within(statusBar).queryByTestId('page-label')).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Aggregation' }));
-    await waitFor(() => expect(within(statusBar).queryByTestId('page-label')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('page-label')).toBeNull());
     expect(within(statusBar).getByTestId('status-connection').textContent).toMatch(/^Local · localhost/);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Documents' }));
-    await waitFor(() => expect(within(statusBar).getByTestId('page-label')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByTestId('result-bar')).getByTestId('page-label')).toBeTruthy());
   });
 });

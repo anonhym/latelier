@@ -206,8 +206,8 @@ See [X14 §11](./X14-shell-syntax-input.md): text that is valid Shell Syntax is 
 ### 9.5 Run and its feedback
 
 - The split menu lists `Explain plan`, `Explain with execution stats`, `Explain all plans` (the verbosity names were shown raw), then `Copy query as…` with mongosh, Node.js and Python. mongosh output uses unquoted keys and `ObjectId()` / `ISODate()` literals; the Python snippet imports only what it uses.
-- **While a query runs**: Run becomes Cancel; a 2px indeterminate bar runs under the row; the results region is `aria-busy`; the status bar reads `Running · {elapsed}`, updated each second; the previous rows are marked as previous results ([W06 §8.2](./W06-result-views.md)).
-- **After it completes**, the status bar always shows the duration.
+- **While a query runs**: Run becomes Cancel; a 2px indeterminate bar runs under the row; the results region is `aria-busy`; the result bar's count slot reads `Running · {elapsed}`, updated each second; the previous rows are marked as previous results ([W06 §8.2](./W06-result-views.md)).
+- **After it completes**, the result bar's count always shows the duration.
 - **After a cancel**, a one-line notice reads `Cancelled after {elapsed} — showing previous results` for a few seconds.
 
 A 3.5-second query used to change nothing on screen but the Run button's label, and the finished run showed no duration at most widths.
@@ -222,7 +222,7 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 - **`Builder`** is a labelled button in the row, pressed while the builder is open, bound to `⌘⇧B`. It replaces an 8px notch on the panel's edge as the way to open it.
 - The right-hand panel is the **Inspector**: resizable from 320 to 640px (400 by default), with a 36px header holding its title, a tab switch and close (Esc).
   - **Filter**: the Query Builder, without the Saved and Recent tabs. Its footer keeps Reset, Copy code ▾ and Open as pipeline.
-  - **Plan**: the explain view, opened from the status bar's plan badge or from the Run menu. It was a drawer over the results.
+  - **Plan**: the explain view, opened from the result bar's plan badge or from the Run menu. It was a drawer over the results.
 - The Inspector is **closed by default**: a profile with no stored choice starts with it closed; a stored choice wins. Open, it used to take a fifth of the width to show an empty state.
 - It does not host document editing, which stays in the Document Editor's modal ([W18](./W18-document-editor.md)). A row click does not open it.
 - The result list stays visible and usable while it is open.
@@ -245,4 +245,4 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 
 - **Unit**: the pill label for each option (unset, set, invalid); which options are promoted out of `⋯ More`; the Run label for each closed-gate reason; mongosh code output with unquoted keys and constructor literals, and the Python output's imports.
 - **Component**: pills open their editors and commit through the same paths as the grid; "Keep options expanded" per tab (with a stateful wrapper, since the effect appears only after the patch round-trips); the error strip's text, wrapping and commit-point timing; the running state (bar, `aria-busy`, elapsed text with fake timers), the duration after completion and the cancelled notice; History and Saved popovers with keyboard preview; the Inspector's tabs, default-closed state and Esc.
-- **E2E**: set a sort through its pill and run; type an unparseable filter, read the whole reason, fix it and run; run a slow query and cancel it; open the plan from the status bar.
+- **E2E**: set a sort through its pill and run; type an unparseable filter, read the whole reason, fix it and run; run a slow query and cancel it; open the plan from the result bar.

@@ -79,11 +79,17 @@ describe('status bar', () => {
     expect(screen.getByTestId('status-connection').textContent).toBe('Prod · db.example');
   });
 
-  it('holds the count and the pager, and the pager drives the tab', () => {
+  it('holds neither the count nor the pager: they are the result bar\'s, and the pager drives the tab', () => {
     const { actions } = mount();
-    const bar = screen.getByTestId('status-bar');
-    expect(within(bar).getByTestId('result-count-slot').textContent).toMatch(/120 documents/);
-    fireEvent.click(within(bar).getByRole('button', { name: 'Next page' }));
+    const status = screen.getByTestId('status-bar');
+    const row = screen.getByTestId('result-bar');
+    for (const id of ['result-count-slot', 'page-label']) {
+      expect(within(row).getByTestId(id)).toBeTruthy();
+      expect(within(status).queryByTestId(id)).toBeNull();
+    }
+    expect(within(row).getByTestId('result-count-slot').textContent).toMatch(/120 documents/);
+    expect(within(status).queryByRole('button', { name: 'Next page' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Next page' }));
     expect(actions.patch).toHaveBeenCalledWith({ page: 1 });
     expect(actions.run).toHaveBeenCalledWith({ page: 1 });
   });

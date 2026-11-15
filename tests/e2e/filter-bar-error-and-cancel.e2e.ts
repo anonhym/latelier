@@ -83,7 +83,7 @@ test('a slow find can be cancelled, and the status bar says how long it ran', as
       await ws.queryBarRunButton.click();
 
       await expect(win.locator('.query-running-bar')).toBeVisible();
-      await expect(win.getByTestId('status-bar')).toContainText('Running');
+      await expect(win.getByTestId('result-bar')).toContainText('Running');
 
       await win.locator('[data-testid="query-cancel-btn"]').click();
       await expect(win.getByTestId('result-cancelled')).toContainText('Cancelled after');

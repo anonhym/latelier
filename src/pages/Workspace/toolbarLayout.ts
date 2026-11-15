@@ -11,17 +11,23 @@
  */
 
 /**
- * The canvas header (W06 §8.1): the view switch, References, `⋯` and Insert.
- * Nothing in it depends on the query, so labels or icons is its only step.
+ * The canvas header (W06 §8.1): the view switch, the count and pager, References,
+ * `⋯` and Insert. Nothing in it depends on the query: its steps are labels or
+ * icons, and the pager with or without its First and Last buttons.
  */
 export interface CanvasHeaderLayout {
   /** References and Insert as icons with tooltips. The view switch keeps its words. */
   iconControls: boolean;
+  /** The pager's First and Last buttons. Previous, Next and the page size always stay. */
+  pagerEnds: boolean;
 }
 
 // The header's fixed parts with words: view switch 150, `⋯` 26, Insert 70,
-// gaps and padding 60. The icon form fits the result pane's 320px minimum.
-const HEADER_LABELS_MIN = 320;
+// pager 230, gaps and padding 60, and the count's 150 beside them. Past the
+// pane's 320px minimum the labels cannot fit, so they step to icons earlier.
+const HEADER_LABELS_MIN = 700;
+// The same, with First and Last (2 x 26) in the pager.
+const PAGER_ENDS_MIN = 520;
 // The References control, measured with its gap, as a labelled button.
 const REFERENCES_LABEL_WIDTH = 141;
 
@@ -31,10 +37,13 @@ const REFERENCES_LABEL_WIDTH = 141;
  */
 export function canvasHeaderLayout(width: number | null, withReferences = false): CanvasHeaderLayout {
   const w = width ?? Number.POSITIVE_INFINITY;
-  return { iconControls: (withReferences ? w - REFERENCES_LABEL_WIDTH : w) < HEADER_LABELS_MIN };
+  return {
+    iconControls: (withReferences ? w - REFERENCES_LABEL_WIDTH : w) < HEADER_LABELS_MIN,
+    pagerEnds: w >= PAGER_ENDS_MIN,
+  };
 }
 
-/** The status bar's middle part (W01 §14.6): the width it gets is the count's own. */
+/** The count's slot in the result bar (W01 §14.6): the width it gets is the count's own. */
 export interface StatusCountLayout {
   /** The query-plan badge takes count room the narrowest bars do not have. */
   planBadge: boolean;

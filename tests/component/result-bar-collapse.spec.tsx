@@ -7,7 +7,7 @@ import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/Collectio
 import type { CollectionTabState } from '@shared/types';
 
 /**
- * jsdom has no layout: this gives the canvas header and the status bar's count
+ * jsdom has no layout: this gives the result bar and its count
  * their own widths, and nothing else one.
  */
 function giveWidths(header: number, count = 1000) {
@@ -68,8 +68,8 @@ afterEach(() => {
 
 describe('ResultBar collapses by width alone', () => {
   it.each([
-    [320, 'label'],
-    [319, 'icon'],
+    [700, 'label'],
+    [699, 'icon'],
   ])('at %i px every state keeps the same control forms', (width, form) => {
     giveBarWidth(width);
     const { rerender } = render(bar(barState()));
@@ -135,7 +135,7 @@ describe('ResultBar collapses by width alone', () => {
     expect(screen.queryByTestId('result-count-stale')).toBeNull();
   });
 
-  it('everything that depends on the query sits in the status bar\'s flexible slot, not in the canvas header', () => {
+  it('everything that depends on the query sits in the result bar\'s flexible slot', () => {
     giveCountWidth(320);
     render(
       bar(
@@ -152,17 +152,27 @@ describe('ResultBar collapses by width alone', () => {
     expect(slot.contains(screen.getByTestId('result-count-stale'))).toBe(true);
     expect(slot.contains(screen.getByTestId('result-limit-cap'))).toBe(true);
     expect(slot.contains(screen.getByTestId('plan-badge'))).toBe(true);
-    expect(screen.getByTestId('status-bar').contains(slot)).toBe(true);
-    expect(screen.getByTestId('result-bar').contains(slot)).toBe(false);
+    expect(screen.getByTestId('result-bar').contains(slot)).toBe(true);
+    expect(screen.getByTestId('status-bar').contains(slot)).toBe(false);
   });
 
-  it('the canvas header is one 28px row at the narrowest pane, with no pager in it', () => {
+  it('the result bar is one 28px row at the narrowest pane, and the pager keeps Previous, Next and the page size', () => {
     giveBarWidth(320);
     render(bar(barState()));
     const header = screen.getByTestId('result-bar');
     expect(header.style.height).toBe('28px');
     expect(header.style.getPropertyValue('--group-wrap')).toBe('nowrap');
-    expect(within(header).queryByRole('button', { name: 'Next page' })).toBeNull();
-    expect(within(screen.getByTestId('status-bar')).getByRole('button', { name: 'Next page' })).toBeTruthy();
+    for (const name of ['Previous page', 'Next page']) expect(within(header).getByRole('button', { name })).toBeTruthy();
+    expect(within(header).getByRole('combobox', { name: 'Rows per page' })).toBeTruthy();
+    expect(within(header).queryByRole('button', { name: 'First page' })).toBeNull();
+    expect(within(header).queryByRole('button', { name: 'Last page' })).toBeNull();
+    expect(within(screen.getByTestId('status-bar')).queryByRole('button', { name: 'Next page' })).toBeNull();
+  });
+
+  it('from 520 px the pager has First and Last as well', () => {
+    giveBarWidth(520);
+    render(bar(barState()));
+    const header = screen.getByTestId('result-bar');
+    for (const name of ['First page', 'Last page']) expect(within(header).getByRole('button', { name })).toBeTruthy();
   });
 });
