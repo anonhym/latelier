@@ -24,7 +24,7 @@ const SIZES: Array<[number, number]> = [
 ];
 
 // Around each step of `filterBarLayout`, and well inside every form.
-const PANE_WIDTHS = [1500, 1200, 1170, 1090, 1070, 970, 955, 935, 925, 800, 790, 780, 600, 420];
+const PANE_WIDTHS = [1500, 1200, 1178, 1177, 1170, 1090, 1078, 1077, 1070, 970, 964, 963, 955, 935, 925, 800, 790, 786, 785, 780, 600, 420];
 
 const DOCS = Array.from({ length: 30 }, (_, n) => ({ n, status: n % 3 ? 'paid' : 'open', syndicateName: 'Le Condo-Fernand' }));
 const ONE_CONDITION = '{"syndicateName":{"$eq":"Le Condo-Fernand"}}';
@@ -175,6 +175,20 @@ test('a one-condition filter fits its field on one line at a 1000px pane', async
       expect(style.style).toBe('solid');
       expect(style.bg).not.toBe('rgba(0, 0, 0, 0)');
       expect(style.radius).toBe('6px');
+
+      // The same edge and fill in the dark theme, from that theme's own tokens.
+      await win.evaluate(() =>
+        (window as unknown as { atelier: { prefs: { setTheme: (m: string) => Promise<void> } } }).atelier.prefs.setTheme('dark'),
+      );
+      await expect(win.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
+      const dark = await win.getByTestId('query-bar-filter-box').evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { width: s.borderTopWidth, style: s.borderTopStyle, bg: s.backgroundColor, border: s.borderTopColor };
+      });
+      expect(dark.width).toBe('1px');
+      expect(dark.style).toBe('solid');
+      expect(dark.bg).not.toBe('rgba(0, 0, 0, 0)');
+      expect(dark.bg, 'the dark fill is its own').not.toBe(style.bg);
     });
   });
 });

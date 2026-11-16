@@ -1,6 +1,6 @@
 # W05 — Query bar + bidirectional MQL sync
 
-> **Status: Implemented.** §1–§9 shipped; §10 is accepted, not built; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). Where §9 names a part of §2 or §6, §9 is what ships.
+> **Status: Implemented.** §1–§10 shipped; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). Where §9 names a part of §2 or §6, §9 is what ships.
 
 > **Partly superseded by [W13](./W13-filter-tree-editor.md).** W13 makes the
 > filter text canonical and the drawer a view of it, which removes the sync
@@ -170,7 +170,7 @@ Cross-covered with W03 (query runner).
 
 ## 9. Amendment — the Filter Bar row
 
-> **Accepted, not built.** It supersedes §2's layout and §6's inline notice, and with [W14 §10](./W14-query-bar-advanced-row.md) the `QUERY` disclosure. The run flow (§3), cancellation (§5) and the Run gate are unchanged.
+> **Implemented.** It supersedes §2's layout and §6's inline notice, and with [W14 §10](./W14-query-bar-advanced-row.md) the `QUERY` disclosure. The run flow (§3), cancellation (§5) and the Run gate are unchanged.
 
 ### 9.1 The row
 
@@ -249,7 +249,7 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 
 ## 10. Amendment — room for the filter
 
-> **Accepted, not built.** It amends §9.1's row, §9.2's pill group and §9.6's two buttons. The run flow, the Run gate, the error strip and the pills' editors are unchanged. Reviewed and agreed in Claude Design, on the canvas "Filter Bar row" (direction A and its collapse ladder).
+> **Implemented.** It amends §9.1's row, §9.2's pill group and §9.6's two buttons. The run flow, the Run gate, the error strip and the pills' editors are unchanged. Reviewed and agreed in Claude Design, on the canvas "Filter Bar row" (direction A and its collapse ladder).
 
 ### 10.1 Why
 
@@ -281,7 +281,7 @@ A pure `filterBarLayout(width)` in `toolbarLayout.ts`, in the shape of `canvasHe
 | 3 | `runCompact`: Run without `⌘↵`, no dividers; the field may shrink from 480px to its 320px floor | 786px |
 | 4 | `wrap`: the field takes the first line whole; the controls move to a 36px second line, Run at its right end | below that |
 
-The widths are the review's estimates. The constants are measured in the app at the theme's sizes when this is built, as `toolbarLayout.ts`'s other constants are; the order of the steps and the field minimum are what is agreed. "Keep options expanded" (§9.2) is unaffected: with it on, form 2 has no pills to fold.
+The widths are the exact edges of `filterBarLayout`, from constants measured in the app at the theme's sizes, as `toolbarLayout.ts`'s other constants are. Run is budgeted at its widest label. "Keep options expanded" (§9.2) is unaffected: with it on, form 2 has no pills to fold.
 
 ### 10.4 Acceptance criteria
 
