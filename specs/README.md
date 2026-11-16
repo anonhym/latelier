@@ -107,6 +107,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X19](./X19-keyboard-operability.md) | Keyboard operability of custom controls — *post-iteration-1* | renderer |
 | [X20](./X20-auto-update.md) | Auto-update from GitHub Releases (macOS + Windows) — *post-iteration-1* | main + renderer + build |
 | [X21](./X21-encryption-at-rest.md) | Encryption at rest for Mongo-derived values in `latelier.db` — *post-iteration-1* | main + renderer |
+| [X22](./X22-update-experience.md) | Update experience: manual + periodic check, status-bar indicator, Settings section, What's new window | main + renderer + build |
 
 ### Plans
 

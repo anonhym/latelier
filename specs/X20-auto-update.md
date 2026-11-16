@@ -22,8 +22,9 @@ Principles: never interrupt, never block, never nag with a modal, never fail lou
 
 - **Linux.** The AppImage target is unchanged; no `electron-updater` AppImage wiring, no feed for it.
 - **Windows signing.** Windows builds stay unsigned; updates install without a publisher check.
-- **Periodic re-checks, a manual "Check for updates" command, release-notes display, update channels, rollback.** One check per launch. Each can be added when asked for.
-- **Update UI beyond one notification.** No settings page, no progress bar, no "downloading" state shown to the user.
+- **Periodic re-checks, a manual "Check for updates" command, release-notes display.** One check per launch here; [X22](./X22-update-experience.md) adds all three on top of this spec.
+- **Update channels, rollback.** Each can be added when asked for.
+- **Update UI beyond one notification.** No settings page, no progress bar, no "downloading" state shown to the user. X22 adds the status-bar indicator, the Settings section and the What's new window.
 - **Updating from an unsigned build to a signed one.** macOS refuses (section 7). Users of the last ad-hoc release install the signed release by hand once.
 
 ## Dependencies
