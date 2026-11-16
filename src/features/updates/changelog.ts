@@ -43,7 +43,7 @@ const HEADING_RE = /^## \[([^\]]*)\](?:\s+[—-]\s+(\S+))?$/;
 // `.+` runs to the end of the line, so no closing anchor.
 const GROUP_RE = /^### (.+)/;
 const LEAD_RE = /^\*\*(.+?)\*\*/;
-const TRAILING_PUNCTUATION_RE = /[.,:;]+$/;
+const TRAILING_PUNCTUATION = '.,:;';
 
 /** True for a plain `x.y.z` version that `compareVersions` accepts. */
 export function isVersion(v: string): boolean {
@@ -65,11 +65,15 @@ export function compareVersions(a: string, b: string): number {
 
 /**
  * A lead always ends in exactly one period: trailing commas, periods, colons
- * and semicolons give way to it. A question or exclamation mark stays. The
- * input is one bullet's bold text, so the trailing-run regex stays cheap.
+ * and semicolons give way to it. A question or exclamation mark stays.
  */
 function normalizeLead(raw: string): string {
-  const text = raw.trim().replace(TRAILING_PUNCTUATION_RE, '').trimEnd();
+  const trimmed = raw.trim();
+  // A backward scan instead of `/[.,:;]+$/`, which retries every start
+  // position and goes quadratic on a long punctuation run mid-text.
+  let end = trimmed.length;
+  while (end > 0 && TRAILING_PUNCTUATION.includes(trimmed[end - 1])) end--;
+  const text = trimmed.slice(0, end).trimEnd();
   return text.endsWith('?') || text.endsWith('!') ? text : `${text}.`;
 }
 
