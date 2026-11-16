@@ -97,8 +97,13 @@ describe('Filter Bar row — option pills', () => {
       expect(queryPill(key)).toBeNull();
     }
 
+    // More lists the row's pills first, so one scrolled past the group's edge
+    // stays reachable, then the options to add.
     const menu = await openMore();
     expect(menu.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Sort',
+      'Project',
+      'Limit',
       'Skip',
       'Collation',
       'Hint',

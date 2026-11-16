@@ -49,6 +49,7 @@ import { FILTER_FLOOR, FILTER_MIN, filterBarLayout } from './toolbarLayout';
 import { QueryExpandModal } from './QueryExpandModal';
 import { LIMIT_EXPLANATION } from './queryCaps';
 import { FieldsControl } from './FieldsControl';
+import { useProjectionDraft } from './useProjectionDraft';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
@@ -476,6 +477,10 @@ function QueryBarInner({
   // Which option's editor is open, with the tab it was opened on: the bar
   // never remounts, so tab A's open popover must not reappear over tab B.
   const [openOption, setOpenOption] = React.useState<{ tabId: string; key: OptionKey } | null>(null);
+  // Project's draft is kept here, not in its control: the control is drawn in
+  // the pill group or under the folded pill, and a resize across the fold
+  // swaps one for the other.
+  const projection = useProjectionDraft();
   const openKey = openOption?.tabId === meta.tabId ? openOption.key : null;
   const pillRefs = React.useRef(new Map<OptionKey, HTMLButtonElement | null>());
   const foldedPillRef = React.useRef<HTMLButtonElement | null>(null);
@@ -754,6 +759,14 @@ function QueryBarInner({
     setFoldedSeen(layout.optionsFolded);
     setOpenOption(null);
   }
+  // That close skips the editor's own close path, so the draft it held is
+  // settled here: committed, or kept and marked refused.
+  const foldSettled = React.useRef(layout.optionsFolded);
+  React.useEffect(() => {
+    if (foldSettled.current === layout.optionsFolded) return;
+    foldSettled.current = layout.optionsFolded;
+    projection.commit();
+  });
   // Once every control has collapsed, the filter holds its floor until the row wraps.
   const fieldMin = layout.runCompact ? FILTER_FLOOR : FILTER_MIN;
   // Every group in the row is one line of the row's own 44px (36 once the
@@ -773,6 +786,18 @@ function QueryBarInner({
   // every option. With "Keep options expanded" on the grid holds them, so
   // there is nothing to fold.
   const folded = layout.optionsFolded && !expanded;
+  // A pill past the group's edge scrolls into view when it opens (from More, or by Tab).
+  React.useEffect(() => {
+    if (openKey === null || folded) return;
+    rootRef.current
+      ?.querySelector<HTMLElement>(`[data-testid="option-pill-${openKey}"]`)
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [openKey, folded, rootRef]);
+  // Project's editor, controlled by the row in both forms so More can open it too.
+  const projectControlled = {
+    opened: openKey === 'project',
+    onOpenedChange: (next: boolean) => (next ? openPill('project') : closePill('project', false)),
+  };
   const setCount = pills.filter((p) => p.status !== 'unset').length;
   // A field dropped on the folded pill sorts by it, as one dropped on the Sort pill does.
   // Project's status comes from its own control: a refused draft lives there,
@@ -830,13 +855,7 @@ function QueryBarInner({
       buttonRef={() => undefined}
       target={
         <span style={{ display: 'inline-flex' }}>
-          <FieldsControl
-            controlled={{
-              opened: openKey === 'project',
-              onOpenedChange: (next) => (next ? openPill('project') : closePill('project', false)),
-            }}
-            target={foldedPill}
-          />
+          <FieldsControl controlled={projectControlled} projection={projection} target={foldedPill} />
         </span>
       }
     >
@@ -1018,7 +1037,6 @@ function QueryBarInner({
                 boxSizing: 'border-box',
                 height: 24,
                 minWidth: 0,
-                overflow: 'hidden',
                 padding: '0 1px',
                 // eslint-disable-next-line no-restricted-syntax -- W05 §10.2 fixes the pills' gap at 2px; no token is that size
                 gap: 2,
@@ -1026,8 +1044,27 @@ function QueryBarInner({
                 borderRadius: 6,
               }}
             >
+              {/* Set options can outrun the group's room. The pills scroll
+                  rather than clip: a focused or opened one scrolls into view,
+                  and More lists every one of them, so none is out of reach. */}
+              <div
+                data-testid="query-bar-options-pills"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  minWidth: 0,
+                  height: '100%',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  scrollbarWidth: 'none',
+                  // eslint-disable-next-line no-restricted-syntax -- W05 §10.2 fixes the pills' gap at 2px; no token is that size
+                  gap: 2,
+                }}
+              >
               {rowPills.map((pill) => {
-                if (pill.key === 'project') return <FieldsControl key="project" />;
+                if (pill.key === 'project') {
+                  return <FieldsControl key="project" controlled={projectControlled} projection={projection} />;
+                }
                 if (expanded) return null;
                 const key = pill.key;
                 const popover = (
@@ -1058,6 +1095,7 @@ function QueryBarInner({
                   popover
                 );
               })}
+              </div>
               <Menu position="bottom-end" shadow="md" width={210}>
                 <Menu.Target>
                   <Button
@@ -1074,13 +1112,23 @@ function QueryBarInner({
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
+                  {/* The row's own pills too, by their values: one scrolled
+                      past the group's edge is still a click away. */}
+                  {!expanded && <Menu.Label>In the row</Menu.Label>}
+                  {!expanded &&
+                    rowPills.map((pill) => (
+                      <Menu.Item key={pill.key} data-status={pill.status} onClick={() => openPill(pill.key)}>
+                        {pill.label}
+                      </Menu.Item>
+                    ))}
+                  {!expanded && morePills.length > 0 && <Menu.Label>Add</Menu.Label>}
                   {!expanded &&
                     morePills.map((pill) => (
                       <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
                         {pill.name}
                       </Menu.Item>
                     ))}
-                  {!expanded && morePills.length > 0 && <Menu.Divider />}
+                  {!expanded && <Menu.Divider />}
                   <Menu.CheckboxItem
                     checked={expanded}
                     onChange={(next) => onPatch({ optionsExpanded: next })}

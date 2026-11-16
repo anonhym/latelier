@@ -221,6 +221,63 @@ describe('Filter Bar row — the folded Options pill', () => {
     expect(item.getAttribute('data-status')).toBe('invalid');
   });
 
+  // The Project control is drawn in the pill group or under the folded pill,
+  // so a resize across the fold swaps one for the other; its draft is the row's.
+  const stubResize = () => {
+    const observers: Array<() => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: (entries: ResizeObserverEntry[]) => void) {
+          observers.push(() => cb([]));
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const width = barWidth(1000);
+    return (w: number) => {
+      width.mockReturnValue({ width: w } as DOMRect);
+      act(() => observers.forEach((fire) => fire()));
+    };
+  };
+
+  it('keeps a refused Project draft when the row unfolds', async () => {
+    const resize = stubResize();
+    renderBar();
+    fireEvent.click(screen.getByTestId('query-bar-options-folded'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Project' }));
+    const input = (await screen.findByTestId('fields-projection')) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '{a: }' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('fields-projection')).toBeNull());
+
+    resize(1500);
+    const pill = await screen.findByTestId('option-pill-project');
+    expect(pill.getAttribute('data-status')).toBe('invalid');
+    fireEvent.click(pill);
+    expect(((await screen.findByTestId('fields-projection')) as HTMLInputElement).value).toBe('{a: }');
+    vi.unstubAllGlobals();
+  });
+
+  it('commits a Project draft whose editor a resize across the fold closed', async () => {
+    const resize = stubResize();
+    const { actions } = renderBar();
+    fireEvent.click(screen.getByTestId('query-bar-options-folded'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Project' }));
+    fireEvent.change(await screen.findByTestId('fields-projection'), { target: { value: 'name' } });
+
+    resize(1500);
+    await waitFor(() => expect(screen.queryByTestId('fields-projection')).toBeNull());
+    await waitFor(() =>
+      expect(actions.patch).toHaveBeenCalledWith(
+        expect.objectContaining({ builder: expect.objectContaining({ projection: ['name'] }) }),
+      ),
+    );
+    vi.unstubAllGlobals();
+  });
+
   it('has nothing to fold while options are kept expanded', () => {
     barWidth(1000);
     renderBar({ ...makeState(), optionsExpanded: true });

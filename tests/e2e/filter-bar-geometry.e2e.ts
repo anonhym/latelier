@@ -257,6 +257,31 @@ test('long set options give way inside their group, never over the filter or the
       }
       // A label cut to an ellipsis keeps its whole text as the pill's tooltip.
       await expect(workspace.optionPill('sort')).toHaveAttribute('title', /aVeryLongFieldNameToSortBy/);
+
+      // Tightest unfolded width with Run refusing (its widest label): pills past
+      // the group's edge are still reachable — More stays whole and lists each
+      // one, and one opened or focused scrolls into the group's view.
+      await setPaneWidth(win, 1078);
+      await win.getByTestId('query-bar-input').fill('{ bad:');
+      await win.getByTestId('query-bar-input').press('ControlOrMeta+Enter');
+      await expect(win.getByTestId('query-bar-strip')).toBeVisible();
+      expect((await readRow(win)).clipped, 'More and the controls').toEqual([]);
+      const names: Record<string, string> = { sort: 'Sort', project: 'Project', limit: 'Limit', hint: 'Hint', maxTimeMS: 'Max time' };
+      for (const [key, name] of Object.entries(names)) {
+        await workspace.queryBarMore.click();
+        await expect(win.getByRole('menu').getByRole('menuitem', { name: new RegExp(`^${name}`) })).toBeVisible();
+        const pill = workspace.optionPill(key);
+        const label = (await pill.textContent()) ?? '';
+        await win.keyboard.press('Escape');
+        await pill.focus();
+        const inView = await win.evaluate((k) => {
+          const pillRect = document.querySelector<HTMLElement>(`[data-testid="option-pill-${k}"]`)!.getBoundingClientRect();
+          const region = document.querySelector<HTMLElement>('[data-testid="query-bar-options-pills"]')!.getBoundingClientRect();
+          return pillRect.left >= region.left - 1 && pillRect.right <= region.right + 1;
+        }, key);
+        expect(inView, `${key} (${label}) scrolls into view when focused`).toBe(true);
+      }
+      await win.getByTestId('query-bar-input').fill('{}');
     });
   });
 });
