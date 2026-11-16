@@ -526,6 +526,7 @@ The pill states the projection and nothing else: `Project: 4 fields`, `Project: 
 ### 11.4 Display follows the projection
 
 - Unchecking a field hides it at once in the results already loaded: the views hide any field the committed projection keeps off the wire (`notFetchedFields`), whether or not the loaded documents still hold it. No re-run is forced; the next Run fetches less.
+- **A change that only removes fields keeps the rows current.** Unchecking a field, or adding one to an exclusion, leaves what is on screen correct, so it does not raise W06 §8.2's "not current" strip: the rows' query key (`lastRunQueryKey`) is rewritten to the new query alongside the patch. Checking a field, removing one from an exclusion, or changing an operator does raise the strip, because the rows on screen no longer hold everything the query asks for.
 - A checked field the last run did not fetch is marked `on next Run`, and the popover's footer says the server sends the change from the next Run.
 - Table, Tree and JSON read the same projection; there is no separate hidden list. The Table header menu's `Hide column` unchecks that field in the list.
 - Column order stays per-tab display state (`columnConfig.order`); a projection has no order to carry it.
@@ -536,7 +537,7 @@ A dotted path row is a column in Table, as a computed column is today, and Tree 
 
 ### 11.6 Tabs saved before this change
 
-On load, a tab whose `columnConfig.hidden` is non-empty and whose builder has no projection gets the equivalent exclusion (`{ address: 0, notes: 0 }`) in `builder.projectionRaw`, and its hidden list is cleared. Those fields were not shown anyway. A tab with both keeps its projection, and each hidden field the projection still returns is unchecked as §11.3 describes (removed from an inclusion, added to an exclusion); then the hidden list is cleared. Saved queries are untouched: they never held a hidden list.
+On load, a tab whose `columnConfig.hidden` is non-empty and whose builder has no projection gets the equivalent exclusion (`{ address: 0, notes: 0 }`) in `builder.projectionRaw`, and its hidden list is cleared. Those fields were not shown anyway, so the rows stay current: the migration rewrites `lastRunQueryKey` with the builder, and no "not current" strip appears. A tab with both keeps its projection, and each hidden field the projection still returns is unchecked as §11.3 describes (removed from an inclusion, added to an exclusion); then the hidden list is cleared. Saved queries are untouched: they never held a hidden list.
 
 ### 11.7 Saved queries and export
 
@@ -556,12 +557,13 @@ The "Show in results" section and its help line, the "Fetch only these fields fr
 - A refused draft keeps its message, greys the list, and survives a close and reopen; a list click does not replace it.
 - `Hide column` from the Table header menu unchecks that field in the list.
 - Tree and JSON hide the fields the projection keeps off the wire, as Table does.
+- Unchecking a field does not show the "not current" strip; checking a field the last run did not fetch does.
 - A tab saved with a hidden list and no projection opens with the equivalent exclusion and the same fields shown.
 - No code path writes `columnConfig.hidden`.
 - The pill shows no badge for display state.
 
 ### 11.10 Test cases
 
-- **Unit**: the list-to-projection writer for each mode (none → exclusion, inclusion, exclusion, operator present); the pill label for an exclusion; the §11.6 migration for hidden-only, hidden-with-projection and empty-hidden tabs; `notFetchedFields` driving each view's visible fields.
+- **Unit**: the list-to-projection writer for each mode (none → exclusion, inclusion, exclusion, operator present); the pill label for an exclusion; the §11.6 migration for hidden-only, hidden-with-projection and empty-hidden tabs, each leaving `isResultStale` false; whether a projection change only removes fields (inclusion shrinks, exclusion grows) for each mode; `notFetchedFields` driving each view's visible fields.
 - **Component**: checking and unchecking writes the projection and the text box follows; typing an exclusion updates the rows and the tag; a locked operator row; a refused draft greys the list and survives a close and reopen (stateful wrapper, since the effect appears only after the patch round-trips); drag and keyboard reorder keep their focus rules; `Hide column` writes the projection; the folded `Options` menu opens this popover anchored to its pill (W05 §10.3).
 - **E2E**: uncheck a column in Table, see it go at once, run, and check the server returned the projected shape; type an exclusion and see the rows follow; reopen a tab saved with a hidden list and see the same columns; Escape returns focus to the pill (`x19-popover-focus-return`).
