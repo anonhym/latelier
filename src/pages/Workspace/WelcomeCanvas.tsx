@@ -47,6 +47,16 @@ export function WelcomeCanvas({ onSaved, onEnterManually, onImport }: WelcomeCan
   const [failure, setFailure] = React.useState<RecipeMatchInput | null>(null);
   const [keychain, setKeychain] = React.useState(false);
 
+  // The field takes focus on mount only when nothing else holds it. The canvas
+  // can mount behind a dialog that is already open, the command palette among
+  // them, and a plain `autoFocus` would pull the rest of what the user is typing
+  // into a field hidden under it.
+  const uriRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) uriRef.current?.focus();
+  }, []);
+
   React.useEffect(() => {
     let live = true;
     // The line is a promise about the keychain, so it is shown only once main says the keychain holds the key.
@@ -128,6 +138,7 @@ export function WelcomeCanvas({ onSaved, onEnterManually, onImport }: WelcomeCan
           }}
         >
           <input
+            ref={uriRef}
             aria-label="Connection string"
             aria-invalid={error !== null}
             aria-describedby={error !== null ? 'welcome-uri-error' : undefined}
@@ -140,7 +151,6 @@ export function WelcomeCanvas({ onSaved, onEnterManually, onImport }: WelcomeCan
             placeholder="mongodb://localhost:27017  or  mongodb+srv://…"
             autoComplete="off"
             spellCheck={false}
-            autoFocus
             readOnly={busy}
             aria-busy={busy}
             style={{

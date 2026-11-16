@@ -219,6 +219,33 @@ describe('Welcome canvas (C03 §13.1)', () => {
     expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 
+  it('takes focus when it mounts and nothing else holds it', async () => {
+    mount();
+    const input = await field();
+
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('leaves focus where it is when a field outside it already holds it (#791)', async () => {
+    // Stands in for the command palette's input: open, focused and being typed
+    // into while the canvas mounts behind it.
+    const outside = document.createElement('input');
+    outside.setAttribute('aria-label', 'Search commands');
+    document.body.appendChild(outside);
+    outside.focus();
+    try {
+      mount();
+      await field();
+
+      expect(document.activeElement).toBe(outside);
+      await userEvent.keyboard('rk mode');
+      expect(outside.value).toBe('rk mode');
+      expect((await field()).value).toBe('');
+    } finally {
+      outside.remove();
+    }
+  });
+
   it('an error that quotes the URI or its password is shown with both taken out', async () => {
     const test = vi.fn(async (): Promise<ProbeResult> => ({
       ok: false,
