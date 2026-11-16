@@ -9,6 +9,9 @@ import {
   paletteHint,
   relativeAgo,
   statusCard,
+  archLabel,
+  identityLine,
+  platformLabel,
   CHANGELOG_URL,
   RELEASES_URL,
 } from '../../src/features/updates/updateFormat';
@@ -25,6 +28,7 @@ const ready: UpdateState = {
   changeCount: null,
   releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v0.20.0',
   lastCheckedAt: ago(5 * MIN),
+  downloadedAt: ago(2 * MIN),
 };
 
 describe('page links', () => {
@@ -154,11 +158,12 @@ describe('statusCard', () => {
       percent: null,
       spinner: false,
     });
-    expect(c?.detail).toMatch(/^Downloaded .+\.$/);
+    // From downloadedAt (2 min ago), not lastCheckedAt (5 min ago): the clock time tells them apart.
+    expect(c?.detail).toBe(`Downloaded ${formatDownloaded(ago(2 * MIN), NOW)}.`);
   });
 
   it('ready with an unreadable timestamp drops the detail', () => {
-    expect(card({ ...(ready as Extract<UpdateState, { status: 'ready' }>), lastCheckedAt: 'x' })?.detail).toBeNull();
+    expect(card({ ...(ready as Extract<UpdateState, { status: 'ready' }>), downloadedAt: 'x' })?.detail).toBeNull();
   });
 
   it('up to date: check icon, the current version and when', () => {
@@ -235,5 +240,27 @@ describe('checkOutcome', () => {
     expect(checkOutcome({ status: 'checking', lastCheckedAt: null })).toBeNull();
     expect(checkOutcome({ status: 'idle' })).toBeNull();
     expect(checkOutcome({ status: 'off', reason: 'linux' })).toBeNull();
+  });
+});
+
+describe('platform and architecture labels', () => {
+  it('names the platforms, and passes an unknown one through', () => {
+    expect(platformLabel('darwin')).toBe('macOS');
+    expect(platformLabel('win32')).toBe('Windows');
+    expect(platformLabel('linux')).toBe('Linux');
+    expect(platformLabel('freebsd')).toBe('freebsd');
+  });
+
+  it('names the architecture by platform, and passes an unknown one through', () => {
+    expect(archLabel('darwin', 'arm64')).toBe('Apple silicon');
+    expect(archLabel('darwin', 'x64')).toBe('Intel');
+    expect(archLabel('win32', 'arm64')).toBe('ARM64');
+    expect(archLabel('linux', 'x64')).toBe('x64');
+    expect(archLabel('darwin', 'ia32')).toBe('ia32');
+  });
+
+  it('builds the identity line', () => {
+    expect(identityLine('0.19.1', 'darwin', 'arm64')).toBe('Version 0.19.1 · macOS · Apple silicon');
+    expect(identityLine('0.19.1', 'win32', 'x64')).toBe('Version 0.19.1 · Windows · x64');
   });
 });

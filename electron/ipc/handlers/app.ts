@@ -1,4 +1,4 @@
-import { dialog, shell, type BrowserWindow, type FileFilter } from 'electron';
+import { app, dialog, shell, type BrowserWindow, type FileFilter } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -135,6 +135,12 @@ export function registerAppChannels(
       await shell.openExternal(parsed.href);
       return { opened: true };
     },
+  );
+
+  router.register(
+    IPC_CHANNELS.appGetInfo,
+    zodValidator(NoInput),
+    async () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch }),
   );
 
   router.register(

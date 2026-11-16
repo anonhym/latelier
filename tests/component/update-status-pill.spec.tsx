@@ -19,6 +19,7 @@ function ready(over: Partial<Extract<UpdateState, { status: 'ready' }>> = {}): U
     changeCount: 13,
     releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v0.20.0',
     lastCheckedAt: '2026-11-16T10:00:00.000Z',
+    downloadedAt: '2026-11-16T10:00:00.000Z',
     ...over,
   };
 }

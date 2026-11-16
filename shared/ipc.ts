@@ -259,6 +259,8 @@ export interface IpcApi {
   app: {
     pickFile: (purpose: PickFilePurpose) => Promise<{ path: string | null }>;
     openExternal: (url: string) => Promise<{ opened: boolean }>;
+    /** The running app's version, OS (`process.platform`) and CPU architecture (`process.arch`). */
+    getInfo: () => Promise<{ version: string; platform: string; arch: string }>;
     saveFile: (input: { defaultName?: string; content: string }) => Promise<{ path: string | null }>;
     /**
      * Build a JSON diagnostic bundle (recent logs + redacted connection
@@ -610,6 +612,7 @@ export const IPC_CHANNELS = {
   appMenuCommandEvent: 'app:menu-command-event',
   appPickFile:     'app:pickFile',
   appOpenExternal: 'app:openExternal',
+  appGetInfo: 'app:getInfo',
   appSaveFile:     'app:saveFile',
   appDiagnosticBundle: 'app:diagnosticBundle',
   appSetUnsavedWork: 'app:setUnsavedWork',
@@ -807,6 +810,7 @@ type EmptyObject = Record<string, never>;
 interface AdaptedSig {
   'conn:importOpen':         { in: EmptyObject; out: ApiOut<'conn', 'importOpen'> };
   'app:diagnosticBundle':    { in: EmptyObject; out: ApiOut<'app', 'diagnosticBundle'> };
+  'app:getInfo':             { in: EmptyObject; out: ApiOut<'app', 'getInfo'> };
   'app:flushDone':           { in: EmptyObject; out: ApiOut<'app', 'flushDone'> };
   'updates:getState':        { in: EmptyObject; out: ApiOut<'updates', 'getState'> };
   'updates:check':           { in: EmptyObject; out: ApiOut<'updates', 'check'> };

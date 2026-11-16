@@ -5,11 +5,13 @@ import { api, getErrorMessage } from '../../api/atelier';
 import { Wordmark } from '../../components/Wordmark';
 import { notify } from '../../theme/notifications';
 import { themeVars } from '../../theme/themeVars';
+import { logFailure } from '../../utils/rendererLog';
 import { openLink, restartToUpdate } from './updateActions';
 import {
   CHANGELOG_URL,
   RELEASES_URL,
   checkedLine,
+  identityLine,
   offReasonText,
   statusCard,
   type StatusCard,
@@ -30,6 +32,21 @@ export function AboutUpdatesSection() {
   // Refreshed every minute while the section is open.
   const now = useMinuteClock();
   const [pending, setPending] = React.useState(false);
+  // Null until main answers, and for good if it fails: the line then shows the version alone.
+  const [info, setInfo] = React.useState<{ platform: string; arch: string } | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.app
+      .getInfo()
+      .then((i) => {
+        if (!cancelled) setInfo(i);
+      })
+      .catch((err) => logFailure('reading the app info', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const check = async () => {
     setPending(true);
@@ -51,7 +68,7 @@ export function AboutUpdatesSection() {
       <Group gap="sm" align="center" wrap="nowrap">
         <Wordmark size={22} />
         <Text size="sm" c="dimmed" data-testid="about-version">
-          Version {__APP_VERSION__}
+          {info ? identityLine(__APP_VERSION__, info.platform, info.arch) : `Version ${__APP_VERSION__}`}
         </Text>
       </Group>
 

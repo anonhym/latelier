@@ -79,6 +79,7 @@ describe('updates:* handlers', () => {
         changeCount: null,
         releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v2.0.0',
         lastCheckedAt: NOW,
+        downloadedAt: NOW,
       },
     });
   });

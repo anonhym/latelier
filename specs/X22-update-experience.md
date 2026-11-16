@@ -52,7 +52,7 @@ type UpdateState =
   | { status: 'checking'; lastCheckedAt: string | null }
   | { status: 'up-to-date'; lastCheckedAt: string }
   | { status: 'downloading'; version: string; percent: number; lastCheckedAt: string }
-  | { status: 'ready'; version: string; highlights: string[]; changeCount: number | null; releaseUrl: string; lastCheckedAt: string }
+  | { status: 'ready'; version: string; highlights: string[]; changeCount: number | null; releaseUrl: string; lastCheckedAt: string; downloadedAt: string }
   | { status: 'failed'; message: string; lastCheckedAt: string | null };
 ```
 
@@ -110,7 +110,7 @@ There is a new rail entry under Maintenance, `SettingsSection` value `'about'`. 
 
 ### 5.1 Layout
 
-- **Identity:** the app mark, "L'Atelier", and "Version 0.19.1 · macOS · Apple silicon". The version comes from `__APP_VERSION__` (§6.1). The platform and architecture come from the existing app info, and if none exists, from a field added to `updates:getState`, so no new channel is needed for it.
+- **Identity:** the app mark, "L'Atelier", and "Version 0.19.1 · macOS · Apple silicon". The version comes from `__APP_VERSION__` (§6.1). The platform and architecture come from `app:getInfo` (§8), mapped to "macOS", "Windows" or "Linux" and, on macOS, "Apple silicon" or "Intel" (elsewhere "ARM64" or "x64"). If the call fails, the line shows the version alone and the failure is logged.
 - **Status card,** one card that follows the state (§5.2).
 - **Check for updates** button (secondary), with "Last checked 2 minutes ago · checks at launch and every 4 hours" beside it. The time is relative and refreshes every minute while the section is open.
 - **Links:**
@@ -121,7 +121,7 @@ There is a new rail entry under Maintenance, `SettingsSection` value `'about'`. 
 
 | State | Card |
 |---|---|
-| `ready` | Accent card: "Version 0.20.0 is ready to install" · "Downloaded today at 14:02." · **Restart now**. |
+| `ready` | Accent card: "Version 0.20.0 is ready to install" · "Downloaded today at 14:02." (read from `downloadedAt`) · **Restart now**. |
 | `up-to-date` | Check icon: "You're up to date" · "0.19.1 is the latest version. Checked just now." |
 | `checking` | Spinner: "Checking for updates…". The button is disabled. |
 | `downloading` | "Downloading 0.20.0", a 42% bar, and "Keep working; you'll be offered a restart when it's done." |
@@ -192,9 +192,10 @@ No payload carries a secret.
 | `updates:getState` | invoke | `{}` | `UpdateState` (now the wider union) |
 | `updates:check` | invoke | `{}` | `UpdateState` |
 | `updates:restart` | invoke | `{}` | unchanged |
+| `app:getInfo` | invoke | `{}` | `{ version: string; platform: string; arch: string }` (`app.getVersion()`, `process.platform`, `process.arch`) |
 | `updates:state-event` | push | — | `UpdateState` |
 
-Files: `shared/types.ts`, `shared/ipc.ts`, `electron/preload.ts`, `electron/ipc/handlers/updates.ts` (zod `NoInput`) and `electron/main.ts`. The `ipc-channel-registration` spec gains `updates:check`.
+Files: `shared/types.ts`, `shared/ipc.ts`, `electron/preload.ts`, `electron/ipc/handlers/updates.ts` and `electron/ipc/handlers/app.ts` (zod `NoInput`) and `electron/main.ts`. The `ipc-channel-registration` spec gains `updates:check`.
 
 ## Acceptance criteria
 

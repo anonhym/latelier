@@ -28,6 +28,7 @@ function ready(): UpdateState {
     changeCount: null,
     releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v0.20.0',
     lastCheckedAt: minutesAgo(1),
+    downloadedAt: minutesAgo(1),
   };
 }
 

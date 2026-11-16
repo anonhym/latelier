@@ -22,6 +22,7 @@ function ready(version: string): UpdateState {
     changeCount: null,
     releaseUrl: `https://github.com/anonhym/latelier/releases/tag/v${version}`,
     lastCheckedAt: '2026-11-16T10:00:00.000Z',
+    downloadedAt: '2026-11-16T10:00:00.000Z',
   };
 }
 

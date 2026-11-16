@@ -103,6 +103,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.connParseUri,
   IPC_CHANNELS.appPickFile,
   IPC_CHANNELS.appOpenExternal,
+  IPC_CHANNELS.appGetInfo,
   IPC_CHANNELS.appSaveFile,
   IPC_CHANNELS.appDiagnosticBundle,
   IPC_CHANNELS.appSetUnsavedWork,

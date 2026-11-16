@@ -102,7 +102,7 @@ export function statusCard(state: UpdateState, current: string, nowMs: number): 
   const base = { detail: null, percent: null, spinner: false, icon: null, action: null } as const;
   switch (state.status) {
     case 'ready': {
-      const when = formatDownloaded(state.lastCheckedAt, nowMs);
+      const when = formatDownloaded(state.downloadedAt, nowMs);
       return {
         ...base,
         tone: 'accent',
@@ -178,4 +178,31 @@ export function checkOutcome(state: UpdateState): CheckOutcome | null {
     case 'off':
       return null;
   }
+}
+
+/** "macOS", "Windows", "Linux"; any other platform name comes back as given. */
+export function platformLabel(platform: string): string {
+  switch (platform) {
+    case 'darwin':
+      return 'macOS';
+    case 'win32':
+      return 'Windows';
+    case 'linux':
+      return 'Linux';
+    default:
+      return platform;
+  }
+}
+
+/** "Apple silicon" / "Intel" on macOS, "ARM64" / "x64" elsewhere; any other value comes back as given. */
+export function archLabel(platform: string, arch: string): string {
+  const mac = platform === 'darwin';
+  if (arch === 'arm64') return mac ? 'Apple silicon' : 'ARM64';
+  if (arch === 'x64') return mac ? 'Intel' : 'x64';
+  return arch;
+}
+
+/** The Settings identity line: "Version 0.19.1 · macOS · Apple silicon". */
+export function identityLine(version: string, platform: string, arch: string): string {
+  return `Version ${version} · ${platformLabel(platform)} · ${archLabel(platform, arch)}`;
 }

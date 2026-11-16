@@ -48,6 +48,7 @@ const readyState = (version: string, extra: object = {}): UpdateState => ({
   changeCount: null,
   releaseUrl: releaseUrl(version),
   lastCheckedAt: T0,
+  downloadedAt: T0,
   ...extra,
 } as UpdateState);
 
@@ -295,6 +296,27 @@ describe('UpdateService update events', () => {
     expect(emitted).toEqual([{ status: 'checking', lastCheckedAt: null }, { status: 'up-to-date', lastCheckedAt: T0 }]);
   });
 
+  it('stamps downloadedAt from the clock when the download finishes, apart from the check time', async () => {
+    const { svc, ee, clock } = setup();
+    await svc.start();
+    clock.advance(90_000);
+    ee.emit('update-downloaded', { version: '2.0.0' });
+    expect(svc.getState()).toMatchObject({
+      status: 'ready',
+      lastCheckedAt: T0,
+      downloadedAt: '2026-11-16T10:01:30.000Z',
+    });
+  });
+
+  it('a repeated update-downloaded keeps the first downloadedAt', async () => {
+    const { svc, ee, clock } = setup();
+    await svc.start();
+    ee.emit('update-downloaded', { version: '2.0.0' });
+    clock.advance(60_000);
+    ee.emit('update-downloaded', { version: '2.0.0' });
+    expect(svc.getState()).toMatchObject({ downloadedAt: T0 });
+  });
+
   it('update-not-available settles a running check to up-to-date before the promise returns', async () => {
     let finish: () => void = () => {};
     const { svc, ee, emitted, clock, updater } = setup({ check: () => new Promise<void>((r) => { finish = r; }) });
@@ -397,6 +419,7 @@ describe('UpdateService update events', () => {
       changeCount: 2,
       releaseUrl: releaseUrl('2.0.0'),
       lastCheckedAt: T0,
+      downloadedAt: T0,
     });
   });
 

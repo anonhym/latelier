@@ -24,7 +24,8 @@ function ready(): UpdateState {
     highlights: [],
     changeCount: null,
     releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v0.20.0',
-    lastCheckedAt: NOW_ISO(),
+    lastCheckedAt: minutesAgo(30),
+    downloadedAt: NOW_ISO(),
   };
 }
 
@@ -32,6 +33,8 @@ interface Options {
   check?: () => Promise<UpdateState>;
   restart?: () => Promise<{ restarting: boolean }>;
   section?: 'about' | 'appearance';
+  appInfo?: () => Promise<{ version: string; platform: string; arch: string }>;
+  log?: () => Promise<void>;
 }
 
 function setup(initial: UpdateState, opts: Options = {}) {
@@ -50,7 +53,11 @@ function setup(initial: UpdateState, opts: Options = {}) {
         return () => {};
       },
     },
-    app: { openExternal },
+    app: {
+      openExternal,
+      ...(opts.appInfo ? { getInfo: opts.appInfo } : {}),
+      ...(opts.log ? { log: opts.log as never } : {}),
+    },
   });
   render(
     <HintsProvider>
@@ -72,6 +79,21 @@ describe('Settings → About and updates', () => {
     setup({ status: 'idle' });
     expect(await screen.findByRole('tab', { name: 'About and updates' })).toBeTruthy();
     expect(screen.getByLabelText("L'Atelier")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId('about-version').textContent).toBe(`Version ${__APP_VERSION__} · macOS · Apple silicon`),
+    );
+  });
+
+  it('shows the version alone, and logs, when the app info cannot be read', async () => {
+    const log = vi.fn(async () => {});
+    setup({ status: 'idle' }, { appInfo: async () => { throw { code: 'INTERNAL', message: 'no info' }; }, log });
+    await waitFor(() =>
+      expect(log).toHaveBeenCalledWith({
+        level: 'warn',
+        message: 'reading the app info failed: no info',
+        source: 'component',
+      }),
+    );
     expect(screen.getByTestId('about-version').textContent).toBe(`Version ${__APP_VERSION__}`);
   });
 

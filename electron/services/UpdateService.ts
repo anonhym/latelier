@@ -199,6 +199,7 @@ export class UpdateService {
         changeCount,
         releaseUrl: `${RELEASE_URL_BASE}${info.version}`,
         lastCheckedAt: this.lastCheckedAt,
+        downloadedAt: this.now(),
       });
     });
     updater.on('error', (err) => {

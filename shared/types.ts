@@ -1545,5 +1545,7 @@ export type UpdateState =
       changeCount: number | null;
       releaseUrl: string;
       lastCheckedAt: string;
+      /** When the download finished (ISO-8601). */
+      downloadedAt: string;
     }
   | { status: 'failed'; message: string; lastCheckedAt: string | null };
