@@ -234,3 +234,82 @@ describe('a write that lands while its dialog is hidden by an invalid filter', (
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+// Reference rules and Save query hold a typed draft, so a tab switch leaves
+// them open (ADR-001). Rendered from the live Focused Tab, that switch used
+// to retarget them: the rule, or the saved query with the new tab's filter,
+// was stored against the tab focused at submit instead of the one they were
+// opened on (#789).
+describe('a draft dialog submitted after focus moved to another tab', () => {
+  async function mountWithDistinctQueries() {
+    const savedCreate = vi.fn(async (input: unknown) => ({ id: 's1', ...(input as object) }));
+    const refsCreate = vi.fn(async (input: unknown) => ({ id: 'r1', targetField: '_id', projection: [], ...(input as object) }));
+    const state = (queryRaw: string) => ({
+      view: 'Tree' as const,
+      builder: { projection: [], sort: '', limit: '' },
+      queryRaw,
+      page: 0,
+      pageSize: 50,
+      activeBuilderTab: 'Builder' as const,
+      lastRun,
+    });
+    installAtelierMock({
+      ...multiConnectionMock({
+        connections: [{ id: 'c1', name: 'Prod' }],
+        tabs: [
+          { dbName: 'shop', collection: 'orders', isActive: true, state: state(FILTER) },
+          { dbName: 'shop', collection: 'users', state: state('{"role":"admin"}') },
+        ],
+      }),
+      query: { find: vi.fn(async () => ({ documents: [DOC], durationMs: 1, hasMore: false })) },
+      saved: { create: savedCreate as never },
+      refs: { create: refsCreate as never },
+    });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/widget/);
+    return { savedCreate, refsCreate };
+  }
+
+  const focusUsers = async () => {
+    await userEvent.click(screen.getByRole('tab', { name: /^users/ }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^users/ }).getAttribute('aria-selected')).toBe('true'));
+  };
+
+  it('Save query saves against the tab it was opened on, with that tab’s query', async () => {
+    const { savedCreate } = await mountWithDistinctQueries();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Save query' });
+    fireEvent.change(within(dialog).getByPlaceholderText('My query'), { target: { value: 'pending orders' } });
+
+    await focusUsers();
+    expect(screen.getByRole('dialog', { name: 'Save query' })).toBe(dialog);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedCreate).toHaveBeenCalledTimes(1));
+    expect(savedCreate.mock.calls[0][0]).toMatchObject({
+      dbName: 'shop',
+      collection: 'orders',
+      payload: { queryRaw: FILTER },
+    });
+  });
+
+  it('Reference rules creates the rule on the tab it was opened on', async () => {
+    const { refsCreate } = await mountWithDistinctQueries();
+    fireEvent.click(screen.getByRole('button', { name: /^References \(/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Reference rules/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'New rule' }));
+    fireEvent.change(within(dialog).getByLabelText('Source field'), { target: { value: 'customer_id' } });
+    fireEvent.change(within(dialog).getByPlaceholderText('contacts'), { target: { value: 'customers' } });
+
+    await focusUsers();
+    expect(within(dialog).getByText('shop.orders')).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(refsCreate).toHaveBeenCalledTimes(1));
+    expect(refsCreate.mock.calls[0][0]).toMatchObject({ sourceDb: 'shop', sourceCollection: 'orders', sourceField: 'customer_id' });
+  });
+});

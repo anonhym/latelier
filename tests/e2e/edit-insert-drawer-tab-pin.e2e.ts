@@ -295,3 +295,83 @@ test('the Document Editor survives switching to a Script tab (no active collecti
     });
   });
 });
+
+/**
+ * Save query and Reference rules hold a typed draft too, and were rendered
+ * from the live Focused Tab: a switch while either was open retargeted it, so
+ * the saved query (with the new tab's filter) or the rule landed on the tab
+ * focused at submit (#789). Both routes in: ⌘2 from the dialog's own input,
+ * and ⌘K → palette from inside it.
+ */
+test('Save query and Reference rules keep the tab they were opened on across a tab switch', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+
+    await expectConsoleClean(win, async () => {
+      const conn = await seedActiveConnectionWithDocs(
+        win,
+        { ...baseConnInput(host, port), name: 'Draft Pin' },
+        { dbName: 'shop', collection: 'orders', docs: [{ _id: 'o1', status: 'pending' }] },
+      );
+      await seedDocuments(win, { connectionId: conn.id, dbName: 'depot', collection: 'orders', docs: [{ _id: 'd1', status: 'keep' }] });
+      await expectStatusDot(win, 'Draft Pin', 'connected');
+
+      const ws = new WorkspacePage(win);
+      await ws.openCollectionFromNavigator('shop', 'orders');
+      await ws.queryBarTextarea.fill('{"status":"pending"}');
+      await ws.queryBarRunButton.click();
+      await ws.openCollectionFromNavigator('depot', 'orders');
+      await ws.queryBarTextarea.fill('{"status":"keep"}');
+      await ws.queryBarRunButton.click();
+      await win.keyboard.press(`${MOD}+1`);
+      await expect(ws.collectionRow('shop', 'orders')).toHaveAttribute('aria-selected', 'true');
+
+      // Save query: ⌘2 from its focused name input.
+      await win.getByRole('button', { name: 'Save', exact: true }).first().click();
+      const save = win.getByRole('dialog', { name: 'Save query' });
+      await save.getByPlaceholder('My query').fill('pending orders');
+      await win.keyboard.press(`${MOD}+2`);
+      await expect(ws.collectionRow('depot', 'orders')).toHaveAttribute('aria-selected', 'true');
+      await save.getByPlaceholder('My query').press('Enter');
+      await expect(save).not.toBeVisible({ timeout: 5000 });
+
+      // Reference rules: ⌘K → palette switch from inside its form.
+      await win.keyboard.press(`${MOD}+1`);
+      await expect(ws.collectionRow('shop', 'orders')).toHaveAttribute('aria-selected', 'true');
+      await win.getByRole('button', { name: /^References \(/ }).click();
+      const refs = win.getByRole('dialog', { name: /Reference rules/ });
+      await refs.getByRole('button', { name: 'New rule' }).click();
+      await refs.getByLabel('Source field').fill('customer_id');
+      await refs.getByPlaceholder('contacts').fill('customers');
+      await refs.getByPlaceholder('contacts').focus();
+      await win.keyboard.press(`${MOD}+k`);
+      const palette = win.locator('[role=dialog]:has(input[role=combobox])');
+      await palette.locator('input[role=combobox]').fill('depot.orders');
+      await expect(palette.getByRole('option').first()).toContainText('depot.orders');
+      await win.keyboard.press('Enter');
+      await expect(ws.collectionRow('depot', 'orders')).toHaveAttribute('aria-selected', 'true');
+      await refs.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(refs.getByText('customer_id')).toBeVisible({ timeout: 5000 });
+
+      const stored = await win.evaluate(async (cid) => {
+        const api = (window as unknown as {
+          atelier: {
+            saved: {
+              list: (i: object) => Promise<Array<{ id: string; dbName: string; collection: string }>>;
+              get: (i: { id: string }) => Promise<{ payload: { queryRaw?: string } }>;
+            };
+            refs: { list: (i: { connectionId: string }) => Promise<Array<{ sourceDb: string; sourceCollection: string }>> };
+          };
+        }).atelier;
+        const [s] = await api.saved.list({});
+        const full = await api.saved.get({ id: s.id });
+        const [r] = await api.refs.list({ connectionId: cid });
+        return { saved: `${s.dbName}.${s.collection} ${full.payload.queryRaw}`, rule: `${r.sourceDb}.${r.sourceCollection}` };
+      }, conn.id);
+      expect(stored).toEqual({ saved: 'shop.orders {"status":"pending"}', rule: 'shop.orders' });
+    });
+  });
+});

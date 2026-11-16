@@ -240,6 +240,21 @@ export interface DialogStackProps {
   runExecuteHint: UseFeatureHintResult;
 }
 
+/**
+ * The Focused Tab as it was when `open` turned true, held until it turns
+ * false. Reference rules and Save query hold a typed draft, so a tab switch
+ * must not close them (ADR-001) — but rendering them from the live Focused
+ * Tab let one switch retarget the draft at another collection: the rule, or
+ * the saved query with that tab's filter, landed where focus had moved.
+ * Adjusted during render, like the delete/update close in useDocumentDialogs.
+ */
+function usePinnedWhileOpen(open: boolean, current: CollectionTab | null): CollectionTab | null {
+  const [pinned, setPinned] = React.useState<CollectionTab | null>(null);
+  if (open && pinned === null && current !== null) setPinned(current);
+  if (!open && pinned !== null) setPinned(null);
+  return open ? (pinned ?? current) : null;
+}
+
 export function DialogStack({
   newTabOpen,
   setNewTabOpen,
@@ -262,6 +277,8 @@ export function DialogStack({
   runExecuteHint,
 }: DialogStackProps) {
   const { refHover, refEditorOpen, setRefEditorOpen } = refDrawer;
+  const refEditorTab = usePinnedWhileOpen(refEditorOpen, activeCollection);
+  const saveTab = usePinnedWhileOpen(queryBarSaveOpen, activeCollection);
   const {
     editing,
     viewing,
@@ -326,24 +343,24 @@ export function DialogStack({
         />
       )}
 
-      {refEditorOpen && activeCollection && (
+      {refEditorTab && (
         <ReferenceRulesEditor
-          connectionId={activeCollection.connectionId}
-          dbName={activeCollection.dbName}
-          collection={activeCollection.collection}
-          sampleDocs={activeCollection.state.lastRun?.documents}
+          connectionId={refEditorTab.connectionId}
+          dbName={refEditorTab.dbName}
+          collection={refEditorTab.collection}
+          sampleDocs={refEditorTab.state.lastRun?.documents}
           onClose={() => setRefEditorOpen(false)}
           onChanged={() => void referenceRules.reload()}
         />
       )}
 
-      {queryBarSaveOpen && activeCollection && (
+      {saveTab && (
         <SaveModal
-          connectionId={activeCollection.connectionId}
-          dbName={activeCollection.dbName}
-          collection={activeCollection.collection}
-          builderState={activeCollection.state.builder}
-          queryRaw={activeCollection.state.queryRaw}
+          connectionId={saveTab.connectionId}
+          dbName={saveTab.dbName}
+          collection={saveTab.collection}
+          builderState={saveTab.state.builder}
+          queryRaw={saveTab.state.queryRaw}
           onClose={() => setQueryBarSaveOpen(false)}
           onSaved={() => {
             setSavedRefreshKey((k) => k + 1);
