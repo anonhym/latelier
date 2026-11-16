@@ -215,6 +215,52 @@ test('the form follows the width only: options, a hint and a run change no contr
   });
 });
 
+test('long set options give way inside their group, never over the filter or the controls', async () => {
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await expectConsoleClean(win, async () => {
+      await open(win);
+      await win.setViewportSize({ width: 1920, height: 1000 });
+      const workspace = new WorkspacePage(win);
+      // Wide enough for the unfolded group, so every set option is promoted to its own pill.
+      await setPaneWidth(win, 1500);
+      await workspace.openOption('sort');
+      await workspace.queryBarSort.fill('{"aVeryLongFieldNameToSortBy":1,"anotherRatherLongFieldName":-1}');
+      await win.keyboard.press('Escape');
+      await workspace.openOption('limit');
+      await workspace.queryBarLimit.fill('5');
+      await win.keyboard.press('Escape');
+      await workspace.openOption('hint', 'Hint');
+      await win.getByTestId('query-bar-hint').fill('{"aVeryLongFieldNameToSortBy":1,"anotherRatherLongFieldName":-1}');
+      await win.keyboard.press('Escape');
+      await workspace.openOption('maxTimeMS', 'Max time');
+      await win.getByTestId('query-bar-maxtime').fill('2500');
+      await win.keyboard.press('Escape');
+      await expect(win.getByTestId('option-pill-hint')).toBeVisible();
+
+      // Every unfolded width, and the edge of the folded form.
+      for (const width of [1500, 1200, 1170, 1090, 1078]) {
+        await setPaneWidth(win, width);
+        const read = await readRow(win);
+        expect(read.folded, `${width}: unfolded`).toBe(false);
+        expect(read.overflow, `${width}: row overflow`).toBeLessThanOrEqual(0);
+        expect(read.boxWidth, `${width}: filter box`).toBeGreaterThanOrEqual(480 - 1);
+        expect(read.rowHeight, `${width}: one line`).toBe(44);
+        const spill = await win.evaluate(() => {
+          const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!.getBoundingClientRect();
+          const group = q('query-bar-options-group');
+          return { overFilter: q('query-bar-filter-box').right - group.left, overActions: group.right - q('query-bar-actions').left };
+        });
+        expect(spill.overFilter, `${width}: group over the filter`).toBeLessThanOrEqual(0);
+        expect(spill.overActions, `${width}: group over the controls`).toBeLessThanOrEqual(0);
+      }
+      // A label cut to an ellipsis keeps its whole text as the pill's tooltip.
+      await expect(workspace.optionPill('sort')).toHaveAttribute('title', /aVeryLongFieldNameToSortBy/);
+    });
+  });
+});
+
 // The sort editor's field suggestions open under its input, inside the editor's
 // popover, whether the editor hangs from its own pill or from the folded one.
 for (const [label, width] of [

@@ -18,7 +18,7 @@ import { requestColumnScroll } from './views/columnScroll';
 import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import { useShellSyntaxField } from './useShellSyntaxField';
 import { projectionProblem } from './builder';
-import { optionPills, PILL_LOOK } from './optionPills';
+import { optionPills, PILL_LOOK, type PillStatus } from './optionPills';
 import {
   formatProjection,
   isRawProjection,
@@ -150,8 +150,11 @@ export function FieldsControl({
 }: {
   /** The folded `Options` pill opens this editor from its menu, so the row holds its open state. */
   controlled?: { opened: boolean; onOpenedChange: (next: boolean) => void };
-  /** Anchors the dropdown to this instead of the `Project` pill. */
-  target?: React.ReactElement;
+  /**
+   * Anchors the dropdown to this instead of the `Project` pill. It is handed
+   * the pill's status, which counts a refused draft the builder never saw.
+   */
+  target?: (status: PillStatus) => React.ReactElement;
 } = {}) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
@@ -375,7 +378,7 @@ export function FieldsControl({
       onChange={(next) => (next ? setOpened(true) : close())}
     >
       <Popover.Target>
-        {target ?? (
+        {target ? target(pillStatus) : (
         <Button
           // A controlled Popover's target does not toggle by itself.
           onClick={() => (opened ? close() : setOpened(true))}

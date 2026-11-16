@@ -203,6 +203,24 @@ describe('Filter Bar row — the folded Options pill', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows a refused Project draft on the folded pill and in its menu once the editor closes', async () => {
+    barWidth(1000);
+    renderBar();
+    fireEvent.click(screen.getByTestId('query-bar-options-folded'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Project' }));
+    const input = (await screen.findByTestId('fields-projection')) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '{a: }' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('fields-projection')).toBeNull());
+
+    // The builder never saw the draft, so only the Project control knows it was refused.
+    const folded = screen.getByTestId('query-bar-options-folded');
+    expect(folded.getAttribute('data-status')).toBe('invalid');
+    fireEvent.click(folded);
+    const item = await screen.findByRole('menuitem', { name: 'Project: invalid' });
+    expect(item.getAttribute('data-status')).toBe('invalid');
+  });
+
   it('has nothing to fold while options are kept expanded', () => {
     barWidth(1000);
     renderBar({ ...makeState(), optionsExpanded: true });

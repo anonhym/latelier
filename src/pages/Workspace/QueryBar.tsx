@@ -24,6 +24,7 @@ import {
   stripText,
   type OptionKey,
   type OptionPill,
+  type PillStatus,
   type RunProblem,
 } from './optionPills';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -111,6 +112,13 @@ const NOTICE_IDS: Record<RunProblem['clause'], string> = {
   readPreference: 'query-bar-readpref-error',
 };
 
+/** A pill in the unfolded group: shrinks to an ellipsis rather than push the row past its width. */
+const OPTION_PILL_BOUNDS: React.CSSProperties = { flexShrink: 1, minWidth: 40, maxWidth: 160 };
+const OPTION_PILL_STYLES = {
+  inner: { minWidth: 0 },
+  label: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
+};
+
 /** The part of each option editor's ids (`query-bar-<part>-label`), as the grid always named them. */
 const EDITOR_IDS: Record<Exclude<OptionKey, 'project'>, string> = {
   sort: 'sort',
@@ -192,7 +200,11 @@ function OptionPopover({
             data-status={pill.status}
             // A controlled Popover's target does not toggle by itself.
             onClick={() => (opened ? onClose(false) : onOpen())}
-            style={{ flexShrink: 0 }}
+            // A set option's label is bounded so the row never outgrows its
+            // width-only budget (W05 §10.3); the whole label is its tooltip.
+            title={pill.label}
+            style={OPTION_PILL_BOUNDS}
+            styles={OPTION_PILL_STYLES}
           >
             {pill.label}
           </Button>
@@ -762,9 +774,13 @@ function QueryBarInner({
   // there is nothing to fold.
   const folded = layout.optionsFolded && !expanded;
   const setCount = pills.filter((p) => p.status !== 'unset').length;
-  const foldedStatus = pills.some((p) => p.status === 'invalid') ? 'invalid' : setCount > 0 ? 'set' : 'unset';
   // A field dropped on the folded pill sorts by it, as one dropped on the Sort pill does.
-  const foldedPill = (
+  // Project's status comes from its own control: a refused draft lives there,
+  // not in the builder the pills are read from.
+  const foldedPill = (projectStatus: PillStatus) => {
+    const shown = pills.map((p) => (p.key === 'project' ? { ...p, status: projectStatus } : p));
+    const foldedStatus = shown.some((p) => p.status === 'invalid') ? 'invalid' : setCount > 0 ? 'set' : 'unset';
+    return (
     <span {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
       <Menu position="bottom-end" shadow="md" width={250}>
         <Menu.Target>
@@ -782,9 +798,9 @@ function QueryBarInner({
           </Button>
         </Menu.Target>
         <Menu.Dropdown>
-          {pills.map((pill) => (
-            <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
-              {pill.label}
+          {shown.map((pill) => (
+            <Menu.Item key={pill.key} data-status={pill.status} onClick={() => openPill(pill.key)}>
+              {pill.key === 'project' && pill.status === 'invalid' ? `${pill.name}: invalid` : pill.label}
             </Menu.Item>
           ))}
           <Menu.Divider />
@@ -798,7 +814,8 @@ function QueryBarInner({
         </Menu.Dropdown>
       </Menu>
     </span>
-  );
+    );
+  };
   // The editor of the option picked from the folded menu: one popover, anchored
   // to the folded pill, committing through the same open and close path as a
   // pill's own. Project's editor is its own control, anchored the same way.
@@ -856,7 +873,9 @@ function QueryBarInner({
             alignItems: 'flex-start',
             columnGap: T.gapSm,
             flex: layout.wrap ? '1 1 100%' : '1 1 0',
-            minWidth: 0,
+            // On one line the group holds the box's minimum, so the options
+            // group, not the filter, gives way when set options run long.
+            minWidth: layout.wrap ? 0 : 'min-content',
             boxSizing: 'border-box',
           }}
         >
@@ -984,7 +1003,9 @@ function QueryBarInner({
         <div
           data-testid="query-bar-options"
           data-hint-anchor={expanded ? undefined : 'find.options'}
-          style={{ ...groupStyle, flexShrink: 0 }}
+          // Set options can outgrow the group's budget; the group gives way
+          // (its pills ellipsize) before the filter's minimum or the controls do.
+          style={{ ...groupStyle, flexShrink: folded ? 0 : 1, minWidth: 0 }}
         >
           {folded ? (
             foldedEditor
@@ -996,6 +1017,8 @@ function QueryBarInner({
                 alignItems: 'center',
                 boxSizing: 'border-box',
                 height: 24,
+                minWidth: 0,
+                overflow: 'hidden',
                 padding: '0 1px',
                 // eslint-disable-next-line no-restricted-syntax -- W05 §10.2 fixes the pills' gap at 2px; no token is that size
                 gap: 2,
@@ -1024,7 +1047,11 @@ function QueryBarInner({
                 );
                 // The Sort pill takes a dropped field, as the grid's sort cell does.
                 return key === 'sort' ? (
-                  <span key={key} {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
+                  <span
+                    key={key}
+                    {...sortDropProps}
+                    style={{ display: 'inline-flex', minWidth: 0, borderRadius: T.rs, ...sortDropStyle }}
+                  >
                     {popover}
                   </span>
                 ) : (
