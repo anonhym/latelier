@@ -516,8 +516,9 @@ The pill states the projection and nothing else: `Project: 4 fields`, `Project: 
 
 ### 11.3 What the list writes
 
-- **From no projection or an inclusion**, the list writes an inclusion: checking adds the field, unchecking removes it. This is `builder.projection`, as today. Unchecking from All writes every other known field.
-- **While an exclusion is in force** (typed, or migrated by §11.6), unchecking a row adds `field: 0` to it and checking removes it; the result is `builder.projectionRaw`. Removing its last field clears the projection.
+- **From no projection** (All), unchecking a row writes an exclusion of that field (`{ notes: 0 }`), in `builder.projectionRaw`. An inclusion built from the fields in hand would silently drop every field that appears only on other pages or is added to the collection later, from the results and from CSV export.
+- **From an inclusion** (including Only _id), checking adds the field and unchecking removes it. This is `builder.projection`, as today.
+- **While an exclusion is in force** (from the list, typed, or migrated by §11.6), unchecking a row adds `field: 0` to it and checking removes it; the result is `builder.projectionRaw`. Removing its last field clears the projection.
 - **While an operator is in force** (`$slice`, `$elemMatch`, `$meta`, an expression), that field's row is locked and shows its value (`$slice: 3 · as text`); it is edited in the text only. Checking another row adds `field: 1` beside the operator.
 - The text box always shows the result, fields in the list's order.
 - A list click first commits a pending draft. If the draft is refused, the click does nothing and the list is greyed until the text parses again: the list never overwrites what the user is typing.
@@ -548,7 +549,8 @@ The "Show in results" section and its help line, the "Fetch only these fields fr
 ### 11.9 Acceptance criteria
 
 - The `Project` popover has one list and one projection text box, and no section headings.
-- Unchecking a field in a tab with no projection removes its column from Table at once, makes the pill read `Project: n fields`, shows the inclusion in the text box, and sends it on the next Run.
+- Unchecking a field in a tab with no projection removes its column from Table at once, writes the exclusion `{ field: 0 }`, makes the pill read `Project: all but 1`, and sends it on the next Run.
+- After Only _id, checking fields builds an inclusion and the pill reads `Project: n fields`.
 - Typing `{ address: 0, notes: 0 }` and committing unchecks those two rows, shows `Excluding 2`, and makes the pill read `Project: all but 2`; unchecking a third row adds it to the exclusion.
 - A `$slice` field's row is locked and shows its value; checking another row adds `field: 1` beside it.
 - A refused draft keeps its message, greys the list, and survives a close and reopen; a list click does not replace it.
@@ -560,6 +562,6 @@ The "Show in results" section and its help line, the "Fetch only these fields fr
 
 ### 11.10 Test cases
 
-- **Unit**: the list-to-projection writer for each mode (none, inclusion, exclusion, operator present); the pill label for an exclusion; the §11.6 migration for hidden-only, hidden-with-projection and empty-hidden tabs; `notFetchedFields` driving each view's visible fields.
+- **Unit**: the list-to-projection writer for each mode (none → exclusion, inclusion, exclusion, operator present); the pill label for an exclusion; the §11.6 migration for hidden-only, hidden-with-projection and empty-hidden tabs; `notFetchedFields` driving each view's visible fields.
 - **Component**: checking and unchecking writes the projection and the text box follows; typing an exclusion updates the rows and the tag; a locked operator row; a refused draft greys the list and survives a close and reopen (stateful wrapper, since the effect appears only after the patch round-trips); drag and keyboard reorder keep their focus rules; `Hide column` writes the projection; the folded `Options` menu opens this popover anchored to its pill (W05 §10.3).
 - **E2E**: uncheck a column in Table, see it go at once, run, and check the server returned the projected shape; type an exclusion and see the rows follow; reopen a tab saved with a hidden list and see the same columns; Escape returns focus to the pill (`x19-popover-focus-return`).
