@@ -963,13 +963,18 @@ app.whenReady().then(() => {
       platform: process.platform,
     }),
     quitGate,
+    { platform: process.platform },
   );
   registerUpdatesChannels(router, updateSvc);
+  // `will-quit` rather than `before-quit`: a quit the user cancels at the
+  // running-work question fires `before-quit` and the app keeps running, and
+  // it must keep re-checking.
+  app.once('will-quit', () => updateSvc.stop());
 
   // 6. Window
   createWindow();
   // Off the critical path: start() never rejects.
-  void updateSvc.start();
+  void updateSvc.start().then(() => updateSvc.startPeriodic());
 
   // 7. Dev niceties
   registerDevResetShortcut();

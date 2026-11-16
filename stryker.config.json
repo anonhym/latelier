@@ -17,6 +17,7 @@
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",
+    "electron/updater/releaseNotes.ts",
     "electron/services/connectionExportFormat.ts",
     "electron/services/connectionBulkAdd.ts",
     "electron/services/import/unknownJson.ts",

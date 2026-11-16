@@ -44,6 +44,12 @@ jobs:
           test "$GITHUB_REF_NAME" = "$expected" \
             || { echo "::error::tag $GITHUB_REF_NAME != $expected (package.json version)"; exit 1; }
 
+      # The release body is this version's CHANGELOG.md section, so a tag
+      # without one would publish an empty release. Needs no dependencies.
+      - name: Check CHANGELOG.md has a section for this version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" --check
+
       # See ci.yml for why this is `npm ci --ignore-scripts`.
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -272,6 +278,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checked out for the changelog only. Before the download on purpose: a
+      # checkout cleans the workspace and would delete the restored files.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            CHANGELOG.md
+            scripts/changelog-section.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
       # `path: release` restores the prefix the upload stripped, so the globs
       # below match.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -279,6 +299,9 @@ jobs:
           pattern: release-*
           merge-multiple: true
           path: release
+
+      - name: Write release notes from CHANGELOG.md
+        run: node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
@@ -295,4 +318,4 @@ jobs:
           # Don't fail if a glob matches nothing (e.g., the .yml feed file
           # naming conventions vary across electron-builder versions).
           fail_on_unmatched_files: false
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md

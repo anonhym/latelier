@@ -90,6 +90,7 @@ const api: IpcApi = {
 
   updates: {
     getState: () => call(IPC_CHANNELS.updatesGetState, {}),
+    check: () => call(IPC_CHANNELS.updatesCheck, {}),
     restart: () => call(IPC_CHANNELS.updatesRestart, {}),
     onState: (cb) => {
       const listener = (_evt: unknown, state: unknown) => cb(state as Parameters<typeof cb>[0]);

@@ -21,6 +21,8 @@ function createShim() {
   };
 }
 
+const NOW = '2026-11-16T10:00:00.000Z';
+
 describe('updates:* handlers', () => {
   let shim: ReturnType<typeof createShim>;
   let quitAndInstall: ReturnType<typeof vi.fn>;
@@ -30,12 +32,14 @@ describe('updates:* handlers', () => {
   let shellCommands: number;
   let failInstall: (err: Error) => void;
   let gate: ReturnType<typeof createQuitGate>;
+  let checkForUpdates: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     shim = createShim();
     quitAndInstall = vi.fn();
     let downloaded: ((i: { version: string }) => void) | undefined;
     let errored: ((err: Error) => void) | undefined;
+    checkForUpdates = vi.fn(async () => undefined);
     const updater = {
       autoDownload: false,
       autoInstallOnAppQuit: false,
@@ -43,7 +47,7 @@ describe('updates:* handlers', () => {
         if (event === 'update-downloaded') downloaded = l;
         if (event === 'error') errored = l;
       },
-      checkForUpdates: async () => undefined,
+      checkForUpdates,
       quitAndInstall,
     } as unknown as UpdaterLike;
     const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -53,7 +57,7 @@ describe('updates:* handlers', () => {
       counts: () => ({ scripts: 0, shellCommands, imports: 0, aggregations: 0, unsavedForms: 0, unsavedPipelines: 0 }),
       confirm: async () => quitAnswer,
     });
-    svc = new UpdateService(async () => updater, log, () => {}, true, gate);
+    svc = new UpdateService(async () => updater, log, () => {}, true, gate, { now: () => NOW });
     await svc.start();
     fire = (version) => downloaded?.({ version });
     failInstall = (err) => errored?.(err);
@@ -63,12 +67,19 @@ describe('updates:* handlers', () => {
   it('getState returns the service state in an ok envelope', async () => {
     expect(await shim.invoke(IPC_CHANNELS.updatesGetState, undefined)).toEqual({
       ok: true,
-      data: { status: 'idle' },
+      data: { status: 'up-to-date', lastCheckedAt: NOW },
     });
     fire('2.0.0');
     expect(await shim.invoke(IPC_CHANNELS.updatesGetState, {})).toEqual({
       ok: true,
-      data: { status: 'ready', version: '2.0.0' },
+      data: {
+        status: 'ready',
+        version: '2.0.0',
+        highlights: [],
+        changeCount: null,
+        releaseUrl: 'https://github.com/anonhym/latelier/releases/tag/v2.0.0',
+        lastCheckedAt: NOW,
+      },
     });
   });
 
@@ -119,5 +130,59 @@ describe('updates:* handlers', () => {
     expect(env.ok).toBe(false);
     if (!env.ok) expect(env.error.code).toBe('VALIDATION');
     expect(quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  describe('updates:check', () => {
+    it('answers ok with the settled state and runs one manual check', async () => {
+      checkForUpdates.mockClear();
+      expect(await shim.invoke(IPC_CHANNELS.updatesCheck, undefined)).toEqual({
+        ok: true,
+        data: { status: 'up-to-date', lastCheckedAt: NOW },
+      });
+      expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a failed state in an ok envelope when the manual check fails', async () => {
+      checkForUpdates.mockRejectedValueOnce(new Error('offline'));
+      expect(await shim.invoke(IPC_CHANNELS.updatesCheck, {})).toEqual({
+        ok: true,
+        data: { status: 'failed', message: 'offline', lastCheckedAt: NOW },
+      });
+    });
+
+    it('answers ok with the unchanged ready state and checks nothing while ready', async () => {
+      fire('2.0.0');
+      checkForUpdates.mockClear();
+      const env = await shim.invoke<{ status: string }>(IPC_CHANNELS.updatesCheck, {});
+      expect(env).toMatchObject({ ok: true, data: { status: 'ready' } });
+      expect(checkForUpdates).not.toHaveBeenCalled();
+    });
+
+    it('answers ok with the off state when updates are off, without loading the updater', async () => {
+      const offShim = createShim();
+      const load = vi.fn();
+      const offSvc = new UpdateService(
+        load,
+        { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        () => {},
+        false,
+        gate,
+        { platform: 'linux' },
+      );
+      registerUpdatesChannels(createRouter(offShim.ipcMain, testSenderCheck), offSvc);
+      expect(await offShim.invoke(IPC_CHANNELS.updatesCheck, {})).toEqual({
+        ok: true,
+        data: { status: 'off', reason: 'linux' },
+      });
+      expect(load).not.toHaveBeenCalled();
+    });
+
+    it('a payload with unexpected fields is a VALIDATION error and checks nothing', async () => {
+      checkForUpdates.mockClear();
+      const env = await shim.invoke(IPC_CHANNELS.updatesCheck, { force: true });
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      expect(checkForUpdates).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1528,7 +1528,22 @@ export interface ShellOutputEvent {
 }
 
 /**
- * What the renderer may know about auto-update. Checking, downloading and "no
- * update" are deliberately invisible: only a finished download is a state.
+ * What the renderer may know about auto-update (X22 §1). `ready` is sticky: no
+ * later check, timer or error moves the state away from it. `failed` comes only
+ * from a check the user started; a background failure is a log line.
  */
-export type UpdateState = { status: 'idle' } | { status: 'ready'; version: string };
+export type UpdateState =
+  | { status: 'off'; reason: 'development' | 'linux' }
+  | { status: 'idle' }
+  | { status: 'checking'; lastCheckedAt: string | null }
+  | { status: 'up-to-date'; lastCheckedAt: string }
+  | { status: 'downloading'; version: string; percent: number; lastCheckedAt: string }
+  | {
+      status: 'ready';
+      version: string;
+      highlights: string[];
+      changeCount: number | null;
+      releaseUrl: string;
+      lastCheckedAt: string;
+    }
+  | { status: 'failed'; message: string; lastCheckedAt: string | null };

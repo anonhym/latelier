@@ -10,6 +10,17 @@ afterEach(() => {
   notifications.clean();
 });
 
+function ready(version: string): UpdateState {
+  return {
+    status: 'ready',
+    version,
+    highlights: [],
+    changeCount: null,
+    releaseUrl: `https://github.com/anonhym/latelier/releases/tag/v${version}`,
+    lastCheckedAt: '2026-11-16T10:00:00.000Z',
+  };
+}
+
 function setup(initial: UpdateState = { status: 'idle' }, restart = vi.fn(async (): Promise<{ restarting: boolean }> => ({ restarting: true }))) {
   let push: (s: UpdateState) => void = () => {};
   const unsubscribe = vi.fn();
@@ -36,15 +47,15 @@ describe('UpdateReadyPrompt', () => {
   });
 
   it('shows the version and a Restart button when ready on mount', async () => {
-    setup({ status: 'ready', version: '1.2.3' });
+    setup(ready('1.2.3'));
     expect(await screen.findByText('Version 1.2.3 is ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Restart to update' })).toBeTruthy();
   });
 
   it('shows a pushed ready event, and a second push replaces rather than stacks', async () => {
     const { push } = setup();
-    push({ status: 'ready', version: '1.0.0' });
-    push({ status: 'ready', version: '1.1.0' });
+    push(ready('1.0.0'));
+    push(ready('1.1.0'));
     expect(await screen.findByText('Version 1.1.0 is ready')).toBeTruthy();
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Restart to update' })).toHaveLength(1));
     expect(screen.queryByText('Version 1.0.0 is ready')).toBeNull();
@@ -57,7 +68,7 @@ describe('UpdateReadyPrompt', () => {
   });
 
   it('calls updates.restart once when Restart is clicked', async () => {
-    const { restart } = setup({ status: 'ready', version: '1.2.3' });
+    const { restart } = setup(ready('1.2.3'));
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
     expect(restart).toHaveBeenCalledTimes(1);
   });
@@ -66,7 +77,7 @@ describe('UpdateReadyPrompt', () => {
     const restart = vi.fn(async () => {
       throw { code: 'VALIDATION', message: 'No update is ready to install' };
     });
-    setup({ status: 'ready', version: '1.2.3' }, restart as never);
+    setup(ready('1.2.3'), restart as never);
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
     expect(await screen.findByText(/No update is ready to install\. It will be applied when you quit\./)).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -74,19 +85,19 @@ describe('UpdateReadyPrompt', () => {
 
   it('a cancelled restart shows no error, and the prompt is offered again when ready is re-sent', async () => {
     const restart = vi.fn(async () => ({ restarting: false }));
-    const { push } = setup({ status: 'ready', version: '1.2.3' }, restart);
+    const { push } = setup(ready('1.2.3'), restart);
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
     await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Restart to update' })).toBeNull());
     // Main re-sends ready after a cancel; the toast the click hid comes back.
-    push({ status: 'ready', version: '1.2.3' });
+    push(ready('1.2.3'));
     expect(await screen.findByRole('button', { name: 'Restart to update' })).toBeTruthy();
     await act(async () => {});
     expect(screen.queryByText(/could not be applied|will be applied when you quit/)).toBeNull();
   });
 
   it('is not a modal', async () => {
-    setup({ status: 'ready', version: '1.2.3' });
+    setup(ready('1.2.3'));
     await screen.findByText('Version 1.2.3 is ready');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
