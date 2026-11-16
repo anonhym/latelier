@@ -1,6 +1,6 @@
 # X22 — Update experience: check, indicator, What's new
 
-> **Status: Accepted.**
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -65,7 +65,7 @@ type UpdateState =
 ## 2. Checks
 
 - **At launch:** unchanged from X20.
-- **Every 4 hours:** a timer started after the launch check. It is cleared on `before-quit`. The timer does nothing while the state is `checking`, `downloading` or `ready`.
+- **Every 4 hours:** a timer started after the launch check. It is cleared on `will-quit`, not `before-quit`: a quit the user cancels at the running-work question still fires `before-quit`, and the app that keeps running must keep re-checking. The timer does nothing while the state is `checking`, `downloading` or `ready`.
 - **Manual:** `updates:check`. It returns the state once the check settles, and pushes the state along the way.
   - While the state is `checking` or `downloading`, it returns the current state without starting another check.
   - While `ready` or `off`, it returns the current state unchanged and does not throw.
