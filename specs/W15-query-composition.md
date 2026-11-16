@@ -391,6 +391,8 @@ control is individually reasonable.
 > **Since resolved:** the three became one Fields control in the result bar;
 > projection is its separate "fetch" section (W14 §4), and a field the
 > projection excluded is listed as "not fetched" rather than vanishing.
+> Since amended ([W14 §11](./W14-query-bar-advanced-row.md)): the display
+> half and the projection are now one list that writes the projection.
 
 ---
 
@@ -464,7 +466,8 @@ independent widget in a row that already has too many.
 > show/hide list. That is also §6's answer for projection: one control for
 > "which fields do I see", with the server-side choice visibly separate from
 > the display-only one and each explained in one line. The advanced row keeps
-> sort, skip and limit.
+> sort, skip and limit. Since superseded by W14 §11: the server-side choice
+> and the display-only one are now the same list, the projection.
 
 **Recommended sequencing**: Tier 1 as one small PR (it is mostly deletion and
 message edits), Tier 2 as a second (one shared autocomplete-backed field input
