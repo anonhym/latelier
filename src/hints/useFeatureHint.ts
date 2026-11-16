@@ -10,7 +10,7 @@ export interface UseFeatureHintResult {
 // Suppress all feature hints under the e2e harness. Hints are floating
 // popovers that race against test clicks (palette.discover, saved.create,
 // etc.) and add no value to assertions.
-const isTestEnv =
+export const HINTS_SUPPRESSED =
   typeof window !== 'undefined' &&
   (window as unknown as { __atelierEnv__?: { isTest?: boolean } }).__atelierEnv__?.isTest === true;
 
@@ -28,7 +28,7 @@ export function useFeatureHint(
     dismiss: hintsDismiss,
   } = useHints();
 
-  const eligible = !isTestEnv && loaded && when && !isDismissed(id);
+  const eligible = !HINTS_SUPPRESSED && loaded && when && !isDismissed(id);
 
   React.useEffect(() => {
     if (!eligible) return;

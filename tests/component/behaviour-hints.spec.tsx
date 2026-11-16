@@ -17,7 +17,7 @@ import {
 } from '../helpers/render';
 import { HintsProvider } from '../../src/hints/HintsProvider';
 import { HINT_REGISTRY } from '../../src/hints/registry';
-import { resetLaunchRestore } from '../../src/hints/launchRestore';
+import { resetLaunchRestore, useRestoreHintSettled } from '../../src/hints/launchRestore';
 import { MonitorTab } from '../../src/pages/MonitorTab';
 import { IndexesTab } from '../../src/pages/IndexesTab';
 import { QueryBar } from '../../src/pages/Workspace/QueryBar';
@@ -172,6 +172,39 @@ describe('startup.restore hint', () => {
   it('is hidden after dismiss and the dismissal is persisted', async () => {
     const { prefs } = mountWorkspace(async () => [collectionTab]);
     await expectDismissible('startup.restore', prefs);
+  });
+
+  // What's new waits on this all-clear instead of a timer, so it never opens
+  // under a restore hint that registers late.
+  describe('restore-hint all-clear', () => {
+    function SettledProbe() {
+      return <span data-testid="restore-settled">{String(useRestoreHintSettled())}</span>;
+    }
+    const settledText = () => screen.getByTestId('restore-settled').textContent;
+
+    it('is withheld while the hint shows and given once it is dismissed', async () => {
+      render(<SettledProbe />);
+      mountWorkspace(async () => [collectionTab]);
+      const dialog = await waitFor(() => screen.getByRole('dialog', { name: HINT_REGISTRY['startup.restore'].title }), {
+        timeout: 3000,
+      });
+      expect(settledText()).toBe('false');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Got it' }));
+      await waitFor(() => expect(settledText()).toBe('true'));
+    });
+
+    it('is given at once when nothing came back', async () => {
+      render(<SettledProbe />);
+      mountWorkspace(async () => []);
+      await waitFor(() => expect(settledText()).toBe('true'));
+    });
+
+    it('is given without the hint when it was dismissed in an earlier session', async () => {
+      render(<SettledProbe />);
+      mountWorkspace(async () => [collectionTab], memoryPrefs(['startup.restore']));
+      await waitFor(() => expect(settledText()).toBe('true'));
+      expect(hintDialog('startup.restore')).toBeNull();
+    });
   });
 
   it('its CTA opens Settings', async () => {

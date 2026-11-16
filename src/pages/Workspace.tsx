@@ -63,10 +63,10 @@ import { usePaletteOpen } from '../commands/paletteOpenState';
 import type { NavigatorDialogRequest, NavigatorRevealInput } from './Workspace/DbCollectionNavigator';
 import { useLatest } from '../commands/useLatest';
 import { usePaletteApi } from '../commands/CommandPalette';
-import { useFeatureHint } from '../hints/useFeatureHint';
+import { HINTS_SUPPRESSED, useFeatureHint } from '../hints/useFeatureHint';
 import { useHints } from '../hints/HintsContext';
 import { FeatureHint } from '../hints/FeatureHint';
-import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount } from '../hints/launchRestore';
+import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
 import {
@@ -315,10 +315,13 @@ function WorkspaceInner() {
 
   // Tabs the previous session left behind, as main restored them at launch.
   const [restoredAtLaunch, setRestoredAtLaunch] = React.useState(false);
+  const [launchCountKnown, setLaunchCountKnown] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
     void readLaunchTabCount().then((n) => {
-      if (!cancelled && n > 0 && !isLaunchRestoreConsumed()) setRestoredAtLaunch(true);
+      if (cancelled) return;
+      setLaunchCountKnown(true);
+      if (n > 0 && !isLaunchRestoreConsumed()) setRestoredAtLaunch(true);
     });
     return () => {
       cancelled = true;
@@ -332,6 +335,20 @@ function WorkspaceInner() {
   React.useEffect(() => {
     if (startupRestoreVisible) consumeLaunchRestore();
   }, [startupRestoreVisible]);
+  // Tell launch-time layers (What's new) when the hint is out of the way: once
+  // it has shown and closed, or once every input says it never will.
+  const restoreHintWontShow =
+    launchCountKnown &&
+    hints.loaded &&
+    (!restoredAtLaunch ||
+      HINTS_SUPPRESSED ||
+      hints.isDismissed('startup.restore') ||
+      (!tabs.loading && tabs.tabs.length === 0));
+  const restoreHintShown = React.useRef(false);
+  React.useEffect(() => {
+    if (startupRestoreVisible) restoreHintShown.current = true;
+    else if (restoreHintShown.current || restoreHintWontShow) settleRestoreHint();
+  }, [startupRestoreVisible, restoreHintWontShow]);
 
   const currentQueryKey = React.useMemo(() => {
     if (!activeCollection) return '';

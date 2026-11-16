@@ -7,6 +7,7 @@ import { WhatsNewProvider } from '../../src/features/updates/WhatsNewProvider';
 import { useWhatsNew } from '../../src/features/updates/whatsNewContext';
 import { FULL_CHANGELOG_URL } from '../../src/features/updates/whatsNewFormat';
 import { _resetPaletteOpenForTests, setPaletteOpen } from '../../src/commands/paletteOpenState';
+import { resetLaunchRestore, settleRestoreHint } from '../../src/hints/launchRestore';
 
 const KEY = 'whatsNew.lastSeenVersion';
 
@@ -55,8 +56,14 @@ function setup(stored: unknown, opts: { h?: HintsContextValue; current?: string 
 
 const dialog = () => screen.queryByRole('dialog', { name: "What's new in L'Atelier" });
 
-beforeEach(() => _resetPaletteOpenForTests());
-afterEach(() => _resetPaletteOpenForTests());
+beforeEach(() => {
+  _resetPaletteOpenForTests();
+  resetLaunchRestore();
+});
+afterEach(() => {
+  _resetPaletteOpenForTests();
+  resetLaunchRestore();
+});
 
 describe('What’s new window launch trigger', () => {
   it('opens nothing and stores the current version when none is stored', async () => {
@@ -149,16 +156,33 @@ describe('What’s new window launch trigger', () => {
     expect(set).toHaveBeenCalledWith(KEY, '0.20.0');
   });
 
-  it('waits for the hints to load and settle, since the hint registers during that time', async () => {
+  it('waits for the hints to load', async () => {
     const stored = '0.19.0';
     installAtelierMock({ prefs: { get: (async () => stored) as never, set: (async (_k: string, v: unknown) => v) as never } });
     const view = render(<Tree h={hints({ loaded: false, settled: false })} />);
     await act(async () => {});
     expect(dialog()).toBeNull();
-    view.rerender(<Tree h={hints({ loaded: true, settled: false })} />);
+    view.rerender(<Tree h={hints()} />);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('with tabs restored, waits for the restored-tabs hint to clear however long that takes, not the settle period', async () => {
+    const stored = '0.19.0';
+    installAtelierMock({
+      prefs: { get: (async () => stored) as never, set: (async (_k: string, v: unknown) => v) as never },
+      tabs: { list: (async () => [{ id: 't1' }]) as never },
+    });
+    // Hints loaded and settled, and no hint registered yet: the old timer-based
+    // gate would open here, before a slow restore registers its hint.
+    render(<Tree h={hints()} />);
     await act(async () => {});
     expect(dialog()).toBeNull();
-    view.rerender(<Tree h={hints()} />);
+    act(() => settleRestoreHint());
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('with nothing restored, opens without waiting on the workspace', async () => {
+    setup('0.19.0');
     expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 

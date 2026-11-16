@@ -2,6 +2,7 @@ import React from 'react';
 import { api } from '../../api/atelier';
 import { usePaletteOpen } from '../../commands/paletteOpenState';
 import { useHints } from '../../hints/HintsContext';
+import { readLaunchTabCount, useRestoreHintSettled } from '../../hints/launchRestore';
 import { logFailure } from '../../utils/rendererLog';
 import { BUNDLED_RELEASES } from './bundledChangelog';
 import { compareVersions, isVersion, releasesBetween, type Release } from './changelog';
@@ -75,10 +76,17 @@ export function WhatsNewProvider({
     };
   }, [currentVersion, releases, storeCurrent]);
 
-  // The restored-tabs hint is one settle period away from registering, so wait
-  // for that period as well as for the hint itself to clear.
+  // The restored-tabs hint registers only after the tab list is read, which can
+  // outlast any timer, so wait for its explicit all-clear (shown and closed, or
+  // never going to show) rather than for the hints' settle period.
+  const restoreHintSettled = useRestoreHintSettled();
+  React.useEffect(() => {
+    // Starts the launch tab read even off the workspace, so a launch that
+    // restored nothing clears the way without the Workspace mounting.
+    if (pending) void readLaunchTabCount();
+  }, [pending]);
   const launchLayersClear =
-    hints.loaded && hints.settled && hints.visibleId !== 'startup.restore' && !paletteOpen;
+    hints.loaded && restoreHintSettled && hints.visibleId !== 'startup.restore' && !paletteOpen;
 
   if (pending && !released && launchLayersClear) setReleased(true);
   const showing = manual ?? (pending && released ? pending : null);
