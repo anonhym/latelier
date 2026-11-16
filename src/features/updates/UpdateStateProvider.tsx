@@ -1,7 +1,7 @@
 import React from 'react';
 import { api } from '../../api/atelier';
 import { logFailure } from '../../utils/rendererLog';
-import { UpdateStateContext } from './updateStateContext';
+import { UpdatePillPresenceContext, UpdateStateContext } from './updateStateContext';
 import type { UpdateState } from '@shared/types';
 
 /**
@@ -33,5 +33,17 @@ export function UpdateStateProvider({ children }: { children: React.ReactNode })
     };
   }, []);
 
-  return <UpdateStateContext.Provider value={state}>{children}</UpdateStateContext.Provider>;
+  // A count, not a flag: a remount mounts the new pill before the old one unmounts.
+  const [pills, setPills] = React.useState(0);
+  const register = React.useCallback(() => {
+    setPills((n) => n + 1);
+    return () => setPills((n) => n - 1);
+  }, []);
+  const presence = React.useMemo(() => ({ mounted: pills > 0, register }), [pills, register]);
+
+  return (
+    <UpdateStateContext.Provider value={state}>
+      <UpdatePillPresenceContext.Provider value={presence}>{children}</UpdatePillPresenceContext.Provider>
+    </UpdateStateContext.Provider>
+  );
 }

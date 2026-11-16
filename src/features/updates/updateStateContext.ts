@@ -18,3 +18,28 @@ export function useMinuteClock(): number {
   }, []);
   return now;
 }
+
+interface PillPresence {
+  mounted: boolean;
+  /** Called by the pill on mount; the returned function unregisters it. */
+  register: () => () => void;
+}
+
+/**
+ * Whether a status-bar pill is on screen. The toast reads this rather than the
+ * route: the welcome canvas sits at `/workspace` too but draws no status bar.
+ */
+export const UpdatePillPresenceContext = React.createContext<PillPresence>({
+  mounted: false,
+  register: () => () => {},
+});
+
+export function useUpdatePillMounted(): boolean {
+  return React.useContext(UpdatePillPresenceContext).mounted;
+}
+
+/** Marks the status-bar pill as on screen for as long as the caller is mounted. */
+export function useRegisterUpdatePill(): void {
+  const { register } = React.useContext(UpdatePillPresenceContext);
+  React.useEffect(() => register(), [register]);
+}

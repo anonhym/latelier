@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { notifications } from '@mantine/notifications';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
+import { useState } from 'react';
 import { act, render, screen, waitFor, fireEvent } from '../helpers/render';
 import { installAtelierMock } from '../helpers/atelierMock';
 import { UpdateReadyPrompt } from '../../src/features/updates/UpdateReadyPrompt';
 import { UpdateStateProvider } from '../../src/features/updates/UpdateStateProvider';
+import { UpdateStatusPill } from '../../src/features/updates/UpdateStatusPill';
 import type { IpcApi } from '@shared/ipc';
 import type { UpdateState } from '../../shared/types';
 
@@ -26,16 +28,23 @@ function ready(version: string): UpdateState {
   };
 }
 
-function GoTo({ to }: { to: string }) {
-  const navigate = useNavigate();
-  return <button onClick={() => void navigate(to)}>go {to}</button>;
+/** Stands in for the workspace's status bar, which some screens draw and others (the welcome canvas) do not. */
+function StatusBarToggle({ initial }: { initial: boolean }) {
+  const [shown, setShown] = useState(initial);
+  return (
+    <>
+      <button onClick={() => setShown((v) => !v)}>{shown ? 'hide status bar' : 'show status bar'}</button>
+      {shown && <UpdateStatusPill />}
+    </>
+  );
 }
 
 interface SetupOptions {
   restart?: () => Promise<{ restarting: boolean }>;
   /** The version the toast was last shown for, as stored. */
   shownFor?: unknown;
-  path?: string;
+  /** Whether a status bar (and so the pill) is on screen at first. */
+  statusBar?: boolean;
 }
 
 function setup(initial: UpdateState = { status: 'idle' }, opts: SetupOptions = {}) {
@@ -56,13 +65,10 @@ function setup(initial: UpdateState = { status: 'idle' }, opts: SetupOptions = {
   });
   // helpers/render already mounts <Notifications />.
   const view = render(
-    <MemoryRouter initialEntries={[opts.path ?? '/connections/new']}>
-      <UpdateStateProvider>
-        <UpdateReadyPrompt />
-        <GoTo to="/workspace" />
-        <GoTo to="/connections/new" />
-      </UpdateStateProvider>
-    </MemoryRouter>,
+    <UpdateStateProvider>
+      <UpdateReadyPrompt />
+      <StatusBarToggle initial={opts.statusBar ?? false} />
+    </UpdateStateProvider>,
   );
   return { view, restart, set, unsubscribe, push: (s: UpdateState) => act(() => push(s)) };
 }
@@ -89,18 +95,18 @@ describe('UpdateReadyPrompt', () => {
     expect(set).toHaveBeenCalledTimes(1);
   });
 
-  it('shows nothing on the workspace, where the status bar pill says it, and stores nothing', async () => {
-    const { set } = setup(ready('1.2.3'), { path: '/workspace' });
+  it('shows nothing while the status bar pill is on screen, and stores nothing', async () => {
+    const { set } = setup(ready('1.2.3'), { statusBar: true });
     await act(async () => {});
     expect(screen.queryByText(/is ready/)).toBeNull();
     expect(set).not.toHaveBeenCalled();
   });
 
-  it('shows the toast once the user leaves the workspace', async () => {
-    setup(ready('1.2.3'), { path: '/workspace' });
+  it('shows the toast once the status bar goes away', async () => {
+    setup(ready('1.2.3'), { statusBar: true });
     await act(async () => {});
     expect(screen.queryByText(/is ready/)).toBeNull();
-    fireEvent.click(screen.getByText('go /connections/new'));
+    fireEvent.click(screen.getByText('hide status bar'));
     expect(await screen.findByText('Version 1.2.3 is ready')).toBeTruthy();
   });
 
@@ -117,13 +123,13 @@ describe('UpdateReadyPrompt', () => {
     await waitFor(() => expect(set).toHaveBeenCalledWith(SHOWN_KEY, '1.3.0'));
   });
 
-  it('closing it is final: leaving and returning to the workspace does not bring it back', async () => {
+  it('closing it is final: the status bar coming and going does not bring it back', async () => {
     const { set } = setup(ready('1.2.3'));
     await screen.findByText('Version 1.2.3 is ready');
     act(() => notifications.clean());
     await waitFor(() => expect(screen.queryByText(/is ready/)).toBeNull());
-    fireEvent.click(screen.getByText('go /workspace'));
-    fireEvent.click(screen.getByText('go /connections/new'));
+    fireEvent.click(screen.getByText('show status bar'));
+    fireEvent.click(screen.getByText('hide status bar'));
     await act(async () => {});
     expect(screen.queryByText(/is ready/)).toBeNull();
     expect(set).toHaveBeenCalledTimes(1);

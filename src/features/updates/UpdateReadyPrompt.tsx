@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
 import { api } from '../../api/atelier';
 import { logFailure } from '../../utils/rendererLog';
 import { notify } from '../../theme/notifications';
 import { restartToUpdate } from './updateActions';
-import { useUpdateState } from './updateStateContext';
+import { useUpdatePillMounted, useUpdateState } from './updateStateContext';
 
 const TOAST_ID = 'update-ready';
 const TOAST_SHOWN_KEY = 'update.toastShownFor';
@@ -22,24 +21,21 @@ function showReady(version: string): void {
   });
 }
 
-/** Where the status bar (and so the pill) lives. Everywhere else the toast is the only notice. */
-const WORKSPACE_PATH = '/workspace';
-
 /**
- * Renders nothing: away from the workspace, surfaces one non-modal toast per
- * version once an update has downloaded (X22 §4). On the workspace the status
- * bar pill says it instead.
+ * Renders nothing: wherever no status-bar pill is on screen (the Connections
+ * screens, and the welcome canvas, which has no status bar), surfaces one
+ * non-modal toast per version once an update has downloaded (X22 §4).
  */
 export function UpdateReadyPrompt() {
   const state = useUpdateState();
-  const onWorkspace = useLocation().pathname === WORKSPACE_PATH;
+  const pillShown = useUpdatePillMounted();
   const readyVersion = state.status === 'ready' ? state.version : null;
   // The pref write is async: this stops a re-run in the same session from
   // reading the old value and showing the toast a second time.
   const handled = useRef<string | null>(null);
 
   useEffect(() => {
-    if (readyVersion === null || onWorkspace || handled.current === readyVersion) return;
+    if (readyVersion === null || pillShown || handled.current === readyVersion) return;
     let cancelled = false;
     api.prefs
       .get<unknown>(TOAST_SHOWN_KEY)
@@ -58,7 +54,7 @@ export function UpdateReadyPrompt() {
     return () => {
       cancelled = true;
     };
-  }, [readyVersion, onWorkspace]);
+  }, [readyVersion, pillShown]);
 
   return null;
 }

@@ -6,7 +6,7 @@ import { themeVars } from '../../theme/themeVars';
 import { logFailure } from '../../utils/rendererLog';
 import { openLink, restartToUpdate } from './updateActions';
 import { clampPercent } from './updateFormat';
-import { useUpdateState } from './updateStateContext';
+import { useRegisterUpdatePill, useUpdateState } from './updateStateContext';
 import type { UpdateState } from '@shared/types';
 
 const RESTORE_TABS_KEY = 'ui.workspace.restoreTabs';
@@ -20,6 +20,8 @@ type ReadyState = Extract<UpdateState, { status: 'ready' }>;
  */
 export function UpdateStatusPill() {
   const state = useUpdateState();
+  // Registered whatever the state, so the toast stands down wherever a pill could show it.
+  useRegisterUpdatePill();
   if (state.status === 'downloading') return <DownloadingText version={state.version} percent={state.percent} />;
   if (state.status === 'ready') return <ReadyPill state={state} />;
   return null;
