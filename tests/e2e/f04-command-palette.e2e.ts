@@ -15,10 +15,41 @@ test.afterAll(stopAllMemoryServers);
  * the palette on its search input (`aria-label="Search commands"`, forwarded to
  * the input by `SpotlightSearch`; see `CommandPalette.tsx`).
  */
-test('command palette: ⌘K opens, "new connection" navigates, the last query returns, theme toggle persists', async () => {
+// eslint-disable-next-line no-empty-pattern
+for (const run of Array.from({ length: 12 }, (_, i) => i)) test(`probe ${run} command palette: ⌘K opens, "new connection" navigates, the last query returns, theme toggle persists`, async ({}, testInfo) => {
   await withApp(async (app) => {
     const win = await app.firstWindow();
     await win.waitForLoadState('domcontentloaded');
+    await win.evaluate(() => {
+      const w = window as unknown as { __f: string[] };
+      w.__f = [];
+      const d = (el: EventTarget | null) => {
+        const e = el as HTMLElement | null;
+        return e && e.tagName ? `${e.tagName}[${e.getAttribute('aria-label') ?? ''}]` : String(el);
+      };
+      const t = () => performance.now().toFixed(0);
+      document.addEventListener('focusin', (e) => w.__f.push(`${t()} in ${d(e.target)}`), true);
+      document.addEventListener('focusout', (e) => w.__f.push(`${t()} out ${d(e.target)} -> ${d(e.relatedTarget)}`), true);
+      document.addEventListener('keydown', (e) => w.__f.push(`${t()} key ${e.key} @ ${d(e.target)}`), true);
+      window.addEventListener('focus', () => w.__f.push(`${t()} WINDOW focus`));
+      window.addEventListener('blur', () => w.__f.push(`${t()} WINDOW blur`));
+      new MutationObserver((ms) => {
+        for (const m of ms) for (const n of Array.from(m.addedNodes)) {
+          const el = n as HTMLElement;
+          if (el.querySelector?.('input[aria-label="Connection string"]')) w.__f.push(`${t()} MOUNT welcome`);
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    const dumpLog = async () => {
+      const log = await win.evaluate(() => {
+        const w = window as unknown as { __f: string[] };
+        const a = document.activeElement as HTMLElement | null;
+        const welcome = document.querySelector<HTMLInputElement>('input[aria-label="Connection string"]');
+        return [...w.__f, `ACTIVE ${a?.tagName}[${a?.getAttribute('aria-label') ?? ''}]`, `WELCOME value=${JSON.stringify(welcome?.value)}`].join('\n');
+      });
+      process.stderr.write(`\n=== FOCUS LOG (${testInfo.title.slice(0, 8)})\n${log}\n=== END\n`);
+      await testInfo.attach('focus-log', { body: log, contentType: 'text/plain' });
+    };
 
     await expectConsoleClean(win, async () => {
       // A launch with no Connection lands on the welcome canvas, whose
@@ -90,8 +121,14 @@ test('command palette: ⌘K opens, "new connection" navigates, the last query re
       // Typing into a field that is not focused yet makes Playwright focus it
       // and put the caret at the start; wait for the dialog to move focus in.
       await expect(search).toBeFocused();
+      await win.evaluate(() => (window as unknown as { __f: string[] }).__f.push('--- TYPE START'));
       await search.pressSequentially('dark mode');
-      await expect(search).toHaveValue('dark mode');
+      try {
+        await expect(search).toHaveValue('dark mode', { timeout: 2000 });
+      } catch (err) {
+        await dumpLog();
+        throw err;
+      }
       const darkMode = palette.getByRole('option', { name: /^Dark mode/ });
       await expect(darkMode).toBeVisible();
       const checked = await darkMode.getAttribute('aria-checked');
