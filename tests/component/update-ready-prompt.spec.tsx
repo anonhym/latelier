@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { notifications } from '@mantine/notifications';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { act, render, screen, waitFor, fireEvent } from '../helpers/render';
 import { installAtelierMock } from '../helpers/atelierMock';
 import { UpdateReadyPrompt } from '../../src/features/updates/UpdateReadyPrompt';
+import { UpdateStateProvider } from '../../src/features/updates/UpdateStateProvider';
 import type { IpcApi } from '@shared/ipc';
 import type { UpdateState } from '../../shared/types';
+
+const SHOWN_KEY = 'update.toastShownFor';
 
 afterEach(() => {
   notifications.clean();
@@ -21,9 +25,23 @@ function ready(version: string): UpdateState {
   };
 }
 
-function setup(initial: UpdateState = { status: 'idle' }, restart = vi.fn(async (): Promise<{ restarting: boolean }> => ({ restarting: true }))) {
+function GoTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => void navigate(to)}>go {to}</button>;
+}
+
+interface SetupOptions {
+  restart?: () => Promise<{ restarting: boolean }>;
+  /** The version the toast was last shown for, as stored. */
+  shownFor?: unknown;
+  path?: string;
+}
+
+function setup(initial: UpdateState = { status: 'idle' }, opts: SetupOptions = {}) {
   let push: (s: UpdateState) => void = () => {};
   const unsubscribe = vi.fn();
+  const restart = vi.fn(opts.restart ?? (async () => ({ restarting: true })));
+  const set = vi.fn(async (_k: string, v: unknown) => v);
   installAtelierMock({
     updates: {
       getState: async () => initial,
@@ -33,11 +51,22 @@ function setup(initial: UpdateState = { status: 'idle' }, restart = vi.fn(async 
         return unsubscribe;
       },
     },
+    prefs: { get: (async (k: string) => (k === SHOWN_KEY ? (opts.shownFor ?? null) : null)) as never, set: set as never },
   });
   // helpers/render already mounts <Notifications />.
-  const view = render(<UpdateReadyPrompt />);
-  return { view, restart, unsubscribe, push: (s: UpdateState) => act(() => push(s)) };
+  const view = render(
+    <MemoryRouter initialEntries={[opts.path ?? '/connections/new']}>
+      <UpdateStateProvider>
+        <UpdateReadyPrompt />
+        <GoTo to="/workspace" />
+        <GoTo to="/connections/new" />
+      </UpdateStateProvider>
+    </MemoryRouter>,
+  );
+  return { view, restart, set, unsubscribe, push: (s: UpdateState) => act(() => push(s)) };
 }
+
+const restartButton = () => screen.queryByRole('button', { name: 'Restart to update' });
 
 describe('UpdateReadyPrompt', () => {
   it('shows nothing while idle', async () => {
@@ -46,15 +75,75 @@ describe('UpdateReadyPrompt', () => {
     expect(screen.queryByText(/is ready/)).toBeNull();
   });
 
-  it('shows the version and a Restart button when ready on mount', async () => {
+  it('away from the workspace, shows the version and a Restart button when ready on mount', async () => {
     setup(ready('1.2.3'));
     expect(await screen.findByText('Version 1.2.3 is ready')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Restart to update' })).toBeTruthy();
+    expect(restartButton()).toBeTruthy();
   });
 
-  it('shows a pushed ready event, and a second push replaces rather than stacks', async () => {
+  it('records the version it showed the toast for', async () => {
+    const { set } = setup(ready('1.2.3'));
+    await screen.findByText('Version 1.2.3 is ready');
+    await waitFor(() => expect(set).toHaveBeenCalledWith(SHOWN_KEY, '1.2.3'));
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows nothing on the workspace, where the status bar pill says it, and stores nothing', async () => {
+    const { set } = setup(ready('1.2.3'), { path: '/workspace' });
+    await act(async () => {});
+    expect(screen.queryByText(/is ready/)).toBeNull();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('shows the toast once the user leaves the workspace', async () => {
+    setup(ready('1.2.3'), { path: '/workspace' });
+    await act(async () => {});
+    expect(screen.queryByText(/is ready/)).toBeNull();
+    fireEvent.click(screen.getByText('go /connections/new'));
+    expect(await screen.findByText('Version 1.2.3 is ready')).toBeTruthy();
+  });
+
+  it('shows nothing for a version it already showed the toast for', async () => {
+    const { set } = setup(ready('1.2.3'), { shownFor: '1.2.3' });
+    await act(async () => {});
+    expect(screen.queryByText(/is ready/)).toBeNull();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('shows the toast for a newer version than the one stored', async () => {
+    const { set } = setup(ready('1.3.0'), { shownFor: '1.2.3' });
+    expect(await screen.findByText('Version 1.3.0 is ready')).toBeTruthy();
+    await waitFor(() => expect(set).toHaveBeenCalledWith(SHOWN_KEY, '1.3.0'));
+  });
+
+  it('closing it is final: leaving and returning to the workspace does not bring it back', async () => {
+    const { set } = setup(ready('1.2.3'));
+    await screen.findByText('Version 1.2.3 is ready');
+    act(() => notifications.clean());
+    await waitFor(() => expect(screen.queryByText(/is ready/)).toBeNull());
+    fireEvent.click(screen.getByText('go /workspace'));
+    fireEvent.click(screen.getByText('go /connections/new'));
+    await act(async () => {});
+    expect(screen.queryByText(/is ready/)).toBeNull();
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a pushed ready event once, and a second push of the same version does not stack or repeat', async () => {
+    const { push, set } = setup();
+    push(ready('1.0.0'));
+    expect(await screen.findByText('Version 1.0.0 is ready')).toBeTruthy();
+    act(() => notifications.clean());
+    await waitFor(() => expect(screen.queryByText(/is ready/)).toBeNull());
+    push(ready('1.0.0'));
+    await act(async () => {});
+    expect(screen.queryByText(/is ready/)).toBeNull();
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it('a newer ready version replaces the toast rather than stacking', async () => {
     const { push } = setup();
     push(ready('1.0.0'));
+    await screen.findByText('Version 1.0.0 is ready');
     push(ready('1.1.0'));
     expect(await screen.findByText('Version 1.1.0 is ready')).toBeTruthy();
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Restart to update' })).toHaveLength(1));
@@ -74,25 +163,26 @@ describe('UpdateReadyPrompt', () => {
   });
 
   it('shows a non-modal error when restart fails', async () => {
-    const restart = vi.fn(async () => {
-      throw { code: 'VALIDATION', message: 'No update is ready to install' };
+    setup(ready('1.2.3'), {
+      restart: async () => {
+        throw { code: 'VALIDATION', message: 'No update is ready to install' };
+      },
     });
-    setup(ready('1.2.3'), restart as never);
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
     expect(await screen.findByText(/No update is ready to install\. It will be applied when you quit\./)).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('a cancelled restart shows no error, and the prompt is offered again when ready is re-sent', async () => {
-    const restart = vi.fn(async () => ({ restarting: false }));
-    const { push } = setup(ready('1.2.3'), restart);
+  it('a cancelled restart shows no error, and the toast it hid does not come back for the same version', async () => {
+    const { push, restart } = setup(ready('1.2.3'), { restart: async () => ({ restarting: false }) });
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
     await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Restart to update' })).toBeNull());
-    // Main re-sends ready after a cancel; the toast the click hid comes back.
+    await waitFor(() => expect(restartButton()).toBeNull());
+    // Main re-sends ready after a cancel; the toast is once per version, so the
+    // pill and Settings are what keep offering it.
     push(ready('1.2.3'));
-    expect(await screen.findByRole('button', { name: 'Restart to update' })).toBeTruthy();
     await act(async () => {});
+    expect(restartButton()).toBeNull();
     expect(screen.queryByText(/could not be applied|will be applied when you quit/)).toBeNull();
   });
 
@@ -120,12 +210,46 @@ describe('UpdateReadyPrompt', () => {
       },
       app: { log },
     });
-    render(<UpdateReadyPrompt />);
+    render(
+      <MemoryRouter initialEntries={['/connections/new']}>
+        <UpdateStateProvider>
+          <UpdateReadyPrompt />
+        </UpdateStateProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() =>
       expect(log).toHaveBeenCalledWith({
         level: 'warn',
         message: 'reading the update state failed: updater offline',
+        source: 'component',
+      }),
+    );
+    expect(screen.queryByText(/is ready/)).toBeNull();
+  });
+
+  it('sends a failed read of the shown-for version to the main log and shows nothing', async () => {
+    const log = vi.fn<IpcApi['app']['log']>(async () => undefined);
+    installAtelierMock({
+      updates: { getState: async () => ready('1.2.3'), onState: () => () => {} },
+      prefs: {
+        get: (async () => {
+          throw { code: 'INTERNAL', message: 'db locked' };
+        }) as never,
+      },
+      app: { log },
+    });
+    render(
+      <MemoryRouter initialEntries={['/connections/new']}>
+        <UpdateStateProvider>
+          <UpdateReadyPrompt />
+        </UpdateStateProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(log).toHaveBeenCalledWith({
+        level: 'warn',
+        message: 'reading the version the update toast was shown for failed: db locked',
         source: 'component',
       }),
     );

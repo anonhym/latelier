@@ -24,6 +24,7 @@ const VALID: Record<string, unknown> = {
   'ui.commandPalette.mru': ['tab.new', 'query.run'],
   'ui.connections.pinned': [UUID],
   'whatsNew.lastSeenVersion': '0.20.0',
+  'update.toastShownFor': '0.20.0',
   [CONN_KEY]: true,
 };
 

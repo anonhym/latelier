@@ -9,6 +9,8 @@ import { TroubleshootingProvider } from "./troubleshooting/TroubleshootingProvid
 import { TroubleshootingPaletteCommand } from "./troubleshooting/TroubleshootingPaletteCommand";
 import { UpdateReadyPrompt } from "./features/updates/UpdateReadyPrompt";
 import { WhatsNewProvider } from "./features/updates/WhatsNewProvider";
+import { UpdateStateProvider } from "./features/updates/UpdateStateProvider";
+import { UpdateCommands } from "./features/updates/UpdateCommands";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FlushOnQuit } from "./features/lifecycle/FlushOnQuit";
 
@@ -24,23 +26,27 @@ export function RootLayout() {
     <ErrorBoundary>
       <FlushOnQuit />
       <PaletteContextProvider>
-        <SettingsProvider>
-          <ConnectionTransferProvider>
-            <CommandPaletteRoot>
-              <WhatsNewProvider>
-                <TroubleshootingProvider>
-                  <GlobalCommands />
-                  <UpdateReadyPrompt />
-                  <ConnectionPaletteCommands />
-                  <TroubleshootingPaletteCommand />
-                  <ErrorBoundary>
-                    <Outlet />
-                  </ErrorBoundary>
-                </TroubleshootingProvider>
-              </WhatsNewProvider>
-            </CommandPaletteRoot>
-          </ConnectionTransferProvider>
-        </SettingsProvider>
+        {/* Above Settings: its About section reads both the update state and the What's new window. */}
+        <UpdateStateProvider>
+          <WhatsNewProvider>
+            <SettingsProvider>
+              <ConnectionTransferProvider>
+                <CommandPaletteRoot>
+                  <TroubleshootingProvider>
+                    <GlobalCommands />
+                    <UpdateCommands />
+                    <UpdateReadyPrompt />
+                    <ConnectionPaletteCommands />
+                    <TroubleshootingPaletteCommand />
+                    <ErrorBoundary>
+                      <Outlet />
+                    </ErrorBoundary>
+                  </TroubleshootingProvider>
+                </CommandPaletteRoot>
+              </ConnectionTransferProvider>
+            </SettingsProvider>
+          </WhatsNewProvider>
+        </UpdateStateProvider>
       </PaletteContextProvider>
     </ErrorBoundary>
   );

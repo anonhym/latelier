@@ -19,6 +19,7 @@
     "electron/services/UpdateService.ts",
     "electron/updater/releaseNotes.ts",
     "src/features/updates/changelog.ts",
+    "src/features/updates/updateFormat.ts",
     "electron/services/connectionExportFormat.ts",
     "electron/services/connectionBulkAdd.ts",
     "electron/services/import/unknownJson.ts",

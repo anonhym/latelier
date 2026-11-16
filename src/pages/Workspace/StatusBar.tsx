@@ -2,10 +2,12 @@ import { Badge } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import type { ConnectionSummary } from '@shared/types';
 import { STATUS_PRESENTATION } from '../../features/connections/connectionStatus';
+import { UpdateStatusPill } from '../../features/updates/UpdateStatusPill';
 
 /**
  * The 24px band along the bottom of the window (W01 §14.6): the Focused Tab's
- * Connection and nothing else. The result count and pager are the result bar's.
+ * Connection on the left and, on the right, the update pill (X22 §4). The
+ * result count and pager are the result bar's.
  */
 export function StatusBar({ connection }: { connection: ConnectionSummary | null }) {
   const T = themeVars;
@@ -27,6 +29,7 @@ export function StatusBar({ connection }: { connection: ConnectionSummary | null
       }}
     >
       {connection && <ConnectionStatus connection={connection} />}
+      <UpdateStatusPill />
     </div>
   );
 }

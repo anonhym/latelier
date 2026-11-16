@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Group, Modal, SegmentedControl, Select, Stack, Switch, Tabs, Text } from '@mantine/core';
+import { Button, Group, Modal, SegmentedControl, Select, Stack, Switch, Tabs, Text, VisuallyHidden } from '@mantine/core';
 import { fixedModalStyles } from '../components/fixedModal';
 import { useHints } from '../hints/HintsContext';
 import { api, getErrorMessage } from '../api/atelier';
@@ -22,6 +22,8 @@ import {
   PAGE_SIZE_OPTIONS,
   RESULT_VIEW_OPTIONS,
 } from '../state/workspaceTabs';
+import { AboutUpdatesSection } from '../features/updates/AboutUpdatesSection';
+import { useUpdateState } from '../features/updates/updateStateContext';
 import type { ResultViewMode } from '@shared/types';
 
 const RESTORE_TABS_KEY = 'ui.workspace.restoreTabs';
@@ -49,7 +51,13 @@ const SECTION_GROUPS = [
       { value: 'editor', label: 'Editor and startup' },
     ],
   },
-  { label: 'Maintenance', sections: [{ value: 'maintenance', label: 'Data and support' }] },
+  {
+    label: 'Maintenance',
+    sections: [
+      { value: 'maintenance', label: 'Data and support' },
+      { value: 'about', label: 'About and updates' },
+    ],
+  },
 ];
 
 function Section({ value, children }: { value: string; children: React.ReactNode }) {
@@ -60,7 +68,21 @@ function Section({ value, children }: { value: string; children: React.ReactNode
   );
 }
 
-export type SettingsSection = 'appearance' | 'results' | 'editor' | 'maintenance';
+/** The rail's sign that an update is waiting: a small accent dot, spoken as text. */
+function UpdateDot() {
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        data-testid="about-update-dot"
+        style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--atelier-accent)' }}
+      />
+      <VisuallyHidden>, update ready</VisuallyHidden>
+    </>
+  );
+}
+
+export type SettingsSection = 'appearance' | 'results' | 'editor' | 'maintenance' | 'about';
 
 interface SettingsModalProps {
   /** A link about one setting opens on the section that holds it. */
@@ -71,6 +93,7 @@ interface SettingsModalProps {
 export function SettingsModal({ initialSection = 'appearance', onClose }: SettingsModalProps) {
   const { reset } = useHints();
   const close = useDialogFocusReturn(onClose);
+  const updateReady = useUpdateState().status === 'ready';
   const [section, setSection] = React.useState<string>(initialSection);
   const [resetting, setResetting] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
@@ -276,7 +299,12 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
               {group.sections.map((s) => (
                 // The open section's rail tab takes focus on open, not Close:
                 // arrows then change section and Tab enters its controls.
-                <Tabs.Tab key={s.value} value={s.value} data-autofocus={s.value === section ? true : undefined}>
+                <Tabs.Tab
+                  key={s.value}
+                  value={s.value}
+                  data-autofocus={s.value === section ? true : undefined}
+                  rightSection={s.value === 'about' && updateReady ? <UpdateDot /> : undefined}
+                >
                   {s.label}
                 </Tabs.Tab>
               ))}
@@ -402,6 +430,11 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                 onChange={(e) => void handleConfirmDestructive(e.currentTarget.checked)}
               />
             </Group>
+          </Section>
+
+          <Section value="about">
+            {/* Mounted on demand: it needs the What's new provider, and its clock ticks only while it is open. */}
+            {section === 'about' && <AboutUpdatesSection />}
           </Section>
 
           <Section value="maintenance">
