@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { ActionIcon, Button, Menu, Popover, Tooltip, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Button, Menu, Popover, Tabs, Tooltip, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useShellSyntaxField } from './useShellSyntaxField';
@@ -44,6 +44,7 @@ import { copyQueryAsCode } from './copyQueryCode';
 import { isMacRenderer } from '../../utils/platform';
 import { liveValidity } from '../../utils/shellSyntax';
 import { useElementWidth } from '../../hooks/useElementWidth';
+import { FILTER_FLOOR, FILTER_MIN, filterBarLayout } from './toolbarLayout';
 import { QueryExpandModal } from './QueryExpandModal';
 import { LIMIT_EXPLANATION } from './queryCaps';
 import { FieldsControl } from './FieldsControl';
@@ -90,6 +91,10 @@ const SKIP_EXPLANATION = 'Skip is driven by the page selector below the results'
 // W07 §3's rule, said beside Run before it applies.
 const PAGE_RESET_HINT = 'Will jump to page 1 on run';
 
+/** The Queries popover's two lists; each workspace tab remembers the one it last showed (W05 §10.2). */
+type QueriesTab = 'saved' | 'history';
+const lastQueriesTab = new Map<string, QueriesTab>();
+
 // X14 §11 — beside text the transform will rewrite, where a refusal would sit.
 const SHELL_SYNTAX_NOTE = 'mongosh syntax — rewritten as EJSON when you run';
 
@@ -127,6 +132,9 @@ const EXPLAIN_ITEMS: ReadonlyArray<{ verbosity: ExplainVerbosity; label: string 
 // A stable ref callback: an option's editor takes the focus when its popover
 // mounts it. On the editor's wrapper, since the autocomplete input keeps its
 // own ref object.
+/** Pills sit in a 24px group with a 1px border, so each is two pixels shorter. */
+const PILL_HEIGHT = 22;
+
 const focusEditorOnMount = (el: HTMLElement | null) => el?.querySelector<HTMLElement>('input, select')?.focus();
 
 /** A modal opened from inside a popover (a delete confirmation) is not a click outside it. */
@@ -146,6 +154,7 @@ function OptionPopover({
   onClose,
   onRun,
   buttonRef,
+  target,
   children,
 }: {
   pill: OptionPill;
@@ -155,6 +164,8 @@ function OptionPopover({
   onClose: (refocus: boolean) => void;
   onRun: () => void;
   buttonRef: (el: HTMLButtonElement | null) => void;
+  /** Anchors the editor to this instead of the pill, which is how the folded `Options` pill opens one. */
+  target?: React.ReactElement;
   children: React.ReactNode;
 }) {
   const T = themeVars;
@@ -171,19 +182,21 @@ function OptionPopover({
       returnFocus={false}
     >
       <Popover.Target>
-        <Button
-          ref={buttonRef}
-          {...PILL_LOOK[pill.status]}
-          size="compact-xs"
-          h={24}
-          data-testid={`option-pill-${pill.key}`}
-          data-status={pill.status}
-          // A controlled Popover's target does not toggle by itself.
-          onClick={() => (opened ? onClose(false) : onOpen())}
-          style={{ flexShrink: 0 }}
-        >
-          {pill.label}
-        </Button>
+        {target ?? (
+          <Button
+            ref={buttonRef}
+            {...PILL_LOOK[pill.status]}
+            size="compact-xs"
+            h={PILL_HEIGHT}
+            data-testid={`option-pill-${pill.key}`}
+            data-status={pill.status}
+            // A controlled Popover's target does not toggle by itself.
+            onClick={() => (opened ? onClose(false) : onOpen())}
+            style={{ flexShrink: 0 }}
+          >
+            {pill.label}
+          </Button>
+        )}
       </Popover.Target>
       <Popover.Dropdown
         p="xs"
@@ -453,6 +466,7 @@ function QueryBarInner({
   const [openOption, setOpenOption] = React.useState<{ tabId: string; key: OptionKey } | null>(null);
   const openKey = openOption?.tabId === meta.tabId ? openOption.key : null;
   const pillRefs = React.useRef(new Map<OptionKey, HTMLButtonElement | null>());
+  const foldedPillRef = React.useRef<HTMLButtonElement | null>(null);
   const openPill = (key: OptionKey) => setOpenOption({ tabId: meta.tabId, key });
   const closePill = (key: OptionKey, refocus: boolean) => {
     setOpenOption(null);
@@ -460,7 +474,8 @@ function QueryBarInner({
     // the dropdown unmounts under it.
     if (key === 'sort') handleSortBlur();
     else handleOptionBlur();
-    const pill = pillRefs.current.get(key);
+    // The folded `Options` pill is where an editor opened from its menu is anchored.
+    const pill = pillRefs.current.get(key) ?? foldedPillRef.current;
     if (refocus) pill?.focus();
     // A click that closed it on something focusable keeps the focus there;
     // one on a blank area would drop it to <body>.
@@ -473,16 +488,32 @@ function QueryBarInner({
 
   const { row: rowPills, more: morePills } = splitPills(pills, openKey);
 
-  // Saved and History: the row's two popovers are their only home (W05 §9.6).
-  const [historyOpen, setHistoryOpen] = React.useState(false);
-  const [savedOpen, setSavedOpen] = React.useState(false);
-  // The palette's Rename… (X07 §13.12) lands in the Saved list's own input.
+  // Saved and History share one popover, the row's only way to either (W05 §9.6,
+  // §10.2). It opens on the list this workspace tab last showed.
+  // Keyed by the tab it was opened on, as `openOption` is: a tab switch by
+  // keyboard or palette must not leave it open over the other tab's lists.
+  const [queriesOpenOn, setQueriesOpenOn] = React.useState<string | null>(null);
+  const queriesOpen = queriesOpenOn === meta.tabId;
+  const [queriesTab, setQueriesTab] = React.useState<QueriesTab>('saved');
+  const showQueriesTab = (tab: QueriesTab) => {
+    lastQueriesTab.set(meta.tabId, tab);
+    setQueriesTab(tab);
+  };
+  const openQueries = () => {
+    setQueriesTab(lastQueriesTab.get(meta.tabId) ?? 'saved');
+    setQueriesOpenOn(meta.tabId);
+  };
+  // The palette's Rename… (X07 §13.12) lands in the Saved list's own input,
+  // so the popover has to be on that list, not on the one last used.
   const renameRequest = React.useSyncExternalStore(subscribeTabRequests, () => peekSavedRename(meta.tabId));
-  if (renameRequest !== null && !savedOpen) setSavedOpen(true);
-  const closeSaved = () => {
+  if (renameRequest !== null && (!queriesOpen || queriesTab !== 'saved')) {
+    showQueriesTab('saved');
+    setQueriesOpenOn(meta.tabId);
+  }
+  const closeQueries = () => {
     // A rename that was asked for and not started must not reopen the list.
     consumeSavedRename(meta.tabId);
-    setSavedOpen(false);
+    setQueriesOpenOn(null);
   };
   const loadFind = (payload: SavedPayload) => {
     if (payload.kind !== 'find') return;
@@ -700,15 +731,101 @@ function QueryBarInner({
     }
   };
 
-  // Below this the labelled Builder, History and Save leave the filter too little room.
+  // The row's collapse steps (W05 §10.3) follow the width and nothing else.
   const [rootRef, rootWidth] = useElementWidth<HTMLDivElement>();
-  const compact = rootWidth !== null && rootWidth < 640;
-  // The page-reset sentence is ~170px of the actions' width, which the
-  // filter pays for: it turns into an icon sooner than the buttons do.
-  const hintCompact = rootWidth !== null && rootWidth < 800;
-  // Every group in the row is one line of the row's own 44px, so the row
-  // keeps its height while the filter grows and wraps cleanly when narrow.
-  const groupStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', minHeight: 44 };
+  const layout = filterBarLayout(rootWidth);
+  // An editor opened from the folded menu is anchored to that pill; once the
+  // row unfolds or folds again its anchor is gone, so it closes rather than
+  // reopening by itself at the next fold.
+  const [foldedSeen, setFoldedSeen] = React.useState(layout.optionsFolded);
+  if (foldedSeen !== layout.optionsFolded) {
+    setFoldedSeen(layout.optionsFolded);
+    setOpenOption(null);
+  }
+  // Once every control has collapsed, the filter holds its floor until the row wraps.
+  const fieldMin = layout.runCompact ? FILTER_FLOOR : FILTER_MIN;
+  // Every group in the row is one line of the row's own 44px (36 once the
+  // controls move to a second line), so the row keeps its height.
+  const lineHeight = layout.wrap ? 36 : 44;
+  const groupStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', minHeight: lineHeight };
+  const divider = (
+    <span
+      aria-hidden="true"
+      data-testid="filter-bar-divider"
+      style={{ width: 1, height: 20, background: T.border, flexShrink: 0, alignSelf: 'center' }}
+    />
+  );
+  const showDividers = !layout.runCompact;
+
+  // Folded (W05 §10.3): the pill group is one `Options` pill whose menu lists
+  // every option. With "Keep options expanded" on the grid holds them, so
+  // there is nothing to fold.
+  const folded = layout.optionsFolded && !expanded;
+  const setCount = pills.filter((p) => p.status !== 'unset').length;
+  const foldedStatus = pills.some((p) => p.status === 'invalid') ? 'invalid' : setCount > 0 ? 'set' : 'unset';
+  // A field dropped on the folded pill sorts by it, as one dropped on the Sort pill does.
+  const foldedPill = (
+    <span {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
+      <Menu position="bottom-end" shadow="md" width={250}>
+        <Menu.Target>
+          <Button
+            ref={foldedPillRef}
+            {...PILL_LOOK[foldedStatus]}
+            size="compact-xs"
+            h={PILL_HEIGHT}
+            rightSection={I.chevD}
+            data-testid="query-bar-options-folded"
+            data-status={foldedStatus}
+            style={{ flexShrink: 0 }}
+          >
+            {setCount > 0 ? `Options · ${setCount}` : 'Options'}
+          </Button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          {pills.map((pill) => (
+            <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
+              {pill.label}
+            </Menu.Item>
+          ))}
+          <Menu.Divider />
+          <Menu.CheckboxItem
+            checked={expanded}
+            onChange={(next) => onPatch({ optionsExpanded: next })}
+            closeMenuOnClick
+          >
+            Keep options expanded
+          </Menu.CheckboxItem>
+        </Menu.Dropdown>
+      </Menu>
+    </span>
+  );
+  // The editor of the option picked from the folded menu: one popover, anchored
+  // to the folded pill, committing through the same open and close path as a
+  // pill's own. Project's editor is its own control, anchored the same way.
+  const foldedKey = openKey !== null && openKey !== 'project' ? openKey : null;
+  const foldedEditor = (
+    <OptionPopover
+      pill={pillOf(foldedKey ?? 'sort')}
+      opened={foldedKey !== null}
+      onOpen={() => undefined}
+      onClose={(refocus) => closePill(foldedKey ?? 'sort', refocus)}
+      onRun={runNow}
+      buttonRef={() => undefined}
+      target={
+        <span style={{ display: 'inline-flex' }}>
+          <FieldsControl
+            controlled={{
+              opened: openKey === 'project',
+              onOpenedChange: (next) => (next ? openPill('project') : closePill('project', false)),
+            }}
+            target={foldedPill}
+          />
+        </span>
+      }
+    >
+      {foldedKey === null ? null : editorOf(foldedKey as Exclude<OptionKey, 'project'>, true)}
+    </OptionPopover>
+  );
 
   return (
     <div
@@ -719,27 +836,53 @@ function QueryBarInner({
         flexShrink: 0,
       }}
     >
-      {/* The Filter Bar row (W05 §9.1): the filter, the query's options as
-          pills, then Builder, History, Save and Run. */}
+      {/* The Filter Bar row (W05 §9.1, §10): the filter in a box, the query's
+          options as one attached group, then Builder, Save and Queries, and Run. */}
       <div
         data-testid="filter-bar-row"
         style={{
           position: 'relative',
           display: 'flex',
-          flexWrap: 'wrap',
+          flexWrap: layout.wrap ? 'wrap' : 'nowrap',
           alignItems: 'flex-start',
           columnGap: T.gapSm,
           padding: '0 8px 0 12px',
         }}
       >
-        <label
-          id="query-bar-filter-label"
-          htmlFor="query-bar-filter"
-          style={{ ...groupStyle, fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, flexShrink: 0 }}
+        <div
+          data-testid="query-bar-filter-group"
+          style={{
+            ...groupStyle,
+            alignItems: 'flex-start',
+            columnGap: T.gapSm,
+            flex: layout.wrap ? '1 1 100%' : '1 1 0',
+            minWidth: 0,
+            boxSizing: 'border-box',
+          }}
         >
-          Filter
-        </label>
-        <div style={{ ...groupStyle, alignItems: 'flex-start', flex: '1 1 220px', minWidth: 160, padding: '8px 0', boxSizing: 'border-box' }}>
+          <label
+            id="query-bar-filter-label"
+            htmlFor="query-bar-filter"
+            style={{ ...groupStyle, fontSize: T.fsXs, fontWeight: 600, color: T.textMuted, flexShrink: 0 }}
+          >
+            Filter
+          </label>
+          {/* The field is a box, so its edge shows empty or full. */}
+          <div
+            data-testid="query-bar-filter-box"
+            style={{
+              flex: '1 1 0',
+              minWidth: layout.wrap ? 0 : fieldMin,
+              margin: '8px 0',
+              minHeight: 28,
+              display: 'flex',
+              alignItems: 'flex-start',
+              boxSizing: 'border-box',
+              border: `1px solid ${T.borderMed}`,
+              borderRadius: 6,
+              background: T.bg,
+            }}
+          >
           <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex' }}>
           <textarea
             id="query-bar-filter"
@@ -769,7 +912,7 @@ function QueryBarInner({
               background: 'transparent',
               color: T.text,
               resize: 'vertical',
-              minHeight: 28,
+              minHeight: 26,
               maxHeight: 240,
               boxSizing: 'border-box',
               outline: 'none',
@@ -824,189 +967,134 @@ function QueryBarInner({
               onClick={() => setExpandOpen(true)}
               aria-label="Expand query filter"
               data-testid="query-bar-expand-btn"
-              style={{ flexShrink: 0, marginTop: 3 }}
+              h={22}
+              style={{ flexShrink: 0, marginTop: 1 }}
             >
               {I.expand}
             </Button>
           </Tooltip>
           {autocomplete.popover}
+          </div>
         </div>
 
-        {/* Option pills (W05 §9.2). With "Keep options expanded" on, the
-            options are the grid below and only Project, which the grid never
-            held, stays a pill. */}
+        {/* Option pills (W05 §9.2, §10.2): one attached group. With "Keep
+            options expanded" on, the options are the grid below and only
+            Project, which the grid never held, stays a pill. From the folded
+            form on, the group is one `Options` pill. */}
         <div
           data-testid="query-bar-options"
           data-hint-anchor={expanded ? undefined : 'find.options'}
-          style={{ ...groupStyle, flexWrap: 'wrap', gap: T.gapXs, minWidth: 0 }}
+          style={{ ...groupStyle, flexShrink: 0 }}
         >
-          {rowPills.map((pill) => {
-            if (pill.key === 'project') return <FieldsControl key="project" />;
-            if (expanded) return null;
-            const key = pill.key;
-            const popover = (
-              <OptionPopover
-                key={key}
-                pill={pill}
-                opened={openKey === key}
-                onOpen={() => openPill(key)}
-                onClose={(refocus) => closePill(key, refocus)}
-                onRun={runNow}
-                buttonRef={(el) => {
-                  pillRefs.current.set(key, el);
-                }}
-              >
-                {editorOf(key, true)}
-              </OptionPopover>
-            );
-            // The Sort pill takes a dropped field, as the grid's sort cell does.
-            return key === 'sort' ? (
-              <span key={key} {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
-                {popover}
-              </span>
-            ) : (
-              popover
-            );
-          })}
-          <Menu position="bottom-end" shadow="md" width={210}>
-            <Menu.Target>
-              <Button
-                variant="subtle"
-                color="gray"
-                size="compact-xs"
-                h={24}
-                leftSection={I.more}
-                data-testid="query-bar-more"
-                style={{ flexShrink: 0 }}
-              >
-                More
-              </Button>
-            </Menu.Target>
-            <Menu.Dropdown>
-              {!expanded &&
-                morePills.map((pill) => (
-                  <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
-                    {pill.name}
-                  </Menu.Item>
-                ))}
-              {!expanded && morePills.length > 0 && <Menu.Divider />}
-              <Menu.CheckboxItem
-                checked={expanded}
-                onChange={(next) => onPatch({ optionsExpanded: next })}
-                closeMenuOnClick
-              >
-                Keep options expanded
-              </Menu.CheckboxItem>
-            </Menu.Dropdown>
-          </Menu>
+          {folded ? (
+            foldedEditor
+          ) : (
+            <div
+              data-testid="query-bar-options-group"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                boxSizing: 'border-box',
+                height: 24,
+                padding: '0 1px',
+                // eslint-disable-next-line no-restricted-syntax -- W05 §10.2 fixes the pills' gap at 2px; no token is that size
+                gap: 2,
+                border: `1px solid ${T.border}`,
+                borderRadius: 6,
+              }}
+            >
+              {rowPills.map((pill) => {
+                if (pill.key === 'project') return <FieldsControl key="project" />;
+                if (expanded) return null;
+                const key = pill.key;
+                const popover = (
+                  <OptionPopover
+                    key={key}
+                    pill={pill}
+                    opened={openKey === key}
+                    onOpen={() => openPill(key)}
+                    onClose={(refocus) => closePill(key, refocus)}
+                    onRun={runNow}
+                    buttonRef={(el) => {
+                      pillRefs.current.set(key, el);
+                    }}
+                  >
+                    {editorOf(key, true)}
+                  </OptionPopover>
+                );
+                // The Sort pill takes a dropped field, as the grid's sort cell does.
+                return key === 'sort' ? (
+                  <span key={key} {...sortDropProps} style={{ display: 'inline-flex', borderRadius: T.rs, ...sortDropStyle }}>
+                    {popover}
+                  </span>
+                ) : (
+                  popover
+                );
+              })}
+              <Menu position="bottom-end" shadow="md" width={210}>
+                <Menu.Target>
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="compact-xs"
+                    h={PILL_HEIGHT}
+                    px={6}
+                    aria-label="More options"
+                    data-testid="query-bar-more"
+                    style={{ flexShrink: 0 }}
+                  >
+                    {I.more}
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  {!expanded &&
+                    morePills.map((pill) => (
+                      <Menu.Item key={pill.key} onClick={() => openPill(pill.key)}>
+                        {pill.name}
+                      </Menu.Item>
+                    ))}
+                  {!expanded && morePills.length > 0 && <Menu.Divider />}
+                  <Menu.CheckboxItem
+                    checked={expanded}
+                    onChange={(next) => onPatch({ optionsExpanded: next })}
+                    closeMenuOnClick
+                  >
+                    Keep options expanded
+                  </Menu.CheckboxItem>
+                </Menu.Dropdown>
+              </Menu>
+            </div>
+          )}
         </div>
 
-        {/* Builder · History · Save · Run (split). This is the one Save button
-            in the Documents view, so `saved.create`'s hint anchor lives here. */}
+        {showDividers && <div style={{ ...groupStyle, flexShrink: 0 }}>{divider}</div>}
+
+        {/* Builder · Save | Queries · the page-reset icon · Run (split). This is
+            the one Save button in the Documents view, so `saved.create`'s hint
+            anchor lives here. */}
         <div
           data-testid="query-bar-actions"
           style={{ ...groupStyle, gap: T.gapSm, marginLeft: 'auto', flexShrink: 0 }}
         >
-          {/* Narrow, the sentence would take the filter's room: an icon keeps it
-              as a tooltip and, for a screen reader, as text. */}
-          {willResetPage &&
-            (hintCompact ? (
-              <Tooltip label={PAGE_RESET_HINT} withArrow>
-                <span data-testid="page-reset-hint" style={{ display: 'inline-flex', color: T.textMuted }}>
-                  <span aria-hidden="true" style={{ display: 'inline-flex' }}>
-                    {I.chevLL}
-                  </span>
-                  <VisuallyHidden>{PAGE_RESET_HINT}</VisuallyHidden>
-                </span>
-              </Tooltip>
-            ) : (
-              <span
-                data-testid="page-reset-hint"
-                style={{ fontSize: T.fsXs, color: T.textMuted, whiteSpace: 'nowrap' }}
+          {onToggleBuilder && (
+            <Tooltip label={`Builder (${builderShortcut})`} withArrow>
+              <ActionIcon
+                variant={builderOpen ? 'light' : 'default'}
+                size={22}
+                onClick={onToggleBuilder}
+                aria-label={`Builder (${builderShortcut})`}
+                aria-pressed={builderOpen}
+                data-builder-toggle
               >
-                {PAGE_RESET_HINT}
-              </span>
-            ))}
-          {onToggleBuilder &&
-            (compact ? (
-              <Tooltip label={`Builder (${builderShortcut})`} withArrow>
-                <ActionIcon
-                  variant={builderOpen ? 'light' : 'default'}
-                  size={22}
-                  onClick={onToggleBuilder}
-                  aria-label="Builder"
-                  aria-pressed={builderOpen}
-                  data-builder-toggle
-                >
-                  {I.filter}
-                </ActionIcon>
-              </Tooltip>
-            ) : (
-              <Tooltip label={`Builder (${builderShortcut})`} withArrow>
-                <Button
-                  variant={builderOpen ? 'light' : 'default'}
-                  size="compact-xs"
-                  leftSection={I.filter}
-                  onClick={onToggleBuilder}
-                  aria-pressed={builderOpen}
-                  data-builder-toggle
-                >
-                  Builder
-                </Button>
-              </Tooltip>
-            ))}
-          <Popover
-            opened={historyOpen}
-            onChange={(next) => (next || !modalIsOpen()) && setHistoryOpen(next)}
-            position="bottom-end"
-            shadow="md"
-            width={360}
-            withinPortal
-            closeOnEscape={false}
-            returnFocus
-          >
-            <Tooltip label="History" withArrow disabled={!compact}>
-              <Popover.Target>
-                {compact ? (
-                  <ActionIcon variant="default" size={22} onClick={() => setHistoryOpen((o) => !o)} aria-label="History">
-                    {I.clock}
-                  </ActionIcon>
-                ) : (
-                  <Button
-                    variant="default"
-                    size="compact-xs"
-                    leftSection={I.clock}
-                    rightSection={I.chevD}
-                    onClick={() => setHistoryOpen((o) => !o)}
-                  >
-                    History
-                  </Button>
-                )}
-              </Popover.Target>
+                {I.filter}
+              </ActionIcon>
             </Tooltip>
-            <Popover.Dropdown
-              p={0}
-              onKeyDown={(e) => {
-                if (e.key !== 'Escape' || e.defaultPrevented) return;
-                e.stopPropagation();
-                setHistoryOpen(false);
-              }}
-            >
-              <RecentTab
-                connectionId={meta.connectionId}
-                dbName={meta.dbName}
-                collection={meta.collection}
-                onRunHere={(recent) => {
-                  setHistoryOpen(false);
-                  loadFind(recent.payload);
-                }}
-              />
-            </Popover.Dropdown>
-          </Popover>
-          {/* `☆`: saving the current query, and the list of saved ones (W09 §12). */}
+          )}
+          {/* `☆`: saving the current query; `Queries ▾`: the saved ones and the
+              history, one popover with two lists (W09 §12, W05 §10.2). */}
           <Popover
-            opened={savedOpen}
-            onChange={(next) => (next ? setSavedOpen(true) : !modalIsOpen() && closeSaved())}
+            opened={queriesOpen}
+            onChange={(next) => (next ? openQueries() : !modalIsOpen() && closeQueries())}
             position="bottom-end"
             shadow="md"
             width={360}
@@ -1015,7 +1103,7 @@ function QueryBarInner({
             returnFocus
           >
             <Button.Group>
-              {compact ? (
+              {layout.queriesIcon ? (
                 <Tooltip label="Save" withArrow>
                   <ActionIcon
                     data-hint-anchor="saved.create"
@@ -1038,17 +1126,26 @@ function QueryBarInner({
                   Save
                 </Button>
               )}
-              <Tooltip label="Saved queries" withArrow>
+              <Tooltip label="Saved queries and history" withArrow disabled={!layout.queriesIcon}>
                 <Popover.Target>
                   <Button
                     variant="default"
                     size="compact-xs"
-                    px={4}
-                    onClick={() => (savedOpen ? closeSaved() : setSavedOpen(true))}
-                    aria-label="Saved queries"
+                    px={layout.queriesIcon ? 6 : undefined}
+                    h={layout.queriesIcon ? 22 : undefined}
+                    onClick={() => (queriesOpen ? closeQueries() : openQueries())}
+                    aria-label={layout.queriesIcon ? 'Saved queries and history' : undefined}
                     data-testid="query-bar-saved-btn"
+                    rightSection={layout.queriesIcon ? undefined : I.chevD}
                   >
-                    {I.chevD}
+                    {layout.queriesIcon ? (
+                      <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {I.clock}
+                        {I.chevD}
+                      </span>
+                    ) : (
+                      'Queries'
+                    )}
                   </Button>
                 </Popover.Target>
               </Tooltip>
@@ -1058,31 +1155,63 @@ function QueryBarInner({
               onKeyDown={(e) => {
                 if (e.key !== 'Escape' || e.defaultPrevented) return;
                 e.stopPropagation();
-                closeSaved();
+                closeQueries();
               }}
             >
-              <SavedTab
-                connectionId={meta.connectionId}
-                dbName={meta.dbName}
-                collection={meta.collection}
-                refreshKey={savedRefreshKey}
-                onRunHere={(saved) => {
-                  closeSaved();
-                  loadFind(saved.payload);
-                }}
-                onOpenInTab={(saved) => {
-                  closeSaved();
-                  onOpenInTab?.(saved);
-                }}
-                tabId={meta.tabId}
-                onRenamed={onSavedRenamed}
-              />
+              <Tabs
+                value={queriesTab}
+                onChange={(next) => next && showQueriesTab(next as QueriesTab)}
+                keepMounted={false}
+              >
+                <Tabs.List grow>
+                  <Tabs.Tab value="saved">Saved</Tabs.Tab>
+                  <Tabs.Tab value="history">History</Tabs.Tab>
+                </Tabs.List>
+                <Tabs.Panel value="saved">
+                  <SavedTab
+                    connectionId={meta.connectionId}
+                    dbName={meta.dbName}
+                    collection={meta.collection}
+                    refreshKey={savedRefreshKey}
+                    onRunHere={(saved) => {
+                      closeQueries();
+                      loadFind(saved.payload);
+                    }}
+                    onOpenInTab={(saved) => {
+                      closeQueries();
+                      onOpenInTab?.(saved);
+                    }}
+                    tabId={meta.tabId}
+                    onRenamed={onSavedRenamed}
+                  />
+                </Tabs.Panel>
+                <Tabs.Panel value="history">
+                  <RecentTab
+                    connectionId={meta.connectionId}
+                    dbName={meta.dbName}
+                    collection={meta.collection}
+                    onRunHere={(recent) => {
+                      closeQueries();
+                      loadFind(recent.payload);
+                    }}
+                  />
+                </Tabs.Panel>
+              </Tabs>
             </Popover.Dropdown>
           </Popover>
-          <span
-            aria-hidden="true"
-            style={{ width: 1, height: 20, background: T.border, margin: '0 2px' }}
-          />
+          {showDividers && divider}
+          {/* W07 §3: the sentence is an icon at every width, its words a
+              tooltip and, for a screen reader, text. */}
+          {willResetPage && (
+            <Tooltip label={PAGE_RESET_HINT} withArrow>
+              <span data-testid="page-reset-hint" style={{ display: 'inline-flex', color: T.textMuted }}>
+                <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+                  {I.chevLL}
+                </span>
+                <VisuallyHidden>{PAGE_RESET_HINT}</VisuallyHidden>
+              </span>
+            </Tooltip>
+          )}
           {/* Run is the row's, and the view's, only filled button. */}
           <Button.Group>
             {isLoading ? (
@@ -1108,7 +1237,7 @@ function QueryBarInner({
                   data-hint-anchor="run.execute"
                   leftSection={I.play}
                   rightSection={
-                    problem === null ? (
+                    problem === null && !layout.runCompact ? (
                       <span aria-hidden="true" style={{ opacity: 0.75, fontWeight: 400 }}>
                         {formatShortcut('⌘↵', isMacRenderer())}
                       </span>

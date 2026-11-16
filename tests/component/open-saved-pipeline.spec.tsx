@@ -6,6 +6,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import { notify } from '../../src/theme/notifications';
 import type { CollectionTabState, SavedQuerySummary, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { openQueriesTab } from '../helpers/queriesPopover';
 
 const now = '2026-08-02T12:00:00.000Z';
 
@@ -91,7 +92,7 @@ describe('opening a saved pipeline from the Saved list', () => {
 
   /** The saved pipeline's Open button, in the Filter Bar row's Saved popover. */
   async function openButton(): Promise<HTMLElement> {
-    fireEvent.click(await screen.findByRole('button', { name: 'Saved queries' }, SLOW_MOUNT));
+    await openQueriesTab('Saved', SLOW_MOUNT);
     return screen.findByRole('button', { name: 'Open "Top spenders" in a new tab' });
   }
 

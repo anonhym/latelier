@@ -17,6 +17,8 @@ const ORDERS = [
  */
 test('dragging a result field onto Sort sorts by it, ascending', async () => {
   await withOpenOrders('Sort Drop Target', ORDERS, 'cherry-003', async (win, ws) => {
+    // Wide enough for the pills to be separate (W05 §10.3); the next test is the folded form.
+    await win.setViewportSize({ width: 2200, height: 900 });
     await expect(ws.optionPill('sort')).toHaveText('Sort');
 
     // Documents open collapsed; the field rows are the expanded document's.
@@ -31,5 +33,23 @@ test('dragging a result field onto Sort sorts by it, ascending', async () => {
     await expect(docs.first()).toContainText('apple-001', { timeout: 8000 });
     await expect(docs.nth(1)).toContainText('banana-002');
     await expect(docs.nth(2)).toContainText('cherry-003');
+  });
+});
+
+test('dragging a result field onto the folded Options pill sorts by it too', async () => {
+  await withOpenOrders('Folded Sort Drop Target', ORDERS, 'cherry-003', async (win, ws) => {
+    await win.setViewportSize({ width: 1100, height: 900 });
+    const folded = win.getByTestId('query-bar-options-folded');
+    await expect(folded).toHaveText('Options');
+
+    await win.getByRole('button', { name: /^Expand document/ }).first().click();
+    const skuRow = win.getByTitle(/Drag to add "sku/).first();
+    await expect(skuRow).toBeVisible({ timeout: 8000 });
+    await skuRow.dragTo(win.getByTestId('query-bar-sort-drop'));
+    await expect(folded).toHaveText('Options · 1');
+
+    await ws.queryBarRunButton.click();
+    const docs = win.getByRole('treeitem', { name: /^Select document/ });
+    await expect(docs.first()).toContainText('apple-001', { timeout: 8000 });
   });
 });

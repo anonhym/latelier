@@ -63,6 +63,8 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       await ws.viewTableButton.click();
 
       // --- FieldsControl: uncontrolled Popover, `returnFocus` fix. ---
+      // At this window the options are folded into one pill; kept expanded, Project stays its own.
+      await ws.toggleOptionsExpanded();
       const fieldsTrigger = ws.fieldsButton;
       await expect(fieldsTrigger).toBeVisible();
 

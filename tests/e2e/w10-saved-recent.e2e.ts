@@ -65,17 +65,18 @@ test('saved+recent: Save modal persists; Saved + Recent tabs reflect activity', 
       // Modal closes — placeholder is gone.
       await expect(nameInput).not.toBeVisible({ timeout: 4000 });
 
-      // Open the Saved popover from the Filter Bar row's ☆ list button (W05 §9.6).
+      // Open the Queries popover from the Filter Bar row; it opens on Saved the first time (W05 §10.2).
       await win.getByTestId('query-bar-saved-btn').click();
       await expect(win.getByText('Top Skus Query')).toBeVisible({ timeout: 5000 });
       await expect(win.getByText('Top-selling SKUs this week')).toBeVisible({ timeout: 5000 });
 
-      // Swap to the History popover — it should have at least one entry from
+      // Swap to the History tab — it should have at least one entry from
       // the earlier query.find. Assert the empty-state message is gone
       // instead of pinning to a specific row format.
       await win.keyboard.press('Escape');
       await expect(win.getByText('Top-selling SKUs this week')).not.toBeVisible({ timeout: 4000 });
-      await win.getByTestId('filter-bar-row').getByRole('button', { name: 'History' }).click();
+      await win.getByTestId('query-bar-saved-btn').click();
+      await win.getByRole('tab', { name: 'History' }).click();
       await expect(win.getByText('No recent queries yet.')).not.toBeVisible({ timeout: 5000 });
       await expect(win.getByRole('button', { name: /in this tab$/ }).first()).toBeVisible();
     });

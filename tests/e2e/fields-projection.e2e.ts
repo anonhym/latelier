@@ -41,8 +41,10 @@ test('a projection set in the Fields control is what the next Run fetches', asyn
 
       // Projection is the Project pill, in the Filter Bar row with the other
       // options; the grid behind "Keep options expanded" has no cell for it.
-      await expect(ws.fieldsButton).toHaveText('Project');
+      // Kept expanded, so Project is its own pill at any window width: folded,
+      // it is an item of the `Options` menu.
       await ws.toggleOptionsExpanded();
+      await expect(ws.fieldsButton).toHaveText('Project');
       await expect(ws.queryBarAdvanced).toBeVisible();
       await expect(ws.queryBarAdvanced.getByText(/projection/i)).toHaveCount(0);
 

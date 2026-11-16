@@ -192,7 +192,7 @@ describe('Filter Bar row — a filter that cannot run', () => {
 describe('Filter Bar row — the Builder button', () => {
   it('is absent where nothing can toggle the builder', () => {
     renderBar();
-    expect(screen.queryByRole('button', { name: 'Builder' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Builder \(/ })).toBeNull();
   });
 
   it.each([
@@ -202,7 +202,7 @@ describe('Filter Bar row — the Builder button', () => {
     const onToggleBuilder = vi.fn();
     renderBar(makeState(), { bar: { builderOpen, onToggleBuilder } });
 
-    const button = within(screen.getByTestId('filter-bar-row')).getByRole('button', { name: 'Builder' });
+    const button = within(screen.getByTestId('filter-bar-row')).getByRole('button', { name: /^Builder \(/ });
     expect(button.getAttribute('aria-pressed')).toBe(pressed);
     fireEvent.click(button);
     expect(onToggleBuilder).toHaveBeenCalledTimes(1);

@@ -5,6 +5,7 @@ import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState, RecentQuery, SavedQuery, SavedQuerySummary, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { openQueriesTab } from '../helpers/queriesPopover';
 
 const now = '2026-08-04T12:00:00.000Z';
 
@@ -141,7 +142,7 @@ afterEach(() => {
 
 /** A list's "open in this tab" button, in its popover in the Filter Bar row (W05 §9.6). */
 async function runHereButton(list: 'Saved' | 'Recent' = 'Saved'): Promise<HTMLElement> {
-  fireEvent.click(await screen.findByRole('button', { name: list === 'Saved' ? 'Saved queries' : 'History' }));
+  await openQueriesTab(list === 'Saved' ? 'Saved' : 'History');
   return screen.findByRole('button', { name: /in this tab$/ });
 }
 

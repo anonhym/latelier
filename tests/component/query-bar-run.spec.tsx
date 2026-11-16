@@ -84,15 +84,25 @@ describe('QueryBar - the hint that the next Run leaves this page (W07 §3)', () 
     expect(hintFor({ queryRaw: '{"a":2}' })?.textContent).toBe('Will jump to page 1 on run');
   });
 
-  it('shrinks to an icon in a narrow query bar, keeping its words for a screen reader', () => {
-    // jsdom lays nothing out; a narrow bar is what useElementWidth would read.
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 500 } as DOMRect);
+  it('is its icon at every width, keeping its words for a screen reader', () => {
+    // jsdom lays nothing out, which reads as a bar with room for everything.
     const hint = hintFor({ queryRaw: '{"a":2}' });
     expect(hint?.querySelector('svg')).not.toBeNull();
     expect(hint?.textContent).toBe('Will jump to page 1 on run');
-    // Save and History go icon-only too, under the same names.
+  });
+
+  it('sits just before Run', () => {
+    const hint = hintFor({ queryRaw: '{"a":2}' })!;
+    const run = screen.getByTestId('query-run-btn');
+    expect(hint.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('leaves Save and Queries as icons under their names once the bar narrows', () => {
+    // A narrow bar is what useElementWidth would read.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1000 } as DOMRect);
+    hintFor({ queryRaw: '{"a":2}' });
     expect(screen.getByRole('button', { name: 'Save' }).textContent).toBe('');
-    expect(screen.getByRole('button', { name: 'History' }).textContent).toBe('');
+    expect(screen.getByRole('button', { name: 'Saved queries and history' }).textContent).toBe('');
   });
 
   it('stays away while the query is the one that ran', () => {

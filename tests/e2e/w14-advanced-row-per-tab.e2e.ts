@@ -52,6 +52,8 @@ test('the options follow the Focused Tab: its sort on the pill, its grid where i
 
       // Tab A — orders. Never gets an advanced value.
       await ws.openCollectionFromNavigator('shop', 'orders');
+      // Wide enough that the option pills are separate, not folded into one (W05 §10.3).
+      await win.setViewportSize({ width: 2200, height: 900 });
       // Opening a tab auto-runs the base query. Let it land before
       // driving anything else in the bar.
       await expect(win.getByText('apple-001')).toBeVisible({ timeout: 8000 });

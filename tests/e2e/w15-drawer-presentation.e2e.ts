@@ -84,7 +84,8 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
       await expect(strip.getByRole('tab')).toHaveCount(2);
       await expect(strip.getByRole('tab', { name: 'Filter' })).toHaveAttribute('aria-selected', 'true');
 
-      await win.getByTestId('filter-bar-row').getByRole('button', { name: 'History' }).click();
+      await win.getByTestId('query-bar-saved-btn').click();
+      await win.getByRole('tab', { name: 'History' }).click();
 
       // ── a Recent row says what it would re-run ────────────────────────
       // The auto-run on tab open recorded the unfiltered `{}` find.

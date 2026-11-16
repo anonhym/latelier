@@ -88,8 +88,17 @@ export class WorkspacePage {
   /** The row's `⋯ More` menu: the unset options and "Keep options expanded". */
   get queryBarMore() { return this.win.locator('[data-testid="query-bar-more"]'); }
 
-  /** Opens an option's editor from its pill, or from More while it is unset there. */
+  /** Opens an option's editor from its pill, from More while it is unset there, or from the folded `Options` pill. */
   async openOption(key: string, nameInMore?: string) {
+    // From the folded form on the pills are one `Options` pill, whose menu lists every option (W05 §10.3).
+    const folded = this.win.locator('[data-testid="query-bar-options-folded"]');
+    if ((await folded.count()) > 0) {
+      await folded.click();
+      const names: Record<string, string> = { sort: 'Sort', project: 'Project', limit: 'Limit' };
+      const name = nameInMore ?? names[key];
+      await this.win.getByRole('menuitem', { name: new RegExp(`^${name}`) }).first().click();
+      return;
+    }
     if (nameInMore !== undefined && (await this.optionPill(key).count()) === 0) {
       await this.queryBarMore.click();
       await this.win.getByRole('menuitem', { name: nameInMore, exact: true }).click();
@@ -100,13 +109,15 @@ export class WorkspacePage {
 
   /** Turns this tab's "Keep options expanded" on or off from More. */
   async toggleOptionsExpanded() {
-    await this.queryBarMore.click();
+    // Folded, the same toggle is in the `Options` pill's menu (W05 §10.3).
+    const folded = this.win.locator('[data-testid="query-bar-options-folded"]');
+    await ((await folded.count()) > 0 ? folded : this.queryBarMore).click();
     await this.win.getByRole('menuitemcheckbox', { name: 'Keep options expanded' }).click();
   }
 
   /** Opens the Query Builder from the Filter Bar row when it is closed, which it is by default. */
   async openBuilder() {
-    const toggle = this.win.locator('[data-testid="filter-bar-row"]').getByRole('button', { name: 'Builder', exact: true });
+    const toggle = this.win.locator('[data-testid="filter-bar-row"]').getByRole('button', { name: /^Builder \(/ });
     if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   }

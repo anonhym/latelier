@@ -120,27 +120,36 @@ export function SuggestionPopover({
     if (engaged) setEngaged(false);
   }
 
-  // Position below the anchor on open / resize.
+  // Position below the anchor while open. The anchor can still be moving when
+  // the list opens: an input inside a Mantine popover is focused on mount, one
+  // frame before floating-ui has placed the popover, so a single measurement
+  // lands the list where the popover started (the window's top left). Following
+  // the anchor each frame, and committing only a change, keeps it under the
+  // input whatever moves it, with no re-render while it stands still.
   React.useEffect(() => {
     if (!open) return;
     const el = anchorRef.current;
     if (!el) return;
     const update = () => {
       const r = el.getBoundingClientRect();
-      setPos({
+      const next = {
         top: r.bottom + 2,
         left: r.left,
         width: Math.max(r.width, 180),
         inModal: el.closest('.mantine-Modal-content') !== null,
-      });
+      };
+      setPos((prev) =>
+        prev && prev.top === next.top && prev.left === next.left && prev.width === next.width && prev.inModal === next.inModal
+          ? prev
+          : next,
+      );
     };
     update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
+    let frame = requestAnimationFrame(function follow() {
+      update();
+      frame = requestAnimationFrame(follow);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open, anchorRef]);
 
   // Whether the list is on screen — the render below returns null otherwise.

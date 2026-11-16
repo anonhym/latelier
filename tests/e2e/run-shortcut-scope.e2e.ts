@@ -36,11 +36,11 @@ test('⌘↵ runs right after dragging a result value into the builder', async (
   });
 });
 
-test('⌘↵ on the focused Run button runs, and Run sits after History', async () => {
+test('⌘↵ on the focused Run button runs, and Run sits after Queries', async () => {
   await withOpenOrders('Run Button Target', ORDERS, 'banana-002', async (win, ws) => {
     // Run is the last toolbar control, beside the builder.
     const runBox = await ws.queryBarRunButton.boundingBox();
-    const historyBox = await win.getByRole('button', { name: 'History' }).boundingBox();
+    const historyBox = await win.getByTestId('query-bar-saved-btn').boundingBox();
     expect(runBox && historyBox && runBox.x > historyBox.x).toBe(true);
 
     await ws.queryBarTextarea.fill('{"status": "paid"}');

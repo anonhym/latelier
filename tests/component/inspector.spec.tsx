@@ -110,7 +110,7 @@ describe('the Inspector panel', () => {
     mountWorkspace();
     await ready();
     expect(strip()).toBeNull();
-    expect(screen.getByRole('button', { name: 'Builder' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: /^Builder \(/ }).getAttribute('aria-pressed')).toBe('false');
   });
 
   it('opens on Filter, with a 36px header holding its title, the tab switch and close', async () => {
@@ -150,7 +150,7 @@ describe('the Inspector panel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close inspector' }));
     await waitFor(() => expect(strip()).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Builder' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Builder \(/ }));
 
     expect((await screen.findByRole('tab', { name: 'Filter' })).getAttribute('aria-selected')).toBe('true');
   });
@@ -164,7 +164,7 @@ describe('the Inspector panel', () => {
     fireEvent.keyDown(filter, { key: 'Escape' });
 
     await waitFor(() => expect(strip()).toBeNull());
-    expect(screen.getByRole('button', { name: 'Builder' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: /^Builder \(/ }).getAttribute('aria-pressed')).toBe('false');
   });
 
   it('Esc in an operator box cancels that edit and leaves the Inspector open', async () => {
@@ -181,7 +181,7 @@ describe('the Inspector panel', () => {
   it('the Builder button keeps its name and shows ⌘⇧B in its tooltip', async () => {
     mountWorkspace();
     await ready();
-    const button = screen.getByRole('button', { name: 'Builder' });
+    const button = screen.getByRole('button', { name: /^Builder \(/ });
     fireEvent.mouseEnter(button);
     expect(await screen.findByText(/Builder \((⌘⇧B|Ctrl\+Shift\+B)\)/)).toBeTruthy();
   });

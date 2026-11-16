@@ -278,7 +278,7 @@ describe('workspace panel prefs (T4)', () => {
       expect(set).toHaveBeenCalledWith('ui.workspace.sidebarCollapsed', true),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Builder' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Builder \(/ }));
     await waitFor(() =>
       expect(set).toHaveBeenCalledWith('ui.workspace.builderCollapsed', true),
     );
@@ -303,11 +303,11 @@ describe('workspace panel prefs (T4)', () => {
     // Hidden, not unmounted: its drafts and undo history live in the mounted pane.
     expect(screen.getByRole('tablist', { name: 'Inspector view', hidden: true })).toBeTruthy();
     // No Builder button to reopen it from here: the Filter Bar row is Documents'.
-    expect(screen.queryByRole('button', { name: 'Builder' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Builder \(/ })).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
     expect(await screen.findByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Builder' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /^Builder \(/ }).getAttribute('aria-pressed')).toBe('true');
     expect(set.mock.calls.filter(([k]) => k === 'ui.workspace.builderCollapsed')).toEqual([]);
   });
 

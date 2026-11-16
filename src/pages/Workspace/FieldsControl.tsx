@@ -144,14 +144,24 @@ function useProjectionDraft() {
  * pattern `columns` / `expandedRows` / `schema` already use — or, for the
  * projection, `actions.patch({ builder })` as the query bar does for sort.
  */
-export function FieldsControl() {
+export function FieldsControl({
+  controlled,
+  target,
+}: {
+  /** The folded `Options` pill opens this editor from its menu, so the row holds its open state. */
+  controlled?: { opened: boolean; onOpenedChange: (next: boolean) => void };
+  /** Anchors the dropdown to this instead of the `Project` pill. */
+  target?: React.ReactElement;
+} = {}) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
   const isTableView = state.view === 'Table';
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
   const [newPath, setNewPath] = React.useState('');
-  const [opened, setOpened] = React.useState(false);
+  const [ownOpened, setOwnOpened] = React.useState(false);
+  const opened = controlled ? controlled.opened : ownOpened;
+  const setOpened = controlled ? controlled.onOpenedChange : setOwnOpened;
   const [find, setFind] = React.useState('');
   // Stable, so it runs once per mount of the dropdown and not on every render.
   const focusFindOnMount = React.useCallback((el: HTMLInputElement | null) => {
@@ -365,12 +375,13 @@ export function FieldsControl() {
       onChange={(next) => (next ? setOpened(true) : close())}
     >
       <Popover.Target>
+        {target ?? (
         <Button
           // A controlled Popover's target does not toggle by itself.
           onClick={() => (opened ? close() : setOpened(true))}
           {...PILL_LOOK[pillStatus]}
           size="compact-xs"
-          h={24}
+          h={22}
           data-testid="option-pill-project"
           data-status={pillStatus}
           style={{ flexShrink: 0 }}
@@ -386,6 +397,7 @@ export function FieldsControl() {
           {/* A refused draft is not in the state the label is read from. */}
           {pillStatus === 'invalid' ? `${pill.name}: invalid` : pill.label}
         </Button>
+        )}
       </Popover.Target>
       <Popover.Dropdown
         p="xs"

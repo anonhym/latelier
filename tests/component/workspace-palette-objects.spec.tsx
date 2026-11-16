@@ -497,7 +497,8 @@ describe('Saved objects', () => {
     expect(field.value).toBe('Orders by region');
     // In the Filter Bar row's Saved popover, the list's only home.
     expect(screen.getByRole('textbox', { name: 'Search saved queries' })).toBeTruthy();
-    expect(screen.queryByRole('tab', { name: 'Saved' })).toBeNull();
+    // On the Saved tab of the Queries popover, whichever list it last showed.
+    expect(screen.getByRole('tab', { name: 'Saved' }).getAttribute('aria-selected')).toBe('true');
     fireEvent.change(field, { target: { value: 'Region totals' } });
     fireEvent.keyDown(field, { key: 'Enter' });
     await waitFor(() => expect(m.savedUpdate).toHaveBeenCalledWith({ id: 'q2', patch: { name: 'Region totals' } }));

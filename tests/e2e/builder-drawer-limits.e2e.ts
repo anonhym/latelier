@@ -90,7 +90,7 @@ test('a drag to the window edge stops at the minimum, and the toggle still works
 
     expect(await drawerWidth(win)).toBeGreaterThanOrEqual(320 - 1);
 
-    const toggle = win.getByRole('button', { name: 'Builder', exact: true });
+    const toggle = win.getByRole('button', { name: /^Builder \(/ });
     await toggle.click();
     await toggle.click();
     await expect(win.getByRole('tablist', { name: 'Inspector view' })).toBeVisible();

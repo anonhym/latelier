@@ -113,3 +113,74 @@ export function statusCountLayout(width: number | null): StatusCountLayout {
   const w = width ?? Number.POSITIVE_INFINITY;
   return { planBadge: w >= PLAN_BADGE_MIN };
 }
+
+/**
+ * The Filter Bar row (W05 §10): which controls give way as the results pane
+ * narrows, in the order they do. The filter keeps its room first; the controls
+ * collapse before it goes under `FILTER_MIN`. Width is the only input, on
+ * purpose: a set pill, a run in flight or a refusing Run cannot reach here, so
+ * no control changes form under the user's hand.
+ */
+export interface FilterBarLayout {
+  /** Save and Queries as icons, their names in tooltips and accessible names. */
+  queriesIcon: boolean;
+  /** The pill group as one `Options` pill. */
+  optionsFolded: boolean;
+  /** Run without its shortcut hint, and no dividers. */
+  runCompact: boolean;
+  /** The filter takes a line to itself; the controls go on a second one. */
+  wrap: boolean;
+}
+
+const FILTER_BAR_FORMS: FilterBarLayout[] = [
+  { queriesIcon: false, optionsFolded: false, runCompact: false, wrap: false },
+  { queriesIcon: true, optionsFolded: false, runCompact: false, wrap: false },
+  { queriesIcon: true, optionsFolded: true, runCompact: false, wrap: false },
+  { queriesIcon: true, optionsFolded: true, runCompact: true, wrap: false },
+  { queriesIcon: true, optionsFolded: true, runCompact: true, wrap: true },
+];
+
+/** The field's room the controls collapse to keep. */
+export const FILTER_MIN = 480;
+/** Once every control has collapsed, the field's floor before the row wraps. */
+export const FILTER_FLOOR = 320;
+
+// The row's fixed parts, measured in the app at the theme's control sizes. Run
+// is budgeted at its widest label ("Fix projection to run", with no shortcut
+// hint, which only a runnable query shows) so it never moves; the page-reset
+// icon is budgeted too, though it shows only after an edit on a later page.
+const ROW_PADDING = 20; // 12 left, 8 right
+const FILTER_LABEL = 27; // "Filter" and the gap before the field
+const ROW_GAP = 8;
+const OPTIONS_GROUP = 204; // Sort, Project, Limit and ⋯, unset
+const OPTIONS_FOLDED = 90; // `Options` and its chevron
+const BUILDER = 22;
+const SAVE_LABELLED = 162; // `☆ Save | Queries ▾`
+const SAVE_ICONS = 62; // `☆ | ◷ ▾`
+const RESET_ICON = 16;
+const DIVIDER = 1;
+const RUN_WIDEST = 189; // "Fix projection to run" and the menu chevron
+
+function filterBarFixedWidth(form: FilterBarLayout): number {
+  const tools = BUILDER + ROW_GAP + (form.queriesIcon ? SAVE_ICONS : SAVE_LABELLED);
+  const run = RESET_ICON + ROW_GAP + RUN_WIDEST;
+  // The dividers are items of the row and of the tools, each with its gaps.
+  const dividers = form.runCompact ? 0 : 2 * (DIVIDER + ROW_GAP);
+  const groups = (form.optionsFolded ? OPTIONS_FOLDED : OPTIONS_GROUP) + tools + ROW_GAP + run;
+  return ROW_PADDING + FILTER_LABEL + 2 * ROW_GAP + groups + dividers;
+}
+
+/**
+ * The first one-line form whose fixed parts leave the filter `FILTER_MIN`.
+ * When none does, the tightest one-line form holds while the filter keeps
+ * `FILTER_FLOOR`, and the row wraps below that. Null width is not known
+ * (jsdom): form 0.
+ */
+export function filterBarLayout(width: number | null): FilterBarLayout {
+  const w = width ?? Number.POSITIVE_INFINITY;
+  const oneLine = FILTER_BAR_FORMS.slice(0, -1);
+  const fits = oneLine.find((f) => w - filterBarFixedWidth(f) >= FILTER_MIN);
+  if (fits) return fits;
+  const tightest = oneLine[oneLine.length - 1]!;
+  return w - filterBarFixedWidth(tightest) >= FILTER_FLOOR ? tightest : FILTER_BAR_FORMS[FILTER_BAR_FORMS.length - 1]!;
+}

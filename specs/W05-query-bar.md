@@ -1,6 +1,6 @@
 # W05 — Query bar + bidirectional MQL sync
 
-> **Status: Implemented.** §1–§9 shipped; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). Where §9 names a part of §2 or §6, §9 is what ships.
+> **Status: Implemented.** §1–§9 shipped; §10 is accepted, not built; the sync machine (§1) and sync pill (§2) are superseded by [W13](./W13-filter-tree-editor.md). Where §9 names a part of §2 or §6, §9 is what ships.
 
 > **Partly superseded by [W13](./W13-filter-tree-editor.md).** W13 makes the
 > filter text canonical and the drawer a view of it, which removes the sync
@@ -246,3 +246,56 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 - **Unit**: the pill label for each option (unset, set, invalid); which options are promoted out of `⋯ More`; the Run label for each closed-gate reason; mongosh code output with unquoted keys and constructor literals, and the Python output's imports.
 - **Component**: pills open their editors and commit through the same paths as the grid; "Keep options expanded" per tab (with a stateful wrapper, since the effect appears only after the patch round-trips); the error strip's text, wrapping and commit-point timing; the running state (bar, `aria-busy`, elapsed text with fake timers), the duration after completion and the cancelled notice; History and Saved popovers with keyboard preview; the Inspector's tabs, default-closed state and Esc.
 - **E2E**: set a sort through its pill and run; type an unparseable filter, read the whole reason, fix it and run; run a slow query and cancel it; open the plan from the result bar.
+
+## 10. Amendment — room for the filter
+
+> **Accepted, not built.** It amends §9.1's row, §9.2's pill group and §9.6's two buttons. The run flow, the Run gate, the error strip and the pills' editors are unchanged. Reviewed and agreed in Claude Design, on the canvas "Filter Bar row" (direction A and its collapse ladder).
+
+### 10.1 Why
+
+At a 1000px results pane the filter field got about 265px and the row's controls about 735px. A filter with a single condition (`{"name":{"$eq":"…"}}`) already wrapped inside the one-line textarea: its second line was clipped and a scrollbar appeared. Nothing gave way until 800px (the page-reset sentence) and 640px (Builder, History and Save as icons), so at 1000px every control still had its full label. The field had no border and no fill, so its edge was only where the text was cut.
+
+### 10.2 The row
+
+```
+[Filter] [ { name: "x" }                                ⤢ ]  [Sort|Project|Limit|⋯]  |  [⧩] [☆ Save|Queries ▾]  |  [⇤] [▶ Run ⌘↵|▾]
+```
+
+- **The field is a box**: a 28px input with a 1px `--atelier-border-med` border, the `--atelier-bg` fill and the 6px radius, holding the textarea and Expand. Its edge is visible empty or full.
+- **The field keeps at least 480px** while a control can still collapse (§10.3). Once every control has collapsed, the row stays on one line until the field would go under its 320px floor, then wraps. The field takes whatever is left over.
+- **The option pills are one attached group**: Sort, Project, Limit and `⋯` in a 24px segment with a 1px border, 2px between pills. `⋯` keeps its menu (§9.2) and its accessible name `More options`. A set option is promoted as before.
+- **Builder is an icon toggle** (the filter icon), `aria-pressed` while the Inspector is open on Filter, its name and `⌘⇧B` in the tooltip and accessible name. It replaces the labelled button of §9.7.
+- **Save and History are one split control**: `☆ Save` saves the current query (it keeps the `saved.create` hint anchor); `Queries ▾` opens one 360px popover with two tabs, **Saved** and **History**, and one search box, with §9.6's keyboard preview in both. The popover opens on the tab last used in this tab, Saved the first time. §9.6's rule holds: this control is the only entry point to saved queries and history.
+- **The page-reset sentence ("Will jump to page 1 on run") is always its icon form**: `⇤` beside Run, the sentence as tooltip and as visually hidden text. It no longer takes about 170px of the field's room at any width.
+- Run is unchanged and is still the row's only filled button. Two 1px dividers group the row: options | tools | Run.
+
+### 10.3 Collapse steps
+
+A pure `filterBarLayout(width)` in `toolbarLayout.ts`, in the shape of `canvasHeaderLayout`: ordered forms, the first whose fixed width leaves the field its minimum, else the last. Width is its only input. A set pill, a promoted option, a run in flight or a refusing Run never change the form; the Run slot is budgeted at its widest label (`Fix projection to run`).
+
+| Form | Step taken | About from |
+|---|---|---|
+| 0 | Every label: `☆ Save`, `Queries ▾`, `Run ⌘↵` | 1178px |
+| 1 | `queriesIcon`: Save and Queries as icons, `☆ \| ◷ ▾`, names in tooltips and accessible names | 1078px |
+| 2 | `optionsFolded`: the pill group becomes one pill, `Options` or `Options · n` with n set options; its menu lists every option with its value and opens that option's popover anchored to the folded pill | 964px |
+| 3 | `runCompact`: Run without `⌘↵`, no dividers; the field may shrink from 480px to its 320px floor | 786px |
+| 4 | `wrap`: the field takes the first line whole; the controls move to a 36px second line, Run at its right end | below that |
+
+The widths are the review's estimates. The constants are measured in the app at the theme's sizes when this is built, as `toolbarLayout.ts`'s other constants are; the order of the steps and the field minimum are what is agreed. "Keep options expanded" (§9.2) is unaffected: with it on, form 2 has no pills to fold.
+
+### 10.4 Acceptance criteria
+
+- At a 1000px results pane, a one-condition filter of about 45 characters shows on one line, with no scrollbar in the field.
+- The field has a visible border and fill, empty and full, in both themes.
+- At every width from 964px the field box is at least 480px wide; below that, at least 320px. The row stays 44px tall above form 4.
+- The form depends on width only: setting Sort, Limit and Hint, or starting a run, at a fixed width leaves every control's form unchanged.
+- Sort, Project, Limit and `⋯` read as one group; from form 2 they are one `Options` pill whose menu edits each option.
+- Builder is an icon toggle with `aria-pressed` and `⌘⇧B` in its accessible name.
+- `☆ Save` saves; `Queries ▾` opens one popover with Saved and History tabs; the Saved list's rename from the palette (X07 §13.12) lands in the Saved tab.
+- The page-reset hint is the `⇤` icon at every width, its sentence readable by tooltip and screen reader.
+
+### 10.5 Test cases
+
+- **Unit**: `filterBarLayout` picks each form at its boundary and the last form below it; the form is identical for a row with no options set and one with every option set (it has no such input).
+- **Component**: the Options pill's count and menu; opening an option from the folded menu anchors its popover and commits through §9.2's path; the Queries popover's two tabs, the last-used tab per workspace tab, and the palette's rename opening it on Saved; Builder's `aria-pressed`; the page-reset icon's hidden text.
+- **E2E**: a geometry check beside `results-toolbar-no-clip.e2e.ts`: at each width in its size list, the field box meets its minimum, no control in `filter-bar-row` is clipped, the row is 44px tall above form 4, and a one-condition filter does not overflow its field at 1000px.

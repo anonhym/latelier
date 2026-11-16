@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canvasHeaderLayout,
+  filterBarLayout,
   pageLabelWidth,
   statusCountLayout,
   totalLabelText,
@@ -136,5 +137,52 @@ describe('statusCountLayout', () => {
 
   it('with no measured width (no layout), gives room for everything', () => {
     expect(statusCountLayout(null)).toEqual({ planBadge: true });
+  });
+});
+
+// W05 §10.3 — the Filter Bar row's steps, in the order it narrows.
+const ROW = {
+  labels: { queriesIcon: false, optionsFolded: false, runCompact: false, wrap: false },
+  queriesIcon: { queriesIcon: true, optionsFolded: false, runCompact: false, wrap: false },
+  folded: { queriesIcon: true, optionsFolded: true, runCompact: false, wrap: false },
+  runCompact: { queriesIcon: true, optionsFolded: true, runCompact: true, wrap: false },
+  wrap: { queriesIcon: true, optionsFolded: true, runCompact: true, wrap: true },
+} as const;
+
+describe('filterBarLayout', () => {
+  it('has room for everything when the width is not known (jsdom)', () => {
+    expect(filterBarLayout(null)).toEqual(ROW.labels);
+  });
+
+  // Each label step is taken at the first width whose fixed parts still leave
+  // the field its 480px; the row wraps once the tightest one-line form would
+  // leave it under 320px. The edges are exact.
+  it.each([
+    [1178, ROW.labels],
+    [1177, ROW.queriesIcon],
+    [1078, ROW.queriesIcon],
+    [1077, ROW.folded],
+    [964, ROW.folded],
+    [963, ROW.runCompact],
+    [946, ROW.runCompact],
+    [786, ROW.runCompact],
+    [785, ROW.wrap],
+  ])('at %i px takes its form', (width, form) => {
+    expect(filterBarLayout(width)).toEqual(form);
+  });
+
+  it('keeps the last form however narrow the row gets', () => {
+    expect(filterBarLayout(320)).toEqual(ROW.wrap);
+    expect(filterBarLayout(0)).toEqual(ROW.wrap);
+  });
+
+  it('takes the widest form for any width above the first edge', () => {
+    expect(filterBarLayout(2400)).toEqual(ROW.labels);
+  });
+
+  it('reads the width and nothing else, so each form is one object', () => {
+    // No argument carries a set pill, a run or a refusing Run; two calls agree.
+    expect(filterBarLayout(1000)).toEqual(filterBarLayout(1000));
+    expect(filterBarLayout.length).toBe(1);
   });
 });

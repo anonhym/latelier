@@ -182,7 +182,7 @@ describe('the Inspector and sidebar shortcuts yield to an open dialog', () => {
     // The Inspector behind the modal must be untouched — otherwise the shortcut
     // rearranges an obscured surface and drags focus out of the form.
     expect(screen.getByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Builder' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /^Builder \(/ }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('does not toggle the sidebar when ⌘B is pressed inside a modal', async () => {

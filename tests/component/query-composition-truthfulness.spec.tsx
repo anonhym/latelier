@@ -575,7 +575,7 @@ describe('W15 §7.1 — "Set default" is gone', () => {
 
     // Anchored on a sibling of the deleted button so an unrendered toolbar
     // can't pass this vacuously.
-    await screen.findByRole('button', { name: 'History' });
+    await screen.findByTestId('query-bar-saved-btn');
     expect(screen.queryByRole('button', { name: 'Set default' })).toBeNull();
     expect(
       prefsSetSpy.mock.calls.filter((c) => String(c[0]).startsWith('query.default.')),

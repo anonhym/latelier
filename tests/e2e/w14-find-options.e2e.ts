@@ -39,6 +39,8 @@ test('a case-insensitive collation matches the mixed-case row, and the count agr
       // The rows, not the filter drawer, which shows the filter's own value.
       const rows = win.getByTestId('h-result');
       await ws.openCollectionFromNavigator('shop', 'people');
+      // Wide enough that the option pills are separate, not folded into one (W05 §10.3).
+      await win.setViewportSize({ width: 2200, height: 900 });
       await expect(rows.getByText('"Bob"', { exact: true })).toBeVisible({ timeout: 8000 });
 
       // Without a collation the match is binary: only the lower-case row.

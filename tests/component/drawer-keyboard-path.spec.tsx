@@ -86,7 +86,7 @@ afterEach(() => {
   _resetPaletteStoreForTests();
 });
 
-const toggleButton = () => screen.getByRole('button', { name: 'Builder' });
+const toggleButton = () => screen.getByRole('button', { name: /^Builder \(/ });
 
 describe('the Query builder has a palette entry', () => {
   it('offers a toggle whose switch shows the Inspector’s state, off for a fresh profile', async () => {

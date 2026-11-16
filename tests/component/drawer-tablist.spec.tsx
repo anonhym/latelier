@@ -2,12 +2,13 @@
 // distinguished by color and font-weight: no roles, no aria-selected, no
 // aria-controls, and three separate tab stops instead of one.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '../helpers/render';
+import { render, screen, waitFor, within } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { openQueriesTab } from '../helpers/queriesPopover';
 
 const now = '2026-08-06T12:00:00.000Z';
 
@@ -118,7 +119,7 @@ describe('W15 §13.2 — the Inspector tab strip is a real tablist', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(recentListSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    await openQueriesTab('History');
     await waitFor(() => expect(recentListSpy).toHaveBeenCalled());
   });
 });

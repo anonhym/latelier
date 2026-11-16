@@ -47,6 +47,8 @@ test('a sort and a limit set from their pills reach the header and the pager, an
 
       const ws = new WorkspacePage(win);
       await ws.openCollectionFromNavigator('shop', 'orders');
+      // Wide enough that the option pills are separate, not folded into one (W05 §10.3).
+      await win.setViewportSize({ width: 2200, height: 900 });
       // opening a tab auto-runs the base query. Let it land first.
       await expect(win.getByText('aaa-1')).toBeVisible({ timeout: 8000 });
 

@@ -16,6 +16,7 @@ import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions
 import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 import { isoToLocalInput, localInputToIso } from '../../src/pages/Workspace/condValue';
+import { openQueriesTab } from '../helpers/queriesPopover';
 
 const now = '2026-08-04T12:00:00.000Z';
 
@@ -687,7 +688,7 @@ describe('Filter drawer — opened over invalid text with a draft from earlier t
       }),
     );
     const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
-    const toggle = screen.getByRole('button', { name: 'Builder' });
+    const toggle = screen.getByRole('button', { name: /^Builder \(/ });
     fireEvent.click(toggle);
     await waitFor(() => expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull());
     fireEvent.change(bar, { target: { value: B } });
@@ -893,7 +894,7 @@ describe('Filter drawer — a Saved or Recent load drops the draft', () => {
     const updateSpy = mountLoading();
 
     // Each list opens from its own button in the Filter Bar row.
-    fireEvent.click(await screen.findByRole('button', { name: tab === 'Saved' ? 'Saved queries' : 'History' }));
+    await openQueriesTab(tab === 'Saved' ? 'Saved' : 'History');
     fireEvent.click(await screen.findByRole('button', { name: /in this tab$/ }));
 
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"z":{"$eq":"loaded"}}'));

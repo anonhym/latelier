@@ -6,6 +6,7 @@ import { commandRegistry } from '../../src/commands/registry';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
+import { openQueriesTab } from '../helpers/queriesPopover';
 
 const now = '2026-08-02T12:00:00.000Z';
 
@@ -269,12 +270,12 @@ describe(' History works with the builder drawer collapsed', () => {
     mountWith(makeState(), { 'ui.workspace.builderCollapsed': true });
 
     // Collapsed: BuilderPane is not mounted, so its tab strip is absent.
-    const history = await screen.findByRole('button', { name: 'History' });
+    await screen.findByTestId('query-bar-saved-btn');
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull();
     });
 
-    fireEvent.click(history);
+    await openQueriesTab('History');
 
     expect(await screen.findByRole('textbox', { name: 'Search recent queries' })).toBeTruthy();
     expect(screen.queryByRole('tab', { name: 'Filter' })).toBeNull();
@@ -284,7 +285,7 @@ describe(' History works with the builder drawer collapsed', () => {
     mountWith(makeState(), { 'ui.workspace.builderCollapsed': false });
 
     await screen.findByRole('button', { name: 'Reset' });
-    fireEvent.click(await screen.findByRole('button', { name: 'History' }));
+    await openQueriesTab('History');
 
     expect(await screen.findByRole('textbox', { name: 'Search recent queries' })).toBeTruthy();
     // The Inspector's two tabs, and they did not move.
@@ -525,10 +526,10 @@ describe('W13 §7 — ⌘↵ runs from anywhere in the Documents view', () => {
     expect(findSpy).not.toHaveBeenCalled();
   });
 
-  it('puts Run last in the toolbar, after History', async () => {
+  it('puts Run last in the toolbar, after Queries', async () => {
     mountWith(makeState());
     const run = await screen.findByTestId('query-run-btn');
-    const history = screen.getByRole('button', { name: 'History' });
+    const history = screen.getByTestId('query-bar-saved-btn');
 
     expect(history.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

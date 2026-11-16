@@ -81,9 +81,8 @@ async function expectQueryRowWhole(win: Page, label: string, withNotice = false)
   // Run at least: a selector that matched nothing would pass the check below.
   expect(labels.length, `${label}: query row labels found`).toBeGreaterThanOrEqual(1);
   expect(labels.filter((l) => l.cut).map((l) => l.text), `${label}: query row labels cut`).toEqual([]);
-  for (const name of ['Save', 'History']) {
-    await expect(actions.getByRole('button', { name, exact: true }), `${label}: ${name}`).toBeInViewport();
-  }
+  await expect(actions.getByRole('button', { name: 'Save', exact: true }), `${label}: Save`).toBeInViewport();
+  await expect(win.getByTestId('query-bar-saved-btn'), `${label}: Queries`).toBeInViewport();
   await expect(win.getByTestId('query-run-btn'), `${label}: Run`).toBeInViewport();
   const filter = await win.getByTestId('query-bar-input').boundingBox();
   expect(filter!.width, `${label}: filter width`).toBeGreaterThanOrEqual(120);
@@ -216,7 +215,7 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       await open(win);
       await win.setViewportSize({ width: 900, height: 600 });
 
-      const openBuilder = win.getByRole('button', { name: 'Builder', exact: true });
+      const openBuilder = win.getByRole('button', { name: /^Builder \(/ });
       await expect(openBuilder).toHaveAttribute('aria-pressed', 'false');
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
@@ -237,9 +236,9 @@ test('below 1100 px one side panel shows, and focus cannot scroll the pane sidew
       // Inspector closed (the narrow choice is forgotten). Opening it gives its default 400 px.
       await win.setViewportSize({ width: 1280, height: 800 });
       await expect(win.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveAttribute('aria-pressed', 'true');
-      await expect(win.getByRole('button', { name: 'Builder', exact: true })).toHaveAttribute('aria-pressed', 'false');
+      await expect(win.getByRole('button', { name: /^Builder \(/ })).toHaveAttribute('aria-pressed', 'false');
       await openBuilder.click();
-      await expect(win.getByRole('button', { name: 'Builder', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(win.getByRole('button', { name: /^Builder \(/ })).toHaveAttribute('aria-pressed', 'true');
       await win.waitForTimeout(300);
       const wide = await win.getByTestId('inspector').boundingBox();
       expect(wide!.width).toBeGreaterThan(380);

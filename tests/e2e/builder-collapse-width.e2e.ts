@@ -65,7 +65,7 @@ test('collapsing the query drawer does not destroy its stored width', async () =
     await win.reload();
     await win.waitForLoadState('domcontentloaded');
 
-    const builderToggle = win.getByRole('button', { name: 'Builder', exact: true });
+    const builderToggle = win.getByRole('button', { name: /^Builder \(/ });
     await expect(builderToggle).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
 
     const readSplit = () =>
