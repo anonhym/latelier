@@ -1,9 +1,19 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron/simple';
 
+// The running version, baked into the renderer bundle for the What's new window
+// (X22 §6.1). Read from package.json so a version bump needs no second edit.
+const appVersion = (
+  JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf8')) as {
+    version: string;
+  }
+).version;
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   resolve: {
     alias: {
       '@shared': path.resolve(import.meta.dirname, 'shared'),

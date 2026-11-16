@@ -23,6 +23,7 @@ const VALID: Record<string, unknown> = {
   'ui.workspace.documentEditorSize': { width: 600, height: 400 },
   'ui.commandPalette.mru': ['tab.new', 'query.run'],
   'ui.connections.pinned': [UUID],
+  'whatsNew.lastSeenVersion': '0.20.0',
   [CONN_KEY]: true,
 };
 

@@ -30,5 +30,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["tests", "shared"]
+  "include": ["tests", "shared", "src/app-version.d.ts"]
 }

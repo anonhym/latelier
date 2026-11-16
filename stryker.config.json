@@ -18,6 +18,7 @@
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",
     "electron/updater/releaseNotes.ts",
+    "src/features/updates/changelog.ts",
     "electron/services/connectionExportFormat.ts",
     "electron/services/connectionBulkAdd.ts",
     "electron/services/import/unknownJson.ts",

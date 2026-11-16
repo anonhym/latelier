@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
@@ -8,7 +9,16 @@ import { defineConfig } from 'vitest/config';
 // still fails (or shows up via slowTestThreshold) on a contributor's machine.
 const slowRun = process.argv.includes('--coverage') || process.env.CI === 'true';
 
+// Same constant vite.config.ts bakes into the renderer bundle; component tests
+// import code that reads it.
+const appVersion = (
+  JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf8')) as {
+    version: string;
+  }
+).version;
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   resolve: {
     alias: {
       '@shared': path.resolve(import.meta.dirname, 'shared'),

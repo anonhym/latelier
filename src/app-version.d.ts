@@ -1,0 +1,2 @@
+/** The running app's version, defined from package.json by vite.config.ts and vitest.config.ts. */
+declare const __APP_VERSION__: string;

@@ -8,6 +8,7 @@ import { ConnectionPaletteCommands } from "./commands/ConnectionPaletteCommands"
 import { TroubleshootingProvider } from "./troubleshooting/TroubleshootingProvider";
 import { TroubleshootingPaletteCommand } from "./troubleshooting/TroubleshootingPaletteCommand";
 import { UpdateReadyPrompt } from "./features/updates/UpdateReadyPrompt";
+import { WhatsNewProvider } from "./features/updates/WhatsNewProvider";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FlushOnQuit } from "./features/lifecycle/FlushOnQuit";
 
@@ -26,15 +27,17 @@ export function RootLayout() {
         <SettingsProvider>
           <ConnectionTransferProvider>
             <CommandPaletteRoot>
-              <TroubleshootingProvider>
-                <GlobalCommands />
-                <UpdateReadyPrompt />
-                <ConnectionPaletteCommands />
-                <TroubleshootingPaletteCommand />
-                <ErrorBoundary>
-                  <Outlet />
-                </ErrorBoundary>
-              </TroubleshootingProvider>
+              <WhatsNewProvider>
+                <TroubleshootingProvider>
+                  <GlobalCommands />
+                  <UpdateReadyPrompt />
+                  <ConnectionPaletteCommands />
+                  <TroubleshootingPaletteCommand />
+                  <ErrorBoundary>
+                    <Outlet />
+                  </ErrorBoundary>
+                </TroubleshootingProvider>
+              </WhatsNewProvider>
             </CommandPaletteRoot>
           </ConnectionTransferProvider>
         </SettingsProvider>

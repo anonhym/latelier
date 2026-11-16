@@ -118,6 +118,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.appFlushRequestEvent,
   IPC_CHANNELS.updatesGetState,
   IPC_CHANNELS.updatesRestart,
+  IPC_CHANNELS.updatesCheck,
   IPC_CHANNELS.updatesStateEvent,
   IPC_CHANNELS.secretsSetPlaintextFallback,
   IPC_CHANNELS.secretsStatus,
