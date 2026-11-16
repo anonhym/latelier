@@ -7,6 +7,18 @@ export type MoveChoice = 'stay' | 'discard' | 'save';
 
 const MODAL_ID = 'document-editor-move-guard';
 
+// The open prompt's ⌘↵, while one is open. The prompt takes focus on Mantine's
+// focus-trap timer, so a ⌘↵ pressed right after › can still land in the editor
+// underneath; the editor hands it here rather than running its own save.
+let saveKeyOfOpenPrompt: (() => void) | null = null;
+
+/** Answers the open move prompt's ⌘↵, if one is open; false when none is. */
+export function answerOpenMoveWithSaveKey(): boolean {
+  if (!saveKeyOfOpenPrompt) return false;
+  saveKeyOfOpenPrompt();
+  return true;
+}
+
 /**
  * W18 §13.5 — moving to another document with unsaved edits. Three answers,
  * where `confirmDestructive` has two. Escape and ⌘↵ are handled here, and the
@@ -17,9 +29,14 @@ const MODAL_ID = 'document-editor-move-guard';
 export function confirmMove(opts: { canSave: boolean }): Promise<MoveChoice> {
   return new Promise((resolve) => {
     const answer = (choice: MoveChoice) => {
+      saveKeyOfOpenPrompt = null;
       resolve(choice);
       modals.close(MODAL_ID);
     };
+    const saveKey = () => {
+      if (opts.canSave) answer('save');
+    };
+    saveKeyOfOpenPrompt = saveKey;
     const stop = { 'data-mantine-stop-propagation': 'true' } as const;
     modals.open({
       modalId: MODAL_ID,
@@ -38,10 +55,13 @@ export function confirmMove(opts: { canSave: boolean }): Promise<MoveChoice> {
           answer('stay');
         } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
           e.preventDefault();
-          if (opts.canSave) answer('save');
+          saveKey();
         }
       },
-      onClose: () => resolve('stay'),
+      onClose: () => {
+        saveKeyOfOpenPrompt = null;
+        resolve('stay');
+      },
       children: (
         <div {...stop}>
           <Text size="sm">This document has edits that are not saved.</Text>

@@ -1780,6 +1780,20 @@ describe('DocumentEditor — previous and next (W18 §13.5)', () => {
     expect(screen.queryByTestId('document-editor-changes')).toBeNull();
   });
 
+  it('⌘↵ pressed before the prompt takes focus still means Save and go, not save and close (#795)', async () => {
+    const { updateOne, onClose } = open(0);
+    fireEvent.change(field('name'), { target: { value: 'edited' } });
+    fireEvent.click(next());
+    await guard();
+    // Focus is still in the editor: the prompt moves it in on a timer.
+    fireEvent.keyDown(field('name'), { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(field('name').value).toBe('doc2'));
+    expect(within(editor()).getByText('2 of 3')).toBeTruthy();
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull());
+  });
+
   it('Save and go saves through the normal write and then moves; ⌘↵ in the prompt does the same', async () => {
     const { updateOne, onSaved, onClose } = open(0);
     fireEvent.change(field('name'), { target: { value: 'edited' } });

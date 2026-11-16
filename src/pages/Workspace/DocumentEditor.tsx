@@ -39,7 +39,7 @@ import {
 } from './documentDiff';
 import { DocumentChangeStrip } from './DocumentChangeStrip';
 import { DeletedDocumentPanel, DocumentConflictPanel, type ConflictChoice } from './DocumentConflictPanel';
-import { confirmMove } from './confirmMove';
+import { answerOpenMoveWithSaveKey, confirmMove } from './confirmMove';
 import {
   SELECTABLE_KINDS,
   TYPE_LABEL,
@@ -1097,6 +1097,9 @@ export function DocumentEditor(props: DocumentEditorProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
     e.preventDefault();
+    // A move prompt that has not pulled focus in yet still owns ⌘↵: it means
+    // Save and go there, not save and close here.
+    if (answerOpenMoveWithSaveKey()) return;
     void handleSave();
   };
 
