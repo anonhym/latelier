@@ -51,7 +51,7 @@ for (const run of Array.from({ length: 12 }, (_, i) => i)) test(`probe ${run} co
       await testInfo.attach('focus-log', { body: log, contentType: 'text/plain' });
     };
 
-    await expectConsoleClean(win, async () => {
+    try { await expectConsoleClean(win, async () => {
       // A launch with no Connection lands on the welcome canvas, whose
       // Connection string field autofocuses. The global ⌘K handler ignores a
       // keypress made in a text field off macOS, so take focus off it first.
@@ -120,15 +120,10 @@ for (const run of Array.from({ length: 12 }, (_, i) => i)) test(`probe ${run} co
       await expect(search).toHaveValue('new connection');
       // Typing into a field that is not focused yet makes Playwright focus it
       // and put the caret at the start; wait for the dialog to move focus in.
-      await expect(search).toBeFocused();
+      await expect(search).toBeFocused({ timeout: 3000 });
       await win.evaluate(() => (window as unknown as { __f: string[] }).__f.push('--- TYPE START'));
       await search.pressSequentially('dark mode');
-      try {
-        await expect(search).toHaveValue('dark mode', { timeout: 2000 });
-      } catch (err) {
-        await dumpLog();
-        throw err;
-      }
+      await expect(search).toHaveValue('dark mode', { timeout: 2000 });
       const darkMode = palette.getByRole('option', { name: /^Dark mode/ });
       await expect(darkMode).toBeVisible();
       const checked = await darkMode.getAttribute('aria-checked');
@@ -154,6 +149,6 @@ for (const run of Array.from({ length: 12 }, (_, i) => i)) test(`probe ${run} co
           { timeout: 4000 },
         )
         .not.toBe(before);
-    });
+    }); } catch (err) { await dumpLog(); throw err; }
   });
 });
