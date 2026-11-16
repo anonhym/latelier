@@ -101,7 +101,8 @@ describe('shouldCheckForUpdates', () => {
 
 describe('UpdateService.start', () => {
   it('does nothing when disabled: the updater is never even loaded', async () => {
-    const { svc, load, log } = setup({ enabled: false });
+    // Pinned: the default is the host's platform, and CI runs on Linux.
+    const { svc, load, log } = setup({ enabled: false, platform: 'darwin' });
     await svc.start();
     expect(load).not.toHaveBeenCalled();
     expect(log.warn).not.toHaveBeenCalled();
