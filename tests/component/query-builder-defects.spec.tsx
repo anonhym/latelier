@@ -582,3 +582,24 @@ describe('X15 T5 — ⌘⇧B does not reach the builder from inside a dialog', (
     expect(screen.queryByRole('tab', { name: 'Filter' })).not.toBeNull();
   });
 });
+
+// An empty value box is never sent: it used to compile a number row to 0 and
+// a string row to "", and only some kinds said so.
+describe('an empty condition value is not applied', () => {
+  it.each([
+    ['number', '{"qty":{"$eq":5}}', '5'],
+    ['string', '{"qty":{"$eq":"x"}}', 'x'],
+  ])('clearing a %s value turns the row red, names the field and keeps the filter text', async (_type, queryRaw, typed) => {
+    mountWith(makeState({ queryRaw }));
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+
+    const valueInput = (await screen.findByPlaceholderText('value')) as HTMLInputElement;
+    expect(valueInput.value).toBe(typed);
+    fireEvent.change(valueInput, { target: { value: '' } });
+
+    await waitFor(() => expect(screen.getByText('Value is empty')).toBeTruthy());
+    expect(screen.getByRole('status').textContent).toContain('1 not applied: qty');
+    // Neither a 0 nor an empty string reached the filter.
+    expect(bar.value).toBe(queryRaw);
+  });
+});

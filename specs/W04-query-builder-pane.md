@@ -123,7 +123,11 @@ it finds, in order:
 
 1. Op doesn't start with `$` → `'Operator must start with "$"'`.
 2. `!isCompilableOp(op)` → `'<op> is not encodable — convert to a raw clause'`.
-3. A scalar value that isn't a value of its type: `'Value must be a valid
+3. An empty value (nothing typed, or blanks only for the numeric types) on a
+   `string`, `number`, `long`, `decimal` or `regex` row, or on `$size`,
+   `$type`, `$regex` or a bit-mask operator → `'Value is empty'`; it is never
+   sent as `0` or `""`. `boolean`, `null` and `$exists` rows are never empty.
+   A scalar value that isn't a value of its type: `'Value must be a valid
    number'` (`number`), `'Long value must be an integer'` (`long`),
    `'Decimal value must be a number'` (`decimal`), or the precision message
    for a `number` beyond 2^53.

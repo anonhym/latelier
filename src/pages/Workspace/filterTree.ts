@@ -226,7 +226,20 @@ function rawPair(field: string, value: unknown): RawNode {
  */
 function guessOpValue(op: string, v: unknown): ValueGuess | null {
   if (ARRAY_VALUE_OPS.has(op) && Array.isArray(v) && v.length === 0) return null;
-  return guessValue(v);
+  return guessRowValue(v);
+}
+
+/**
+ * `guessValue`, except a value whose text is empty. An empty value is the one
+ * thing a row reports as not applied (`isEmptyValue`), so a filter that
+ * really holds `""` (or an empty `$numberLong`, …) as a row would stop
+ * printing the moment it was opened. It stays raw instead, and prints back
+ * verbatim.
+ */
+function guessRowValue(v: unknown): ValueGuess | null {
+  const guess = guessValue(v);
+  if (guess && isEmptyText(guess.valType, guess.text)) return null;
+  return guess;
 }
 
 /**
@@ -267,7 +280,7 @@ function parseFieldPredicate(field: string, rawValue: unknown): FilterNode[] {
     // key-shapes (scratchpad/probe196.mjs, gateTrue/gateGte0 cases).
     if (keys.length === 1) {
       const guess = guessSentinelOnly(rawValue);
-      if (guess) return [condNode(field, '$eq', guess)];
+      if (guess && !isEmptyText(guess.valType, guess.text)) return [condNode(field, '$eq', guess)];
       if (UNREPRESENTABLE_SENTINEL_KEYS.has(keys[0])) return [rawPair(field, rawValue)];
       // `$date` is not in that set because the string form is representable
       // and already won above. Reaching here means a non-string payload, the
@@ -286,7 +299,7 @@ function parseFieldPredicate(field: string, rawValue: unknown): FilterNode[] {
     // Nested doc used for whole-document equality (or `{}`) — unrepresentable.
     return [rawPair(field, rawValue)];
   }
-  const guess = guessValue(rawValue);
+  const guess = guessRowValue(rawValue);
   if (guess) return [condNode(field, '$eq', guess)];
   return [rawPair(field, rawValue)]; // array with an unrepresentable element
 }
@@ -568,6 +581,32 @@ function listItemText(valType: ValType, el: unknown): string {
 }
 
 /**
+ * Row types whose value is typed text, so having none is an empty box. Not
+ * listed: boolean, null and a list hold something with no text, and an
+ * ObjectId or date already reports blank text through `sentinelProblem`.
+ */
+const TEXT_VALUED_TYPES: ReadonlySet<ValType> = new Set<ValType>(['string', 'number', 'long', 'decimal', 'regex']);
+
+/** Text is empty when nothing, or for a numeric type only blanks, stands in the box; a string of blanks is a real string. */
+function isEmptyText(valType: ValType, text: string): boolean {
+  if (!TEXT_VALUED_TYPES.has(valType)) return false;
+  return valType === 'string' || valType === 'regex' ? text === '' : text.trim() === '';
+}
+
+/**
+ * A cond whose box holds nothing. Scalar comparisons go by the row's type;
+ * the operators that take a number or a name (`$size`, `$type`, bit masks,
+ * `$regex`) always do. `$exists`, `$mod` and the list operators have their own
+ * checks, and `boolean` / `null` rows have nothing to type.
+ */
+function isEmptyValue(node: CondNode): boolean {
+  if (SIMPLE_OPS.has(node.op)) return isEmptyText(node.valType, node.value);
+  if (node.op === '$regex') return node.value === '';
+  if (node.op === '$type' || node.op === '$size' || BITS_OPS.has(node.op)) return node.value.trim() === '';
+  return false;
+}
+
+/**
  * Blocking-validity checks for a cond (§3): number/long/decimal/$mod.
  * Applicability (an op outside `FIELD_OPS[valType]`) is deliberately not
  * checked here: per §3 it is advisory only and must never block printing.
@@ -575,6 +614,9 @@ function listItemText(valType: ValType, el: unknown): string {
 function condValueProblem(node: CondNode): string | null {
   if (!node.op.startsWith('$')) return 'Operator must start with "$"';
   if (!isCompilableOp(node.op)) return `${node.op} is not encodable — convert to a raw clause`;
+  // An empty value is never sent: left to the encoders below it would go out
+  // as 0, as "" or as a bare `{$numberLong: ""}`.
+  if (isEmptyValue(node)) return 'Value is empty';
   const isScalarNumeric =
     !ARRAY_VALUE_OPS.has(node.op) && node.op !== '$mod' && node.value.trim() !== '';
   if (isScalarNumeric) {

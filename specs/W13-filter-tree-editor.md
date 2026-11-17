@@ -223,6 +223,7 @@ node the printer can't encode never reaches `queryRaw`, so it can never reach
 | Node | Problem |
 | --- | --- |
 | cond | op doesn't start with `$` |
+| cond | empty value: a `string`, `number`, `long`, `decimal` or `regex` row with nothing typed (blanks only, for the numeric types), or `$size`, `$type`, `$regex` or a bit-mask operator with an empty box. Never sent as `0` or `""`. `boolean`, `null` and `$exists` rows have nothing to type and are never empty. A parsed filter that holds `""` or an empty `$numberLong` is not modelled as a row (it stays a raw clause), so it still prints back verbatim |
 | cond | value invalid for `valType` — the `number` / `long` / `decimal` / `$mod` checks in `condValueProblem` (W04 §2b) |
 | cond | op not encodable as `{ field: { $op: value } }` (the UI offers "convert to raw clause" instead of letting this happen — the check is a backstop) |
 | raw | non-blank `json` isn't valid JSON, or isn't an object |

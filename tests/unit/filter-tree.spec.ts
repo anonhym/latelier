@@ -871,12 +871,12 @@ describe('condValueProblem — isScalarNumeric excludes $mod and array-value ops
     expect(printFilter(root).ok).toBe(true);
   });
 
-  it('an empty numeric value is excluded from scalar-number checks — encodes as 0 rather than blocking', () => {
+  it('an empty numeric value blocks instead of encoding as 0', () => {
     const root = group('$and', [cond({ valType: 'number', value: '' })]);
     const p = printFilter(root);
-    expect(p.ok).toBe(true);
-    if (!p.ok) return;
-    expect(JSON.parse(p.json)).toEqual({ a: { $eq: 0 } });
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.problems).toEqual([{ path: [0], message: 'Value is empty' }]);
   });
 });
 
@@ -1560,21 +1560,14 @@ describe('encodeCondValue — $type encodes numerically when possible, else the 
     expect(JSON.parse(p.json)).toEqual({ a: { $type: 'string' } });
   });
 
-  it('an empty $type value is excluded from the numeric branch even though Number("") is finite', () => {
+  it('an empty $type value blocks instead of printing as ""', () => {
     const p = printFilter(group('$and', [cond({ op: '$type', value: '' })]));
-    expect(p.ok).toBe(true);
-    if (!p.ok) return;
-    expect(JSON.parse(p.json)).toEqual({ a: { $type: '' } });
+    expect(p.ok).toBe(false);
   });
 
-  it('a whitespace-only $type value is excluded via trim(), not just a literal-empty check', () => {
-    // Number('   ') is 0 (finite) and '   ' !== '' is true (untrimmed) — only
-    // checking value.trim() !== '' correctly excludes this from the numeric
-    // branch, leaving the original whitespace text untouched.
+  it('a whitespace-only $type value is empty too (Number("   ") would read as 0)', () => {
     const p = printFilter(group('$and', [cond({ op: '$type', value: '   ' })]));
-    expect(p.ok).toBe(true);
-    if (!p.ok) return;
-    expect(JSON.parse(p.json)).toEqual({ a: { $type: '   ' } });
+    expect(p.ok).toBe(false);
   });
 });
 
@@ -1589,15 +1582,55 @@ describe('condValueProblem — $mod array-length guard (§3)', () => {
   });
 });
 
-describe('condValueProblem — isScalarNumeric on a genuinely empty/blank long value (§3a)', () => {
-  it('a whitespace-only long value is excluded from the integer-format check, not blocked', () => {
-    const p = printFilter(group('$and', [cond({ valType: 'long', op: '$gt', value: '   ' })]));
-    expect(p.ok).toBe(true);
+describe('condValueProblem — an empty or blank value is an error for every typed kind', () => {
+  const problemFor = (c: CondNode) => {
+    const p = printFilter(group('$and', [c]));
+    return p.ok ? null : p.problems[0].message;
+  };
+
+  it.each([
+    ['long', '   '],
+    ['long', ''],
+    ['decimal', ''],
+    ['number', ' '],
+    ['string', ''],
+    ['regex', ''],
+  ] as const)('a %s value of %j is not applied', (valType, value) => {
+    expect(problemFor(cond({ valType, op: '$gt', value }))).toBe('Value is empty');
   });
 
-  it('a fully empty long value is excluded from the integer-format check, not blocked', () => {
-    const p = printFilter(group('$and', [cond({ valType: 'long', op: '$gt', value: '' })]));
-    expect(p.ok).toBe(true);
+  it.each(['$size', '$bitsAllSet', '$regex'])('an empty %s value is not applied', (op) => {
+    expect(problemFor(cond({ valType: 'number', op, value: '' }))).toBe('Value is empty');
+  });
+
+  it('a string of blanks is a real string, not an empty one', () => {
+    expect(problemFor(cond({ valType: 'string', value: '  ' }))).toBeNull();
+  });
+
+  it('boolean, null and $exists rows have nothing to type, so are never empty', () => {
+    expect(problemFor(cond({ valType: 'boolean', value: '' }))).toBeNull();
+    expect(problemFor(cond({ valType: 'null', value: '' }))).toBeNull();
+    expect(problemFor(cond({ op: '$exists', valType: 'boolean', value: '' }))).toBeNull();
+  });
+
+  it('an empty value is left out of toRawNode, never encoded as 0', () => {
+    expect(toRawNode(cond({ valType: 'number', value: '' })).json).toBe('');
+  });
+
+  it.each([
+    ['{"name":""}'],
+    ['{"name":{"$eq":""}}'],
+    ['{"name":{"$ne":""}}'],
+    ['{"n":{"$numberLong":""}}'],
+  ])('a filter typed with an explicit empty value, %s, still round-trips', (text) => {
+    const parsed = parseFilter(text);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.root.children[0].kind).toBe('raw');
+    const printed = printFilter(parsed.root);
+    expect(printed.ok).toBe(true);
+    if (!printed.ok) return;
+    expect(JSON.parse(printed.json)).toEqual(JSON.parse(text));
   });
 });
 

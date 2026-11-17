@@ -62,7 +62,8 @@ const safeCondArb: fc.Arbitrary<CondNode> = fc.oneof(
     field: fieldNameArb,
     op: fc.constantFrom(...SIMPLE_OPS),
     valType: fc.constant<ValType>('string'),
-    value: fc.string({ maxLength: 8 }),
+    // Never empty: an empty value is not applied (and prints nothing).
+    value: fc.string({ minLength: 1, maxLength: 8 }),
   }),
   fc.record({
     kind: fc.constant('cond' as const),
@@ -442,6 +443,55 @@ describe('unwrapGroup undoes a negation wrap', () => {
         expect(unwrapGroup(wrapInGroup(t, p, '$nor'), p)).toEqual(t);
       }),
       { numRuns: 200 },
+    );
+  });
+});
+
+// An empty value of any kind is an error, never a 0, "" or empty sentinel in
+// the printed filter.
+describe('printFilter: an empty value never reaches the filter', () => {
+  const emptyKinds: { valType: ValType; ops: readonly string[]; blank: fc.Arbitrary<string> }[] = [
+    { valType: 'string', ops: SIMPLE_OPS, blank: fc.constant('') },
+    { valType: 'regex', ops: SIMPLE_OPS, blank: fc.constant('') },
+    { valType: 'number', ops: SIMPLE_OPS, blank: fc.stringMatching(/^[ \t]{0,3}$/) },
+    { valType: 'long', ops: SIMPLE_OPS, blank: fc.stringMatching(/^[ \t]{0,3}$/) },
+    { valType: 'decimal', ops: SIMPLE_OPS, blank: fc.stringMatching(/^[ \t]{0,3}$/) },
+    { valType: 'number', ops: ['$size', '$type', '$bitsAllSet'], blank: fc.stringMatching(/^[ \t]{0,3}$/) },
+  ];
+
+  it('blocks the row and leaves it out of the filter', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...emptyKinds).chain((k) =>
+          fc.record({ valType: fc.constant(k.valType), op: fc.constantFrom(...k.ops), value: k.blank }),
+        ),
+        fieldNameArb,
+        ({ valType, op, value }, field) => {
+          const printed = printFilter({
+            kind: 'group',
+            logic: '$and',
+            children: [{ kind: 'cond', field, op, valType, value }],
+          });
+          expect(printed.ok).toBe(false);
+          if (printed.ok) return;
+          expect(printed.problems).toHaveLength(1);
+        },
+      ),
+    );
+  });
+
+  it('keeps a typed filter holding an empty string as a row-less clause that prints back verbatim', () => {
+    fc.assert(
+      fc.property(fieldNameArb, fc.constantFrom('', '$eq', '$ne'), (field, op) => {
+        const text = JSON.stringify({ [field]: op === '' ? '' : { [op]: '' } });
+        const parsed = parseFilter(text);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+        const printed = printFilter(parsed.root);
+        expect(printed.ok).toBe(true);
+        if (!printed.ok) return;
+        expect(JSON.parse(printed.json)).toEqual(JSON.parse(text));
+      }),
     );
   });
 });
