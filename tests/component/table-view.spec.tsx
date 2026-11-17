@@ -550,6 +550,26 @@ describe('TableView — rendering and interaction', () => {
       expect(container.textContent).toContain('a-val');
     });
 
+    // W14 §11.5 — a dotted path written into an inclusion is shown by the
+    // field that holds it: one column, not that field plus a computed copy.
+    it('a dotted path in an inclusion draws one column, the parent that holds it', () => {
+      const { container } = renderStatefulTable(
+        stateWithDocs({
+          builder: { projection: ['name', 'address.city'], sort: '', limit: '' },
+          lastRun: {
+            documents: [{ _id: 1, name: 'n', address: { city: 'Springfield' } }],
+            durationMs: 1,
+            ranAt: '2026-01-01T00:00:00Z',
+          },
+        }),
+      );
+      const headers = Array.from(container.querySelectorAll('[data-testid^="table-header-"]')).map((h) =>
+        h.getAttribute('data-testid'),
+      );
+      expect(headers.filter((h) => h === 'table-header-address')).toHaveLength(1);
+      expect(headers.some((h) => h?.includes('address.city'))).toBe(false);
+    });
+
     it('reordering via drag changes the header order', () => {
       const { getByRole, getByTestId } = renderStatefulTable(stateWithDocs());
 
@@ -589,9 +609,10 @@ describe('TableView — rendering and interaction', () => {
       );
 
       fireEvent.click(getByRole('button', { name: /^project/i }));
-      const input = getByRole('textbox', { name: /computed column path/i });
+      // A dotted path typed in the find box becomes a column (W14 §11.5).
+      const input = getByRole('textbox', { name: /find a field/i });
       fireEvent.change(input, { target: { value: 'address.city' } });
-      fireEvent.click(getByRole('button', { name: /add column/i }));
+      fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(container.textContent).toContain('Springfield');
       // Header for the computed column shows the path (no explicit label set).

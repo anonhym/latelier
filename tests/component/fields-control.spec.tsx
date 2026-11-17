@@ -57,7 +57,7 @@ describe('FieldsControl', () => {
     const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
     const patch = fn(baseState());
     expect(patch.builder?.projectionRaw).toBe('{"apple":0}');
-    expect(patch.columnConfig).toBeUndefined();
+    expect(patch.columnConfig?.hidden).toBeUndefined();
   });
 
   it('a field the projection excludes shows unchecked, and checking it drops the exclusion', () => {
@@ -78,82 +78,20 @@ describe('FieldsControl', () => {
     expect(patch.builder?.projection).toEqual([]);
   });
 
-  it('add-computed-column input is disabled for an empty/whitespace path', () => {
-    const { getByRole } = renderChooser(baseState());
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const addButton = getByRole('button', { name: /add column/i }) as HTMLButtonElement;
-    expect(addButton.disabled).toBe(true);
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: '   ' } });
-    expect(addButton.disabled).toBe(true);
-
-    fireEvent.change(input, { target: { value: 'address.city' } });
-    expect(addButton.disabled).toBe(false);
-  });
-
-  it('adding a computed column trims the path and calls patchWith', () => {
-    const patchWith = vi.fn();
-    const { getByRole } = renderChooser(baseState(), { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: '  address.city  ' } });
-    fireEvent.click(getByRole('button', { name: /add column/i }));
-
-    expect(patchWith).toHaveBeenCalledTimes(1);
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(baseState());
-    expect(patch.columnConfig?.computed).toEqual([
-      expect.objectContaining({ path: 'address.city' }),
-    ]);
-  });
-
-  it('adding a duplicate computed path is a no-op (de-duped)', () => {
-    const patchWith = vi.fn();
-    const state = baseState({
-      columnConfig: { computed: [{ id: 'c1', path: 'address.city' }] },
-    });
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: 'address.city' } });
-    const addButton = getByRole('button', { name: /add column/i }) as HTMLButtonElement;
-    expect(addButton.disabled).toBe(true);
-  });
-
-  it('removing a computed column calls patchWith without it', () => {
-    const patchWith = vi.fn();
-    const state = baseState({
-      columnConfig: { computed: [{ id: 'c1', path: 'address.city', label: 'City' }] },
-    });
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    fireEvent.click(getByRole('button', { name: /remove city/i }));
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(state);
-    expect(patch.columnConfig?.computed).toEqual([]);
-  });
-
   it.each(['Tree', 'JSON'] as const)(
-    'renders in the %s view, with hide/reorder available but no computed-column UI',
+    'renders in the %s view, with the same list writing the projection',
     (view) => {
       const patchWith = vi.fn();
       const state = baseState({ view });
       const { getByRole, queryByRole } = renderChooser(state, { patchWith });
       fireEvent.click(getByRole('button', { name: /^project/i }));
 
-      // Hide/reorder (the shared field list) still works outside Table.
+      // The shared field list still writes the projection outside Table.
       fireEvent.click(getByRole('checkbox', { name: 'apple' }));
       expect(patchWith).toHaveBeenCalled();
 
-      // Computed columns only ever feed TableView's rendering — the
-      // add-column form is Table-only (see FieldsControl's doc comment).
-      expect(queryByRole('textbox', { name: /computed column path/i })).toBeNull();
-      expect(queryByRole('button', { name: /add column/i })).toBeNull();
+      // Scrolling to a column is a Table-only affordance.
+      expect(queryByRole('button', { name: 'Scroll to apple' })).toBeNull();
     },
   );
 
@@ -381,11 +319,11 @@ describe('FieldsControl', () => {
 });
 
 /**
- * The fetch section — the projection, moved here from the query bar's
- * advanced row (W14 §4). Everything the advanced row promised about the
- * draft (W14 §3, W15 §2.1, X14 §3/§5) still holds, now inside the control.
+ * The projection text — moved here from the query bar's advanced row (W14 §4)
+ * and kept beside the list (§11.2). Everything the advanced row promised about
+ * the draft (W14 §3, W15 §2.1, X14 §3/§5) still holds, now inside the control.
  */
-describe('FieldsControl — fetch only these fields from the server', () => {
+describe('FieldsControl — the projection text', () => {
   const tabState = (builder: Partial<CollectionTabState['builder']> = {}) =>
     baseState({ view: 'Tree', builder: { projection: [], sort: '', limit: '', ...builder } });
 
@@ -423,27 +361,16 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     fireEvent.blur(input);
   };
 
-  it('says what each section does: hiding is display-only, fetching changes the server reply', () => {
-    const r = openFetch();
-    expect(r.getByText('Show in results')).toBeTruthy();
-    expect(r.getByText(/display only — instant, nothing is re-fetched/i)).toBeTruthy();
-    expect(r.getByText('Fetch only these fields from the server')).toBeTruthy();
-    const help = r.getByText(/changes what the server returns — applied on the next run/i);
-    // The explanation is the input's description, not just nearby text.
-    expect(r.input()?.getAttribute('aria-describedby')).toBe(help.id);
-  });
-
   it('is offered even before a first run, when there are no fields to hide', () => {
     const r = openFetch(baseState({ view: 'JSON', lastRun: undefined }));
     expect(r.getByText(/no fields available/i)).toBeTruthy();
     expect(r.input()).not.toBeNull();
   });
 
-  it('is absent for a read-only consumer, which has no Run to apply it', () => {
+  it('hides the projection text for a read-only consumer, which has no Run to apply it', () => {
     const r = openFetch(tabState(), {}, { isReadOnly: true });
-    expect(r.getByText('Show in results')).toBeTruthy();
+    expect(r.getByTestId('fields-list')).toBeTruthy();
     expect(r.input()).toBeNull();
-    expect(r.queryByText('Fetch only these fields from the server')).toBeNull();
   });
 
   it('shows the committed projection, modelled or raw', () => {
@@ -645,50 +572,5 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   it('is a bare, unset pill with no projection', () => {
     const { getByRole } = renderChooser(tabState());
     expect(getByRole('button', { name: 'Project' }).getAttribute('data-status')).toBe('unset');
-  });
-
-  describe('fields the projection keeps off the wire are named, not silently missing', () => {
-    it('marks an excluded _id in place and lists other excluded fields as not fetched', () => {
-      const r = openFetch(
-        baseState({
-          view: 'Tree',
-          builder: { projection: [], projectionRaw: '{"_id":0,"secret":0}', sort: '', limit: '' },
-          lastRun: { documents: [{ apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
-        }),
-      );
-      expect(r.getByRole('checkbox', { name: /^_id — not fetched$/ })).toBeTruthy();
-      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
-      expect(r.getByTestId('fields-not-fetched').textContent).toBe('secret — not fetched');
-    });
-
-    it('lists a remembered field an inclusion projection left out', () => {
-      const r = openFetch(
-        baseState({
-          view: 'Table',
-          builder: { projection: ['apple'], sort: '', limit: '' },
-          columnConfig: { order: ['_id', 'apple', 'banana'] },
-          lastRun: { documents: [{ _id: 1, apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
-        }),
-      );
-      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
-      expect(r.getByTestId('fields-not-fetched').textContent).toBe('banana — not fetched');
-      // Only the fields in hand are reorderable; a not-fetched one is not.
-      expect(r.queryByRole('button', { name: 'Move banana up' })).toBeNull();
-    });
-
-    // "Applied on the next Run": a projection committed but not yet run has
-    // not removed anything, so a field still in the results is not marked.
-    it('does not mark a field the results in hand still carry', () => {
-      const r = openFetch(tabState({ projection: ['apple'] }));
-      expect(r.getByRole('checkbox', { name: 'banana' })).toBeTruthy();
-      expect(r.getByRole('checkbox', { name: '_id' })).toBeTruthy();
-      expect(r.queryByText(/not fetched/)).toBeNull();
-    });
-
-    it('marks nothing without a projection', () => {
-      const r = openFetch(baseState({ columnConfig: { order: ['_id', 'apple', 'banana', 'gone'] } }));
-      expect(r.queryByTestId('fields-not-fetched')).toBeNull();
-      expect(r.queryByText(/not fetched/)).toBeNull();
-    });
   });
 });

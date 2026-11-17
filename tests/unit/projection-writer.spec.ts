@@ -251,6 +251,60 @@ describe('toggleProjectionField — an exclusion', () => {
   });
 });
 
+describe('toggleProjectionField — path collision', () => {
+  it('a dotted child of an included parent is a column only, never written beside it', () => {
+    const base = inc('address');
+    expect(on(base, 'address.city')).toBe(base);
+  });
+
+  it('a dotted child of a parent that carries an operator is not written beside it either', () => {
+    const base = raw('{"address":{"$slice":2},"b":1}');
+    expect(on(base, 'address.city')).toBe(base);
+  });
+
+  it('checking the parent replaces the dotted children it now covers', () => {
+    const next = on(inc('a.x', 'a.y', 'b'), 'a', ['a', 'b']);
+    expect(sent(next)).toEqual({ a: 1, b: 1 });
+    expect(next.projection).toEqual(['a', 'b']);
+  });
+
+  it('a dotted sibling with a shared prefix is not a child', () => {
+    expect(sent(on(inc('ab'), 'a.x'))).toEqual({ ab: 1, 'a.x': 1 });
+    expect(sent(on(inc('a.x'), 'a'))).toEqual({ a: 1 });
+    expect(sent(on(inc('ab.x'), 'a'))).toEqual({ 'ab.x': 1, a: 1 });
+  });
+
+  it('a dotted path under an inclusion is written as its own entry when no parent is named', () => {
+    expect(sent(on(inc('name'), 'address.city', ['name', 'address.city']))).toEqual({
+      name: 1,
+      'address.city': 1,
+    });
+  });
+
+  it('unchecking the parent takes the dotted children with it', () => {
+    expect(sent(off(inc('a', 'b'), 'a', ['a', 'b']))).toEqual({ b: 1 });
+    expect(sent(off(inc('a.x', 'b'), 'a', ['a', 'b']))).toEqual({ b: 1 });
+  });
+
+  it('unchecking a dotted child whose parent is included cannot be written, so nothing changes', () => {
+    const base = inc('a', 'b');
+    expect(off(base, 'a.x')).toBe(base);
+  });
+
+  it('an excluded parent already drops its dotted children', () => {
+    const base = raw('{"a":0}');
+    expect(off(base, 'a.x')).toBe(base);
+  });
+
+  it('excluding the parent replaces the dotted exclusions under it', () => {
+    expect(sent(off(raw('{"a.x":0,"a.y":0,"b":0}'), 'a', ['a', 'b']))).toEqual({ a: 0, b: 0 });
+  });
+
+  it('a dotted exclusion sits beside a $slice on its parent, which is not an exclusion of it', () => {
+    expect(sent(off(raw('{"a":{"$slice":2}}'), 'a.x'))).toEqual({ a: JSON.stringify({ $slice: 2 }), 'a.x': 0 });
+  });
+});
+
 describe('toggleProjectionField — an unreadable projection', () => {
   it('is returned untouched, so the list never overwrites what the user is typing', () => {
     const base = raw('{"a":');

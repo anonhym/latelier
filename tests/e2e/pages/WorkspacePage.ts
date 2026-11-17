@@ -125,7 +125,7 @@ export class WorkspacePage {
   /** The Project pill: the Fields control's trigger, in the Filter Bar row. */
   get fieldsButton() { return this.optionPill('project'); }
 
-  /** Projection input in the Fields control's "fetch" section — only while the control is open. */
+  /** The projection text in the Fields control — only while the control is open. */
   get fieldsProjection() { return this.win.locator('[data-testid="fields-projection"]'); }
 
   /** Sort input: in the Sort pill's editor, or in the grid. */

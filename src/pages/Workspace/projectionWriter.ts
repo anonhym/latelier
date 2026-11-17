@@ -64,13 +64,27 @@ export function toggleProjectionField(
   const info = projectionMode(builder);
   if (info.mode === 'invalid' || info.locked.includes(field)) return builder;
   let entries: Entry[] = info.entries.map(([k, v]): Entry => [k, v]);
-  const at = entries.findIndex(([k]) => k === field);
+  let at = entries.findIndex(([k]) => k === field);
   const current = at === -1 ? undefined : entries[at][1];
+  // MongoDB refuses a projection naming a path and one of its ancestors
+  // (`{a: 1, "a.b": 1}`), so a dotted path is never written beside its parent.
+  const ancestorHolds = (flag: (v: unknown) => boolean) =>
+    entries.some(([k, v]) => flag(v) && field.startsWith(`${k}.`));
+  const dropDescendants = (flag: (v: unknown) => boolean) => {
+    entries = entries.filter(([k, v]) => !(flag(v) && k.startsWith(`${field}.`)));
+    at = entries.findIndex(([k]) => k === field);
+  };
+  const isKept = (v: unknown) => !isExclusion(v);
 
   if (info.mode === 'inclusion') {
     if (checked) {
-      if (at === -1) entries.push([field, 1]);
-      else if (isExclusion(current)) {
+      if (at === -1) {
+        // The parent already brings this path: it is a column, not a projection entry.
+        if (ancestorHolds(isKept)) return builder;
+        // Checking the parent replaces the dotted children it now covers.
+        dropDescendants(isKept);
+        entries.push([field, 1]);
+      } else if (isExclusion(current)) {
         // `_id: 0` inside an inclusion goes away; any other zero is junk the
         // inclusion never honoured, so it becomes the 1 it should be.
         if (field === '_id') entries.splice(at, 1);
@@ -79,10 +93,12 @@ export function toggleProjectionField(
     } else if (at === -1) {
       // Only `_id` is returned without being named.
       if (field === '_id') entries.push([field, 0]);
+      else dropDescendants(isKept);
     } else if (field === '_id') {
       entries[at] = [field, 0];
     } else {
       entries.splice(at, 1);
+      dropDescendants(isKept);
     }
     // What is left must still name a field to return: an inclusion that lost
     // its last field would read as "everything" (or, with `_id: 0` alone,
@@ -97,10 +113,12 @@ export function toggleProjectionField(
     // A `1` only ever rode along beside exclusions; with none left it would
     // turn the projection into an inclusion.
     if (!entries.some(([, v]) => isExclusion(v))) entries = entries.filter(([, v]) => !isPlainKeep(v));
-  } else if (at === -1) {
-    entries.push([field, 0]);
-  } else if (!isExclusion(current)) {
-    entries[at] = [field, 0];
+  } else {
+    // A parent already excluded takes its dotted children with it.
+    if (ancestorHolds(isExclusion)) return builder;
+    dropDescendants(isExclusion);
+    if (at === -1) entries.push([field, 0]);
+    else if (!isExclusion(current)) entries[at] = [field, 0];
   }
   // A click that changed nothing hands back the same builder, so the patch it
   // feeds is recognised as a no-op rather than rewriting the text.
