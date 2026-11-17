@@ -307,8 +307,9 @@ describe('toggleProjectionField — path collision', () => {
     expect(sent(off(raw('{"a.x":0,"a.y":0,"b":0}'), 'a', ['a', 'b']))).toEqual({ a: 0, b: 0 });
   });
 
-  it('a dotted exclusion sits beside a $slice on its parent, which is not an exclusion of it', () => {
-    expect(sent(off(raw('{"a":{"$slice":2}}'), 'a.x'))).toEqual({ a: JSON.stringify({ $slice: 2 }), 'a.x': 0 });
+  it('a dotted path under a $slice parent is not written beside it, since MongoDB refuses the path collision', () => {
+    const base = raw('{"a":{"$slice":2}}');
+    expect(off(base, 'a.x')).toBe(base);
   });
 });
 
@@ -717,6 +718,27 @@ describe('migrateHiddenSeed — fine print', () => {
   it('a hidden list beside an unreadable projection is left alone, the seed itself coming back', () => {
     const seed = { builder: raw('{"a":'), columnConfig: { hidden: ['a'] } };
     expect(migrateHiddenSeed(seed)).toBe(seed);
+  });
+});
+
+describe('toggleProjectionField beside an operator row', () => {
+  it('leaves a parent of an operator path alone, rather than write a path collision or drop the operator', () => {
+    const b = raw('{"address.items":{"$slice":2}}');
+    expect(toggleProjectionField(b, 'address', false, [])).toBe(b);
+    expect(toggleProjectionField(b, 'address', true, [])).toBe(b);
+    const inc = raw('{"address.items":{"$slice":2},"name":1}');
+    expect(toggleProjectionField(inc, 'address', true, [])).toBe(inc);
+    expect(toggleProjectionField(inc, 'address', false, [])).toBe(inc);
+  });
+
+  it('leaves a child of an operator path alone', () => {
+    const b = raw('{"tags":{"$elemMatch":{"x":1}}}');
+    expect(toggleProjectionField(b, 'tags.x', true, [])).toBe(b);
+  });
+
+  it('still toggles an unrelated field beside the operator', () => {
+    const b = raw('{"address.items":{"$slice":2}}');
+    expect(toggleProjectionField(b, 'notes', false, []).projectionRaw).toBe('{"address.items":{"$slice":2},"notes":0}');
   });
 });
 

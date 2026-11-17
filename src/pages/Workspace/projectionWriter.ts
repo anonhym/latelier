@@ -69,6 +69,10 @@ export function toggleProjectionField(
 ): BuilderState {
   const info = projectionMode(builder);
   if (info.mode === 'invalid' || info.locked.includes(field)) return builder;
+  // An operator row is edited in the text only. A parent or child of one
+  // would collide with it (`{a: 0, "a.b": {$slice: 2}}` is refused by
+  // MongoDB), and dropping the operator would discard what the user typed.
+  if (info.locked.some((k) => k.startsWith(`${field}.`) || field.startsWith(`${k}.`))) return builder;
   let entries: Entry[] = info.entries.map(([k, v]): Entry => [k, v]);
   let at = entries.findIndex(([k]) => k === field);
   const current = at === -1 ? undefined : entries[at][1];
