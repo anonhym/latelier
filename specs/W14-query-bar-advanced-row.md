@@ -512,7 +512,7 @@ The `Project` pill opens one popover, about 440px wide, with no headings:
 - **The list**: every field known without asking the server: the fields of the results in hand, the fields the projection names, and the fields the tab's column order remembers. Each row has a checkbox, the field name and its type from the sampled documents. `_id` is checked and disabled unless the projection says `_id: 0`. Rows drag to reorder, with the move-up and move-down buttons and their focus rules kept.
 - **The projection text**: the projection as Shell Syntax, in a two-line text box. It keeps everything the §4 input had: Shell Syntax repair, field completion, the `projection` / `projectionRaw` split with W15 §9(b)'s raw escape, §3's retained draft and its two messages, commit on blur, Enter and close, and ⌘↵ to settle and run.
 
-The pill states the projection and nothing else: `Project: 4 fields`, `Project: all but 2` for an exclusion, `Project: invalid` for a refused draft. It carries no hidden-column badge.
+The pill states the projection and nothing else: `Project: 4 fields`, `Project: all but 2` for an exclusion, `Project: all, 1 trimmed` for a projection that only trims arrays with `$slice` (it returns every field), `Project: invalid` for a refused draft. It carries no hidden-column badge.
 
 ### 11.3 What the list writes
 
@@ -520,7 +520,7 @@ The pill states the projection and nothing else: `Project: 4 fields`, `Project: 
 - **From an inclusion** (including Only _id), checking adds the field and unchecking removes it. This is `builder.projection`, as today.
 - **While an exclusion is in force** (from the list, typed, or migrated by §11.6), unchecking a row adds `field: 0` to it and checking removes it; the result is `builder.projectionRaw`. Removing its last field clears the projection.
 - **While an operator is in force** (`$slice`, `$elemMatch`, `$meta`, an expression), that field's row is locked and shows its value (`$slice: 3 · as text`); it is edited in the text only. Checking another row adds `field: 1` beside the operator.
-- The text box always shows the result, fields in the list's order.
+- The text box always shows the result. A list click writes the fields in the list's order; reordering the list alone does not rewrite the text, because that would change the query and raise the "not current" strip for a change that fetches nothing new. Text the user typed is never re-sorted.
 - A list click first commits a pending draft. If the draft is refused, the click does nothing and the list is greyed until the text parses again: the list never overwrites what the user is typing.
 
 ### 11.4 Display follows the projection
@@ -529,7 +529,7 @@ The pill states the projection and nothing else: `Project: 4 fields`, `Project: 
 - **A change that only removes fields keeps the rows current.** Unchecking a field, or adding one to an exclusion, leaves what is on screen correct, so it does not raise W06 §8.2's "not current" strip: the rows' query key (`lastRunQueryKey`) is rewritten to the new query alongside the patch. Checking a field, removing one from an exclusion, or changing an operator does raise the strip, because the rows on screen no longer hold everything the query asks for.
 - A checked field the last run did not fetch is marked `on next Run`, and the popover's footer says the server sends the change from the next Run.
 - Table, Tree and JSON read the same projection; there is no separate hidden list. The Table header menu's `Hide column` unchecks that field in the list.
-- Column order stays per-tab display state (`columnConfig.order`); a projection has no order to carry it.
+- Column order stays per-tab display state (`columnConfig.order`); a projection has no order to carry it. A list click records the whole list in that order, so a field the projection stopped fetching keeps its row and can be checked again after a Run that no longer returns it.
 
 ### 11.5 Dotted paths
 
