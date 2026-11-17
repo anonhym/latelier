@@ -51,7 +51,7 @@ import {
   DEFAULT_COLUMN_WIDTH,
   type ResolvedColumn,
 } from './tableColumns';
-import { projectedOutFields, projectionPathHider } from '../projection';
+import { projectedOutFields, projectionHider, projectionPathHider, redactHidden, type FieldHider } from '../projection';
 import { rememberedOrder, tabKnownFields } from '../fieldsList';
 import { projectionPatch, toggleProjectionField } from '../projectionWriter';
 
@@ -678,6 +678,8 @@ function columnValue(doc: unknown, col: ResolvedColumn): unknown {
 
 interface TableRowProps {
   documents: unknown[];
+  /** Keeps a field the projection leaves out of the expanded document; display only. */
+  hide: FieldHider | null;
   columns: ResolvedColumn[];
   widths: Record<string, number>;
   indices: Set<number>;
@@ -759,6 +761,7 @@ function TableRowImpl({
   index,
   style,
   documents,
+  hide,
   columns,
   widths,
   indices,
@@ -1071,7 +1074,7 @@ function TableRowImpl({
           }}
         >
           <DocFieldTree
-            doc={doc}
+            doc={redactHidden(doc, hide) as Record<string, unknown>}
             docId={docId}
             expandedPaths={deepPaths}
             onToggle={toggleDeepPath}
@@ -1217,6 +1220,7 @@ export function TableView({
     () => projectedOutFields(state.builder, derivedFields),
     [state.builder, derivedFields],
   );
+  const hide = React.useMemo(() => projectionHider(state.builder), [state.builder]);
   const pathDropped = React.useMemo(() => projectionPathHider(state.builder), [state.builder]);
   const columns = React.useMemo(
     () => resolveColumns(derivedFields, columnConfig, projectedOut, pathDropped),
@@ -1667,6 +1671,7 @@ export function TableView({
   const rowProps = React.useMemo<TableRowProps>(
     () => ({
       documents,
+      hide,
       columns,
       widths,
       indices: selection.indices,
@@ -1699,6 +1704,7 @@ export function TableView({
     }),
     [
       documents,
+      hide,
       columns,
       widths,
       selection.indices,

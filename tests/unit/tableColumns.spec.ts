@@ -116,6 +116,58 @@ describe('resolveColumns', () => {
     });
   });
 
+  it('places a computed column where the order lists its path, among the field columns', () => {
+    const config: TableColumnConfig = {
+      order: ['apple', 'address.city', 'banana'],
+      computed: [{ id: 'c1', path: 'address.city' }],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual(['apple', 'c1', 'banana', '_id', 'zebra']);
+  });
+
+  it('follows the order for two computed columns swapped, and puts one ahead of every field', () => {
+    const config: TableColumnConfig = {
+      order: ['b.y', 'a.x', 'apple'],
+      computed: [
+        { id: 'c1', path: 'a.x' },
+        { id: 'c2', path: 'b.y' },
+      ],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual(['c2', 'c1', 'apple', '_id', 'banana', 'zebra']);
+  });
+
+  it('keeps a computed column the order does not list after the fields, in config order', () => {
+    const config: TableColumnConfig = {
+      order: ['a.x', 'apple'],
+      computed: [
+        { id: 'c1', path: 'unlisted.one' },
+        { id: 'c2', path: 'a.x' },
+        { id: 'c3', path: 'unlisted.two' },
+      ],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual([
+      'c2',
+      'apple',
+      '_id',
+      'banana',
+      'zebra',
+      'c1',
+      'c3',
+    ]);
+  });
+
+  it('a computed column the projection drops leaves no gap in the order', () => {
+    const config: TableColumnConfig = {
+      order: ['apple', 'a.x', 'banana'],
+      computed: [{ id: 'c1', path: 'a.x' }],
+    };
+    expect(resolveColumns(derived, config, [], (p) => p === 'a.x').map((c) => c.field)).toEqual([
+      'apple',
+      'banana',
+      '_id',
+      'zebra',
+    ]);
+  });
+
   it('drops a computed column the projection keeps off the wire, and keeps the rest', () => {
     const config: TableColumnConfig = {
       computed: [

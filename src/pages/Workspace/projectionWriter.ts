@@ -8,6 +8,7 @@ import { DEFAULT_COLLECTION_TAB_STATE } from '@shared/defaults';
 import { ejsonStringify, ejsonStringifyReadable } from '../../utils/ejson';
 import { ownSet } from '../../utils/ownProperty';
 import { resultQueryKey } from './builder';
+import { knownFields, rememberedOrder } from './fieldsList';
 import {
   classifyProjection,
   isExclusion,
@@ -229,10 +230,30 @@ export function projectionPatch(
 export function migrateHiddenColumns(state: CollectionTabState): CollectionTabState {
   const hidden = state.columnConfig?.hidden;
   if (!hidden || hidden.length === 0) return state;
-  if (projectionMode(state.builder).mode === 'invalid') return state;
+  const info = projectionMode(state.builder);
+  if (info.mode === 'invalid') return state;
   let builder = state.builder;
   for (const field of hidden) builder = toggleProjectionField(builder, field, false, hidden);
-  const columnConfig = { ...state.columnConfig };
+  // Result documents are not kept, so a field the migration takes out of an
+  // inclusion would have no row left in the Fields list to tick it back. The
+  // order remembers it, as the checkbox writers do. An exclusion keeps the
+  // names it drops, so it needs nothing.
+  const remembered =
+    info.mode === 'inclusion' && builder !== state.builder
+      ? // Stryker disable next-line OptionalChaining: `hidden` came from `state.columnConfig?.hidden` and is not empty, so `columnConfig` is defined here and the plain access reads the same
+        rememberedOrder(
+          state,
+          knownFields(
+            [],
+            info,
+            // Stryker disable next-line OptionalChaining: same reason, `columnConfig` is defined
+            [...(state.columnConfig?.computed ?? []).map((c) => c.path), ...hidden],
+            // Stryker disable next-line OptionalChaining: same reason, `columnConfig` is defined
+            state.columnConfig?.order,
+          ),
+        )
+      : {};
+  const columnConfig = { ...state.columnConfig, ...remembered.columnConfig };
   delete columnConfig.hidden;
   return { ...state, ...projectionPatch(state, builder), columnConfig };
 }

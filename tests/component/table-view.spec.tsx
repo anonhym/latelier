@@ -292,6 +292,17 @@ describe('TableView — rendering and interaction', () => {
     expect(container.textContent).toContain('yes');
   });
 
+  it('leaves a field the projection excludes out of an expanded row', () => {
+    const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, visibleField: 'yes', secretField: 'hush' }];
+    const { container } = renderTable(docs, {
+      excluded: ['secretField'],
+      expandedRows: { '507f1f77bcf86cd799439011': true },
+    });
+    expect(container.textContent).toContain('visibleField');
+    expect(container.textContent).not.toContain('secretField');
+    expect(container.textContent).not.toContain('hush');
+  });
+
   // AC5 — click-to-expand cell.
   it('opens a popover with the full value when the cell expand affordance is clicked', () => {
     const longValue = 'x'.repeat(80);
@@ -569,6 +580,24 @@ describe('TableView — rendering and interaction', () => {
       );
       expect(headers.filter((h) => h === 'table-header-address')).toHaveLength(1);
       expect(headers.filter((h) => h === 'table-header-computed:address.city')).toHaveLength(1);
+    });
+
+    it('draws a dotted column where the Fields list order puts it', () => {
+      const { container } = renderTable([{ _id: 1, name: 'n', address: { city: 'Springfield' } }], {
+        columnConfig: {
+          order: ['address.city', 'name', '_id', 'address'],
+          computed: [{ id: 'computed:address.city', path: 'address.city' }],
+        },
+      });
+      const headers = Array.from(container.querySelectorAll('[data-testid^="table-header-"]')).map((h) =>
+        h.getAttribute('data-testid'),
+      );
+      expect(headers).toEqual([
+        'table-header-computed:address.city',
+        'table-header-name',
+        'table-header-_id',
+        'table-header-address',
+      ]);
     });
 
     it('reordering via drag changes the header order', () => {

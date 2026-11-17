@@ -482,14 +482,49 @@ describe('migrateHiddenColumns', () => {
     const prev = ranTab({ builder: inc('a', 'b', 'c'), columnConfig: { hidden: ['b', 'zzz'] } });
     const next = migrateHiddenColumns(prev);
     expect(next.builder.projection).toEqual(['a', 'c']);
-    expect(next.columnConfig).toEqual({});
+    // Result documents are not kept, so the removed field would have no row
+    // left in the Fields list: the order remembers it, with the hidden names.
+    expect(next.columnConfig).toEqual({ order: ['a', 'b', 'c', 'zzz'] });
     expect(isResultStale(next)).toBe(false);
+  });
+
+  it('hidden with an inclusion and no order: the removed field stays listed', () => {
+    const next = migrateHiddenColumns(ranTab({ builder: inc('a', 'b'), columnConfig: { hidden: ['b'] } }));
+    expect(next.builder.projection).toEqual(['a']);
+    expect(next.columnConfig).toEqual({ order: ['a', 'b'] });
+    expect(Object.hasOwn(next.columnConfig!, 'hidden')).toBe(false);
+  });
+
+  it('hidden with an inclusion keeps the order the tab had and the dotted columns it keeps', () => {
+    const next = migrateHiddenColumns(
+      ranTab({
+        builder: inc('a', 'b'),
+        columnConfig: { hidden: ['b'], order: ['b', 'x'], computed: [{ id: 'c1', path: 'p.q' }] },
+      }),
+    );
+    expect(next.columnConfig?.order).toEqual(['b', 'x', 'a', 'p.q']);
+    expect(next.columnConfig?.computed).toEqual([{ id: 'c1', path: 'p.q' }]);
+  });
+
+  it('hidden with an inclusion whose order already names everything leaves the order alone', () => {
+    const next = migrateHiddenColumns(
+      ranTab({ builder: inc('a', 'b'), columnConfig: { hidden: ['b'], order: ['b', 'a'] } }),
+    );
+    expect(next.columnConfig).toEqual({ order: ['b', 'a'] });
+  });
+
+  it('hidden with an inclusion that already lacks the field removes nothing and writes no order', () => {
+    const next = migrateHiddenColumns(ranTab({ builder: inc('a'), columnConfig: { hidden: ['zzz'] } }));
+    expect(next.builder.projection).toEqual(['a']);
+    expect(next.columnConfig).toEqual({});
   });
 
   it('hidden with an exclusion: each hidden field is added to it', () => {
     const prev = ranTab({ builder: raw('{"c":0}'), columnConfig: { hidden: ['a'] } });
     const next = migrateHiddenColumns(prev);
     expect(sent(next.builder)).toEqual({ a: 0, c: 0 });
+    // An exclusion keeps every name it drops, so nothing needs remembering.
+    expect(next.columnConfig).toEqual({});
     expect(isResultStale(next)).toBe(false);
   });
 
@@ -524,6 +559,11 @@ describe('migrateHiddenColumns', () => {
     expect(isResultStale(migrateHiddenColumns(empty))).toBe(false);
   });
 
+  it('is idempotent for an inclusion too', () => {
+    const once = migrateHiddenColumns(ranTab({ builder: inc('a', 'b'), columnConfig: { hidden: ['b'] } }));
+    expect(migrateHiddenColumns(once)).toBe(once);
+  });
+
   it('is idempotent', () => {
     const once = migrateHiddenColumns(ranTab({ columnConfig: { hidden: ['a', 'b'] } }));
     expect(migrateHiddenColumns(once)).toBe(once);
@@ -549,6 +589,12 @@ describe('migrateHiddenSeed', () => {
     expect(next.builder?.projectionRaw).toBe('{"a":0}');
     expect(next.columnConfig).toEqual({ order: ['b', 'a'] });
     expect(Object.hasOwn(next, 'lastRunQueryKey')).toBe(false);
+  });
+
+  it('carries the remembered order for an inclusion seed', () => {
+    const next = migrateHiddenSeed({ builder: inc('a', 'b'), columnConfig: { hidden: ['b'] } });
+    expect(next.builder?.projection).toEqual(['a']);
+    expect(next.columnConfig).toEqual({ order: ['a', 'b'] });
   });
 
   it('carries a key the seed had, current for the new builder', () => {
