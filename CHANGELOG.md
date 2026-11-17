@@ -22,6 +22,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-11-17
+
+0.20.0 was merged but never tagged, so this release also carries its changes
+(listed under 0.20.0 below).
+
+### Added
+
+- **Check for updates from inside the app.** A status-bar pill shows when an
+  update is available, downloading or ready, Settings has an About and updates
+  section with a manual check, the palette has three update commands, and the
+  app re-checks every four hours. After an update, a What's new window shows
+  that version's changelog.
+- **One Fields list that writes the projection.** The Project pill opens a
+  single list of fields with the projection text beside it, editable. Views
+  hide what the projection leaves out, so there is no separate hidden list.
+- **One Spine workspace.** A location breadcrumb and search field replace the
+  old header, tabs have a preview tab and can be reopened with ⌘⇧T, and the
+  server screen opens as a tab. The result count and pager sit on the result
+  bar.
+- **Inspector panel** with Filter and Plan tabs, and a Builder toggle on ⌘⇧B.
+- **Copy formats.** Copy a document as readable, canonical EJSON or mongosh,
+  and Copy query as code for mongosh and Python.
+- **Undo beyond the toast.** ⌘Z on the results and Undo last change in ⋯.
+- **Document Editor** shows a change strip and resolves per-field conflicts.
+- **A Console** and a confirmation before running a destructive script.
+- **Connection form and first run.** A connection-string field above the
+  form tabs, Test / Save / Save & connect, and a welcome canvas where you
+  paste a URI and press Enter to land connected.
+
+### Changed
+
+- **The Filter Bar row gives the filter room.** The field keeps at least
+  320 px; Sort, Project and Limit fold into an Options pill when narrow, and
+  Save and History share one ☆ Save | Queries popover.
+- **Delete asks in proportion** to what it removes: plain for a small
+  selection, typed for a filter, a red band for `{}`.
+- **Structure is now Schema & indexes,** with stat tiles, section pills and
+  frequency bars.
+- **Aggregation** shows stages beside their preview, with one Save menu and
+  one Export menu, and says why Run cannot start.
+- **The command palette** lists collections first and unavailable rows last.
+- **The dark theme** paints dialogs on the panel tone and has stronger
+  borders.
+
+### Fixed
+
+- **⌘K opens the palette from any focused field** and closes it from its own
+  input.
+- **Save query and Reference rules stay on the tab they were opened from,**
+  instead of following a tab switch.
+- **The welcome canvas no longer takes focus from an open palette.**
+- **⌘↵ right after › answers the unsaved-changes prompt** instead of closing
+  the editor with the prompt left open.
+
+### Security
+
+- Dev-only copies of `minimatch` are lifted out of the vulnerable range
+  (GHSA-g3hv-75wg-m249). The packaged app is unchanged.
+
 ## [0.20.0] — 2026-11-13
 
 ### Changed
