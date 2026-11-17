@@ -116,6 +116,20 @@ describe('resolveColumns', () => {
     });
   });
 
+  it('drops a computed column the projection keeps off the wire, and keeps the rest', () => {
+    const config: TableColumnConfig = {
+      computed: [
+        { id: 'c1', path: 'address.city' },
+        { id: 'c2', path: 'name.first' },
+      ],
+    };
+    const result = resolveColumns(derived, config, [], (p) => p === 'address' || p.startsWith('address.'));
+    expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'banana', 'zebra', 'c2']);
+    // The config is untouched: the column comes back when the path is fetched again.
+    expect(config.computed).toHaveLength(2);
+    expect(resolveColumns(derived, config, [], null).map((c) => c.field)).toContain('c1');
+  });
+
   it('a projected-out field and a computed column can coexist', () => {
     const config: TableColumnConfig = {
       computed: [{ id: 'c1', path: 'nested.value' }],

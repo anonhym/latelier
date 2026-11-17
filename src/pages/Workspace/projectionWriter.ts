@@ -14,6 +14,7 @@ import {
   isPlainKeep,
   isRawProjection,
   projectionMode,
+  selfAndAncestors,
   type ProjectionInfo,
 } from './projection';
 import type { BuilderState, CollectionTabState } from '@shared/types';
@@ -139,12 +140,6 @@ function keptKeys(info: ProjectionInfo): string[] {
 
 function excludedKeys(info: ProjectionInfo): Set<string> {
   return new Set(info.entries.filter(([, v]) => isExclusion(v)).map(([k]) => k));
-}
-
-// The key itself and every dotted ancestor: `a.b.c` is covered by `a.b` and `a`.
-function selfAndAncestors(key: string): string[] {
-  const parts = key.split('.');
-  return parts.map((_, i) => parts.slice(0, i + 1).join('.'));
 }
 
 function operatorSignature(info: ProjectionInfo): string {

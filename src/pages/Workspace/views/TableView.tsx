@@ -51,7 +51,8 @@ import {
   DEFAULT_COLUMN_WIDTH,
   type ResolvedColumn,
 } from './tableColumns';
-import { projectedOutFields } from '../projection';
+import { projectedOutFields, projectionPathHider } from '../projection';
+import { rememberedOrder, tabKnownFields } from '../fieldsList';
 import { projectionPatch, toggleProjectionField } from '../projectionWriter';
 
 interface TableViewProps {
@@ -1216,18 +1217,25 @@ export function TableView({
     () => projectedOutFields(state.builder, derivedFields),
     [state.builder, derivedFields],
   );
+  const pathDropped = React.useMemo(() => projectionPathHider(state.builder), [state.builder]);
   const columns = React.useMemo(
-    () => resolveColumns(derivedFields, columnConfig, projectedOut),
-    [derivedFields, columnConfig, projectedOut],
+    () => resolveColumns(derivedFields, columnConfig, projectedOut, pathDropped),
+    [derivedFields, columnConfig, projectedOut, pathDropped],
   );
   // Hiding a column unchecks it in the Fields list, which writes the
   // projection (W14 §11.4), in the order the columns are drawn.
   const hideColumn = React.useCallback(
     (field: string) => {
       const order = columns.filter((c) => c.kind === 'field').map((c) => c.field);
-      actions.patchWith((prev) => projectionPatch(prev, toggleProjectionField(prev.builder, field, false, order)));
+      // Unchecking can take the field out of every later result, and a row that
+      // nothing names could never be ticked again, so the list as it stands is
+      // recorded in the same patch, as the Fields control does.
+      actions.patchWith((prev) => ({
+        ...projectionPatch(prev, toggleProjectionField(prev.builder, field, false, order)),
+        ...rememberedOrder(prev, tabKnownFields(prev, documents)),
+      }));
     },
-    [actions, columns],
+    [actions, columns, documents],
   );
   // A new result (a re-run, another page) or a changed column set leaves the
   // remembered cell pointing at a position that now holds something else.

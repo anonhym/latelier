@@ -7,9 +7,11 @@ import {
   knownFields,
   modeTag,
   operatorLabel,
+  rememberedOrder,
+  tabKnownFields,
 } from '../../src/pages/Workspace/fieldsList';
 import { projectionMode } from '../../src/pages/Workspace/projection';
-import type { BuilderState } from '@shared/types';
+import type { BuilderState, CollectionTabState } from '@shared/types';
 
 const builder = (over: Partial<BuilderState> = {}): BuilderState => ({ projection: [], sort: '', limit: '', ...over });
 const mode = (over: Partial<BuilderState> = {}) => projectionMode(builder(over));
@@ -176,5 +178,53 @@ describe('operatorLabel — fine print', () => {
   it('shows a one-key document whole unless that key is an operator', () => {
     expect(operatorLabel({ x: 1 })).toBe('{"x":1}');
     expect(operatorLabel({ $slice: 3 })).toBe('$slice: 3');
+  });
+});
+
+const tab = (over: Partial<CollectionTabState> = {}): CollectionTabState => ({
+  view: 'Table',
+  builder: builder(),
+  queryRaw: '{}',
+  page: 0,
+  pageSize: 50,
+  activeBuilderTab: 'Builder',
+  ...over,
+});
+
+describe('tabKnownFields', () => {
+  it('reads the projection, the computed columns and the order off the tab it is given', () => {
+    const prev = tab({
+      builder: builder({ projection: ['b'] }),
+      columnConfig: { order: ['z'], computed: [{ id: 'c', path: 'x.y' }] },
+    });
+    expect(tabKnownFields(prev, [{ _id: 1, a: 1 }])).toEqual(['z', '_id', 'a', 'b', 'x.y']);
+  });
+
+  it('needs no column config at all', () => {
+    expect(tabKnownFields(tab({ builder: builder({ projection: ['b'] }) }), [{ _id: 1 }])).toEqual(['_id', 'b']);
+  });
+});
+
+describe('rememberedOrder', () => {
+  it('records the known list as the order when the order lacks a field, keeping the rest of the config', () => {
+    const prev = tab({ columnConfig: { order: ['a'], computed: [{ id: 'c', path: 'x.y' }] } });
+    expect(rememberedOrder(prev, ['a', 'b'])).toEqual({
+      columnConfig: { order: ['a', 'b'], computed: [{ id: 'c', path: 'x.y' }] },
+    });
+  });
+
+  it('records it when the tab has no order yet', () => {
+    expect(rememberedOrder(tab(), ['a', 'b'])).toEqual({ columnConfig: { order: ['a', 'b'] } });
+  });
+
+  it('writes nothing when the order already names every field', () => {
+    expect(rememberedOrder(tab({ columnConfig: { order: ['b', 'a', 'x'] } }), ['a', 'b'])).toEqual({});
+    expect(rememberedOrder(tab(), [])).toEqual({});
+  });
+
+  it('copies the known list rather than sharing it', () => {
+    const known = ['a'];
+    const patch = rememberedOrder(tab(), known) as { columnConfig: { order: string[] } };
+    expect(patch.columnConfig.order).not.toBe(known);
   });
 });

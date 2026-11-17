@@ -116,6 +116,20 @@ describe('TreeView — rendering and interaction', () => {
     expect(container.textContent).not.toContain('leaky-value');
   });
 
+  it('an inclusion leaves out every key it does not fetch, from the preview and the expanded tree', () => {
+    const docs = [{ _id: 1, name: 'kept-value', extra: 'dropped-value' }];
+    const state = { ...emptyState(), builder: { projection: ['name'], sort: '', limit: '' } };
+    const { container } = render(
+      <CollectionWorkspaceProvider state={state} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta()}>
+        <TreeView documents={docs} expandedRows={{ '1': true }} onSelect={noop} onRowExpand={noop} />
+      </CollectionWorkspaceProvider>,
+    );
+
+    expect(container.textContent).toContain('kept-value');
+    expect(container.textContent).not.toContain('dropped-value');
+    expect(container.textContent).not.toContain('extra');
+  });
+
   it('with no Fields config, the preview falls back to a document\'s own first 4 keys', () => {
     const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
     const { container } = renderTree(docs);

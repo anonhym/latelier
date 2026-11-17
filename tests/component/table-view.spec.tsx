@@ -597,6 +597,16 @@ describe('TableView — rendering and interaction', () => {
       expect(applePosition & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
+    it('a computed column under an excluded field is not drawn, and its config stays', () => {
+      const columnConfig = { computed: [{ id: 'computed:address.city', path: 'address.city' }] };
+      const docs = [{ _id: 1, name: 'n', address: { city: 'Springfield' } }];
+      const { container, queryByTestId } = renderTable(docs, { columnConfig, excluded: ['address'] });
+
+      expect(queryByTestId('table-header-computed:address.city')).toBeNull();
+      expect(container.textContent).not.toContain('Springfield');
+      expect(columnConfig.computed).toHaveLength(1);
+    });
+
     // AC8 — computed dotted-path column.
     it('a computed dotted-path column renders the nested value', () => {
       const { getByRole, container } = renderStatefulTable(

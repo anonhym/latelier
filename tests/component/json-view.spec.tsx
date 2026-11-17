@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { cleanup } from '@testing-library/react';
 import { fireEvent, render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -165,6 +166,15 @@ describe('JsonView — hidden fields', () => {
       state: excluding('secret', 'other'),
     });
     expect(container.textContent).toContain('2 fields hidden');
+  });
+
+  // The column list samples the first 50 documents; what is hidden must not.
+  it('counts a field that appears only after the 50th document, for an exclusion and an inclusion', () => {
+    const docs = Array.from({ length: 60 }, (_, i) => (i === 55 ? { _id: i, a: 1, late: 2 } : { _id: i, a: 1 }));
+    expect(renderJson(docs, { state: excluding('late') }).container.textContent).toContain('1 field hidden');
+    cleanup();
+    const inclusion = { builder: { projection: ['a'], sort: '', limit: '' } };
+    expect(renderJson(docs, { state: inclusion }).container.textContent).toContain('1 field hidden');
   });
 
   it('shows no hidden-fields note when nothing is hidden', () => {

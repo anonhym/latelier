@@ -23,8 +23,7 @@ import { docMenuItems } from './menuItems';
 import { useDocMenu } from './useDocMenu';
 import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
-import { deriveColumns } from './tableColumns';
-import { projectedOutFields, redactHidden } from '../projection';
+import { hiddenFieldNames, projectionHider, redactHidden, type FieldHider } from '../projection';
 import { copyShortcutOf } from './copyShortcut';
 
 interface JsonViewProps {
@@ -224,7 +223,7 @@ interface DocCardProps {
   rowId: string;
   onActivate: (idx: number) => void;
   collapsedKeys: Set<string>;
-  hiddenFields: Set<string>;
+  hide: FieldHider | null;
   onToggleCollapse: (key: string) => void;
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
@@ -247,7 +246,7 @@ function DocCard({
   rowId,
   onActivate,
   collapsedKeys,
-  hiddenFields,
+  hide,
   onToggleCollapse,
   onToggle,
   onCopy,
@@ -261,13 +260,13 @@ function DocCard({
   const [copyFormat] = useCopyFormat();
   const copyLabel = COPY_ACTION_LABELS[copyFormat];
   const json = React.useMemo(() => {
-    const visible = redactHidden(doc, hiddenFields);
+    const visible = redactHidden(doc, hide);
     try {
       return canonical ? ejsonStringify(visible, 2) : toMongoshLiteral(visible);
     } catch {
       return JSON.stringify(visible, null, 2);
     }
-  }, [doc, hiddenFields, canonical]);
+  }, [doc, hide, canonical]);
 
   // The card's actions show on hover, on focus within it and on the active
   // card (W06 §8.11), and stay for a selected one. Hidden by opacity alone, so
@@ -422,7 +421,7 @@ interface JsonRowProps {
   rowId: (index: number) => string;
   setActiveIndex: (index: number) => void;
   collapsedKeys: Set<string>;
-  hiddenFields: Set<string>;
+  hide: FieldHider | null;
   onToggleCollapse: (key: string) => void;
   onToggle: (idx: number) => void;
   onCopy: (doc: unknown, idx: number) => void;
@@ -441,7 +440,7 @@ function JsonRow({
   rowId,
   setActiveIndex,
   collapsedKeys,
-  hiddenFields,
+  hide,
   onToggleCollapse,
   onToggle,
   onCopy,
@@ -461,7 +460,7 @@ function JsonRow({
         rowId={rowId(index)}
         onActivate={setActiveIndex}
         collapsedKeys={collapsedKeys}
-        hiddenFields={hiddenFields}
+        hide={hide}
         onToggleCollapse={onToggleCollapse}
         onToggle={onToggle}
         onCopy={onCopy}
@@ -478,13 +477,12 @@ export function JsonView({ documents }: JsonViewProps) {
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
   const onDuplicateDoc = actions.openDuplicate;
-  // The fields the committed projection keeps off the wire, as Table hides
-  // them (`resolveColumns`) — display-only, so Copy/Edit/Delete below always
-  // act on the untouched `doc`, never this set.
-  const hiddenFields = React.useMemo(
-    () => new Set(projectedOutFields(state.builder, deriveColumns(documents))),
-    [state.builder, documents],
-  );
+  // The keys the committed projection keeps off the wire, as Table hides them
+  // (`resolveColumns`) — display-only, so Copy/Edit/Delete below always act on
+  // the untouched `doc`. Redacted per document rather than by the column list's
+  // 50-document sample, so a field first seen on a later card is hidden too.
+  const hide = React.useMemo(() => projectionHider(state.builder), [state.builder]);
+  const hiddenNames = React.useMemo(() => hiddenFieldNames(documents, hide), [documents, hide]);
   // T0.4 — selection lifted to the shared cross-view context (index-based,
   // scoped to the enclosing <ResultViewer>); falls back to local state when
   // rendered standalone (no provider mounted).
@@ -500,9 +498,9 @@ export function JsonView({ documents }: JsonViewProps) {
   // subtree. Reset rather than try to remap ids across a hidden-fields
   // change. "Adjust state during render" pattern (see TreeView's
   // prevDocuments reset), not a useEffect, to avoid a cascading render cycle.
-  const [prevHiddenFields, setPrevHiddenFields] = React.useState(hiddenFields);
-  if (prevHiddenFields !== hiddenFields) {
-    setPrevHiddenFields(hiddenFields);
+  const [prevHiddenNames, setPrevHiddenNames] = React.useState(hiddenNames);
+  if (prevHiddenNames !== hiddenNames) {
+    setPrevHiddenNames(hiddenNames);
     setCollapsedKeys(new Set());
   }
   const toggleCollapse = React.useCallback((key: string) => {
@@ -601,7 +599,7 @@ export function JsonView({ documents }: JsonViewProps) {
       rowId: roving.rowId,
       setActiveIndex: roving.setActiveIndex,
       collapsedKeys,
-      hiddenFields,
+      hide,
       onToggleCollapse: toggleCollapse,
       onToggle: toggleSelect,
       onCopy: copyDoc,
@@ -617,7 +615,7 @@ export function JsonView({ documents }: JsonViewProps) {
       roving.rowId,
       roving.setActiveIndex,
       collapsedKeys,
-      hiddenFields,
+      hide,
       toggleCollapse,
       toggleSelect,
       copyDoc,
@@ -628,7 +626,7 @@ export function JsonView({ documents }: JsonViewProps) {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {hiddenFields.size > 0 && (
+      {hiddenNames.length > 0 && (
         <div
           style={{
             padding: '4px 12px 0',
@@ -636,7 +634,7 @@ export function JsonView({ documents }: JsonViewProps) {
             color: 'var(--atelier-text-muted)',
           }}
         >
-          {hiddenFields.size === 1 ? '1 field hidden' : `${hiddenFields.size} fields hidden`}
+          {hiddenNames.length === 1 ? '1 field hidden' : `${hiddenNames.length} fields hidden`}
         </div>
       )}
       <List<JsonRowProps>

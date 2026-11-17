@@ -3,6 +3,7 @@ import { ownGet } from '../../../utils/ownProperty';
 import { getAtSegments } from '../documentDiff';
 import type { ReferenceRule, TableColumnConfig } from '@shared/types';
 import type { SortDir } from '../builder';
+import type { FieldHider } from '../projection';
 
 /**
  * Schema-derived field list — scans the first 50 documents, keeping `_id`
@@ -98,7 +99,9 @@ export function orderFields(derived: string[], order?: string[]): string[] {
  *  - `order` — see `orderFields`.
  *  - `hidden` — fields dropped entirely from the result.
  *  - `computed` — dotted-path accessor columns appended after all field
- *    columns.
+ *    columns, minus those whose path `dropsPath` says the projection keeps
+ *    off the wire. Their config stays in `columnConfig`, so they come back
+ *    when the path is fetched again.
  *
  * `_id` gets no special-casing beyond being first in `derived` (TableView's
  * `deriveColumns` already puts it there) — once the user explicitly
@@ -108,6 +111,7 @@ export function resolveColumns(
   derived: string[],
   config: TableColumnConfig | undefined,
   notFetched: readonly string[] = [],
+  dropsPath: FieldHider | null = null,
 ): ResolvedColumn[] {
   const ordered = orderFields(derived, config?.order);
   // What the projection keeps off the wire (W14 §11.4), not a display list.
@@ -116,12 +120,14 @@ export function resolveColumns(
     .filter((f) => !hidden.has(f))
     .map((field) => ({ kind: 'field', field }));
 
-  const computedColumns: ResolvedColumn[] = (config?.computed ?? []).map((c) => ({
-    kind: 'computed',
-    field: c.id,
-    path: c.path,
-    label: c.label,
-  }));
+  const computedColumns: ResolvedColumn[] = (config?.computed ?? [])
+    .filter((c) => !dropsPath?.(c.path))
+    .map((c) => ({
+      kind: 'computed',
+      field: c.id,
+      path: c.path,
+      label: c.label,
+    }));
 
   return [...fieldColumns, ...computedColumns];
 }

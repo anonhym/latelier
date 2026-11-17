@@ -161,6 +161,40 @@ export function projectionMode(builder: BuilderState): ProjectionInfo {
   return { mode, entries, locked };
 }
 
+export type FieldHider = (key: string) => boolean;
+
+// The key itself and every dotted ancestor: `a.b.c` is covered by `a.b` and `a`.
+export function selfAndAncestors(key: string): string[] {
+  const parts = key.split('.');
+  return parts.map((_, i) => parts.slice(0, i + 1).join('.'));
+}
+
+interface FetchRule {
+  /** True for a top-level name the projection keeps off the wire. */
+  hide: FieldHider;
+  /** Top-level names an exclusion drops by name, whether or not anything holds them. */
+  named: string[];
+}
+
+// The one rule behind `notFetchedFields` and `projectionHider`. Null when the
+// projection keeps nothing off the wire or cannot be read.
+function fetchRule(builder: BuilderState): FetchRule | null {
+  // A projection the app cannot read has no entries, so it falls through to null.
+  const { entries } = projectionMode(builder);
+  const { excluded, inclusion } = classifyProjection(entries);
+  if (inclusion) {
+    // The modelled path's `_id: 1` (`compileFindOptions` sends it) needs no entry:
+    // an inclusion keeps `_id` unless it is excluded.
+    const fetched = new Set(entries.filter(([, v]) => !isExclusion(v)).map(([k]) => k.split('.')[0]));
+    if (!excluded.includes('_id')) fetched.add('_id');
+    return { hide: (key) => !fetched.has(key), named: [] };
+  }
+  // A dotted exclusion (`"a.b": 0`) trims inside `a` and never drops `a` itself.
+  const named = excluded.filter((k) => !k.includes('.'));
+  if (named.length === 0) return null;
+  return { hide: (key) => named.includes(key), named };
+}
+
 /**
  * Which top-level fields the committed projection keeps the server from
  * returning, so the Fields control can name them "not fetched" instead of
@@ -175,19 +209,9 @@ export function projectionMode(builder: BuilderState): ProjectionInfo {
  * `projectionProblem` is what speaks for that one.
  */
 export function notFetchedFields(builder: BuilderState, known: readonly string[]): string[] {
-  const { mode, entries } = projectionMode(builder);
-  // No projection at all, or one the app cannot read, drops nothing. The
-  // modelled path's `_id: 1` (`compileFindOptions` sends it) needs no entry:
-  // the inclusion branch keeps `_id` unless it is excluded.
-  if (mode === 'invalid') return [];
-  const { excluded, inclusion } = classifyProjection(entries);
-  if (inclusion) {
-    const fetched = new Set(entries.filter(([, v]) => !isExclusion(v)).map(([k]) => k.split('.')[0]));
-    if (!excluded.includes('_id')) fetched.add('_id');
-    return known.filter((f) => !fetched.has(f));
-  }
-  const dropped = excluded.filter((k) => !k.includes('.'));
-  return [...known.filter((f) => dropped.includes(f)), ...dropped.filter((k) => !known.includes(k))];
+  const rule = fetchRule(builder);
+  if (!rule) return [];
+  return [...known.filter(rule.hide), ...rule.named.filter((k) => !known.includes(k))];
 }
 
 /**
@@ -201,16 +225,66 @@ export function projectedOutFields(builder: BuilderState | undefined, known: rea
 }
 
 /**
- * A copy of `doc` without the top-level fields the projection keeps off the
- * wire, for display only. Every action on the document (Copy, Edit, Delete)
- * is handed the original, never this copy: hiding a field must not change
- * what is sent to Mongo or the clipboard. Only top-level paths are handled.
+ * Whether a document's top-level key is kept off the wire by the committed
+ * projection, for display only; null when nothing is. Answers for any key, so a
+ * view that redacts each document does not depend on the 50-document sample the
+ * column list is derived from: an exclusion hides its named fields wherever
+ * they turn up, and an inclusion hides every key it does not fetch.
  */
-export function redactHidden(doc: unknown, hidden: ReadonlySet<string>): unknown {
-  if (hidden.size === 0 || !isRecord(doc)) return doc;
+export function projectionHider(builder: BuilderState | undefined): FieldHider | null {
+  return builder ? (fetchRule(builder)?.hide ?? null) : null;
+}
+
+/**
+ * The names `hide` takes out of the documents in hand, each once. Scans every
+ * document: the JSON view's "N fields hidden" note and the Tree's preview list
+ * are only right if a field first seen on a late row counts too.
+ */
+export function hiddenFieldNames(documents: readonly unknown[], hide: FieldHider | null): string[] {
+  if (!hide) return [];
+  const names = new Set<string>();
+  for (const doc of documents) {
+    if (!isRecord(doc)) continue;
+    for (const key of Object.keys(doc)) if (hide(key)) names.add(key);
+  }
+  return [...names];
+}
+
+/**
+ * Whether the committed projection keeps a dotted path off the wire, for a
+ * column that reads into the documents (a computed column). An exclusion
+ * drops the path and everything under it; an inclusion drops what none of its
+ * entries covers. A path above a kept entry is only partly returned, so it
+ * stays. Null when nothing is dropped.
+ */
+export function projectionPathHider(builder: BuilderState | undefined): FieldHider | null {
+  if (!builder) return null;
+  // A projection the app cannot read has no entries, so it falls through to null.
+  const { entries } = projectionMode(builder);
+  const { excluded, inclusion } = classifyProjection(entries);
+  if (!inclusion) {
+    if (excluded.length === 0) return null;
+    return (path) => selfAndAncestors(path).some((p) => excluded.includes(p));
+  }
+  const kept = entries.filter(([, v]) => !isExclusion(v)).map(([k]) => k);
+  const idOut = excluded.includes('_id');
+  return (path) => {
+    if (path.split('.')[0] === '_id') return idOut;
+    return !kept.some((k) => path === k || path.startsWith(`${k}.`) || k.startsWith(`${path}.`));
+  };
+}
+
+/**
+ * A copy of `doc` without the top-level fields `hide` names, for display only.
+ * Every action on the document (Copy, Edit, Delete) is handed the original,
+ * never this copy: hiding a field must not change what is sent to Mongo or the
+ * clipboard. Only top-level paths are handled.
+ */
+export function redactHidden(doc: unknown, hide: FieldHider | null): unknown {
+  if (!hide || !isRecord(doc)) return doc;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(doc)) {
-    if (!hidden.has(key)) out[key] = value;
+    if (!hide(key)) out[key] = value;
   }
   return out;
 }

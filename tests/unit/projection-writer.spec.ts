@@ -7,7 +7,14 @@ import {
   projectionPatch,
   toggleProjectionField,
 } from '../../src/pages/Workspace/projectionWriter';
-import { projectedOutFields, projectionMode, redactHidden } from '../../src/pages/Workspace/projection';
+import {
+  hiddenFieldNames,
+  projectedOutFields,
+  projectionHider,
+  projectionMode,
+  projectionPathHider,
+  redactHidden,
+} from '../../src/pages/Workspace/projection';
 import { resultQueryKey } from '../../src/pages/Workspace/builder';
 import { isResultStale } from '../../src/pages/Workspace/resultPaneState';
 import type { BuilderState, CollectionTabState } from '@shared/types';
@@ -659,16 +666,83 @@ describe('migrateHiddenSeed — fine print', () => {
 describe('redactHidden', () => {
   it('drops the hidden top-level fields from a copy and leaves the document alone', () => {
     const doc = { _id: 1, a: 'x', b: 'y' };
-    expect(redactHidden(doc, new Set(['a']))).toEqual({ _id: 1, b: 'y' });
+    expect(redactHidden(doc, (k) => k === 'a')).toEqual({ _id: 1, b: 'y' });
     expect(doc).toEqual({ _id: 1, a: 'x', b: 'y' });
   });
 
   it('hands back the very same value when nothing is hidden or the value is not a document', () => {
     const doc = { a: 1 };
-    expect(redactHidden(doc, new Set())).toBe(doc);
-    expect(redactHidden('text', new Set(['a']))).toBe('text');
-    expect(redactHidden(null, new Set(['a']))).toBeNull();
+    expect(redactHidden(doc, null)).toBe(doc);
+    expect(redactHidden('text', (k) => k === 'a')).toBe('text');
+    expect(redactHidden(null, (k) => k === 'a')).toBeNull();
     const list = [1];
-    expect(redactHidden(list, new Set(['0']))).toBe(list);
+    expect(redactHidden(list, (k) => k === '0')).toBe(list);
+  });
+});
+
+// A result page can hold more than the 50 documents the column list samples,
+// so what the views hide must not depend on that sample.
+describe('projectionHider', () => {
+  const hides = (b: BuilderState, ...keys: string[]) => keys.map((k) => projectionHider(b)!(k));
+
+  it('is null when the projection keeps nothing off the wire', () => {
+    expect(projectionHider(undefined)).toBeNull();
+    expect(projectionHider(none())).toBeNull();
+    expect(projectionHider(raw('{"a":'))).toBeNull();
+    expect(projectionHider(raw('{"tags":{"$slice":3}}'))).toBeNull();
+  });
+
+  it('hides an explicitly excluded top-level name whether or not any document holds it', () => {
+    expect(hides(raw('{"a":0,"late":0}'), 'a', 'late', 'b')).toEqual([true, true, false]);
+  });
+
+  it('a dotted exclusion never hides the parent field', () => {
+    expect(projectionHider(raw('{"a.b":0}'))).toBeNull();
+    expect(hides(raw('{"a.b":0,"c":0}'), 'a', 'a.b', 'c')).toEqual([false, false, true]);
+  });
+
+  it('under an inclusion hides every key it does not fetch, keeping _id unless excluded', () => {
+    expect(hides(inc('a', 'b.c'), '_id', 'a', 'b', 'zzz')).toEqual([false, false, false, true]);
+    expect(hides(raw('{"a":1,"_id":0}'), '_id', 'a')).toEqual([true, false]);
+    expect(hides(raw('{"a":1,"t":{"$slice":2}}'), 't', 'a', 'zzz')).toEqual([false, false, true]);
+  });
+});
+
+describe('hiddenFieldNames', () => {
+  it('names each hidden key once, scanning every document and not a sample', () => {
+    const docs = Array.from({ length: 60 }, (_, i) => (i === 55 ? { _id: i, a: 1, late: 2 } : { _id: i, a: 1 }));
+    expect(hiddenFieldNames(docs, projectionHider(inc('a')))).toEqual(['late']);
+    expect(hiddenFieldNames(docs, projectionHider(raw('{"late":0}')))).toEqual(['late']);
+    expect(hiddenFieldNames(docs, null)).toEqual([]);
+    expect(hiddenFieldNames([...docs, 'text', null], projectionHider(inc('a')))).toEqual(['late']);
+  });
+});
+
+describe('projectionPathHider', () => {
+  const drops = (b: BuilderState, ...paths: string[]) => paths.map((p) => projectionPathHider(b)!(p));
+
+  it('is null for no projection, an unreadable one or a $slice-only trim', () => {
+    expect(projectionPathHider(undefined)).toBeNull();
+    expect(projectionPathHider(none())).toBeNull();
+    expect(projectionPathHider(raw('{"a":'))).toBeNull();
+  });
+
+  it('an exclusion drops the path itself and everything under it', () => {
+    expect(drops(raw('{"address":0}'), 'address', 'address.city', 'address.geo.lat', 'name')).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    expect(drops(raw('{"address.city":0}'), 'address', 'address.city', 'address.zip')).toEqual([false, true, false]);
+  });
+
+  it('an inclusion drops what no kept entry covers, from either side', () => {
+    expect(drops(inc('name', 'address'), 'name', 'address.city', 'tags.0', '_id')).toEqual([false, false, true, false]);
+    // `address` is only partly returned, so its column still has something to show.
+    expect(drops(inc('address.city'), 'address', 'address.city', 'address.zip')).toEqual([false, false, true]);
+    expect(drops(raw('{"a":1,"_id":0}'), '_id', '_id.x')).toEqual([true, true]);
+    // A stray zero beside an inclusion is not something the inclusion honours.
+    expect(drops(raw('{"a":1,"b":0}'), 'b')).toEqual([true]);
   });
 });

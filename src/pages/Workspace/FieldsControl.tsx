@@ -27,6 +27,7 @@ import {
   knownFields,
   modeTag,
   operatorLabel,
+  rememberedOrder,
 } from './fieldsList';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
@@ -150,16 +151,7 @@ export function FieldsControl({
     }));
   };
 
-  // A write can take a field out of what the results will hold (a Run after
-  // an exclusion), and a row that nothing names any more could never be
-  // ticked again. The tab's column order is what remembers it (§11.2), so
-  // every write that can lose a row records the list as it stands.
-  const remembered = (prev: CollectionTabState): Pick<CollectionTabState, 'columnConfig'> | Record<string, never> => {
-    const order = prev.columnConfig?.order ?? [];
-    return orderedFields.every((f) => order.includes(f))
-      ? {}
-      : { columnConfig: { ...prev.columnConfig, order: [...orderedFields] } };
-  };
+  const remembered = (prev: CollectionTabState) => rememberedOrder(prev, orderedFields);
 
   /**
    * A click on the list commits a pending draft first. A refused draft means

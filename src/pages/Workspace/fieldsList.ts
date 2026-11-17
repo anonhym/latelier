@@ -5,8 +5,9 @@
 import { isRecord, toDisplayValue } from '../../utils/displayValue';
 import { ejsonStringifyReadable } from '../../utils/ejson';
 import { getAtSegments } from './documentDiff';
-import { isExclusion, type ProjectionInfo } from './projection';
+import { isExclusion, projectionMode, type ProjectionInfo } from './projection';
 import { deriveColumns, orderFields } from './views/tableColumns';
+import type { CollectionTabState } from '@shared/types';
 
 /**
  * Every field known without asking the server, in the tab's column order: the
@@ -28,6 +29,34 @@ export function knownFields(
     ...(order ?? []),
   ];
   return orderFields([...new Set(names)], order ? [...order] : undefined);
+}
+
+/**
+ * The known fields of a tab as it stands in `prev`, for a writer that runs
+ * inside a `patchWith` and so reads the tab it is about to change.
+ */
+export function tabKnownFields(prev: CollectionTabState, documents: unknown[]): string[] {
+  return knownFields(
+    documents,
+    projectionMode(prev.builder),
+    (prev.columnConfig?.computed ?? []).map((c) => c.path),
+    prev.columnConfig?.order,
+  );
+}
+
+/**
+ * A write can take a field out of what the results will hold (a Run after an
+ * exclusion), and a row nothing names any more could never be ticked again. The
+ * tab's column order is what remembers it (W14 §11.2), so every write that can
+ * lose a row records the list as it stands: the patch that does so, or nothing
+ * when the order already names every field.
+ */
+export function rememberedOrder(
+  prev: CollectionTabState,
+  known: readonly string[],
+): Pick<CollectionTabState, 'columnConfig'> | Record<string, never> {
+  const order = prev.columnConfig?.order ?? [];
+  return known.every((f) => order.includes(f)) ? {} : { columnConfig: { ...prev.columnConfig, order: [...known] } };
 }
 
 /**
