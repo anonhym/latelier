@@ -372,8 +372,18 @@ describe('onlyRemovesFields', () => {
     expect(onlyRemovesFields(raw('{"a":1,"_id":0}'), inc('a'))).toBe(false);
     expect(onlyRemovesFields(raw('{"a":1,"_id":0}'), raw('{"a":1,"_id":1}'))).toBe(false);
   });
+  it('a newly dropped dotted path never keeps the rows current, since no view hides it', () => {
+    expect(onlyRemovesFields(none(), raw('{"address.city":0}'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":0}'), raw('{"a":0,"b.c":0}'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":0}'), raw('{"a":0,"b":0}'))).toBe(true);
+    expect(onlyRemovesFields(inc('a.b', 'c'), inc('c'))).toBe(false);
+    expect(onlyRemovesFields(inc('a.b', 'c'), inc('a.b'))).toBe(true);
+  });
+
   it('a dotted path is covered by its parent', () => {
-    expect(onlyRemovesFields(inc('a'), inc('a.b'))).toBe(true);
+    // Narrowing to a dotted path leaves the rest of `a` drawn: the views hide
+    // whole top-level fields only, so the rows can no longer read as current.
+    expect(onlyRemovesFields(inc('a'), inc('a.b'))).toBe(false);
     expect(onlyRemovesFields(inc('a.b'), inc('a'))).toBe(false);
     expect(onlyRemovesFields(raw('{"a.b":0}'), raw('{"a":0}'))).toBe(true);
     expect(onlyRemovesFields(raw('{"a":0}'), raw('{"a.b":0}'))).toBe(false);
@@ -608,8 +618,9 @@ describe('toggleProjectionField — an inclusion drops what the field covered', 
 
 describe('onlyRemovesFields — fine print', () => {
   it('a dotted key is covered by each of its ancestors, not by the characters of its name', () => {
-    expect(onlyRemovesFields(inc('a.b'), inc('a.b.c'))).toBe(true);
-    expect(onlyRemovesFields(raw('{"a.b.c":0}'), raw('{"a.b":0}'))).toBe(true);
+    expect(onlyRemovesFields(inc('a.b'), inc('a.b.c'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a.b.c":0}'), raw('{"a.b":0}'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a.b.c":0}'), raw('{"a":0}'))).toBe(true);
     expect(onlyRemovesFields(inc('a.b'), inc('a.c'))).toBe(false);
   });
 

@@ -164,22 +164,35 @@ export function onlyRemovesFields(prev: BuilderState, next: BuilderState): boole
   // Stryker disable next-line ConditionalExpression,StringLiteral: an unreadable `b` reads as no entries and no operators, and every branch below answers false for it: `none` needs b to be `none` or an exclusion, an inclusion needs an inclusion, an exclusion needs an exclusion (and an operator in `a` already differs from its empty signature)
   if (b.mode === 'invalid') return false;
   if (operatorSignature(a) !== operatorSignature(b)) return false;
-  if (a.mode === 'none') return b.mode === 'none' || b.mode === 'exclusion';
+  // The views hide whole top-level fields only, so a change keeps the rows on
+  // screen correct only when everything it newly drops is a top-level field:
+  // a dotted exclusion (`address.city: 0`) or a narrowed dotted inclusion
+  // still leaves that value drawn, and the rows must read as not current.
+  const topLevel = (k: string) => !k.includes('.');
+  if (a.mode === 'none') {
+    if (b.mode === 'none') return true;
+    return b.mode === 'exclusion' && [...excludedKeys(b)].every(topLevel);
+  }
   if (a.mode === 'inclusion') {
     if (b.mode !== 'inclusion') return false;
     const kept = new Set(keptKeys(a));
-    const nextKept = keptKeys(b);
+    const nextKept = new Set(keptKeys(b));
     // `_id` comes back without being named unless it is excluded.
     const nextFetchesId = !excludedKeys(b).has('_id');
     const prevFetchesId = !excludedKeys(a).has('_id');
     return (
-      nextKept.every((k) => selfAndAncestors(k).some((p) => kept.has(p))) &&
+      [...nextKept].every((k) => kept.has(k)) &&
+      [...kept].filter((k) => !nextKept.has(k)).every(topLevel) &&
       (!nextFetchesId || prevFetchesId)
     );
   }
   if (b.mode !== 'exclusion') return false;
+  const prevExcluded = excludedKeys(a);
   const nextExcluded = excludedKeys(b);
-  return [...excludedKeys(a)].every((k) => selfAndAncestors(k).some((p) => nextExcluded.has(p)));
+  return (
+    [...prevExcluded].every((k) => selfAndAncestors(k).some((p) => nextExcluded.has(p))) &&
+    [...nextExcluded].filter((k) => !prevExcluded.has(k)).every(topLevel)
+  );
 }
 
 /**
