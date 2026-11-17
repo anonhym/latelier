@@ -6,6 +6,7 @@
 import { ejsonParse, isEjsonDocument } from '../../utils/ejson';
 import type { BuilderState } from '@shared/types';
 import { isRecord } from '../../utils/displayValue';
+import { ownSet } from '../../utils/ownProperty';
 
 export function formatProjection(projection: string[]): string {
   if (projection.length === 0) return '';
@@ -284,7 +285,9 @@ export function redactHidden(doc: unknown, hide: FieldHider | null): unknown {
   if (!hide || !isRecord(doc)) return doc;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(doc)) {
-    if (!hide(key)) out[key] = value;
+    // A plain assignment to `__proto__` would hit the prototype setter and
+    // drop a document's own field of that name.
+    if (!hide(key)) ownSet(out, key, value);
   }
   return out;
 }

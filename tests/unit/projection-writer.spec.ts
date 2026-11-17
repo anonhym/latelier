@@ -675,6 +675,15 @@ describe('migrateHiddenSeed — fine print', () => {
 });
 
 describe('redactHidden', () => {
+  it('keeps an own __proto__ field the projection retains', () => {
+    // Built from JSON so `__proto__` is an own property, not the prototype.
+    const doc = JSON.parse('{"__proto__":{"x":1},"a":2,"b":3}') as Record<string, unknown>;
+    const out = redactHidden(doc, (k) => k === 'b') as Record<string, unknown>;
+    expect(Object.keys(out)).toEqual(['__proto__', 'a']);
+    expect(Object.getOwnPropertyDescriptor(out, '__proto__')?.value).toEqual({ x: 1 });
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+  });
+
   it('drops the hidden top-level fields from a copy and leaves the document alone', () => {
     const doc = { _id: 1, a: 'x', b: 'y' };
     expect(redactHidden(doc, (k) => k === 'a')).toEqual({ _id: 1, b: 'y' });
