@@ -284,7 +284,12 @@ function withoutOperatorsOn(builder: BuilderState, field: string): BuilderState 
   const left = info.entries.filter(([k]) => !moot(k));
   // An inclusion that loses its last named field would read as "everything";
   // `_id` alone keeps it returning no more than it did.
-  if (info.mode === 'inclusion' && !classifyProjection(left).inclusion) left.push(['_id', 1]);
+  if (info.mode === 'inclusion' && !classifyProjection(left).inclusion) {
+    // With `_id: 0` too there is nothing left to return: keep the projection,
+    // and the caller keeps the field in its hidden list.
+    if (left.some(([k]) => k === '_id')) return builder;
+    left.push(['_id', 1]);
+  }
   return write(builder, left);
 }
 

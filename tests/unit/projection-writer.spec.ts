@@ -497,6 +497,11 @@ describe('migrateHiddenColumns', () => {
     expect(next.columnConfig?.hidden).toBeUndefined();
   });
 
+  it('an inclusion of only a hidden operator beside _id: 0 is left as it was, the field still hidden', () => {
+    const prev = ranTab({ builder: raw('{"_id":0,"tags":{"$elemMatch":{"x":1}}}'), columnConfig: { hidden: ['tags'] } });
+    expect(migrateHiddenColumns(prev)).toBe(prev);
+  });
+
   it('keeps a hidden name it cannot write, rather than show a field the user hid', () => {
     const prev = ranTab({ builder: raw('{"a":{"$slice":2}}'), columnConfig: { hidden: ['a.x'] } });
     expect(migrateHiddenColumns(prev)).toBe(prev);
