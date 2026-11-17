@@ -76,6 +76,13 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       // where it was never moved off the trigger.
       await moveDownButton.focus();
 
+      // Escape closes it and returns focus to the pill, from inside the list.
+      await win.keyboard.press('Escape');
+      await expect(fieldsTrigger).toBeFocused({ timeout: 5000 });
+      await fieldsTrigger.click();
+      await expect(moveDownButton).toBeVisible();
+      await moveDownButton.focus();
+
       const plainPoint1 = await findNonFocusablePoint(win);
       await win.mouse.click(plainPoint1.x, plainPoint1.y);
       await expect(fieldsTrigger).toBeFocused({ timeout: 5000 });
@@ -108,7 +115,10 @@ test('popover focus return: a click on a non-focusable area returns focus to the
       await switcher.trigger.click();
       await expect(switcher.searchInput).toBeFocused({ timeout: 5000 });
       await fieldsTrigger.click();
-      await expect(fieldsTrigger).toBeFocused({ timeout: 5000 });
+      // Focus went to the popover it opened (its find box takes it a tick after
+      // open), not back to the switcher that was closing.
+      await expect(win.getByRole('textbox', { name: 'Find a field' })).toBeFocused({ timeout: 5000 });
+      await expect(switcher.trigger).not.toBeFocused();
     });
   });
 });

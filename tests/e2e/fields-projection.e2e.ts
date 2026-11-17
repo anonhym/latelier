@@ -12,7 +12,7 @@ import { expectConsoleClean, expectStatusDot } from './helpers/uiAsserts';
 test.afterAll(stopAllMemoryServers);
 
 /**
- * W14 §4 — the projection is edited in the Fields control, not the query
+ * W14 §4, §11 — the projection is edited in the Fields control, not the query
  * bar's advanced row, and Run sends it exactly as before: the field it
  * leaves out stops coming back from the server.
  */
@@ -49,13 +49,17 @@ test('a projection set in the Fields control is what the next Run fetches', asyn
       await expect(ws.queryBarAdvanced.getByText(/projection/i)).toHaveCount(0);
 
       await ws.fieldsButton.click();
-      await expect(win.getByText('Fetch only these fields from the server')).toBeVisible();
+      // One list and one text box: no section headings.
+      await expect(ws.fieldsProjection).toBeVisible();
+      await expect(win.getByText('Fetch only these fields from the server')).toHaveCount(0);
+      await expect(win.getByText('Show in results')).toHaveCount(0);
       await ws.fieldsProjection.fill('{ name: 1 }');
       await ws.fieldsProjection.press('Enter');
       await expect(ws.fieldsProjection).toHaveValue('{ name: 1 }');
 
-      // Hiding is instant; fetching waits for Run — `tier` is still on screen.
-      await expect(win.getByText('gold')).toBeVisible();
+      // The views hide what the projection keeps off the wire at once, though
+      // the server is only asked at the next Run.
+      await expect(win.getByText('gold')).toHaveCount(0);
 
       await ws.queryBarRunButton.click();
       // Exact and quoted: a bare `ada` can also match the last 8 hex chars of a generated

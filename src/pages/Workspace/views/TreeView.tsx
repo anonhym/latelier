@@ -19,6 +19,7 @@ import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
+import { hiddenFieldNames, projectionHider, redactHidden, type FieldHider } from '../projection';
 import { SelectToggle } from './SelectToggle';
 import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
@@ -176,6 +177,9 @@ interface DocRowProps {
   deepPaths: Set<string>;
   copiedPath: string | null;
   previewFields?: string[] | null;
+  // Which top-level keys the projection keeps off the wire; the expanded tree
+  // leaves them out of each document, while every action still gets the original.
+  hide: FieldHider | null;
   refsByField?: Map<string, ReferenceRule>;
   onRowExpand: (docId: string, expanded: boolean) => void;
   onEditDoc: (doc: unknown) => void;
@@ -214,6 +218,7 @@ function DocRowImpl({
   deepPaths,
   copiedPath,
   previewFields,
+  hide,
   refsByField,
   onRowExpand,
   onEditDoc,
@@ -236,6 +241,8 @@ function DocRowImpl({
   const docId = getFullDocId(doc);
   const shortId = getDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
+  // Stable identity per (doc, hidden set), so the field tree keeps its memo.
+  const shownDoc = React.useMemo(() => redactHidden(doc, hide) as Record<string, unknown>, [doc, hide]);
   const isSelected = indices.has(index);
   const isActive = index === activeIndex;
   // Same rule as the Table view's actions: shown on hover, on the active row or
@@ -416,7 +423,7 @@ function DocRowImpl({
           attribute) and, since #20, its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
-          doc={doc}
+          doc={shownDoc}
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
@@ -463,22 +470,26 @@ export function TreeView({
   onRefOpen,
 }: TreeViewProps) {
   const { state, actions, meta } = useCollectionWorkspace();
-  // Collapsed-row preview strip: the Fields control's per-tab columnConfig
-  // (hidden + order), same source TableView/FieldsControl already read —
-  // reordering or hiding a field in Fields changes the Tree preview too.
-  // No config at all (a fresh tab) falls back to `getPreviewFields`'s own
-  // per-doc default (that document's own first 4 keys), which is why this
-  // is `null` rather than `[]` in that case.
+  // Collapsed-row preview strip: the Fields control's column order, minus the
+  // fields the projection keeps off the wire (W14 §11.4) — the same two
+  // sources TableView reads. Neither set (a fresh tab) falls back to
+  // `getPreviewFields`'s own per-doc default (that document's own first 4
+  // keys), which is why this is `null` rather than `[]` in that case.
   const columnConfig = state.columnConfig;
-  const hasFieldConfig =
-    (columnConfig?.order?.length ?? 0) > 0 || (columnConfig?.hidden?.length ?? 0) > 0;
+  // Redacted per document, not by the column list's 50-document sample, so a
+  // field first seen on a later row is hidden too.
+  const hide = React.useMemo(
+    () => projectionHider(state.builder, state.columnConfig?.hidden),
+    [state.builder, state.columnConfig?.hidden],
+  );
+  const hasHidden = React.useMemo(() => hiddenFieldNames(documents, hide).length > 0, [documents, hide]);
+  const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || hasHidden;
   const previewFields = React.useMemo(() => {
     if (!hasFieldConfig) return null;
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
-    const hidden = new Set(columnConfig?.hidden ?? []);
-    return ordered.filter((f) => f !== '_id' && !hidden.has(f));
-  }, [hasFieldConfig, documents, columnConfig?.order, columnConfig?.hidden]);
+    return ordered.filter((f) => f !== '_id' && !hide?.(f));
+  }, [hasFieldConfig, documents, columnConfig?.order, hide]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
@@ -666,6 +677,7 @@ export function TreeView({
       deepPaths,
       copiedPath,
       previewFields,
+      hide,
       refsByField,
       onRowExpand,
       onEditDoc,
@@ -692,6 +704,7 @@ export function TreeView({
       deepPaths,
       copiedPath,
       previewFields,
+      hide,
       refsByField,
       onRowExpand,
       onEditDoc,

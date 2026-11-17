@@ -51,6 +51,9 @@ import {
   DEFAULT_COLUMN_WIDTH,
   type ResolvedColumn,
 } from './tableColumns';
+import { projectedOutFields, projectionHider, projectionPathHider, redactHidden, type FieldHider } from '../projection';
+import { rememberedOrder, tabKnownFields } from '../fieldsList';
+import { projectionPatch, toggleProjectionField } from '../projectionWriter';
 
 interface TableViewProps {
   documents: unknown[];
@@ -675,6 +678,8 @@ function columnValue(doc: unknown, col: ResolvedColumn): unknown {
 
 interface TableRowProps {
   documents: unknown[];
+  /** Keeps a field the projection leaves out of the expanded document; display only. */
+  hide: FieldHider | null;
   columns: ResolvedColumn[];
   widths: Record<string, number>;
   indices: Set<number>;
@@ -756,6 +761,7 @@ function TableRowImpl({
   index,
   style,
   documents,
+  hide,
   columns,
   widths,
   indices,
@@ -1068,7 +1074,7 @@ function TableRowImpl({
           }}
         >
           <DocFieldTree
-            doc={doc}
+            doc={redactHidden(doc, hide) as Record<string, unknown>}
             docId={docId}
             expandedPaths={deepPaths}
             onToggle={toggleDeepPath}
@@ -1200,14 +1206,6 @@ export function TableView({
     returnFocusTo: HTMLElement | null;
   } | null>(null);
   const closeHeaderMenu = React.useCallback(() => setHeaderMenu(null), []);
-  const hideColumn = React.useCallback(
-    (field: string) =>
-      actions.patchWith((prev) => {
-        const hidden = prev.columnConfig?.hidden ?? [];
-        return { columnConfig: { ...prev.columnConfig, hidden: hidden.includes(field) ? hidden : [...hidden, field] } };
-      }),
-    [actions],
-  );
   const sortColumn = React.useCallback(
     (field: string, dir: 1 | -1) => {
       const patch = { builder: { ...state.builder, sort: JSON.stringify({ [field]: dir }) } };
@@ -1218,9 +1216,33 @@ export function TableView({
   );
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
+  const projectedOut = React.useMemo(
+    () => projectedOutFields(state.builder, derivedFields, state.columnConfig?.hidden),
+    [state.builder, derivedFields, state.columnConfig?.hidden],
+  );
+  const hide = React.useMemo(
+    () => projectionHider(state.builder, state.columnConfig?.hidden),
+    [state.builder, state.columnConfig?.hidden],
+  );
+  const pathDropped = React.useMemo(() => projectionPathHider(state.builder), [state.builder]);
   const columns = React.useMemo(
-    () => resolveColumns(derivedFields, columnConfig),
-    [derivedFields, columnConfig],
+    () => resolveColumns(derivedFields, columnConfig, projectedOut, pathDropped),
+    [derivedFields, columnConfig, projectedOut, pathDropped],
+  );
+  // Hiding a column unchecks it in the Fields list, which writes the
+  // projection (W14 §11.4), in the order the columns are drawn.
+  const hideColumn = React.useCallback(
+    (field: string) => {
+      const order = columns.filter((c) => c.kind === 'field').map((c) => c.field);
+      // Unchecking can take the field out of every later result, and a row that
+      // nothing names could never be ticked again, so the list as it stands is
+      // recorded in the same patch, as the Fields control does.
+      actions.patchWith((prev) => ({
+        ...projectionPatch(prev, toggleProjectionField(prev.builder, field, false, order)),
+        ...rememberedOrder(prev, tabKnownFields(prev, documents)),
+      }));
+    },
+    [actions, columns, documents],
   );
   // A new result (a re-run, another page) or a changed column set leaves the
   // remembered cell pointing at a position that now holds something else.
@@ -1276,7 +1298,10 @@ export function TableView({
     () =>
       onColumnScrollRequest((field) => {
         const el = tableWrapperRef.current;
-        const at = columns.findIndex((c) => c.field === field);
+        // A dotted-path column keeps its own id in `field`; the Fields list and
+        // the find box ask for it by its path.
+        const byField = columns.findIndex((c) => c.field === field);
+        const at = byField >= 0 ? byField : columns.findIndex((c) => c.kind === 'computed' && c.path === field);
         if (!el || at < 0) return;
         const widthOf = (c: ResolvedColumn) => ownGet(widths, c.field) ?? DEFAULT_COLUMN_WIDTH;
         const left = at === 0 ? 0 : GUTTER_WIDTH + columns.slice(0, at).reduce((sum, c) => sum + widthOf(c), 0);
@@ -1652,6 +1677,7 @@ export function TableView({
   const rowProps = React.useMemo<TableRowProps>(
     () => ({
       documents,
+      hide,
       columns,
       widths,
       indices: selection.indices,
@@ -1684,6 +1710,7 @@ export function TableView({
     }),
     [
       documents,
+      hide,
       columns,
       widths,
       selection.indices,

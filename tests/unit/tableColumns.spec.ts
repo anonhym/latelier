@@ -79,9 +79,8 @@ describe('resolveColumns', () => {
     expect(result.map((c) => c.field)).toEqual(['zebra', '_id', 'apple', 'banana']);
   });
 
-  it('drops hidden columns from the resolved list', () => {
-    const config: TableColumnConfig = { hidden: ['banana'] };
-    const result = resolveColumns(derived, config);
+  it('drops the fields the projection keeps off the wire from the resolved list', () => {
+    const result = resolveColumns(derived, undefined, ['banana']);
     expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'zebra']);
   });
 
@@ -94,7 +93,7 @@ describe('resolveColumns', () => {
   });
 
   it('keeps _id first when no explicit order is configured', () => {
-    const result = resolveColumns(derived, { hidden: [] });
+    const result = resolveColumns(derived, { order: [] });
     expect(result[0].field).toBe('_id');
   });
 
@@ -117,16 +116,81 @@ describe('resolveColumns', () => {
     });
   });
 
-  it('a hidden field and a computed column can coexist', () => {
+  it('places a computed column where the order lists its path, among the field columns', () => {
     const config: TableColumnConfig = {
-      hidden: ['zebra'],
+      order: ['apple', 'address.city', 'banana'],
+      computed: [{ id: 'c1', path: 'address.city' }],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual(['apple', 'c1', 'banana', '_id', 'zebra']);
+  });
+
+  it('follows the order for two computed columns swapped, and puts one ahead of every field', () => {
+    const config: TableColumnConfig = {
+      order: ['b.y', 'a.x', 'apple'],
+      computed: [
+        { id: 'c1', path: 'a.x' },
+        { id: 'c2', path: 'b.y' },
+      ],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual(['c2', 'c1', 'apple', '_id', 'banana', 'zebra']);
+  });
+
+  it('keeps a computed column the order does not list after the fields, in config order', () => {
+    const config: TableColumnConfig = {
+      order: ['a.x', 'apple'],
+      computed: [
+        { id: 'c1', path: 'unlisted.one' },
+        { id: 'c2', path: 'a.x' },
+        { id: 'c3', path: 'unlisted.two' },
+      ],
+    };
+    expect(resolveColumns(derived, config).map((c) => c.field)).toEqual([
+      'c2',
+      'apple',
+      '_id',
+      'banana',
+      'zebra',
+      'c1',
+      'c3',
+    ]);
+  });
+
+  it('a computed column the projection drops leaves no gap in the order', () => {
+    const config: TableColumnConfig = {
+      order: ['apple', 'a.x', 'banana'],
+      computed: [{ id: 'c1', path: 'a.x' }],
+    };
+    expect(resolveColumns(derived, config, [], (p) => p === 'a.x').map((c) => c.field)).toEqual([
+      'apple',
+      'banana',
+      '_id',
+      'zebra',
+    ]);
+  });
+
+  it('drops a computed column the projection keeps off the wire, and keeps the rest', () => {
+    const config: TableColumnConfig = {
+      computed: [
+        { id: 'c1', path: 'address.city' },
+        { id: 'c2', path: 'name.first' },
+      ],
+    };
+    const result = resolveColumns(derived, config, [], (p) => p === 'address' || p.startsWith('address.'));
+    expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'banana', 'zebra', 'c2']);
+    // The config is untouched: the column comes back when the path is fetched again.
+    expect(config.computed).toHaveLength(2);
+    expect(resolveColumns(derived, config, [], null).map((c) => c.field)).toContain('c1');
+  });
+
+  it('a projected-out field and a computed column can coexist', () => {
+    const config: TableColumnConfig = {
       computed: [{ id: 'c1', path: 'nested.value' }],
     };
-    const result = resolveColumns(derived, config);
+    const result = resolveColumns(derived, config, ['zebra']);
     expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'banana', 'c1']);
   });
 
-  // Mutation: `new Set(config?.hidden ?? [])` mutated to a non-empty default
+  // Mutation: `new Set(notFetched)` with a default mutated to a non-empty default
   // survived every test above, because none of them derive a field that the
   // mutant's injected literal ("Stryker was here", Stryker's own sentinel
   // for a string-array mutation) would coincidentally hide — an absent
@@ -135,7 +199,7 @@ describe('resolveColumns', () => {
   // Deriving a field with that exact name is what actually exercises "the
   // default hides nothing" rather than "the default doesn't happen to hide
   // one of these four unrelated fields".
-  it('hides nothing when `hidden` is unset, even for a field matching a common mutation sentinel', () => {
+  it('hides nothing when no field is projected out, even for a field matching a common mutation sentinel', () => {
     const result = resolveColumns([...derived, 'Stryker was here'], undefined);
     expect(result.map((c) => c.field)).toContain('Stryker was here');
   });

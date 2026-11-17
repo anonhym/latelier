@@ -34,7 +34,14 @@ interface FieldAutocompleteInputProps {
    * screen the way a duplicated `ariaLabel` would.
    */
   ariaLabelledBy?: string;
-  inputRef?: React.Ref<HTMLInputElement>;
+  inputRef?: React.Ref<HTMLInputElement | HTMLTextAreaElement>;
+  /**
+   * Render a two-row `<textarea>` instead of the single-line `<input>`, for a
+   * value that reads better wrapped (the projection document). Enter is still
+   * the caller's to handle, so a caller that commits on Enter inserts no
+   * newline by preventing the default, exactly as it does for the input.
+   */
+  multiline?: boolean;
   /**
    * Attributes the query bar needs on top of the autocomplete behavior:
    * commit-on-blur / commit-on-Enter, the invalid state its inline `Notice`
@@ -42,7 +49,9 @@ interface FieldAutocompleteInputProps {
    * `data-*` can't be typed through `InputHTMLAttributes`.
    */
   onBlur?: () => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  // Method syntax on purpose: it keeps the parameter bivariant, so a caller's
+  // handler typed for `HTMLInputElement` alone still fits the union.
+  onKeyDown?(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void;
   ariaInvalid?: boolean;
   ariaDescribedBy?: string;
   dataTestid?: string;
@@ -115,7 +124,7 @@ function computeToken(
 }
 
 /**
- * Single-line `<input>` with a field-name autocomplete popover anchored to it.
+ * `<input>` (or a two-row `<textarea>` with `multiline`) with a field-name autocomplete popover anchored to it.
  * Reuses the shared `useSuggestions` + `SuggestionPopover` infrastructure so
  * ranking, async source fan-in, and keyboard navigation match the rest of the
  * app (BuilderPane, textarea autocomplete).
@@ -125,6 +134,7 @@ export function FieldAutocompleteInput({
   onChange,
   context,
   mode = 'whole',
+  multiline = false,
   placeholder,
   disabled,
   style,
@@ -137,8 +147,8 @@ export function FieldAutocompleteInput({
   ariaDescribedBy,
   dataTestid,
 }: FieldAutocompleteInputProps) {
-  const localRef = React.useRef<HTMLInputElement>(null);
-  const ref = (inputRef as React.RefObject<HTMLInputElement>) ?? localRef;
+  const localRef = React.useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const ref = (inputRef as React.RefObject<HTMLInputElement | HTMLTextAreaElement>) ?? localRef;
   const [open, setOpen] = React.useState(false);
   const [caret, setCaret] = React.useState(0);
   const blurTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,39 +196,44 @@ export function FieldAutocompleteInput({
     [],
   );
 
+  const fieldProps = {
+    value,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      onChange(e.target.value);
+      if (!open) setOpen(true);
+      // selectionStart isn't yet updated when onChange fires; defer.
+      requestAnimationFrame(syncCaret);
+    },
+    onFocus: () => {
+      setOpen(true);
+      syncCaret();
+    },
+    onBlur: () => {
+      blurTimerRef.current = setTimeout(() => setOpen(false), 100);
+      // Selecting from the popover doesn't blur (it preventDefaults its
+      // own mousedown), so a caller committing here never eats a pick.
+      onBlur?.();
+    },
+    onKeyDown,
+    onKeyUp: syncCaret,
+    onClick: syncCaret,
+    placeholder,
+    disabled,
+    'aria-label': ariaLabel,
+    'aria-labelledby': ariaLabelledBy,
+    'aria-invalid': ariaInvalid,
+    'aria-describedby': ariaDescribedBy,
+    'data-testid': dataTestid,
+    style,
+  };
+
   return (
     <>
-      <input
-        ref={ref}
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          if (!open) setOpen(true);
-          // selectionStart isn't yet updated when onChange fires; defer.
-          requestAnimationFrame(syncCaret);
-        }}
-        onFocus={() => {
-          setOpen(true);
-          syncCaret();
-        }}
-        onBlur={() => {
-          blurTimerRef.current = setTimeout(() => setOpen(false), 100);
-          // Selecting from the popover doesn't blur (it preventDefaults its
-          // own mousedown), so a caller committing here never eats a pick.
-          onBlur?.();
-        }}
-        onKeyDown={onKeyDown}
-        onKeyUp={syncCaret}
-        onClick={syncCaret}
-        placeholder={placeholder}
-        disabled={disabled}
-        aria-label={ariaLabel}
-        aria-labelledby={ariaLabelledBy}
-        aria-invalid={ariaInvalid}
-        aria-describedby={ariaDescribedBy}
-        data-testid={dataTestid}
-        style={style}
-      />
+      {multiline ? (
+        <textarea ref={ref as React.Ref<HTMLTextAreaElement>} rows={2} {...fieldProps} />
+      ) : (
+        <input ref={ref as React.Ref<HTMLInputElement>} {...fieldProps} />
+      )}
       <SuggestionPopover
         open={open && tokenInfo.active && !disabled}
         items={items}

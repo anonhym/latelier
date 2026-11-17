@@ -187,7 +187,7 @@ One row, 44px, the full width of the main area:
 
 - Each query option is a 24px pill. Unset, it is a ghost label (`Sort`). Set, it is soft-filled and states its value: `Sort: _id ↓`, `Project: 3 fields`, `Limit: 100`.
 - A pill opens a small popover holding that option's existing editor: the same input, the same Shell Syntax handling, the same validation.
-- **Projection is a pill** (`Project`), beside the options it belongs with. It was a `Fields` button one band lower, next to References, so one query's parameters sat in two bands.
+- **Projection is a pill** (`Project`), beside the options it belongs with. It was a `Fields` button one band lower, next to References, so one query's parameters sat in two bands. Its popover is one list of fields that writes the projection, with the projection's text beside it ([W14 §11](./W14-query-bar-advanced-row.md)).
 - `⋯ More` holds Skip, Collation, Hint, Max time and Read preference. One that is set is promoted to a pill of its own. Skip stays read-only, driven by the pager.
 - A pill whose value cannot run is drawn in the error colour; the reason is in the error strip (§9.3).
 - **Keep options expanded.** A checkable item in `⋯ More`, stored per tab. While on, the options show as today's always-open grid under the row, and the pills are not drawn. It exists for the user who sets sort, limit and hint on every query and would rather not open three popovers. A tab that loads a saved query with options set does not turn it on; the set options show as pills.

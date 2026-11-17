@@ -1,6 +1,6 @@
 # W14 — Query bar advanced row: correctness, affordance, projection
 
-> **Status: Accepted.** §1–§10 shipped; the option pills of [W05 §9](./W05-query-bar.md) replaced the `QUERY` disclosure, and the grid survives behind a per-tab "Keep options expanded".
+> **Status: Accepted.** §1–§11 shipped; §11 supersedes §4's Decision; the option pills of [W05 §9](./W05-query-bar.md) replaced the `QUERY` disclosure, and the grid survives behind a per-tab "Keep options expanded".
 
 ## Purpose
 
@@ -27,6 +27,8 @@ projection editor's parity gap with the filter tree.
 > moved into the result bar's Fields control. Where §1–§3 and §7–§8 say
 > "projection / sort / limit", the advanced row now carries sort / limit
 > only; §3's draft contract moved with the input and holds there unchanged.
+> Since then the input lives in the `Project` pill (§10), and §11 merges the
+> display toggles into it.
 
 ## Scope
 
@@ -190,6 +192,8 @@ tree keeps it and only `queryRaw` holds at the last good value (W13 §5.5).
 ---
 
 ## 4. Projection editor parity — decided: a text field, in the Fields control
+
+> **Superseded by §11.** The two sections below became one list that writes the projection, with its text beside it. The reasoning is kept as the record of why they were first kept apart.
 
 The filter got a recursive per-row editor with typed values, operator pickers,
 and raw-clause degradation. Projection remained a single text input over an
@@ -490,3 +494,76 @@ collapsed badge counts set options and their problems (§2).
 ### Test cases
 
 - **Component**: the per-tab switch (two tabs, one expanded, one not; a relaunch keeps each); a quick-sort from a table header shows as a `Sort` pill with the switch off and opens the grid row with it on; each option's popover input is reachable by its label.
+
+## 11. Amendment — one Fields control: the projection is what you see
+
+> **Implemented.** It supersedes §4's Decision and the display half of the Fields control. Reviewed and agreed in Claude Design, on the canvas "Fields control split", page "Merged: one Fields control" (boards M1, M2 and Decisions). It builds on [W05 §10](./W05-query-bar.md) and keeps the `Project` pill and its folded `Options` entry.
+
+### 11.1 Why
+
+§4 kept two sections in one popover, "Show in results" (hide, reorder, computed columns; display only) and "Fetch only these fields from the server" (the projection), to teach the difference. In use they answer the same question, "which fields do I get?", and the difference was a cost: the pill's badge counted hidden columns, so `Project` looked set with no projection; hiding a column meant opening a query option; and a hidden column still crossed the wire. One list of fields now writes the projection, and its text is shown beside it, editable.
+
+### 11.2 The control
+
+The `Project` pill opens one popover, about 440px wide, with no headings:
+
+- **A top row**: a mode tag (`Including n`, `Excluding n`, with `· custom` when an operator is present), and two links: **All** (no projection) and **Only _id** (`{ _id: 1 }`).
+- **A find box**: narrows the list; Enter on a match scrolls its Table column into view, as the column picker does today (W06 §8.10). A dotted path typed here that is not yet a row (`address.city`) becomes a row (§11.5).
+- **The list**: every field known without asking the server: the fields of the results in hand, the fields the projection names, and the fields the tab's column order remembers. Each row has a checkbox, the field name and its type from the sampled documents. `_id` is checked and disabled unless the projection says `_id: 0`. Rows drag to reorder, with the move-up and move-down buttons and their focus rules kept.
+- **The projection text**: the projection as Shell Syntax, in a two-line text box. It keeps everything the §4 input had: Shell Syntax repair, field completion, the `projection` / `projectionRaw` split with W15 §9(b)'s raw escape, §3's retained draft and its two messages, commit on blur, Enter and close, and ⌘↵ to settle and run.
+
+The pill states the projection and nothing else: `Project: 4 fields`, `Project: all but 2` for an exclusion, `Project: all, 1 trimmed` for a projection that only trims arrays with `$slice` (it returns every field), `Project: invalid` for a refused draft. It carries no hidden-column badge.
+
+### 11.3 What the list writes
+
+- **From no projection** (All), unchecking a row writes an exclusion of that field (`{ notes: 0 }`), in `builder.projectionRaw`. An inclusion built from the fields in hand would silently drop every field that appears only on other pages or is added to the collection later, from the results and from CSV export.
+- **From an inclusion** (including Only _id), checking adds the field and unchecking removes it. This is `builder.projection`, as today.
+- **While an exclusion is in force** (from the list, typed, or migrated by §11.6), unchecking a row adds `field: 0` to it and checking removes it; the result is `builder.projectionRaw`. Removing its last field clears the projection.
+- **While an operator is in force** (`$slice`, `$elemMatch`, `$meta`, an expression), that field's row is locked and shows its value (`$slice: 3 · as text`); it is edited in the text only. Checking another row adds `field: 1` beside the operator.
+- The text box always shows the result. A list click writes the fields in the list's order; reordering the list alone does not rewrite the text, because that would change the query and raise the "not current" strip for a change that fetches nothing new. Text the user typed is never re-sorted.
+- A list click first commits a pending draft. If the draft is refused, the click does nothing and the list is greyed until the text parses again: the list never overwrites what the user is typing.
+
+### 11.4 Display follows the projection
+
+- Unchecking a field hides it at once in the results already loaded: the views hide any field the committed projection keeps off the wire (`notFetchedFields`), whether or not the loaded documents still hold it. No re-run is forced; the next Run fetches less.
+- **A change that only removes fields keeps the rows current.** Unchecking a field, or adding one to an exclusion, leaves what is on screen correct, so it does not raise W06 §8.2's "not current" strip: the rows' query key (`lastRunQueryKey`) is rewritten to the new query alongside the patch. Checking a field, removing one from an exclusion, or changing an operator does raise the strip, because the rows on screen no longer hold everything the query asks for.
+- A checked field the last run did not fetch is marked `on next Run`, and the popover's footer says the server sends the change from the next Run.
+- Table, Tree and JSON read the same projection; there is no separate hidden list. The Table header menu's `Hide column` unchecks that field in the list.
+- Column order stays per-tab display state (`columnConfig.order`); a projection has no order to carry it. A list click records the whole list in that order, so a field the projection stopped fetching keeps its row and can be checked again after a Run that no longer returns it.
+
+### 11.5 Dotted paths
+
+A dotted path row is a column in Table, as a computed column is today, and Tree and JSON show it nested where it lives. Under an inclusion it is also written into the projection (`address.city: 1`). Under no projection or an exclusion it is already returned, so it is a column only; it stays in `columnConfig.computed`.
+
+### 11.6 Tabs saved before this change
+
+On load, a tab whose `columnConfig.hidden` is non-empty and whose builder has no projection gets the equivalent exclusion (`{ address: 0, notes: 0 }`) in `builder.projectionRaw`, and its hidden list is cleared. Those fields were not shown anyway, so the rows stay current: the migration rewrites `lastRunQueryKey` with the builder, and no "not current" strip appears. A tab with both keeps its projection, and each hidden field the projection still returns is unchecked as §11.3 describes (removed from an inclusion, added to an exclusion); then the hidden list is cleared. A hidden field carrying its own operator (`tags: { $slice: 2 }`), or one inside it, is excluded and that operator goes, since it shaped nothing shown; an inclusion left with no named field keeps `_id` alone. A name that still cannot be written (an operator on its parent, or an inclusion that also excludes `_id`) stays in the hidden list: the views keep hiding it, its row reads unchecked, and checking it removes it from the list. Saved queries are untouched: they never held a hidden list.
+
+### 11.7 Saved queries and export
+
+A saved query keeps the projection as before, so it now reopens with the fields that were picked. CSV export writes the projected fields and dotted-path columns in list order, which is the visible-column list it already walks.
+
+### 11.8 What goes
+
+The "Show in results" section and its help line, the "Fetch only these fields from the server" heading, the computed-column `Add` field (a dotted path is typed in the find box), the pill's hidden-column badge, and every write that adds to `columnConfig.hidden`. `columnConfig.hidden` stays readable for §11.6 only: the migration and the views read the names it could not write, and checking such a row removes it.
+
+### 11.9 Acceptance criteria
+
+- The `Project` popover has one list and one projection text box, and no section headings.
+- Unchecking a field in a tab with no projection removes its column from Table at once, writes the exclusion `{ field: 0 }`, makes the pill read `Project: all but 1`, and sends it on the next Run.
+- After Only _id, checking fields builds an inclusion and the pill reads `Project: n fields`.
+- Typing `{ address: 0, notes: 0 }` and committing unchecks those two rows, shows `Excluding 2`, and makes the pill read `Project: all but 2`; unchecking a third row adds it to the exclusion.
+- A `$slice` field's row is locked and shows its value; checking another row adds `field: 1` beside it.
+- A refused draft keeps its message, greys the list, and survives a close and reopen; a list click does not replace it.
+- `Hide column` from the Table header menu unchecks that field in the list.
+- Tree and JSON hide the fields the projection keeps off the wire, as Table does.
+- Unchecking a field does not show the "not current" strip; checking a field the last run did not fetch does.
+- A tab saved with a hidden list and no projection opens with the equivalent exclusion and the same fields shown.
+- No code path adds a name to `columnConfig.hidden`; only the migration and checking a leftover row shrink it.
+- The pill shows no badge for display state.
+
+### 11.10 Test cases
+
+- **Unit**: the list-to-projection writer for each mode (none → exclusion, inclusion, exclusion, operator present); the pill label for an exclusion; the §11.6 migration for hidden-only, hidden-with-projection and empty-hidden tabs, each leaving `isResultStale` false; whether a projection change only removes fields (inclusion shrinks, exclusion grows) for each mode; `notFetchedFields` driving each view's visible fields.
+- **Component**: checking and unchecking writes the projection and the text box follows; typing an exclusion updates the rows and the tag; a locked operator row; a refused draft greys the list and survives a close and reopen (stateful wrapper, since the effect appears only after the patch round-trips); drag and keyboard reorder keep their focus rules; `Hide column` writes the projection; the folded `Options` menu opens this popover anchored to its pill (W05 §10.3).
+- **E2E**: uncheck a column in Table, see it go at once, run, and check the server returned the projected shape; type an exclusion and see the rows follow; reopen a tab saved with a hidden list and see the same columns; Escape returns focus to the pill (`x19-popover-focus-return`).

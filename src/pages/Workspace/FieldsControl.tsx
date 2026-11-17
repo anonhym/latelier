@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActionIcon,
-  Badge,
   Button,
   Checkbox,
   Popover,
@@ -14,46 +13,50 @@ import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
 import { useProjectionDraft, type ProjectionDraft } from './useProjectionDraft';
 import { EMPTY_DOCUMENTS } from './resultSelection';
-import { deriveColumns, orderFields } from './views/tableColumns';
 import { requestColumnScroll } from './views/columnScroll';
 import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import { projectionProblem } from './builder';
 import { optionPills, PILL_LOOK, type PillStatus } from './optionPills';
-import { notFetchedFields } from './projection';
+import { projectionMode } from './projection';
+import { projectionPatch, toggleProjectionField } from './projectionWriter';
+import {
+  documentsHold,
+  fieldType,
+  isDottedPath,
+  isFieldChecked,
+  knownFields,
+  modeTag,
+  operatorLabel,
+  rememberedOrder,
+} from './fieldsList';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
 
 /**
- * Fields control (T2.5, AC3/AC4/AC8) — two questions about fields, kept in
- * two visibly separate sections because they are different kinds of thing:
+ * Fields control (W14 §11) — one list of fields that writes the query's
+ * projection, with the projection's text beside it. There are no headings:
+ * "which fields do I get?" has one answer, and it is shown twice, as rows to
+ * tick and as the text those ticks write.
  *
- * - **Show in results** — display only, instant, nothing re-fetched.
- *   Show/hide + reorder the schema-derived fields, shared by Tree, JSON and
- *   Table (Table consumes the config for its columns; Tree reads it too, for
- *   its collapsed-row preview — see `TreeView.tsx`. JSON reads the hidden
- *   list too — see `JsonView.tsx`). Also add/remove dotted-path computed
- *   columns, but that part only renders in Table — `computed` only ever
- *   feeds `TableView`'s column resolution (`tableColumns.ts`), so offering it
- *   elsewhere would let a user add a column that visibly does nothing.
- * - **Fetch only these fields from the server** — the projection
- *   (`builder.projection` / `builder.projectionRaw`), a query concern: it
- *   changes what the server returns and applies on the next Run. It sits
- *   beside the display toggles, which is what teaches the difference
- *   (W14 §4). Hidden for read-only consumers, which have no Run to apply it.
+ * - **The list** is every field known without asking the server. A checkbox
+ *   goes through `toggleProjectionField`, so unchecking from no projection
+ *   writes an exclusion and the views (Table, Tree, JSON, CSV) hide what the
+ *   committed projection keeps off the wire at once; nothing is re-fetched
+ *   until the next Run. Order and dotted-path columns stay per-tab display
+ *   state (`columnConfig.order` / `computed`), since a projection has none.
+ * - **The text** is the projection as Shell Syntax, with the retained draft
+ *   (`useProjectionDraft`) that survives a close and reopen. A list click
+ *   commits a pending draft first and does nothing when it is refused; the
+ *   list is greyed until the text parses again, so it never overwrites what
+ *   the user is typing. Hidden for read-only consumers, which have no Run.
  *
- * Its trigger is the Filter Bar row's `Project` pill (W05 §9.2): the
- * projection is one of the query's options, so it sits with them.
+ * Its trigger is the Filter Bar row's `Project` pill (W05 §9.2). The pill
+ * states the projection and nothing else — no display badge.
  *
- * A field the projection keeps off the wire is listed as "not fetched"
- * rather than silently missing from the list.
- *
- * A Popover-anchored-Button pattern; reads everything off
- * `useCollectionWorkspace()` (documents, `columnConfig`, `builder`) so it
- * needs no prop plumbing, and writes back
- * through the existing `actions.patchWith` read-modify-write — the same
- * pattern `columns` / `expandedRows` / `schema` already use — or, for the
- * projection, `actions.patch({ builder })` as the query bar does for sort.
+ * Reads everything off `useCollectionWorkspace()` (documents, `columnConfig`,
+ * `builder`) so it needs no prop plumbing, and writes back through the
+ * `actions.patchWith` read-modify-write.
  */
 export function FieldsControl({
   controlled,
@@ -79,7 +82,6 @@ export function FieldsControl({
   const isTableView = state.view === 'Table';
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
-  const [newPath, setNewPath] = React.useState('');
   const [ownOpened, setOwnOpened] = React.useState(false);
   const opened = controlled ? controlled.opened : ownOpened;
   const setOpened = controlled ? controlled.onOpenedChange : setOwnOpened;
@@ -104,10 +106,12 @@ export function FieldsControl({
     [meta.connectionId, meta.dbName, meta.collection, documents],
   );
 
-  const derived = React.useMemo(() => deriveColumns(documents), [documents]);
+  const info = React.useMemo(() => projectionMode(state.builder), [state.builder]);
+  const computed = config?.computed;
+  const computedPaths = React.useMemo(() => (computed ?? []).map((c) => c.path), [computed]);
   const orderedFields = React.useMemo(
-    () => orderFields(derived, config?.order),
-    [derived, config?.order],
+    () => knownFields(documents, info, computedPaths, config?.order),
+    [documents, info, computedPaths, config?.order],
   );
   // The find box narrows what the list draws; every row keeps its place in
   // the full order, which the move buttons and drag reorder by.
@@ -117,26 +121,27 @@ export function FieldsControl({
       .map((field, index) => ({ field, index }))
       .filter(({ field }) => field.toLowerCase().includes(needle));
   }, [orderedFields, find]);
-  const hidden = React.useMemo(() => new Set(config?.hidden ?? []), [config?.hidden]);
-  const computed = config?.computed ?? [];
-  // Names known without asking the server: the fields in hand, plus any the
-  // tab's own config still remembers from before the projection dropped them.
-  const notFetched = React.useMemo(
+  const types = React.useMemo(
+    () => new Map(orderedFields.map((f) => [f, fieldType(documents, f)] as const)),
+    [orderedFields, documents],
+  );
+  // A checked field the last run's documents do not hold is only on its way:
+  // the server sends it from the next Run. With no run at all there is
+  // nothing to compare against, so nothing is marked.
+  const onNextRun = React.useMemo(
     () =>
       new Set(
-        notFetchedFields(state.builder, [
-          ...new Set([...derived, ...(config?.order ?? []), ...(config?.hidden ?? [])]),
-        ]),
+        documents.length === 0
+          ? []
+          : orderedFields.filter(
+              (f) => isFieldChecked(info, f) && !info.locked.includes(f) && !documentsHold(documents, f),
+            ),
       ),
-    [state.builder, derived, config?.order, config?.hidden],
+    [orderedFields, info, documents],
   );
-  const notFetchedOnly = [...notFetched].filter((f) => !derived.includes(f));
-  // A listed field is marked only once it is really gone from the results in
-  // hand — a projection committed but not yet run still has it on screen.
-  // In practice that is `_id`, which `deriveColumns` lists unconditionally.
-  const absentInPlace = (field: string) =>
-    notFetched.has(field) &&
-    !documents.some((d) => typeof d === 'object' && d !== null && Object.hasOwn(d, field));
+  // A projection the app cannot read, or a draft it refused, is the user's
+  // text in progress: the list stays out of its way until the text parses.
+  const listDisabled = projection.message !== null || info.mode === 'invalid';
 
   const patchColumnConfig = (
     updater: (prev: NonNullable<CollectionTabState['columnConfig']>) => CollectionTabState['columnConfig'],
@@ -146,14 +151,76 @@ export function FieldsControl({
     }));
   };
 
-  const toggleHidden = (field: string) => {
-    patchColumnConfig((prev) => {
-      const prevHidden = prev.hidden ?? [];
-      const nextHidden = prevHidden.includes(field)
-        ? prevHidden.filter((f) => f !== field)
-        : [...prevHidden, field];
-      return { ...prev, hidden: nextHidden };
+  const remembered = (prev: CollectionTabState) => rememberedOrder(prev, orderedFields);
+
+  /**
+   * A click on the list commits a pending draft first. A refused draft means
+   * the click does nothing: the list never overwrites what is being typed.
+   */
+  const leftoverHidden = state.columnConfig?.hidden ?? [];
+  const settleDraft = (): boolean => !listDisabled && projection.commit() !== null;
+
+  // A checkbox writes the projection (W14 §11.3), and the rows stay current
+  // when it only removes fields (§11.4).
+  const toggleField = (field: string, checked: boolean) => {
+    if (!settleDraft()) return;
+    const isColumn = computedPaths.includes(field);
+    actions.patchWith((prev) => {
+      // A dotted column is the column itself: unchecking it removes it, and
+      // only an inclusion has an entry for it to remove. Elsewhere the path is
+      // already returned, and an exclusion of it would be a different thing.
+      const writes = checked || !isColumn || projectionMode(prev.builder).mode === 'inclusion';
+      const builder = writes ? toggleProjectionField(prev.builder, field, checked, orderedFields) : prev.builder;
+      const written = { ...projectionPatch(prev, builder), ...remembered(prev) };
+      // A name the migration left in the old hidden list (an operator stood in
+      // the way) is shown again by checking it.
+      const leftover = prev.columnConfig?.hidden;
+      const patch =
+        checked && leftover?.includes(field)
+          ? {
+              ...written,
+              columnConfig: {
+                ...(written.columnConfig ?? prev.columnConfig),
+                hidden: leftover.filter((f) => f !== field),
+              },
+            }
+          : written;
+      if (checked || !isColumn) return patch;
+      const base = patch.columnConfig ?? prev.columnConfig;
+      return {
+        ...patch,
+        columnConfig: {
+          ...base,
+          // The column is gone, so the order must not keep its row alive.
+          ...(base?.order ? { order: base.order.filter((f) => f !== field) } : {}),
+          computed: (prev.columnConfig?.computed ?? []).filter((c) => c.path !== field),
+        },
+      };
     });
+  };
+
+  const replaceProjection = (next: (prev: CollectionTabState['builder']) => CollectionTabState['builder']) => {
+    if (!settleDraft()) return;
+    actions.patchWith((prev) => ({ ...projectionPatch(prev, next(prev.builder)), ...remembered(prev) }));
+  };
+
+  // A dotted path typed in the find box becomes a row (§11.5). Under an
+  // inclusion it is written into the projection as well, and it is always its
+  // own column so the Table shows the nested value beside the parent field.
+  const addPath = (path: string) => {
+    if (!settleDraft()) return;
+    actions.patchWith((prev) => {
+      const inclusion = projectionMode(prev.builder).mode === 'inclusion';
+      const builder = inclusion
+        ? toggleProjectionField(prev.builder, path, true, [...orderedFields, path])
+        : prev.builder;
+      const patch = projectionPatch(prev, builder);
+      const had = prev.columnConfig?.computed ?? [];
+      if (had.some((c) => c.path === path)) return patch;
+      const column: ComputedColumn = { id: crypto.randomUUID(), path };
+      return { ...patch, columnConfig: { ...prev.columnConfig, computed: [...had, column] } };
+    });
+    setFind('');
   };
 
   const moveField = (from: number, to: number) => {
@@ -208,56 +275,22 @@ export function FieldsControl({
     buttonRefs.current.set(field, entry);
   };
 
-  const trimmedNewPath = newPath.trim();
-  const isDuplicatePath = computed.some((c) => c.path === trimmedNewPath);
-  const canAdd = trimmedNewPath.length > 0 && !isDuplicatePath;
+  const typedPath = find.trim();
+  const canAddPath = isDottedPath(typedPath) && !orderedFields.includes(typedPath);
 
-  const addComputedColumn = () => {
-    if (!canAdd) return;
-    const column: ComputedColumn = {
-      id: crypto.randomUUID(),
-      path: trimmedNewPath,
-    };
-    patchColumnConfig((prev) => ({
-      ...prev,
-      computed: [...(prev.computed ?? []), column],
-    }));
-    setNewPath('');
-  };
-
-  const removeComputedColumn = (id: string) => {
-    patchColumnConfig((prev) => ({
-      ...prev,
-      computed: (prev.computed ?? []).filter((c) => c.id !== id),
-    }));
-  };
-
-  const hiddenCount = hidden.size;
-  const showCountBadge = hiddenCount > 0 || (isTableView && computed.length > 0);
   // The pill is the projection's only sign while the control is closed — it
   // changes what Run returns, so it states the value, and is drawn in the
   // error colour while a refused draft is still waiting inside (W15 §2.4).
   const pill = optionPills(state).find((p) => p.key === 'project')!;
   const pillStatus = projection.message !== null ? 'invalid' : pill.status;
 
-  const sectionHeadingStyle: React.CSSProperties = {
-    fontSize: T.fsXs,
-    fontWeight: 700,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: T.textMuted,
-  };
-  const sectionHelpStyle: React.CSSProperties = {
-    fontSize: T.fsXs,
-    color: T.textMuted,
-    margin: '2px 0 6px',
-  };
   const noticeStyle: React.CSSProperties = {
     marginTop: 4,
     fontSize: T.fsXs,
     lineHeight: 1.3,
     color: T.warn,
   };
+  const mutedStyle: React.CSSProperties = { fontSize: T.fsXs, color: T.textMuted };
 
   // The dropdown unmounts on close but `announcement` lives out here, so
   // without the reset the live region is reborn already holding the last
@@ -307,14 +340,6 @@ export function FieldsControl({
           data-testid="option-pill-project"
           data-status={pillStatus}
           style={{ flexShrink: 0 }}
-          // The display toggles' only sign while the control is closed.
-          rightSection={
-            showCountBadge ? (
-              <Badge size="xs" variant="light" color="violet">
-                {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
-              </Badge>
-            ) : undefined
-          }
         >
           {/* A refused draft is not in the state the label is read from. */}
           {pillStatus === 'invalid' ? `${pill.name}: invalid` : pill.label}
@@ -323,7 +348,7 @@ export function FieldsControl({
       </Popover.Target>
       <Popover.Dropdown
         p="xs"
-        style={{ maxWidth: 320 }}
+        style={{ width: 440, maxWidth: '90vw' }}
         onKeyDown={(e) => {
           // `defaultPrevented`: an open suggestion list took this Escape to
           // close itself — the next one closes the control.
@@ -334,38 +359,82 @@ export function FieldsControl({
           }
         }}
       >
-        <div id="fields-show-heading" style={sectionHeadingStyle}>Show in results</div>
-        <div style={sectionHelpStyle}>Display only — instant, nothing is re-fetched.</div>
-        {documents.length === 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: T.gapXs, marginBottom: 4 }}>
+          <span data-testid="fields-mode-tag" style={{ ...mutedStyle, flex: 1 }}>
+            {modeTag(info)}
+          </span>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            disabled={listDisabled}
+            onClick={() => replaceProjection((b) => ({ ...b, projection: [], projectionRaw: undefined }))}
+          >
+            All
+          </Button>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            disabled={listDisabled}
+            onClick={() => replaceProjection((b) => ({ ...b, projection: ['_id'], projectionRaw: undefined }))}
+          >
+            Only _id
+          </Button>
+        </div>
+        <TextInput
+          size="xs"
+          aria-label="Find a field"
+          placeholder="Find a field, or type a path like address.city"
+          value={find}
+          // Focus moves in a tick after open: Mantine records the element to
+          // return focus to in an effect after the open commit, and focusing
+          // first would make this input that element.
+          ref={focusFindOnMount}
+          onChange={(e) => setFind(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            // A dotted path nothing in the list matches is meant as a new row.
+            if (shownFields.length === 0 && canAddPath) addPath(typedPath);
+            else if (shownFields.length > 0 && isTableView) requestColumnScroll(shownFields[0].field);
+          }}
+          mb={4}
+        />
+        {canAddPath && (
+          <Button
+            size="compact-xs"
+            variant="light"
+            mb={4}
+            disabled={listDisabled}
+            data-testid="fields-add-path"
+            onClick={() => addPath(typedPath)}
+          >
+            {`Add ${typedPath} as a column`}
+          </Button>
+        )}
+        {orderedFields.length === 0 ? (
           <div style={{ padding: '4px 8px', fontSize: T.fsSm, color: T.textMuted }}>
             No fields available
           </div>
         ) : (
           <>
-          <TextInput
-            size="xs"
-            aria-label="Find a field"
-            placeholder="Find a field"
-            value={find}
-            // Focus moves in a tick after open: Mantine records the element to
-            // return focus to in an effect after the open commit, and focusing
-            // first would make this input that element.
-            ref={focusFindOnMount}
-            onChange={(e) => setFind(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' || shownFields.length === 0) return;
-              e.preventDefault();
-              if (isTableView) requestColumnScroll(shownFields[0].field);
-            }}
-            mb={4}
-          />
           {shownFields.length === 0 && (
             <div style={{ padding: '4px 8px', fontSize: T.fsSm, color: T.textMuted }}>
               No field matches
             </div>
           )}
-          <Stack gap={T.gapXs} style={{ maxHeight: 260, overflowY: 'auto', minWidth: 200 }}>
-            {shownFields.map(({ field, index }) => (
+          <Stack
+            gap={T.gapXs}
+            data-testid="fields-list"
+            aria-disabled={listDisabled || undefined}
+            style={{ maxHeight: 260, overflowY: 'auto', opacity: listDisabled ? 0.5 : 1 }}
+          >
+            {shownFields.map(({ field, index }) => {
+              const checked = isFieldChecked(info, field) && !leftoverHidden.includes(field);
+              const lockedEntry = info.locked.includes(field)
+                ? info.entries.find(([k]) => k === field)
+                : undefined;
+              const type = types.get(field);
+              return (
               <div
                 key={field}
                 draggable
@@ -392,20 +461,26 @@ export function FieldsControl({
                 <span style={{ color: T.textGhost, fontSize: T.fsXs, display: 'flex' }}>{I.drag}</span>
                 <Checkbox
                   size="xs"
-                  label={
-                    absentInPlace(field) ? (
-                      <>
-                        {field} <span style={{ color: T.textMuted }}>— not fetched</span>
-                      </>
-                    ) : (
-                      field
-                    )
-                  }
-                  checked={!hidden.has(field)}
-                  onChange={() => toggleHidden(field)}
-                  style={{ flex: 1 }}
+                  label={field}
+                  checked={checked}
+                  // `_id` always comes back unless the projection says `_id: 0`;
+                  // an operator is edited in the text only.
+                  disabled={listDisabled || lockedEntry !== undefined || (field === '_id' && checked)}
+                  onChange={(e) => toggleField(field, e.currentTarget.checked)}
+                  style={{ flex: 1, minWidth: 0 }}
                 />
-                {isTableView && !hidden.has(field) && (
+                {lockedEntry !== undefined && (
+                  <span data-testid="fields-locked" style={{ ...mutedStyle, fontFamily: 'monospace' }}>
+                    {`${operatorLabel(lockedEntry[1])} · as text`}
+                  </span>
+                )}
+                {onNextRun.has(field) && (
+                  <span data-testid="fields-on-next-run" style={{ ...mutedStyle, color: T.warn }}>
+                    on next Run
+                  </span>
+                )}
+                {type && lockedEntry === undefined && <span style={mutedStyle}>{type}</span>}
+                {isTableView && checked && (
                   <ActionIcon
                     size="xs"
                     variant="subtle"
@@ -436,91 +511,33 @@ export function FieldsControl({
                   {I.chevD}
                 </ActionIcon>
               </div>
-            ))}
+              );
+            })}
           </Stack>
           </>
         )}
-        {/* Outside the reorderable list on purpose: these rows have no data
-            to show or hide, and keeping them out of `orderedFields` leaves
-            the index-based drag and keyboard-move logic untouched. */}
-        {notFetchedOnly.length > 0 && (
-          <Stack gap={themeVars.gapXs} mt={4} data-testid="fields-not-fetched">
-            {notFetchedOnly.map((field) => (
-              <div key={field} style={{ fontSize: T.fsSm, color: T.textMuted, paddingLeft: 17 }}>
-                {field} — not fetched
-              </div>
-            ))}
-          </Stack>
+        {listDisabled && (
+          <div data-testid="fields-list-greyed" style={{ ...mutedStyle, marginTop: 4 }}>
+            The list is off until the projection text below parses.
+          </div>
         )}
         {/* `aria-live`: announces a keyboard reorder's result, which is
             otherwise silent to anyone not watching the list (#57). */}
         <VisuallyHidden aria-live="polite">{announcement}</VisuallyHidden>
 
-        {/* Computed columns only feed TableView's rendering — meaningless
-            in Tree/JSON, so the whole section (list + add form) is Table-only. */}
-        {isTableView && (
-          <>
-            {computed.length > 0 && (
-              <Stack gap={T.gapXs} mt="xs" style={{ minWidth: 200 }}>
-                {computed.map((c) => (
-                  <div
-                    key={c.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: themeVars.gapXs, fontSize: T.fsXs }}
-                  >
-                    <span style={{ flex: 1, color: T.text, fontFamily: 'monospace' }}>
-                      {c.label ?? c.path}
-                    </span>
-                    <ActionIcon
-                      size="xs"
-                      variant="subtle"
-                      color="red"
-                      aria-label={`Remove ${c.label ?? c.path}`}
-                      onClick={() => removeComputedColumn(c.id)}
-                    >
-                      {I.close}
-                    </ActionIcon>
-                  </div>
-                ))}
-              </Stack>
-            )}
-
-            <div style={{ display: 'flex', gap: themeVars.gapXs, marginTop: 8 }}>
-              <TextInput
-                size="xs"
-                aria-label="Computed column path"
-                placeholder="e.g. address.city"
-                value={newPath}
-                onChange={(e) => setNewPath(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') addComputedColumn();
-                }}
-                style={{ flex: 1 }}
-              />
-              <Button
-                size="compact-xs"
-                aria-label="Add column"
-                disabled={!canAdd}
-                onClick={addComputedColumn}
-              >
-                Add
-              </Button>
-            </div>
-          </>
-        )}
-
         {canFetch && (
-          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-            <div id="fields-fetch-heading" style={sectionHeadingStyle}>
-              Fetch only these fields from the server
-            </div>
-            <div id="fields-fetch-help" style={sectionHelpStyle}>
-              Changes what the server returns — applied on the next Run.
-            </div>
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+            {onNextRun.size > 0 && (
+              <div data-testid="fields-next-run-note" style={{ ...mutedStyle, marginBottom: 6 }}>
+                The server sends the change from the next Run.
+              </div>
+            )}
             <FieldAutocompleteInput
               value={projection.value}
               onChange={projection.onChange}
               context={suggestionContext}
               mode="token"
+              multiline
               onBlur={projection.commit}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || e.defaultPrevented) return;
@@ -543,7 +560,7 @@ export function FieldsControl({
                   ? 'fields-projection-error'
                   : projRawError
                     ? 'fields-projection-raw-error'
-                    : 'fields-fetch-help'
+                    : undefined
               }
               style={{
                 width: '100%',
@@ -556,6 +573,7 @@ export function FieldsControl({
                 background: 'transparent',
                 color: T.text,
                 outline: 'none',
+                resize: 'none',
               }}
             />
             {projection.message && (

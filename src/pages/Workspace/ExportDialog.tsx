@@ -9,6 +9,7 @@ import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { compileFindOptions, findProblem, requireFilterJson } from './builder';
 import { deriveColumns, resolveColumns } from './views/tableColumns';
+import { projectedOutFields, projectionHider, projectionPathHider, redactHidden } from './projection';
 import {
   exportColumnsFrom,
   exportFileExtension,
@@ -63,16 +64,30 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const canRunAll = findProblem(state) === null;
   const canExport = scope === 'page' ? documents.length > 0 : canRunAll;
 
-  const columns = () =>
-    exportColumnsFrom(resolveColumns(deriveColumns(documents), state.columnConfig));
+  // Follows the projection, so a field the query keeps off the wire is not a column.
+  const columns = () => {
+    const derived = deriveColumns(documents);
+    return exportColumnsFrom(
+      resolveColumns(
+        derived,
+        state.columnConfig,
+        projectedOutFields(state.builder, derived, state.columnConfig?.hidden),
+        projectionPathHider(state.builder),
+      ),
+    );
+  };
 
   const exportPage = async () => {
+    // The page's rows stay on screen after a field is unchecked, so the file
+    // leaves out what the query no longer returns, as the views do.
+    const hide = projectionHider(state.builder, state.columnConfig?.hidden);
+    const rows = documents.map((d) => redactHidden(d, hide));
     const content =
       format === 'csv'
         ? serializeCsv(documents, columns())
         : format === 'jsonl'
-          ? serializeJsonl(documents, relaxed)
-          : serializeJsonArray(documents, relaxed);
+          ? serializeJsonl(rows, relaxed)
+          : serializeJsonArray(rows, relaxed);
     const defaultName = `${meta.collection}.${exportFileExtension(format)}`;
     const { path } = await api.app.saveFile({ defaultName, content });
     // `null` is a cancelled save panel: stay open with the format choice

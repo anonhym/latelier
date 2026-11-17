@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { cleanup } from '@testing-library/react';
 import { fireEvent, render, screen, within, emptyWorkspaceActions, emptyWorkspaceMeta } from '../helpers/render';
 import { JsonView } from '../../src/pages/Workspace/views/JsonView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
@@ -35,6 +36,18 @@ function emptyState(): CollectionTabState {
     page: 0,
     pageSize: 50,
     activeBuilderTab: 'Builder',
+  };
+}
+
+// What the projection keeps off the wire is what JSON hides (W14 §11.4).
+function excluding(...fields: string[]): Partial<CollectionTabState> {
+  return {
+    builder: {
+      projection: [],
+      projectionRaw: JSON.stringify(Object.fromEntries(fields.map((f) => [f, 0]))),
+      sort: '',
+      limit: '',
+    },
   };
 }
 
@@ -134,13 +147,13 @@ describe('JsonView — rendering', () => {
 });
 
 /**
- * JSON honors the Fields control's hidden top-level fields.
+ * JSON hides the top-level fields the projection keeps off the wire.
  */
 describe('JsonView — hidden fields', () => {
   it('omits a hidden top-level field from the rendered JSON', () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
     const { container } = renderJson(docs, {
-      state: { columnConfig: { hidden: ['secret'] } },
+      state: excluding('secret'),
     });
     expect(container.textContent).toContain('name');
     expect(container.textContent).not.toContain('secret');
@@ -150,9 +163,18 @@ describe('JsonView — hidden fields', () => {
   it('shows a "N fields hidden" note reflecting the hidden count', () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh', other: 1 }];
     const { container } = renderJson(docs, {
-      state: { columnConfig: { hidden: ['secret', 'other'] } },
+      state: excluding('secret', 'other'),
     });
     expect(container.textContent).toContain('2 fields hidden');
+  });
+
+  // The column list samples the first 50 documents; what is hidden must not.
+  it('counts a field that appears only after the 50th document, for an exclusion and an inclusion', () => {
+    const docs = Array.from({ length: 60 }, (_, i) => (i === 55 ? { _id: i, a: 1, late: 2 } : { _id: i, a: 1 }));
+    expect(renderJson(docs, { state: excluding('late') }).container.textContent).toContain('1 field hidden');
+    cleanup();
+    const inclusion = { builder: { projection: ['a'], sort: '', limit: '' } };
+    expect(renderJson(docs, { state: inclusion }).container.textContent).toContain('1 field hidden');
   });
 
   it('shows no hidden-fields note when nothing is hidden', () => {
@@ -165,7 +187,7 @@ describe('JsonView — hidden fields', () => {
   it('still hands the FULL document (including hidden fields) to Edit', async () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
     const { actions } = renderJson(docs, {
-      state: { columnConfig: { hidden: ['secret'] } },
+      state: excluding('secret'),
     });
     await userEvent.click(screen.getByRole('button', { name: /^Edit document/ }));
     expect(actions.openEdit).toHaveBeenCalledWith(docs[0]);
@@ -184,7 +206,7 @@ describe('JsonView — hidden fields', () => {
 
   it('still copies the FULL document (including hidden fields)', async () => {
     const docs = [{ _id: 1, name: 'alpha', secret: 'shh' }];
-    renderJson(docs, { state: { columnConfig: { hidden: ['secret'] } } });
+    renderJson(docs, { state: excluding('secret') });
     await userEvent.click(screen.getByRole('button', { name: /^Copy JSON/ }));
     const written = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
     expect(written).toContain('secret');
@@ -210,7 +232,7 @@ describe('JsonView — hidden fields', () => {
     // 'c' instead of 'b'.
     rerender(
       <CollectionWorkspaceProvider
-        state={{ ...emptyState(), columnConfig: { hidden: ['a'] } }}
+        state={{ ...emptyState(), ...excluding('a') }}
         actions={emptyWorkspaceActions()}
         meta={emptyWorkspaceMeta()}
       >

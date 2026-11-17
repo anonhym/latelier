@@ -5,12 +5,20 @@ import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { sortFieldPatch } from '../../src/pages/Workspace/builder';
 import { TableView } from '../../src/pages/Workspace/views/TableView';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
-import type { CollectionTabState, TableColumnConfig } from '@shared/types';
+import type { CollectionTabState } from '@shared/types';
 
-function emptyState(): CollectionTabState {
+function emptyState(excluded: string[] = []): CollectionTabState {
   return {
     view: 'Table',
-    builder: { projection: [], sort: '', limit: '' },
+    // A column the projection keeps off the wire is not drawn (W14 §11.4).
+    builder: {
+      projection: [],
+      ...(excluded.length > 0
+        ? { projectionRaw: JSON.stringify(Object.fromEntries(excluded.map((f) => [f, 0]))) }
+        : {}),
+      sort: '',
+      limit: '',
+    },
     queryRaw: '{}',
     page: 0,
     pageSize: 50,
@@ -21,11 +29,11 @@ function emptyState(): CollectionTabState {
 function renderTable(
   sort: string,
   onSortField?: (f: string) => void,
-  columnConfig?: TableColumnConfig,
+  excluded: string[] = [],
 ) {
   return render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
+        state={emptyState(excluded)}
         actions={emptyWorkspaceActions()}
         meta={emptyWorkspaceMeta()}
       >
@@ -37,7 +45,6 @@ function renderTable(
           onColumnResize={vi.fn()}
           onSortField={onSortField}
           sort={sort}
-          columnConfig={columnConfig}
         />
       </CollectionWorkspaceProvider>
   );
@@ -162,7 +169,7 @@ describe('TableView — table-level sort state (W15 §3.2)', () => {
  */
 describe('TableView — a sort on a hidden column (W15 §3.2)', () => {
   it('announces the sort when its only column is hidden', () => {
-    renderTable('{"name":1}', vi.fn(), { hidden: ['name'] });
+    renderTable('{"name":1}', vi.fn(), ['name']);
 
     // The repro: the arrow is gone with the column.
     expect(screen.queryByTestId('table-header-name')).toBeNull();
@@ -173,13 +180,13 @@ describe('TableView — a sort on a hidden column (W15 §3.2)', () => {
   });
 
   it('goes quiet again as soon as the column comes back', () => {
-    renderTable('{"name":1}', vi.fn(), { hidden: [] });
+    renderTable('{"name":1}', vi.fn(), []);
     expect(screen.getByTestId('table-header-name').textContent).toContain('↑');
     expect(screen.queryByTestId('table-header-sort-note')).toBeNull();
   });
 
   it('hiding one key of a two-key sort reports it as partly drawn', () => {
-    renderTable('{"name":1,"age":-1}', vi.fn(), { hidden: ['name'] });
+    renderTable('{"name":1,"age":-1}', vi.fn(), ['name']);
     expect(screen.getByTestId('table-header-age').textContent).toContain('↓');
     expect(
       screen.getByLabelText('Sorted — some of the sort fields cannot be shown in this header'),
@@ -219,7 +226,7 @@ describe('TableView — a sort on a hidden column (W15 §3.2)', () => {
   it('a genuinely hidden column keeps the actionable advice', () => {
     // The discriminator, from the other side: `name` *is* in the derived
     // schema, so unhiding really does bring the arrow back.
-    renderTable('{"name":1}', vi.fn(), { hidden: ['name'] });
+    renderTable('{"name":1}', vi.fn(), ['name']);
     expect(
       screen.getByLabelText('Sorted by a hidden column — show it again to see the direction'),
     ).toBeTruthy();
@@ -229,7 +236,7 @@ describe('TableView — a sort on a hidden column (W15 §3.2)', () => {
     // `$meta` with every column visible is still `'unrepresentable'`. If the
     // two collapsed into one state, this user would be sent to unhide a
     // column that would not help.
-    renderTable('{"score":{"$meta":"textScore"}}', vi.fn(), { hidden: [] });
+    renderTable('{"score":{"$meta":"textScore"}}', vi.fn(), []);
     expect(screen.getByLabelText('Sorted by a rule this header cannot show')).toBeTruthy();
   });
 });

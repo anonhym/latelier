@@ -125,7 +125,7 @@ describe('the column picker on a wide collection', () => {
   });
 });
 
-function renderWideTable(order?: string[]) {
+function renderWideTable(order?: string[], computed?: { id: string; path: string }[]) {
   return render(
     <CollectionWorkspaceProvider
       state={state()}
@@ -136,7 +136,7 @@ function renderWideTable(order?: string[]) {
         documents={[{ _id: 1, apple: 'a', banana: 'b', cherry: 'c' }]}
         onColumnResize={vi.fn()}
         onRowExpand={vi.fn()}
-        columnConfig={order ? { order } : undefined}
+        columnConfig={order || computed ? { order, computed } : undefined}
       />
     </CollectionWorkspaceProvider>,
   );
@@ -180,6 +180,19 @@ describe('the Table on a wide collection', () => {
     // column covers the last 92px of the 600px viewport, so its right edge
     // must clear 508.
     expect(scroller.scrollLeft).toBe(734 - 508);
+  });
+
+  it('a scroll request by a dotted path reaches its computed column, whose id is not the path', () => {
+    renderWideTable(undefined, [{ id: 'c-1', path: 'cherry.x' }]);
+    const scroller = screen.getByTestId('table-scroll-container');
+    Object.defineProperty(scroller, 'clientWidth', { value: 600, configurable: true });
+    scroller.scrollLeft = 0;
+
+    columnScroll.requestColumnScroll('cherry.x');
+
+    // The computed column comes after _id (200) and three 160px columns, so it
+    // spans 734..894 past the 54px gutter; its right edge must clear 508.
+    expect(scroller.scrollLeft).toBe(894 - 508);
   });
 
   it('ignores a request for a column that is not drawn', () => {

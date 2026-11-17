@@ -8,14 +8,17 @@ import { _electron as electron } from 'playwright';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * T2.5 (AC2/AC3/AC4) — Table-view column show/hide, reorder, and row-expand
- * state persist across a quit + relaunch. Modeled on
+ * T2.5 (AC2/AC3/AC4) — Table-view column reorder, computed columns and
+ * row-expand state persist across a quit + relaunch. Hiding a column now
+ * writes the projection (W14 §11), so the saved `hidden` list this seeds is
+ * the form an older build left: the app reads it back as the equivalent
+ * exclusion and clears the list (§11.6). Modeled on
  * `workspace-restore.e2e.ts`: drives everything through `window.atelier`
  * directly (no live Mongo query needed — `columnConfig`/`expandedRows` are
  * pure per-tab UI state persisted via `workspace_tabs.state_json`, the same
  * mechanism `columns` widths already use).
  */
-test('Table column hide/reorder + row expand survive a quit + relaunch', async () => {
+test('Table column order/computed + row expand survive a quit + relaunch, and a saved hidden list becomes the projection', async () => {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mongolab-e2e-'));
 
   const columnConfig = {
@@ -101,7 +104,9 @@ test('Table column hide/reorder + row expand survive a quit + relaunch', async (
     const win = await second.firstWindow();
     await win.waitForLoadState('domcontentloaded');
 
-    const state = await win.evaluate(async () => {
+    // The migration runs in the renderer as the tab list loads and is saved
+    // from there, so the saved state is polled rather than read once.
+    const read = () => win.evaluate(async () => {
       const api = (window as unknown as {
         atelier: {
           tabs: {
@@ -110,6 +115,7 @@ test('Table column hide/reorder + row expand survive a quit + relaunch', async (
                 collection: string;
                 state?: {
                   columnConfig?: unknown;
+                  builder?: { projectionRaw?: string };
                   expandedRows?: Record<string, boolean>;
                 };
               }>
@@ -120,9 +126,12 @@ test('Table column hide/reorder + row expand survive a quit + relaunch', async (
       const tabs = await api.tabs.list();
       return tabs.find((t) => t.collection === 'orders');
     });
+    await expect.poll(async () => (await read())?.state?.builder?.projectionRaw).toBe('{"secret":0}');
 
+    const state = await read();
     expect(state).toBeTruthy();
-    expect(state?.state?.columnConfig).toEqual(columnConfig);
+    // Everything but the hidden list is as it was saved; the list is gone.
+    expect(state?.state?.columnConfig).toEqual({ order: columnConfig.order, computed: columnConfig.computed });
     expect(state?.state?.expandedRows).toEqual(expandedRows);
   } finally {
     await second.close();

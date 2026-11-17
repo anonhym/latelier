@@ -180,6 +180,51 @@ describe('ResultBar — Export', () => {
     expect(content).toBe('_id,name,age\n507f1f77bcf86cd799439011,"Ann, A.",30\n');
   });
 
+  // The page's rows can outnumber the 50 the column list samples, and the rows
+  // stay on screen after a field is unchecked, so the file must follow the projection too.
+  it('a page JSON export leaves out a field the projection excludes, even one past the 50th document', async () => {
+    const saveFile = vi.fn<(input: { defaultName?: string; content: string }) => Promise<{ path: string | null }>>(
+      async () => ({ path: '/tmp/orders.json' }),
+    );
+    installAtelierMock({ app: { saveFile } as never });
+    const documents = Array.from({ length: 60 }, (_, i) => (i === 55 ? { _id: i, n: i, late: 'x' } : { _id: i, n: i }));
+    renderBar({
+      builder: { projection: [], projectionRaw: '{"late":0}', sort: '', limit: '' },
+      lastRun: { documents, durationMs: 1, ranAt: new Date().toISOString() },
+    });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    const written = JSON.parse(saveFile.mock.calls[0]![0].content) as Record<string, unknown>[];
+    expect(written).toHaveLength(60);
+    expect(written[55]).toEqual({ _id: 55, n: 55 });
+  });
+
+  it('a page CSV export leaves out a computed column the projection excludes', async () => {
+    const saveFile = vi.fn<(input: { defaultName?: string; content: string }) => Promise<{ path: string | null }>>(
+      async () => ({ path: '/tmp/orders.csv' }),
+    );
+    installAtelierMock({ app: { saveFile } as never });
+    renderBar({
+      builder: { projection: [], projectionRaw: '{"address":0}', sort: '', limit: '' },
+      columnConfig: { computed: [{ id: 'c1', path: 'address.city' }] },
+      lastRun: {
+        documents: [{ _id: 1, name: 'n', address: { city: 'Springfield' } }],
+        durationMs: 1,
+        ranAt: new Date().toISOString(),
+      },
+    });
+
+    await openExportDialog();
+    fireEvent.click(screen.getByRole('radio', { name: 'CSV' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export…$/ }));
+
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    expect(saveFile.mock.calls[0]![0].content).toBe('_id,name\n1,n\n');
+  });
+
   it('a Relaxed EJSON export unwraps the int sentinel', async () => {
     const saveFile = vi.fn<(input: { defaultName?: string; content: string }) => Promise<{ path: string | null }>>(
       async () => ({ path: '/tmp/orders.json' }),

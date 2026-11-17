@@ -43,6 +43,10 @@ function Bar({ actions, tabId, initial }: { actions: CollectionWorkspaceActions;
         actions.patch(patch);
         setState((prev) => ({ ...prev, ...patch }));
       },
+      patchWith: (fn) => {
+        actions.patchWith(fn);
+        setState((prev) => ({ ...prev, ...fn(prev) }));
+      },
     }),
     [actions],
   );
@@ -270,11 +274,9 @@ describe('Filter Bar row — the folded Options pill', () => {
 
     resize(1500);
     await waitFor(() => expect(screen.queryByTestId('fields-projection')).toBeNull());
-    await waitFor(() =>
-      expect(actions.patch).toHaveBeenCalledWith(
-        expect.objectContaining({ builder: expect.objectContaining({ projection: ['name'] }) }),
-      ),
-    );
+    await waitFor(() => expect(actions.patchWith).toHaveBeenCalled());
+    const fn = vi.mocked(actions.patchWith).mock.calls[0][0];
+    expect(fn(makeState()).builder?.projection).toEqual(['name']);
     vi.unstubAllGlobals();
   });
 

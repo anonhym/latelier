@@ -63,6 +63,8 @@ function renderTable(
   extra: {
     refsByField?: Map<string, ReferenceRule>;
     columnConfig?: CollectionTabState['columnConfig'];
+    /** Top-level fields the projection excludes, so their columns are not drawn. */
+    excluded?: string[];
     expandedRows?: Record<string, boolean>;
     onRowExpand?: (docId: string, expanded: boolean) => void;
     actions?: Partial<CollectionWorkspaceActions>;
@@ -73,7 +75,17 @@ function renderTable(
 ) {
   return render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
+        state={{
+          ...emptyState(),
+          builder: {
+            projection: [],
+            ...(extra.excluded
+              ? { projectionRaw: JSON.stringify(Object.fromEntries(extra.excluded.map((f) => [f, 0]))) }
+              : {}),
+            sort: '',
+            limit: '',
+          },
+        }}
         actions={emptyWorkspaceActions(extra.actions)}
         meta={emptyWorkspaceMeta(extra.meta)}
       >
@@ -278,6 +290,17 @@ describe('TableView — rendering and interaction', () => {
     expect(container.textContent).toContain('Type');
     expect(container.textContent).toContain('visibleField');
     expect(container.textContent).toContain('yes');
+  });
+
+  it('leaves a field the projection excludes out of an expanded row', () => {
+    const docs = [{ _id: { $oid: '507f1f77bcf86cd799439011' }, visibleField: 'yes', secretField: 'hush' }];
+    const { container } = renderTable(docs, {
+      excluded: ['secretField'],
+      expandedRows: { '507f1f77bcf86cd799439011': true },
+    });
+    expect(container.textContent).toContain('visibleField');
+    expect(container.textContent).not.toContain('secretField');
+    expect(container.textContent).not.toContain('hush');
   });
 
   // AC5 — click-to-expand cell.
@@ -538,6 +561,45 @@ describe('TableView — rendering and interaction', () => {
       expect(container.textContent).toContain('a-val');
     });
 
+    // W14 §11.5 — a dotted path written into an inclusion is also its own
+    // column, drawn beside the parent field that holds it.
+    it('a dotted path in an inclusion draws its own column beside the parent', () => {
+      const { container } = renderStatefulTable(
+        stateWithDocs({
+          builder: { projection: ['name', 'address.city'], sort: '', limit: '' },
+          columnConfig: { computed: [{ id: 'computed:address.city', path: 'address.city' }] },
+          lastRun: {
+            documents: [{ _id: 1, name: 'n', address: { city: 'Springfield' } }],
+            durationMs: 1,
+            ranAt: '2026-01-01T00:00:00Z',
+          },
+        }),
+      );
+      const headers = Array.from(container.querySelectorAll('[data-testid^="table-header-"]')).map((h) =>
+        h.getAttribute('data-testid'),
+      );
+      expect(headers.filter((h) => h === 'table-header-address')).toHaveLength(1);
+      expect(headers.filter((h) => h === 'table-header-computed:address.city')).toHaveLength(1);
+    });
+
+    it('draws a dotted column where the Fields list order puts it', () => {
+      const { container } = renderTable([{ _id: 1, name: 'n', address: { city: 'Springfield' } }], {
+        columnConfig: {
+          order: ['address.city', 'name', '_id', 'address'],
+          computed: [{ id: 'computed:address.city', path: 'address.city' }],
+        },
+      });
+      const headers = Array.from(container.querySelectorAll('[data-testid^="table-header-"]')).map((h) =>
+        h.getAttribute('data-testid'),
+      );
+      expect(headers).toEqual([
+        'table-header-computed:address.city',
+        'table-header-name',
+        'table-header-_id',
+        'table-header-address',
+      ]);
+    });
+
     it('reordering via drag changes the header order', () => {
       const { getByRole, getByTestId } = renderStatefulTable(stateWithDocs());
 
@@ -564,6 +626,16 @@ describe('TableView — rendering and interaction', () => {
       expect(applePosition & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
+    it('a computed column under an excluded field is not drawn, and its config stays', () => {
+      const columnConfig = { computed: [{ id: 'computed:address.city', path: 'address.city' }] };
+      const docs = [{ _id: 1, name: 'n', address: { city: 'Springfield' } }];
+      const { container, queryByTestId } = renderTable(docs, { columnConfig, excluded: ['address'] });
+
+      expect(queryByTestId('table-header-computed:address.city')).toBeNull();
+      expect(container.textContent).not.toContain('Springfield');
+      expect(columnConfig.computed).toHaveLength(1);
+    });
+
     // AC8 — computed dotted-path column.
     it('a computed dotted-path column renders the nested value', () => {
       const { getByRole, container } = renderStatefulTable(
@@ -577,9 +649,10 @@ describe('TableView — rendering and interaction', () => {
       );
 
       fireEvent.click(getByRole('button', { name: /^project/i }));
-      const input = getByRole('textbox', { name: /computed column path/i });
+      // A dotted path typed in the find box becomes a column (W14 §11.5).
+      const input = getByRole('textbox', { name: /find a field/i });
       fireEvent.change(input, { target: { value: 'address.city' } });
-      fireEvent.click(getByRole('button', { name: /add column/i }));
+      fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(container.textContent).toContain('Springfield');
       // Header for the computed column shows the path (no explicit label set).
@@ -1016,13 +1089,12 @@ describe('TableView — rendering and interaction', () => {
       expect(header.hasAttribute('aria-sort')).toBe(false);
     });
 
-    it('a column hidden via the column chooser renders no header at all — no orphaned aria-sort', () => {
+    it('a column the projection excludes renders no header at all — no orphaned aria-sort', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
-      const columnConfig: CollectionTabState['columnConfig'] = { hidden: ['name'] };
       const { queryByTestId } = renderTable(docs, {
         onSortField: vi.fn(),
         sort: '{"name":1}',
-        columnConfig,
+        excluded: ['name'],
       });
 
       expect(queryByTestId('table-header-name')).toBeNull();

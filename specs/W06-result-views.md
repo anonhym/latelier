@@ -1,6 +1,6 @@
 # W06 — Result views (Tree / JSON / Table)
 
-> **Status: Accepted.** §1–§8 shipped; the preview-fields picker in §2 was removed and the Fields control replaced it.
+> **Status: Accepted.** §1–§8 shipped; the preview-fields picker in §2 was removed and the Fields control replaced it; [W14 §11](./W14-query-bar-advanced-row.md) merged that control's display toggles into the projection, so the views hide what the projection leaves out.
 
 ## Purpose
 

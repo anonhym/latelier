@@ -144,7 +144,7 @@ describe('the column header menu', () => {
     expect(run).toHaveBeenCalledWith(expected);
   });
 
-  it('Hide column adds the field to the tab\'s hidden columns, once', async () => {
+  it('Hide column unchecks the field in the projection, once, and writes no hidden list', async () => {
     const patchWith = vi.fn();
     renderTable(DOCS, { patchWith });
 
@@ -152,8 +152,38 @@ describe('the column header menu', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide column' }));
 
     const fn = patchWith.mock.calls[0]![0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    expect(fn({ ...state(), columnConfig: { hidden: ['x'] } })).toEqual({ columnConfig: { hidden: ['x', 'name'] } });
-    expect(fn({ ...state(), columnConfig: { hidden: ['name'] } })).toEqual({ columnConfig: { hidden: ['name'] } });
+    const once = fn(state());
+    expect(once.builder?.projectionRaw).toBe('{"name":0}');
+    expect(once.columnConfig?.hidden).toBeUndefined();
+    // Already excluded: a second click changes nothing about the projection.
+    expect(fn({ ...state(), builder: once.builder!, columnConfig: once.columnConfig }).builder).toEqual(once.builder);
+  });
+
+  it('Hide column on an inclusion records the known fields, so the next Run still lists the hidden one', async () => {
+    const patchWith = vi.fn();
+    const inclusion: CollectionTabState = {
+      ...state(),
+      builder: { projection: ['a', 'b'], sort: '', limit: '' },
+    };
+    render(
+      <CollectionWorkspaceProvider
+        state={inclusion}
+        actions={emptyWorkspaceActions({ patchWith })}
+        meta={emptyWorkspaceMeta()}
+      >
+        <TableView documents={[{ _id: 1, a: 'x', b: 'y' }]} onColumnResize={vi.fn()} onRowExpand={vi.fn()} />
+      </CollectionWorkspaceProvider>,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('table-header-b'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide column' }));
+
+    const fn = patchWith.mock.calls[0]![0] as (s: CollectionTabState) => Partial<CollectionTabState>;
+    const patch = fn(inclusion);
+    expect(patch.builder?.projection).toEqual(['a']);
+    // `b` is in no document, no projection entry and no order after the next Run,
+    // so the order is the only thing that keeps its row in the Fields list.
+    expect(patch.columnConfig?.order).toEqual(['_id', 'a', 'b']);
   });
 
   it('offers no sort where the table cannot sort', async () => {

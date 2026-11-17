@@ -3,6 +3,7 @@ import { ownGet } from '../../../utils/ownProperty';
 import { getAtSegments } from '../documentDiff';
 import type { ReferenceRule, TableColumnConfig } from '@shared/types';
 import type { SortDir } from '../builder';
+import type { FieldHider } from '../projection';
 
 /**
  * Schema-derived field list — scans the first 50 documents, keeping `_id`
@@ -97,8 +98,10 @@ export function orderFields(derived: string[], order?: string[]): string[] {
  *
  *  - `order` — see `orderFields`.
  *  - `hidden` — fields dropped entirely from the result.
- *  - `computed` — dotted-path accessor columns appended after all field
- *    columns.
+ *  - `computed` — dotted-path accessor columns, placed by `order` like the
+ *    field columns and after them when it does not name them, minus those whose path `dropsPath` says the projection keeps
+ *    off the wire. Their config stays in `columnConfig`, so they come back
+ *    when the path is fetched again.
  *
  * `_id` gets no special-casing beyond being first in `derived` (TableView's
  * `deriveColumns` already puts it there) — once the user explicitly
@@ -107,21 +110,36 @@ export function orderFields(derived: string[], order?: string[]): string[] {
 export function resolveColumns(
   derived: string[],
   config: TableColumnConfig | undefined,
+  notFetched: readonly string[] = [],
+  dropsPath: FieldHider | null = null,
 ): ResolvedColumn[] {
   const ordered = orderFields(derived, config?.order);
-  const hidden = new Set(config?.hidden ?? []);
+  // What the projection keeps off the wire (W14 §11.4), not a display list.
+  const hidden = new Set(notFetched);
   const fieldColumns: ResolvedColumn[] = ordered
     .filter((f) => !hidden.has(f))
     .map((field) => ({ kind: 'field', field }));
 
-  const computedColumns: ResolvedColumn[] = (config?.computed ?? []).map((c) => ({
-    kind: 'computed',
-    field: c.id,
-    path: c.path,
-    label: c.label,
-  }));
+  const computedColumns: ResolvedColumn[] = (config?.computed ?? [])
+    .filter((c) => !dropsPath?.(c.path))
+    .map((c) => ({
+      kind: 'computed',
+      field: c.id,
+      path: c.path,
+      label: c.label,
+    }));
 
-  return [...fieldColumns, ...computedColumns];
+  // The Fields list drags dotted paths in the same order as the fields, keyed
+  // by path, so the two kinds of column are placed together. A column the
+  // order does not name keeps its place after the ones it does: fields in
+  // their natural order, then computed columns (sort is stable).
+  // Stryker disable next-line ArrayDeclaration: a stand-in entry matches no column name, so every column still ranks `order.length` (one), and the sort keeps the order it had
+  const order = config?.order ?? [];
+  const rankOf = (c: ResolvedColumn) => {
+    const i = order.indexOf(c.kind === 'computed' ? c.path : c.field);
+    return i === -1 ? order.length : i;
+  };
+  return [...fieldColumns, ...computedColumns].sort((a, b) => rankOf(a) - rankOf(b));
 }
 
 /**

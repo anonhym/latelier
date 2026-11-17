@@ -43,7 +43,7 @@ function renderChooser(
 }
 
 describe('FieldsControl', () => {
-  it('toggling a field checkbox calls patchWith with the field added to hidden', () => {
+  it('unchecking a field writes the exclusion to the projection, not columnConfig.hidden', () => {
     const patchWith = vi.fn();
     const { getByRole } = renderChooser(baseState(), { patchWith });
 
@@ -56,12 +56,15 @@ describe('FieldsControl', () => {
     expect(patchWith).toHaveBeenCalledTimes(1);
     const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
     const patch = fn(baseState());
-    expect(patch.columnConfig?.hidden).toContain('apple');
+    expect(patch.builder?.projectionRaw).toBe('{"apple":0}');
+    expect(patch.columnConfig?.hidden).toBeUndefined();
   });
 
-  it('unchecking an already-hidden field removes it from hidden', () => {
+  it('a field the projection excludes shows unchecked, and checking it drops the exclusion', () => {
     const patchWith = vi.fn();
-    const state = baseState({ columnConfig: { hidden: ['apple'] } });
+    const state = baseState({
+      builder: { projection: [], projectionRaw: '{"apple":0}', sort: '', limit: '' },
+    });
     const { getByRole } = renderChooser(state, { patchWith });
 
     fireEvent.click(getByRole('button', { name: /^project/i }));
@@ -71,85 +74,24 @@ describe('FieldsControl', () => {
     fireEvent.click(appleCheckbox);
     const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
     const patch = fn(state);
-    expect(patch.columnConfig?.hidden).not.toContain('apple');
-  });
-
-  it('add-computed-column input is disabled for an empty/whitespace path', () => {
-    const { getByRole } = renderChooser(baseState());
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const addButton = getByRole('button', { name: /add column/i }) as HTMLButtonElement;
-    expect(addButton.disabled).toBe(true);
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: '   ' } });
-    expect(addButton.disabled).toBe(true);
-
-    fireEvent.change(input, { target: { value: 'address.city' } });
-    expect(addButton.disabled).toBe(false);
-  });
-
-  it('adding a computed column trims the path and calls patchWith', () => {
-    const patchWith = vi.fn();
-    const { getByRole } = renderChooser(baseState(), { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: '  address.city  ' } });
-    fireEvent.click(getByRole('button', { name: /add column/i }));
-
-    expect(patchWith).toHaveBeenCalledTimes(1);
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(baseState());
-    expect(patch.columnConfig?.computed).toEqual([
-      expect.objectContaining({ path: 'address.city' }),
-    ]);
-  });
-
-  it('adding a duplicate computed path is a no-op (de-duped)', () => {
-    const patchWith = vi.fn();
-    const state = baseState({
-      columnConfig: { computed: [{ id: 'c1', path: 'address.city' }] },
-    });
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    const input = getByRole('textbox', { name: /computed column path/i });
-    fireEvent.change(input, { target: { value: 'address.city' } });
-    const addButton = getByRole('button', { name: /add column/i }) as HTMLButtonElement;
-    expect(addButton.disabled).toBe(true);
-  });
-
-  it('removing a computed column calls patchWith without it', () => {
-    const patchWith = vi.fn();
-    const state = baseState({
-      columnConfig: { computed: [{ id: 'c1', path: 'address.city', label: 'City' }] },
-    });
-    const { getByRole } = renderChooser(state, { patchWith });
-    fireEvent.click(getByRole('button', { name: /^project/i }));
-
-    fireEvent.click(getByRole('button', { name: /remove city/i }));
-    const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    const patch = fn(state);
-    expect(patch.columnConfig?.computed).toEqual([]);
+    expect(patch.builder?.projectionRaw).toBeUndefined();
+    expect(patch.builder?.projection).toEqual([]);
   });
 
   it.each(['Tree', 'JSON'] as const)(
-    'renders in the %s view, with hide/reorder available but no computed-column UI',
+    'renders in the %s view, with the same list writing the projection',
     (view) => {
       const patchWith = vi.fn();
       const state = baseState({ view });
       const { getByRole, queryByRole } = renderChooser(state, { patchWith });
       fireEvent.click(getByRole('button', { name: /^project/i }));
 
-      // Hide/reorder (the shared field list) still works outside Table.
+      // The shared field list still writes the projection outside Table.
       fireEvent.click(getByRole('checkbox', { name: 'apple' }));
       expect(patchWith).toHaveBeenCalled();
 
-      // Computed columns only ever feed TableView's rendering — the
-      // add-column form is Table-only (see FieldsControl's doc comment).
-      expect(queryByRole('textbox', { name: /computed column path/i })).toBeNull();
-      expect(queryByRole('button', { name: /add column/i })).toBeNull();
+      // Scrolling to a column is a Table-only affordance.
+      expect(queryByRole('button', { name: 'Scroll to apple' })).toBeNull();
     },
   );
 
@@ -377,11 +319,11 @@ describe('FieldsControl', () => {
 });
 
 /**
- * The fetch section — the projection, moved here from the query bar's
- * advanced row (W14 §4). Everything the advanced row promised about the
- * draft (W14 §3, W15 §2.1, X14 §3/§5) still holds, now inside the control.
+ * The projection text — moved here from the query bar's advanced row (W14 §4)
+ * and kept beside the list (§11.2). Everything the advanced row promised about
+ * the draft (W14 §3, W15 §2.1, X14 §3/§5) still holds, now inside the control.
  */
-describe('FieldsControl — fetch only these fields from the server', () => {
+describe('FieldsControl — the projection text', () => {
   const tabState = (builder: Partial<CollectionTabState['builder']> = {}) =>
     baseState({ view: 'Tree', builder: { projection: [], sort: '', limit: '', ...builder } });
 
@@ -405,20 +347,19 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     };
   }
 
+  // A commit goes through `patchWith` (so the rows stay current when it only
+  // removes fields); the mocked one never moves state, so apply its last
+  // updater to the state the control rendered with.
+  const committed = (actions: CollectionWorkspaceActions, state: CollectionTabState = tabState()) => {
+    const calls = (actions.patchWith as ReturnType<typeof vi.fn>).mock.calls;
+    const fn = calls[calls.length - 1][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
+    return fn(state).builder;
+  };
+
   const type = (input: HTMLInputElement, text: string) => {
     fireEvent.change(input, { target: { value: text } });
     fireEvent.blur(input);
   };
-
-  it('says what each section does: hiding is display-only, fetching changes the server reply', () => {
-    const r = openFetch();
-    expect(r.getByText('Show in results')).toBeTruthy();
-    expect(r.getByText(/display only — instant, nothing is re-fetched/i)).toBeTruthy();
-    expect(r.getByText('Fetch only these fields from the server')).toBeTruthy();
-    const help = r.getByText(/changes what the server returns — applied on the next run/i);
-    // The explanation is the input's description, not just nearby text.
-    expect(r.input()?.getAttribute('aria-describedby')).toBe(help.id);
-  });
 
   it('is offered even before a first run, when there are no fields to hide', () => {
     const r = openFetch(baseState({ view: 'JSON', lastRun: undefined }));
@@ -426,11 +367,10 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     expect(r.input()).not.toBeNull();
   });
 
-  it('is absent for a read-only consumer, which has no Run to apply it', () => {
+  it('hides the projection text for a read-only consumer, which has no Run to apply it', () => {
     const r = openFetch(tabState(), {}, { isReadOnly: true });
-    expect(r.getByText('Show in results')).toBeTruthy();
+    expect(r.getByTestId('fields-list')).toBeTruthy();
     expect(r.input()).toBeNull();
-    expect(r.queryByText('Fetch only these fields from the server')).toBeNull();
   });
 
   it('shows the committed projection, modelled or raw', () => {
@@ -442,10 +382,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   });
 
   it('commits a valid projection to the builder, clears the draft, and shows no alert', () => {
-    const r = openFetch(tabState({ sort: '{"a":1}' }));
+    const state = tabState({ sort: '{"a":1}' });
+    const r = openFetch(state);
     type(r.input()!, '{ name: 1 }');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '{"a":1}', limit: '' },
+    expect(committed(r.actions, state)).toEqual({
+      projection: ['name'],
+      projectionRaw: undefined,
+      sort: '{"a":1}',
+      limit: '',
     });
     // `patch` is mocked, so state doesn't move; the input falling back to the
     // (still empty) committed display is exactly "the draft was cleared".
@@ -454,10 +398,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   });
 
   it('escapes $slice to the raw projection instead of refusing it', () => {
-    const r = openFetch(tabState({ projection: ['name'] }));
+    const state = tabState({ projection: ['name'] });
+    const r = openFetch(state);
     type(r.input()!, '{"a":{"$slice":5}}');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: [], projectionRaw: '{"a":{"$slice":5}}', sort: '', limit: '' },
+    expect(committed(r.actions, state)).toEqual({
+      projection: [],
+      projectionRaw: '{"a":{"$slice":5}}',
+      sort: '',
+      limit: '',
     });
     expect(r.alerts()).toHaveLength(0);
   });
@@ -466,7 +414,7 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     const r = openFetch();
     type(r.input()!, '{a: }');
     expect(r.input()?.value).toBe('{a: }');
-    expect(r.actions.patch).not.toHaveBeenCalled();
+    expect(r.actions.patchWith).not.toHaveBeenCalled();
     const msg = r.alerts()[0]?.textContent ?? null;
     expect(msg).toMatch(/comma-separated field list/);
     expect(r.input()?.getAttribute('aria-invalid')).toBe('true');
@@ -496,18 +444,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   it('repairs Shell Syntax before judging it: {_id: 0} commits as a raw projection', () => {
     const r = openFetch();
     type(r.input()!, '{_id: 0}');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: [], projectionRaw: '{"_id": 0}', sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: [], projectionRaw: '{"_id": 0}', sort: '', limit: '' });
   });
 
   it('settles the draft when the control closes, since no blur is guaranteed', () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{ name: 1 }' } });
     fireEvent.click(r.getByRole('button', { name: /^project/i }));
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: ['name'], projectionRaw: undefined, sort: '', limit: '' });
   });
 
   // Escape belongs to the innermost thing on screen: the first one dismisses
@@ -522,13 +466,11 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
     expect(r.input()).not.toBeNull();
     expect(r.input()?.value).toBe('{ name: 1 }');
-    expect(r.actions.patch).not.toHaveBeenCalled();
+    expect(r.actions.patchWith).not.toHaveBeenCalled();
 
     fireEvent.keyDown(r.input()!, { key: 'Escape' });
     await waitFor(() => expect(r.input()).toBeNull());
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: ['name'], projectionRaw: undefined, sort: '', limit: '' });
   });
 
   it('Escape with no suggestion list showing closes the control at once', async () => {
@@ -609,7 +551,7 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{sku: 1}' } });
     fireEvent.keyDown(r.input()!, { key: 'Enter' });
-    expect(r.actions.patch).toHaveBeenCalledTimes(1);
+    expect(r.actions.patchWith).toHaveBeenCalledTimes(1);
     expect(r.actions.run).not.toHaveBeenCalled();
   });
 
@@ -630,50 +572,5 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   it('is a bare, unset pill with no projection', () => {
     const { getByRole } = renderChooser(tabState());
     expect(getByRole('button', { name: 'Project' }).getAttribute('data-status')).toBe('unset');
-  });
-
-  describe('fields the projection keeps off the wire are named, not silently missing', () => {
-    it('marks an excluded _id in place and lists other excluded fields as not fetched', () => {
-      const r = openFetch(
-        baseState({
-          view: 'Tree',
-          builder: { projection: [], projectionRaw: '{"_id":0,"secret":0}', sort: '', limit: '' },
-          lastRun: { documents: [{ apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
-        }),
-      );
-      expect(r.getByRole('checkbox', { name: /^_id — not fetched$/ })).toBeTruthy();
-      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
-      expect(r.getByTestId('fields-not-fetched').textContent).toBe('secret — not fetched');
-    });
-
-    it('lists a remembered field an inclusion projection left out', () => {
-      const r = openFetch(
-        baseState({
-          view: 'Table',
-          builder: { projection: ['apple'], sort: '', limit: '' },
-          columnConfig: { order: ['_id', 'apple', 'banana'] },
-          lastRun: { documents: [{ _id: 1, apple: 'a' }], durationMs: 1, ranAt: '2026-01-01T00:00:00Z' },
-        }),
-      );
-      expect(r.getByRole('checkbox', { name: 'apple' })).toBeTruthy();
-      expect(r.getByTestId('fields-not-fetched').textContent).toBe('banana — not fetched');
-      // Only the fields in hand are reorderable; a not-fetched one is not.
-      expect(r.queryByRole('button', { name: 'Move banana up' })).toBeNull();
-    });
-
-    // "Applied on the next Run": a projection committed but not yet run has
-    // not removed anything, so a field still in the results is not marked.
-    it('does not mark a field the results in hand still carry', () => {
-      const r = openFetch(tabState({ projection: ['apple'] }));
-      expect(r.getByRole('checkbox', { name: 'banana' })).toBeTruthy();
-      expect(r.getByRole('checkbox', { name: '_id' })).toBeTruthy();
-      expect(r.queryByText(/not fetched/)).toBeNull();
-    });
-
-    it('marks nothing without a projection', () => {
-      const r = openFetch(baseState({ columnConfig: { order: ['_id', 'apple', 'banana', 'gone'] } }));
-      expect(r.queryByTestId('fields-not-fetched')).toBeNull();
-      expect(r.queryByText(/not fetched/)).toBeNull();
-    });
   });
 });
