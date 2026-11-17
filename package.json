@@ -78,7 +78,7 @@
     "@mantine/modals": "^9.8.0",
     "@mantine/notifications": "^9.8.0",
     "@mantine/spotlight": "^9.8.0",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.65.1",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@tabler/icons-react": "^3.46.0",
