@@ -89,18 +89,75 @@ export function isRawProjection(text: string): boolean {
 // `0`, `false`, or a boxed numeric zero (`{"$numberInt": "0"}` revives to an
 // Int32) — the values that drop a field. A plain object's `valueOf` is itself,
 // and a null-prototype one is not an `Object` instance, so neither matches.
-function isExclusion(v: unknown): boolean {
+export function isExclusion(v: unknown): boolean {
   return v === false || ((typeof v === 'number' || v instanceof Object) && v.valueOf() === 0);
 }
 
 // `{a: {$slice: n}}` trims an array but decides nothing about which fields
 // come back, so it counts toward neither mode.
-function isSliceOnly(v: unknown): boolean {
+export function isSliceOnly(v: unknown): boolean {
   // A primitive has no own keys, so only `null` needs keeping away from
   // `Object.keys`, which throws on it.
   // Stryker disable next-line ArrayDeclaration: the null branch's array content only matters through `keys[0] === '$slice'` below, and no mutant literal is ever the string '$slice'
   const keys = v === null ? [] : Object.keys(v as object);
   return keys.length === 1 && keys[0] === '$slice';
+}
+
+// `1`, `true`, or a boxed numeric one: the plain "keep this field" values.
+// Together with `isExclusion` these are the flags; anything else (`$slice`,
+// `$elemMatch`, `$meta`, an expression) is an operator whose value only the
+// projection text can edit.
+export function isPlainKeep(v: unknown): boolean {
+  return v === true || ((typeof v === 'number' || v instanceof Object) && v.valueOf() === 1);
+}
+
+export interface ProjectionClass {
+  /** Keys whose value drops the field (`0`, `false`). */
+  excluded: string[];
+  /** Keys that name a field to return, leaving out the exclusions and `$slice`-only trims. */
+  included: string[];
+  /** Whether the projection returns only the named fields rather than everything but them. */
+  inclusion: boolean;
+}
+
+/**
+ * The one reading of a projection's entries, shared by `notFetchedFields` and
+ * `projectionMode` so the Fields control and the views cannot disagree about
+ * which fields a projection returns. `{_id: 1}` alone is an inclusion, and
+ * `{_id: 0}` alone an exclusion; a `$slice`-only trim is neither.
+ */
+export function classifyProjection(entries: readonly (readonly [string, unknown])[]): ProjectionClass {
+  const excluded = entries.filter(([, v]) => isExclusion(v)).map(([k]) => k);
+  const included = entries.filter(([, v]) => !isExclusion(v) && !isSliceOnly(v)).map(([k]) => k);
+  const inclusion = included.some((k) => k !== '_id') || (included.length > 0 && excluded.length === 0);
+  return { excluded, included, inclusion };
+}
+
+export type ProjectionMode = 'none' | 'inclusion' | 'exclusion' | 'invalid';
+
+export interface ProjectionInfo {
+  mode: ProjectionMode;
+  /** The projection's top-level entries in the order they are written; empty for `invalid`. */
+  entries: [string, unknown][];
+  /** Fields whose value is an operator or expression, not a 0/1 flag. */
+  locked: string[];
+}
+
+/**
+ * Classifies the committed projection (W14 §11.3). `invalid` is a raw
+ * projection the app cannot read, which the list must leave alone rather than
+ * overwrite. A `$slice`-only projection is `none`, with its row locked.
+ */
+export function projectionMode(builder: BuilderState): ProjectionInfo {
+  const raw = builder.projectionRaw?.trim();
+  if (raw && !isRawProjection(raw)) return { mode: 'invalid', entries: [], locked: [] };
+  const entries: [string, unknown][] = raw
+    ? Object.entries(ejsonParse<Record<string, unknown>>(raw))
+    : builder.projection.map((f): [string, unknown] => [f, 1]);
+  const { excluded, inclusion } = classifyProjection(entries);
+  const mode: ProjectionMode = inclusion ? 'inclusion' : excluded.length > 0 ? 'exclusion' : 'none';
+  const locked = entries.filter(([, v]) => !isPlainKeep(v) && !isExclusion(v)).map(([k]) => k);
+  return { mode, entries, locked };
 }
 
 /**
@@ -117,18 +174,12 @@ function isSliceOnly(v: unknown): boolean {
  * `projectionProblem` is what speaks for that one.
  */
 export function notFetchedFields(builder: BuilderState, known: readonly string[]): string[] {
-  const raw = builder.projectionRaw?.trim();
-  if (raw && !isRawProjection(raw)) return [];
-  // No projection at all is an empty modelled list, which falls through to
-  // the exclusion branch with nothing excluded. The modelled path's `_id: 1`
-  // (`compileFindOptions` sends it) needs no entry: the inclusion branch
-  // keeps `_id` unless it is excluded.
-  const entries: [string, unknown][] = raw
-    ? Object.entries(ejsonParse<Record<string, unknown>>(raw))
-    : builder.projection.map((f): [string, unknown] => [f, 1]);
-  const excluded = entries.filter(([, v]) => isExclusion(v)).map(([k]) => k);
-  const included = entries.filter(([, v]) => !isExclusion(v) && !isSliceOnly(v)).map(([k]) => k);
-  const inclusion = included.some((k) => k !== '_id') || (included.length > 0 && excluded.length === 0);
+  const { mode, entries } = projectionMode(builder);
+  // No projection at all, or one the app cannot read, drops nothing. The
+  // modelled path's `_id: 1` (`compileFindOptions` sends it) needs no entry:
+  // the inclusion branch keeps `_id` unless it is excluded.
+  if (mode === 'invalid') return [];
+  const { excluded, inclusion } = classifyProjection(entries);
   if (inclusion) {
     const fetched = new Set(entries.filter(([, v]) => !isExclusion(v)).map(([k]) => k.split('.')[0]));
     if (!excluded.includes('_id')) fetched.add('_id');
@@ -136,4 +187,14 @@ export function notFetchedFields(builder: BuilderState, known: readonly string[]
   }
   const dropped = excluded.filter((k) => !k.includes('.'));
   return [...known.filter((f) => dropped.includes(f)), ...dropped.filter((k) => !known.includes(k))];
+}
+
+/**
+ * The known fields a view must not draw because the committed projection keeps
+ * them off the wire (W14 §11.4). Takes an optional builder so a surface that
+ * has none (a script tab's result views) hides nothing instead of crashing.
+ */
+export function projectedOutFields(builder: BuilderState | undefined, known: readonly string[]): string[] {
+  if (!builder) return [];
+  return notFetchedFields(builder, known).filter((f) => known.includes(f));
 }

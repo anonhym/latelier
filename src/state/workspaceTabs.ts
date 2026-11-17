@@ -21,6 +21,7 @@ import { notify } from '../theme/notifications';
 import { applyPendingPatches, carryResultFields, stripResultPatch } from './tabResultCarry';
 import { registerFlusher } from './pendingFlush';
 import { keepsPreview, nextScriptTitle } from '../pages/Workspace/tabActions';
+import { migrateHiddenColumns, migrateHiddenSeed, migrationPatch } from '../pages/Workspace/projectionWriter';
 import { forgetScroll } from '../pages/Workspace/views/scrollMemory';
 import { closedTabOf, pushClosed, liveClosed, withoutClosed, type ClosedTab } from './closedTabs';
 
@@ -249,8 +250,19 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
         applyPendingPatches(list, before),
         pendingPatches.current,
       );
-      listed.current = current;
-      setTabs((prev) => carryResultFields(prev, current));
+      // Tabs saved with a hidden-column list get the projection that hides the
+      // same fields (W14 §11.6); the saved copy follows so it happens once.
+      const migrated = current.map((t): WorkspaceTab => {
+        if (t.kind !== 'collection') return t;
+        const state = migrateHiddenColumns(t.state);
+        if (state === t.state) return t;
+        api.tabs.update(t.id, { state: migrationPatch(state) }).catch((err: unknown) => {
+          logFailure(`saving tab ${t.id} after moving its hidden columns into the projection`, err);
+        });
+        return { ...t, state };
+      });
+      listed.current = migrated;
+      setTabs((prev) => carryResultFields(prev, migrated));
       setError(null);
     } catch (e) {
       setError(isIpcError(e) ? e : { code: 'INTERNAL', message: String(e) });
@@ -312,7 +324,7 @@ export function useWorkspaceTabs(): WorkspaceTabsState {
       } catch (err) {
         logFailure(`reading preference ${DEFAULT_VIEW_PREF_KEY}`, err);
       }
-      const merged = { ...seed, ...given };
+      const merged = { ...seed, ...(given ? migrateHiddenSeed(given) : {}) };
       const initialState = Object.keys(merged).length > 0 ? merged : undefined;
       const tab = await api.tabs.openCollection({
         ...input,

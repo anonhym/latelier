@@ -79,9 +79,8 @@ describe('resolveColumns', () => {
     expect(result.map((c) => c.field)).toEqual(['zebra', '_id', 'apple', 'banana']);
   });
 
-  it('drops hidden columns from the resolved list', () => {
-    const config: TableColumnConfig = { hidden: ['banana'] };
-    const result = resolveColumns(derived, config);
+  it('drops the fields the projection keeps off the wire from the resolved list', () => {
+    const result = resolveColumns(derived, undefined, ['banana']);
     expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'zebra']);
   });
 
@@ -94,7 +93,7 @@ describe('resolveColumns', () => {
   });
 
   it('keeps _id first when no explicit order is configured', () => {
-    const result = resolveColumns(derived, { hidden: [] });
+    const result = resolveColumns(derived, { order: [] });
     expect(result[0].field).toBe('_id');
   });
 
@@ -117,16 +116,15 @@ describe('resolveColumns', () => {
     });
   });
 
-  it('a hidden field and a computed column can coexist', () => {
+  it('a projected-out field and a computed column can coexist', () => {
     const config: TableColumnConfig = {
-      hidden: ['zebra'],
       computed: [{ id: 'c1', path: 'nested.value' }],
     };
-    const result = resolveColumns(derived, config);
+    const result = resolveColumns(derived, config, ['zebra']);
     expect(result.map((c) => c.field)).toEqual(['_id', 'apple', 'banana', 'c1']);
   });
 
-  // Mutation: `new Set(config?.hidden ?? [])` mutated to a non-empty default
+  // Mutation: `new Set(notFetched)` with a default mutated to a non-empty default
   // survived every test above, because none of them derive a field that the
   // mutant's injected literal ("Stryker was here", Stryker's own sentinel
   // for a string-array mutation) would coincidentally hide — an absent
@@ -135,7 +133,7 @@ describe('resolveColumns', () => {
   // Deriving a field with that exact name is what actually exercises "the
   // default hides nothing" rather than "the default doesn't happen to hide
   // one of these four unrelated fields".
-  it('hides nothing when `hidden` is unset, even for a field matching a common mutation sentinel', () => {
+  it('hides nothing when no field is projected out, even for a field matching a common mutation sentinel', () => {
     const result = resolveColumns([...derived, 'Stryker was here'], undefined);
     expect(result.map((c) => c.field)).toContain('Stryker was here');
   });

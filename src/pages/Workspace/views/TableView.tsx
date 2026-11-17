@@ -51,6 +51,8 @@ import {
   DEFAULT_COLUMN_WIDTH,
   type ResolvedColumn,
 } from './tableColumns';
+import { projectedOutFields } from '../projection';
+import { projectionPatch, toggleProjectionField } from '../projectionWriter';
 
 interface TableViewProps {
   documents: unknown[];
@@ -1200,14 +1202,6 @@ export function TableView({
     returnFocusTo: HTMLElement | null;
   } | null>(null);
   const closeHeaderMenu = React.useCallback(() => setHeaderMenu(null), []);
-  const hideColumn = React.useCallback(
-    (field: string) =>
-      actions.patchWith((prev) => {
-        const hidden = prev.columnConfig?.hidden ?? [];
-        return { columnConfig: { ...prev.columnConfig, hidden: hidden.includes(field) ? hidden : [...hidden, field] } };
-      }),
-    [actions],
-  );
   const sortColumn = React.useCallback(
     (field: string, dir: 1 | -1) => {
       const patch = { builder: { ...state.builder, sort: JSON.stringify({ [field]: dir }) } };
@@ -1218,9 +1212,22 @@ export function TableView({
   );
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
+  const projectedOut = React.useMemo(
+    () => projectedOutFields(state.builder, derivedFields),
+    [state.builder, derivedFields],
+  );
   const columns = React.useMemo(
-    () => resolveColumns(derivedFields, columnConfig),
-    [derivedFields, columnConfig],
+    () => resolveColumns(derivedFields, columnConfig, projectedOut),
+    [derivedFields, columnConfig, projectedOut],
+  );
+  // Hiding a column unchecks it in the Fields list, which writes the
+  // projection (W14 §11.4), in the order the columns are drawn.
+  const hideColumn = React.useCallback(
+    (field: string) => {
+      const order = columns.filter((c) => c.kind === 'field').map((c) => c.field);
+      actions.patchWith((prev) => projectionPatch(prev, toggleProjectionField(prev.builder, field, false, order)));
+    },
+    [actions, columns],
   );
   // A new result (a re-run, another page) or a changed column set leaves the
   // remembered cell pointing at a position that now holds something else.

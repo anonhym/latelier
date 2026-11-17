@@ -78,6 +78,31 @@ describe('optionPills', () => {
     expect(pill('project', { projection: ['a', 'b', 'c'] }).label).toBe('Project: 3 fields');
     expect(pill('project', { projection: ['a'], projectionRaw: '{"x":1,"y":0}' }).label).toBe('Project: 2 fields');
     expect(pill('project', { projectionRaw: '  ' }).status).toBe('unset');
+  });
+
+  it('an exclusion reads "all but n", counting the excluded fields', () => {
+    expect(pill('project', { projectionRaw: '{"a":0}' })).toMatchObject({ label: 'Project: all but 1', status: 'set' });
+    expect(pill('project', { projectionRaw: '{"a":0,"b":false,"c":0}' }).label).toBe('Project: all but 3');
+    expect(pill('project', { projectionRaw: '{"_id":0}' }).label).toBe('Project: all but 1');
+    expect(pill('project', { projectionRaw: '{"a.b":0,"t":{"$slice":2}}' }).label).toBe('Project: all but 1');
+  });
+
+  it('an inclusion keeps its count, with _id: 0 counted as an entry as before', () => {
+    expect(pill('project', { projection: ['a', 'b'] }).label).toBe('Project: 2 fields');
+    expect(pill('project', { projectionRaw: '{"a":1,"_id":0}' }).label).toBe('Project: 2 fields');
+    expect(pill('project', { projectionRaw: '{"_id":1}' }).label).toBe('Project: 1 field');
+  });
+
+  it('a $slice-only projection returns every field, so it is not a field count', () => {
+    expect(pill('project', { projectionRaw: '{"t":{"$slice":2}}' })).toMatchObject({
+      label: 'Project: all, 1 trimmed',
+      status: 'set',
+    });
+    expect(pill('project', { projectionRaw: '{"t":{"$slice":2},"u":{"$slice":1}}' }).label).toBe('Project: all, 2 trimmed');
+  });
+
+  it('draws no badge for display state: the label is the projection and nothing else', () => {
+    expect(pill('project', {}).label).toBe('Project');
     expect(pill('project', { projectionRaw: '{}' })).toMatchObject({ label: 'Project', status: 'unset' });
     expect(pill('project', { projectionRaw: '{"x":' })).toMatchObject({
       label: 'Project: invalid',

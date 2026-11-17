@@ -20,6 +20,7 @@ import { focusTargetAfterMove, type MoveDirection } from './columnReorderFocus';
 import { projectionProblem } from './builder';
 import { optionPills, PILL_LOOK, type PillStatus } from './optionPills';
 import { notFetchedFields } from './projection';
+import { projectionPatch, toggleProjectionField } from './projectionWriter';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type { CollectionTabState, ComputedColumn } from '@shared/types';
@@ -117,18 +118,13 @@ export function FieldsControl({
       .map((field, index) => ({ field, index }))
       .filter(({ field }) => field.toLowerCase().includes(needle));
   }, [orderedFields, find]);
-  const hidden = React.useMemo(() => new Set(config?.hidden ?? []), [config?.hidden]);
   const computed = config?.computed ?? [];
   // Names known without asking the server: the fields in hand, plus any the
   // tab's own config still remembers from before the projection dropped them.
+  // A field the projection keeps off the wire is an unchecked row.
   const notFetched = React.useMemo(
-    () =>
-      new Set(
-        notFetchedFields(state.builder, [
-          ...new Set([...derived, ...(config?.order ?? []), ...(config?.hidden ?? [])]),
-        ]),
-      ),
-    [state.builder, derived, config?.order, config?.hidden],
+    () => new Set(notFetchedFields(state.builder, [...new Set([...derived, ...(config?.order ?? [])])])),
+    [state.builder, derived, config?.order],
   );
   const notFetchedOnly = [...notFetched].filter((f) => !derived.includes(f));
   // A listed field is marked only once it is really gone from the results in
@@ -146,14 +142,12 @@ export function FieldsControl({
     }));
   };
 
-  const toggleHidden = (field: string) => {
-    patchColumnConfig((prev) => {
-      const prevHidden = prev.hidden ?? [];
-      const nextHidden = prevHidden.includes(field)
-        ? prevHidden.filter((f) => f !== field)
-        : [...prevHidden, field];
-      return { ...prev, hidden: nextHidden };
-    });
+  // A checkbox writes the projection (W14 §11.3), and the rows stay current
+  // when it only removes fields (§11.4).
+  const toggleField = (field: string, checked: boolean) => {
+    actions.patchWith((prev) =>
+      projectionPatch(prev, toggleProjectionField(prev.builder, field, checked, orderedFields)),
+    );
   };
 
   const moveField = (from: number, to: number) => {
@@ -232,8 +226,7 @@ export function FieldsControl({
     }));
   };
 
-  const hiddenCount = hidden.size;
-  const showCountBadge = hiddenCount > 0 || (isTableView && computed.length > 0);
+  const showCountBadge = isTableView && computed.length > 0;
   // The pill is the projection's only sign while the control is closed — it
   // changes what Run returns, so it states the value, and is drawn in the
   // error colour while a refused draft is still waiting inside (W15 §2.4).
@@ -311,7 +304,7 @@ export function FieldsControl({
           rightSection={
             showCountBadge ? (
               <Badge size="xs" variant="light" color="violet">
-                {isTableView && computed.length > 0 ? `+${computed.length}` : hiddenCount}
+                {`+${computed.length}`}
               </Badge>
             ) : undefined
           }
@@ -401,11 +394,11 @@ export function FieldsControl({
                       field
                     )
                   }
-                  checked={!hidden.has(field)}
-                  onChange={() => toggleHidden(field)}
+                  checked={!notFetched.has(field)}
+                  onChange={(e) => toggleField(field, e.currentTarget.checked)}
                   style={{ flex: 1 }}
                 />
-                {isTableView && !hidden.has(field) && (
+                {isTableView && !notFetched.has(field) && (
                   <ActionIcon
                     size="xs"
                     variant="subtle"

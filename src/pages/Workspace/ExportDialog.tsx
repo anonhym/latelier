@@ -9,6 +9,7 @@ import { useCollectionWorkspace } from './context';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { compileFindOptions, findProblem, requireFilterJson } from './builder';
 import { deriveColumns, resolveColumns } from './views/tableColumns';
+import { projectedOutFields } from './projection';
 import {
   exportColumnsFrom,
   exportFileExtension,
@@ -63,8 +64,13 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const canRunAll = findProblem(state) === null;
   const canExport = scope === 'page' ? documents.length > 0 : canRunAll;
 
-  const columns = () =>
-    exportColumnsFrom(resolveColumns(deriveColumns(documents), state.columnConfig));
+  // Follows the projection, so a field the query keeps off the wire is not a column.
+  const columns = () => {
+    const derived = deriveColumns(documents);
+    return exportColumnsFrom(
+      resolveColumns(derived, state.columnConfig, projectedOutFields(state.builder, derived)),
+    );
+  };
 
   const exportPage = async () => {
     const content =

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCollectionWorkspace } from './context';
 import { useShellSyntaxField } from './useShellSyntaxField';
+import { projectionPatch } from './projectionWriter';
 import { formatProjection, isRawProjection, parseProjection, type ProjectionFailure } from './projection';
 import type { CollectionTabState } from '@shared/types';
 
@@ -73,7 +74,7 @@ export function useProjectionDraft() {
     }
     setClassified(null);
     setDraft(null);
-    actions.patch({ builder: next });
+    actions.patchWith((prev) => projectionPatch(prev, next));
     return next;
   };
 

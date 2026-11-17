@@ -13,6 +13,7 @@ import {
   sortProblem,
   type FindOptionKey,
 } from './builder';
+import { classifyProjection, projectionMode } from './projection';
 
 /**
  * The Filter Bar row's words (W05 §9): what each option pill says, why Run is
@@ -76,10 +77,12 @@ function sortValue(raw: string): string | null {
 }
 
 function projectValue(builder: CollectionTabState['builder']): string | null {
-  const raw = builder.projectionRaw?.trim();
   // Only called once `projectionProblem` has passed, so a raw one is a document.
-  const n = raw ? Object.keys(ejsonParse<Record<string, unknown>>(raw)).length : builder.projection.length;
-  return n === 0 ? null : countLabel(n);
+  const { mode, entries } = projectionMode(builder);
+  if (mode === 'exclusion') return `all but ${classifyProjection(entries).excluded.length}`;
+  // A `$slice`-only trim returns every field, so it is not a field count.
+  if (mode === 'none') return entries.length === 0 ? null : `all, ${entries.length} trimmed`;
+  return countLabel(entries.length);
 }
 
 function collationValue(compiled: string): string {

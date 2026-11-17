@@ -43,7 +43,7 @@ function renderChooser(
 }
 
 describe('FieldsControl', () => {
-  it('toggling a field checkbox calls patchWith with the field added to hidden', () => {
+  it('unchecking a field writes the exclusion to the projection, not columnConfig.hidden', () => {
     const patchWith = vi.fn();
     const { getByRole } = renderChooser(baseState(), { patchWith });
 
@@ -56,12 +56,15 @@ describe('FieldsControl', () => {
     expect(patchWith).toHaveBeenCalledTimes(1);
     const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
     const patch = fn(baseState());
-    expect(patch.columnConfig?.hidden).toContain('apple');
+    expect(patch.builder?.projectionRaw).toBe('{"apple":0}');
+    expect(patch.columnConfig).toBeUndefined();
   });
 
-  it('unchecking an already-hidden field removes it from hidden', () => {
+  it('a field the projection excludes shows unchecked, and checking it drops the exclusion', () => {
     const patchWith = vi.fn();
-    const state = baseState({ columnConfig: { hidden: ['apple'] } });
+    const state = baseState({
+      builder: { projection: [], projectionRaw: '{"apple":0}', sort: '', limit: '' },
+    });
     const { getByRole } = renderChooser(state, { patchWith });
 
     fireEvent.click(getByRole('button', { name: /^project/i }));
@@ -71,7 +74,8 @@ describe('FieldsControl', () => {
     fireEvent.click(appleCheckbox);
     const fn = patchWith.mock.calls[0][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
     const patch = fn(state);
-    expect(patch.columnConfig?.hidden).not.toContain('apple');
+    expect(patch.builder?.projectionRaw).toBeUndefined();
+    expect(patch.builder?.projection).toEqual([]);
   });
 
   it('add-computed-column input is disabled for an empty/whitespace path', () => {
@@ -405,6 +409,15 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     };
   }
 
+  // A commit goes through `patchWith` (so the rows stay current when it only
+  // removes fields); the mocked one never moves state, so apply its last
+  // updater to the state the control rendered with.
+  const committed = (actions: CollectionWorkspaceActions, state: CollectionTabState = tabState()) => {
+    const calls = (actions.patchWith as ReturnType<typeof vi.fn>).mock.calls;
+    const fn = calls[calls.length - 1][0] as (s: CollectionTabState) => Partial<CollectionTabState>;
+    return fn(state).builder;
+  };
+
   const type = (input: HTMLInputElement, text: string) => {
     fireEvent.change(input, { target: { value: text } });
     fireEvent.blur(input);
@@ -442,10 +455,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   });
 
   it('commits a valid projection to the builder, clears the draft, and shows no alert', () => {
-    const r = openFetch(tabState({ sort: '{"a":1}' }));
+    const state = tabState({ sort: '{"a":1}' });
+    const r = openFetch(state);
     type(r.input()!, '{ name: 1 }');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '{"a":1}', limit: '' },
+    expect(committed(r.actions, state)).toEqual({
+      projection: ['name'],
+      projectionRaw: undefined,
+      sort: '{"a":1}',
+      limit: '',
     });
     // `patch` is mocked, so state doesn't move; the input falling back to the
     // (still empty) committed display is exactly "the draft was cleared".
@@ -454,10 +471,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   });
 
   it('escapes $slice to the raw projection instead of refusing it', () => {
-    const r = openFetch(tabState({ projection: ['name'] }));
+    const state = tabState({ projection: ['name'] });
+    const r = openFetch(state);
     type(r.input()!, '{"a":{"$slice":5}}');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: [], projectionRaw: '{"a":{"$slice":5}}', sort: '', limit: '' },
+    expect(committed(r.actions, state)).toEqual({
+      projection: [],
+      projectionRaw: '{"a":{"$slice":5}}',
+      sort: '',
+      limit: '',
     });
     expect(r.alerts()).toHaveLength(0);
   });
@@ -466,7 +487,7 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     const r = openFetch();
     type(r.input()!, '{a: }');
     expect(r.input()?.value).toBe('{a: }');
-    expect(r.actions.patch).not.toHaveBeenCalled();
+    expect(r.actions.patchWith).not.toHaveBeenCalled();
     const msg = r.alerts()[0]?.textContent ?? null;
     expect(msg).toMatch(/comma-separated field list/);
     expect(r.input()?.getAttribute('aria-invalid')).toBe('true');
@@ -496,18 +517,14 @@ describe('FieldsControl — fetch only these fields from the server', () => {
   it('repairs Shell Syntax before judging it: {_id: 0} commits as a raw projection', () => {
     const r = openFetch();
     type(r.input()!, '{_id: 0}');
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: [], projectionRaw: '{"_id": 0}', sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: [], projectionRaw: '{"_id": 0}', sort: '', limit: '' });
   });
 
   it('settles the draft when the control closes, since no blur is guaranteed', () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{ name: 1 }' } });
     fireEvent.click(r.getByRole('button', { name: /^project/i }));
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: ['name'], projectionRaw: undefined, sort: '', limit: '' });
   });
 
   // Escape belongs to the innermost thing on screen: the first one dismisses
@@ -522,13 +539,11 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     await waitFor(() => expect(r.queryAllByRole('option')).toHaveLength(0));
     expect(r.input()).not.toBeNull();
     expect(r.input()?.value).toBe('{ name: 1 }');
-    expect(r.actions.patch).not.toHaveBeenCalled();
+    expect(r.actions.patchWith).not.toHaveBeenCalled();
 
     fireEvent.keyDown(r.input()!, { key: 'Escape' });
     await waitFor(() => expect(r.input()).toBeNull());
-    expect(r.actions.patch).toHaveBeenCalledWith({
-      builder: { projection: ['name'], projectionRaw: undefined, sort: '', limit: '' },
-    });
+    expect(committed(r.actions)).toEqual({ projection: ['name'], projectionRaw: undefined, sort: '', limit: '' });
   });
 
   it('Escape with no suggestion list showing closes the control at once', async () => {
@@ -609,7 +624,7 @@ describe('FieldsControl — fetch only these fields from the server', () => {
     const r = openFetch();
     fireEvent.change(r.input()!, { target: { value: '{sku: 1}' } });
     fireEvent.keyDown(r.input()!, { key: 'Enter' });
-    expect(r.actions.patch).toHaveBeenCalledTimes(1);
+    expect(r.actions.patchWith).toHaveBeenCalledTimes(1);
     expect(r.actions.run).not.toHaveBeenCalled();
   });
 

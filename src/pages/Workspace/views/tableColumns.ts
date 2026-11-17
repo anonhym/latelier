@@ -107,9 +107,11 @@ export function orderFields(derived: string[], order?: string[]): string[] {
 export function resolveColumns(
   derived: string[],
   config: TableColumnConfig | undefined,
+  notFetched: readonly string[] = [],
 ): ResolvedColumn[] {
   const ordered = orderFields(derived, config?.order);
-  const hidden = new Set(config?.hidden ?? []);
+  // What the projection keeps off the wire (W14 §11.4), not a display list.
+  const hidden = new Set(notFetched);
   const fieldColumns: ResolvedColumn[] = ordered
     .filter((f) => !hidden.has(f))
     .map((field) => ({ kind: 'field', field }));

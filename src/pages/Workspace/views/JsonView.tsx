@@ -23,6 +23,8 @@ import { docMenuItems } from './menuItems';
 import { useDocMenu } from './useDocMenu';
 import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
+import { deriveColumns } from './tableColumns';
+import { projectedOutFields } from '../projection';
 import { copyShortcutOf } from './copyShortcut';
 
 interface JsonViewProps {
@@ -30,12 +32,11 @@ interface JsonViewProps {
 }
 
 /**
- * Strip the Fields control's hidden top-level fields from a document before
- * it is serialized for display. Rendering-only: every action on the
- * document (Copy, Edit, Delete/Select) is handed the original `doc`, never
- * this redacted copy — hiding a field must never change what gets sent to
- * Mongo or the clipboard. Only top-level paths are handled, matching what
- * `columnConfig.hidden` (Table's Fields control) currently stores.
+ * Strip the top-level fields the projection keeps off the wire from a
+ * document before it is serialized for display. Rendering-only: every action
+ * on the document (Copy, Edit, Delete/Select) is handed the original `doc`,
+ * never this redacted copy — hiding a field must never change what gets sent
+ * to Mongo or the clipboard. Only top-level paths are handled.
  */
 function redactHidden(doc: unknown, hidden: Set<string>): unknown {
   if (hidden.size === 0 || !isRecord(doc)) return doc;
@@ -493,12 +494,12 @@ export function JsonView({ documents }: JsonViewProps) {
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
   const onDuplicateDoc = actions.openDuplicate;
-  // Fields control: same top-level `columnConfig.hidden` Table already
-  // reads (`tableColumns.ts`'s `resolveColumns`) — display-only, so Copy/Edit/
-  // Delete below always act on the untouched `doc`, never this set.
+  // The fields the committed projection keeps off the wire, as Table hides
+  // them (`resolveColumns`) — display-only, so Copy/Edit/Delete below always
+  // act on the untouched `doc`, never this set.
   const hiddenFields = React.useMemo(
-    () => new Set(state.columnConfig?.hidden ?? []),
-    [state.columnConfig?.hidden],
+    () => new Set(projectedOutFields(state.builder, deriveColumns(documents))),
+    [state.builder, documents],
   );
   // T0.4 — selection lifted to the shared cross-view context (index-based,
   // scoped to the enclosing <ResultViewer>); falls back to local state when

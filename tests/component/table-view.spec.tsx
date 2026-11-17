@@ -63,6 +63,8 @@ function renderTable(
   extra: {
     refsByField?: Map<string, ReferenceRule>;
     columnConfig?: CollectionTabState['columnConfig'];
+    /** Top-level fields the projection excludes, so their columns are not drawn. */
+    excluded?: string[];
     expandedRows?: Record<string, boolean>;
     onRowExpand?: (docId: string, expanded: boolean) => void;
     actions?: Partial<CollectionWorkspaceActions>;
@@ -73,7 +75,17 @@ function renderTable(
 ) {
   return render(
       <CollectionWorkspaceProvider
-        state={emptyState()}
+        state={{
+          ...emptyState(),
+          builder: {
+            projection: [],
+            ...(extra.excluded
+              ? { projectionRaw: JSON.stringify(Object.fromEntries(extra.excluded.map((f) => [f, 0]))) }
+              : {}),
+            sort: '',
+            limit: '',
+          },
+        }}
         actions={emptyWorkspaceActions(extra.actions)}
         meta={emptyWorkspaceMeta(extra.meta)}
       >
@@ -1016,13 +1028,12 @@ describe('TableView — rendering and interaction', () => {
       expect(header.hasAttribute('aria-sort')).toBe(false);
     });
 
-    it('a column hidden via the column chooser renders no header at all — no orphaned aria-sort', () => {
+    it('a column the projection excludes renders no header at all — no orphaned aria-sort', () => {
       const docs = [{ _id: 1, name: 'alpha' }];
-      const columnConfig: CollectionTabState['columnConfig'] = { hidden: ['name'] };
       const { queryByTestId } = renderTable(docs, {
         onSortField: vi.fn(),
         sort: '{"name":1}',
-        columnConfig,
+        excluded: ['name'],
       });
 
       expect(queryByTestId('table-header-name')).toBeNull();

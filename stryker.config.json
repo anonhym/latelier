@@ -47,6 +47,7 @@
     "src/pages/Workspace/runClock.ts",
     "src/pages/Workspace/sidePanels.ts",
     "src/pages/Workspace/projection.ts",
+    "src/pages/Workspace/projectionWriter.ts",
     "src/pages/Workspace/deleteMode.ts",
     "src/pages/Workspace/documentDiff.ts",
     "src/pages/Workspace/documentFieldTypes.ts",

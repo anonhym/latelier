@@ -144,7 +144,7 @@ describe('the column header menu', () => {
     expect(run).toHaveBeenCalledWith(expected);
   });
 
-  it('Hide column adds the field to the tab\'s hidden columns, once', async () => {
+  it('Hide column unchecks the field in the projection, once, and writes no hidden list', async () => {
     const patchWith = vi.fn();
     renderTable(DOCS, { patchWith });
 
@@ -152,8 +152,11 @@ describe('the column header menu', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide column' }));
 
     const fn = patchWith.mock.calls[0]![0] as (s: CollectionTabState) => Partial<CollectionTabState>;
-    expect(fn({ ...state(), columnConfig: { hidden: ['x'] } })).toEqual({ columnConfig: { hidden: ['x', 'name'] } });
-    expect(fn({ ...state(), columnConfig: { hidden: ['name'] } })).toEqual({ columnConfig: { hidden: ['name'] } });
+    const once = fn(state());
+    expect(once.builder?.projectionRaw).toBe('{"name":0}');
+    expect(once.columnConfig).toBeUndefined();
+    // Already excluded: a second click changes nothing.
+    expect(fn({ ...state(), builder: once.builder! })).toEqual({ builder: once.builder });
   });
 
   it('offers no sort where the table cannot sort', async () => {

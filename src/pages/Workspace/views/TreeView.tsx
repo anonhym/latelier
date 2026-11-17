@@ -19,6 +19,7 @@ import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
+import { projectedOutFields } from '../projection';
 import { SelectToggle } from './SelectToggle';
 import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
@@ -463,22 +464,24 @@ export function TreeView({
   onRefOpen,
 }: TreeViewProps) {
   const { state, actions, meta } = useCollectionWorkspace();
-  // Collapsed-row preview strip: the Fields control's per-tab columnConfig
-  // (hidden + order), same source TableView/FieldsControl already read —
-  // reordering or hiding a field in Fields changes the Tree preview too.
-  // No config at all (a fresh tab) falls back to `getPreviewFields`'s own
-  // per-doc default (that document's own first 4 keys), which is why this
-  // is `null` rather than `[]` in that case.
+  // Collapsed-row preview strip: the Fields control's column order, minus the
+  // fields the projection keeps off the wire (W14 §11.4) — the same two
+  // sources TableView reads. Neither set (a fresh tab) falls back to
+  // `getPreviewFields`'s own per-doc default (that document's own first 4
+  // keys), which is why this is `null` rather than `[]` in that case.
   const columnConfig = state.columnConfig;
-  const hasFieldConfig =
-    (columnConfig?.order?.length ?? 0) > 0 || (columnConfig?.hidden?.length ?? 0) > 0;
+  const projectedOut = React.useMemo(
+    () => projectedOutFields(state.builder, deriveColumns(documents)),
+    [state.builder, documents],
+  );
+  const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || projectedOut.length > 0;
   const previewFields = React.useMemo(() => {
     if (!hasFieldConfig) return null;
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
-    const hidden = new Set(columnConfig?.hidden ?? []);
+    const hidden = new Set(projectedOut);
     return ordered.filter((f) => f !== '_id' && !hidden.has(f));
-  }, [hasFieldConfig, documents, columnConfig?.order, columnConfig?.hidden]);
+  }, [hasFieldConfig, documents, columnConfig?.order, projectedOut]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
