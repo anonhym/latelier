@@ -1295,7 +1295,10 @@ export function TableView({
     () =>
       onColumnScrollRequest((field) => {
         const el = tableWrapperRef.current;
-        const at = columns.findIndex((c) => c.field === field);
+        // A dotted-path column keeps its own id in `field`; the Fields list and
+        // the find box ask for it by its path.
+        const byField = columns.findIndex((c) => c.field === field);
+        const at = byField >= 0 ? byField : columns.findIndex((c) => c.kind === 'computed' && c.path === field);
         if (!el || at < 0) return;
         const widthOf = (c: ResolvedColumn) => ownGet(widths, c.field) ?? DEFAULT_COLUMN_WIDTH;
         const left = at === 0 ? 0 : GUTTER_WIDTH + columns.slice(0, at).reduce((sum, c) => sum + widthOf(c), 0);

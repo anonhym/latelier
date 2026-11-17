@@ -467,6 +467,41 @@ describe('projectionPatch', () => {
 });
 
 describe('migrateHiddenColumns', () => {
+  it('a hidden field with its own operator is excluded, dropping the operator that shaped nothing shown', () => {
+    const prev = ranTab({ builder: raw('{"tags":{"$slice":2}}'), columnConfig: { hidden: ['tags'] } });
+    const next = migrateHiddenColumns(prev);
+    expect(next.builder.projectionRaw).toBe('{"tags":0}');
+    expect(next.columnConfig).toEqual({});
+  });
+
+  it('a hidden field with an operator inside it is excluded, dropping that operator', () => {
+    const prev = ranTab({ builder: raw('{"address.items":{"$slice":2},"notes":0}'), columnConfig: { hidden: ['address'] } });
+    const next = migrateHiddenColumns(prev);
+    expect(next.builder.projectionRaw).toBe('{"address":0,"notes":0}');
+    expect(next.columnConfig).toEqual({});
+  });
+
+  it('a hidden field with an operator under an inclusion is removed with it', () => {
+    const prev = ranTab({ builder: raw('{"name":1,"tags":{"$elemMatch":{"x":1}}}'), columnConfig: { hidden: ['tags'] } });
+    const next = migrateHiddenColumns(prev);
+    expect(next.builder.projection).toEqual(['name']);
+    expect(next.builder.projectionRaw).toBeUndefined();
+    expect(next.columnConfig?.hidden).toBeUndefined();
+  });
+
+  it('keeps a hidden name it cannot write, rather than show a field the user hid', () => {
+    const prev = ranTab({ builder: raw('{"a":{"$slice":2}}'), columnConfig: { hidden: ['a.x'] } });
+    expect(migrateHiddenColumns(prev)).toBe(prev);
+  });
+
+  it('keeps only the names it could not write when others migrate', () => {
+    const prev = ranTab({ builder: raw('{"a":{"$slice":2}}'), columnConfig: { hidden: ['a.x', 'b'] } });
+    const next = migrateHiddenColumns(prev);
+    expect(next.builder.projectionRaw).toBe('{"b":0,"a":{"$slice":2}}');
+    expect(next.columnConfig?.hidden).toEqual(['a.x']);
+    expect(migrateHiddenColumns(next)).toBe(next);
+  });
+
   it('hidden only: becomes the equivalent exclusion, the rows stay current', () => {
     const prev = ranTab({ columnConfig: { hidden: ['b', 'a'], order: ['a', 'b'] } });
     const next = migrateHiddenColumns(prev);

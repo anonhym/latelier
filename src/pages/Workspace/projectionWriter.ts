@@ -14,6 +14,7 @@ import {
   isExclusion,
   isPlainKeep,
   isRawProjection,
+  projectionHider,
   projectionMode,
   selfAndAncestors,
   type ProjectionInfo,
@@ -237,7 +238,12 @@ export function migrateHiddenColumns(state: CollectionTabState): CollectionTabSt
   const info = projectionMode(state.builder);
   if (info.mode === 'invalid') return state;
   let builder = state.builder;
-  for (const field of hidden) builder = toggleProjectionField(builder, field, false, hidden);
+  for (const field of hidden) builder = toggleProjectionField(withoutOperatorsOn(builder, field), field, false, hidden);
+  // A field the projection still returns after all that could not be written
+  // into it; keeping it listed keeps the user's choice rather than showing a
+  // field they hid.
+  const hide = projectionHider(builder);
+  const unmigrated = hidden.filter((f) => !hide?.(f));
   // Result documents are not kept, so a field the migration takes out of an
   // inclusion would have no row left in the Fields list to tick it back. The
   // order remembers it, as the checkbox writers do. An exclusion keeps the
@@ -259,7 +265,23 @@ export function migrateHiddenColumns(state: CollectionTabState): CollectionTabSt
       : {};
   const columnConfig = { ...state.columnConfig, ...remembered.columnConfig };
   delete columnConfig.hidden;
+  if (unmigrated.length > 0) {
+    if (builder === state.builder) return state;
+    columnConfig.hidden = unmigrated;
+  }
   return { ...state, ...projectionPatch(state, builder), columnConfig };
+}
+
+/**
+ * The builder without any operator on `field` or a path inside it. A hidden
+ * field is not shown at all, so a `$slice` or `$elemMatch` on it shapes
+ * nothing anyone sees, and the list refuses to write beside one.
+ */
+function withoutOperatorsOn(builder: BuilderState, field: string): BuilderState {
+  const info = projectionMode(builder);
+  const moot = (k: string) => info.locked.includes(k) && (k === field || k.startsWith(`${field}.`));
+  if (!info.entries.some(([k]) => moot(k))) return builder;
+  return write(builder, info.entries.filter(([k]) => !moot(k)));
 }
 
 /**
