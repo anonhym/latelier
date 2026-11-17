@@ -23,6 +23,7 @@ type Entry = [string, unknown];
 function write(builder: BuilderState, entries: Entry[]): BuilderState {
   // The same state a blank projection commits (`useProjectionDraft`), so
   // clearing the list and clearing the text are one thing.
+  // Stryker disable next-line ConditionalExpression: with no entries the `every` below is true and its branch returns this same object, so skipping this line changes nothing (confirmed by forcing it to false: the whole unit suite still passes)
   if (entries.length === 0) return { ...builder, projection: [], projectionRaw: undefined };
   // A pure inclusion of plain 1s is the modelled path; everything else
   // (exclusions, operators, `_id: 0`) goes verbatim.
@@ -32,7 +33,9 @@ function write(builder: BuilderState, entries: Entry[]): BuilderState {
   const doc: Record<string, unknown> = {};
   for (const [k, v] of entries) ownSet(doc, k, v);
   const text = ejsonStringifyReadable(doc);
+  // Stryker disable next-line ConditionalExpression,BlockStatement: a guard that cannot fire. Keys are written as quoted JSON strings and values come from an already parsed projection or are 0/1, and a probe of fourteen awkward keys (spaces, quotes, `$`, `__proto__`, newlines, empty) all produced text the rule accepts
   if (!isRawProjection(text)) {
+    // Stryker disable next-line StringLiteral,CallExpression: the throw of the same unreachable guard
     throw new Error(`Projection writer produced text the raw projection rule refuses: ${text}`);
   }
   return { ...builder, projection: [], projectionRaw: text };
@@ -45,6 +48,7 @@ function ordered(entries: Entry[], order: readonly string[]): Entry[] {
   };
   // Array.prototype.sort is stable, so entries the list does not know keep
   // the place they had.
+  // Stryker disable next-line MethodExpression: `entries` is the caller's own local array and nothing reads it after this sort, so sorting it in place gives the same result
   return entries.slice().sort((a, b) => rank(a[0]) - rank(b[0]));
 }
 
@@ -109,7 +113,8 @@ export function toggleProjectionField(
       entries.push(['_id', 1]);
     }
   } else if (checked) {
-    if (at !== -1 && isExclusion(current)) entries.splice(at, 1);
+    // `current` is undefined when the field is not in the list, and that is not an exclusion.
+    if (isExclusion(current)) entries.splice(at, 1);
     // A `1` only ever rode along beside exclusions; with none left it would
     // turn the projection into an inclusion.
     if (!entries.some(([, v]) => isExclusion(v))) entries = entries.filter(([, v]) => !isPlainKeep(v));
@@ -160,7 +165,9 @@ function operatorSignature(info: ProjectionInfo): string {
 export function onlyRemovesFields(prev: BuilderState, next: BuilderState): boolean {
   const a = projectionMode(prev);
   const b = projectionMode(next);
-  if (a.mode === 'invalid' || b.mode === 'invalid') return false;
+  if (a.mode === 'invalid') return false;
+  // Stryker disable next-line ConditionalExpression,StringLiteral: an unreadable `b` reads as no entries and no operators, and every branch below answers false for it: `none` needs b to be `none` or an exclusion, an inclusion needs an inclusion, an exclusion needs an exclusion (and an operator in `a` already differs from its empty signature)
+  if (b.mode === 'invalid') return false;
   if (operatorSignature(a) !== operatorSignature(b)) return false;
   if (a.mode === 'none') return b.mode === 'none' || b.mode === 'exclusion';
   if (a.mode === 'inclusion') {
@@ -191,7 +198,9 @@ export function projectionPatch(
   nextBuilder: BuilderState,
 ): Partial<CollectionTabState> {
   const key = prevState.lastRunQueryKey;
-  const current = key !== undefined && key === resultQueryKey(prevState);
+  // `resultQueryKey` answers a string or null, never undefined, so a tab with no
+  // key yet is never equal to it.
+  const current = key === resultQueryKey(prevState);
   if (!current || !onlyRemovesFields(prevState.builder, nextBuilder)) return { builder: nextBuilder };
   return {
     builder: nextBuilder,
@@ -239,6 +248,7 @@ export function migrationPatch(migrated: CollectionTabState): Partial<Collection
  * nothing to migrate.
  */
 export function migrateHiddenSeed(seed: Partial<CollectionTabState>): Partial<CollectionTabState> {
+  // Stryker disable next-line ConditionalExpression: with nothing hidden `migrateHiddenColumns` hands back `full` itself, which the line below turns into `seed`, so skipping this early return gives the same object
   if (!seed.columnConfig?.hidden?.length) return seed;
   const full: CollectionTabState = { ...DEFAULT_COLLECTION_TAB_STATE, ...seed };
   const migrated = migrateHiddenColumns(full);

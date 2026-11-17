@@ -550,12 +550,13 @@ describe('TableView — rendering and interaction', () => {
       expect(container.textContent).toContain('a-val');
     });
 
-    // W14 §11.5 — a dotted path written into an inclusion is shown by the
-    // field that holds it: one column, not that field plus a computed copy.
-    it('a dotted path in an inclusion draws one column, the parent that holds it', () => {
+    // W14 §11.5 — a dotted path written into an inclusion is also its own
+    // column, drawn beside the parent field that holds it.
+    it('a dotted path in an inclusion draws its own column beside the parent', () => {
       const { container } = renderStatefulTable(
         stateWithDocs({
           builder: { projection: ['name', 'address.city'], sort: '', limit: '' },
+          columnConfig: { computed: [{ id: 'computed:address.city', path: 'address.city' }] },
           lastRun: {
             documents: [{ _id: 1, name: 'n', address: { city: 'Springfield' } }],
             durationMs: 1,
@@ -567,7 +568,7 @@ describe('TableView — rendering and interaction', () => {
         h.getAttribute('data-testid'),
       );
       expect(headers.filter((h) => h === 'table-header-address')).toHaveLength(1);
-      expect(headers.some((h) => h?.includes('address.city'))).toBe(false);
+      expect(headers.filter((h) => h === 'table-header-computed:address.city')).toHaveLength(1);
     });
 
     it('reordering via drag changes the header order', () => {

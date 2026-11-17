@@ -5,6 +5,7 @@
 
 import { ejsonParse, isEjsonDocument } from '../../utils/ejson';
 import type { BuilderState } from '@shared/types';
+import { isRecord } from '../../utils/displayValue';
 
 export function formatProjection(projection: string[]): string {
   if (projection.length === 0) return '';
@@ -197,4 +198,19 @@ export function notFetchedFields(builder: BuilderState, known: readonly string[]
 export function projectedOutFields(builder: BuilderState | undefined, known: readonly string[]): string[] {
   if (!builder) return [];
   return notFetchedFields(builder, known).filter((f) => known.includes(f));
+}
+
+/**
+ * A copy of `doc` without the top-level fields the projection keeps off the
+ * wire, for display only. Every action on the document (Copy, Edit, Delete)
+ * is handed the original, never this copy: hiding a field must not change
+ * what is sent to Mongo or the clipboard. Only top-level paths are handled.
+ */
+export function redactHidden(doc: unknown, hidden: ReadonlySet<string>): unknown {
+  if (hidden.size === 0 || !isRecord(doc)) return doc;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(doc)) {
+    if (!hidden.has(key)) out[key] = value;
+  }
+  return out;
 }

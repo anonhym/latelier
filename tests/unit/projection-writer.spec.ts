@@ -7,7 +7,7 @@ import {
   projectionPatch,
   toggleProjectionField,
 } from '../../src/pages/Workspace/projectionWriter';
-import { projectedOutFields, projectionMode } from '../../src/pages/Workspace/projection';
+import { projectedOutFields, projectionMode, redactHidden } from '../../src/pages/Workspace/projection';
 import { resultQueryKey } from '../../src/pages/Workspace/builder';
 import { isResultStale } from '../../src/pages/Workspace/resultPaneState';
 import type { BuilderState, CollectionTabState } from '@shared/types';
@@ -551,5 +551,124 @@ describe('migrateHiddenSeed', () => {
       'builder',
       'columnConfig',
     ]);
+  });
+});
+
+// Each case below pins a branch of the writer that the broader suites above
+// reach only through a result they would see either way.
+describe('toggleProjectionField — clicks that change nothing hand back the same builder', () => {
+  it('checking a field an exclusion does not name leaves the exclusion alone', () => {
+    const b = raw('{"b":0,"c":0}');
+    expect(on(b, 'a')).toBe(b);
+  });
+
+  it('unchecking a field an exclusion already names, however it spells the zero', () => {
+    const b = raw('{"a":0}');
+    expect(off(b, 'a')).toBe(b);
+    const spelled = raw('{"a":false}');
+    expect(off(spelled, 'a')).toBe(spelled);
+  });
+
+  it('checking an inclusion\'s _id that is already returned', () => {
+    const b = inc('_id', 'a');
+    expect(on(b, '_id')).toBe(b);
+  });
+});
+
+describe('toggleProjectionField — what rides along an exclusion', () => {
+  it('keeps a 1 beside the exclusions that remain when a field is checked', () => {
+    const next = on(raw('{"x":0,"y":0,"_id":1}'), 'x');
+    expect(sent(next)).toEqual({ y: 0, _id: 1 });
+  });
+
+  it('drops the 1 once no exclusion is left, rather than turning the projection into an inclusion', () => {
+    const next = on(raw('{"x":0,"_id":1}'), 'x');
+    expect(next.projectionRaw).toBeUndefined();
+    expect(next.projection).toEqual([]);
+  });
+
+  it('unchecking an _id held as a 1 beside exclusions turns that entry into a 0', () => {
+    const next = off(raw('{"x":0,"_id":1}'), '_id');
+    expect(sent(next)).toEqual({ x: 0, _id: 0 });
+  });
+});
+
+describe('toggleProjectionField — an inclusion drops what the field covered', () => {
+  it('unchecking a parent takes its dotted children with it', () => {
+    expect(off(inc('a', 'a.b', 'c'), 'a').projection).toEqual(['c']);
+  });
+});
+
+describe('onlyRemovesFields — fine print', () => {
+  it('a dotted key is covered by each of its ancestors, not by the characters of its name', () => {
+    expect(onlyRemovesFields(inc('a.b'), inc('a.b.c'))).toBe(true);
+    expect(onlyRemovesFields(raw('{"a.b.c":0}'), raw('{"a.b":0}'))).toBe(true);
+    expect(onlyRemovesFields(inc('a.b'), inc('a.c'))).toBe(false);
+  });
+
+  it('an explicit _id: 0 on both sides keeps the rows, since neither fetches _id', () => {
+    expect(onlyRemovesFields(raw('{"a":1,"_id":0}'), raw('{"a":1,"_id":0}'))).toBe(true);
+  });
+
+  it('a 1 on _id is not an exclusion of it', () => {
+    expect(onlyRemovesFields(raw('{"a":1,"_id":0}'), raw('{"a":1,"_id":1}'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":1,"_id":1}'), raw('{"a":1,"_id":0}'))).toBe(true);
+  });
+
+  it('a 1 on _id counts as fetching it, in an inclusion and beside exclusions', () => {
+    expect(onlyRemovesFields(raw('{"a":1,"_id":1}'), inc('a'))).toBe(true);
+    expect(onlyRemovesFields(raw('{"x":0,"_id":1}'), raw('{"x":0,"y":0}'))).toBe(true);
+  });
+
+  it('an exclusion never turns into an inclusion that happens to exclude the same key', () => {
+    expect(onlyRemovesFields(raw('{"_id":0}'), raw('{"a":1,"_id":0}'))).toBe(false);
+  });
+
+  it('operator rows compare by key and value, not by which plain fields surround them or their order', () => {
+    const slices = (first: 'z' | 'y') =>
+      first === 'z'
+        ? '{"x":0,"z":{"$slice":1},"y":{"$slice":2}}'
+        : '{"x":0,"y":{"$slice":2},"z":{"$slice":1}}';
+    expect(onlyRemovesFields(raw(slices('z')), raw(slices('y')))).toBe(true);
+    expect(
+      onlyRemovesFields(raw('{"b":0,"s":{"$slice":3}}'), raw('{"b":0,"c":0,"s":{"$slice":3}}')),
+    ).toBe(true);
+  });
+
+  it('an unreadable next projection never keeps the rows, whatever the one before it was', () => {
+    expect(onlyRemovesFields(none(), raw('{"a":'))).toBe(false);
+    expect(onlyRemovesFields(inc('a'), raw('{"a":'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":0}'), raw('{"a":'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":'), raw('{"a":0}'))).toBe(false);
+    expect(onlyRemovesFields(raw('{"a":'), none())).toBe(false);
+  });
+});
+
+describe('migrateHiddenSeed — fine print', () => {
+  it('a seed whose column config has no hidden list is returned as it came', () => {
+    const seed = { columnConfig: { order: ['a'] } };
+    expect(migrateHiddenSeed(seed)).toBe(seed);
+  });
+
+  it('a hidden list beside an unreadable projection is left alone, the seed itself coming back', () => {
+    const seed = { builder: raw('{"a":'), columnConfig: { hidden: ['a'] } };
+    expect(migrateHiddenSeed(seed)).toBe(seed);
+  });
+});
+
+describe('redactHidden', () => {
+  it('drops the hidden top-level fields from a copy and leaves the document alone', () => {
+    const doc = { _id: 1, a: 'x', b: 'y' };
+    expect(redactHidden(doc, new Set(['a']))).toEqual({ _id: 1, b: 'y' });
+    expect(doc).toEqual({ _id: 1, a: 'x', b: 'y' });
+  });
+
+  it('hands back the very same value when nothing is hidden or the value is not a document', () => {
+    const doc = { a: 1 };
+    expect(redactHidden(doc, new Set())).toBe(doc);
+    expect(redactHidden('text', new Set(['a']))).toBe('text');
+    expect(redactHidden(null, new Set(['a']))).toBeNull();
+    const list = [1];
+    expect(redactHidden(list, new Set(['0']))).toBe(list);
   });
 });

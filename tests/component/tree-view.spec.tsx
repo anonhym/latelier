@@ -105,6 +105,17 @@ describe('TreeView — rendering and interaction', () => {
     expect(rendered.textContent).not.toContain('hidden');
   });
 
+  it('an expanded document leaves out a field the projection excludes', () => {
+    const docs = [
+      { _id: { $oid: '507f1f77bcf86cd799439011' }, visibleField: 'shown-value', leakyField: 'leaky-value' },
+    ];
+    const { container } = renderTree(docs, { excluded: ['leakyField'], expanded: { '507f1f77bcf86cd799439011': true } });
+
+    expect(container.textContent).toContain('shown-value');
+    expect(container.textContent).not.toContain('leakyField');
+    expect(container.textContent).not.toContain('leaky-value');
+  });
+
   it('with no Fields config, the preview falls back to a document\'s own first 4 keys', () => {
     const docs = [{ _id: 1, aa: 1, bb: 2, cc: 3, dd: 4, ee: 5 }];
     const { container } = renderTree(docs);

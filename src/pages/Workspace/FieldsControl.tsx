@@ -199,10 +199,8 @@ export function FieldsControl({
   };
 
   // A dotted path typed in the find box becomes a row (§11.5). Under an
-  // inclusion it is written into the projection, and Table already draws the
-  // parent field that holds it, so a second computed column would repeat it.
-  // Anywhere else it is only a column; so is a path whose parent the
-  // inclusion already brings, which writes nothing.
+  // inclusion it is written into the projection as well, and it is always its
+  // own column so the Table shows the nested value beside the parent field.
   const addPath = (path: string) => {
     if (!settleDraft()) return;
     actions.patchWith((prev) => {
@@ -212,7 +210,7 @@ export function FieldsControl({
         : prev.builder;
       const patch = projectionPatch(prev, builder);
       const had = prev.columnConfig?.computed ?? [];
-      if ((inclusion && builder !== prev.builder) || had.some((c) => c.path === path)) return patch;
+      if (had.some((c) => c.path === path)) return patch;
       const column: ComputedColumn = { id: crypto.randomUUID(), path };
       return { ...patch, columnConfig: { ...prev.columnConfig, computed: [...had, column] } };
     });
@@ -533,6 +531,7 @@ export function FieldsControl({
               onChange={projection.onChange}
               context={suggestionContext}
               mode="token"
+              multiline
               onBlur={projection.commit}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || e.defaultPrevented) return;
@@ -568,6 +567,7 @@ export function FieldsControl({
                 background: 'transparent',
                 color: T.text,
                 outline: 'none',
+                resize: 'none',
               }}
             />
             {projection.message && (

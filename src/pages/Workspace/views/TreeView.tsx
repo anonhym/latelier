@@ -19,7 +19,7 @@ import { useResultSelection } from '../resultSelection';
 import { DocFieldTree, DOC_FIELD_TREE_GRID_TEMPLATE, type FieldMenuOpenPayload } from './DocFieldTree';
 import { getDocId, getFullDocId } from './docId';
 import { deriveColumns, orderFields } from './tableColumns';
-import { projectedOutFields } from '../projection';
+import { projectedOutFields, redactHidden } from '../projection';
 import { SelectToggle } from './SelectToggle';
 import { DocIdLabel } from './DocIdLabel';
 import { copyDocument, copyShortcutOf } from './copyShortcut';
@@ -177,6 +177,9 @@ interface DocRowProps {
   deepPaths: Set<string>;
   copiedPath: string | null;
   previewFields?: string[] | null;
+  // Top-level fields the projection keeps off the wire; the expanded tree
+  // leaves them out, while every action still gets the original document.
+  hiddenFields: Set<string>;
   refsByField?: Map<string, ReferenceRule>;
   onRowExpand: (docId: string, expanded: boolean) => void;
   onEditDoc: (doc: unknown) => void;
@@ -215,6 +218,7 @@ function DocRowImpl({
   deepPaths,
   copiedPath,
   previewFields,
+  hiddenFields,
   refsByField,
   onRowExpand,
   onEditDoc,
@@ -237,6 +241,8 @@ function DocRowImpl({
   const docId = getFullDocId(doc);
   const shortId = getDocId(doc);
   const isExpanded = !!ownGet(expandedRows, docId);
+  // Stable identity per (doc, hidden set), so the field tree keeps its memo.
+  const shownDoc = React.useMemo(() => redactHidden(doc, hiddenFields) as Record<string, unknown>, [doc, hiddenFields]);
   const isSelected = indices.has(index);
   const isActive = index === activeIndex;
   // Same rule as the Table view's actions: shown on hover, on the active row or
@@ -417,7 +423,7 @@ function DocRowImpl({
           attribute) and, since #20, its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
-          doc={doc}
+          doc={shownDoc}
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
@@ -474,14 +480,14 @@ export function TreeView({
     () => projectedOutFields(state.builder, deriveColumns(documents)),
     [state.builder, documents],
   );
+  const hiddenFields = React.useMemo(() => new Set(projectedOut), [projectedOut]);
   const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || projectedOut.length > 0;
   const previewFields = React.useMemo(() => {
     if (!hasFieldConfig) return null;
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
-    const hidden = new Set(projectedOut);
-    return ordered.filter((f) => f !== '_id' && !hidden.has(f));
-  }, [hasFieldConfig, documents, columnConfig?.order, projectedOut]);
+    return ordered.filter((f) => f !== '_id' && !hiddenFields.has(f));
+  }, [hasFieldConfig, documents, columnConfig?.order, hiddenFields]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
@@ -669,6 +675,7 @@ export function TreeView({
       deepPaths,
       copiedPath,
       previewFields,
+      hiddenFields,
       refsByField,
       onRowExpand,
       onEditDoc,
@@ -695,6 +702,7 @@ export function TreeView({
       deepPaths,
       copiedPath,
       previewFields,
+      hiddenFields,
       refsByField,
       onRowExpand,
       onEditDoc,

@@ -73,7 +73,7 @@ function open(initial: CollectionTabState = tabState()) {
     run,
     pill,
     state: () => latest,
-    text: () => (utils.getByTestId('fields-projection') as HTMLInputElement).value,
+    text: () => (utils.getByTestId('fields-projection') as HTMLTextAreaElement).value,
     tag: () => utils.getByTestId('fields-mode-tag').textContent,
     box: (name: string) => utils.getByRole('checkbox', { name }) as HTMLInputElement,
     find: () => utils.getByRole('textbox', { name: 'Find a field' }) as HTMLInputElement,
@@ -196,6 +196,25 @@ describe('FieldsControl — one list, one projection (W14 §11)', () => {
       fireEvent.click(r.box('cherry'));
       expect(Object.keys(JSON.parse(r.state().builder.projectionRaw!))).toEqual(['apple', 'banana', 'cherry']);
       expect(r.tag()).toBe('Excluding 3');
+    });
+
+    it('the text box is two rows tall', () => {
+      const r = open();
+      const box = r.getByTestId('fields-projection') as HTMLTextAreaElement;
+      expect(box.tagName).toBe('TEXTAREA');
+      expect(box.rows).toBe(2);
+    });
+
+    it('Enter commits the text and inserts no newline', () => {
+      const r = open();
+      const box = r.getByTestId('fields-projection');
+      fireEvent.change(box, { target: { value: '{ apple: 0 }' } });
+      // `fireEvent` returns false when the handler called preventDefault, which
+      // is what stops a textarea from taking the newline.
+      const notPrevented = fireEvent.keyDown(box, { key: 'Enter' });
+      expect(notPrevented).toBe(false);
+      expect(JSON.parse(r.state().builder.projectionRaw!)).toEqual({ apple: 0 });
+      expect(r.text()).not.toContain('\n');
     });
   });
 
@@ -403,13 +422,12 @@ describe('FieldsControl — one list, one projection (W14 §11)', () => {
       expect(r.box('address.city').checked).toBe(true);
     });
 
-    it('is written into an inclusion, through the Add button, without a second column for it', () => {
+    it('is written into an inclusion, through the Add button, and is its own column too', () => {
       const r = open(withAddress({ projection: ['name'] }));
       typeFind(r, 'address.city');
       fireEvent.click(r.getByTestId('fields-add-path'));
       expect(r.state().builder.projection).toEqual(['name', 'address.city']);
-      // Table draws `address`, which holds it; a computed column would repeat it.
-      expect(r.state().columnConfig?.computed).toBeUndefined();
+      expect(r.state().columnConfig?.computed).toEqual([expect.objectContaining({ path: 'address.city' })]);
       expect(r.text()).toBe('{ name: 1, address.city: 1 }');
       expect(r.pill().textContent).toBe('Project: 2 fields');
       expect(r.box('address.city').checked).toBe(true);
@@ -457,6 +475,15 @@ describe('FieldsControl — one list, one projection (W14 §11)', () => {
       fireEvent.click(r.box('address.city'));
       expect(r.state().builder.projection).toEqual(['name']);
       expect(r.box('address.city').checked).toBe(false);
+    });
+
+    it('unchecking a dotted path added under an inclusion removes both its entry and its column', () => {
+      const r = open(withAddress({ projection: ['name'] }));
+      typeFind(r, 'address.city');
+      fireEvent.click(r.getByTestId('fields-add-path'));
+      fireEvent.click(r.box('address.city'));
+      expect(r.state().builder.projection).toEqual(['name']);
+      expect(r.state().columnConfig?.computed).toEqual([]);
     });
 
     it('unchecking a dotted column kept beside an included parent removes the column', () => {

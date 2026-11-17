@@ -8,7 +8,7 @@ import {
 } from 'react-window';
 import { I } from '../../../icons';
 import { ejsonStringify } from '../../../utils/ejson';
-import { docKey, isRecord } from '../../../utils/displayValue';
+import { docKey } from '../../../utils/displayValue';
 import { tokenizeJson, type Token, type TokenKind } from '../../../utils/jsonHighlight';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { COPY_ACTION_LABELS, formatDocsForCopy, toMongoshLiteral } from '../../../utils/copyFormat';
@@ -24,27 +24,11 @@ import { useDocMenu } from './useDocMenu';
 import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
 import { deriveColumns } from './tableColumns';
-import { projectedOutFields } from '../projection';
+import { projectedOutFields, redactHidden } from '../projection';
 import { copyShortcutOf } from './copyShortcut';
 
 interface JsonViewProps {
   documents: unknown[];
-}
-
-/**
- * Strip the top-level fields the projection keeps off the wire from a
- * document before it is serialized for display. Rendering-only: every action
- * on the document (Copy, Edit, Delete/Select) is handed the original `doc`,
- * never this redacted copy — hiding a field must never change what gets sent
- * to Mongo or the clipboard. Only top-level paths are handled.
- */
-function redactHidden(doc: unknown, hidden: Set<string>): unknown {
-  if (hidden.size === 0 || !isRecord(doc)) return doc;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(doc)) {
-    if (!hidden.has(key)) out[key] = value;
-  }
-  return out;
 }
 
 function tokenColor(kind: TokenKind): string {

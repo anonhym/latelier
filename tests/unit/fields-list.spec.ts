@@ -127,3 +127,54 @@ describe('isDottedPath', () => {
     expect(isDottedPath('a. b')).toBe(false);
   });
 });
+
+describe('isFieldChecked — fine print', () => {
+  it('an _id kept with a 1 beside exclusions is not an exclusion, so its row stays checked', () => {
+    const info = mode({ projectionRaw: '{"x":0,"_id":1}' });
+    expect(info.mode).toBe('exclusion');
+    expect(isFieldChecked(info, '_id')).toBe(true);
+    expect(isFieldChecked(info, 'x')).toBe(false);
+  });
+
+  it('an _id kept with a 1 is checked, and only an _id of 0 unchecks it', () => {
+    expect(isFieldChecked(mode({ projectionRaw: '{"_id":1,"a":1}' }), '_id')).toBe(true);
+  });
+
+  it('with several exclusions, each one unchecks its own row', () => {
+    const info = mode({ projectionRaw: '{"a":0,"b":0}' });
+    expect(isFieldChecked(info, 'a')).toBe(false);
+    expect(isFieldChecked(info, 'b')).toBe(false);
+    expect(isFieldChecked(info, 'a.x')).toBe(false);
+    expect(isFieldChecked(info, 'c')).toBe(true);
+  });
+});
+
+describe('fieldType — fine print', () => {
+  it('reads no further than the first 50 documents', () => {
+    const docs: unknown[] = Array.from({ length: 50 }, () => ({}));
+    docs.push({ late: 1 });
+    expect(fieldType(docs, 'late')).toBeNull();
+    expect(fieldType(docs.slice(1), 'late')).not.toBeNull();
+  });
+
+  it('skips a result that is not a document', () => {
+    expect(fieldType(['abc', 7, null, ['z']], '0')).toBeNull();
+    expect(fieldType([null, { a: 1 }], 'a')).not.toBeNull();
+  });
+
+  it('moves on from a document whose field is undefined to one that holds a value', () => {
+    expect(fieldType([{ a: undefined }, { a: 'text' }], 'a')).toBe(fieldType([{ a: 'text' }], 'a'));
+    expect(fieldType([{ a: undefined }], 'a')).toBeNull();
+  });
+});
+
+describe('operatorLabel — fine print', () => {
+  it('reads a null value without looking for operator keys', () => {
+    expect(operatorLabel(null)).toBe('null');
+  });
+
+  it('shows a one-key document whole unless that key is an operator', () => {
+    expect(operatorLabel({ x: 1 })).toBe('{"x":1}');
+    expect(operatorLabel({ $slice: 3 })).toBe('$slice: 3');
+  });
+});
