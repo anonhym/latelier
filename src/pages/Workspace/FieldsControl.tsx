@@ -157,6 +157,7 @@ export function FieldsControl({
    * A click on the list commits a pending draft first. A refused draft means
    * the click does nothing: the list never overwrites what is being typed.
    */
+  const leftoverHidden = state.columnConfig?.hidden ?? [];
   const settleDraft = (): boolean => !listDisabled && projection.commit() !== null;
 
   // A checkbox writes the projection (W14 §11.3), and the rows stay current
@@ -170,7 +171,20 @@ export function FieldsControl({
       // already returned, and an exclusion of it would be a different thing.
       const writes = checked || !isColumn || projectionMode(prev.builder).mode === 'inclusion';
       const builder = writes ? toggleProjectionField(prev.builder, field, checked, orderedFields) : prev.builder;
-      const patch = { ...projectionPatch(prev, builder), ...remembered(prev) };
+      const written = { ...projectionPatch(prev, builder), ...remembered(prev) };
+      // A name the migration left in the old hidden list (an operator stood in
+      // the way) is shown again by checking it.
+      const leftover = prev.columnConfig?.hidden;
+      const patch =
+        checked && leftover?.includes(field)
+          ? {
+              ...written,
+              columnConfig: {
+                ...(written.columnConfig ?? prev.columnConfig),
+                hidden: leftover.filter((f) => f !== field),
+              },
+            }
+          : written;
       if (checked || !isColumn) return patch;
       const base = patch.columnConfig ?? prev.columnConfig;
       return {
@@ -415,7 +429,7 @@ export function FieldsControl({
             style={{ maxHeight: 260, overflowY: 'auto', opacity: listDisabled ? 0.5 : 1 }}
           >
             {shownFields.map(({ field, index }) => {
-              const checked = isFieldChecked(info, field);
+              const checked = isFieldChecked(info, field) && !leftoverHidden.includes(field);
               const lockedEntry = info.locked.includes(field)
                 ? info.entries.find(([k]) => k === field)
                 : undefined;

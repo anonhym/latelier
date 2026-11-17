@@ -1217,10 +1217,13 @@ export function TableView({
 
   const derivedFields = React.useMemo(() => deriveColumns(documents), [documents]);
   const projectedOut = React.useMemo(
-    () => projectedOutFields(state.builder, derivedFields),
-    [state.builder, derivedFields],
+    () => projectedOutFields(state.builder, derivedFields, state.columnConfig?.hidden),
+    [state.builder, derivedFields, state.columnConfig?.hidden],
   );
-  const hide = React.useMemo(() => projectionHider(state.builder), [state.builder]);
+  const hide = React.useMemo(
+    () => projectionHider(state.builder, state.columnConfig?.hidden),
+    [state.builder, state.columnConfig?.hidden],
+  );
   const pathDropped = React.useMemo(() => projectionPathHider(state.builder), [state.builder]);
   const columns = React.useMemo(
     () => resolveColumns(derivedFields, columnConfig, projectedOut, pathDropped),

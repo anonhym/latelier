@@ -220,9 +220,13 @@ export function notFetchedFields(builder: BuilderState, known: readonly string[]
  * them off the wire (W14 §11.4). Takes an optional builder so a surface that
  * has none (a script tab's result views) hides nothing instead of crashing.
  */
-export function projectedOutFields(builder: BuilderState | undefined, known: readonly string[]): string[] {
-  if (!builder) return [];
-  return notFetchedFields(builder, known).filter((f) => known.includes(f));
+export function projectedOutFields(
+  builder: BuilderState | undefined,
+  known: readonly string[],
+  leftover: readonly string[] = [],
+): string[] {
+  const out = builder ? notFetchedFields(builder, known).filter((f) => known.includes(f)) : [];
+  return [...out, ...leftover.filter((f) => known.includes(f) && !out.includes(f))];
 }
 
 /**
@@ -231,9 +235,17 @@ export function projectedOutFields(builder: BuilderState | undefined, known: rea
  * view that redacts each document does not depend on the 50-document sample the
  * column list is derived from: an exclusion hides its named fields wherever
  * they turn up, and an inclusion hides every key it does not fetch.
+ * `leftover` is a saved tab's hidden list the migration could not write into
+ * the projection (an operator stood in the way): those stay hidden until the
+ * projection can say so itself.
  */
-export function projectionHider(builder: BuilderState | undefined): FieldHider | null {
-  return builder ? (fetchRule(builder)?.hide ?? null) : null;
+export function projectionHider(
+  builder: BuilderState | undefined,
+  leftover: readonly string[] = [],
+): FieldHider | null {
+  const hide = builder ? (fetchRule(builder)?.hide ?? null) : null;
+  if (leftover.length === 0) return hide;
+  return (key) => leftover.includes(key) || (hide?.(key) ?? false);
 }
 
 /**

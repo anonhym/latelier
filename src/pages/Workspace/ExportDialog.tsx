@@ -71,7 +71,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
       resolveColumns(
         derived,
         state.columnConfig,
-        projectedOutFields(state.builder, derived),
+        projectedOutFields(state.builder, derived, state.columnConfig?.hidden),
         projectionPathHider(state.builder),
       ),
     );
@@ -80,7 +80,7 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const exportPage = async () => {
     // The page's rows stay on screen after a field is unchecked, so the file
     // leaves out what the query no longer returns, as the views do.
-    const hide = projectionHider(state.builder);
+    const hide = projectionHider(state.builder, state.columnConfig?.hidden);
     const rows = documents.map((d) => redactHidden(d, hide));
     const content =
       format === 'csv'

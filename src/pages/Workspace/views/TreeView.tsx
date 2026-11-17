@@ -478,7 +478,10 @@ export function TreeView({
   const columnConfig = state.columnConfig;
   // Redacted per document, not by the column list's 50-document sample, so a
   // field first seen on a later row is hidden too.
-  const hide = React.useMemo(() => projectionHider(state.builder), [state.builder]);
+  const hide = React.useMemo(
+    () => projectionHider(state.builder, state.columnConfig?.hidden),
+    [state.builder, state.columnConfig?.hidden],
+  );
   const hasHidden = React.useMemo(() => hiddenFieldNames(documents, hide).length > 0, [documents, hide]);
   const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || hasHidden;
   const previewFields = React.useMemo(() => {

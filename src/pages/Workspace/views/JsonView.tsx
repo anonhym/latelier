@@ -481,7 +481,10 @@ export function JsonView({ documents }: JsonViewProps) {
   // (`resolveColumns`) — display-only, so Copy/Edit/Delete below always act on
   // the untouched `doc`. Redacted per document rather than by the column list's
   // 50-document sample, so a field first seen on a later card is hidden too.
-  const hide = React.useMemo(() => projectionHider(state.builder), [state.builder]);
+  const hide = React.useMemo(
+    () => projectionHider(state.builder, state.columnConfig?.hidden),
+    [state.builder, state.columnConfig?.hidden],
+  );
   const hiddenNames = React.useMemo(() => hiddenFieldNames(documents, hide), [documents, hide]);
   // T0.4 — selection lifted to the shared cross-view context (index-based,
   // scoped to the enclosing <ResultViewer>); falls back to local state when

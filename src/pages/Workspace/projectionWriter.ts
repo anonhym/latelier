@@ -187,7 +187,8 @@ export function onlyRemovesFields(prev: BuilderState, next: BuilderState): boole
     const nextFetchesId = !excludedKeys(b).has('_id');
     const prevFetchesId = !excludedKeys(a).has('_id');
     return (
-      [...nextKept].every((k) => kept.has(k)) &&
+      // The old query fetched `_id` without naming it, so naming it fetches nothing new.
+      [...nextKept].every((k) => kept.has(k) || (k === '_id' && prevFetchesId)) &&
       [...kept].filter((k) => !nextKept.has(k)).every(topLevel) &&
       (!nextFetchesId || prevFetchesId)
     );

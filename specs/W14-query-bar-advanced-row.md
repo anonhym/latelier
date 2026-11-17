@@ -537,7 +537,7 @@ A dotted path row is a column in Table, as a computed column is today, and Tree 
 
 ### 11.6 Tabs saved before this change
 
-On load, a tab whose `columnConfig.hidden` is non-empty and whose builder has no projection gets the equivalent exclusion (`{ address: 0, notes: 0 }`) in `builder.projectionRaw`, and its hidden list is cleared. Those fields were not shown anyway, so the rows stay current: the migration rewrites `lastRunQueryKey` with the builder, and no "not current" strip appears. A tab with both keeps its projection, and each hidden field the projection still returns is unchecked as §11.3 describes (removed from an inclusion, added to an exclusion); then the hidden list is cleared. Saved queries are untouched: they never held a hidden list.
+On load, a tab whose `columnConfig.hidden` is non-empty and whose builder has no projection gets the equivalent exclusion (`{ address: 0, notes: 0 }`) in `builder.projectionRaw`, and its hidden list is cleared. Those fields were not shown anyway, so the rows stay current: the migration rewrites `lastRunQueryKey` with the builder, and no "not current" strip appears. A tab with both keeps its projection, and each hidden field the projection still returns is unchecked as §11.3 describes (removed from an inclusion, added to an exclusion); then the hidden list is cleared. A hidden field carrying its own operator (`tags: { $slice: 2 }`), or one inside it, is excluded and that operator goes, since it shaped nothing shown; an inclusion left with no named field keeps `_id` alone. A name that still cannot be written (an operator on its parent, or an inclusion that also excludes `_id`) stays in the hidden list: the views keep hiding it, its row reads unchecked, and checking it removes it from the list. Saved queries are untouched: they never held a hidden list.
 
 ### 11.7 Saved queries and export
 
@@ -545,7 +545,7 @@ A saved query keeps the projection as before, so it now reopens with the fields 
 
 ### 11.8 What goes
 
-The "Show in results" section and its help line, the "Fetch only these fields from the server" heading, the computed-column `Add` field (a dotted path is typed in the find box), the pill's hidden-column badge, and every write to `columnConfig.hidden`. `columnConfig.hidden` stays readable for §11.6 only.
+The "Show in results" section and its help line, the "Fetch only these fields from the server" heading, the computed-column `Add` field (a dotted path is typed in the find box), the pill's hidden-column badge, and every write that adds to `columnConfig.hidden`. `columnConfig.hidden` stays readable for §11.6 only: the migration and the views read the names it could not write, and checking such a row removes it.
 
 ### 11.9 Acceptance criteria
 
@@ -559,7 +559,7 @@ The "Show in results" section and its help line, the "Fetch only these fields fr
 - Tree and JSON hide the fields the projection keeps off the wire, as Table does.
 - Unchecking a field does not show the "not current" strip; checking a field the last run did not fetch does.
 - A tab saved with a hidden list and no projection opens with the equivalent exclusion and the same fields shown.
-- No code path writes `columnConfig.hidden`.
+- No code path adds a name to `columnConfig.hidden`; only the migration and checking a leftover row shrink it.
 - The pill shows no badge for display state.
 
 ### 11.10 Test cases

@@ -218,6 +218,18 @@ describe('FieldsControl — one list, one projection (W14 §11)', () => {
     });
   });
 
+  describe('a name left in the old hidden list', () => {
+    it('reads unchecked, and checking it shows the field again', () => {
+      const r = open(tabState({ columnConfig: { hidden: ['apple'] } }));
+      expect(r.box('apple').checked).toBe(false);
+      expect(r.box('banana').checked).toBe(true);
+      fireEvent.click(r.box('apple'));
+      expect(r.state().columnConfig?.hidden).toEqual([]);
+      expect(r.box('apple').checked).toBe(true);
+      expect(r.state().builder.projectionRaw).toBeUndefined();
+    });
+  });
+
   describe('a locked operator row', () => {
     const sliced = () => tabState({}, { projectionRaw: '{"banana":{"$slice":3}}' });
 

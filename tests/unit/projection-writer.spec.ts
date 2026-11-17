@@ -381,6 +381,11 @@ describe('onlyRemovesFields', () => {
     expect(onlyRemovesFields(inc('a.b', 'c'), inc('a.b'))).toBe(true);
   });
 
+  it('unchecking the last field of an inclusion keeps the rows: _id came back unnamed before', () => {
+    expect(onlyRemovesFields(inc('a'), inc('_id'))).toBe(true);
+    expect(onlyRemovesFields(raw('{"a":1,"_id":0}'), inc('_id'))).toBe(false);
+  });
+
   it('a dotted path is covered by its parent', () => {
     // Narrowing to a dotted path leaves the rest of `a` drawn: the views hide
     // whole top-level fields only, so the rows can no longer read as current.
@@ -787,6 +792,30 @@ describe('toggleProjectionField beside an operator row', () => {
   it('still toggles an unrelated field beside the operator', () => {
     const b = raw('{"address.items":{"$slice":2}}');
     expect(toggleProjectionField(b, 'notes', false, []).projectionRaw).toBe('{"address.items":{"$slice":2},"notes":0}');
+  });
+});
+
+describe('a leftover hidden list beside the projection', () => {
+  it('projectionHider hides a leftover name and still what the projection drops', () => {
+    const hide = projectionHider(raw('{"notes":0}'), ['tags'])!;
+    expect(hide('tags')).toBe(true);
+    expect(hide('notes')).toBe(true);
+    expect(hide('name')).toBe(false);
+  });
+
+  it('projectionHider with no projection hides only the leftover names', () => {
+    const hide = projectionHider(none(), ['tags'])!;
+    expect(hide('tags')).toBe(true);
+    expect(hide('name')).toBe(false);
+    expect(projectionHider(none(), [])).toBeNull();
+  });
+
+  it('projectedOutFields adds a leftover name the columns know, once', () => {
+    expect(projectedOutFields(raw('{"notes":0}'), ['_id', 'notes', 'tags'], ['tags', 'notes', 'zzz'])).toEqual([
+      'notes',
+      'tags',
+    ]);
+    expect(projectedOutFields(undefined, ['tags'], ['tags'])).toEqual(['tags']);
   });
 });
 
