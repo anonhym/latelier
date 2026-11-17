@@ -1,6 +1,6 @@
 # W14 — Query bar advanced row: correctness, affordance, projection
 
-> **Status: Accepted.** §1–§10 shipped; §11 is accepted, not built, and supersedes §4's Decision; the option pills of [W05 §9](./W05-query-bar.md) replaced the `QUERY` disclosure, and the grid survives behind a per-tab "Keep options expanded".
+> **Status: Accepted.** §1–§11 shipped; §11 supersedes §4's Decision; the option pills of [W05 §9](./W05-query-bar.md) replaced the `QUERY` disclosure, and the grid survives behind a per-tab "Keep options expanded".
 
 ## Purpose
 
@@ -497,7 +497,7 @@ collapsed badge counts set options and their problems (§2).
 
 ## 11. Amendment — one Fields control: the projection is what you see
 
-> **Accepted, not built.** It supersedes §4's Decision and the display half of the Fields control. Reviewed and agreed in Claude Design, on the canvas "Fields control split", page "Merged: one Fields control" (boards M1, M2 and Decisions). It builds on [W05 §10](./W05-query-bar.md) and keeps the `Project` pill and its folded `Options` entry.
+> **Implemented.** It supersedes §4's Decision and the display half of the Fields control. Reviewed and agreed in Claude Design, on the canvas "Fields control split", page "Merged: one Fields control" (boards M1, M2 and Decisions). It builds on [W05 §10](./W05-query-bar.md) and keeps the `Project` pill and its folded `Options` entry.
 
 ### 11.1 Why
 
