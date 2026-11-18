@@ -17,7 +17,7 @@ export function RegexOptionToggles({
   placement: React.CSSProperties;
 }) {
   return (
-    <div role="group" aria-label="Pattern options" style={{ ...placement, display: 'flex', gap: 4 }}>
+    <div role="group" aria-label="Pattern options" style={{ ...placement, display: 'flex', gap: T.gapXs }}>
       {REGEX_OPTIONS.map(({ letter, label }) => {
         const on = options.includes(letter);
         return (

@@ -1394,6 +1394,8 @@ describe('Filter drawer — starter templates', () => {
     mountWith(makeState(), { sampleSchema });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Contains text (any case)' }));
+    // The starter's pattern is empty, so a typed one stands for "already holds a value".
+    fireEvent.change(await screen.findByPlaceholderText('value'), { target: { value: 'ab' } });
     const field = await screen.findByPlaceholderText('field');
     fireEvent.focus(field);
     fireEvent.click(await screen.findByRole('option', { name: /qty/ }));
