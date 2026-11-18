@@ -11,7 +11,8 @@ export function useGrowToLines(
   maxLines: number,
   minLines = 0,
 ): void {
-  React.useLayoutEffect(() => {
+  // One sizing pass; the layout effect and the width observer share it.
+  const size = React.useCallback(() => {
     const el = ref.current;
     if (!el) return;
     const style = window.getComputedStyle(el);
@@ -24,5 +25,24 @@ export function useGrowToLines(
     const floor = minLines > 0 ? lineHeight * minLines + pad : 0;
     el.style.height = `${Math.min(Math.max(el.scrollHeight, floor), cap)}px`;
     el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
-  }, [ref, text, maxLines, minLines]);
+  }, [ref, maxLines, minLines]);
+
+  React.useLayoutEffect(size, [size, text]);
+
+  // Narrowing the box re-wraps the text without changing it, so the text
+  // dependency above never fires. The box's own width is what moves; the
+  // height this pass sets does not change the width, so it cannot loop.
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let width = el.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const next = el.getBoundingClientRect().width;
+      if (next === width) return;
+      width = next;
+      size();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, size]);
 }

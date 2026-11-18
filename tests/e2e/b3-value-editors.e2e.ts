@@ -97,6 +97,39 @@ test('value editors keep their caps at a 400px Inspector', async () => {
   });
 });
 
+test('a wrapped value box grows when the Inspector is narrowed, with no edit', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await win.setViewportSize({ width: 1600, height: 900 });
+
+    await seedActiveConnectionWithDocs(
+      win,
+      { ...baseConnInput(host, port), name: 'Narrow Grow Target' },
+      { dbName: 'shop', collection: 'orders', docs: MIXED_DOCS },
+    );
+
+    const ws = new WorkspacePage(win);
+    await ws.openCollectionFromNavigator('shop', 'orders');
+    await expect(win.getByText('"c0"').first()).toBeVisible({ timeout: 8000 });
+    await ws.openBuilder();
+    await resizePanel(win, 800);
+    await win.getByRole('button', { name: 'Add condition', exact: true }).click();
+    await win.getByPlaceholder('field', { exact: true }).first().fill('label');
+    const text = win.getByPlaceholder('value', { exact: true }).first();
+    await text.fill('a rather long value that wraps onto lines of the box '.repeat(1));
+    const wide = (await rect(text)).height;
+
+    // Narrowing re-wraps the same text. Nothing is typed, so only the width
+    // change can make the box taller.
+    await resizePanel(win, 330);
+    await expect.poll(async () => (await rect(text)).height, { message: 'the box grew with the narrower width' })
+      .toBeGreaterThan(wide + 1);
+  });
+});
+
 test('a few long chips that wrap past three lines still offer "Show all"', async () => {
   const { host, port } = await startMemoryServer();
 
