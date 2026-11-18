@@ -820,13 +820,14 @@ function CondRow({
     '16px',
     `minmax(${hasSwitch ? 64 : 96}px, ${valueOnFirstLine ? '2fr' : '1fr'})`,
     `${opWidth}px`,
-    ...(valueOnFirstLine ? ['minmax(0, 3fr)'] : hasSwitch ? ['auto'] : []),
+    ...(valueOnFirstLine ? ['minmax(0, 3fr)'] : hasSwitch ? ['var(--sw-w)'] : []),
     '24px',
   ].join(' ');
   const firstLine: React.CSSProperties = { gridRow: 1, opacity: dim, minWidth: 0 };
 
   return (
     <div
+      className="cond-row"
       onDragOver={rowDrop.onDragOver}
       onDrop={rowDrop.onDrop}
       data-row-path={pathKey(path)}
@@ -842,7 +843,10 @@ function CondRow({
         transition: 'background 120ms, box-shadow 120ms',
       }}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: columns, columnGap: T.gapXs, alignItems: 'center' }}>
+      <div
+        className={hasSwitch ? 'cond-switch-grid' : undefined}
+        style={{ display: 'grid', gridTemplateColumns: columns, columnGap: T.gapXs, alignItems: 'center' }}
+      >
         <div style={{ gridRow: 1, gridColumn: 1, display: 'flex', alignItems: 'center' }}>
         <IncludeBox
           node={node}

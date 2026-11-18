@@ -288,3 +288,25 @@ a { text-decoration: none; }
 :is([role='row'], [role='treeitem']):hover [data-select-toggle],
 :is([role='row'], [role='treeitem']):focus-within [data-select-toggle],
 [data-has-selection] [data-select-toggle] { opacity: 1; }
+
+/* A condition row's two-way switch (boolean, $exists) sits on the row's first
+   line when the row is wide enough for field + operator + switch + menu (about
+   312px), and otherwise takes the value box's place on the second line, so a
+   row never exceeds its container. The row is the query container. */
+.cond-row { container-type: inline-size; }
+.cond-switch-grid {
+  --sw-w: 0px;
+  --sw-row: 2;
+  --sw-col: 2 / -2;
+  --sw-mt: var(--atelier-gap-xs);
+  --sw-note-row: 3;
+}
+@container (min-width: 320px) {
+  .cond-switch-grid {
+    --sw-w: auto;
+    --sw-row: 1;
+    --sw-col: 4;
+    --sw-mt: 0px;
+    --sw-note-row: 2;
+  }
+}

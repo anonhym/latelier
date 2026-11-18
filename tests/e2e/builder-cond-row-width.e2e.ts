@@ -194,3 +194,45 @@ test('the value box moves beside the operator from a 560px panel, not before', a
     expect(await besideOperator()).toBe(false);
   });
 });
+
+test('boolean and $exists rows stay inside a 320px Inspector, at the root and nested two groups deep', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await win.setViewportSize({ width: 1600, height: 900 });
+    await seedActiveConnectionWithDocs(
+      win,
+      { ...baseConnInput(host, port), name: 'Narrow Switch Target' },
+      { dbName: 'shop', collection: 'orders', docs: [{ name: 'doc-1' }] },
+    );
+    const ws = new WorkspacePage(win);
+    await ws.openCollectionFromNavigator('shop', 'orders');
+    await expect(win.getByText('doc-1')).toBeVisible({ timeout: 8000 });
+    await ws.openBuilder();
+    await resizePanel(win, 320);
+
+    const filter =
+      '{"$and":[{"a":{"$exists":true}},{"b":{"$eq":true}},' +
+      '{"$or":[{"c":{"$exists":false}},{"d":{"$eq":false}},' +
+      '{"$and":[{"e":{"$exists":true}},{"f":{"$eq":true}}]}]}]}';
+    await win.getByTestId('query-bar-input').fill(filter);
+    await expect(win.getByPlaceholder('field', { exact: true })).toHaveCount(6);
+
+    const panel = await rect(win.getByTestId('inspector'));
+    expect(panel.width).toBeLessThan(330);
+    const rows = win.locator('[data-row-path]');
+    for (let i = 0; i < 6; i++) {
+      const row = rows.nth(i);
+      const fits = await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+      expect(fits, `row ${i} does not overflow its container`).toBe(true);
+      const menu = await rect(row.getByRole('button', { name: /^Condition options / }));
+      expect(menu.x + menu.width, `row ${i} menu inside the panel`).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+      const toggle = await rect(row.getByRole('radiogroup', { name: 'Value' }));
+      const field = await rect(row.getByPlaceholder('field', { exact: true }));
+      if (i >= 2) expect(toggle.y, `row ${i} switch dropped under line 1`).toBeGreaterThan(field.y + field.height - 1);
+      expect(toggle.x + toggle.width, `row ${i} switch inside the panel`).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+    }
+  });
+});

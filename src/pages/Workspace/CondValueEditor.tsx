@@ -276,7 +276,7 @@ export function CondValueEditor({
     const first = kind === 'exists' ? node.value.trim() !== 'false' : node.value === 'true';
     return (
       <>
-        <div style={{ gridRow: 1, gridColumn: 4, opacity: dim }}>
+        <div style={{ gridRow: 'var(--sw-row)', gridColumn: 'var(--sw-col)', marginTop: 'var(--sw-mt)', opacity: dim }}>
           <SegmentedControl
             aria-label="Value"
             size="xs"
@@ -290,7 +290,7 @@ export function CondValueEditor({
             }}
           />
         </div>
-        {errorNote && <div style={bareNotePlacement}>{errorNote}</div>}
+        {errorNote && <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)' }}>{errorNote}</div>}
       </>
     );
   }
