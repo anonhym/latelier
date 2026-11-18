@@ -7,7 +7,7 @@ import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPop
 import { DEFAULT_VALUE_SOURCES } from '../../features/fieldSuggestions/sources';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import { VALUE_SUGGESTION_OPS } from '../../features/fieldSuggestions/operators';
-import type { CondNode, ValType } from '@shared/types';
+import type { CondNode, SchemaSampleEntry, ValType } from '@shared/types';
 import { ARRAY_VALUE_OPS, SIMPLE_OPS } from './filterTree';
 import {
   DATE_PRESETS,
@@ -24,6 +24,17 @@ import {
 import { objectIdTimestamp, formatLocalDateTime } from './objectIdDate';
 import { pickHelperLine, type HelperCandidate } from './helperLine';
 import { splitPastedList } from './listPaste';
+import { fieldTypeSplit, type TypeShare } from './fieldTypeSplit';
+import {
+  MATCH_EITHER_OPTIONS,
+  eitherPlan,
+  isEitherRow,
+  isMixedSplit,
+  mixedHint,
+  noEditorText,
+  noEditorType,
+  valTypeOfSampled,
+} from './mixedField';
 
 
 /**
@@ -59,33 +70,67 @@ export interface ValueNotice {
   onAction: () => void;
 }
 
+/** A helper line that may carry one action, shown as a button after the text. */
+type NoticeCandidate = HelperCandidate & { notice?: ValueNotice };
+
+/** The dot's colours: the two types a mixed field holds, by their usual colour; any other type is neutral. */
+const TYPE_DOT_COLORS: Readonly<Record<string, string>> = { string: '#1b6e20', number: '#1565c0' };
+const TYPE_DOT_NEUTRAL = '#8a8a8a';
+
+function typeDotColor(type: string): string {
+  return TYPE_DOT_COLORS[type] ?? TYPE_DOT_NEUTRAL;
+}
+
+/** What the chip menu shows for a field that holds two kinds. */
+interface MixedChipMenu {
+  /** The sampled types that have an editor, most common first. */
+  sampled: { valType: ValType; share: number }[];
+  /** The "either" entry, when both commonest types can hold the value. */
+  either: { label: string; onPick: () => void } | null;
+  /** The row is the `$in` that "either" makes. */
+  eitherActive: boolean;
+}
+
 /**
  * The type as a small chip at the right end of the value box. A real button,
  * so it takes focus and opens a menu of the types; picking one is the same
- * change the type select used to make.
+ * change the type select used to make. A mixed field adds a two-colour dot
+ * and lists the types it holds first, each with its share of the sample.
  */
 function TypeChip({
   valType,
+  label,
   disabled,
   onChange,
   flash,
+  split,
+  menu,
 }: {
   valType: ValType;
+  /** What the chip reads when it is not the row's own type (a sampled type with no editor, "either"). */
+  label?: string;
   disabled: boolean;
   onChange: (vt: ValType) => void;
   /** Counts the times the field named a type for this row; each one flashes the chip once. */
   flash: number;
+  /** The two commonest sampled types, when the field is mixed: the chip shows a dot of their colours. */
+  split?: readonly TypeShare[];
+  menu?: MixedChipMenu;
 }) {
   const T = themeVars;
+  const shown = label ?? valType;
+  const sampledTypes = new Set(menu?.sampled.map((s) => s.valType));
+  const first = split?.[0];
+  const second = split?.[1];
   return (
-    <Menu position="bottom-end" shadow="md" width={120} disabled={disabled}>
+    <Menu position="bottom-end" shadow="md" width={menu ? 220 : 120} disabled={disabled}>
       <Menu.Target>
         <button
           // A new key restarts the animation for every flash, not only the first.
           key={flash}
           type="button"
           className={flash > 0 ? 'type-chip-flash' : undefined}
-          aria-label={`Value type: ${valType}`}
+          aria-label={`Value type: ${shown}`}
           disabled={disabled}
           style={{
             flexShrink: 0,
@@ -99,16 +144,62 @@ function TypeChip({
             fontSize: T.fsXs,
             lineHeight: '20px',
             cursor: disabled ? 'default' : 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: T.gapXs,
           }}
         >
-          {valType}
+          {first && second && (
+            <span
+              data-type-split-dot=""
+              data-colors={`${typeDotColor(first.type)} ${typeDotColor(second.type)}`}
+              aria-hidden="true"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                flexShrink: 0,
+                background: `conic-gradient(${typeDotColor(first.type)} 0 ${first.share}%, ${typeDotColor(second.type)} 0)`,
+              }}
+            />
+          )}
+          {shown}
         </button>
       </Menu.Target>
       <Menu.Dropdown>
-        {VAL_TYPES.map((vt) => (
+        {menu && (
+          <>
+            {menu.sampled.map((s) => (
+              <Menu.Item
+                key={`sampled-${s.valType}`}
+                aria-current={!menu.eitherActive && s.valType === valType ? 'true' : undefined}
+                fw={!menu.eitherActive && s.valType === valType ? 700 : undefined}
+                rightSection={
+                  <span style={{ fontSize: T.fsXs, color: T.textMuted }}>{s.share}% of sample</span>
+                }
+                onClick={() => onChange(s.valType)}
+              >
+                {s.valType}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+            {menu.either && (
+              <Menu.Item
+                aria-current={menu.eitherActive ? 'true' : undefined}
+                fw={menu.eitherActive ? 700 : undefined}
+                onClick={menu.either.onPick}
+              >
+                either ({menu.either.label})
+              </Menu.Item>
+            )}
+          </>
+        )}
+        {VAL_TYPES.filter((vt) => !sampledTypes.has(vt)).map((vt) => (
           <Menu.Item
             key={vt}
-            aria-current={vt === valType ? 'true' : undefined}
+            data-dimmed={menu ? '' : undefined}
+            style={menu ? { opacity: 0.55 } : undefined}
+            aria-current={!menu?.eitherActive && vt === valType ? 'true' : undefined}
             fw={vt === valType ? 700 : undefined}
             onClick={() => onChange(vt)}
           >
@@ -236,6 +327,7 @@ export function CondValueEditor({
   dim,
   notice,
   typeFlash = 0,
+  sampleEntry,
 }: {
   node: CondNode;
   readOnly: boolean;
@@ -250,9 +342,12 @@ export function CondValueEditor({
   notice?: ValueNotice | null;
   /** Bumps when the field gave the row a type, to flash the chip once. */
   typeFlash?: number;
+  /** What the sample holds for this row's field; absent when the field was not sampled. */
+  sampleEntry?: SchemaSampleEntry;
 }) {
   const T = themeVars;
   const kind = condValueKind(node);
+  const split = React.useMemo(() => (sampleEntry ? fieldTypeSplit(sampleEntry) : []), [sampleEntry]);
   const isListOp = ARRAY_VALUE_OPS.has(node.op);
   const chips = isListOp ? chipsFromValue(node.value, node.valType) : null;
   // A list shows as chips until the person asks for the JSON, or starts
@@ -335,8 +430,8 @@ export function CondValueEditor({
   // next most urgent thing to say.
   // `footer` is information with a control in it (the chip count and its
   // button), so it takes the line only where an info line could.
-  const noticeCandidate: HelperCandidate | null = notice ? { kind: notice.kind, text: notice.text } : null;
-  const helperNote = (candidates: (HelperCandidate | null)[], footer?: React.ReactNode) => {
+  const noticeCandidate: NoticeCandidate | null = notice ? { kind: notice.kind, text: notice.text, notice } : null;
+  const helperNote = (candidates: (NoticeCandidate | null)[], footer?: React.ReactNode) => {
     const picked = pickHelperLine([
       problem ? { kind: 'error', text: problem } : null,
       noticeCandidate,
@@ -345,20 +440,21 @@ export function CondValueEditor({
     ]);
     if (!picked) return null;
     if (picked.kind === 'error') return <div style={notesPlacement}>{errorNote}</div>;
-    if (notice && picked === noticeCandidate) {
+    const pickedNotice = (picked as NoticeCandidate).notice;
+    if (pickedNotice) {
       // Not hidden from assistive tech: it holds a button, and is a change worth announcing.
       return (
         <div role="status" style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>
-          {notice.text} ·{' '}
+          {pickedNotice.text} ·{' '}
           <Button
             variant="subtle"
             color="gray"
             size="compact-xs"
             disabled={readOnly}
-            onClick={notice.onAction}
+            onClick={pickedNotice.onAction}
             styles={{ root: { fontSize: T.fsXs, padding: '0 4px', height: 'auto' } }}
           >
-            {notice.actionLabel}
+            {pickedNotice.actionLabel}
           </Button>
         </div>
       );
@@ -414,7 +510,38 @@ export function CondValueEditor({
     );
   }
 
-  const chip = <TypeChip valType={node.valType} disabled={readOnly} onChange={onTypeChange} flash={typeFlash} />;
+  // A field that holds two kinds (no type at 90%): the chip shows a dot, and
+  // the menu lists the kinds sampled first. Only a single-value comparison has
+  // a value to read, so a list or a switch keeps the plain chip.
+  const simpleOp = SIMPLE_OPS.has(node.op);
+  const mixed = isMixedSplit(split);
+  const either = mixed && simpleOp && MATCH_EITHER_OPTIONS.offered ? eitherPlan(split, node.value, node.valType) : null;
+  const matchEither = either ? () => onPatch(either.patch) : null;
+  const eitherActive = mixed && chips !== null && node.valType === 'array' && isEitherRow(chips, split);
+  // A sampled type with no editor is typed as text; the chip says what it really is.
+  const noEditor = simpleOp && node.valType === 'string' ? noEditorType(split) : null;
+  const chip = (
+    <TypeChip
+      valType={node.valType}
+      label={eitherActive ? 'either' : (noEditor ?? undefined)}
+      disabled={readOnly}
+      onChange={onTypeChange}
+      flash={typeFlash}
+      split={mixed ? split : undefined}
+      menu={
+        mixed
+          ? {
+              sampled: split.flatMap((s) => {
+                const vt = valTypeOfSampled(s.type);
+                return vt === null ? [] : [{ valType: vt, share: s.share }];
+              }),
+              either: either && matchEither ? { label: either.label, onPick: matchEither } : null,
+              eitherActive,
+            }
+          : undefined
+      }
+    />
+  );
   // The chip stays at the box's first line when chips wrap it taller.
   const chipSlot = <div style={{ flexShrink: 0, paddingTop: 4, display: 'flex' }}>{chip}</div>;
 
@@ -522,6 +649,22 @@ export function CondValueEditor({
 
   const idDate = node.valType === 'objectid' && SIMPLE_OPS.has(node.op) ? objectIdTimestamp(node.value.trim()) : null;
   const idInfo: HelperCandidate | null = idDate ? { kind: 'info', text: `created ${formatLocalDateTime(idDate)}` } : null;
+
+  const noEditorLine: HelperCandidate | null = noEditor ? { kind: 'hint', text: noEditorText(noEditor) } : null;
+  const mixedNote =
+    mixed && simpleOp && node.valType !== 'null' && node.valType !== 'regex' && node.valType !== 'array'
+      ? mixedHint(node.field.trim(), split, node.valType, node.value, node.valType)
+      : null;
+  const mixedCandidate: NoticeCandidate | null = mixedNote
+    ? {
+        kind: 'hint',
+        text: mixedNote.text,
+        notice:
+          mixedNote.kind === 'skips' && matchEither
+            ? { kind: 'hint', text: mixedNote.text, actionLabel: 'Match either', onAction: matchEither }
+            : undefined,
+      }
+    : null;
 
   return (
     <>
@@ -631,7 +774,7 @@ export function CondValueEditor({
         {chips !== null && <ListToggle asText disabled={readOnly} onToggle={() => setListAsText(false)} />}
         {chipSlot}
       </ValueBox>
-      {helperNote([datePreview, idInfo])}
+      {helperNote([noEditorLine, mixedCandidate, datePreview, idInfo])}
     </>
   );
 }

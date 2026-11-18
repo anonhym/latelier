@@ -328,3 +328,20 @@ describe('the helper line priority', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a field that holds two kinds', () => {
+  it('a blank row takes the commoner kind when the field box is left, and shows the split dot', async () => {
+    await mount('{}', [...Array(6).fill({ qty: 3 }), ...Array(4).fill({ qty: 'x' })]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
+    const box = await waitFor(() => fieldBox());
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'qty' } });
+    await waitFor(() => expect(document.querySelector('[data-type-split-dot]')).not.toBeNull());
+    expect(typeChip().textContent).toBe('string');
+
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(typeChip().textContent).toBe('number'));
+    expect(helperNotice()).toBeNull();
+  });
+});

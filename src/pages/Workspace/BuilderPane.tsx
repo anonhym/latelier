@@ -75,6 +75,8 @@ import {
 import { useStructureEntries } from './useStructureEntries';
 import { VAL_TYPES, condTypeWarning, condValueKind, valTypePatch } from './condValue';
 import { checkFieldType } from './schemaSummary';
+import { fieldTypeSplit } from './fieldTypeSplit';
+import { isMixedSplit } from './mixedField';
 import type { DisplayType } from '../../utils/displayValue';
 import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 import { builderToStages } from './builderToPipeline';
@@ -838,7 +840,14 @@ function CondRow({
     if (fieldOnFocusRef.current === node.field) return;
     const field = node.field.trim();
     const dominant = field === '' ? null : checkFieldType(structureEntries, field, '');
-    if (!dominant) return;
+    if (!dominant) {
+      // A field with two kinds has no dominant one: a blank row takes the
+      // commoner (no share, so a typed value is never converted or flagged).
+      const entry = field === '' ? undefined : structureEntries.get(field);
+      const split = entry ? fieldTypeSplit(entry) : [];
+      if (isMixedSplit(split)) settleKind(field, split[0]!.type as DisplayType, null);
+      return;
+    }
     settleKind(field, dominant.expectedType as DisplayType, sampleShare(structureEntries.get(field)));
   };
   const toValueNotice = (n: RowNotice): ValueNotice => {
@@ -1054,6 +1063,7 @@ function CondRow({
           dim={dim}
           notice={visibleNotice && toValueNotice(visibleNotice)}
           typeFlash={typeFlash}
+          sampleEntry={node.field.trim() === '' ? undefined : structureEntries.get(node.field.trim())}
         />
         <div style={{ gridRow: 1, gridColumn: -2, display: 'flex', justifyContent: 'flex-end' }}>
           <RowMenu
