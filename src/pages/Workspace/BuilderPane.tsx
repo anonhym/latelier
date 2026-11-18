@@ -52,8 +52,7 @@ import { peekFilterRequest, subscribeTabRequests, takeFilterRequest } from './ta
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
 import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
-import { hasOperatorDocs, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
-import { OperatorTooltip } from '../../features/fieldSuggestions/OperatorTooltip';
+import { resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type {
   BuilderState,
@@ -68,6 +67,8 @@ import { useLiveMatchCount } from './useLiveMatchCount';
 import { CondValueEditor } from './CondValueEditor';
 import { useStructureEntries } from './useStructureEntries';
 import { condTypeWarning } from './condValue';
+import { checkFieldType } from './schemaSummary';
+import type { DisplayType } from '../../utils/displayValue';
 import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 import { builderToStages } from './builderToPipeline';
 import { CODE_LANGS, type CodeLang } from '../../utils/driverCode';
@@ -675,6 +676,43 @@ function CondRow({
     if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
     commitOpDraft();
   };
+  // A blank, non-null row takes the type of the field it names, and the op
+  // follows if the old one no longer fits. A row with a value already chose
+  // its type (a starter, or typing), and a null row must stay null, or
+  // `$ne: null` turns into `$ne: ""`, which matches null and missing fields.
+  const adoptedType = (type: DisplayType | undefined): Partial<CondNode> => {
+    if (node.valType === 'null' || node.value.trim() !== '') return {};
+    const valType = valTypeFromDisplayType(type);
+    return { valType, op: opForValType(valType, node.op) };
+  };
+  // Every way out of the field box (Tab, Escape, a click away, a pick) ends
+  // with the row typed like the sample says its field is. A pick does it
+  // itself and flags this blur as already handled.
+  const fieldPickedRef = React.useRef(false);
+  const settleFieldType = () => {
+    if (fieldPickedRef.current) {
+      fieldPickedRef.current = false;
+      return;
+    }
+    const field = node.field.trim();
+    const dominant = field === '' ? null : checkFieldType(structureEntries, field, '');
+    if (!dominant) return;
+    const adopted = adoptedType(dominant.expectedType as DisplayType);
+    if (adopted.valType === undefined) return;
+    if (adopted.valType === node.valType && adopted.op === node.op) return;
+    patch(adopted);
+  };
+  // Escape stays with the box: it closes the list when one is showing (the
+  // popover has already claimed that key) and otherwise leaves the box. Either
+  // way the Inspector around the builder must not see it, since it closes on
+  // an Escape nobody took.
+  const handleFieldKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    const listWasClosed = !e.defaultPrevented;
+    e.preventDefault();
+    e.stopPropagation();
+    if (listWasClosed) fieldInputRef.current?.blur();
+  };
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
   // NOT over any subtree is a one-child `$nor`: no new node kind, and it
@@ -704,7 +742,6 @@ function CondRow({
   // problem stays on the row.
   const valueProblem = isCompilableOp(node.op) ? problem : undefined;
   const opProblem = valueProblem === undefined ? problem : undefined;
-  const showOpDocs = node.op.startsWith('$') && !problem && hasOperatorDocs(node.op, 'query');
 
   // The row's one Remove control names what it removes. A row whose field is
   // still blank has nothing to name, so it keeps the bare label rather than
@@ -749,7 +786,9 @@ function CondRow({
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => setFieldPopoverOpen(true)}
+            onKeyDown={handleFieldKeyDown}
             onBlur={() => {
+              settleFieldType();
               window.setTimeout(() => setFieldPopoverOpen(false), 100);
             }}
             size="xs"
@@ -765,10 +804,10 @@ function CondRow({
                 // already chose its type (a starter, or typing): only a blank
                 // row takes the suggestion's type, or `$ne: null` turns into
                 // `$ne: ""`, which matches null and missing fields.
-                const adoptType = node.valType !== 'null' && node.value.trim() === '';
-                const nextValType = adoptType ? valTypeFromDisplayType(s.type) : node.valType;
-                const nextOp = opForValType(nextValType, node.op);
-                patch({ field: s.path, valType: nextValType, op: nextOp });
+                // The blur that follows runs against this render's stale row;
+                // the flag tells it the pick already settled the type.
+                fieldPickedRef.current = true;
+                patch({ field: s.path, ...adoptedType(s.type) });
               }
               setFieldPopoverOpen(false);
               fieldInputRef.current?.blur();
@@ -829,21 +868,6 @@ function CondRow({
             }}
             onClose={() => setOpPopoverOpen(false)}
           />
-          {showOpDocs && (
-            <OperatorTooltip name={node.op} prefClass="query" placement="below">
-              <ActionIcon
-                type="button"
-                variant="default"
-                radius="xl"
-                size={18}
-                c={T.textGhost}
-                aria-label={`Documentation for ${node.op}`}
-                style={{ fontSize: T.fsXs, fontWeight: 600, cursor: 'help', flexShrink: 0 }}
-              >
-                ?
-              </ActionIcon>
-            </OperatorTooltip>
-          )}
           <RowMenu
             ariaLabel={`Condition options ${groupPosition(path)}`}
             disabled={readOnly}

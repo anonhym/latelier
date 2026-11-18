@@ -58,6 +58,9 @@ interface Props {
   groupOperators?: boolean;
 }
 
+/** Space kept between the list and the window edge. */
+const VIEWPORT_MARGIN = 8;
+
 const KEYBOARD_HINT = HINT_REGISTRY['suggestions.keyboard'];
 
 export function SuggestionPopover({
@@ -89,6 +92,7 @@ export function SuggestionPopover({
   const [pos, setPos] = React.useState<{ top: number; left: number; width: number; inModal: boolean } | null>(null);
   const [panelPos, setPanelPos] = React.useState<{ top: number; left: number } | null>(null);
   const listboxRef = React.useRef<HTMLDivElement>(null);
+  const boxRef = React.useRef<HTMLDivElement>(null);
   const panelId = React.useId();
   const groupIdBase = React.useId();
   const groups = React.useMemo(
@@ -132,12 +136,19 @@ export function SuggestionPopover({
     if (!el) return;
     const update = () => {
       const r = el.getBoundingClientRect();
-      const next = {
-        top: r.bottom + 2,
-        left: r.left,
-        width: Math.max(r.width, 180),
-        inModal: el.closest('.mantine-Modal-content') !== null,
-      };
+      const inModal = el.closest('.mantine-Modal-content') !== null;
+      const width = Math.max(r.width, 180);
+      // The list opens under the input's left edge, which in a narrow panel
+      // sits so far right that the list ran off the window. Pull it back by
+      // the width it really has (measured, since it grows to its content up to
+      // the cap); the first frame has no box yet and uses the minimum. Inside
+      // a Modal the box is placed against the Modal, not the window, so that
+      // case is left to the anchor.
+      const boxWidth = boxRef.current?.offsetWidth ?? width;
+      const left = inModal
+        ? r.left
+        : Math.max(VIEWPORT_MARGIN, Math.min(r.left, window.innerWidth - boxWidth - VIEWPORT_MARGIN));
+      const next = { top: r.bottom + 2, left, width, inModal };
       setPos((prev) =>
         prev && prev.top === next.top && prev.left === next.left && prev.width === next.width && prev.inModal === next.inModal
           ? prev
@@ -366,6 +377,7 @@ export function SuggestionPopover({
         // Same mousedown guard as the listbox: a press here must not blur
         // the input and close the popover. Presentational: the handler only
         // suppresses focus movement, this box is not itself a control.
+        ref={boxRef}
         role="presentation"
         onMouseDown={(e) => e.preventDefault()}
         style={{
@@ -373,7 +385,10 @@ export function SuggestionPopover({
           top: pos.top,
           left: pos.left,
           minWidth: pos.width,
-          maxWidth: 320,
+          // Sized by its content, not by the room left of the window edge, so
+          // the clamp above can measure it without the box shrinking as it moves.
+          width: 'max-content',
+          maxWidth: Math.min(320, window.innerWidth - 2 * VIEWPORT_MARGIN),
           background: T.surface,
           border: `1px solid ${T.borderMed}`,
           borderRadius: T.rs,

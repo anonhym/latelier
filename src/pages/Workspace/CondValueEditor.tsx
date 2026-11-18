@@ -22,6 +22,22 @@ import {
 
 
 /**
+ * Escape inside a value box belongs to the box: the list closes if one is
+ * showing, and either way the Inspector around the builder must not see a key
+ * it closes on. The suggestion list claims its own Escape with
+ * `preventDefault`, so a key still unclaimed here had no list to dismiss and
+ * leaves the box instead.
+ */
+function keepEscapeInBox(e: React.KeyboardEvent<HTMLElement>, setSuggesting: (open: boolean) => void): void {
+  if (e.key !== 'Escape') return;
+  const listWasClosed = !e.defaultPrevented;
+  e.preventDefault();
+  e.stopPropagation();
+  setSuggesting(false);
+  if (listWasClosed) e.currentTarget.blur();
+}
+
+/**
  * Mongosh-flavored preview of the typed value the user just entered. Shown
  * as a faint hint to the right of the value input so the user sees what
  * the wrapped MQL will look like (e.g. `ISODate("2026-04-01")`) without
@@ -145,6 +161,7 @@ export function CondValueEditor({
           searchValue={chipSearch}
           onSearchChange={setChipSearch}
           onFocus={() => setSuggesting(true)}
+          onKeyDown={(e) => keepEscapeInBox(e, setSuggesting)}
           onBlur={() => setSuggesting(false)}
           // A comma ends a chip, so a value holding one is entered through
           // "Edit as JSON" instead.
@@ -210,6 +227,7 @@ export function CondValueEditor({
             if (!suggesting) setSuggesting(true);
           }}
           onFocus={() => setSuggesting(true)}
+          onKeyDown={(e) => keepEscapeInBox(e, setSuggesting)}
           onBlur={() => {
             window.setTimeout(() => setSuggesting(false), 100);
           }}
