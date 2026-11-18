@@ -1,6 +1,6 @@
 # Plan — Inspector polish (Filter builder and Plan tab)
 
-**Status:** wave A, B1 and B2 shipped in the first PR. B3 is planned in §7. B4, B5, waves C and D not started.
+**Status:** wave A, B1, B2 shipped in the first PR. B3 built on its own branch except B3e (regex option toggles), which needs a model change and is back with the design. B4, B5, waves C and D not started.
 **Evidence:** [`docs/research/inspector-sweep.md`](../docs/research/inspector-sweep.md) (findings D1–D7, F1–F11, P1–P5, S1–S2, measured against v0.21.0).
 **Design:** the Claude Design canvas "Inspector sweep", reviewed and approved by the maintainer on 2026-11-17. Board names below refer to it.
 
@@ -156,6 +156,8 @@ Commits on one branch, in this order. `BuilderPane.tsx` and `CondValueEditor.tsx
 | B3f | Object values: today a raw clause. Cap its editor at 6 lines at rest (Q6). No new object kind in this PR. | Component. |
 | B3g | Kind changes (board "changing kind"). Pure `convertValue(text, from, to)` → converted text or "keep". Field change: empty box adopts the type and the chip flashes once; a readable value converts with "Changed to … · Undo" (Q7); an unreadable one keeps and shows "… is a number in every sampled document · Use number" ("every" only at 100%). Chip change: converts or keeps with the error. Operator `=` ↔ `$in`: first chip kept, the rest removed with Undo. | Unit and property tests for `convertValue` (a value converted to a kind and back is unchanged when both read it); Stryker. Component per case, with a stateful wrapper so the patch round-trips. |
 | B3h | Mixed types (board "two types"). Pure `fieldTypeSplit(entry)` → types sorted by share. Chip shows the commoner type with a two-colour dot when the top share is under 90%; chip menu lists the sampled types first with "N% of sample"; hint "Skips the N% that store zip as a number · Match either"; "Match either" makes the row `$in` with one chip per type that can hold the value (Q8). Field not in the sample: plain string box, no hint. | Unit and property tests for `fieldTypeSplit` (shares sum to 100, order stable on ties via `localeCompare`); Stryker. Component per case. |
+
+**B3e is blocked.** Checked as the row asked: the model cannot hold `$options` outside a raw clause (a `$regex` with an `$options` sibling is a raw node, W13 §2a), so option toggles have nowhere to live in a condition row and a round trip through the filter bar would lose them. It needs a model change, so it goes back to the design instead of being built here. Nothing in B3a to B3d, B3f to B3h depends on it.
 
 B3a comes first. B3b–B3f are independent of each other but share files, so they run one after another. B3g and B3h come last: they use the helper line and the chips the earlier ones build.
 
