@@ -408,3 +408,37 @@ describe('one helper line under the value box', () => {
     expect(screen.getAllByText(/^Sample: /)).toHaveLength(1);
   });
 });
+
+describe('a pattern row and its options', () => {
+  const toggle = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
+
+  it('a loaded pattern lights its options and a toggle adds or removes one letter in imsx order', async () => {
+    const updateSpy = await mount('{"s":{"$regex":"ab","$options":"i"}}', []);
+    await screen.findByDisplayValue('ab');
+    expect(toggle('Ignore case').getAttribute('aria-pressed')).toBe('true');
+    expect((screen.getByRole('button', { name: /^Multiline/ }) as HTMLButtonElement).getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Dot also matches/ }));
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"s":{"$regex":"ab","$options":"is"}}'));
+
+    fireEvent.click(toggle('Ignore case'));
+    fireEvent.click(screen.getByRole('button', { name: /^Dot also matches/ }));
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"s":{"$regex":"ab"}}'));
+  });
+
+  it('leaving $regex drops the options, says so, and Undo brings them back', async () => {
+    const updateSpy = await mount('{"s":{"$regex":"ab","$options":"im"}}', []);
+    await screen.findByDisplayValue('ab');
+    const op = await screen.findByPlaceholderText('$op');
+    fireEvent.focus(op);
+    fireEvent.change(op, { target: { value: '=' } });
+    fireEvent.blur(op);
+
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"s":{"$eq":"ab"}}'));
+    expect(helperNotice()?.textContent).toBe('Pattern options i, m were removed · Undo');
+    expect(screen.queryByRole('group', { name: 'Pattern options' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"s":{"$regex":"ab","$options":"im"}}'));
+  });
+});

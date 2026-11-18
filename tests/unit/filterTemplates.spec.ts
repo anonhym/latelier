@@ -40,7 +40,9 @@ describe('filter templates', () => {
     const withField = (id: string) => printed({ ...template(id).build(NOW), field: 'f' });
     expect(withField('last7d')).toBe('{"f":{"$gte":{"$date":"2026-10-08T12:00:00.000Z"}}}');
     expect(withField('notNull')).toBe('{"f":{"$ne":null}}');
-    expect(withField('containsCi')).toBe('{"f":{"$regex":"(?i)"}}');
+    expect(printed({ ...template('containsCi').build(NOW), field: 'f', value: 'ab' })).toBe(
+      '{"f":{"$regex":"ab","$options":"i"}}',
+    );
     expect(printed({ ...template('inList').build(NOW), field: 'f', value: '["a"]' })).toBe('{"f":{"$in":["a"]}}');
   });
 
@@ -53,7 +55,7 @@ describe('filter templates', () => {
     expect(FILTER_TEMPLATES.map((t) => t.build(NOW))).toEqual([
       { kind: 'cond', field: '', op: '$gte', valType: 'date', value: '2026-10-08T12:00:00.000Z' },
       { kind: 'cond', field: '', op: '$ne', valType: 'null', value: '' },
-      { kind: 'cond', field: '', op: '$regex', valType: 'string', value: '(?i)' },
+      { kind: 'cond', field: '', op: '$regex', valType: 'string', value: '', options: 'i' },
       { kind: 'cond', field: '', op: '$in', valType: 'string', value: '[]' },
     ]);
   });

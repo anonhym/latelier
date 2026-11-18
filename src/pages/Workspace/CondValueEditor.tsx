@@ -25,6 +25,8 @@ import { objectIdTimestamp, formatLocalDateTime } from './objectIdDate';
 import { pickHelperLine, type HelperCandidate } from './helperLine';
 import { splitPastedList } from './listPaste';
 import { useGrowToLines } from './useGrowToLines';
+import { RegexOptionToggles } from './RegexOptionToggles';
+import { regexOptionsText } from './regexOptions';
 import { fieldTypeSplit, type TypeShare } from './fieldTypeSplit';
 import {
   MATCH_EITHER_OPTIONS,
@@ -697,6 +699,9 @@ export function CondValueEditor({
   const idDate = node.valType === 'objectid' && SIMPLE_OPS.has(node.op) ? objectIdTimestamp(node.value.trim()) : null;
   const idInfo: HelperCandidate | null = idDate ? { kind: 'info', text: `created ${formatLocalDateTime(idDate)}` } : null;
 
+  const isRegexRow = node.op === '$regex';
+  const optionsText = isRegexRow ? regexOptionsText(node.options ?? '') : null;
+  const optionsInfo: HelperCandidate | null = optionsText ? { kind: 'info', text: optionsText } : null;
   const noEditorLine: HelperCandidate | null = noEditor ? { kind: 'hint', text: noEditorText(noEditor) } : null;
   const mixedNote =
     mixed && equality && node.valType !== 'null' && node.valType !== 'regex' && node.valType !== 'array'
@@ -821,7 +826,15 @@ export function CondValueEditor({
         {chips !== null && <ListToggle asText disabled={readOnly} onToggle={() => setListAsText(false)} />}
         {chipSlot}
       </ValueBox>
-      {helperNote([noEditorLine, mixedCandidate, datePreview, idInfo])}
+      {helperNote([noEditorLine, mixedCandidate, datePreview, idInfo, optionsInfo])}
+      {isRegexRow && (
+        <RegexOptionToggles
+          options={node.options ?? ''}
+          readOnly={readOnly}
+          onChange={(next) => onPatch({ options: next === '' ? undefined : next })}
+          placement={{ gridRow: boxRow + 2, gridColumn: wide ? 4 : '2 / -2', marginTop: 4, opacity: dim }}
+        />
+      )}
     </>
   );
 }

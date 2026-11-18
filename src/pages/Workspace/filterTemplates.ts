@@ -29,9 +29,9 @@ export const FILTER_TEMPLATES: FilterTemplate[] = [
     id: 'containsCi',
     label: 'Contains text (any case)',
     operator: '$regex',
-    // `(?i)` is PCRE's inline case-insensitive flag, so the person types the
-    // text after it and needs no separate `$options`.
-    build: () => ({ kind: 'cond', field: '', op: '$regex', valType: 'string', value: '(?i)' }),
+    // An empty pattern with the `i` option lit: the person types the text and
+    // the row's toggle shows what makes it case-insensitive.
+    build: () => ({ kind: 'cond', field: '', op: '$regex', valType: 'string', value: '', options: 'i' }),
   },
   {
     id: 'inList',

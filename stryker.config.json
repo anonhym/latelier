@@ -20,6 +20,7 @@
     "src/pages/Workspace/listPaste.ts",
     "src/pages/Workspace/fieldTypeSplit.ts",
     "src/pages/Workspace/mixedField.ts",
+    "src/pages/Workspace/regexOptions.ts",
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",

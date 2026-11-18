@@ -213,8 +213,8 @@ test('filter tree editor: switch a condition off, keep it across a tab switch, t
 
 /**
  * W15 §14.3 and §14.8 end to end: a starter row and the chip editor build
- * filters a real mongod runs. The case-insensitive starter relies on `(?i)`,
- * PCRE's inline flag, which only a real server can confirm.
+ * filters a real mongod runs. The case-insensitive starter sends `$options: "i"`,
+ * which only a real server can confirm.
  */
 test('filter tree editor: starters and chips build filters that run', async () => {
   const { host, port } = await startMemoryServer();
@@ -243,13 +243,13 @@ test('filter tree editor: starters and chips build filters that run', async () =
       await ws.openCollectionFromNavigator('shop', 'people');
       await expect(win.getByText('bob')).toBeVisible({ timeout: 8000 });
 
-      // ─── Contains text (any case): name ~ (?i)ali ─────────────────────
+      // ─── Contains text (any case): name ~ ali, option i ─────────────────────
       await ws.openBuilder();
       await win.getByRole('button', { name: 'Contains text (any case)' }).click();
       await expect(win.getByPlaceholder('field', { exact: true })).toBeFocused();
       await win.getByPlaceholder('field', { exact: true }).fill('name');
-      await win.getByPlaceholder('value', { exact: true }).fill('(?i)ali');
-      await expect(ws.queryBarTextarea).toHaveValue('{"name":{"$regex":"(?i)ali"}}');
+      await win.getByPlaceholder('value', { exact: true }).fill('ali');
+      await expect(ws.queryBarTextarea).toHaveValue('{"name":{"$regex":"ali","$options":"i"}}');
 
       await ws.queryBarRunButton.click();
       await expect(win.getByText('ALINA')).toBeVisible({ timeout: 8000 });

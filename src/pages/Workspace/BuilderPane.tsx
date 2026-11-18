@@ -717,13 +717,23 @@ function CondRow({
    */
   const changeOp = (op: string) => {
     const switched = operatorSwitch(node, op);
-    const next = rowWith(root, node, {
+    // Leaving `$regex` drops its option letters (they mean nothing to any other operator), with Undo.
+    const droppedOptions = node.op === '$regex' && op !== '$regex' && node.options ? node.options : null;
+    const final = rowWith(root, node, {
       op,
       ...(switched ? { value: switched.value, ...(switched.valType ? { valType: switched.valType } : {}) } : {}),
+      ...(droppedOptions ? { options: undefined } : {}),
     });
-    applyEdit(next);
-    if (switched && switched.removed.length > 0) {
-      setNotice({ root: next, kind: 'undo', text: removedNoticeText(switched.removed), action: 'undo' });
+    applyEdit(final);
+    if (droppedOptions) {
+      setNotice({
+        root: final,
+        kind: 'undo',
+        text: `Pattern options ${[...droppedOptions].join(', ')} ${droppedOptions.length === 1 ? 'was' : 'were'} removed`,
+        action: 'undo',
+      });
+    } else if (switched && switched.removed.length > 0) {
+      setNotice({ root: final, kind: 'undo', text: removedNoticeText(switched.removed), action: 'undo' });
     }
   };
   // Keystrokes in one text box of this row are one undo step, not one each:

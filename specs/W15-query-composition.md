@@ -993,7 +993,7 @@ documents in prose.
 
 Shipped: an empty filter offers four starters under its "No conditions yet"
 note: Last 7 days (`$gte` on a date), Exists and is not null (`$ne: null`),
-Contains text (any case) (`$regex` with the inline `(?i)` flag) and One of a
+Contains text (any case) (`$regex` with the `i` option lit) and One of a
 list (`$in`, edited as chips). Each button's tooltip names its operator. A
 starter adds one row with a blank field and puts the caret in it, so nothing
 reaches the filter text until the field is named (and, for One of a list,

@@ -311,6 +311,15 @@ For a mixed field, on a single-value row:
   clause. `ValType` gains no member and persisted tab state is unchanged.
 - A field that is not in the sample gets a plain string box and no hint.
 
+### Pattern options
+- A `$regex` row shows four toggle buttons under the pattern box: `i` ignore case, `m` multiline,
+  `s` dot matches newline, `x` ignore whitespace. A lit button is a letter in the condition's
+  `options`, sent as `$options` in `imsx` order; none lit sends a bare `$regex`. The helper line
+  names the lit options. No slashes are drawn around the pattern.
+- Leaving `$regex` for another operator drops the options and says so ("Pattern options i, m were
+  removed") with Undo.
+- The Contains text (any case) starter is an empty pattern with `i` lit.
+
 ### Conditions field selector
 - On focus, the `field` input shows a field-name autocomplete popover
   (X02). The builder pane owns the popover directly (input anchor, no
