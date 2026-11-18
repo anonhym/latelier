@@ -159,7 +159,7 @@ describe('mixed field: the typed value', () => {
   it('drops the offer for a value only one type can hold and says why', () => {
     mount({ value: 'abc' });
     // Plain text, with no action to announce.
-    expect(screen.getByText('Not a number, so only text zips can match.')).toBeTruthy();
+    expect(screen.getByText('Not a number, so only string values can match.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Match either' })).toBeNull();
   });
 

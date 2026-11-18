@@ -133,14 +133,14 @@ describe('mixedHint', () => {
   it('says only the sent type can match when no other type can hold the value', () => {
     expect(mixedHint('address.zip', ZIP, 'string', 'abc', 'string')).toEqual({
       kind: 'only',
-      text: 'Not a number, so only text zips can match.',
+      text: 'Not a number, so only string values can match.',
     });
     expect(mixedHint('zip', ZIP, 'number', '5', 'number')?.kind).toBe('skips');
   });
 
   it('names a sent type that is not text by its own name', () => {
     const mixed = [{ type: 'date', share: 60 }, { type: 'boolean', share: 40 }];
-    expect(mixedHint('d', mixed, 'date', '2026-04-01', 'date')?.text).toBe('Not a boolean, so only date ds can match.');
+    expect(mixedHint('d', mixed, 'date', '2026-04-01', 'date')?.text).toBe('Not a boolean, so only date values can match.');
   });
 
   it('treats number, long and decimal as one side', () => {

@@ -140,9 +140,7 @@ export function mixedHint(
   const first = others[0];
   if (!first) return null;
   if (!others.some((o) => holds(text, from, o.type))) {
-    const leaf = field.slice(field.lastIndexOf('.') + 1);
-    const noun = sent === 'string' ? 'text' : sent;
-    return { kind: 'only', text: `Not ${withArticle(first.type)}, so only ${noun} ${leaf}s can match.` };
+    return { kind: 'only', text: `Not ${withArticle(first.type)}, so only ${sent} values can match.` };
   }
   const skipped = others.reduce((sum, o) => sum + o.share, 0);
   const names = others.map((o) => withArticle(o.type)).join(' or ');
