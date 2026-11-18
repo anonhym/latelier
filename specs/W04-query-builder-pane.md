@@ -223,7 +223,8 @@ type and operator and never the typed text, so typing cannot move anything:
   the operator's (so the `⋮` column stays free beneath it). The value editors (text, chips for a
   list, the date picker beside a date's text) sit inside it without a border of their own; the box
   has the input border, the accent focus ring, and a red border when the row has a value problem.
-  It grows downward only, when chips wrap.
+  It grows downward only: chips wrap onto more lines, and a long text value grows the box up to 4
+  lines.
 - **Type chip**: the value type is a small chip button at the box's right end, in sentence case
   (`string`, `number`, `date`), named *Value type: &lt;type&gt;*. It opens a menu of the types, and
   picking one changes the row exactly as the old select did (the operator moves to one the new
@@ -249,7 +250,7 @@ type and operator and never the typed text, so typing cannot move anything:
     trailing newline pastes as clean chips. Quotes are not read by the split: a chip's text is
     interpreted afterwards as a typed chip is.
   - *Object*: a document value is not a kind of its own. It is a raw clause (W13 §2b), whose
-    editor shows 6 lines at rest and scrolls past them.
+    editor is capped at 6 lines, then scrolls; it is not resizable.
 - **Caps**: a list shows 3 lines of chips at rest and 8 while focused or expanded, then scrolls
   inside the box. A list too long for the resting cap shows a footer "N values · Show all" (and
   "Show fewer" once expanded). The footer counts chips instead of measuring them, so it may offer
@@ -275,8 +276,8 @@ option (`KIND_CHANGE_OPTIONS.autoConvert`, on by default) so a setting can drive
   - a value that does not read as it stays, and the helper line says "`<field>` is a number in
     every sampled document" ("most sampled documents" below 100%) with a *Use number* action. With
     `autoConvert` off a value that would convert is only offered the same way.
-  - a field with no sample entry, a `null` row, or an operator that does not compare one value is
-    left alone, except that an empty box takes no type from nothing.
+  - a field with no sample entry, or a `null` row, is left alone. An empty box adopts the field's
+    type, whatever the operator.
 - **Chip change**: the value converts when it reads as the picked type, and otherwise stays and the
   row shows its usual value problem.
 - **Operator change between `=` and `$in`**: `=` to `$in` makes the value the first chip; `$in` to
@@ -419,14 +420,14 @@ hand-edits to escape the flag.
 - A condition is two lines at a panel under 560px (field, operator,
   `⋮`; then the value box with its type chip) and one line from 560px.
   Typing never changes the row's shape. Boolean and `$exists` rows are a
-  switch on the first line; only a parsed date has a preview line;
+  switch on the first line; only a parsed date and an ObjectId's creation time have a preview line;
   *Remove* lives in the `⋮` menu.
 - A value box has one helper line: a problem, an Undo notice, a type hint or information, the most
   urgent only. The text box grows to 4 lines and scrolls beyond; an ObjectId shows whole with its
   creation date in the local time zone.
 - A list pastes as chips split on comma, newline and tab with no empty chip; at rest it shows 3 lines
   of chips and 8 while editing, with an "N values · Show all" footer when it is longer; an object
-  raw clause shows 6 lines.
+  raw clause is capped at 6 lines, then scrolls (always, with resize off).
 - A field change converts a readable value with an Undo, keeps an unreadable one and offers the
   sampled type, and lets an empty box adopt it. A chip change converts or keeps the text with the
   value problem. `=` to `$in` keeps the first chip and `$in` to `=` names what it dropped, with Undo.

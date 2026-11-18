@@ -268,7 +268,9 @@ consequences, all intended:
 ### 3c. Rows the value editors make
 
 Three row shapes come from the value editors (W04 §5) rather than from typing, and all stay inside
-the representable set of §2b, so each prints and parses back to the same row:
+the representable set of §2b. The printed text round-trips (the fixpoint of §3b), though a row's
+own shape can change on the way: a row typed *string* and switched to `$in` loads back, after a
+reload, as an array row (one chip per element):
 
 - A list row is `$in`/`$nin` over the array value type, one chip per element. Pasting splits on
   comma, newline and tab, so a pasted column and the same values typed one by one print the same
@@ -702,8 +704,8 @@ Retired test ids and controls, so the churn isn't a surprise:
 - `parseFilter` fails **only** on invalid JSON and on a non-object root.
 - `$oid` / `$date` / `$numberLong` / `$numberDecimal` values round-trip through cond rows preserving their exact text.
 - Each unrepresentable value shape of §2b (plain nested object, `$binary`, `$timestamp`, `$numberDouble`/`$numberInt`, `$regularExpression`, `$minKey`/`$maxKey`, `$code`, `$dbPointer`, the canonical `{$date:{$numberLong}}` date, an `$in`/`$nin`/`$all` array with an unrepresentable element) yields a raw node, never a mangled cond.
-- A list row's pasted text splits on comma, newline and tab with no empty chip, and prints the same array as the values typed one by one.
-- *Match either* on a mixed field prints `$in` with one chip per type (`["75001", 75001]`) and `parseFilter` reads that text back as the same `$in` row; a number and a long never make two chips.
+- A list row's pasted text splits on comma, newline and tab with no empty chip. A component test holds the row in real state, pastes a list and compares the printed filter with the one made by typing the same values one by one; the two are equal.
+- *Match either* on a mixed field prints `$in` with one chip per type (`["75001", 75001]`) and `parseFilter` reads that text back as an `$in` row over the same two chips; a number and a long never make two chips.
 - `{ $or: [...], a: 1 }` parses to the root `$and` group containing the `$or` group and the cond as siblings.
 
 **Printer**
