@@ -461,7 +461,11 @@ export function CondValueEditor({
   // button), so it takes the line only where an info line could.
   const sampleCandidate: HelperCandidate | null = sampleWarning ? { kind: 'hint', text: sampleWarning } : null;
   const noticeCandidate: NoticeCandidate | null = notice ? { kind: notice.kind, text: notice.text, notice } : null;
-  const helperNote = (candidates: (NoticeCandidate | null)[], footer?: React.ReactNode) => {
+  const helperNote = (
+    candidates: (NoticeCandidate | null)[],
+    footer?: React.ReactNode,
+    at: React.CSSProperties = notesPlacement,
+  ) => {
     const picked = pickHelperLine([
       problem ? { kind: 'error', text: problem } : null,
       noticeCandidate,
@@ -470,12 +474,12 @@ export function CondValueEditor({
       footer ? { kind: 'info', text: '' } : null,
     ]);
     if (!picked) return null;
-    if (picked.kind === 'error') return <div style={notesPlacement}>{errorNote}</div>;
+    if (picked.kind === 'error') return <div style={at}>{errorNote}</div>;
     const pickedNotice = (picked as NoticeCandidate).notice;
     if (pickedNotice) {
       // Not hidden from assistive tech: it holds a button, and is a change worth announcing.
       return (
-        <div role="status" style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>
+        <div role="status" style={{ ...at, ...noteStyle, color: T.textGhost }}>
           {pickedNotice.text} ·{' '}
           <Button
             variant="subtle"
@@ -491,13 +495,13 @@ export function CondValueEditor({
       );
     }
     if (picked.kind === 'info' && picked.text === '' && footer) {
-      return <div style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>{footer}</div>;
+      return <div style={{ ...at, ...noteStyle, color: T.textGhost }}>{footer}</div>;
     }
     return (
       <div
         aria-hidden="true"
         style={{
-          ...notesPlacement,
+          ...at,
           ...noteStyle,
           color: T.textGhost,
           fontFamily: '"JetBrains Mono", monospace',
@@ -536,15 +540,7 @@ export function CondValueEditor({
             }}
           />
         </div>
-        {errorNote ? (
-          <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)' }}>{errorNote}</div>
-        ) : (
-          sampleWarning && (
-            <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)', ...noteStyle, color: T.textGhost }}>
-              {sampleWarning}
-            </div>
-          )
-        )}
+        {helperNote([], undefined, { ...bareNotePlacement, gridRow: 'var(--sw-note-row)' })}
       </>
     );
   }

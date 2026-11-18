@@ -341,6 +341,27 @@ describe('the helper line priority', () => {
   });
 });
 
+describe('a switch row', () => {
+  it('a string true that becomes a boolean says so under the switch, and Undo restores the tree', async () => {
+    const updateSpy = await mount('{"zzz":{"$eq":"true"}}', Array(10).fill({ flag: true }));
+    await screen.findByDisplayValue('zzz');
+
+    await retypeField('flag');
+
+    await waitFor(() => expect(helperNotice()).not.toBeNull());
+    expect(screen.getByRole('radio', { name: 'true' })).toBeTruthy();
+    expect(helperNotice()?.textContent).toBe('Changed to boolean to match flag · Undo');
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"flag":{"$eq":true}}'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+    await waitFor(() => expect(valueBox().value).toBe('true'));
+    expect(typeChip().textContent).toBe('string');
+    expect(helperNotice()).toBeNull();
+    await waitFor(() => expect(lastQuery(updateSpy)).toBe('{"flag":{"$eq":"true"}}'));
+  });
+});
+
 describe('a field that holds two kinds', () => {
   it('a blank row takes the commoner kind when the field box is left, and shows the split dot', async () => {
     await mount('{}', [...Array(6).fill({ qty: 3 }), ...Array(4).fill({ qty: 'x' })]);
