@@ -661,6 +661,18 @@ function CondRow({
   const T = themeVars;
   const fieldInputRef = React.useRef<HTMLInputElement>(null);
   const [fieldPopoverOpen, setFieldPopoverOpen] = React.useState(false);
+  // A list closes 100ms after its box blurs, so a click on a row lands first.
+  // That timer must not outlive the next focus, or it closes the list the
+  // refocus just opened: a box refocused inside the 100ms lost its list.
+  const fieldCloseTimer = React.useRef<number | undefined>(undefined);
+  const opCloseTimer = React.useRef<number | undefined>(undefined);
+  React.useEffect(
+    () => () => {
+      window.clearTimeout(fieldCloseTimer.current);
+      window.clearTimeout(opCloseTimer.current);
+    },
+    [],
+  );
   const { items: fieldSuggestionItems } = useSuggestions(
     fieldPopoverOpen ? suggestionContext : null,
     node.field,
@@ -961,13 +973,14 @@ function CondRow({
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
             onFocus={() => {
+              window.clearTimeout(fieldCloseTimer.current);
               fieldOnFocusRef.current = node.field;
               setFieldPopoverOpen(true);
             }}
             onKeyDown={handleFieldKeyDown}
             onBlur={() => {
               settleFieldType();
-              window.setTimeout(() => setFieldPopoverOpen(false), 100);
+              fieldCloseTimer.current = window.setTimeout(() => setFieldPopoverOpen(false), 100);
             }}
             size="xs"
             styles={{ input: { height: 30, minHeight: 30 } }}
@@ -1010,11 +1023,14 @@ function CondRow({
               setOpDraft(e.target.value);
               if (!opPopoverOpen) setOpPopoverOpen(true);
             }}
-            onFocus={() => setOpPopoverOpen(true)}
+            onFocus={() => {
+              window.clearTimeout(opCloseTimer.current);
+              setOpPopoverOpen(true);
+            }}
             onKeyDown={handleOpKeyDown}
             onBlur={() => {
               commitOpDraft();
-              window.setTimeout(() => setOpPopoverOpen(false), 100);
+              opCloseTimer.current = window.setTimeout(() => setOpPopoverOpen(false), 100);
             }}
             aria-invalid={!!opProblem}
             title={opProblem}

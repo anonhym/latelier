@@ -114,4 +114,17 @@ describe('Query Builder — grouped operator picker', () => {
     await waitFor(() => expect(headers()).toEqual([]));
     expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
   });
+
+  it('keeps the list open when the box is refocused inside the close delay', async () => {
+    const opInput = await openConditionRow();
+
+    fireEvent.focus(opInput);
+    await screen.findByRole('listbox', { name: 'Operator suggestions' });
+    // Blur starts the 100ms close timer; the refocus lands before it fires.
+    fireEvent.blur(opInput);
+    fireEvent.focus(opInput);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(screen.queryByRole('listbox', { name: 'Operator suggestions' })).toBeTruthy();
+  });
 });
