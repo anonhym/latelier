@@ -96,7 +96,7 @@ const rect = async (locator: Locator) => {
   return box!;
 };
 
-test('a condition row is two lines at a 400px panel, keeps its height while a long value is typed, and is one line at 640px', async () => {
+test('a condition row is two lines at a 400px panel, grows to at most four lines while a long value is typed, and is one line at 640px', async () => {
   const { host, port } = await startMemoryServer();
 
   await withApp(async (app) => {
@@ -132,9 +132,24 @@ test('a condition row is two lines at a 400px panel, keeps its height while a lo
     expect(Math.abs(boxRect.x - field.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(boxRect.x + boxRect.width - (operator.x + operator.width))).toBeLessThanOrEqual(1);
 
+    await value.fill('bob');
+    expect((await rect(row)).height, 'a short value never changes the row height').toBeCloseTo(oneLine.height, 0);
+
+    const lineHeight = await value.evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
+    expect(lineHeight, 'the value box has a measurable line height').toBeGreaterThan(0);
     await value.fill('a rather long value that is far wider than the box can show on one line '.repeat(3));
     const typed = await rect(row);
-    expect(typed.height, 'typing never changes the row shape').toBeCloseTo(oneLine.height, 0);
+    expect(typed.height, 'a long value never shrinks the row').toBeGreaterThanOrEqual(oneLine.height - 1);
+    expect(typed.height, 'the value box grows to at most four lines').toBeLessThanOrEqual(oneLine.height + 3 * lineHeight + 4);
+    const typedField = await rect(win.getByPlaceholder('field', { exact: true }));
+    expect(typedField.y, 'line 1 does not move').toBeCloseTo(field.y, 0);
+    expect(typedField.height, 'line 1 keeps its height').toBeCloseTo(field.height, 0);
+    const typedBox = await rect(row.locator('[data-value-box]'));
+    expect(typedBox.y, 'the value box stays on its own line under the field row').toBeGreaterThan(typedField.y + typedField.height - 1);
+    expect(
+      await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+      'a long value does not overflow the row horizontally',
+    ).toBe(true);
 
     await resizePanel(win, 700);
     await expect.poll(async () => (await rect(win.getByPlaceholder('field', { exact: true }))).y, { timeout: 4000 })
