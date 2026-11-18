@@ -344,6 +344,14 @@ hand-edits to escape the flag.
   `$jsonSchema`) flag the row as "needs raw JSON"; Run is disabled.
 - *(X03)* Malformed `$mod` values (empty, single-element,
   divisor-0) are caught pre-run.
+- An empty value on a typed row is a "Value is empty" problem: red
+  value box, the field named in the status line, left out of the
+  filter.
+- A condition is two lines at a panel under 560px (field, operator,
+  `⋮`; then the value box with its type chip) and one line from 560px.
+  Typing never changes the row's shape. Boolean and `$exists` rows are a
+  switch on the first line; only a parsed date has a preview line;
+  *Remove* lives in the `⋮` menu.
 - ** A flagged condition disables **both** Run buttons, and
   blocks the runner even when invoked with no button involved
   (`query.run`, post-write re-runs).

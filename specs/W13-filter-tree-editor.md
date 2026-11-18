@@ -507,7 +507,9 @@ unchanged.
   The `⋮` menu adds: *Insert condition
   above* / *below* (a blank pending row at that index, with the caret in its
   field box), *Convert to raw clause*, *Wrap in group*, *Negate (NOT)*,
-  *Duplicate*, and, as its last item, *Remove*.
+  *Duplicate*, and, as its last item, *Remove*. On a row with no type chip
+  (boolean, `$exists`, null) it also holds a *Value type* submenu, the only
+  way to change that row's type.
 - **Unmodelled op is no longer a dead end.** Typing `$elemMatch` into the op
   input replaces W04's terminal warning with a one-click **Convert to raw
   clause** button that seeds a raw node from the row. The old message —
@@ -695,6 +697,8 @@ Retired test ids and controls, so the churn isn't a surprise:
 - A cond with an invalid `number` / `long` / `decimal` / `$mod` value makes `printFilter` return `ok: false` with that node's path.
 - A raw node holding unparseable JSON makes `printFilter` return `ok: false`.
 - A cond with an empty field is skipped, and does **not** appear in `problems`.
+- A cond with a field but an empty value (string, number, long, decimal, regex, `$size`, `$type`, bit masks) makes `printFilter` return `ok: false` with "Value is empty"; it never prints as `0` or `""`. Boolean, null and `$exists` conds are never empty.
+- A filter that holds an explicit empty value (`{name: ""}`, `{n: {$numberLong: ""}}`) parses to a raw clause and prints back verbatim.
 - A single-child `$nor` group keeps its envelope; single-child `$and` / `$or` do not.
 - A raw node containing `9007199254740993` makes `printFilter` return `ok: false` with that node's path; a raw node containing `{"$numberLong":"9007199254740993"}` prints fine.
 

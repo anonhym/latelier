@@ -239,7 +239,7 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 - The Run menu's explain items read as sentences, and `Copy query as…` copies a mongosh call with unquoted keys.
 - During a run the indeterminate bar and `Running · {elapsed}` are present and the region is `aria-busy`; the completed run shows its duration; a cancel shows the cancelled notice.
 - Saved and History open from the row; the builder has no Saved or Recent tab.
-- The Inspector is closed for a fresh profile; `Builder` and ⌘⇧B open it on Filter; the plan badge opens it on Plan; Esc closes it.
+- The Inspector is closed for a fresh profile; `Builder` and ⌘⇧B open it on Filter; the plan badge opens it on Plan; Esc closes it, unless a popup, a menu or the condition box being edited takes that Esc first.
 
 ### 9.9 Test cases
 
