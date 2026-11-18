@@ -24,6 +24,7 @@ import {
 import { objectIdTimestamp, formatLocalDateTime } from './objectIdDate';
 import { pickHelperLine, type HelperCandidate } from './helperLine';
 import { splitPastedList } from './listPaste';
+import { useGrowToLines } from './useGrowToLines';
 import { fieldTypeSplit, type TypeShare } from './fieldTypeSplit';
 import {
   MATCH_EITHER_OPTIONS,
@@ -274,25 +275,6 @@ const CHIPS_AT_REST = CHIP_LINES_AT_REST * CHIPS_PER_LINE;
 
 /** The most lines the text box grows to; past it the text scrolls inside the box. */
 const MAX_TEXT_LINES = 4;
-
-/**
- * Sizes a textarea to its text, up to `maxLines`, then lets it scroll. Done by
- * hand (Mantine's autosize needs `document.fonts`, which jsdom lacks).
- */
-function useGrowToLines(ref: React.RefObject<HTMLTextAreaElement | null>, text: string, maxLines: number): void {
-  React.useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const style = window.getComputedStyle(el);
-    const lineHeight = Number.parseFloat(style.lineHeight);
-    const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-    el.style.height = 'auto';
-    if (Number.isNaN(lineHeight)) return;
-    const cap = lineHeight * maxLines + (Number.isNaN(padding) ? 0 : padding);
-    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
-    el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
-  }, [ref, text, maxLines]);
-}
 
 const NUMERIC_TYPES: ReadonlySet<ValType> = new Set<ValType>(['number', 'long', 'decimal']);
 

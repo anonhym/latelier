@@ -82,6 +82,7 @@ import { FILTER_TEMPLATES, type FilterTemplate } from './filterTemplates';
 import { builderToStages } from './builderToPipeline';
 import { CODE_LANGS, type CodeLang } from '../../utils/driverCode';
 import { copyQueryAsCode } from './copyQueryCode';
+import { useGrowToLines } from './useGrowToLines';
 
 interface BuilderPaneProps {
   /** Opens this query, as stages, in the collection's Aggregation view. */
@@ -1154,14 +1155,7 @@ function RawRow({
   // Grows with the clause up to the cap, then scrolls inside the box. Sized by
   // hand: jsdom has no layout, and a plain `rows` would never grow.
   const jsonRef = React.useRef<HTMLTextAreaElement>(null);
-  React.useLayoutEffect(() => {
-    const el = jsonRef.current;
-    if (!el) return;
-    const cap = RAW_CLAUSE_LINE_PX * RAW_CLAUSE_MAX_LINES + RAW_CLAUSE_PAD_PX * 2;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, RAW_CLAUSE_LINE_PX * 2 + RAW_CLAUSE_PAD_PX * 2), cap)}px`;
-    el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
-  }, [node.json]);
+  useGrowToLines(jsonRef, node.json, RAW_CLAUSE_MAX_LINES, 2);
 
   return (
     <div
