@@ -2,7 +2,7 @@
 // box instead of closing the Inspector, every way out of the field box types
 // the row like the sampled field, and no row carries an operator help button.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { pickValueType } from '../helpers/condRow';
@@ -77,6 +77,18 @@ async function openRow(): Promise<void> {
   await screen.findByPlaceholderText('field');
 }
 
+/**
+ * Waits until the sample has been read and the row has re-rendered with it. The
+ * "Sample:" line used to be the signal, but under an empty box the "Value is
+ * empty" problem takes the one helper line.
+ */
+async function sampleRead() {
+  await waitFor(() => expect(window.atelier!.meta.sampleSchema).toHaveBeenCalled());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 const fieldBox = () => screen.getByPlaceholderText('field') as HTMLInputElement;
 // The type chip in the value box: its text is the type, its label says so.
 const typeBox = () => {
@@ -128,7 +140,7 @@ describe('Leaving the field box types the row like the sampled field', () => {
     const box = fieldBox();
     box.focus();
     fireEvent.change(box, { target: { value: 'qty' } });
-    await screen.findByText('Sample: qty is number in 100% of documents that have it');
+    await sampleRead();
     expect(typeBox().value).toBe('string');
     return box;
   }
@@ -173,7 +185,7 @@ describe('A type chosen by hand', () => {
     await openRow();
     const box = fieldBox();
     fireEvent.change(box, { target: { value: 'qty' } });
-    await screen.findByText('Sample: qty is number in 100% of documents that have it');
+    await sampleRead();
     fireEvent.blur(box);
     await waitFor(() => expect(typeBox().value).toBe('number'));
 

@@ -74,12 +74,30 @@ export interface ValueNotice {
 /** A helper line that may carry one action, shown as a button after the text. */
 type NoticeCandidate = HelperCandidate & { notice?: ValueNotice };
 
-/** The dot's colours: the two types a mixed field holds, by their usual colour; any other type is neutral. */
-const TYPE_DOT_COLORS: Readonly<Record<string, string>> = { string: '#1b6e20', number: '#1565c0' };
+/**
+ * The dot's colours: each sampled type has its own, so the two halves of a
+ * mixed field's dot never match; a type with no colour of its own is grey.
+ */
+const TYPE_DOT_COLORS: Readonly<Record<string, string>> = {
+  string: '#1b6e20',
+  number: '#1565c0',
+  date: '#1a5068',
+  objectid: '#7b3fa0',
+  boolean: '#b26a00',
+};
 const TYPE_DOT_NEUTRAL = '#8a8a8a';
+/** The grey of the dot's second half, when both types have no colour of their own. */
+const TYPE_DOT_NEUTRAL_LIGHT = '#c4c4c4';
 
 function typeDotColor(type: string): string {
   return TYPE_DOT_COLORS[type] ?? TYPE_DOT_NEUTRAL;
+}
+
+/** The two halves of a mixed field's dot; they never match. */
+function typeDotColors(first: string, second: string): [string, string] {
+  const a = typeDotColor(first);
+  const b = typeDotColor(second);
+  return [a, b === a ? TYPE_DOT_NEUTRAL_LIGHT : b];
 }
 
 /** What the chip menu shows for a field that holds two kinds. */
@@ -123,6 +141,7 @@ function TypeChip({
   const sampledTypes = new Set(menu?.sampled.map((s) => s.valType));
   const first = split?.[0];
   const second = split?.[1];
+  const dot = first && second ? typeDotColors(first.type, second.type) : null;
   return (
     <Menu position="bottom-end" shadow="md" width={menu ? 220 : 120} disabled={disabled}>
       <Menu.Target>
@@ -150,17 +169,17 @@ function TypeChip({
             gap: T.gapXs,
           }}
         >
-          {first && second && (
+          {first && dot && (
             <span
               data-type-split-dot=""
-              data-colors={`${typeDotColor(first.type)} ${typeDotColor(second.type)}`}
+              data-colors={`${dot[0]} ${dot[1]}`}
               aria-hidden="true"
               style={{
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
                 flexShrink: 0,
-                background: `conic-gradient(${typeDotColor(first.type)} 0 ${first.share}%, ${typeDotColor(second.type)} 0)`,
+                background: `conic-gradient(${dot[0]} 0 ${first.share}%, ${dot[1]} 0)`,
               }}
             />
           )}
@@ -310,6 +329,7 @@ export function CondValueEditor({
   notice,
   typeFlash = 0,
   sampleEntry,
+  sampleWarning,
 }: {
   node: CondNode;
   readOnly: boolean;
@@ -326,6 +346,8 @@ export function CondValueEditor({
   typeFlash?: number;
   /** What the sample holds for this row's field; absent when the field was not sampled. */
   sampleEntry?: SchemaSampleEntry;
+  /** The row's note that its value disagrees with the sampled type; a hint, so it yields to a problem or a notice. */
+  sampleWarning?: string;
 }) {
   const T = themeVars;
   const kind = condValueKind(node);
@@ -382,6 +404,31 @@ export function CondValueEditor({
     }
   });
 
+  // The chips area wrapping past its resting cap, as the browser lays it out
+  // (jsdom has no layout and reports 0, so the count rule alone decides there).
+  // At the resting cap the area's own overflow says so; at the larger cap it is
+  // the content against the resting height, so "Show fewer" stays on offer.
+  const [chipsWrapPastRest, setChipsWrapPastRest] = React.useState(false);
+  const chipLinesNow = suggesting || showAllChips ? CHIP_LINES_EDITING : CHIP_LINES_AT_REST;
+  React.useLayoutEffect(() => {
+    const area = chipMode ? chipInputRef.current?.closest<HTMLElement>('.mantine-TagsInput-input') : null;
+    if (!area) {
+      setChipsWrapPastRest(false);
+      return;
+    }
+    const restingPx = CHIP_LINES_AT_REST * CHIP_LINE_PX;
+    const measure = () =>
+      setChipsWrapPastRest(
+        chipLinesNow === CHIP_LINES_AT_REST ? area.scrollHeight > area.clientHeight : area.scrollHeight > restingPx,
+      );
+    measure();
+    // The Inspector can be resized, which re-wraps the chips.
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, [chipMode, chipLinesNow, node.value]);
+
   // Placement on the row's grid. Narrow: the box is the second line, spanning
   // the field and operator columns (so it leaves the menu's column free), and
   // its notes are the third. Wide: the box takes the fourth column of the
@@ -412,12 +459,14 @@ export function CondValueEditor({
   // next most urgent thing to say.
   // `footer` is information with a control in it (the chip count and its
   // button), so it takes the line only where an info line could.
+  const sampleCandidate: HelperCandidate | null = sampleWarning ? { kind: 'hint', text: sampleWarning } : null;
   const noticeCandidate: NoticeCandidate | null = notice ? { kind: notice.kind, text: notice.text, notice } : null;
   const helperNote = (candidates: (NoticeCandidate | null)[], footer?: React.ReactNode) => {
     const picked = pickHelperLine([
       problem ? { kind: 'error', text: problem } : null,
       noticeCandidate,
       ...candidates,
+      sampleCandidate,
       footer ? { kind: 'info', text: '' } : null,
     ]);
     if (!picked) return null;
@@ -487,14 +536,23 @@ export function CondValueEditor({
             }}
           />
         </div>
-        {errorNote && <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)' }}>{errorNote}</div>}
+        {errorNote ? (
+          <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)' }}>{errorNote}</div>
+        ) : (
+          sampleWarning && (
+            <div style={{ ...bareNotePlacement, gridRow: 'var(--sw-note-row)', ...noteStyle, color: T.textGhost }}>
+              {sampleWarning}
+            </div>
+          )
+        )}
       </>
     );
   }
 
   // A field that holds two kinds (no type at 90%): the chip shows a dot, and
-  // the menu lists the kinds sampled first. Only a single-value comparison has
-  // a value to read, so a list or a switch keeps the plain chip.
+  // the menu lists the kinds sampled first. A list row gets both too (its
+  // "either" label needs them); only the typed-value hint and the "either" offer
+  // are limited to a single-value comparison, which is the one with a value to read.
   const simpleOp = SIMPLE_OPS.has(node.op);
   const mixed = isMixedSplit(split);
   const either = mixed && simpleOp && MATCH_EITHER_OPTIONS.offered ? eitherPlan(split, node.value, node.valType) : null;
@@ -537,13 +595,15 @@ export function CondValueEditor({
         ),
       ),
     ];
-    const overflowing = chips.length > CHIPS_AT_REST;
-    const chipLines = suggesting || showAllChips ? CHIP_LINES_EDITING : CHIP_LINES_AT_REST;
+    const overflowing = chips.length > CHIPS_AT_REST || chipsWrapPastRest;
+    const chipLines = chipLinesNow;
     const chipFooter = overflowing ? (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: T.gapXs, fontFamily: '"JetBrains Mono", monospace' }}>
         {chips.length} values
         {!suggesting && (
-          <Button
+          <>
+            <span aria-hidden="true">·</span>
+            <Button
             variant="subtle"
             color="gray"
             size="compact-xs"
@@ -551,7 +611,8 @@ export function CondValueEditor({
             styles={{ root: { fontSize: T.fsXs, padding: '0 4px', height: 'auto' } }}
           >
             {showAllChips ? 'Show fewer' : 'Show all'}
-          </Button>
+            </Button>
+          </>
         )}
       </span>
     ) : null;
@@ -584,8 +645,10 @@ export function CondValueEditor({
             onKeyDown={(e) => keepEscapeInBox(e, setSuggesting)}
             onBlur={() => setSuggesting(false)}
             // A comma ends a chip, so a value holding one is entered through
-            // "Edit as JSON" instead.
-            splitChars={[',', '\n', '\t']}
+            // "Edit as JSON" instead. Line breaks and tabs need no entry: Mantine
+            // matches this list against the pressed key (never a break or a tab
+            // character), and the paste handler above splits pasted text itself.
+            splitChars={[',']}
             // Mantine's own check ignores case, which would drop `"A"` from a
             // `$in` that already holds `"a"`; MongoDB treats them as different.
             isDuplicate={(v, current) => current.includes(v)}

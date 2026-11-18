@@ -3,7 +3,7 @@
 // the real drawer, so every patch round-trips through the tree's own history
 // and Undo is the tree's undo, not a copy.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../helpers/render';
+import { render, screen, waitFor, fireEvent, act } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { pickValueType } from '../helpers/condRow';
@@ -84,6 +84,18 @@ async function mount(queryRaw: string, docs: Record<string, unknown>[]) {
   return updateSpy;
 }
 
+/**
+ * Waits until the sample has been read and the row has re-rendered with it. The
+ * "Sample:" line used to be the signal, but under an empty box the "Value is
+ * empty" problem takes the one helper line.
+ */
+async function sampleRead() {
+  await waitFor(() => expect(window.atelier!.meta.sampleSchema).toHaveBeenCalled());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 const fieldBox = () => screen.getByPlaceholderText('field') as HTMLInputElement;
 const valueBox = () => screen.getByPlaceholderText('value') as HTMLTextAreaElement;
 const typeChip = () => document.querySelector<HTMLButtonElement>('button[aria-label^="Value type: "]')!;
@@ -93,7 +105,7 @@ async function retypeField(name: string) {
   const box = await waitFor(() => fieldBox());
   fireEvent.focus(box);
   fireEvent.change(box, { target: { value: name } });
-  await screen.findByText(new RegExp(`^Sample: ${name} is `));
+  await sampleRead();
   fireEvent.blur(box);
 }
 
@@ -343,5 +355,35 @@ describe('a field that holds two kinds', () => {
 
     await waitFor(() => expect(typeChip().textContent).toBe('number'));
     expect(helperNotice()).toBeNull();
+  });
+});
+
+describe('one helper line under the value box', () => {
+  const STRINGS = Array(10).fill({ status: 'a' });
+
+  it('a problem takes the line from the sample note', async () => {
+    await mount('{"status":{"$eq":"abc"}}', STRINGS);
+    await screen.findByDisplayValue('status');
+
+    await pickValueType('number');
+
+    expect(await screen.findByText('Value must be a valid number')).toBeTruthy();
+    expect(screen.queryByText(/^Sample: /)).toBeNull();
+  });
+
+  it('the sample note outranks the ObjectId creation time, so only one of them shows', async () => {
+    await mount('{"status":{"$eq":{"$oid":"507f1f77bcf86cd799439011"}}}', STRINGS);
+    await screen.findByDisplayValue('status');
+
+    expect(await screen.findByText(/^Sample: status is string/)).toBeTruthy();
+    expect(screen.queryByText(/^created /)).toBeNull();
+  });
+
+  it('the sample note shows alone when nothing more urgent has the line', async () => {
+    await mount('{"status":{"$eq":5}}', STRINGS);
+    await screen.findByDisplayValue('status');
+
+    expect(await screen.findByText('Sample: status is string in 100% of documents that have it')).toBeTruthy();
+    expect(screen.getAllByText(/^Sample: /)).toHaveLength(1);
   });
 });

@@ -64,6 +64,23 @@ describe('mixed field: the chip', () => {
     expect(chipButton().textContent).toBe('string');
   });
 
+  it('never paints both halves of the dot one colour, whatever two types the field holds', () => {
+    const types = ['string', 'number', 'date', 'objectid', 'boolean', 'array', 'null', 'object'];
+    const seen: string[] = [];
+    for (const first of types) {
+      for (const second of types) {
+        if (first === second) continue;
+        const { container, unmount } = mount({ value: '1' }, entry({ [first]: 55, [second]: 45 }));
+        const colors = container.querySelector<HTMLElement>('[data-type-split-dot]')!.getAttribute('data-colors')!.split(' ');
+        seen.push(colors.join('|'));
+        expect(colors).toHaveLength(2);
+        expect(colors[0]).not.toBe(colors[1]);
+        unmount();
+      }
+    }
+    expect(seen).toHaveLength(types.length * (types.length - 1));
+  });
+
   it('shows no dot once one type holds 90%, or when the field has one type or was not sampled', () => {
     const dominant = mount({ value: '1' }, entry({ string: 90, number: 10 }));
     expect(dominant.container.querySelector('[data-type-split-dot]')).toBeNull();

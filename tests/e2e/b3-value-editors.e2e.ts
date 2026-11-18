@@ -96,3 +96,39 @@ test('value editors keep their caps at a 400px Inspector', async () => {
     await expect(win.getByRole('status').filter({ hasText: /Skips the|so only/ })).toHaveCount(1);
   });
 });
+
+test('a few long chips that wrap past three lines still offer "Show all"', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await win.setViewportSize({ width: 1600, height: 900 });
+
+    await seedActiveConnectionWithDocs(
+      win,
+      { ...baseConnInput(host, port), name: 'Long Chips Target' },
+      { dbName: 'shop', collection: 'orders', docs: MIXED_DOCS },
+    );
+
+    const ws = new WorkspacePage(win);
+    await ws.openCollectionFromNavigator('shop', 'orders');
+    await expect(win.getByText('"c0"').first()).toBeVisible({ timeout: 8000 });
+    await ws.openBuilder();
+    await resizePanel(win, 400);
+
+    await win.getByRole('button', { name: 'Add condition', exact: true }).click();
+    await win.getByPlaceholder('field', { exact: true }).fill('label');
+    await win.getByPlaceholder('$op', { exact: true }).fill('$in');
+    await win.getByRole('listbox', { name: 'Operator suggestions' }).getByRole('option').first().click();
+    const chipsInput = win.getByPlaceholder('add a value, Enter');
+    const longChips = ['alpha', 'bravo', 'charlie', 'delta'].map((w) => `${w}-${'x'.repeat(40)}`);
+    await chipsInput.pressSequentially(`${longChips.join(',')},`);
+    await win.keyboard.press('Tab');
+
+    // Four chips are under the count rule's threshold, so only the measured
+    // overflow can have put the footer here.
+    await expect(win.getByText('4 values')).toBeVisible();
+    await expect(win.getByRole('button', { name: 'Show all', exact: true })).toBeVisible();
+  });
+});

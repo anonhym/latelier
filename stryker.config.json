@@ -19,6 +19,7 @@
     "src/pages/Workspace/objectIdDate.ts",
     "src/pages/Workspace/listPaste.ts",
     "src/pages/Workspace/fieldTypeSplit.ts",
+    "src/pages/Workspace/mixedField.ts",
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",

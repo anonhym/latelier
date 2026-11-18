@@ -1065,6 +1065,11 @@ function CondRow({
           notice={visibleNotice && toValueNotice(visibleNotice)}
           typeFlash={typeFlash}
           sampleEntry={node.field.trim() === '' ? undefined : structureEntries.get(node.field.trim())}
+          sampleWarning={
+            typeWarning
+              ? `Sample: ${typeWarning.field} is ${typeWarning.expectedType} in ${typeWarning.percent}% of documents that have it`
+              : undefined
+          }
         />
         <div style={{ gridRow: 1, gridColumn: -2, display: 'flex', justifyContent: 'flex-end' }}>
           <RowMenu
@@ -1103,12 +1108,6 @@ function CondRow({
       {opProblem && (
         <span role="alert" style={{ fontSize: T.fsXs, color: T.warn, lineHeight: 1.3 }}>
           {opProblem}
-        </span>
-      )}
-
-      {typeWarning && visibleNotice?.kind !== 'hint' && (
-        <span style={{ fontSize: T.fsXs, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
-          Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents that have it
         </span>
       )}
     </div>
