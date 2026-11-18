@@ -59,12 +59,29 @@ function holds(text: string, from: ValType, type: string): boolean {
   return to !== null && convertValue(text, from, to).kind === 'converted';
 }
 
+const PLAIN_DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
+
+/**
+ * Whether the JS number `n` is exactly the number `text` writes. A double
+ * keeps about 17 digits, so a longer text (or an integer past 2^53) would be
+ * sent as another value; an exponent spelling is withheld rather than guessed.
+ * Padding zeros do not count (`007` and `1.50` are `7` and `1.5`).
+ */
+function numberHoldsText(n: number, text: string): boolean {
+  const m = PLAIN_DECIMAL.exec(text.trim());
+  if (!m) return false;
+  const [, sign, int = '', frac = ''] = m;
+  const fraction = frac.replace(/0+$/, '');
+  const written = `${sign}${int.replace(/^0+(?=\d)/, '')}${fraction === '' ? '' : `.${fraction}`}`;
+  return written === String(n);
+}
+
 /** The `$in` chip a sampled type makes of `text`, or null when no plain chip says it faithfully. */
 function chipFor(text: string, type: string): Chip | null {
   if (type === 'string') return text;
   if (NUMBER_FAMILY.has(type)) {
     const chip = parseChipText(text, 'array');
-    return typeof chip === 'number' ? chip : null;
+    return typeof chip === 'number' && numberHoldsText(chip, text) ? chip : null;
   }
   if (type === 'boolean') {
     const chip = parseChipText(text, 'array');

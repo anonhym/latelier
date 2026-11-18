@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
 import {
   eitherPlan,
   isEitherRow,
@@ -154,5 +155,58 @@ describe('mixedHint', () => {
     expect(mixedHint('zip', ZIP, 'string', '', 'string')).toBeNull();
     expect(mixedHint('zip', [{ type: 'string', share: 100 }], 'string', 'x', 'string')).toBeNull();
     expect(mixedHint('zip', ZIP, 'date', '2026-04-01', 'date')).toBeNull();
+  });
+});
+
+describe('eitherPlan number side is exact', () => {
+  const decimalMix = [
+    { type: 'string', share: 60 },
+    { type: 'decimal', share: 40 },
+  ];
+  const value = (text: string): string | undefined => eitherPlan(decimalMix, text, 'string')?.patch.value;
+
+  it('offers a number only when the text survives a JS number', () => {
+    expect(value('0.1')).toBe('["0.1",0.1]');
+    expect(value('1.50')).toBe('["1.50",1.5]');
+    expect(value('007')).toBe('["007",7]');
+    expect(value('-1.5')).toBe('["-1.5",-1.5]');
+    expect(value('1.500')).toBe('["1.500",1.5]');
+    expect(value('2.00')).toBe('["2.00",2]');
+    expect(value('10.0')).toBe('["10.0",10]');
+    expect(value('0.0')).toBe('["0.0",0]');
+    expect(value(' 5 ')).toBe('[" 5 ",5]');
+    expect(value('100')).toBe('["100",100]');
+    expect(value('9007199254740991')).toBe('["9007199254740991",9007199254740991]');
+  });
+
+  it('withholds the number side when digits would change', () => {
+    expect(value('0.1000000000000000000000000000000001')).toBeUndefined();
+    expect(value('9007199254740993')).toBeUndefined();
+    expect(value('123456789012345678901234567890')).toBeUndefined();
+    expect(value('1e400')).toBeUndefined();
+    expect(value('1e3')).toBeUndefined();
+    expect(value('-0')).toBeUndefined();
+    expect(value('.5')).toBeUndefined();
+    expect(value('5.')).toBeUndefined();
+  });
+
+  it('never pairs the text with a number that is another value', () => {
+    // A decimal as an exact integer scaled by 10^40, so two spellings compare by BigInt equality.
+    const scaled = (t: string): bigint => {
+      const [mant = '', exp = '0'] = t.toLowerCase().split('e');
+      const [int = '', frac = ''] = mant.replace(/^-/, '').split('.');
+      const shift = 40 + Number(exp) - frac.length;
+      const magnitude = BigInt(int + frac) * 10n ** BigInt(shift);
+      return mant.startsWith('-') ? -magnitude : magnitude;
+    };
+    fc.assert(
+      fc.property(fc.stringMatching(/^-?\d{1,25}(\.\d{1,25})?$/), (t) => {
+        const plan = eitherPlan(decimalMix, t, 'string');
+        fc.pre(plan !== null);
+        const chips = JSON.parse(plan!.patch.value) as unknown[];
+        const n = chips.find((c) => typeof c === 'number') as number;
+        expect(scaled(String(n))).toBe(scaled(t));
+      }),
+    );
   });
 });
