@@ -16,6 +16,7 @@
   "mutate": [
     "src/pages/Workspace/helperLine.ts",
     "src/pages/Workspace/objectIdDate.ts",
+    "src/pages/Workspace/listPaste.ts",
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",

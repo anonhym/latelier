@@ -23,6 +23,7 @@ import {
 } from './condValue';
 import { objectIdTimestamp, formatLocalDateTime } from './objectIdDate';
 import { pickHelperLine, type HelperCandidate } from './helperLine';
+import { splitPastedList } from './listPaste';
 
 
 /**
@@ -113,10 +114,12 @@ function TypeChip({
 function ValueBox({
   invalid,
   placement,
+  onPasteCapture,
   children,
 }: {
   invalid: boolean;
   placement: React.CSSProperties;
+  onPasteCapture?: React.ClipboardEventHandler<HTMLDivElement>;
   children: React.ReactNode;
 }) {
   const T = themeVars;
@@ -124,6 +127,7 @@ function ValueBox({
   return (
     <div
       data-value-box=""
+      onPasteCapture={onPasteCapture}
       onFocus={() => setFocused(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
@@ -147,6 +151,21 @@ function ValueBox({
     </div>
   );
 }
+
+/** Height of one line of chips, in px (the pill row the chips area is measured in). */
+const CHIP_LINE_PX = 28;
+/** Lines of chips shown while the box is at rest; past it the area scrolls. */
+const CHIP_LINES_AT_REST = 3;
+/** Lines of chips shown while the box is focused or expanded; past it the area scrolls. */
+const CHIP_LINES_EDITING = 8;
+/**
+ * Chips that fit the resting cap. jsdom has no layout and chip widths vary, so
+ * the footer does not measure: it counts, assuming this many chips to a line.
+ * A list longer than the cap is offered "Show all" even when narrow chips would
+ * still have fit, which only costs one click.
+ */
+const CHIPS_PER_LINE = 3;
+const CHIPS_AT_REST = CHIP_LINES_AT_REST * CHIPS_PER_LINE;
 
 /** The most lines the text box grows to; past it the text scrolls inside the box. */
 const MAX_TEXT_LINES = 4;
@@ -246,6 +265,7 @@ export function CondValueEditor({
     { valueSources: DEFAULT_VALUE_SOURCES },
   );
   const [datePickerOpen, setDatePickerOpen] = React.useState(false);
+  const [showAllChips, setShowAllChips] = React.useState(false);
 
   // Mantine writes its own `aria-invalid` and `aria-describedby` on an input
   // (from its own error prop, which this box does not use), over any passed in.
@@ -293,10 +313,19 @@ export function CondValueEditor({
   );
   // The one line under the box: the problem when there is one, otherwise the
   // next most urgent thing to say.
-  const helperNote = (candidates: (HelperCandidate | null)[]) => {
-    const picked = pickHelperLine([problem ? { kind: 'error', text: problem } : null, ...candidates]);
+  // `footer` is information with a control in it (the chip count and its
+  // button), so it takes the line only where an info line could.
+  const helperNote = (candidates: (HelperCandidate | null)[], footer?: React.ReactNode) => {
+    const picked = pickHelperLine([
+      problem ? { kind: 'error', text: problem } : null,
+      ...candidates,
+      footer ? { kind: 'info', text: '' } : null,
+    ]);
     if (!picked) return null;
     if (picked.kind === 'error') return <div style={notesPlacement}>{errorNote}</div>;
+    if (picked.kind === 'info' && picked.text === '' && footer) {
+      return <div style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>{footer}</div>;
+    }
     return (
       <div
         aria-hidden="true"
@@ -359,9 +388,40 @@ export function CondValueEditor({
         ),
       ),
     ];
+    const overflowing = chips.length > CHIPS_AT_REST;
+    const chipLines = suggesting || showAllChips ? CHIP_LINES_EDITING : CHIP_LINES_AT_REST;
+    const chipFooter = overflowing ? (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: T.gapXs, fontFamily: '"JetBrains Mono", monospace' }}>
+        {chips.length} values
+        {!suggesting && (
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-xs"
+            onClick={() => setShowAllChips((v) => !v)}
+            styles={{ root: { fontSize: T.fsXs, padding: '0 4px', height: 'auto' } }}
+          >
+            {showAllChips ? 'Show fewer' : 'Show all'}
+          </Button>
+        )}
+      </span>
+    ) : null;
+    // Pasted text becomes chips here, ahead of Mantine's own paste handling,
+    // which would apply the same paste a second time.
+    const onPasteChips = (e: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly || e.target !== chipInputRef.current) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const pasted = splitPastedList(`${chipSearch}${e.clipboardData.getData('text/plain')}`);
+      const have = chips.map((c) => chipText(c, node.valType));
+      const added = pasted.filter((t, i) => !have.includes(t) && pasted.indexOf(t) === i);
+      setChipSearch('');
+      if (added.length === 0) return;
+      onPatch({ value: valueFromChips([...chips, ...added.map((t) => parseChipText(t, node.valType))]) });
+    };
     return (
       <>
-        <ValueBox invalid={!!problem} placement={boxPlacement}>
+        <ValueBox invalid={!!problem} placement={boxPlacement} onPasteCapture={onPasteChips}>
           <TagsInput
             aria-label="Values"
             ref={chipInputRef}
@@ -376,14 +436,24 @@ export function CondValueEditor({
             onBlur={() => setSuggesting(false)}
             // A comma ends a chip, so a value holding one is entered through
             // "Edit as JSON" instead.
-            splitChars={[',', '\n']}
+            splitChars={[',', '\n', '\t']}
             // Mantine's own check ignores case, which would drop `"A"` from a
             // `$in` that already holds `"a"`; MongoDB treats them as different.
             isDuplicate={(v, current) => current.includes(v)}
             disabled={readOnly}
             size="xs"
             style={{ flex: 1, minWidth: 0 }}
-            styles={{ input: { ...BARE_INPUT, fontFamily: 'monospace', minHeight: 28, paddingInline: 0 } }}
+            styles={{
+              input: {
+                ...BARE_INPUT,
+                fontFamily: 'monospace',
+                minHeight: 28,
+                paddingInline: 0,
+                // Past the cap the chips scroll inside the box.
+                maxHeight: chipLines * CHIP_LINE_PX,
+                overflowY: 'auto',
+              },
+            }}
             // The stock remove button is hidden from assistive tech and out of
             // the tab order; named and focusable, each chip can be removed by
             // keyboard, not only the last one by Backspace.
@@ -401,7 +471,7 @@ export function CondValueEditor({
           <ListToggle asText={false} disabled={readOnly} onToggle={() => setListAsText(true)} />
           {chipSlot}
         </ValueBox>
-        {helperNote([])}
+        {helperNote([], chipFooter)}
       </>
     );
   }
