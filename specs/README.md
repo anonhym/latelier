@@ -108,6 +108,9 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X20](./X20-auto-update.md) | Auto-update from GitHub Releases (macOS + Windows) — *post-iteration-1* | main + renderer + build |
 | [X21](./X21-encryption-at-rest.md) | Encryption at rest for Mongo-derived values in `latelier.db` — *post-iteration-1* | main + renderer |
 | [X22](./X22-update-experience.md) | Update experience: manual + periodic check, status-bar indicator, Settings section, What's new window | main + renderer + build |
+| [X23](./X23-connection-families.md) | Connection Families: shared Reference Rules and Row Summaries, per-rule Overrides | main + renderer |
+| [X24](./X24-family-export.md) | Family Export: write a Family's shared configuration and Apply it to any Family | main + renderer |
+| [X25](./X25-cross-connection-paste.md) | Cross-Connection Paste warning: Copy Origin and an inline strip on query surfaces | renderer |
 
 ### Plans
 
