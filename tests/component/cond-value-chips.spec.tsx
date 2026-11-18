@@ -138,3 +138,22 @@ describe('list chips', () => {
   });
 });
 
+
+describe('a list switching to its JSON text', () => {
+  it('observes the textarea that appears, though the value did not change', () => {
+    const observed: Element[] = [];
+    class SpyObserver {
+      observe(el: Element) {
+        observed.push(el);
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', SpyObserver);
+    mount(['a', 'b']);
+    expect(observed.some((el) => el.tagName === 'TEXTAREA')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    expect(observed.some((el) => el.tagName === 'TEXTAREA')).toBe(true);
+    vi.unstubAllGlobals();
+  });
+});

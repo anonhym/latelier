@@ -369,7 +369,7 @@ export function CondValueEditor({
   // it. They are asked for only while the value box has focus.
   const valueInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [suggesting, setSuggesting] = React.useState(false);
-  useGrowToLines(valueInputRef, node.value, MAX_TEXT_LINES);
+  useGrowToLines(valueInputRef, node.value, MAX_TEXT_LINES, 0, !chipMode);
   const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
   const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
     () =>

@@ -3,13 +3,17 @@ import * as React from 'react';
 /**
  * Sizes a textarea to its text, up to `maxLines`, then lets it scroll. Done by
  * hand (Mantine's autosize needs `document.fonts`, which jsdom lacks). With
- * `minLines` the box never shrinks below that many lines.
+ * `minLines` the box never shrinks below that many lines. `mounted` says
+ * whether the textarea is in the tree: a box that appears without its text
+ * changing (a list switching from chips to its JSON text) must be sized and
+ * observed when it appears.
  */
 export function useGrowToLines(
   ref: React.RefObject<HTMLTextAreaElement | null>,
   text: string,
   maxLines: number,
   minLines = 0,
+  mounted = true,
 ): void {
   // One sizing pass; the layout effect and the width observer share it.
   const size = React.useCallback(() => {
@@ -27,7 +31,7 @@ export function useGrowToLines(
     el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
   }, [ref, maxLines, minLines]);
 
-  React.useLayoutEffect(size, [size, text]);
+  React.useLayoutEffect(size, [size, text, mounted]);
 
   // Narrowing the box re-wraps the text without changing it, so the text
   // dependency above never fires. The box's own width is what moves; the
@@ -44,5 +48,5 @@ export function useGrowToLines(
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, size]);
+  }, [ref, size, mounted]);
 }
