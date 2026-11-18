@@ -226,6 +226,11 @@ describe('operatorSwitch', () => {
     expect(operatorSwitch(cond({ value: 'a' }), '$in')).toEqual({ value: '["a"]', removed: [] });
   });
 
+  it('= to $in keeps a string verbatim: padding and quotes are part of the value', () => {
+    expect(operatorSwitch(cond({ value: '  a  ' }), '$in')).toEqual({ value: '["  a  "]', removed: [] });
+    expect(operatorSwitch(cond({ value: '"hello"' }), '$in')).toEqual({ value: '["\\"hello\\""]', removed: [] });
+  });
+
   it('= to $in types the chip by the row', () => {
     expect(operatorSwitch(cond({ valType: 'number', value: '5' }), '$in')).toEqual({ value: '[5]', removed: [] });
   });

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import type { ValType } from '@shared/types';
-import { convertValue } from '../../src/pages/Workspace/kindChange';
+import type { CondNode, GroupNode, ValType } from '@shared/types';
+import { printFilter } from '../../src/pages/Workspace/filterTree';
+import { convertValue, operatorSwitch } from '../../src/pages/Workspace/kindChange';
 
 const KINDS: ValType[] = ['string', 'number', 'long', 'decimal', 'boolean', 'date', 'null', 'regex', 'objectid', 'array'];
 const kind = fc.constantFrom<ValType>(...KINDS);
@@ -49,6 +50,30 @@ describe('convertValue properties', () => {
       fc.property(fc.string({ minLength: 1 }), kind, (t, from) => {
         fc.pre(['string', 'number', 'long', 'decimal', 'boolean', 'date', 'objectid'].includes(from));
         expect(convertValue(t, from, 'string')).toEqual({ kind: 'converted', text: t });
+      }),
+    );
+  });
+});
+
+describe('operatorSwitch properties', () => {
+  const row = (p: Partial<CondNode>): CondNode => ({ kind: 'cond', field: 'f', op: '$eq', valType: 'string', value: '', ...p });
+  const filterOf = (c: CondNode): string => {
+    const root: GroupNode = { kind: 'group', logic: '$and', children: [c] };
+    const out = printFilter(root);
+    if (!out.ok) throw new Error('row did not print');
+    return JSON.stringify(JSON.parse(out.json));
+  };
+
+  it('= to $in and back matches exactly the same string', () => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1 }), (s) => {
+        const eq = row({ value: s });
+        const toIn = operatorSwitch(eq, '$in');
+        expect(toIn).not.toBeNull();
+        const inRow = row({ op: '$in', valType: 'string', value: toIn!.value });
+        expect(filterOf(inRow)).toBe(JSON.stringify({ f: { $in: [s] } }));
+        const back = operatorSwitch(inRow, '$eq');
+        expect(back?.value).toBe(s);
       }),
     );
   });

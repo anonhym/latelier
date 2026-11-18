@@ -158,7 +158,10 @@ export function operatorSwitch(node: CondNode, nextOp: string): OperatorSwitch |
   if (node.op === '$eq' && nextOp === '$in') {
     if (!CONVERTIBLE.has(node.valType)) return null;
     if (node.value === '') return { value: '', removed: [] };
-    return { value: valueFromChips([parseChipText(node.value, node.valType)]), removed: [] };
+    // A string row sends its text verbatim, so the chip holds it verbatim: reading it as typed chip text
+    // would trim it and unquote `"hello"`, and the list would match another value.
+    const chip = node.valType === 'string' ? node.value : parseChipText(node.value, node.valType);
+    return { value: valueFromChips([chip]), removed: [] };
   }
   if (node.op === '$in' && nextOp === '$eq') {
     if (!CONVERTIBLE.has(node.valType) && node.valType !== 'array') return null;
