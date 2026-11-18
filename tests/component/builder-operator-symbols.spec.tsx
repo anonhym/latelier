@@ -51,6 +51,9 @@ const CONNECTION = {
   status: 'connected' as const,
 };
 
+const barText = () =>
+  (document.querySelector('[data-testid="query-bar-input"]') as HTMLTextAreaElement).value;
+
 /** Renders the workspace and returns the operator box of one pending row. */
 async function openConditionRow(): Promise<HTMLInputElement> {
   const state = makeState();
@@ -96,6 +99,15 @@ describe('Query Builder — operator suggestions listbox (#130)', () => {
   });
 });
 
+const SYMBOL_OF: Record<string, string> = {
+  $eq: '=',
+  $ne: '!=',
+  $gt: '>',
+  $gte: '>=',
+  $lt: '<',
+  $lte: '<=',
+};
+
 describe('Query Builder — symbolic operators', () => {
   it.each([
     ['>', '$gt'],
@@ -111,10 +123,11 @@ describe('Query Builder — symbolic operators', () => {
     fireEvent.change(opInput, { target: { value: symbol } });
     fireEvent.blur(opInput);
 
-    // The box shows the operator, not the symbol. That is the point: `node.op`
-    // always holds a real operator, so `printFilter` and `isCompilableOp` need
-    // no change, and the user keeps learning the operator's name.
-    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe(op);
+    // The box keeps the symbol; `node.op` still holds the real operator, so
+    // the bar text (checked in the round-trip test below) prints `$gte`.
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe(
+      SYMBOL_OF[op],
+    );
   });
 
   it('does not resolve while the user is still typing a longer symbol', async () => {
@@ -129,7 +142,7 @@ describe('Query Builder — symbolic operators', () => {
     expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('>=');
 
     fireEvent.blur(opInput);
-    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('$gte');
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('>=');
   });
 
   it('resolves on Enter, not only on blur', async () => {
@@ -141,7 +154,7 @@ describe('Query Builder — symbolic operators', () => {
     fireEvent.change(opInput, { target: { value: '>' } });
     fireEvent.keyDown(opInput, { key: 'Enter' });
 
-    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('$gt');
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('>');
   });
 
   it('leaves ⌘Enter alone, so the box never claims more than the run used', async () => {
@@ -191,12 +204,12 @@ describe('Query Builder — symbolic operators', () => {
     fireEvent.change(opInput, { target: { value: '>' } });
     fireEvent.blur(opInput);
     const resolved = (await screen.findByPlaceholderText('$op')) as HTMLInputElement;
-    expect(resolved.value).toBe('$gt');
+    expect(resolved.value).toBe('>');
 
     fireEvent.focus(resolved);
     fireEvent.blur(resolved);
 
-    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('$gt');
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('>');
   });
 
   it('a popover choice lands exactly the operator chosen', async () => {
@@ -219,19 +232,76 @@ describe('Query Builder — symbolic operators', () => {
     // By row rather than by text: `$in` is a prefix of `$indexOfArray` and
     // friends, which are all in the same ranked list.
     const rows = await screen.findAllByRole('option');
-    const option = rows.find((r) => r.querySelector('span')?.textContent === '$in');
+    const option = rows.find((r) => r.querySelector('[data-testid="operator-name"]')?.textContent === '$in');
     expect(option).toBeDefined();
     fireEvent.click(option!);
 
     expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('$in');
   });
 
-  it('shows the symbol and an English name next to the operator', async () => {
+  it('lists each row as symbol, words and operator name', async () => {
     const opInput = await openConditionRow();
     fireEvent.focus(opInput);
-    fireEvent.change(opInput, { target: { value: '$gt' } });
+    fireEvent.change(opInput, { target: { value: '$gte' } });
 
-    expect(await screen.findByText('> greater than')).toBeTruthy();
+    const row = (await screen.findAllByRole('option')).find(
+      (r) => r.querySelector('[data-testid="operator-name"]')?.textContent === '$gte',
+    )!;
+    expect(row.querySelector('[data-testid="operator-symbol"]')?.textContent).toBe('>=');
+    expect(row.querySelector('[data-testid="operator-words"]')?.textContent).toBe(
+      'greater than or equal to',
+    );
+  });
+
+  it('shows the operator help panel for the highlighted row', async () => {
+    const opInput = await openConditionRow();
+    fireEvent.focus(opInput);
+    fireEvent.change(opInput, { target: { value: '$gte' } });
+
+    await screen.findAllByRole('option');
+    expect(await screen.findByRole('note')).toBeTruthy();
+  });
+
+  it.each(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'])('typing %s shows its symbol', async (op) => {
+    const opInput = await openConditionRow();
+    fireEvent.change(opInput, { target: { value: op } });
+    fireEvent.blur(opInput);
+
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe(
+      SYMBOL_OF[op],
+    );
+  });
+
+  it.each(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte'])('picking %s from the list shows its symbol', async (op) => {
+    const opInput = await openConditionRow();
+    fireEvent.focus(opInput);
+    fireEvent.change(opInput, { target: { value: op } });
+
+    const row = (await screen.findAllByRole('option')).find(
+      (r) => r.querySelector('[data-testid="operator-name"]')?.textContent === op,
+    )!;
+    fireEvent.click(row);
+
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe(
+      SYMBOL_OF[op],
+    );
+  });
+
+  it('a row parsed from bar text shows the symbol, and the bar keeps $gte', async () => {
+    const { opInput } = await openExistingRow('{"qty":{"$gte":5}}');
+    expect(opInput.value).toBe('>=');
+    expect(barText()).toContain('$gte');
+  });
+
+  it('typing a symbol keeps $gte in the bar text', async () => {
+    const { opInput } = await openExistingRow('{"qty":{"$eq":5}}');
+    fireEvent.change(opInput, { target: { value: '≥' } });
+    fireEvent.blur(opInput);
+
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('>=');
+    await waitFor(() =>
+      expect(barText()).toContain('$gte'),
+    );
   });
 
   it('names an operator that has no symbol, without inventing one', async () => {
@@ -240,6 +310,9 @@ describe('Query Builder — symbolic operators', () => {
     fireEvent.change(opInput, { target: { value: '$in' } });
 
     expect(await screen.findByText('is one of')).toBeTruthy();
+    fireEvent.change(opInput, { target: { value: '$regex' } });
+    fireEvent.blur(opInput);
+    expect(((await screen.findByPlaceholderText('$op')) as HTMLInputElement).value).toBe('$regex');
   });
 });
 
@@ -250,7 +323,7 @@ describe('Query Builder — op box suggests only field operators', () => {
     fireEvent.change(opInput, { target: { value: '$e' } });
 
     const rows = await screen.findAllByRole('option');
-    const names = rows.map((r) => r.querySelector('span')?.textContent).sort();
+    const names = rows.map((r) => r.querySelector('[data-testid="operator-name"]')?.textContent).sort();
     expect(names).toEqual(['$elemMatch', '$eq', '$exists']);
   });
 
@@ -261,7 +334,7 @@ describe('Query Builder — op box suggests only field operators', () => {
     fireEvent.change(opInput, { target: { value: '$' } });
 
     const rows = await screen.findAllByRole('option');
-    const names = new Set(rows.map((r) => r.querySelector('span')?.textContent));
+    const names = new Set(rows.map((r) => r.querySelector('[data-testid="operator-name"]')?.textContent));
     for (const excluded of ['$exp', '$expMovingAvg', '$expr', '$sum', '$group', '$set', '$setWindowFields']) {
       expect(names.has(excluded)).toBe(false);
     }
@@ -330,7 +403,7 @@ describe('Query Builder — operator draft', () => {
 
   it('⌘Enter with a half-typed op still runs the last committed filter', async () => {
     const { opInput, findSpy } = await openExistingRow('{"qty":{"$gt":5}}');
-    expect(opInput.value).toBe('$gt');
+    expect(opInput.value).toBe('>');
 
     fireEvent.change(opInput, { target: { value: '$e' } });
     fireEvent.keyDown(opInput, { key: 'Enter', metaKey: true });

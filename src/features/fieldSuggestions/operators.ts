@@ -2141,8 +2141,8 @@ const UPDATES: readonly OperatorDef[] = [
  *
  * `symbol` is what the Query Builder's operator box resolves *from*; `label`
  * is the English name shown beside the operator in the suggestion popover.
- * The box keeps showing `$gt` after a resolve, so `node.op` always holds a
- * real operator and neither `printFilter` nor `isCompilableOp` changes.
+ * The box shows the symbol (`operatorDisplay`) while `node.op` always holds
+ * the real operator, so neither `printFilter` nor `isCompilableOp` changes.
  *
  * `aliases` are the other spellings a user arrives with: `==` and `<>` out of
  * habit, and `≥` / `≤` / `≠` out of a paste from a document. They resolve to
@@ -2194,6 +2194,15 @@ const SYMBOL_TO_OPERATOR: Readonly<Record<string, string>> = Object.fromEntries(
  */
 export function resolveOperatorSymbol(text: string): string | null {
   return SYMBOL_TO_OPERATOR[text.trim()] ?? null;
+}
+
+/**
+ * What the Query Builder's operator box shows for a stored operator: the
+ * symbol for the six comparisons (`$gte` -> `>=`), the name for everything
+ * else. Display only — `node.op` keeps the operator.
+ */
+export function operatorDisplay(op: string): string {
+  return QUERY_SYMBOLS[op]?.symbol ?? op;
 }
 
 export const OPERATORS: readonly OperatorDef[] = [

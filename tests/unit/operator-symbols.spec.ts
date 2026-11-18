@@ -4,7 +4,7 @@
 // timing is testable here. The blur timing — and the popover race it creates —
 // is in `tests/component/builder-operator-symbols.spec.tsx`.
 import { describe, it, expect } from 'vitest';
-import { OPERATORS, resolveOperatorSymbol } from '../../src/features/fieldSuggestions/operators';
+import { OPERATORS, operatorDisplay, resolveOperatorSymbol } from '../../src/features/fieldSuggestions/operators';
 import { isCompilableOp } from '../../src/pages/Workspace/filterTree';
 import { operatorSource } from '../../src/features/fieldSuggestions/sources/operatorSource';
 
@@ -120,5 +120,28 @@ describe('operator labels and symbols in the catalog', () => {
     }>;
     const gt = items.find((s) => s.name === '$gt' && s.symbol === '>');
     expect(gt?.label).toBe('greater than');
+  });
+});
+
+describe('operatorDisplay', () => {
+  it.each([
+    ['$eq', '='],
+    ['$ne', '!='],
+    ['$gt', '>'],
+    ['$gte', '>='],
+    ['$lt', '<'],
+    ['$lte', '<='],
+  ])('shows %s as %s', (op, symbol) => {
+    expect(operatorDisplay(op)).toBe(symbol);
+  });
+
+  it.each(['$in', '$regex', '$exists', '$nonsense', ''])('keeps %s as it is', (op) => {
+    expect(operatorDisplay(op)).toBe(op);
+  });
+
+  it('round-trips through resolveOperatorSymbol', () => {
+    for (const op of ['$eq', '$ne', '$gt', '$gte', '$lt', '$lte']) {
+      expect(resolveOperatorSymbol(operatorDisplay(op))).toBe(op);
+    }
   });
 });

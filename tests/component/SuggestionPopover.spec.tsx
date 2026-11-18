@@ -371,7 +371,7 @@ describe('SuggestionPopover — grouped operators', () => {
 
   // `getByText('$nin')` also matches the `$nin` that a description spells out.
   const optionNamed = (name: string) =>
-    screen.getAllByRole('option').find((o) => o.querySelector('span')?.textContent === name)!;
+    screen.getAllByRole('option').find((o) => o.querySelector('[data-testid="operator-name"]')?.textContent === name)!;
 
   it('renders a header per class, in order, with each option inside its group', async () => {
     render(<Harness items={await fieldOps()} groupOperators />);
@@ -389,7 +389,7 @@ describe('SuggestionPopover — grouped operators', () => {
     ]);
     const optionsIn = (g: HTMLElement) =>
       Array.from(g.querySelectorAll('[role="option"]')).map(
-        (o) => o.querySelector('span')!.textContent,
+        (o) => o.querySelector('[data-testid="operator-name"]')!.textContent,
       );
     expect(optionsIn(groups[0]!)).toEqual(['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin']);
     expect(optionsIn(groups[1]!)).toEqual(['$not']);

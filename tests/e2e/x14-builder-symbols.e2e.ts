@@ -63,17 +63,17 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
       // it used to leave `>` sitting in an unprintable row.
       await op.fill('>');
       await op.press('Enter');
-      await expect(op).toHaveValue('$gt');
+      await expect(op).toHaveValue('>');
 
       // Tab.
       await op.fill('>=');
       await op.press('Tab');
-      await expect(op).toHaveValue('$gte');
+      await expect(op).toHaveValue('>=');
 
       // Click-away.
       await op.fill('<');
       await win.getByPlaceholder('field', { exact: true }).first().click();
-      await expect(op).toHaveValue('$lt');
+      await expect(op).toHaveValue('<');
 
       // The resolved operator is a real one, so the row compiles and runs.
       await op.fill('>');
@@ -86,6 +86,20 @@ test('builder symbols: >, resolved by Enter, Tab and click-away alike', async ()
       // still the previous, unfiltered result, which also shows `banana-002`.
       await expect(win.getByText('apple-001')).toHaveCount(0);
       await expect(win.getByText('banana-002')).toBeVisible();
+
+      // Picked from the list: the box reads `>=`, the bar still says `$gte`.
+      // The Run click blurred the box; its list closes on a 100ms timer, which
+      // must not land after the next focus has reopened it.
+      const opList = win.getByRole('listbox', { name: 'Operator suggestions' });
+      await expect(opList).toBeHidden();
+      await op.fill('$gte');
+      await expect(
+        win.getByRole('listbox', { name: 'Operator suggestions' }).getByText('greater than or equal to'),
+      ).toBeVisible();
+      await op.press('ArrowDown');
+      await op.press('Enter');
+      await expect(op).toHaveValue('>=');
+      await expect(ws.queryBarTextarea).toHaveValue('{"qty":{"$gte":3}}');
     });
   });
 });

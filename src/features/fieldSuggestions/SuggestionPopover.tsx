@@ -16,17 +16,6 @@ function labelFor(s: Suggestion): string {
   return s.display;
 }
 
-/**
- * The symbol and English name for an operator row (ADR 0004), as one string:
- * `> greater than`, or just `is one of` where the operator has no symbol.
- *
- * Only the query operators carry these, so a stage row is unchanged.
- */
-function nameFor(s: Suggestion): string {
-  if (s.kind !== 'operator' || !s.label) return '';
-  return s.symbol ? `${s.symbol} ${s.label}` : s.label;
-}
-
 function badgeFor(s: Suggestion): string {
   if (s.kind === 'field') return s.type ?? '';
   if (s.kind === 'operator') return CLASS_BADGE[s.class] ?? s.class;
@@ -254,7 +243,7 @@ export function SuggestionPopover({
 
   const renderRow = (s: Suggestion, i: number) => {
     const label = labelFor(s);
-    const name = nameFor(s);
+    const words = s.kind === 'operator' ? s.label : undefined;
     const badge = badgeFor(s);
     const active = i === highlight;
     const describedBy =
@@ -294,23 +283,38 @@ export function SuggestionPopover({
           cursor: 'pointer',
         }}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </span>
-        {name && (
+        {words !== undefined && (
+          // Query operators read symbol, words, name: `>=  greater than or
+          // equal to  $gte`. The symbol column is always present so the words
+          // line up whether or not the operator has one.
           <span
-            style={{
-              fontSize: T.fsXs,
-              color: T.textMuted,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              marginLeft: 'auto',
-            }}
+            data-testid="operator-symbol"
+            style={{ width: '2.4ch', flexShrink: 0, fontWeight: 600 }}
           >
-            {name}
+            {s.kind === 'operator' ? s.symbol : ''}
           </span>
         )}
+        {words !== undefined && (
+          <span
+            data-testid="operator-words"
+            style={{
+              color: T.textMuted,
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {words}
+          </span>
+        )}
+        <span
+          data-testid="operator-name"
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {label}
+        </span>
         {badge && (
           <span
             style={{

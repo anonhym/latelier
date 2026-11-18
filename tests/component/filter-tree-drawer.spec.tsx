@@ -1343,7 +1343,7 @@ describe('Filter drawer — starter templates', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Last 7 days' }));
 
     await waitFor(() => expect(fieldValues()).toEqual(['']));
-    expect((screen.getByDisplayValue('$gte') as HTMLInputElement).placeholder).toBe('$op');
+    expect((screen.getByDisplayValue('>=') as HTMLInputElement).placeholder).toBe('$op');
     await waitFor(() => expect(document.activeElement).toBe(screen.getByPlaceholderText('field')));
     // The row waits for a field, so nothing reaches queryRaw.
     await new Promise((r) => setTimeout(r, 300));
@@ -1451,7 +1451,7 @@ describe('Filter drawer — an empty $in list is never printed', () => {
   it('switching $eq to $in over a value that is not a list leaves the filter text as it was', async () => {
     const { updateSpy } = mountWith(makeState({ queryRaw: '{"s":{"$eq":"x"}}' }));
 
-    const op = await screen.findByDisplayValue('$eq');
+    const op = await screen.findByDisplayValue('=');
     fireEvent.change(op, { target: { value: '$in' } });
     fireEvent.blur(op);
 

@@ -196,6 +196,6 @@ describe('Operator help', () => {
     await openRow();
     expect(screen.queryByLabelText(/Documentation for/)).toBeNull();
     const op = screen.getByPlaceholderText('$op') as HTMLInputElement;
-    expect(op.value).toBe('$eq');
+    expect(op.value).toBe('=');
   });
 });

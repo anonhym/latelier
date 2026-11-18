@@ -50,7 +50,7 @@ import { peekFilterRequest, subscribeTabRequests, takeFilterRequest } from './ta
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
 import { SuggestionPopover } from '../../features/fieldSuggestions/SuggestionPopover';
 import { DEFAULT_FIELD_SOURCES, fieldOperatorSource } from '../../features/fieldSuggestions/sources';
-import { resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
+import { operatorDisplay, resolveOperatorSymbol } from '../../features/fieldSuggestions/operators';
 import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import type {
   BuilderState,
@@ -644,10 +644,13 @@ function CondRow({
   // `null` means "no draft" (nothing typed since the last commit); the box
   // then shows the committed `node.op`.
   const [opDraft, setOpDraft] = React.useState<string | null>(null);
-  const opValue = opDraft ?? node.op;
+  const opValue = opDraft ?? operatorDisplay(node.op);
+  // The suggestion list ranks on the operator's name, not its symbol: a bare
+  // symbol ranks nothing, and focusing a `>=` box should still open the list.
+  const opToken = opDraft ?? node.op;
   const { items: opSuggestionItems } = useSuggestions(
     opPopoverOpen ? opSuggestionCtx : null,
-    opValue,
+    opToken,
     { fieldSources: [fieldOperatorSource] },
   );
 
@@ -667,7 +670,7 @@ function CondRow({
   // `>` before the user reaches the `=`. Blur is also X14's commit point for
   // Shell Syntax, so the builder and the Filter Bar settle at the same moment.
   //
-  // The box keeps showing `$gt` afterwards. `node.op` therefore always holds a
+  // The box shows the symbol afterwards (`operatorDisplay`). `node.op` still holds a
   // real operator and `printFilter` / `isCompilableOp` are untouched.
   //
   // The popover guard below is defence rather than a live fix: the ranker
@@ -788,7 +791,7 @@ function CondRow({
   // back to a blank pending raw node whenever the op is uncompilable (below),
   // regardless of which uncompilable text it was given, so a still-drafted
   // `$elemMatch` converts the same as a committed one would.
-  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opValue })));
+  const convertToRaw = () => applyEdit(updateAt(root, path, toRawNode({ ...node, op: opToken })));
   const toggle = () => applyEdit(updateAt(root, path, sameRow(node, toggleDisabled(node))));
   const dim = dimFor(node);
 
@@ -796,10 +799,10 @@ function CondRow({
   // offer a one-click escape to a raw clause the instant the op looks
   // unencodable, independent of whether the row currently has a print
   // problem (a pending row with an empty field never has one — §5.4). Keyed
-  // on the draft (`opValue`), not the committed `node.op` — the whole point
+  // on the draft (`opToken`), not the committed `node.op` — the whole point
   // is not waiting for a commit that would otherwise never come for text
   // like `$elemMatch`.
-  const showConvertToRaw = opValue.startsWith('$') && !isCompilableOp(opValue);
+  const showConvertToRaw = opToken.startsWith('$') && !isCompilableOp(opToken);
   // With a usable operator, a print problem can only be about the value, so
   // it shows under the value input as that input's description; an operator
   // problem stays on the row.
@@ -808,9 +811,9 @@ function CondRow({
 
   const wide = React.useContext(WideContext);
   const kind = condValueKind(node);
-  // Operator column: a fixed width per operator name, from the committed
-  // operator rather than the draft, so typing in the box never moves the row.
-  const opWidth = node.op.length > 5 ? 92 : 56;
+  // Operator column: a fixed width per displayed operator text (`>=` is 2
+  // chars, `$regex` 6), from the committed operator rather than the draft, so typing in the box never moves the row.
+  const opWidth = operatorDisplay(node.op).length > 5 ? 92 : 56;
   const valueOnFirstLine = kind === 'box' && wide;
   const hasSwitch = kind === 'exists' || kind === 'boolean';
   const columns = [
@@ -922,7 +925,7 @@ function CondRow({
             // Headers only over the unfiltered catalog. Focusing the box puts
             // the committed op in the token, which filters the list, so the
             // grouped view shows on a blank row or once the box is cleared.
-            groupOperators={opValue.trim() === ''}
+            groupOperators={opToken.trim() === ''}
             onSelect={(s) => {
               if (s.kind === 'operator') {
                 // The popover blurs the input on its way out, so the blur
