@@ -510,9 +510,11 @@ describe('regex options', () => {
         };
         const root: GroupNode = { kind: 'group', logic: '$and', children: [cond] };
         const printed = printFilter(root);
-        if (!printed.ok) return false;
+        expect(printed.ok).toBe(true);
+        if (!printed.ok) return;
         const parsed = parseFilter(printed.json);
-        return parsed.ok && JSON.stringify(parsed.root.children) === JSON.stringify([cond]);
+        expect(parsed.ok).toBe(true);
+        if (parsed.ok) expect(parsed.root.children).toEqual([cond]);
       }),
     );
   });
@@ -521,11 +523,9 @@ describe('regex options', () => {
     fc.assert(
       fc.property(fc.shuffledSubarray(['i', 'm', 's', 'x']).map((l) => l.join('')), (options) => {
         const once = normalizeRegexOptions(options);
-        return (
-          normalizeRegexOptions(once) === once &&
-          isRegexOptions(once) &&
-          [...once].sort().join('') === [...options].sort().join('')
-        );
+        expect(normalizeRegexOptions(once)).toBe(once);
+        expect(isRegexOptions(once)).toBe(true);
+        expect([...once].sort().join('')).toBe([...options].sort().join(''));
       }),
     );
   });
