@@ -394,7 +394,7 @@ function focusRowInput(path: NodePath, which: 'field' | 'value'): void {
   const row = document.querySelector(`[data-row-path="${pathKey(path)}"]`);
   const value =
     which === 'value'
-      ? row?.querySelector<HTMLElement>('input[placeholder="value"], input[placeholder="add a value, Enter"]')
+      ? row?.querySelector<HTMLElement>('textarea[placeholder="value"], input[placeholder="add a value, Enter"]')
       : null;
   (value ?? row?.querySelector<HTMLElement>('input[placeholder="field"]'))?.focus();
 }

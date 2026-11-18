@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Button, Menu, Pill, Popover, SegmentedControl, TagsInput, TextInput } from '@mantine/core';
+import { ActionIcon, Button, Menu, Pill, Popover, SegmentedControl, TagsInput, Textarea } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useSuggestions } from '../../features/fieldSuggestions/useSuggestions';
@@ -21,6 +21,7 @@ import {
   parseChipText,
   valueFromChips,
 } from './condValue';
+import { pickHelperLine, type HelperCandidate } from './helperLine';
 
 
 /**
@@ -146,6 +147,28 @@ function ValueBox({
   );
 }
 
+/** The most lines the text box grows to; past it the text scrolls inside the box. */
+const MAX_TEXT_LINES = 4;
+
+/**
+ * Sizes a textarea to its text, up to `maxLines`, then lets it scroll. Done by
+ * hand (Mantine's autosize needs `document.fonts`, which jsdom lacks).
+ */
+function useGrowToLines(ref: React.RefObject<HTMLTextAreaElement | null>, text: string, maxLines: number): void {
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const style = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+    el.style.height = 'auto';
+    if (Number.isNaN(lineHeight)) return;
+    const cap = lineHeight * maxLines + (Number.isNaN(padding) ? 0 : padding);
+    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+    el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
+  }, [ref, text, maxLines]);
+}
+
 /** What a borderless editor inside the box needs so the box's border is the only one. */
 const BARE_INPUT = { border: 'none', background: 'transparent', boxShadow: 'none' } as const;
 
@@ -203,8 +226,9 @@ export function CondValueEditor({
   // `VALUE_SUGGESTION_OPS` — every other op (`$exists`, `$regex`, `$mod`, ...)
   // gets none, mirroring what `RecentFieldValueService` will ever record for
   // it. They are asked for only while the value box has focus.
-  const valueInputRef = React.useRef<HTMLInputElement>(null);
+  const valueInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [suggesting, setSuggesting] = React.useState(false);
+  useGrowToLines(valueInputRef, node.value, MAX_TEXT_LINES);
   const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
   const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
     () =>
@@ -264,6 +288,29 @@ export function CondValueEditor({
       {problem}
     </div>
   );
+  // The one line under the box: the problem when there is one, otherwise the
+  // next most urgent thing to say.
+  const helperNote = (candidates: (HelperCandidate | null)[]) => {
+    const picked = pickHelperLine([problem ? { kind: 'error', text: problem } : null, ...candidates]);
+    if (!picked) return null;
+    if (picked.kind === 'error') return <div style={notesPlacement}>{errorNote}</div>;
+    return (
+      <div
+        aria-hidden="true"
+        style={{
+          ...notesPlacement,
+          ...noteStyle,
+          color: T.textGhost,
+          fontFamily: '"JetBrains Mono", monospace',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {picked.text}
+      </div>
+    );
+  };
   // No box to hang the message on: it sits under the row's first line.
   const bareNotePlacement: React.CSSProperties = { gridRow: 2, gridColumn: '2 / -2', marginTop: 2, opacity: dim };
 
@@ -351,20 +398,22 @@ export function CondValueEditor({
           <ListToggle asText={false} disabled={readOnly} onToggle={() => setListAsText(true)} />
           {chipSlot}
         </ValueBox>
-        {errorNote && <div style={notesPlacement}>{errorNote}</div>}
+        {helperNote([])}
       </>
     );
   }
 
   const isDate = node.valType === 'date' && SIMPLE_OPS.has(node.op);
-  const datePreview = isDate && !problem && node.value !== '' ? formatDatePreview(node.value) : null;
+  const datePreview: HelperCandidate | null =
+    isDate && node.value !== '' ? { kind: 'info', text: formatDatePreview(node.value) } : null;
 
   return (
     <>
       <ValueBox invalid={!!problem} placement={boxPlacement}>
-        <TextInput
+        <Textarea
           ref={valueInputRef}
           variant="unstyled"
+          rows={1}
           placeholder="value"
           value={node.value}
           disabled={readOnly}
@@ -374,13 +423,17 @@ export function CondValueEditor({
             if (!suggesting) setSuggesting(true);
           }}
           onFocus={() => setSuggesting(true)}
-          onKeyDown={(e) => keepEscapeInBox(e, setSuggesting)}
+          onKeyDown={(e) => {
+            // A value is one line of text; Enter must not start a second.
+            if (e.key === 'Enter') e.preventDefault();
+            keepEscapeInBox(e, setSuggesting);
+          }}
           onBlur={() => {
             window.setTimeout(() => setSuggesting(false), 100);
           }}
           size="xs"
           style={{ flex: 1, minWidth: 0 }}
-          styles={{ input: { fontFamily: 'monospace', height: 28, minHeight: 28, paddingInline: 0 } }}
+          styles={{ input: { fontFamily: 'monospace', minHeight: 28, paddingBlock: 6, paddingInline: 0, resize: 'none' } }}
         />
         {valueSuggestionsAllowed && (
           <SuggestionPopover
@@ -457,26 +510,7 @@ export function CondValueEditor({
         {chips !== null && <ListToggle asText disabled={readOnly} onToggle={() => setListAsText(false)} />}
         {chipSlot}
       </ValueBox>
-      {errorNote ? (
-        <div style={notesPlacement}>{errorNote}</div>
-      ) : (
-        datePreview && (
-          <div
-            aria-hidden="true"
-            style={{
-              ...notesPlacement,
-              ...noteStyle,
-              color: T.textGhost,
-              fontFamily: '"JetBrains Mono", monospace',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {datePreview}
-          </div>
-        )
-      )}
+      {helperNote([datePreview])}
     </>
   );
 }

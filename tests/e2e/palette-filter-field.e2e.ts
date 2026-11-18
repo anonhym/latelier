@@ -48,7 +48,7 @@ test('palette: Filter by field… appends a condition, a typed value and a run f
     await expect(palette).not.toBeVisible({ timeout: 4000 });
 
     // The caret waits in the new condition's value box; nothing has run yet.
-    const value = win.locator('[data-row-path] input[placeholder="value"]').last();
+    const value = win.locator('[data-row-path] textarea[placeholder="value"]').last();
     await expect(value).toBeFocused({ timeout: 4000 });
     await expect(win.getByText('banana-002')).toBeVisible();
     await win.keyboard.type('pending');

@@ -14,6 +14,7 @@
     "break": 90
   },
   "mutate": [
+    "src/pages/Workspace/helperLine.ts",
     "electron/mongo/ejson.ts",
     "electron/services/UndoStore.ts",
     "electron/services/UpdateService.ts",

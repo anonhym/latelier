@@ -283,7 +283,7 @@ describe('Filter by field…: choosing a row', () => {
       expect((r.querySelector('input[placeholder="field"]') as HTMLInputElement).value).toBe('customer');
       return r;
     });
-    await waitFor(() => expect(document.activeElement).toBe(row.querySelector('input[placeholder="value"]')));
+    await waitFor(() => expect(document.activeElement).toBe(row.querySelector('textarea[placeholder="value"]')));
     // The filter that was there is kept, switched-off row included.
     expect(screen.getByDisplayValue('offrow')).toBeTruthy();
     expect(screen.getByDisplayValue('paid')).toBeTruthy();
