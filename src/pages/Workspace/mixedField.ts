@@ -71,7 +71,9 @@ function numberHoldsText(n: number, text: string): boolean {
   const m = PLAIN_DECIMAL.exec(text.trim());
   if (!m) return false;
   const [, sign, int = '', frac = ''] = m;
-  const fraction = frac.replace(/0+$/, '');
+  let end = frac.length;
+  while (end > 0 && frac[end - 1] === '0') end -= 1;
+  const fraction = frac.slice(0, end);
   const written = `${sign}${int.replace(/^0+(?=\d)/, '')}${fraction === '' ? '' : `.${fraction}`}`;
   return written === String(n);
 }
