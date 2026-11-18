@@ -131,6 +131,12 @@ _Avoid_: filter panel, builder pane
 The fields a collapsed row in the Tree view shows beside its `_id`. A saved, per-Collection choice, shareable through a Connection Family; with none saved, the row shows the first visible fields of the tab's Fields list. Independent of the Fields list otherwise: choosing a Row Summary hides no column and changes no projection.
 _Avoid_: preview fields, preview (a Preview Tab and an aggregation stage preview are other things)
 
+**Copy Origin**:
+The Connection, Database and Collection that the most recent data-bearing copy came from. A data-bearing copy is one carrying data from a server: a value, a document id, one or more documents, aggregation output, or text selected inside a result view. Only the most recent one is remembered, in memory, for as long as the app runs. Any other in-app copy clears it, such as a field or collection name, a query, a pipeline or a connection string, because those are the same on every server.
+
+**Cross-Connection Paste**:
+Pasting, into a query surface (the Filter Bar, a Query Builder value, sort, projection or an aggregation stage body), text that contains a distinctive value whose Copy Origin is a different Connection from the Focused Tab's. A distinctive value is an ObjectId, a UUID, or a string or number of at least 6 characters, never a boolean, null or a short value. The paste always goes through, followed by a warning, because Connections are separate servers and the value almost certainly belongs to the other one. Members of the same Connection Family are no exception: shared Database and Collection names are what make the mistake easy. The same Connection with a different Collection is never a Cross-Connection Paste, and neither is a paste into the Document Editor or the shell.
+
 ### Editing documents
 
 **Document Editor**:
