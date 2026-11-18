@@ -90,3 +90,61 @@ describe('text value box', () => {
     expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(false);
   });
 });
+
+describe('pasted line breaks', () => {
+  function mountWithSpy(node: Partial<CondNode>) {
+    const onPatch = vi.fn();
+    const full: CondNode = { kind: 'cond', field: 'f', op: '$eq', valType: 'string', value: '', ...node };
+    render(
+      <CondValueEditor
+        node={full}
+        readOnly={false}
+        problem={undefined}
+        onPatch={onPatch}
+        onTypeChange={vi.fn()}
+        suggestionContext={null}
+        wide
+        dim={undefined}
+      />,
+    );
+    return onPatch;
+  }
+
+  it('turns each run of line breaks into one space', () => {
+    const onPatch = mountWithSpy({ valType: 'string' });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'a\r\n\nb\nc' } });
+    expect(onPatch).toHaveBeenCalledWith({ value: 'a b c' }, 'value');
+  });
+
+  it('leaves single-line text untouched', () => {
+    const onPatch = mountWithSpy({ valType: 'string' });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'plain text' } });
+    expect(onPatch).toHaveBeenCalledWith({ value: 'plain text' }, 'value');
+  });
+});
+
+describe('number and date boxes', () => {
+  it.each(['number', 'long', 'decimal'] as const)('%s: a numeric keypad, no helper line, no date picker', (valType) => {
+    const { container } = mount({ valType, value: '42' });
+    expect(screen.getByRole('textbox').getAttribute('inputmode')).toBe('decimal');
+    expect(container.querySelectorAll('[data-value-box] ~ div')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Pick date' })).toBeNull();
+  });
+
+  it('a string box has no numeric keypad', () => {
+    mount({ valType: 'string', value: '42' });
+    expect(screen.getByRole('textbox').hasAttribute('inputmode')).toBe(false);
+  });
+
+  it('date: the parsed preview is the one line under the box and the picker sits in the box', () => {
+    const { container } = mount({ valType: 'date', value: '2026-04-01T10:00:00Z' });
+    const preview = screen.getByText('ISODate("2026-04-01T10:00:00Z")');
+    expect(boxOf(container).contains(preview)).toBe(false);
+    expect(boxOf(container).contains(screen.getByRole('button', { name: 'Pick date' }))).toBe(true);
+  });
+
+  it('date: an empty box has no preview', () => {
+    mount({ valType: 'date', value: '' });
+    expect(screen.queryByText(/ISODate/)).toBeNull();
+  });
+});

@@ -169,6 +169,8 @@ function useGrowToLines(ref: React.RefObject<HTMLTextAreaElement | null>, text: 
   }, [ref, text, maxLines]);
 }
 
+const NUMERIC_TYPES: ReadonlySet<ValType> = new Set<ValType>(['number', 'long', 'decimal']);
+
 /** What a borderless editor inside the box needs so the box's border is the only one. */
 const BARE_INPUT = { border: 'none', background: 'transparent', boxShadow: 'none' } as const;
 
@@ -415,11 +417,16 @@ export function CondValueEditor({
           variant="unstyled"
           rows={1}
           placeholder="value"
+          // A number is typed on a numeric keypad where there is one; the box
+          // still takes any text so a mistake can be seen and fixed.
+          inputMode={NUMERIC_TYPES.has(node.valType) ? 'decimal' : undefined}
           value={node.value}
           disabled={readOnly}
           onChange={(e) => {
             if (isListOp) setListAsText(true);
-            onPatch({ value: e.target.value }, 'value');
+            // The box is a textarea so long text wraps, but a value is one
+            // line: pasted line breaks become a single space.
+            onPatch({ value: e.target.value.replace(/[\r\n]+/g, ' ') }, 'value');
             if (!suggesting) setSuggesting(true);
           }}
           onFocus={() => setSuggesting(true)}
