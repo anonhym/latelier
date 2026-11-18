@@ -575,23 +575,33 @@ function useRowDropHandlers(
 }
 
 /**
- * Whether the builder is wide enough (560px, measured on the root group, not
- * the window: the panel resizes between 320 and 640) for a condition's value
- * box to sit on the row's first line.
+ * Whether the panel is wide enough (560px) for a condition's value box to sit
+ * on the row's first line. Measured once for the whole tree, on the Inspector
+ * (the panel, which resizes between 320 and 640; the window says nothing),
+ * or on the root group when the builder renders outside an Inspector.
  */
-const WIDE_BUILDER_PX = 560;
-function useWideBuilder(rowRef: React.RefObject<HTMLElement | null>): boolean {
+const WIDE_PANEL_PX = 560;
+const WideContext = React.createContext(false);
+
+function WideProvider({ children }: { children: React.ReactNode }) {
+  const sentinel = React.useRef<HTMLSpanElement>(null);
   const [wide, setWide] = React.useState(false);
   React.useLayoutEffect(() => {
-    const root = rowRef.current?.closest('[data-group-path="root"]');
-    if (!root || typeof ResizeObserver === 'undefined') return undefined;
-    const measure = () => setWide(root.getBoundingClientRect().width >= WIDE_BUILDER_PX);
+    const el = sentinel.current;
+    const panel = el?.closest('[data-testid="inspector"]') ?? el?.nextElementSibling ?? null;
+    if (!panel || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => setWide(panel.getBoundingClientRect().width >= WIDE_PANEL_PX);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(root);
+    observer.observe(panel);
     return () => observer.disconnect();
-  }, [rowRef]);
-  return wide;
+  }, []);
+  return (
+    <>
+      <span ref={sentinel} hidden />
+      <WideContext.Provider value={wide}>{children}</WideContext.Provider>
+    </>
+  );
 }
 
 function CondRow({
@@ -796,8 +806,7 @@ function CondRow({
   const valueProblem = isCompilableOp(node.op) ? problem : undefined;
   const opProblem = valueProblem === undefined ? problem : undefined;
 
-  const rowRef = React.useRef<HTMLDivElement>(null);
-  const wide = useWideBuilder(rowRef);
+  const wide = React.useContext(WideContext);
   const kind = condValueKind(node);
   // Operator column: a fixed width per operator name, from the committed
   // operator rather than the draft, so typing in the box never moves the row.
@@ -815,7 +824,6 @@ function CondRow({
 
   return (
     <div
-      ref={rowRef}
       onDragOver={rowDrop.onDragOver}
       onDrop={rowDrop.onDrop}
       data-row-path={pathKey(path)}
@@ -2024,6 +2032,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
   );
 
   return (
+    <WideProvider>
     <GroupView
       node={root}
       path={[]}
@@ -2038,6 +2047,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       headerExtra={historyButtons}
       statusLine={statusLine}
     />
+    </WideProvider>
   );
 }
 

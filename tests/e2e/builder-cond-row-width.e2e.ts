@@ -148,3 +148,49 @@ test('a condition row is two lines at a 400px panel, keeps its height while a lo
     expect(wideBox.x).toBeGreaterThan(wideOperator.x);
   });
 });
+
+test('the value box moves beside the operator from a 560px panel, not before', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await win.setViewportSize({ width: 1600, height: 900 });
+    await seedActiveConnectionWithDocs(
+      win,
+      { ...baseConnInput(host, port), name: 'Switch Point Target' },
+      { dbName: 'shop', collection: 'orders', docs: [{ name: 'doc-1' }] },
+    );
+    const ws = new WorkspacePage(win);
+    await ws.openCollectionFromNavigator('shop', 'orders');
+    await expect(win.getByText('doc-1')).toBeVisible({ timeout: 8000 });
+    await ws.openBuilder();
+    await win.getByRole('button', { name: 'Add condition', exact: true }).click();
+    await win.getByPlaceholder('field', { exact: true }).fill('name');
+
+    const panelWidth = () =>
+      win.getByTestId('inspector').evaluate((el) => el.getBoundingClientRect().width);
+    const besideOperator = async () => {
+      const op = await rect(win.getByPlaceholder('$op', { exact: true }));
+      const box = await rect(win.locator('[data-value-box]').first());
+      return box.y < op.y + op.height;
+    };
+
+    // Drags until the panel is within a pixel of `target`.
+    const settle = async (target: number) => {
+      await resizePanel(win, target);
+      for (let i = 0; i < 4 && Math.abs((await panelWidth()) - target) > 1; i++) {
+        await resizePanel(win, target + (target - (await panelWidth())));
+      }
+      return panelWidth();
+    };
+
+    const at560 = await settle(561);
+    expect(at560).toBeGreaterThanOrEqual(560);
+    expect(await besideOperator()).toBe(true);
+
+    const at550 = await settle(550);
+    expect(at550).toBeLessThan(560);
+    expect(await besideOperator()).toBe(false);
+  });
+});
