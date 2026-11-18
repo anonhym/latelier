@@ -180,6 +180,22 @@ describe('mixed field: the typed value', () => {
     expect(screen.queryByRole('button', { name: 'Match either' })).toBeNull();
   });
 
+  it.each(['$ne', '$gt'] as const)('%s gets the plain mixed chip, with no hint and no Match either', async (op) => {
+    mount({ value: '75001', op });
+    expect(screen.queryByText(/Skips the/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Match either' })).toBeNull();
+    expect(document.querySelector('[data-type-split-dot]')).not.toBeNull();
+    fireEvent.click(chipButton());
+    const items = (await screen.findAllByRole('menuitem')).map((el) => el.textContent);
+    expect(items.slice(0, 2)).toEqual(['string62% of sample', 'number38% of sample']);
+    expect(items.some((t) => t?.startsWith('either ('))).toBe(false);
+  });
+
+  it('$eq still offers both', () => {
+    mount({ value: '75001', op: '$eq' });
+    expect(screen.getByRole('button', { name: 'Match either' })).toBeTruthy();
+  });
+
   it('says nothing about the split for an empty box', () => {
     mount({ value: '' });
     expect(screen.queryByText(/Skips the/)).toBeNull();

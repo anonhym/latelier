@@ -552,10 +552,13 @@ export function CondValueEditor({
   // A field that holds two kinds (no type at 90%): the chip shows a dot, and
   // the menu lists the kinds sampled first. A list row gets both too (its
   // "either" label needs them); only the typed-value hint and the "either" offer
-  // are limited to a single-value comparison, which is the one with a value to read.
+  // are limited to equality, the one comparison that reads "this or that".
   const simpleOp = SIMPLE_OPS.has(node.op);
   const mixed = isMixedSplit(split);
-  const either = mixed && simpleOp && MATCH_EITHER_OPTIONS.offered ? eitherPlan(split, node.value, node.valType) : null;
+  // Only equality reads "matches this or that": `!=`, `>` and the rest would
+  // turn into a list that includes the value they exclude or order against.
+  const equality = node.op === '$eq';
+  const either = mixed && equality && MATCH_EITHER_OPTIONS.offered ? eitherPlan(split, node.value, node.valType) : null;
   const matchEither = either ? () => onPatch(either.patch) : null;
   const eitherActive = mixed && chips !== null && node.valType === 'array' && isEitherRow(chips, split);
   // A sampled type with no editor is typed as text; the chip says what it really is.
@@ -697,7 +700,7 @@ export function CondValueEditor({
 
   const noEditorLine: HelperCandidate | null = noEditor ? { kind: 'hint', text: noEditorText(noEditor) } : null;
   const mixedNote =
-    mixed && simpleOp && node.valType !== 'null' && node.valType !== 'regex' && node.valType !== 'array'
+    mixed && equality && node.valType !== 'null' && node.valType !== 'regex' && node.valType !== 'array'
       ? mixedHint(node.field.trim(), split, node.valType, node.value, node.valType)
       : null;
   const mixedCandidate: NoticeCandidate | null = mixedNote
