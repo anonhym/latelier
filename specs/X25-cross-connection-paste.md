@@ -17,7 +17,7 @@ Warn the user when they paste a value copied from one Connection into a query on
   - Detection at Run time, for values typed by hand or edited after pasting.
   - Pastes into the Document Editor (moving a document between servers is legitimate) and the shell pane.
   - Copies made outside the app, and the system clipboard's history (clipboard managers).
-  - Reference discovery ([#821](https://github.com/anonhym/latelier/issues/821)), which reuses the Copy Origin but is specified separately.
+  - Reference discovery (suggesting a Reference Rule when a copied value finds a match in another Collection), which reuses the Copy Origin but is specified separately.
 
 ## Dependencies
 

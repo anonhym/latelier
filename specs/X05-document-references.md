@@ -24,8 +24,10 @@ underlying data is never joined or mutated.
     source row visually.
   - Auto-prefetch on row render (v1 resolves only on hover / click).
   - Reference rendering in TableView / JsonView. V1 targets TreeView.
-  - Rule import/export, cross-connection references, schema-validator
-    or index-based detection.
+  - Schema-validator or index-based detection. Sharing rules across
+    Connections and exporting them came later, as Connection Families
+    (X23) and the Family Export (X24). A rule still only ever points
+    within its own Connection's server.
 
 ## Dependencies
 
