@@ -1,6 +1,6 @@
 # Plan — Inspector polish (Filter builder and Plan tab)
 
-**Status:** approved design, nothing implemented. No branch, no issues filed, no spec amended yet.
+**Status:** wave A, B1 and B2 shipped in the first PR. B3 is planned in §7. B4, B5, waves C and D not started.
 **Evidence:** [`docs/research/inspector-sweep.md`](../docs/research/inspector-sweep.md) (findings D1–D7, F1–F11, P1–P5, S1–S2, measured against v0.21.0).
 **Design:** the Claude Design canvas "Inspector sweep", reviewed and approved by the maintainer on 2026-11-17. Board names below refer to it.
 
@@ -26,8 +26,8 @@ Taken from the approved canvas without a separate thread. Confirm before the sli
 | Q2 | The footer goes; Reset query, Copy as code, Open as pipeline move to a `⋯` menu | C1 |
 | Q3 | Type is a chip inside the value box, not a separate select (confirmed 2026-11-17) | B1 |
 | Q4 | An empty `string` row gets the same red error as an empty `date` row (confirmed 2026-11-17) | A1 |
-| Q5 | ObjectId date shown in UTC | B3 |
-| Q6 | Caps: lists 3 lines at rest and 8 while editing; objects 6 lines at rest; long text 4 lines | B3 |
+| Q5 | ObjectId date shown in the local time zone, not UTC (answered 2026-11-18). A setting will later let the user pick any time zone or the current one, so the date goes through one formatter that takes the zone as an argument | B3 |
+| Q6 | Caps: lists 3 lines at rest and 8 while editing; objects 6 lines at rest; long text 4 lines (confirmed 2026-11-18) | B3 |
 
 Out of this plan until separately specified, because each changes meaning and not only display:
 
@@ -35,7 +35,12 @@ Out of this plan until separately specified, because each changes meaning and no
 - Distribution bars in value suggestions. Needs a sampling cost decision.
 - Grouped digits in numbers. Locale risk; ship plain digits.
 
-Not drawn, to be drawn and reviewed before B3 starts: a field switching kind, and a field whose sample holds two types.
+Drawn after the first cut, for B3: "a condition changing kind" and "a field with two types". Their note asks two more questions:
+
+| # | Question | Recommendation | Slice |
+|---|---|---|---|
+| Q7 | A new field whose sample type the value reads as: convert on the spot with Undo, or only offer it? | Confirmed 2026-11-18: convert with Undo, as drawn. To become a setting later, so the behaviour hangs off one option with this as its default. | B3g |
+| Q8 | "Match either" on a mixed field: keep it? | Confirmed 2026-11-18: keep it as a shortcut that turns the row into `$in` with one chip per type (`"75001"`, `75001`), an existing shape that round-trips. To become a setting later, so the offer hangs off one option with this as its default. | B3h |
 
 ## 2. Ground rules for the run
 
@@ -88,7 +93,7 @@ Order matters: B1 is the frame the others fill.
 | B4 | One header per group (F3, F4): logic select, `NOT` toggle, one `Add` menu, `⋮`. Logic control hidden under two children. | Board "Groups · proposed". Component: a negated group has exactly one header and one add control. |
 | B5 | Drop zones only during a drag (F5); "Try to parse" and "Edit as text" as real buttons (F7). | Component, with the explicit `dragend` dispatch jsdom needs. |
 
-B3 is the largest slice. Split it per kind if it does not fit one sitting: frame and text first, then number and date, then ObjectId, list, pattern, object.
+B3 is the largest slice and is split in §7.
 
 ### Wave C — frame and flow
 
@@ -116,3 +121,44 @@ The four waves do not have to ship together. A natural first PR is wave A plus B
 ## 6. Gates
 
 All eight Definition of done gates apply; this is a code change. No IPC channel is added by anything above, so the `ipc-channel-auditor` run is expected to be a no-change confirmation. If C4 or D2 turns out to need a new channel, the five-file contract applies in full.
+
+## 7. B3 — value editors, kind changes, mixed types
+
+Second PR, on a fresh branch from `main`. Boards: "a value editor per kind", "long lists and big objects", "a condition changing kind", "a field with two types". Q5–Q8 answered before the slice that needs each.
+
+### 7.1 What it builds on
+
+No IPC channel, no main-process change. Everything reads the sample the builder already loads:
+
+- `sampleSchemaSource.ts` fetches one blended sample per collection (up to 100 recent plus 100 random documents, deduplicated), cached 5 minutes, shared in-flight, invalidated after a write.
+- `useStructureEntries` gives a `Map<path, SchemaSampleEntry>`; each entry has `types` (a count per type: `string`, `number` for int and double, `long`, `decimal`, `date`, `objectid`, `binary`, …), `frequency` and `distinct`.
+- `checkFieldType` (`schemaSummary.ts`) only answers when one type holds 90% or more. Board "two types" needs the whole split, so B3h adds a pure helper beside it.
+- `sampleValuesSource` lists a field's sampled values when it has 20 distinct or fewer; recent, last-run and validator-enum sources add to it.
+- The tree's undo history (`filterHistory.ts`) is the Undo behind every inline "· Undo" link: the link calls the same `undo`, so it is one step, never a separate store.
+
+### 7.2 Shared rules every sub-slice follows
+
+- **One helper line.** At most one line under the box. When several apply, the most urgent wins: the error, then an Undo notice, then a type hint (mixed split, sample disagrees), then information (ObjectId date, parsed date). A pure `pickHelperLine` decides, so the order is tested once.
+- **Nothing typed is lost.** A kind change converts when the text reads as the new kind and otherwise keeps the text, with the error (chip asked for it) or a hint (sample disagrees). Anything removed gets Undo.
+- **Kinds stay `ValType`.** No new `ValType`: a sampled type with no editor (`binary`, `timestamp`, unknown) uses the `string` editor and the chip names the sampled type. Persisted tab state is unchanged.
+
+### 7.3 Sub-slices
+
+Commits on one branch, in this order. `BuilderPane.tsx` and `CondValueEditor.tsx` have one writer at a time.
+
+| Slice | Change | Done when |
+|---|---|---|
+| B3a | Frame: `ValueBox` gets the helper slot and `pickHelperLine`; text grows to 4 lines, then scrolls (Q6). | Table test over every `ValType`: same frame, same error, chip at the right end. Unit test for `pickHelperLine` order. |
+| B3b | Number and date. Date parts with the parsed preview as the helper line. | Component per kind. |
+| B3c | ObjectId whole, with its date as the helper line, in the local time zone (Q5). Pure `objectIdTimestamp`, and a date formatter that takes the time zone as an argument (the local zone for now), ready for the time-zone setting. | Unit and property tests (round trip with `bson`'s `ObjectId.createFromTime`); added to Stryker `mutate`. |
+| B3d | `$in`/`$nin` chips; paste splits on comma, newline and tab; caps 3 lines at rest, 8 while editing, footer with the count and "Show all" (Q6). Pure `splitPastedList`. | Unit and property tests for the splitter (no empty chips; join then split is a fixpoint); Stryker. Component: footer count. |
+| B3e | Pattern with option toggles (`i`, `m`, `x`, `s`), no slashes drawn. Check first how `$regex`/`$options` are modelled today; if only a raw clause can carry options, stop and bring it back to the canvas. | Component; round trip through the filter bar keeps the options. |
+| B3f | Object values: today a raw clause. Cap its editor at 6 lines at rest (Q6). No new object kind in this PR. | Component. |
+| B3g | Kind changes (board "changing kind"). Pure `convertValue(text, from, to)` → converted text or "keep". Field change: empty box adopts the type and the chip flashes once; a readable value converts with "Changed to … · Undo" (Q7); an unreadable one keeps and shows "… is a number in every sampled document · Use number" ("every" only at 100%). Chip change: converts or keeps with the error. Operator `=` ↔ `$in`: first chip kept, the rest removed with Undo. | Unit and property tests for `convertValue` (a value converted to a kind and back is unchanged when both read it); Stryker. Component per case, with a stateful wrapper so the patch round-trips. |
+| B3h | Mixed types (board "two types"). Pure `fieldTypeSplit(entry)` → types sorted by share. Chip shows the commoner type with a two-colour dot when the top share is under 90%; chip menu lists the sampled types first with "N% of sample"; hint "Skips the N% that store zip as a number · Match either"; "Match either" makes the row `$in` with one chip per type that can hold the value (Q8). Field not in the sample: plain string box, no hint. | Unit and property tests for `fieldTypeSplit` (shares sum to 100, order stable on ties via `localeCompare`); Stryker. Component per case. |
+
+B3a comes first. B3b–B3f are independent of each other but share files, so they run one after another. B3g and B3h come last: they use the helper line and the chips the earlier ones build.
+
+### 7.4 Specs and gates
+
+Amend W04 (value editors, kind changes), W13 (`$in` round trip from "Match either") and the W17 note on `checkFieldType` if its doc moves. Run `spec-compliance-reviewer` on each. Full Definition of done chain once before the push; e2e adds a 400px check that a 3-line list stays under its cap and a row with a mixed field shows one helper line.
