@@ -51,6 +51,14 @@ function formatDatePreview(value: string): string {
   return `ISODate("${value}")`;
 }
 
+/** A note under the box that carries one action: an Undo after a change, or a way to apply an offer. */
+export interface ValueNotice {
+  kind: 'undo' | 'hint';
+  text: string;
+  actionLabel: string;
+  onAction: () => void;
+}
+
 /**
  * The type as a small chip at the right end of the value box. A real button,
  * so it takes focus and opens a menu of the types; picking one is the same
@@ -60,17 +68,23 @@ function TypeChip({
   valType,
   disabled,
   onChange,
+  flash,
 }: {
   valType: ValType;
   disabled: boolean;
   onChange: (vt: ValType) => void;
+  /** Counts the times the field named a type for this row; each one flashes the chip once. */
+  flash: number;
 }) {
   const T = themeVars;
   return (
     <Menu position="bottom-end" shadow="md" width={120} disabled={disabled}>
       <Menu.Target>
         <button
+          // A new key restarts the animation for every flash, not only the first.
+          key={flash}
           type="button"
+          className={flash > 0 ? 'type-chip-flash' : undefined}
           aria-label={`Value type: ${valType}`}
           disabled={disabled}
           style={{
@@ -220,6 +234,8 @@ export function CondValueEditor({
   suggestionContext,
   wide,
   dim,
+  notice,
+  typeFlash = 0,
 }: {
   node: CondNode;
   readOnly: boolean;
@@ -230,6 +246,10 @@ export function CondValueEditor({
   /** The builder is wide enough for the box to sit on the row's first line. */
   wide: boolean;
   dim: number | undefined;
+  /** What the row wants said about a kind change; competes for the helper line by its kind. */
+  notice?: ValueNotice | null;
+  /** Bumps when the field gave the row a type, to flash the chip once. */
+  typeFlash?: number;
 }) {
   const T = themeVars;
   const kind = condValueKind(node);
@@ -315,14 +335,34 @@ export function CondValueEditor({
   // next most urgent thing to say.
   // `footer` is information with a control in it (the chip count and its
   // button), so it takes the line only where an info line could.
+  const noticeCandidate: HelperCandidate | null = notice ? { kind: notice.kind, text: notice.text } : null;
   const helperNote = (candidates: (HelperCandidate | null)[], footer?: React.ReactNode) => {
     const picked = pickHelperLine([
       problem ? { kind: 'error', text: problem } : null,
+      noticeCandidate,
       ...candidates,
       footer ? { kind: 'info', text: '' } : null,
     ]);
     if (!picked) return null;
     if (picked.kind === 'error') return <div style={notesPlacement}>{errorNote}</div>;
+    if (notice && picked === noticeCandidate) {
+      // Not hidden from assistive tech: it holds a button, and is a change worth announcing.
+      return (
+        <div role="status" style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>
+          {notice.text} ·{' '}
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-xs"
+            disabled={readOnly}
+            onClick={notice.onAction}
+            styles={{ root: { fontSize: T.fsXs, padding: '0 4px', height: 'auto' } }}
+          >
+            {notice.actionLabel}
+          </Button>
+        </div>
+      );
+    }
     if (picked.kind === 'info' && picked.text === '' && footer) {
       return <div style={{ ...notesPlacement, ...noteStyle, color: T.textGhost }}>{footer}</div>;
     }
@@ -374,7 +414,7 @@ export function CondValueEditor({
     );
   }
 
-  const chip = <TypeChip valType={node.valType} disabled={readOnly} onChange={onTypeChange} />;
+  const chip = <TypeChip valType={node.valType} disabled={readOnly} onChange={onTypeChange} flash={typeFlash} />;
   // The chip stays at the box's first line when chips wrap it taller.
   const chipSlot = <div style={{ flexShrink: 0, paddingTop: 4, display: 'flex' }}>{chip}</div>;
 

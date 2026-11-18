@@ -19,7 +19,6 @@ import {
   condFromDragged,
   mergeOrReplaceDragged,
   valTypeFromDisplayType,
-  opForValType,
   type DraggedField,
 } from './builder';
 import {
@@ -62,7 +61,17 @@ import type {
 import { useCollectionWorkspace } from './context';
 import { liveValidity } from '../../utils/shellSyntax';
 import { useLiveMatchCount } from './useLiveMatchCount';
-import { CondValueEditor } from './CondValueEditor';
+import { CondValueEditor, type ValueNotice } from './CondValueEditor';
+import {
+  KIND_CHANGE_OPTIONS,
+  convertedNoticeText,
+  kindSwitchPatch,
+  operatorSwitch,
+  planFieldKind,
+  removedNoticeText,
+  sampleHintText,
+  sampleShare,
+} from './kindChange';
 import { useStructureEntries } from './useStructureEntries';
 import { VAL_TYPES, condTypeWarning, condValueKind, valTypePatch } from './condValue';
 import { checkFieldType } from './schemaSummary';
@@ -583,6 +592,29 @@ function useRowDropHandlers(
 const WIDE_PANEL_PX = 560;
 const WideContext = React.createContext(false);
 
+/**
+ * One step back in the drawer's tree history. A row's "Undo" notice calls it
+ * rather than keeping a copy of the old row, so it is the same step the
+ * toolbar's undo takes.
+ */
+const FilterUndoContext = React.createContext<() => void>(() => {
+  throw new Error('FilterUndoContext: a condition row rendered outside the filter drawer');
+});
+
+/**
+ * What a row says about its last kind change, shown under the value box while
+ * the tree is still the one the change produced (any later edit makes a new
+ * tree, which clears it). It holds data, not closures, so the action always
+ * runs against the current tree.
+ */
+interface RowNotice {
+  root: GroupNode;
+  kind: 'undo' | 'hint';
+  text: string;
+  /** `undo` steps the tree back; a type applies that type to the value. */
+  action: 'undo' | ValType;
+}
+
 function WideProvider({ children }: { children: React.ReactNode }) {
   const sentinel = React.useRef<HTMLSpanElement>(null);
   const [wide, setWide] = React.useState(false);
@@ -656,6 +688,29 @@ function CondRow({
 
   const patch = (p: Partial<CondNode>, key?: string) =>
     applyEdit(updateAt(root, path, sameRow(node, { ...node, ...p })), key);
+  const undoFilter = React.useContext(FilterUndoContext);
+  const [notice, setNotice] = React.useState<RowNotice | null>(null);
+  // Counts the times the field gave this row its type; the chip flashes on each.
+  const [typeFlash, setTypeFlash] = React.useState(0);
+  const visibleNotice = notice !== null && notice.root === root ? notice : null;
+  /** `base` with `p` applied, as the same row. */
+  const rowWith = (from: GroupNode, base: CondNode, p: Partial<CondNode>) =>
+    updateAt(from, path, sameRow(node, { ...base, ...p }));
+  /**
+   * The operator moves between one value and a list: `=` makes the value the
+   * first chip, `$in` keeps the first chip, and what was dropped can be undone.
+   */
+  const changeOp = (op: string) => {
+    const switched = operatorSwitch(node, op);
+    const next = rowWith(root, node, {
+      op,
+      ...(switched ? { value: switched.value, ...(switched.valType ? { valType: switched.valType } : {}) } : {}),
+    });
+    applyEdit(next);
+    if (switched && switched.removed.length > 0) {
+      setNotice({ root: next, kind: 'undo', text: removedNoticeText(switched.removed), action: 'undo' });
+    }
+  };
   // Keystrokes in one text box of this row are one undo step, not one each:
   // the box's name becomes a key unique to this row.
   const patchBox = (p: Partial<CondNode>, box?: string) =>
@@ -698,7 +753,7 @@ function CondRow({
     }
     if (opDraft === null) return;
     const resolved = resolveOperatorSymbol(opDraft);
-    patch({ op: resolved ?? opDraft });
+    changeOp(resolved ?? opDraft);
     setOpDraft(null);
   };
   // Escape is the box's own cancel — it discards the draft and falls back to
@@ -738,14 +793,35 @@ function CondRow({
     if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
     commitOpDraft();
   };
-  // A blank, non-null row takes the type of the field it names, and the op
-  // follows if the old one no longer fits. A row with a value already chose
-  // its type (a starter, or typing), and a null row must stay null, or
+  // The row meets a field the sample types as `typeName`. A blank box takes
+  // the type. A value that reads as it converts, with an Undo; one that does
+  // not stays, with an offer. A row sending null must stay null, or
   // `$ne: null` turns into `$ne: ""`, which matches null and missing fields.
-  const adoptedType = (type: DisplayType | undefined): Partial<CondNode> => {
-    if (node.valType === 'null' || node.value.trim() !== '') return {};
-    const valType = valTypeFromDisplayType(type);
-    return { valType, op: opForValType(valType, node.op) };
+  // `pickedField` is a field chosen from the list: it is its own undo step, so
+  // the conversion's Undo leaves the field in place.
+  const settleKind = (
+    fieldName: string,
+    typeName: DisplayType | undefined,
+    share: ReturnType<typeof sampleShare>,
+    pickedField?: string,
+  ) => {
+    const base: CondNode = pickedField === undefined ? node : { ...node, field: pickedField };
+    const fieldStep = pickedField === undefined ? root : rowWith(root, node, { field: pickedField });
+    const plan = planFieldKind(base, valTypeFromDisplayType(typeName), share, KIND_CHANGE_OPTIONS);
+    if (plan.kind === 'adopt') {
+      applyEdit(rowWith(root, node, { ...(pickedField === undefined ? {} : { field: pickedField }), ...plan.patch }));
+      setTypeFlash((n) => n + 1);
+      return;
+    }
+    if (pickedField !== undefined) applyEdit(fieldStep);
+    if (plan.kind === 'convert') {
+      const next = rowWith(fieldStep, base, plan.patch);
+      applyEdit(next);
+      setNotice({ root: next, kind: 'undo', text: convertedNoticeText(plan.to, fieldName), action: 'undo' });
+      setTypeFlash((n) => n + 1);
+    } else if (plan.kind === 'hint') {
+      setNotice({ root: fieldStep, kind: 'hint', text: sampleHintText(fieldName, plan.to, plan.share), action: plan.to });
+    }
   };
   // Every way out of the field box (Tab, Escape, a click away, a pick) ends
   // with the row typed like the sample says its field is. A pick does it
@@ -763,10 +839,18 @@ function CondRow({
     const field = node.field.trim();
     const dominant = field === '' ? null : checkFieldType(structureEntries, field, '');
     if (!dominant) return;
-    const adopted = adoptedType(dominant.expectedType as DisplayType);
-    if (adopted.valType === undefined) return;
-    if (adopted.valType === node.valType && adopted.op === node.op) return;
-    patch(adopted);
+    settleKind(field, dominant.expectedType as DisplayType, sampleShare(structureEntries.get(field)));
+  };
+  const toValueNotice = (n: RowNotice): ValueNotice => {
+    const action = n.action;
+    return {
+      kind: n.kind,
+      text: n.text,
+      actionLabel: action === 'undo' ? 'Undo' : `Use ${action}`,
+      // "Use" always converts what it can: the notice only appears when the
+      // value was left alone, and the person has now asked for the type.
+      onAction: action === 'undo' ? undoFilter : () => patch(kindSwitchPatch(node, action, { autoConvert: true })),
+    };
   };
   // Escape stays with the box: it closes the list when one is showing (the
   // popover has already claimed that key) and otherwise leaves the box. Either
@@ -891,7 +975,14 @@ function CondRow({
                 // The blur that follows runs against this render's stale row;
                 // the flag tells it the pick already settled the type.
                 fieldPickedRef.current = true;
-                patch({ field: s.path, ...adoptedType(s.type) });
+                const blank = node.value.trim() === '';
+                const dominant = checkFieldType(structureEntries, s.path, '');
+                settleKind(
+                  s.path,
+                  blank ? s.type : (dominant?.expectedType as DisplayType | undefined),
+                  dominant ? sampleShare(structureEntries.get(s.path)) : null,
+                  s.path,
+                );
               }
               setFieldPopoverOpen(false);
               fieldInputRef.current?.blur();
@@ -939,7 +1030,7 @@ function CondRow({
                 // tick, and `patch` spreads a stale `node` rather than taking a
                 // functional update.
                 symbolResolvedByPopover.current = true;
-                patch({ op: s.name });
+                changeOp(s.name);
                 // A pick is itself a commit (per the issue's fix shape) — clear
                 // the draft so the box falls back to `node.op` (about to become
                 // `s.name`) instead of showing the typed text the pick replaced.
@@ -957,10 +1048,12 @@ function CondRow({
           readOnly={readOnly}
           problem={valueProblem}
           onPatch={patchBox}
-          onTypeChange={(vt) => patch(valTypePatch(node, vt))}
+          onTypeChange={(vt) => patch(kindSwitchPatch(node, vt))}
           suggestionContext={suggestionContext}
           wide={wide}
           dim={dim}
+          notice={visibleNotice && toValueNotice(visibleNotice)}
+          typeFlash={typeFlash}
         />
         <div style={{ gridRow: 1, gridColumn: -2, display: 'flex', justifyContent: 'flex-end' }}>
           <RowMenu
@@ -1002,7 +1095,7 @@ function CondRow({
         </span>
       )}
 
-      {typeWarning && (
+      {typeWarning && visibleNotice?.kind !== 'hint' && (
         <span style={{ fontSize: T.fsXs, color: T.textMuted, lineHeight: 1.3, opacity: dim }}>
           Sample: {typeWarning.field} is {typeWarning.expectedType} in {typeWarning.percent}% of documents that have it
         </span>
@@ -2059,6 +2152,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
 
   return (
     <WideProvider>
+    <FilterUndoContext.Provider value={() => stepHistory(undo, canUndo, redoRef)}>
     <GroupView
       node={root}
       path={[]}
@@ -2073,6 +2167,7 @@ function FilterDrawer({ queryRaw, filterDraft, onCommit, suggestionContext }: Fi
       headerExtra={historyButtons}
       statusLine={statusLine}
     />
+    </FilterUndoContext.Provider>
     </WideProvider>
   );
 }

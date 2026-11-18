@@ -281,6 +281,16 @@ a { text-decoration: none; }
   .query-running-bar::after { width: 100%; animation: none; }
 }
 
+/* A value box's type chip when the field gave the row its type: one soft flash. */
+.type-chip-flash { animation: type-chip-flash 900ms ease-out 1; }
+@keyframes type-chip-flash {
+  from { background: var(--atelier-accent-soft); box-shadow: 0 0 0 2px var(--atelier-accent-soft); }
+  to { box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .type-chip-flash { animation: none; }
+}
+
 /* W06 §8.3: a row's selection checkbox shows on that row's hover and focus,
    and on every row once anything is selected. Hidden by opacity, not display,
    so it stays clickable and in the focus order, and no column ever moves. */
