@@ -59,9 +59,9 @@ test('drawer presentation: Reset confirms, and the tab strip roves with the arro
       const bar = win.getByTestId('query-bar-input');
       await expect(bar).toHaveValue('{"status":{"$eq":"paid"}}');
 
-      // The row's single Remove control names what it removes.
+      // Remove is an item of the row's menu, which the row names by position.
       await expect(
-        win.getByRole('button', { name: 'Remove condition status' }),
+        win.getByRole('button', { name: 'Condition options 1', exact: true }),
       ).toBeVisible();
 
       // ── Reset confirms rather than wiping on one click ────────────────

@@ -33,8 +33,8 @@ async function width(locator: Locator): Promise<number> {
  */
 async function fillAndMeasure(win: Page, index: number) {
   await win.getByPlaceholder('field', { exact: true }).nth(index).fill(`o${index}`);
-  await win.locator('input[aria-label="Value type"]').nth(index).click();
-  await win.getByRole('option', { name: 'objectid', exact: true }).click();
+  await win.getByRole('button', { name: /^Value type: / }).nth(index).click();
+  await win.getByRole('menuitem', { name: 'objectid', exact: true }).click();
   const value = win.getByPlaceholder('value', { exact: true }).nth(index);
   await value.fill('zzz');
 
@@ -74,5 +74,77 @@ test('a condition row keeps its value box, error and field box usable at the def
     await win.getByRole('menuitem', { name: 'Add group', exact: true }).click();
     await win.getByRole('button', { name: 'Add condition to group 2', exact: true }).click();
     await fillAndMeasure(win, 1);
+  });
+});
+
+/** Drags the Inspector's divider until the panel is about `target` px wide (it clamps at 320 and 640). */
+async function resizePanel(win: Page, target: number) {
+  const handle = win.getByRole('separator', { name: 'Resize inspector' });
+  const box = await handle.boundingBox();
+  expect(box, 'the divider has a layout box').not.toBeNull();
+  const y = box!.y + 100;
+  await win.mouse.move(box!.x + 2, y);
+  await win.mouse.down();
+  await win.mouse.move(1600 - target, y, { steps: 15 });
+  await win.mouse.up();
+  await win.waitForTimeout(300);
+}
+
+const rect = async (locator: Locator) => {
+  const box = await locator.boundingBox();
+  expect(box, 'element has a layout box').not.toBeNull();
+  return box!;
+};
+
+test('a condition row is two lines at a 400px panel, keeps its height while a long value is typed, and is one line at 640px', async () => {
+  const { host, port } = await startMemoryServer();
+
+  await withApp(async (app) => {
+    const win = await app.firstWindow();
+    await win.waitForLoadState('domcontentloaded');
+    await win.setViewportSize({ width: 1600, height: 900 });
+
+    await seedActiveConnectionWithDocs(
+      win,
+      { ...baseConnInput(host, port), name: 'Row Height Target' },
+      { dbName: 'shop', collection: 'orders', docs: [{ name: 'doc-1' }] },
+    );
+
+    const ws = new WorkspacePage(win);
+    await ws.openCollectionFromNavigator('shop', 'orders');
+    await expect(win.getByText('doc-1')).toBeVisible({ timeout: 8000 });
+    await ws.openBuilder();
+    await win.getByRole('button', { name: 'Add condition', exact: true }).click();
+    await win.getByPlaceholder('field', { exact: true }).fill('name');
+
+    await resizePanel(win, 400);
+    const row = win.locator('[data-row-path]').first();
+    const value = win.getByPlaceholder('value', { exact: true });
+    await value.fill('alice');
+    const oneLine = await rect(row);
+    expect(oneLine.height, 'two lines: field row and value box').toBeLessThanOrEqual(80);
+
+    // The value box sits under the field row, aligned with the field's left edge.
+    const field = await rect(win.getByPlaceholder('field', { exact: true }));
+    const operator = await rect(win.getByPlaceholder('$op', { exact: true }));
+    const boxRect = await rect(row.locator('[data-value-box]'));
+    expect(boxRect.y).toBeGreaterThan(field.y + field.height - 1);
+    expect(Math.abs(boxRect.x - field.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(boxRect.x + boxRect.width - (operator.x + operator.width))).toBeLessThanOrEqual(1);
+
+    await value.fill('a rather long value that is far wider than the box can show on one line '.repeat(3));
+    const typed = await rect(row);
+    expect(typed.height, 'typing never changes the row shape').toBeCloseTo(oneLine.height, 0);
+
+    await resizePanel(win, 700);
+    await expect.poll(async () => (await rect(win.getByPlaceholder('field', { exact: true }))).y, { timeout: 4000 })
+      .toBeGreaterThan(0);
+    const wideOperator = await rect(win.getByPlaceholder('$op', { exact: true }));
+    const wideBox = await rect(row.locator('[data-value-box]'));
+    expect(
+      Math.abs(wideBox.y + wideBox.height / 2 - (wideOperator.y + wideOperator.height / 2)),
+      'the value box shares the operator line',
+    ).toBeLessThanOrEqual(2);
+    expect(wideBox.x).toBeGreaterThan(wideOperator.x);
   });
 });

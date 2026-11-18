@@ -451,11 +451,15 @@ unchanged.
 │ [AND|OR|NOR] [+ Condition|▾]              [undo][redo]│
 │ ≈38 match · 8 of 9 conditions on                     │
 ├──────────────────────────────────────────────────────┤
-│   status        $eq                              ⋮ ✕ │
-│   [string ▾] active                                  │
+│ ☑ status        $eq                                ⋮ │
+│   ┌────────────────────────────────────[string]┐      │
+│   │ active                                     │      │
+│   └────────────────────────────────────────────┘      │
 │   ┌─ OR ──────────────────  + ( ) <>  ¬ ✕ ──────┐    │
-│   │ tier        $eq                         ⋮ ✕ │    │
-│   │ [string ▾] gold                             │    │
+│   │ ☑ tier      $eq                           ⋮ │    │
+│   │   ┌──────────────────────────[string]┐      │    │
+│   │   │ gold                             │      │    │
+│   │   └──────────────────────────────────┘      │    │
 │   └─────────────────────────────────────────────┘    │
 │   ┌─ raw clause ───────────────────────────  ⋮ ✕ ┐   │
 │   │ {"items":{"$elemMatch":{"sku":1}}}           │   │
@@ -497,11 +501,13 @@ unchanged.
   each row's checkbox and raw textarea, each nested group's checkbox — is
   also described by a visually hidden note, "Excluded: its group is switched
   off".
-- **Cond row**: unchanged from W04 §5 (field / op / valType / value, both
-  autocompletes per X02 and X03). The `⋮` menu adds: *Insert condition
+- **Cond row**: two lines per W04 §5's *Condition row layout* (field and
+  operator on line 1; the value box on line 2 with the type as a chip inside
+  it; both autocompletes per X02 and X03). A condition has no ✕ of its own.
+  The `⋮` menu adds: *Insert condition
   above* / *below* (a blank pending row at that index, with the caret in its
   field box), *Convert to raw clause*, *Wrap in group*, *Negate (NOT)*,
-  *Duplicate*, *Remove*.
+  *Duplicate*, and, as its last item, *Remove*.
 - **Unmodelled op is no longer a dead end.** Typing `$elemMatch` into the op
   input replaces W04's terminal warning with a one-click **Convert to raw
   clause** button that seeds a raw node from the row. The old message —

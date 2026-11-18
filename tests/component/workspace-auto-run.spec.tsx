@@ -11,6 +11,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTab } from '@shared/types';
+import { removeCondition } from '../helpers/condRow';
 
 const now = '2026-06-01T12:00:00.000Z';
 
@@ -298,11 +299,11 @@ describe('Workspace — auto-run on open', () => {
     // landed on Documents with nothing to show yet": the user is actively
     // editing, not opening the tab, so no background find should fire
     // behind their back.
-    const removeBtn = await screen.findByLabelText('Remove condition status');
-    fireEvent.click(removeBtn);
+    await screen.findByLabelText('Condition options 1');
+    await removeCondition('1');
 
     await waitFor(() => {
-      expect(container.querySelector('[aria-label="Remove condition status"]')).toBeNull();
+      expect(container.querySelector('[aria-label="Condition options 1"]')).toBeNull();
     });
     await settle();
     expect(findSpy).toHaveBeenCalledTimes(1);

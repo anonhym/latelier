@@ -17,6 +17,7 @@ import type { CollectionTabState, GroupNode, RecentQuery, SavedQuery, WorkspaceT
 import type { IpcApi } from '@shared/ipc';
 import { isoToLocalInput, localInputToIso } from '../../src/pages/Workspace/condValue';
 import { openQueriesTab } from '../helpers/queriesPopover';
+import { pickValueType, removeCondition } from '../helpers/condRow';
 
 const now = '2026-08-04T12:00:00.000Z';
 
@@ -155,7 +156,8 @@ describe('Filter drawer — add / edit / remove / nest through queryRaw (W13 §1
       makeState({ queryRaw: '{"status":{"$eq":"paid"}}' }),
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove condition status' }));
+    await screen.findByRole('button', { name: 'Condition options 1' });
+    await removeCondition('1');
 
     await waitFor(() => {
       expect(lastWrittenQueryRaw(updateSpy)).toBe('{}');
@@ -779,7 +781,7 @@ describe('Filter drawer — undo / redo', () => {
     expect(undoButton().disabled).toBe(true);
     expect(redoButton().disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await removeCondition('2');
     await waitFor(() => expect(lastWrittenQueryRaw(updateSpy)).toBe('{"a":{"$eq":1}}'));
 
     fireEvent.click(undoButton());
@@ -796,7 +798,7 @@ describe('Filter drawer — undo / redo', () => {
   it('when Undo or Redo runs out of steps, focus moves to the other one instead of falling to the page', async () => {
     mountWith(makeState({ queryRaw: AB }));
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await removeCondition('2');
     await waitFor(() => expect(undoButton().disabled).toBe(false));
 
     undoButton().focus();
@@ -841,7 +843,7 @@ describe('Filter drawer — undo / redo', () => {
     mountWith(makeState({ queryRaw: AB }));
     await waitFor(() => expect(fieldValues()).toEqual(['a', 'b']));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove condition b' }));
+    await removeCondition('2');
     await waitFor(() => expect(undoButton().disabled).toBe(false));
 
     const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
@@ -956,10 +958,7 @@ describe('Filter drawer — type-aware value editors', () => {
   const OID = '0123456789abcdef01234567';
 
   async function setValueType(type: string) {
-    // Mantine labels the listbox with the input's name too; the input is the trigger.
-    const trigger = screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT');
-    fireEvent.click(trigger!);
-    fireEvent.click(await screen.findByRole('option', { name: type }));
+    await pickValueType(type);
   }
 
   describe('date', () => {
@@ -1093,9 +1092,7 @@ describe('Filter drawer — type-aware value editors', () => {
       );
       // Make the list's row a string row: the parser types a list as `array`.
       await screen.findAllByPlaceholderText('field');
-      const trigger = screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT');
-      fireEvent.click(trigger!);
-      fireEvent.click(await screen.findByRole('option', { name: 'string' }));
+      await pickValueType('string');
 
       const chipBox = await screen.findByRole('combobox', { name: 'Values' });
       act(() => chipBox.focus());
@@ -1145,7 +1142,7 @@ describe('Filter drawer — type-aware value editors', () => {
       expect((screen.getByPlaceholderText('value') as HTMLInputElement).value).toBe('["a","z"]');
       expect(screen.getAllByRole('combobox', { name: 'Values' })).toHaveLength(1);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Remove condition s' }));
+      await removeCondition('1');
       await waitFor(() => expect(fieldValues()).toEqual(['t']));
       // The row that moved up into the slot shows its own chips.
       expect(screen.getByRole('combobox', { name: 'Values' })).toBeTruthy();
@@ -1258,26 +1255,32 @@ describe('Filter drawer — type-aware value editors', () => {
     await waitFor(() => expect(screen.queryByPlaceholderText('value')).toBeNull());
   });
 
-  it('the mongosh preview sits on its own line, and gives way to a value error rather than stacking with it', async () => {
+  it('only a date has a mongosh preview line, under its box, and a value error takes its place', async () => {
     mountWith(makeState());
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add condition' }));
     fireEvent.change(await screen.findByPlaceholderText('field'), { target: { value: 'o' } });
     await setValueType('objectid');
     const value = screen.getByPlaceholderText('value');
-    fireEvent.change(value, { target: { value: 'abc' } });
-
-    await waitFor(() => expect(descriptionOf(value)).toBe('ObjectId must be 24 hex characters'));
-    expect(screen.queryByText('ObjectId("abc")')).toBeNull();
-
     fireEvent.change(value, { target: { value: OID } });
+    // An ObjectId reads the same as what was typed: no second line repeating it.
+    expect(screen.queryByText(`ObjectId("${OID}")`)).toBeNull();
 
-    const preview = await screen.findByText(`ObjectId("${OID}")`);
+    await setValueType('string');
+    fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: 'abc' } });
+    expect(screen.queryByText('"abc"')).toBeNull();
+
+    await setValueType('date');
+    fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: 'nonsense' } });
+    await waitFor(() => expect(descriptionOf(screen.getByPlaceholderText('value'))).not.toBe(''));
+    expect(screen.queryByText(/^ISODate\(/)).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: '2026-01-01T00:00:00.000Z' } });
+    const preview = await screen.findByText('ISODate("2026-01-01T00:00:00.000Z")');
     expect(preview.getAttribute('aria-hidden')).toBe('true');
-    // Beside the input it took the width the input needed; under it, it takes none.
-    const inputRow = preview.previousElementSibling;
-    expect(inputRow?.contains(value)).toBe(true);
-    expect(inputRow?.contains(preview)).toBe(false);
+    // Under the box, not inside it.
+    expect(preview.closest('[data-value-box]')).toBeNull();
+    expect(preview.previousElementSibling?.hasAttribute('data-value-box')).toBe(true);
   });
 });
 
@@ -1381,7 +1384,7 @@ describe('Filter drawer — starter templates', () => {
 
     await waitFor(() =>
       expect(
-        (screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT') as HTMLInputElement).value,
+        screen.getAllByRole('button', { name: /^Value type: / })[0]!.textContent,
       ).toBe('number'),
     );
   });
@@ -1397,7 +1400,7 @@ describe('Filter drawer — starter templates', () => {
 
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('qty'));
     expect(
-      (screen.getAllByLabelText('Value type').find((el) => el.tagName === 'INPUT') as HTMLInputElement).value,
+      screen.getAllByRole('button', { name: /^Value type: / })[0]!.textContent,
     ).toBe('string');
   });
 

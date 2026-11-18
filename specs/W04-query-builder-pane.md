@@ -213,11 +213,33 @@ The existing Workspace's right pane is the home for this. Structure:
 
 ### Condition row layout
 
-Each `CondRow` is two lines:
+Each `CondRow` is two lines, laid out on a grid whose shape follows the row's
+type and operator and never the typed text, so typing cannot move anything:
 
-- **Line 1**: `field` input (the label, flex-fills) + `op` input (fixed width, monospace) + remove button.
-- **Line 2**: `valType` select (fixed width) + `value` input (flex-fills). The value input is hidden when `op === '$exists'`; the type select remains.
-- Row-level warning text from the §2b check renders beneath both lines.
+- **Line 1**: include checkbox, `field` input (flex-fills), `op` input (monospace, 56 px, 92 px
+  once the committed operator is longer than five characters), and the `⋮` row menu. There is no
+  delete button on a condition: *Remove* is the last item of the `⋮` menu.
+- **Line 2**: the value box, full width, its left edge on the field input's and its right edge on
+  the operator's (so the `⋮` column stays free beneath it). The value editors (text, chips for a
+  list, the date picker beside a date's text) sit inside it without a border of their own; the box
+  has the input border, the accent focus ring, and a red border when the row has a value problem.
+  It grows downward only, when chips wrap.
+- **Type chip**: the value type is a small chip button at the box's right end, in sentence case
+  (`string`, `number`, `date`), named *Value type: &lt;type&gt;*. It opens a menu of the types, and
+  picking one changes the row exactly as the old select did (the operator moves to one the new
+  type offers when it must).
+- **Nothing to type**: `boolean` and `$exists` have no line 2. A two-option switch (`true | false`,
+  `present | absent`) sits on line 1 between the operator and `⋮`. `null` has no control at all.
+  Because these rows have no chip, the `⋮` menu carries a *Value type* submenu for them, so no type
+  is a dead end.
+- **Preview**: there is none, except that a parsed date shows its `ISODate("…")` form as one
+  11 px line under the box. A value problem replaces it.
+- **Problem text**: the one-sentence message sits under the box (under line 1 for rows with no
+  box), indented like it, and is the value input's accessible description. Row-level warning text
+  from the §2b check renders beneath all of it.
+- **Wide builder**: when the builder is at least 560 px wide (measured on the root group, not the
+  window; the panel resizes between 320 and 640 px) the value box moves up beside the operator,
+  and the field takes about 40% of what is left.
 
 ### Conditions field selector
 - On focus, the `field` input shows a field-name autocomplete popover

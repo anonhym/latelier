@@ -170,16 +170,12 @@ describe('The status line says what the rows add up to', () => {
 });
 
 describe('W15 §13.1 — one Remove affordance per row', () => {
-  it('a condition row removes from the ✕ only, and the ✕ names the field', async () => {
+  it('a condition row removes from its row menu only: it has no ✕ of its own', async () => {
     mountWith(makeState({ queryRaw: '{"status":{"$eq":"paid"}}' }));
 
-    // The direct control survives and says what it removes.
-    await screen.findByRole('button', { name: 'Remove condition status' });
-
-    // The row menu no longer duplicates it.
-    fireEvent.click(screen.getByRole('button', { name: 'Condition options 1' }));
-    await screen.findByRole('menuitem', { name: 'Duplicate' });
-    expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Condition options 1' }));
+    await screen.findByRole('menuitem', { name: 'Remove' });
+    expect(screen.queryByRole('button', { name: /^Remove condition/ })).toBeNull();
   });
 
   it('a raw clause row removes from the ✕ only', async () => {
@@ -401,8 +397,8 @@ describe('The bottom actions wrap instead of clipping', () => {
 // stays open, the note says so, and the tree already shows their conditions.
 describe('Shell Syntax typed into the filter, before blur', () => {
   it.each([
-    ['ObjectId(...)', '{_id: ObjectId("0123456789abcdef01234567")}', 'Remove condition _id'],
-    ['ISODate(...)', '{createdAt: {$gt: ISODate("2026-02-01")}}', 'Remove condition createdAt'],
+    ['ObjectId(...)', '{_id: ObjectId("0123456789abcdef01234567")}', 'Condition options 1'],
+    ['ISODate(...)', '{createdAt: {$gt: ISODate("2026-02-01")}}', 'Condition options 1'],
     ['a /regex/', '{status: /ship/i}', 'Remove raw clause 1'],
   ])('%s keeps Run enabled, shows the note, and fills the builder', async (_name, text, removeName) => {
     mountWith(makeState({ queryRaw: '{}' }));

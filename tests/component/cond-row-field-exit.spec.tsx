@@ -5,6 +5,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '../helpers/render';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
+import { pickValueType } from '../helpers/condRow';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources/sampleSchemaSource';
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
@@ -77,7 +78,11 @@ async function openRow(): Promise<void> {
 }
 
 const fieldBox = () => screen.getByPlaceholderText('field') as HTMLInputElement;
-const typeBox = () => document.querySelector('input[aria-label="Value type"]') as HTMLInputElement;
+// The type chip in the value box: its text is the type, its label says so.
+const typeBox = () => {
+  const chip = document.querySelector('button[aria-label^="Value type: "]') as HTMLButtonElement;
+  return { value: chip.textContent, click: () => chip.click() };
+};
 
 beforeEach(() => invalidateSampleSchemaCache());
 afterEach(() => {
@@ -172,8 +177,7 @@ describe('A type chosen by hand', () => {
     fireEvent.blur(box);
     await waitFor(() => expect(typeBox().value).toBe('number'));
 
-    fireEvent.click(typeBox());
-    fireEvent.click(await screen.findByRole('option', { name: 'string' }));
+    await pickValueType('string');
     await waitFor(() => expect(typeBox().value).toBe('string'));
 
     fireEvent.focus(box);

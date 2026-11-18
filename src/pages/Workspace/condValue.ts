@@ -2,6 +2,7 @@
 // A condition's value is always text (`CondNode.value`); these convert between
 // that text and what each editor shows, without React.
 import type { CondNode, SchemaSampleEntry, ValType } from '@shared/types';
+import { FIELD_OPS } from './builder';
 import { checkFieldType, inferType, type TypeWarning } from './schemaSummary';
 import { SIMPLE_OPS, coerceArrayElementWire, parseJsonArrayLenient } from './filterTree';
 
@@ -187,4 +188,43 @@ export function condTypeWarning(
   if (!warning || warning.expectedType === 'array') return null;
   if (NUMBER_FAMILY.has(warning.expectedType) && NUMBER_FAMILY.has(actual)) return null;
   return warning;
+}
+
+/** The value types a condition can take, in the order the type menu lists them. */
+export const VAL_TYPES: ValType[] = [
+  'string',
+  'number',
+  'long',
+  'decimal',
+  'boolean',
+  'date',
+  'null',
+  'regex',
+  'objectid',
+  'array',
+];
+
+/**
+ * What the row patches when its value type changes: the type, and the operator
+ * if the new type does not offer the current one.
+ */
+export function valTypePatch(node: CondNode, valType: ValType): Partial<CondNode> {
+  const nextOps = FIELD_OPS[valType] ?? FIELD_OPS.string;
+  const op = (nextOps as readonly string[]).includes(node.op) ? node.op : (nextOps[0] ?? '$eq');
+  return { valType, op };
+}
+
+/**
+ * The shape of a row's value area, decided by the row's type and operator and
+ * never by what is typed in it, so typing cannot change the row's layout:
+ * `box` is a value box on its own line, `exists` and `boolean` are a two-way
+ * switch beside the operator, and `none` has nothing to enter.
+ */
+export type CondValueKind = 'box' | 'exists' | 'boolean' | 'none';
+
+export function condValueKind(node: Pick<CondNode, 'op' | 'valType'>): CondValueKind {
+  if (node.op === '$exists') return 'exists';
+  if (node.valType === 'null') return 'none';
+  if (node.valType === 'boolean' && SIMPLE_OPS.has(node.op)) return 'boolean';
+  return 'box';
 }

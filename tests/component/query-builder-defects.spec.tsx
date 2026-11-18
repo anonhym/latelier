@@ -7,6 +7,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import type { CollectionTabState, WorkspaceTab } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
 import { openQueriesTab } from '../helpers/queriesPopover';
+import { removeCondition } from '../helpers/condRow';
 
 const now = '2026-08-02T12:00:00.000Z';
 
@@ -193,7 +194,8 @@ describe(' builder edits do not clobber a hand-edited filter', () => {
     const textarea = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
     await waitFor(() => expect(textarea.value).toBe('{"name":{"$eq":"alice"}}'));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove condition name' }));
+    await screen.findByRole('button', { name: 'Condition options 1' });
+    await removeCondition('1');
 
     await waitFor(() => {
       expect(textarea.value).toBe('{}');
