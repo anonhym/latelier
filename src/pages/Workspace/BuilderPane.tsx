@@ -1011,6 +1011,12 @@ function CondRow({
   );
 }
 
+/** Lines a raw clause editor shows at rest; past it the text scrolls inside the box. */
+const RAW_CLAUSE_MAX_LINES = 6;
+/** The editor's own line height, set inline so the cap can be computed from it. */
+const RAW_CLAUSE_LINE_PX = 18;
+const RAW_CLAUSE_PAD_PX = 4;
+
 function RawRow({
   node,
   path,
@@ -1042,6 +1048,17 @@ function RawRow({
   const toggle = () => applyEdit(updateAt(root, path, toggleDisabled(node)));
   const dim = dimFor(node);
   const rowDrop = useRowDropHandlers(node, path, root, applyEdit, readOnly, activeDropPath, setActiveDropPath);
+  // Grows with the clause up to the cap, then scrolls inside the box. Sized by
+  // hand: jsdom has no layout, and a plain `rows` would never grow.
+  const jsonRef = React.useRef<HTMLTextAreaElement>(null);
+  React.useLayoutEffect(() => {
+    const el = jsonRef.current;
+    if (!el) return;
+    const cap = RAW_CLAUSE_LINE_PX * RAW_CLAUSE_MAX_LINES + RAW_CLAUSE_PAD_PX * 2;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, RAW_CLAUSE_LINE_PX * 2 + RAW_CLAUSE_PAD_PX * 2), cap)}px`;
+    el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
+  }, [node.json]);
 
   return (
     <div
@@ -1068,6 +1085,7 @@ function RawRow({
         />
         <div style={{ display: 'flex', gap: T.gapXs, alignItems: 'flex-start', flex: 1, minWidth: 0, opacity: dim }}>
           <textarea
+            ref={jsonRef}
             value={node.json}
             disabled={readOnly}
             onChange={(e) => patchJson(e.target.value)}
@@ -1080,12 +1098,13 @@ function RawRow({
               flex: 1,
               fontFamily: '"JetBrains Mono", monospace',
               fontSize: T.fsXs,
-              padding: '4px 6px',
+              lineHeight: `${RAW_CLAUSE_LINE_PX}px`,
+              padding: `${RAW_CLAUSE_PAD_PX}px 6px`,
               border: `1px solid ${problem ? T.warn : T.border}`,
               borderRadius: T.rx,
               background: T.bg,
               color: T.text,
-              resize: 'vertical',
+              resize: 'none',
               outline: 'none',
             }}
           />
