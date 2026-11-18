@@ -157,3 +157,34 @@ describe('a list switching to its JSON text', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('a value box returning from a switch row', () => {
+  it('observes the textarea again after $exists and back, with the value unchanged', () => {
+    const observed: Element[] = [];
+    class SpyObserver {
+      observe(el: Element) {
+        observed.push(el);
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', SpyObserver);
+    const base: CondNode = { kind: 'cond', field: 'f', op: '$eq', valType: 'string', value: 'a long value' };
+    const props = {
+      readOnly: false,
+      problem: undefined,
+      onPatch: vi.fn(),
+      onTypeChange: vi.fn(),
+      suggestionContext: null,
+      wide: true,
+      dim: undefined,
+    };
+    const { rerender } = render(<CondValueEditor node={base} {...props} />);
+    const first = observed.filter((el) => el.tagName === 'TEXTAREA').length;
+    expect(first).toBeGreaterThan(0);
+    rerender(<CondValueEditor node={{ ...base, op: '$exists' }} {...props} />);
+    rerender(<CondValueEditor node={base} {...props} />);
+    expect(observed.filter((el) => el.tagName === 'TEXTAREA').length).toBeGreaterThan(first);
+    vi.unstubAllGlobals();
+  });
+});

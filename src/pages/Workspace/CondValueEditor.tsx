@@ -369,7 +369,10 @@ export function CondValueEditor({
   // it. They are asked for only while the value box has focus.
   const valueInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [suggesting, setSuggesting] = React.useState(false);
-  useGrowToLines(valueInputRef, node.value, MAX_TEXT_LINES, 0, !chipMode);
+  // The textarea is in the tree only on the text path: not the switch rows
+  // (none, $exists, boolean) and not chip mode.
+  const textareaRendered = kind !== 'none' && kind !== 'exists' && kind !== 'boolean' && !chipMode;
+  useGrowToLines(valueInputRef, node.value, MAX_TEXT_LINES, 0, textareaRendered);
   const valueSuggestionsAllowed = node.field.trim() !== '' && VALUE_SUGGESTION_OPS.has(node.op);
   const valueSuggestionCtx = React.useMemo<SuggestionContext | null>(
     () =>
