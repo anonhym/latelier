@@ -21,6 +21,7 @@ import {
   parseChipText,
   valueFromChips,
 } from './condValue';
+import { objectIdTimestamp, formatLocalDateTime } from './objectIdDate';
 import { pickHelperLine, type HelperCandidate } from './helperLine';
 
 
@@ -409,6 +410,9 @@ export function CondValueEditor({
   const datePreview: HelperCandidate | null =
     isDate && node.value !== '' ? { kind: 'info', text: formatDatePreview(node.value) } : null;
 
+  const idDate = node.valType === 'objectid' && SIMPLE_OPS.has(node.op) ? objectIdTimestamp(node.value.trim()) : null;
+  const idInfo: HelperCandidate | null = idDate ? { kind: 'info', text: `created ${formatLocalDateTime(idDate)}` } : null;
+
   return (
     <>
       <ValueBox invalid={!!problem} placement={boxPlacement}>
@@ -517,7 +521,7 @@ export function CondValueEditor({
         {chips !== null && <ListToggle asText disabled={readOnly} onToggle={() => setListAsText(false)} />}
         {chipSlot}
       </ValueBox>
-      {helperNote([datePreview])}
+      {helperNote([datePreview, idInfo])}
     </>
   );
 }

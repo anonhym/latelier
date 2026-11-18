@@ -148,3 +148,31 @@ describe('number and date boxes', () => {
     expect(screen.queryByText(/ISODate/)).toBeNull();
   });
 });
+
+describe('ObjectId box helper line', () => {
+  const HEX = '507f1f77bcf86cd799439011';
+  const DATE_LINE = /^created 2012-10-1[78] \d{2}:\d{2}:\d{2} \S+$/;
+
+  it('shows the hex whole in the box and the date it carries under it', () => {
+    const { container } = mount({ valType: 'objectid', value: HEX });
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(HEX);
+    const line = screen.getByText(DATE_LINE);
+    expect(boxOf(container).contains(line)).toBe(false);
+  });
+
+  it('shows no date while the hex is incomplete', () => {
+    mount({ valType: 'objectid', value: HEX.slice(0, 23) });
+    expect(screen.queryByText(DATE_LINE)).toBeNull();
+  });
+
+  it('shows no date for a list operator, which has chips', () => {
+    mount({ valType: 'objectid', op: '$in', value: `["${HEX}"]` });
+    expect(screen.queryByText(DATE_LINE)).toBeNull();
+  });
+
+  it('an error beats the date', () => {
+    mount({ valType: 'objectid', value: HEX }, 'Not a valid ObjectId');
+    expect(screen.getByText('Not a valid ObjectId').textContent).toBe('Not a valid ObjectId');
+    expect(screen.queryByText(DATE_LINE)).toBeNull();
+  });
+});
