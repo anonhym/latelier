@@ -298,7 +298,10 @@ describe('Filter by field…: choosing a row', () => {
     await runAction('shop.orders', 'Filter by field');
     await pickField('customer');
     await waitFor(() => expect(screen.getAllByDisplayValue('customer').length).toBeGreaterThan(0));
-    await waitFor(() => expect(filterBar().value).not.toBe(BEFORE));
+    // The new row has no value yet, so it is not applied and the filter text
+    // stays put; the step is still in the drawer's history.
+    await waitFor(() => expect(undoButton().disabled).toBe(false));
+    expect(filterBar().value).toBe(BEFORE);
 
     fireEvent.click(undoButton());
     await waitFor(() => expect(filterBar().value).toBe(BEFORE));
