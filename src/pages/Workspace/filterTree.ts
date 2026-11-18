@@ -33,7 +33,8 @@ function isFilterNode(v: unknown): v is FilterNode {
         typeof v.field === 'string' &&
         typeof v.op === 'string' &&
         VAL_TYPES.has(v.valType as string) &&
-        typeof v.value === 'string'
+        typeof v.value === 'string' &&
+        (v.options === undefined || typeof v.options === 'string')
       );
     case 'raw':
       return typeof v.json === 'string';
@@ -242,11 +243,45 @@ function guessRowValue(v: unknown): ValueGuess | null {
   return guess;
 }
 
+/** The `$options` letters a row can hold: the four MongoDB documents for `$regex`. */
+const REGEX_OPTION_LETTERS = 'imsx';
+
+/** Whether `options` is a run of distinct `imsx` letters. */
+export function isRegexOptions(options: string): boolean {
+  return (
+    [...options].every((c) => REGEX_OPTION_LETTERS.includes(c)) &&
+    new Set(options).size === options.length
+  );
+}
+
+/** `options` as the printer sends it: letters in `imsx` order, so two spellings of one set are one value. */
+export function normalizeRegexOptions(options: string): string {
+  return [...REGEX_OPTION_LETTERS].filter((c) => options.includes(c)).join('');
+}
+
+/**
+ * `{ $regex: "x", $options: "i" }` (either key order) as one cond whose
+ * options travel with it, or null for any other shape (§2a): the pair is the
+ * only multi-key predicate that is one condition, because `$options` modifies
+ * `$regex` and cannot stand alone.
+ */
+function regexWithOptions(field: string, obj: Record<string, unknown>, keys: string[]): CondNode | null {
+  if (keys.length !== 2 || !keys.includes('$regex') || !keys.includes('$options')) return null;
+  const pattern = obj.$regex;
+  const options = obj.$options;
+  if (typeof pattern !== 'string' || typeof options !== 'string') return null;
+  if (pattern === '' || !isRegexOptions(options)) return null;
+  const cond = condNode(field, '$regex', { valType: 'string', text: pattern });
+  return options === '' ? cond : { ...cond, options: normalizeRegexOptions(options) };
+}
+
 /**
  * `{ field: { $op1: v1, $op2: v2, ... } }` → one or more cond nodes, or a
  * single raw node when it can't be split/modeled (§2a, §2b).
  */
 function parseOperatorMap(field: string, obj: Record<string, unknown>, keys: string[]): FilterNode[] {
+  const withOptions = regexWithOptions(field, obj, keys);
+  if (withOptions) return [withOptions];
   if (keys.length === 1) {
     const op = keys[0];
     const guess = guessOpValue(op, obj[op]);
@@ -617,6 +652,9 @@ function condValueProblem(node: CondNode): string | null {
   // An empty value is never sent: left to the encoders below it would go out
   // as 0, as "" or as a bare `{$numberLong: ""}`.
   if (isEmptyValue(node)) return 'Value is empty';
+  if (node.op === '$regex' && node.options && !isRegexOptions(node.options)) {
+    return 'Regex options can only be i, m, s and x';
+  }
   const isScalarNumeric =
     !ARRAY_VALUE_OPS.has(node.op) && node.op !== '$mod' && node.value.trim() !== '';
   if (isScalarNumeric) {
@@ -719,6 +757,12 @@ function sentinelProblem(wire: unknown): string | null {
  * `{$exists:false}` on the very first print,
  * breaking the semantic round-trip this module exists to guarantee.
  */
+function condClause(node: CondNode): Record<string, unknown> {
+  const clause: Record<string, unknown> = { [node.op]: encodeCondValue(node) };
+  if (node.op === '$regex' && node.options) clause.$options = node.options;
+  return clause;
+}
+
 function encodeCondValue(node: CondNode): unknown {
   const { op, valType, value } = node;
   if (op === '$exists') return value.trim() !== 'false';
@@ -824,7 +868,7 @@ function printNode(node: FilterNode, path: number[], problems: NodeProblem[]): P
       problems.push({ path, message: problem });
       return { kind: 'blocked' };
     }
-    return { kind: 'value', value: { [node.field]: { [node.op]: encodeCondValue(node) } } };
+    return { kind: 'value', value: { [node.field]: condClause(node) } };
   }
   if (node.kind === 'raw') {
     // Stryker disable next-line ObjectLiteral,StringLiteral
@@ -1027,7 +1071,7 @@ export function toRawNode(cond: CondNode): RawNode {
   const json =
     cond.field.trim() === '' || condValueProblem(cond)
       ? ''
-      : JSON.stringify({ [cond.field]: { [cond.op]: encodeCondValue(cond) } });
+      : JSON.stringify({ [cond.field]: condClause(cond) });
   return carryDisabled(cond, { kind: 'raw', json });
 }
 

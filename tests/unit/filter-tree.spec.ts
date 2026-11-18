@@ -125,10 +125,66 @@ describe('parseFilter — parse table (§2)', () => {
     );
   });
 
-  it('{ a: { $regex: "x", $options: "i" } } -> exactly one raw node', () => {
+  it('{ a: { $regex: "x", $options: "i" } } -> exactly one cond that holds the options', () => {
     const root = mustParse('{"a":{"$regex":"x","$options":"i"}}');
+    expect(root.children).toEqual([
+      cond({ field: 'a', op: '$regex', valType: 'string', value: 'x', options: 'i' }),
+    ]);
+  });
+
+  it('options come back in imsx order whatever order the clause spelled them, and print as one clause', () => {
+    const root = mustParse('{"a":{"$options":"xsi","$regex":"x"}}');
+    expect(root.children).toEqual([
+      cond({ field: 'a', op: '$regex', valType: 'string', value: 'x', options: 'isx' }),
+    ]);
+    expect(mustPrint(root)).toBe('{"a":{"$regex":"x","$options":"isx"}}');
+  });
+
+  it('empty options leave a plain $regex cond, which prints without $options', () => {
+    const root = mustParse('{"a":{"$regex":"x","$options":""}}');
+    expect(root.children).toEqual([cond({ field: 'a', op: '$regex', valType: 'string', value: 'x' })]);
+    expect(mustPrint(root)).toBe('{"a":{"$regex":"x"}}');
+  });
+
+  it.each([
+    ['an option letter MongoDB documents but a row does not model', '{"a":{"$regex":"x","$options":"u"}}'],
+    ['a repeated letter', '{"a":{"$regex":"x","$options":"ii"}}'],
+    ['an options value that is not text', '{"a":{"$regex":"x","$options":1}}'],
+    ['a pattern that is not text', '{"a":{"$regex":1,"$options":"i"}}'],
+    ['an empty pattern', '{"a":{"$regex":"","$options":"i"}}'],
+    ['a third key', '{"a":{"$regex":"x","$options":"i","$ne":"y"}}'],
+    ['$options without $regex', '{"a":{"$options":"i","$ne":"y"}}'],
+  ])('stays one raw node for %s', (_label, json) => {
+    const root = mustParse(json);
     expect(root.children).toHaveLength(1);
     expect(root.children[0].kind).toBe('raw');
+    expect(mustPrint(root)).toBe(json);
+  });
+
+  it('options on an operator other than $regex are not sent', () => {
+    const root = group('$and', [
+      cond({ field: 'a', op: '$eq', valType: 'string', value: 'x', options: 'i' }),
+    ]);
+    expect(mustPrint(root)).toBe('{"a":{"$eq":"x"}}');
+  });
+
+  it('a $regex cond with unknown option letters blocks printing and names the letters', () => {
+    const root = group('$and', [
+      cond({ field: 'a', op: '$regex', valType: 'string', value: 'x', options: 'iq' }),
+    ]);
+    const out = printFilter(root);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.problems[0].message).toBe('Regex options can only be i, m, s and x');
+  });
+
+  it('toRawNode keeps the options of a $regex cond', () => {
+    const c = cond({ field: 'a', op: '$regex', valType: 'string', value: 'x', options: 'im' });
+    expect(toRawNode(c).json).toBe('{"a":{"$regex":"x","$options":"im"}}');
+  });
+
+  it('a stored tree whose options are not text is not a filter tree', () => {
+    const bad = { kind: 'group', logic: '$and', children: [{ kind: 'cond', field: 'a', op: '$regex', valType: 'string', value: 'x', options: 1 }] };
+    expect(isGroupNode(bad)).toBe(false);
   });
 
   it('{ items: { $elemMatch: {...} } } -> one raw node', () => {
@@ -310,10 +366,10 @@ describe('parseFilter — split allowlist (§2a)', () => {
     expect(root.children).toHaveLength(2);
   });
 
-  it('$regex + $options does not split — one raw node', () => {
+  it('$regex + $options does not split — one cond that carries both', () => {
     const root = mustParse('{"a":{"$regex":"x","$options":"i"}}');
     expect(root.children).toHaveLength(1);
-    expect(root.children[0].kind).toBe('raw');
+    expect(root.children[0]).toMatchObject({ kind: 'cond', op: '$regex', options: 'i' });
   });
 
   it('$near + $maxDistance does not split — one raw node', () => {

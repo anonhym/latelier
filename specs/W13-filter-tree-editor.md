@@ -120,7 +120,7 @@ the most idiomatic filter there is (`{ status: "active", qty: { $gt: 5 } }`).
 | `{ $and: [...] }` / `{ $or: [...] }` / `{ $nor: [...] }` | group, recursive |
 | `{ $nor: [x] }` (exactly one item) | root `$and` holding a one-child `$nor` group: a NOT (§4), kept as a group so it reads back as one |
 | `{ a: { $gte: 1, $lte: 5 } }` | two conds — **only** per §2a |
-| `{ a: { $regex: "x", $options: "i" } }` | one **raw** node (§2a) |
+| `{ a: { $regex: "x", $options: "i" } }` | one **cond** (`op: $regex`, `options: "i"`), the one multi-key pair that is a single condition (§2a) |
 | `{ items: { $elemMatch: {...} } }` | one raw node |
 | `{ $expr: {...} }`, `{ $text: {...} }`, `{ $where: ... }`, `{ $jsonSchema: ... }` | one raw node |
 | `{ a: { $not: {...} } }` | one raw node |
@@ -148,6 +148,16 @@ const SPLITTABLE_OPS = new Set([
   '$bitsAllClear','$bitsAnyClear','$bitsAllSet','$bitsAnySet',
 ]);
 ```
+
+**One pair is a single condition.** `{ a: { $regex: "x", $options: "i" } }`
+(either key order) is one cond: `op` is `$regex`, `value` the pattern, and
+`options` the letters, held on the node rather than as a sibling cond, because
+`$options` modifies `$regex` and cannot stand alone. Only `i`, `m`, `s` and `x`
+are letters a row holds, each at most once, kept in `imsx` order; the printer
+writes `{ $regex, $options }` back in that key order (empty options print as a
+bare `$regex`). Any other shape of the pair (a letter outside those four, a
+non-text pattern or options value, an empty pattern, a third key) is still one
+raw node.
 
 `$options`, `$maxDistance`, `$minDistance`, `$elemMatch`, `$not`, `$near`,
 `$geoWithin`, `$nearSphere` are deliberately absent — each is either a modifier

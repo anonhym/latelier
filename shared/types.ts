@@ -361,6 +361,11 @@ export interface CondNode {
   op: string; // any $-prefixed op; print validates
   valType: ValType;
   value: string; // raw text, typed at print time
+  /**
+   * `$regex` only: the `$options` letters (a subset of `imsx`) sent beside the
+   * pattern. Absent means none. Ignored for every other operator.
+   */
+  options?: string;
   disabled?: boolean;
 }
 

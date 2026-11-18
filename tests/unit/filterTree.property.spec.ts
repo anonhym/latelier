@@ -13,6 +13,8 @@ import {
   toRawNode,
   tryParseRaw,
   buildScalarWire,
+  isRegexOptions,
+  normalizeRegexOptions,
   type GroupNode,
   type CondNode,
   type RawNode,
@@ -491,6 +493,39 @@ describe('printFilter: an empty value never reaches the filter', () => {
         expect(printed.ok).toBe(true);
         if (!printed.ok) return;
         expect(JSON.parse(printed.json)).toEqual(JSON.parse(text));
+      }),
+    );
+  });
+});
+
+describe('regex options', () => {
+  const letters = fc.subarray(['i', 'm', 's', 'x']).map((l) => l.join(''));
+
+  it('a $regex cond with any set of options survives print then parse unchanged', () => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1, maxLength: 12 }), letters, (pattern, options) => {
+        const cond: CondNode = {
+          kind: 'cond', field: 'a', op: '$regex', valType: 'string', value: pattern,
+          ...(options === '' ? {} : { options }),
+        };
+        const root: GroupNode = { kind: 'group', logic: '$and', children: [cond] };
+        const printed = printFilter(root);
+        if (!printed.ok) return false;
+        const parsed = parseFilter(printed.json);
+        return parsed.ok && JSON.stringify(parsed.root.children) === JSON.stringify([cond]);
+      }),
+    );
+  });
+
+  it('normalising is idempotent and keeps exactly the letters it was given', () => {
+    fc.assert(
+      fc.property(fc.shuffledSubarray(['i', 'm', 's', 'x']).map((l) => l.join('')), (options) => {
+        const once = normalizeRegexOptions(options);
+        return (
+          normalizeRegexOptions(once) === once &&
+          isRegexOptions(once) &&
+          [...once].sort().join('') === [...options].sort().join('')
+        );
       }),
     );
   });
