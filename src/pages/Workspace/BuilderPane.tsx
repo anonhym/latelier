@@ -689,11 +689,15 @@ function CondRow({
   // with the row typed like the sample says its field is. A pick does it
   // itself and flags this blur as already handled.
   const fieldPickedRef = React.useRef(false);
+  // The field text when the box took focus: tabbing through without editing it
+  // must keep a type the person chose by hand on a blank row.
+  const fieldOnFocusRef = React.useRef<string | null>(null);
   const settleFieldType = () => {
     if (fieldPickedRef.current) {
       fieldPickedRef.current = false;
       return;
     }
+    if (fieldOnFocusRef.current === node.field) return;
     const field = node.field.trim();
     const dominant = field === '' ? null : checkFieldType(structureEntries, field, '');
     if (!dominant) return;
@@ -785,7 +789,10 @@ function CondRow({
               patchBox({ field: e.target.value }, 'field');
               if (!fieldPopoverOpen) setFieldPopoverOpen(true);
             }}
-            onFocus={() => setFieldPopoverOpen(true)}
+            onFocus={() => {
+              fieldOnFocusRef.current = node.field;
+              setFieldPopoverOpen(true);
+            }}
             onKeyDown={handleFieldKeyDown}
             onBlur={() => {
               settleFieldType();

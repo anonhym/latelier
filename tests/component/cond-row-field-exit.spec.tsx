@@ -64,7 +64,7 @@ async function openRow(): Promise<void> {
       count: async () => ({ count: 0 }),
     },
     meta: {
-      sampleSchema: vi.fn(async () => ({ docs: Array(10).fill({ qty: 3 }) })) as unknown as IpcApi['meta']['sampleSchema'],
+      sampleSchema: vi.fn(async () => ({ docs: Array(10).fill({ qty: 3, cnt: 4 }) })) as unknown as IpcApi['meta']['sampleSchema'],
     },
   });
   render(
@@ -160,6 +160,30 @@ describe('Leaving the field box types the row like the sampled field', () => {
     fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: 'abc' } });
     fireEvent.blur(box);
     expect(typeBox().value).toBe('string');
+  });
+});
+
+describe('A type chosen by hand', () => {
+  it('survives tabbing through an unedited field box, and yields to an edited one', async () => {
+    await openRow();
+    const box = fieldBox();
+    fireEvent.change(box, { target: { value: 'qty' } });
+    await screen.findByText('Sample: qty is number in 100% of documents that have it');
+    fireEvent.blur(box);
+    await waitFor(() => expect(typeBox().value).toBe('number'));
+
+    fireEvent.click(typeBox());
+    fireEvent.click(await screen.findByRole('option', { name: 'string' }));
+    await waitFor(() => expect(typeBox().value).toBe('string'));
+
+    fireEvent.focus(box);
+    fireEvent.blur(box);
+    expect(typeBox().value).toBe('string');
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'cnt' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(typeBox().value).toBe('number'));
   });
 });
 
