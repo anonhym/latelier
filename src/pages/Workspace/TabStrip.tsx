@@ -242,6 +242,7 @@ export function TabStrip({
         // indistinguishable from a real Connection. The parenthetical says
         // "state", like '(empty)' below.
         const name = connection?.name ?? '(unresolved connection)';
+        const familyName = connection?.familyName ?? null;
         const readOnly = connection?.readOnly ?? false;
         // X16.5, spec §4.4 — a *Dormant* Connection's tabs stay muted but
         // clickable (never disabled). Strictly Dormant: Connecting and
@@ -276,7 +277,7 @@ export function TabStrip({
               aria-expanded={!collapsed}
               // The visible Connection name is the accessible name (Label in Name);
               // `aria-expanded` carries the state.
-              aria-label={name}
+              aria-label={familyName ? `${name} (${familyName})` : name}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -306,6 +307,12 @@ export function TabStrip({
                 {I.chevD}
               </span>
               <span>{name}</span>
+              {/* Read-only: the Connection's Family, after its name. Clicking it is clicking the header. */}
+              {familyName && (
+                <span aria-hidden title={`Family: ${familyName}`} style={{ fontWeight: 400, color: T.textMuted }}>
+                  {familyName}
+                </span>
+              )}
               {readOnly && <ReadOnlyBadge />}
             </button>}
             {!collapsed && groupTabs.map((tab) => {

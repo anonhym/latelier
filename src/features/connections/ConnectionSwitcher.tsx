@@ -164,7 +164,7 @@ function ConnectionRow({
       // ancestor's tabIndex={-1} doesn't remove descendants from the tab
       // order.
       tabIndex={-1}
-      aria-label={conn.name}
+      aria-label={conn.familyName ? `${conn.name} (${conn.familyName})` : conn.name}
       // `aria-selected` is the Connection that is *connected*, the listbox's
       // value — not the keyboard highlight. The highlight is the search
       // field's `aria-activedescendant`, so the two never fight over one
@@ -243,6 +243,17 @@ function ConnectionRow({
         >
           {conn.name}
         </Text>
+        {/* Read-only: the Connection's Family, after its name. */}
+        {conn.familyName && (
+          <Text
+            truncate
+            aria-hidden
+            title={`Family: ${conn.familyName}`}
+            style={{ fontSize: T.fsXs, color: T.textMuted, flexShrink: 1, minWidth: 0, maxWidth: '30%' }}
+          >
+            {conn.familyName}
+          </Text>
+        )}
         <Text
           truncate
           title={conn.status === 'connected' && conn.serverVersion ? `MongoDB ${conn.serverVersion}` : undefined}

@@ -107,7 +107,15 @@ export function FamilyView({
     ) : null;
 
   return (
-    <Modal opened onClose={close} title={`Family: ${family.name}`} centered size="lg">
+    <Modal
+      opened
+      onClose={close}
+      title={`Family: ${family.name}`}
+      centered
+      size="lg"
+      // Mantine closes every open modal on a window-level Escape, so the delete dialog stacked on this one would take it down too.
+      closeOnEscape={!deleting}
+    >
       <Stack gap="md">
         <Group gap="xs" align="flex-end" wrap="nowrap">
           <TextInput
