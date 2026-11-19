@@ -271,6 +271,19 @@ function slotOption(path: string, slot: ValueSlot, form: FieldSlot['form'], deta
 }
 
 /**
+ * Where an accepted slot completion stops replacing: past the rest of the
+ * reference under the caret, so `"$na|me"` becomes `"$name"` and not
+ * `"$nameme"`. A quoted slot runs to its closing quote; an unquoted one to the
+ * end of the word, which the completion then quotes.
+ */
+function slotReplaceEnd(doc: string, slot: ValueSlot): number {
+  if (slot.quoted) return stringContentEnd(doc, slot.replaceEnd, doc[slot.replaceStart - 1]);
+  let end = slot.replaceEnd;
+  while (end < doc.length && /[\w$.]/.test(doc[end] ?? '')) end++;
+  return end;
+}
+
+/**
  * Field suggestions where a value names a field (a `$group` `_id`, an
  * accumulator's argument, `$unwind`'s path, `$lookup`'s local and foreign
  * fields, ...): `fieldSlot` says whether the position takes one and in which
@@ -313,7 +326,7 @@ async function slotCompletions(
   const { fields, unknownShape } = choice;
   return {
     from: slot.replaceStart,
-    to: slot.replaceEnd,
+    to: slotReplaceEnd(doc, slot),
     options: fields.map((f) => slotOption(f.path, slot, spec.form, shapeDetail(f, unknownShape))),
     validFor: slot.quoted ? QUOTED_VALID_FOR : /^[\w$.]*$/,
   };

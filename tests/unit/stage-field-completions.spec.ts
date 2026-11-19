@@ -304,4 +304,18 @@ describe('inside a $lookup sub-pipeline: the joined collection\'s fields', () =>
     const r = await run('$lookup', '{ from: "customers", localField: "█", pipeline: [] }');
     expect(r.labels).toContain('name');
   });
+
+  it('accepting a field with the caret inside an existing reference replaces the whole reference', async () => {
+    const dollar = await run('$group', '{ _id: "$na█me", n: { $sum: 1 } }');
+    expect(dollar.pick('$name')).toBe('{ _id: "$name", n: { $sum: 1 } }');
+    const bare = await run('$lookup', '{ from: "customers", localField: "na█me", as: "c" }');
+    expect(bare.pick('name')).toBe('{ from: "customers", localField: "name", as: "c" }');
+  });
+
+  it('stops at the closing quote of an unclosed or escaped string, and replaces an unquoted word whole', async () => {
+    const unclosed = await run('$group', '{ _id: "$na█me\n}');
+    expect(unclosed.pick('$name')).toBe('{ _id: "$name\n}');
+    const unquoted = await run('$group', '{ _id: $na█me }', true);
+    expect(unquoted.pick('$name')).toBe('{ _id: "$name" }');
+  });
 });
