@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { prefSetSchema } from '../../electron/ipc/prefKeys';
 import { EJSON, Binary, Decimal128, Int32, Double, Long, ObjectId, UUID } from 'bson';
 import {
   findValueMatch,
   isSuppressed,
   MAX_MATCH_DEPTH,
   MAX_NEVER_PAIRS,
+  MAX_PAIR_KEY_LENGTH,
   orientPair,
   pairKey,
   pairLabel,
@@ -225,7 +227,53 @@ describe('pairKey and pairLabel', () => {
   const pair = { source: f('shop', 'orders', 'customerId'), target: f('crm', 'customers', '_id') };
 
   it('spells the Connection, then each side in full', () => {
-    expect(pairKey('c1', pair)).toBe('c1|shop.orders.customerId->crm.customers._id');
+    expect(pairKey('c1', pair)).toBe('c1|["shop","orders","customerId","crm","customers","_id"]');
+  });
+
+  it('keeps two pairs apart when a dot moves between a Collection name and a field path', () => {
+    const a = { source: f('shop', 'orders.items', 'id'), target: f('crm', 'customers', '_id') };
+    const b = { source: f('shop', 'orders', 'items.id'), target: f('crm', 'customers', '_id') };
+    expect(pairKey('c1', a)).not.toBe(pairKey('c1', b));
+    const c = { source: f('shop', 'a', 'b->shop.c.d'), target: f('crm', 'x', '_id') };
+    const d = { source: f('shop', 'a', 'b'), target: f('shop', 'c', 'd->crm.x._id') };
+    expect(pairKey('c1', c)).not.toBe(pairKey('c1', d));
+  });
+
+  it('fits the preference for any length of names, and still tells long pairs apart', () => {
+    const long = 'x'.repeat(1100);
+    const a = pairKey('c1', { source: f('shop', 'orders', `${long}a`), target: f('crm', 'customers', '_id') });
+    const b = pairKey('c1', { source: f('shop', 'orders', `${long}b`), target: f('crm', 'customers', '_id') });
+    expect(a.length).toBeLessThanOrEqual(MAX_PAIR_KEY_LENGTH);
+    expect(b.length).toBeLessThanOrEqual(MAX_PAIR_KEY_LENGTH);
+    expect(a).not.toBe(b);
+    expect(a.startsWith('c1|#')).toBe(true);
+    expect(pairKey('c1', { source: f('shop', 'orders', `${long}a`), target: f('crm', 'customers', '_id') })).toBe(a);
+  });
+
+  it('hashes an over-long pair to a fixed key, so a stored Never entry keeps matching', () => {
+    const f2 = (d: string, c: string, x: string) => ({ dbName: d, collection: c, field: x });
+    expect(pairKey('c1', { source: f2('shop', 'orders', 'x'.repeat(1100)), target: f2('crm', 'customers', '_id') })).toBe(
+      'c1|#vs.muvph3rdxc',
+    );
+    expect(pairKey('c1', { source: f2('shop', 'orders', 'ab'.repeat(700)), target: f2('crm', 'customers', '_id') })).toBe(
+      'c1|#144.t4a4tsp57i',
+    );
+  });
+
+  it('always produces a key the Never preference accepts', () => {
+    const schema = prefSetSchema('refs.discovery.never')!;
+    const huge = 'z'.repeat(5000);
+    const key = pairKey('0'.repeat(36), { source: f(huge, huge, huge), target: f(huge, huge, huge) });
+    expect(schema.safeParse([key]).success).toBe(true);
+  });
+
+  it('keeps a key that exactly fills the limit readable and hashes one a character longer', () => {
+    const fixed = pairKey('c1', { source: f('s', 'o', ''), target: f('c', 'x', '') }).length;
+    const fill = MAX_PAIR_KEY_LENGTH - fixed;
+    const atLimit = pairKey('c1', { source: f('s', 'o', 'y'.repeat(fill)), target: f('c', 'x', '') });
+    expect(atLimit).toHaveLength(MAX_PAIR_KEY_LENGTH);
+    expect(atLimit).not.toContain('#');
+    expect(pairKey('c1', { source: f('s', 'o', 'y'.repeat(fill + 1)), target: f('c', 'x', '') })).toContain('|#');
   });
 
   it('differs by Connection and by direction', () => {

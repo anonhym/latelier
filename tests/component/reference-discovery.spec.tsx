@@ -32,7 +32,7 @@ Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 const ID = '507f1f77bcf86cd799439011';
 const NEVER_KEY = 'refs.discovery.never';
 const ORDERS_CUSTOMER_ID = { connectionId: 'c1', dbName: 'shop', collection: 'orders', fieldPath: 'customerId' };
-const PAIR_KEY = 'c1|shop.orders.customerId->shop.customers._id';
+const PAIR_KEY = 'c1|["shop","orders","customerId","shop","customers","_id"]';
 const HIT = [{ _id: { $oid: ID }, name: 'Alice' }];
 
 let prefs: Map<string, unknown>;

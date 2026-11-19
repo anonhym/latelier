@@ -5,6 +5,13 @@ export const MAX_MATCH_DEPTH = 8;
 /** How many pairs the Never list keeps; the oldest goes first. */
 export const MAX_NEVER_PAIRS = 500;
 
+/**
+ * The longest key the `refs.discovery.never` preference accepts (see
+ * `electron/ipc/prefKeys.ts`); one longer fails the whole write, so Never would
+ * error every time for that pair.
+ */
+export const MAX_PAIR_KEY_LENGTH = 1024;
+
 /** A field of a Collection. */
 export interface FieldRef {
   dbName: string;
@@ -140,10 +147,32 @@ export function orientPair(origin: FieldRef, matched: FieldRef): RulePair | null
   return originIsId ? { source: matched, target: origin } : { source: origin, target: matched };
 }
 
-/** What Never and Not now are recorded against. */
+/** A 53-bit string hash (cyrb53): enough that two different long pairs never share a key in practice. */
+function hashText(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/**
+ * What Never and Not now are recorded against. The sides are a JSON array, not
+ * dotted text: a Collection `a.b` with field `c` and a Collection `a` with
+ * field `b.c` must not be the same pair. A pair too long for the preference is
+ * keyed by a hash of that text instead.
+ */
 export function pairKey(connectionId: string, { source, target }: RulePair): string {
-  const name = (f: FieldRef) => `${f.dbName}.${f.collection}.${f.field}`;
-  return `${connectionId}|${name(source)}->${name(target)}`;
+  const side = (f: FieldRef) => [f.dbName, f.collection, f.field];
+  const text = JSON.stringify([...side(source), ...side(target)]);
+  const full = `${connectionId}|${text}`;
+  if (full.length <= MAX_PAIR_KEY_LENGTH) return full;
+  return `${connectionId}|#${text.length.toString(36)}.${hashText(text)}`;
 }
 
 /** The rule's text as the strip shows it, without the Database. */

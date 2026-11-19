@@ -25,7 +25,7 @@ const VALID: Record<string, unknown> = {
   'ui.connections.pinned': [UUID],
   'whatsNew.lastSeenVersion': '0.20.0',
   'update.toastShownFor': '0.20.0',
-  'refs.discovery.never': ['conn|shop.orders.customerId->shop.customers._id'],
+  'refs.discovery.never': ['conn|["shop","orders","customerId","shop","customers","_id"]'],
   [CONN_KEY]: true,
 };
 
