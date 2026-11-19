@@ -6,13 +6,13 @@ describe('hasUnsafeChars', () => {
     ['a newline', 'a\nb'],
     ['a tab', 'a\tb'],
     ['NUL', 'a\u0000b'],
-    ['the bidi override U+202E', 'abc‮def'],
-    ['the bidi isolate U+2066', '⁦abc'],
-    ['a zero-width space U+200B', 'a​b'],
-    ['a zero-width joiner U+200D', 'a‍b'],
-    ['the byte order mark U+FEFF', '﻿abc'],
-    ['the line separator U+2028', 'a b'],
-    ['the paragraph separator U+2029', 'a b'],
+    ['the bidi override U+202E', 'abc\u202Edef'],
+    ['the bidi isolate U+2066', '\u2066abc'],
+    ['a zero-width space U+200B', 'a\u200Bb'],
+    ['a zero-width joiner U+200D', 'a\u200Db'],
+    ['the byte order mark U+FEFF', '\uFEFFabc'],
+    ['the line separator U+2028', 'a\u2028b'],
+    ['the paragraph separator U+2029', 'a\u2029b'],
     ['a private-use character U+E000', 'ab'],
     ['an unassigned code point U+0378', 'a͸b'],
     ['a lone surrogate', 'a\uD800b'],
@@ -39,12 +39,12 @@ describe('displayName', () => {
   });
 
   it('turns each run of unsafe characters into one space', () => {
-    expect(displayName('Claude\n\n‮Turn on?')).toBe('Claude Turn on?');
-    expect(displayName('a​​b')).toBe('a b');
+    expect(displayName('Claude\n\n\u202ETurn on?')).toBe('Claude Turn on?');
+    expect(displayName('a\u200B\u200Bb')).toBe('a b');
   });
 
   it('removes a leading or trailing unsafe run entirely', () => {
-    expect(displayName('‮abc ')).toBe('abc');
+    expect(displayName('\u202Eabc\u2028')).toBe('abc');
   });
 
   it('cuts to 80 characters by default and to the limit it is given', () => {
@@ -57,6 +57,6 @@ describe('displayName', () => {
   });
 
   it('is empty for a name made only of unsafe characters', () => {
-    expect(displayName('​‮\n')).toBe('');
+    expect(displayName('\u200B\u202E\n')).toBe('');
   });
 });

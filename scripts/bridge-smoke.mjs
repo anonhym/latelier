@@ -33,8 +33,32 @@ const MEGABYTE = 1024 * 1024;
 const TIMEOUT_MS = 20_000;
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
+
+// What a failing run prints, collected from the start: every bridge child, and
+// how far the duplex test got. A hang on CI is otherwise a bare timeout.
+const diag = {
+  children: [],
+  phase: 'not started',
+  handshakeSeen: false,
+  pingAnswered: false,
+  bytesFromBridge: 0,
+};
+
+function describeDiagnostics() {
+  const lines = [`  phase: ${diag.phase}`];
+  lines.push(`  duplex: handshake seen ${diag.handshakeSeen}, ping answered ${diag.pingAnswered}, bytes received from the bridge ${diag.bytesFromBridge}`);
+  if (diag.children.length === 0) lines.push('  no bridge child was spawned yet');
+  for (const c of diag.children) {
+    const state = c.exitCode === null && c.signalCode === null ? 'still running' : `exited (code ${c.exitCode}, signal ${c.signalCode})`;
+    lines.push(`  bridge #${c.index} (${c.label}) pid ${c.child.pid ?? 'none'}: ${state}; stdout ${c.stdoutBytes} bytes`);
+    lines.push(`    stderr so far: ${JSON.stringify(Buffer.concat(c.stderr).toString('utf8').replaceAll(TOKEN, '<token>'))}`);
+  }
+  return lines.join('\n');
+}
+
 const fail = (message) => {
   console.error(`bridge-smoke: FAIL: ${message}`);
+  console.error(describeDiagnostics());
   process.exit(1);
 };
 const watchdog = setTimeout(() => fail(`no result within ${TIMEOUT_MS} ms (a stalled relay looks like this)`), TIMEOUT_MS);
@@ -49,8 +73,17 @@ const endpoint =
 const toApp = randomBytes(MEGABYTE);
 const toClient = randomBytes(MEGABYTE);
 
-function spawnBridge(env) {
+function spawnBridge(env, label) {
   const child = spawn(binary, [], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const record = { index: diag.children.length + 1, label, child, stderr: [], stdoutBytes: 0, exitCode: null, signalCode: null };
+  diag.children.push(record);
+  child.stderr.on('data', (c) => record.stderr.push(c));
+  child.stdout.on('data', (c) => (record.stdoutBytes += c.length));
+  child.on('exit', (code, signal) => {
+    record.exitCode = code;
+    record.signalCode = signal;
+  });
+  child.on('error', (err) => record.stderr.push(Buffer.from(`[spawn error] ${err.message}`)));
   // The bridge may leave before stdin is closed; a write after that is not a failure of the test.
   child.stdin.on('error', () => undefined);
   return child;
@@ -71,9 +104,10 @@ function exited(child) {
 
 // 1. Unreachable endpoint: exit 3 with the one documented line.
 async function unreachable() {
+  diag.phase = 'unreachable endpoint test';
   const missing =
     process.platform === 'win32' ? `\\\\.\\pipe\\latelier-agent-smoke-none-${randomBytes(4).toString('hex')}` : join(scratch, 'none.sock');
-  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: missing });
+  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: missing }, 'unreachable');
   const stderr = collect(child.stderr);
   child.stdin.end();
   const code = await exited(child);
@@ -86,7 +120,8 @@ async function unreachable() {
 
 // 2. Bad token: exit 2, and the value is not echoed.
 async function badToken() {
-  const child = spawnBridge({ LATELIER_AGENT_TOKEN: 'bad token!', LATELIER_AGENT_SOCKET: endpoint });
+  diag.phase = 'bad token test';
+  const child = spawnBridge({ LATELIER_AGENT_TOKEN: 'bad token!', LATELIER_AGENT_SOCKET: endpoint }, 'bad token');
   const stderr = collect(child.stderr);
   child.stdin.end();
   const code = await exited(child);
@@ -97,6 +132,7 @@ async function badToken() {
 
 // 3. Request first, then a megabyte each way at once.
 async function duplex() {
+  diag.phase = 'duplex: starting the stand-in server';
   let handshakeSeen = '';
   let receivedFromBridge = Buffer.alloc(0);
   let finished;
@@ -116,14 +152,19 @@ async function duplex() {
         handshakeSeen = buffered.subarray(0, end + 1).toString('utf8');
         buffered = buffered.subarray(end + 1);
         gotHandshake = true;
+        diag.handshakeSeen = true;
+        diag.phase = 'duplex: handshake seen, waiting for the request';
       }
       // Nothing is sent to the bridge until it has forwarded the request.
       if (!answered && buffered.length >= PING.length) {
         if (!buffered.subarray(0, PING.length).equals(PING)) fail('duplex: the first line after the handshake was not the request');
         buffered = buffered.subarray(PING.length);
         answered = true;
+        diag.pingAnswered = true;
+        diag.phase = 'duplex: request answered, streaming both ways';
         socket.write(Buffer.concat([PONG, toClient]));
       }
+      if (answered) diag.bytesFromBridge = buffered.length;
       if (answered && buffered.length >= toApp.length) {
         receivedFromBridge = buffered;
         // Everything the bridge had to say has arrived; let it go.
@@ -138,9 +179,10 @@ async function duplex() {
     server.listen(endpoint, res);
   });
 
-  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: endpoint });
+  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: endpoint }, 'duplex');
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
+  diag.phase = 'duplex: bridge spawned, request written, waiting for the handshake';
   child.stdin.write(PING);
   // The payload goes out once the answer has come back: both directions are then busy together.
   await new Promise((res) => {
@@ -151,11 +193,14 @@ async function duplex() {
       }
     }, 5);
   });
+  diag.phase = 'duplex: answer received by the client, writing the payload';
   // Written in 64 KiB pieces, so it overlaps with the megabyte coming the other way.
   for (let at = 0; at < toApp.length; at += 65_536) {
     if (!child.stdin.write(toApp.subarray(at, at + 65_536))) await new Promise((res) => child.stdin.once('drain', res));
   }
+  diag.phase = 'duplex: payload written, waiting for the app to receive it all';
   await done;
+  diag.phase = 'duplex: waiting for the bridge to exit';
   // The app closed its side: the bridge must leave on its own, stdin still open.
   const code = await exited(child);
   server.close();
@@ -172,6 +217,7 @@ try {
   await unreachable();
   await badToken();
   await duplex();
+  diag.phase = 'done';
   console.log('bridge-smoke: PASS');
 } finally {
   clearTimeout(watchdog);

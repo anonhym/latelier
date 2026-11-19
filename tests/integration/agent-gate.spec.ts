@@ -472,10 +472,15 @@ describe('AgentGate with a real pool', () => {
       const stuck = gate.acquire(f.connectionId, identity(), live());
       vi.spyOn(f.m.pool, 'status').mockImplementation((id) => ({ status: id === other || id === f.connectionId ? 'connected' : 'disconnected' }) as never);
       vi.spyOn(f.m.pool, 'openAgentClient').mockResolvedValue(held[0]!.client);
+      // The other Connection has no slot taken, so it is admitted at once while this one is still full.
       const free = await gate.acquire(other, identity(), live());
+      expect(free).toBeDefined();
       free.release();
+      expect(await Promise.race([stuck.then(() => 'admitted', () => 'refused'), flush().then(() => 'still queued')])).toBe('still queued');
       for (const l of held) l.release();
-      (await stuck).release();
+      const granted = await stuck;
+      expect(granted).toBeDefined();
+      granted.release();
     });
 
     it('lets a queued call leave when its request is cancelled', async () => {
@@ -513,11 +518,17 @@ describe('AgentGate with a real pool', () => {
         const mcp = new AbortController();
         const waiting = gate.acquire(f.connectionId, identity(), mcp.signal);
         mcp.abort();
-        await refusal(waiting);
+        expect(await refusal(waiting)).toBe('CANCELLED');
         for (const l of held) l.release();
       }
       const again = await Promise.all([1, 2].map(() => gate.acquire(f.connectionId, identity(), live())));
+      expect(again).toHaveLength(2);
+      // Both slots are free, so a third call queues instead of being refused BUSY by leaked slots.
+      const third = gate.acquire(f.connectionId, identity(), live());
       for (const l of again) l.release();
+      const last = await third;
+      expect(last).toBeDefined();
+      last.release();
     });
   });
 });

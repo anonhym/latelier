@@ -72,7 +72,8 @@ export class BridgeInstaller implements BridgeHandle {
       if (this.isInstalled() && sameContent(sourcePath, installedPath)) return 'unchanged';
       fs.mkdirSync(path.dirname(installedPath), { recursive: true });
       fs.copyFileSync(sourcePath, tmp);
-      fs.chmodSync(tmp, 0o755);
+      // Owner-only: the per-user copy is only ever run by the user it belongs to.
+      fs.chmodSync(tmp, 0o700);
       fs.renameSync(tmp, installedPath);
       log.info('agent', 'installed the Agent Bridge', { installedPath });
       return 'copied';

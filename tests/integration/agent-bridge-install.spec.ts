@@ -38,14 +38,14 @@ describe('BridgeInstaller', () => {
 
     expect(fs.readFileSync(installed, 'utf8')).toBe('bridge v1');
     expect(installer.isInstalled()).toBe(true);
-    if (process.platform !== 'win32') expect(fs.statSync(installed).mode & 0o777).toBe(0o755);
+    if (process.platform !== 'win32') expect(fs.statSync(installed).mode & 0o777).toBe(0o700);
     expect(leftovers()).toEqual([]);
   });
 
-  it('keeps the executable bit even when the bundled file lost it', () => {
+  it('keeps the owner executable bit, and no group or other access, even when the bundled file lost it', () => {
     fs.writeFileSync(source, 'bridge v1', { mode: 0o644 });
     installer.ensureCopy();
-    if (process.platform !== 'win32') expect(fs.statSync(installed).mode & 0o111).toBe(0o111);
+    if (process.platform !== 'win32') expect(fs.statSync(installed).mode & 0o777).toBe(0o700);
   });
 
   it('does not touch the copy when it matches the bundled file', () => {
