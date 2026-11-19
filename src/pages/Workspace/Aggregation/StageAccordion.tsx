@@ -1066,8 +1066,7 @@ export function StageAccordion(props: AccordionProps) {
         )}
         <Switch
           size="xs"
-          label="Several open"
-          aria-label="Allow several stages open"
+          label="Several stages open"
           checked={multiOpen}
           onChange={onToggleMultiOpen}
           styles={{ root: { marginLeft: 'auto' }, label: { fontSize: T.fsXs, color: T.textMuted } }}

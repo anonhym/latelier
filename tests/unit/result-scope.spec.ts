@@ -42,7 +42,12 @@ describe('stagePreviewMeta', () => {
     expect(stagePreviewMeta({ op: '$match', shown: 5, count: undefined, unordered: false })).toBe(
       '$match · first 5 docs',
     );
-    expect(stagePreviewMeta({ op: '$match', shown: 0, count: undefined, unordered: false })).toBe('$match · 0 docs');
+  });
+  it('claims no documents when nothing was sampled', () => {
+    expect(stagePreviewMeta({ op: '$match', shown: 0, count: undefined, unordered: false })).toBe('$match');
+    expect(stagePreviewMeta({ op: '$match', shown: 0, count: 12, unordered: false })).toBe('$match · 12 docs');
+    expect(stagePreviewMeta({ op: '$match', shown: 0, count: 0, unordered: false })).toBe('$match · 0 docs');
+    expect(stagePreviewMeta({ op: '$group', shown: 0, count: undefined, unordered: true })).toBe('$group · unordered');
   });
   it('appends unordered', () => {
     expect(stagePreviewMeta({ op: '$group', shown: 5, count: 9, unordered: true })).toBe(

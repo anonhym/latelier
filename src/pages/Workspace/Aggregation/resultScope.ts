@@ -27,9 +27,12 @@ export function stagePreviewMeta(opts: {
 }): string {
   const parts = [opts.op];
   const shown = opts.shown.toLocaleString('en-US');
-  if (typeof opts.count !== 'number') {
+  if (opts.shown === 0) {
+    // Nothing was sampled (never run, still running): only an exact count says anything.
+    if (typeof opts.count === 'number') parts.push(`${opts.count.toLocaleString('en-US')} docs`);
+  } else if (typeof opts.count !== 'number') {
     // The count probe timed out or failed, so the sample is all that is known.
-    parts.push(opts.shown === 0 ? '0 docs' : `first ${shown} docs`);
+    parts.push(`first ${shown} docs`);
   } else if (opts.count > opts.shown) {
     parts.push(`first ${shown} of ${opts.count.toLocaleString('en-US')} docs`);
   } else {

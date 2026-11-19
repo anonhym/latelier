@@ -158,14 +158,14 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(container.querySelectorAll('.stage-body')).toHaveLength(2);
   });
 
-  it('single-open shows one expanded card, and the Several open switch reports its state', async () => {
+  it('single-open shows one expanded card, and the Several stages open switch reports its state', async () => {
     const onToggleMultiOpen = vi.fn();
     const { container } = renderAccordion([stage({ id: 1 }), stage({ id: 2 })], {
       activeId: 1,
       onToggleMultiOpen,
     });
     expect(container.querySelectorAll('.stage-body')).toHaveLength(1);
-    const toggle = screen.getByRole('switch', { name: 'Allow several stages open' }) as HTMLInputElement;
+    const toggle = screen.getByRole('switch', { name: 'Several stages open' }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     await userEvent.click(toggle);
     expect(onToggleMultiOpen).toHaveBeenCalledOnce();
