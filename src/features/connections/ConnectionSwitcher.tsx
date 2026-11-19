@@ -164,7 +164,7 @@ function ConnectionRow({
       // ancestor's tabIndex={-1} doesn't remove descendants from the tab
       // order.
       tabIndex={-1}
-      aria-label={conn.familyName ? `${conn.name} (${conn.familyName})` : conn.name}
+      aria-label={conn.name}
       // `aria-selected` is the Connection that is *connected*, the listbox's
       // value — not the keyboard highlight. The highlight is the search
       // field's `aria-activedescendant`, so the two never fight over one
@@ -221,7 +221,7 @@ function ConnectionRow({
           `aria-describedby` can point at and that re-renders when a status
           event lands. */}
       <VisuallyHidden id={descriptionId}>
-        {`${conn.host}. ${presentation.spoken}${conn.readOnly ? '. Read-only connection' : ''}${isPinned ? '. Pinned' : ''}`}
+        {`${conn.host}. ${presentation.spoken}${conn.readOnly ? '. Read-only connection' : ''}${isPinned ? '. Pinned' : ''}${conn.familyName ? `. Family: ${conn.familyName}` : ''}`}
       </VisuallyHidden>
       <span
         aria-hidden

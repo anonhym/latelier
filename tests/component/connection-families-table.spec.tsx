@@ -224,8 +224,10 @@ describe('Connection Switcher — the Family name', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /Alpha/ }));
-    const row = screen.getByRole('option', { name: 'Bravo (Acme)' });
+    const row = screen.getByRole('option', { name: 'Bravo' });
     expect(within(row).getByText('Acme')).toBeTruthy();
+    expect(row.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(row.getAttribute('aria-describedby')!)?.textContent).toContain('Family: Acme');
     expect(within(row).queryByRole('button', { name: /Acme/ })).toBeNull();
     expect(screen.getByRole('option', { name: 'Alpha' })).toBeTruthy();
   });
