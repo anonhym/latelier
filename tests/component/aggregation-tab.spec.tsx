@@ -1285,16 +1285,16 @@ describe('AggregationTab — selection drives the preview (A01 §9.4)', () => {
     const previewUpToStage = vi.fn();
     installAtelierMock({ agg: { run, previewUpToStage } as never });
     renderStatefulTab(ran);
-    expect(previewHeading()).toMatch(/^Output/);
+    expect(previewHeading()).toMatch(/^Full aggregation/);
 
     fireEvent.click(summary(2));
-    expect(previewHeading()).toMatch(/^Stage 2 · \$group · 3 docs/);
+    expect(previewHeading()).toMatch(/^Stage 2 output · \$group · first 1 of 3 docs · unordered/);
     const preview = screen.getByRole('region', { name: 'Preview' });
     expect(preview.textContent).toContain('grouped');
     expect(preview.textContent).not.toContain('final');
 
     fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
-    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/);
     expect(preview.textContent).toContain('final');
 
     expect(run).not.toHaveBeenCalled();
@@ -1422,7 +1422,7 @@ describe('AggregationTab — a stage preview is not a run', () => {
     });
     renderStatefulTab({ ...twoStages, activeStageId: 2 });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 · \$group · 1 docs$/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 output · \$group · 1 docs · unordered$/));
 
     fireEvent.change(screen.getByTestId('stage-body-editor-2'), { target: { value: '{"_id": "$b"}' } });
     await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
@@ -1446,7 +1446,7 @@ describe('AggregationTab — a stage preview is not a run', () => {
     });
     renderStatefulTab({ ...twoStages, activeStageId: 1 });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 · \$match · 2 docs$/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 output · \$match · first 1 of 2 docs$/));
 
     fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{"a": 1}' } });
 
@@ -1484,11 +1484,11 @@ describe('AggregationTab — a late preview never overwrites a newer result (#77
     fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Output · 1 docs/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/));
 
     await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'stale-preview' }], count: 9 }));
 
-    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/);
     expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('from-run');
     expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).not.toContain('9');
   });

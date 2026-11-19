@@ -12,6 +12,7 @@ import { resizeKeyStep } from '../resizeKeyStep';
 import { useElementWidth } from '../../../hooks/useElementWidth';
 import { formatShortcut } from '../../../commands/shortcutLabel';
 import { isMacRenderer } from '../../../utils/platform';
+import { runMeta, stagePreviewMeta } from './resultScope';
 
 /** The stage card selected in the stages column, when one is. */
 export interface PreviewStage {
@@ -24,6 +25,8 @@ export interface PreviewStage {
   /** Its latest "run up to here" sample, or the full run's; undefined when never run. */
   sample?: unknown[];
   count?: number;
+  /** The documents leave this stage in no defined order (a `$group` with no `$sort` after it). */
+  unordered: boolean;
 }
 
 interface OutputPanelProps {
@@ -38,6 +41,8 @@ interface OutputPanelProps {
   outputStale: boolean;
   running: boolean;
   pipelineName: string | null;
+  /** The full run's documents come in no defined order. */
+  outputUnordered: boolean;
   /** The selected stage, or null for the whole pipeline's output. */
   stage: PreviewStage | null;
   onRunToStage: (id: number) => void;
@@ -65,10 +70,6 @@ function maxHeight(): number {
 
 function clampHeight(px: number): number {
   return Math.max(MIN_HEIGHT, Math.min(maxHeight(), px));
-}
-
-function fmt(n: number): string {
-  return n.toLocaleString('en-US');
 }
 
 /** The whole error, server details included, since nothing else shows them. */
@@ -100,6 +101,7 @@ export function OutputPanel({
   outputStale,
   running,
   pipelineName,
+  outputUnordered,
   stage,
   onRunToStage,
   onHeightChange,
@@ -222,12 +224,24 @@ export function OutputPanel({
   let meta = '';
   let stale: boolean;
   if (stage) {
-    heading = `Stage ${stage.index + 1} · ${stage.op}`;
-    if (typeof stageCount === 'number') meta = `${fmt(stageCount)} docs`;
+    heading = `Stage ${stage.index + 1} output`;
+    meta = stagePreviewMeta({
+      op: stage.op,
+      shown: sample?.length ?? 0,
+      count: stageCount,
+      unordered: stage.unordered,
+    });
     stale = stage.stale && sample !== undefined;
   } else {
-    heading = 'Output';
-    if (lastRun) meta = `${rows.length} docs · ${lastRun.durationMs} ms`;
+    heading = 'Full aggregation';
+    if (lastRun) {
+      meta = runMeta({
+        rows: rows.length,
+        durationMs: lastRun.durationMs,
+        hasMore: lastRun.hasMore === true,
+        unordered: outputUnordered,
+      });
+    }
     stale = outputStale;
   }
 

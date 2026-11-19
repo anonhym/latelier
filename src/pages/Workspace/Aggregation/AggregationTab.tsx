@@ -31,6 +31,7 @@ import {
   isWriteStage,
   runBlockedReason,
 } from './pipeline';
+import { isUnordered } from './resultScope';
 import { StageAccordion } from './StageAccordion';
 import { OutputPanel, type PreviewStage } from './OutputPanel';
 import { ONE_PANEL_BELOW_PX } from '../sidePanels';
@@ -718,6 +719,7 @@ export function AggregationTab({
         loading: previewLoading.has(activeStage.id),
         sample: stageResults[activeStage.id]?.sample,
         count: stageResults[activeStage.id]?.count,
+        unordered: isUnordered(stages, activeIndex),
       }
     : null;
   const mac = isMacRenderer();
@@ -971,6 +973,7 @@ export function AggregationTab({
           outputStale={outputStale}
           running={running}
           pipelineName={state.name ?? null}
+          outputUnordered={isUnordered(stages, stages.length - 1)}
           stage={previewStage}
           onRunToStage={(id) => void onRunToStage(id)}
           onHeightChange={onHeightChange}
