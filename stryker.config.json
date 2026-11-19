@@ -175,6 +175,8 @@
     "electron/agent/findOptions.ts",
     "electron/agent/pipelineGuard.ts",
     "electron/agent/namespaceGuard.ts",
-    "electron/agent/resultBudget.ts"
+    "electron/agent/resultBudget.ts",
+    "electron/agent/schemaInfer.ts",
+    "electron/agent/explainRedact.ts"
   ]
 }

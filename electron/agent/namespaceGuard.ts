@@ -57,3 +57,24 @@ export function filterDatabases(names: readonly string[]): string[] {
 export function filterCollections(names: readonly string[]): string[] {
   return names.filter((name) => !isDeniedCollection(name));
 }
+
+/** What a listing may say about a collection's kind; anything else a server invents is shown as `collection`. */
+const COLLECTION_TYPES: ReadonlySet<string> = new Set(['collection', 'view', 'timeseries']);
+
+/** `list_databases` as the Agent sees it: nothing denied, sorted, each name cut. */
+export function visibleDatabaseNames(names: readonly string[]): string[] {
+  return filterDatabases(names)
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => cutName(name));
+}
+
+/** `list_collections` as the Agent sees it: nothing denied, sorted by name, each name cut, with the kind. */
+export function visibleCollections(rows: ReadonlyArray<{ name: string; type?: unknown }>): Array<{ name: string; type: string }> {
+  return rows
+    .filter((row) => !isDeniedCollection(row.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((row) => ({
+      name: cutName(row.name),
+      type: typeof row.type === 'string' && COLLECTION_TYPES.has(row.type) ? row.type : 'collection',
+    }));
+}

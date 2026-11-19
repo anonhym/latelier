@@ -193,8 +193,13 @@ describe('Agent read tools', () => {
       expect(textOf(r)).toContain('{"count":20,"estimate":false}');
     });
 
-    it('counts an empty filter exactly too, and only an absent one is an estimate', async () => {
-      const exact = await f.call('count', { ...f.on('orders'), filter: {} });
+    it('treats an empty filter like an absent one: a labelled estimate from the metadata, not a scan', async () => {
+      const r = await f.call('count', { ...f.on('orders'), filter: {} });
+      expect(r.structuredContent).toMatchObject({ count: 60, estimate: true });
+      expect(textOf(r)).toContain('{"count":60,"estimate":true}');
+      expect(f.m.commands.map((c) => c.name)).toEqual(['count']);
+      // A filter that merely holds a key is not empty.
+      const exact = await f.call('count', { ...f.on('orders'), filter: { n: { $gt: 0 } } });
       expect(exact.structuredContent).toMatchObject({ count: 60, estimate: false });
     });
 

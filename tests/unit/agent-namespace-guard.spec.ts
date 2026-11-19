@@ -7,6 +7,8 @@ import {
   filterDatabases,
   isDeniedCollection,
   isDeniedDatabase,
+  visibleCollections,
+  visibleDatabaseNames,
 } from '../../electron/agent/namespaceGuard';
 
 const codeOf = (fn: () => void) => {
@@ -145,5 +147,53 @@ describe('cutName', () => {
     expect(cutName('abcdef', 3)).toBe('abc');
     expect(cutName('abc', 3)).toBe('abc');
     expect(cutName('', 3)).toBe('');
+  });
+});
+
+describe('visibleDatabaseNames', () => {
+  it('drops the denied databases in any case, sorts with localeCompare and cuts each name to 256', () => {
+    const long = 'z'.repeat(300);
+    expect(visibleDatabaseNames(['zeta', 'admin', 'Alpha', 'LOCAL', 'config', 'beta', long])).toEqual(
+      ['Alpha', 'beta', 'zeta', 'z'.repeat(256)].sort((a, b) => a.localeCompare(b)),
+    );
+    expect(visibleDatabaseNames([])).toEqual([]);
+  });
+
+  it('does not change the list it was given', () => {
+    const names = ['b', 'admin', 'a'];
+    visibleDatabaseNames(names);
+    expect(names).toEqual(['b', 'admin', 'a']);
+  });
+});
+
+describe('visibleCollections', () => {
+  it('drops system.* collections, sorts by name, cuts each name to 256 and keeps the known kinds', () => {
+    const long = 'c'.repeat(300);
+    const out = visibleCollections([
+      { name: 'orders', type: 'collection' },
+      { name: 'system.views', type: 'collection' },
+      { name: 'v', type: 'view' },
+      { name: 'ts', type: 'timeseries' },
+      { name: 'system.', type: 'collection' },
+      { name: long, type: 'collection' },
+      { name: 'a' },
+    ]);
+    expect(out).toEqual(
+      [
+        { name: 'a', type: 'collection' },
+        { name: 'c'.repeat(256), type: 'collection' },
+        { name: 'orders', type: 'collection' },
+        { name: 'ts', type: 'timeseries' },
+        { name: 'v', type: 'view' },
+      ].sort((x, y) => x.name.localeCompare(y.name)),
+    );
+  });
+
+  it('shows a kind the server invented, or a non-string one, as a plain collection', () => {
+    expect(visibleCollections([{ name: 'a', type: 'weird' }, { name: 'b', type: 7 }, { name: 'c', type: 'View' }])).toEqual([
+      { name: 'a', type: 'collection' },
+      { name: 'b', type: 'collection' },
+      { name: 'c', type: 'collection' },
+    ]);
   });
 });

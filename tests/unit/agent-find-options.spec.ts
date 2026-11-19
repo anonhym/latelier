@@ -3,8 +3,14 @@ import { randomUUID } from 'node:crypto';
 import {
   LIMITS,
   aggregateInputSchema,
+  collectionSchemaInputSchema,
   countInputSchema,
+  explainAggregateInputSchema,
+  explainFindInputSchema,
   findInputSchema,
+  listCollectionsInputSchema,
+  listDatabasesInputSchema,
+  listIndexesInputSchema,
   guardFilterShape,
   guardPipeline,
 } from '../../electron/agent/findOptions';
@@ -199,5 +205,57 @@ describe('guardPipeline', () => {
 
   it('reports a stage the allowlist refuses before server-side JavaScript elsewhere', () => {
     expect(codeOf(() => guardPipeline({ ...base, pipeline: [{ $out: 'x' }, { $match: { $where: 1 } }] }))).toBe('STAGE_NOT_ALLOWED');
+  });
+});
+
+describe('metadata tool input schemas', () => {
+  it('list_databases takes a connection id and nothing else', () => {
+    const { connectionId } = target();
+    expect(listDatabasesInputSchema.parse({ connectionId })).toEqual({ connectionId });
+    expect(parseCode(listDatabasesInputSchema, { connectionId, database: 'app' })).toBe('INVALID_INPUT');
+    expect(parseCode(listDatabasesInputSchema, {})).toBe('INVALID_INPUT');
+    expect(parseCode(listDatabasesInputSchema, { connectionId: 'not-a-uuid' })).toBe('INVALID_INPUT');
+  });
+
+  it('list_collections takes a connection id and a database of 1..256 characters', () => {
+    const { connectionId } = target();
+    expect(listCollectionsInputSchema.parse({ connectionId, database: 'app' })).toEqual({ connectionId, database: 'app' });
+    expect(listCollectionsInputSchema.parse({ connectionId, database: 'd'.repeat(256) }).database).toHaveLength(256);
+    expect(parseCode(listCollectionsInputSchema, { connectionId, database: '' })).toBe('INVALID_INPUT');
+    expect(parseCode(listCollectionsInputSchema, { connectionId, database: 'd'.repeat(257) })).toBe('INVALID_INPUT');
+    expect(parseCode(listCollectionsInputSchema, { connectionId, database: 'app', collection: 'x' })).toBe('INVALID_INPUT');
+  });
+
+  it('list_indexes takes a target and nothing else', () => {
+    expect(listIndexesInputSchema.parse(target())).toEqual(expect.objectContaining({ collection: 'orders' }));
+    expect(parseCode(listIndexesInputSchema, { ...target(), filter: {} })).toBe('INVALID_INPUT');
+    expect(parseCode(listIndexesInputSchema, { ...target(), collection: '' })).toBe('INVALID_INPUT');
+  });
+
+  it('collection_schema defaults sampleSize to 50 and bounds it to 1..200 integers', () => {
+    expect(collectionSchemaInputSchema.parse(target()).sampleSize).toBe(LIMITS.sampleDefault);
+    expect(LIMITS.sampleDefault).toBe(50);
+    expect(LIMITS.sampleMax).toBe(200);
+    expect(collectionSchemaInputSchema.parse({ ...target(), sampleSize: 1 }).sampleSize).toBe(1);
+    expect(collectionSchemaInputSchema.parse({ ...target(), sampleSize: 200 }).sampleSize).toBe(200);
+    for (const bad of [0, 201, 1.5, -1, '5']) expect(parseCode(collectionSchemaInputSchema, { ...target(), sampleSize: bad })).toBe('INVALID_INPUT');
+    expect(parseCode(collectionSchemaInputSchema, { ...target(), values: true })).toBe('INVALID_INPUT');
+  });
+
+  it('explain_find takes exactly what find takes', () => {
+    expect(explainFindInputSchema).toBe(findInputSchema);
+    expect(parseCode(explainFindInputSchema, { ...target(), executionStats: true })).toBe('INVALID_INPUT');
+    expect(parseCode(explainFindInputSchema, { ...target(), verbosity: 'executionStats' })).toBe('INVALID_INPUT');
+  });
+
+  it('explain_aggregate takes a pipeline of up to 30 stages and no limit or verbosity', () => {
+    const base = { ...target(), pipeline: [{ $match: {} }] };
+    expect(explainAggregateInputSchema.parse(base).pipeline).toEqual([{ $match: {} }]);
+    expect(explainAggregateInputSchema.parse({ ...target(), pipeline: Array.from({ length: 30 }, () => ({})) }).pipeline).toHaveLength(30);
+    expect(parseCode(explainAggregateInputSchema, { ...target(), pipeline: Array.from({ length: 31 }, () => ({})) })).toBe('INVALID_INPUT');
+    expect(parseCode(explainAggregateInputSchema, { ...base, limit: 5 })).toBe('INVALID_INPUT');
+    expect(parseCode(explainAggregateInputSchema, { ...base, verbosity: 'executionStats' })).toBe('INVALID_INPUT');
+    expect(parseCode(explainAggregateInputSchema, target())).toBe('INVALID_INPUT');
+    expect(parseCode(explainAggregateInputSchema, { ...target(), pipeline: [1] })).toBe('INVALID_INPUT');
   });
 });

@@ -263,7 +263,8 @@ describe('Agent server', () => {
       const text = textOf(result);
       expect(connectionsIn(text)).toEqual([
         { id: 'dormant', name: 'Dormant one', state: 'unavailable' },
-        { id: 'open', name: 'Open one', state: 'available' },
+        // The fake pool opens no client, so the open one's databases cannot be listed: null, not a failed call.
+        { id: 'open', name: 'Open one', state: 'available', databases: null },
       ]);
       expect(text).not.toContain('Hidden one');
       expect(text).not.toContain('secret-host');
@@ -318,7 +319,7 @@ describe('Agent server', () => {
       const call = async () => connectionsIn(textOf(await a.client.callTool({ name: 'list_connections', arguments: {} })));
       expect(await call()).toEqual([{ id: 'c1', name: 'Flip', state: 'unavailable' }]);
       h.statuses.set('c1', 'connected');
-      expect(await call()).toEqual([{ id: 'c1', name: 'Flip', state: 'available' }]);
+      expect(await call()).toEqual([{ id: 'c1', name: 'Flip', state: 'available', databases: null }]);
       h.svc.setShared('c1', false);
       expect(await call()).toEqual([]);
     });
@@ -424,7 +425,18 @@ describe('Agent server', () => {
       const { socketPath, token } = await start();
       const a = await agentFor(socketPath, token);
       const { tools } = await a.client.listTools();
-      expect(tools.map((t) => t.name)).toEqual(['list_connections', 'find', 'count', 'aggregate']);
+      expect(tools.map((t) => t.name)).toEqual([
+        'list_connections',
+        'list_databases',
+        'list_collections',
+        'list_indexes',
+        'collection_schema',
+        'find',
+        'count',
+        'aggregate',
+        'explain_find',
+        'explain_aggregate',
+      ]);
       for (const tool of tools) {
         expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
         expect(tool.inputSchema).toMatchObject({ type: 'object', additionalProperties: false });
@@ -442,7 +454,42 @@ describe('Agent server', () => {
     it('carries instructions that call results untrusted data', async () => {
       const { socketPath, token } = await start();
       const a = await agentFor(socketPath, token);
-      expect(a.client.getInstructions()).toMatch(/untrusted data/);
+      const text = a.client.getInstructions() ?? '';
+      expect(text).toMatch(/untrusted data/);
+      expect(text).toContain('<untrusted-data-...>');
+    });
+
+    it('states the limits of §6.4 and §9.2, the Relaxed EJSON caveat and where explain fits', async () => {
+      const { socketPath, token } = await start();
+      const a = await agentFor(socketPath, token);
+      const text = a.client.getInstructions() ?? '';
+      for (const fact of [
+        '10 seconds',
+        'at most 2 run at once',
+        'up to 4 more wait',
+        'BUSY',
+        '50 documents by default',
+        'at most 200',
+        '1 MiB',
+        'truncated',
+        'appliedLimits',
+        'skip is at most 10000',
+        '30 stages',
+        '64 KiB',
+        '16 KiB',
+        'admin, local and config',
+        'system.',
+        '$where, $function, $accumulator',
+        '$expr',
+        'Relaxed Extended JSON',
+        'Int32, Int64 and Double',
+        'explain_find',
+        'explain_aggregate',
+        'COLLSCAN',
+        'nothing is refused because of it',
+      ]) {
+        expect(text, fact).toContain(fact);
+      }
     });
   });
 

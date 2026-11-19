@@ -13,6 +13,8 @@ export const LIMITS = {
   skip: 10_000,
   limitDefault: 50,
   limitMax: 200,
+  sampleDefault: 50,
+  sampleMax: 200,
 } as const;
 
 /**
@@ -55,9 +57,34 @@ export const aggregateInputSchema = z.strictObject({
   limit,
 });
 
+/** `explain_find` takes exactly what `find` does (X27 §8). */
+export const explainFindInputSchema = findInputSchema;
+
+/** `explain_aggregate` runs the Agent's pipeline as written: no `$limit` is appended to a plan. */
+export const explainAggregateInputSchema = z.strictObject({
+  ...targetShape,
+  pipeline: z.array(jsonObject).max(LIMITS.pipelineStages),
+});
+
+export const listDatabasesInputSchema = z.strictObject({ connectionId: z.uuid() });
+
+export const listCollectionsInputSchema = z.strictObject({ connectionId: z.uuid(), database: name });
+
+export const listIndexesInputSchema = z.strictObject(targetShape);
+
+export const collectionSchemaInputSchema = z.strictObject({
+  ...targetShape,
+  sampleSize: z.number().int().min(1).max(LIMITS.sampleMax).default(LIMITS.sampleDefault),
+});
+
 export type FindInput = z.infer<typeof findInputSchema>;
 export type CountInput = z.infer<typeof countInputSchema>;
 export type AggregateInput = z.infer<typeof aggregateInputSchema>;
+export type ExplainAggregateInput = z.infer<typeof explainAggregateInputSchema>;
+export type ListDatabasesInput = z.infer<typeof listDatabasesInputSchema>;
+export type ListCollectionsInput = z.infer<typeof listCollectionsInputSchema>;
+export type ListIndexesInput = z.infer<typeof listIndexesInputSchema>;
+export type CollectionSchemaInput = z.infer<typeof collectionSchemaInputSchema>;
 
 function assertWithin(field: string, value: unknown, maxBytes: number): void {
   if (value === undefined) return;

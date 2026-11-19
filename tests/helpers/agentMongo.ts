@@ -75,8 +75,24 @@ function forward<T extends object>(target: T, override: (prop: string | symbol) 
   });
 }
 
+/** One awaited driver call that parks like a cursor's first read: before it runs, or once it has answered. */
+async function heldCall<T>(hold: CursorHold, run: () => Promise<T>): Promise<T> {
+  const park = hold.armed;
+  if (park && hold.mode === 'before') {
+    await hold.park();
+    if (hold.failWith) throw hold.failWith;
+  }
+  const result = await run();
+  if (park && hold.mode === 'after') await hold.park();
+  return result;
+}
+
 function holdCursor<C extends object>(cursor: C, hold: CursorHold): C {
   return forward(cursor, (prop) => {
+    // The metadata tools read through these instead of iterating.
+    if (prop === 'toArray' || prop === 'explain') {
+      return (...args: unknown[]) => heldCall(hold, () => ((cursor as Record<string, AnyFn>)[prop] as AnyFn).apply(cursor, args) as Promise<unknown>);
+    }
     if (prop !== Symbol.asyncIterator) return undefined;
     return () => {
       const iterator = (cursor as unknown as AsyncIterable<Document>)[Symbol.asyncIterator]();
@@ -106,15 +122,19 @@ function holdCursor<C extends object>(cursor: C, hold: CursorHold): C {
 
 function holdCollection(collection: Collection, hold: CursorHold): Collection {
   return forward(collection, (prop) => {
-    if (prop !== 'find' && prop !== 'aggregate') return undefined;
+    if (prop !== 'find' && prop !== 'aggregate' && prop !== 'listIndexes') return undefined;
     return (...args: unknown[]) => holdCursor((collection[prop] as AnyFn)(...args) as object, hold);
   });
 }
 
 function holdDb(db: Db, hold: CursorHold): Db {
-  return forward(db, (prop) =>
-    prop === 'collection' ? (...args: unknown[]) => holdCollection((db.collection as AnyFn)(...args) as Collection, hold) : undefined,
-  );
+  return forward(db, (prop) => {
+    if (prop === 'collection') return (...args: unknown[]) => holdCollection((db.collection as AnyFn)(...args) as Collection, hold);
+    if (prop === 'listCollections') return (...args: unknown[]) => holdCursor((db.listCollections as AnyFn)(...args) as object, hold);
+    // `list_databases` runs `listDatabases` through `db('admin').command`.
+    if (prop === 'command') return (...args: unknown[]) => heldCall(hold, () => (db.command as AnyFn)(...args) as Promise<unknown>);
+    return undefined;
+  });
 }
 
 function holdClient(client: MongoClient, hold: CursorHold, onClosed: () => void): MongoClient {
