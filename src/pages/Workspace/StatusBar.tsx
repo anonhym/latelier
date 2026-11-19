@@ -2,6 +2,7 @@ import { Badge } from '@mantine/core';
 import { themeVars } from '../../theme/themeVars';
 import type { ConnectionSummary } from '@shared/types';
 import { STATUS_PRESENTATION } from '../../features/connections/connectionStatus';
+import { AgentStatusIndicator } from '../../features/agentAccess/AgentStatusIndicator';
 import { UpdateStatusPill } from '../../features/updates/UpdateStatusPill';
 
 /**
@@ -29,6 +30,7 @@ export function StatusBar({ connection }: { connection: ConnectionSummary | null
       }}
     >
       {connection && <ConnectionStatus connection={connection} />}
+      <AgentStatusIndicator />
       <UpdateStatusPill />
     </div>
   );

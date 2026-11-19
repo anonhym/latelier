@@ -22,6 +22,7 @@ import {
   PAGE_SIZE_OPTIONS,
   RESULT_VIEW_OPTIONS,
 } from '../state/workspaceTabs';
+import { AgentAccessSection } from '../features/agentAccess/AgentAccessSection';
 import { AboutUpdatesSection } from '../features/updates/AboutUpdatesSection';
 import { useUpdateState } from '../features/updates/updateStateContext';
 import type { ResultViewMode } from '@shared/types';
@@ -50,6 +51,7 @@ const SECTION_GROUPS = [
       { value: 'appearance', label: 'Appearance' },
       { value: 'results', label: 'Results' },
       { value: 'editor', label: 'Editor and startup' },
+      { value: 'agents', label: 'Agent Access' },
     ],
   },
   {
@@ -83,7 +85,7 @@ function UpdateDot() {
   );
 }
 
-export type SettingsSection = 'appearance' | 'results' | 'editor' | 'maintenance' | 'about';
+export type SettingsSection = 'appearance' | 'results' | 'editor' | 'agents' | 'maintenance' | 'about';
 
 interface SettingsModalProps {
   /** A link about one setting opens on the section that holds it. */
@@ -476,6 +478,11 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                 onChange={(e) => void handleCrossPasteWarning(e.currentTarget.checked)}
               />
             </Group>
+          </Section>
+
+          <Section value="agents">
+            {/* Mounted on demand: it subscribes to main's state only while open. */}
+            {section === 'agents' && <AgentAccessSection />}
           </Section>
 
           <Section value="about">

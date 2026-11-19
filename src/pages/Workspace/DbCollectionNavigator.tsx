@@ -14,6 +14,7 @@ import { api } from '../../api/atelier';
 import { logFailure } from '../../utils/rendererLog';
 import { copyToClipboard } from '../../utils/clipboard';
 import { disconnectConnection } from '../../features/connections/disconnectConnection';
+import { ShareMarker } from '../../features/agentAccess/ShareMarker';
 import { copyConnectionString } from '../../features/connections/connectionRowMenu';
 import { isKnownNotConnected } from '../../state/connections';
 import { I } from '../../icons';
@@ -1985,6 +1986,7 @@ function ConnectionRow({
       >
         {conn.name}
       </span>
+      <ShareMarker connection={conn} />
       {conn.readOnly && (
         <span
           style={{

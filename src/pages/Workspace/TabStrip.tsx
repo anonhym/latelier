@@ -10,6 +10,7 @@ import { isDormant } from '../../state/connections';
 import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
+import { ShareMarker } from '../../features/agentAccess/ShareMarker';
 
 interface TabStripProps {
   tabs: WorkspaceTab[];
@@ -314,6 +315,7 @@ export function TabStrip({
                 </span>
               )}
               {readOnly && <ReadOnlyBadge />}
+              {connection && <ShareMarker connection={connection} />}
             </button>}
             {!collapsed && groupTabs.map((tab) => {
               const active = tab.id === activeId;

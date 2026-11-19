@@ -23,7 +23,7 @@ describe('SettingsModal: sections', () => {
     expect(text.indexOf('Preferences')).toBeGreaterThanOrEqual(0);
     expect(text.indexOf('Maintenance')).toBeGreaterThan(text.indexOf('Preferences'));
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['Appearance', 'Results', 'Editor and startup', 'Data and support', 'About and updates']);
+    expect(tabs).toEqual(['Appearance', 'Results', 'Editor and startup', 'Agent Access', 'Data and support', 'About and updates']);
   });
 
   it('shows one section at a time and reaches the last one without scrolling', async () => {
