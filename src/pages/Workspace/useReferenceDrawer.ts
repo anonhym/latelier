@@ -179,7 +179,7 @@ export function useReferenceDrawer(
     (rule: ReferenceRule, field: string, value: unknown) => {
       setRefHover(null);
       setRefStack((prev) => {
-        if (isSameReferenceTarget(prev[prev.length - 1], rule, value)) return prev;
+        if (isSameReferenceTarget(prev[prev.length - 1], rule, value, activeConnectionIdRef.current ?? undefined)) return prev;
         return [{ id: makeFrameId(rule), rule, value, label: field, connectionId: activeConnectionIdRef.current ?? undefined }];
       });
     },
