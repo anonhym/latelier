@@ -131,7 +131,7 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 ### 4.3 Socket
 
 - **macOS and Linux**: a Unix domain socket `agent.sock` inside a directory `agent/` under `userData`, created with mode `0700`, the socket itself `0600`. If the full path would exceed the platform limit (about 104 bytes on macOS, 108 on Linux; long E2E temp dirs hit this), it falls back to a short per-user directory (`$TMPDIR/latelier-<uid>/`, also `0700`). A stale socket file is removed at start only when nothing answers on it.
-- **Windows**: a named pipe `\\.\pipe\latelier-agent-<user SID>`. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. Until that is resolved (open question 2), the Windows threat model relies on the token alone against other users.
+- **Windows**: a named pipe `\\.\pipe\latelier-agent-<random suffix>`. The bridge reads the suffix from the file under `userData`, so it needs no user SID. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. The Windows threat model therefore relies on the token alone against other users (decided, open question 2). The pipe name carries a random suffix generated at first enable and stored in a file under `userData` that only the owning user can read, so the name is not guessable by another user, but this is not an access control. Settings → Agent Access and the share dialog say so on Windows in plain words. A native ACL helper is a possible follow-up, not part of this spec.
 - The bridge derives the socket path from the app's platform-default `userData` location (and tries the short-path fallback above if the first is absent), so the client configuration does not hold it. `LATELIER_AGENT_SOCKET`, if set, overrides it; the E2E tests use that for their throwaway `userData`. Settings shows the path for troubleshooting.
 
 ### 4.4 Lifecycle
@@ -157,7 +157,7 @@ A new table `agent_tokens`: `id` (UUID), `name` (user-chosen, e.g. "Claude Code,
 ### 5.2 Actions
 
 - **Add Agent**: name it. Main generates the token and shows it once, in a main-owned dialog, with a **Copy configuration** button.
-- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the absolute path of the bridge executable (open question 5 covers keeping it stable), there are no args, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
+- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the absolute path of the fixed per-user copy of the bridge executable (§15 question 5), there are no args, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
 - **Regenerate**: a new token replaces the hash and the old token stops working at once, live sessions included.
 - **Revoke**: the row is deleted; live sessions using it close.
 - The list shows name, created and last used. It never shows the token.
@@ -180,7 +180,7 @@ A small main-process module in front of the pool, with the same `readDb`/`readCl
 
 - Each shared Open Connection gets a separate `MongoClient`, opened lazily on the first Agent call, from the same URI, credentials and TLS as the pooled client, with `maxPoolSize: 2`. Agent queries never queue behind, or block, the user's own UI, even when the user set `maxPoolSize: 1`. The cost is up to two extra server connections per shared Connection.
 - It is closed when the Connection closes or drops, when its flag is turned off, when Agent Access is turned off, and at quit.
-- SSH-tunnelled Connections: the connection schema refuses SSH tunnels today (`SSH_UNSUPPORTED_MESSAGE` in `electron/ipc/schemas/connection.ts`), and `MongoPool.openControlClient` refuses them too. When tunnels land, the agent client must go through the Connection's existing tunnel; see open question 3.
+- SSH-tunnelled Connections: the connection schema refuses SSH tunnels today (`SSH_UNSUPPORTED_MESSAGE` in `electron/ipc/schemas/connection.ts`), and `MongoPool.openControlClient` refuses them too. When tunnels land, an SSH-tunnelled Connection stays unshareable with Agents until a follow-up spec makes the agent client reuse the tunnel (decided, open question 3). `agentAccess:set-shared` refuses it with a clear message.
 
 ### 6.3 No side effects on the user's workspace
 
@@ -375,11 +375,16 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 
 ## 15. Open questions
 
+None block implementation. Each was decided before it started:
+
 1. **Resolved: bridge start-up.** The Electron binary measured too slow and too heavy and flashes in the Dock, so the bridge is a separate Rust executable (§4.2, §14). The Unix spike is done; the Windows named-pipe client, cross-compilation for every shipped target, and signing are still to build.
-2. **Windows pipe ACL.** How to make the named pipe owner-only from Node (or a native helper), or accept the token as the only protection there and say so in the UI. The Rust bridge also needs the user SID to find the pipe name, which std does not give.
-3. **SSH-tunnelled Connections, once the app supports them.** The agent client must reuse the Connection's existing tunnel. If that cannot be done cleanly, either share the pooled client for SSH Connections only, or refuse to share SSH Connections.
-4. **Stage allowlist review.** Confirm that the allowlisted stages are read-only on the oldest server version the app supports, and that `$graphLookup` and `$unionWith` are same-database like `$lookup`.
-5. **Stable bridge path.** The client configuration holds an absolute path to the bridge. It breaks if the app is moved, if a Windows updater installs into versioned folders, and on Linux AppImage, which mounts at a random `/tmp/.mount_*` path. Decide whether the app copies the bridge to a fixed per-user location (and keeps it current on update) and the snippet points there.
+2. **Resolved: Windows pipe ACL.** Node's `net` cannot set an owner-only DACL, so Windows ships with the token as the only protection against other local users, a random pipe-name suffix kept in a user-only file, and a plain statement of this in the UI (§4.3). A native ACL helper is a later follow-up, and adding one needs its own decision because the repository has one native dependency today.
+3. **Resolved: SSH-tunnelled Connections.** They cannot be shared with Agents. A follow-up spec makes the agent client reuse the tunnel when tunnels land (§6.2).
+4. **Resolved: stage allowlist review.** Checked against the MongoDB manual:
+   - The oldest server the app supports is 4.4: driver 7.6 and later (the app uses `^7.7`) dropped 4.2. Every allowlisted stage except `$setWindowFields` (5.0), `$densify` and `$fill` (5.1) exists on 4.4. On an older server those three fail with the server's own unknown-stage error, which §9.4 maps to an app-written message. No stage needs removing.
+   - Every allowlisted stage is read-only. The stages that write or expose server state (`$out`, `$merge`, `$collStats`, `$indexStats`, `$planCacheStats`, `$currentOp`, `$listSessions`) stay refused.
+   - `$graphLookup.from` must be in the same database as the other collections the operation uses (documented). `$unionWith.coll` takes a collection or view name with no database part, so the string form resolves in the current database by construction, and the object form stays refused (§7.4). Add a test that an object-form `coll` and `from` are refused.
+5. **Resolved: stable bridge path.** The app copies the bridge to a fixed per-user location and the snippet points there: `latelier-agent-bridge` in `~/Library/Application Support/L'Atelier/bin/` on macOS and `~/.local/share/L'Atelier/bin/` on Linux, `%LOCALAPPDATA%\L'Atelier\bin\latelier-agent-bridge.exe` on Windows. Main copies it on enabling Agent Access and on each launch when the bundled file's size or SHA-256 differs from the copy, writes through a temporary file and renames it in place, and keeps the executable bit. On macOS the copy keeps the bundled signature (copying does not invalidate it) and a release-workflow step verifies this. The path never changes across updates, moves of the app, or AppImage mounts. Disabling Agent Access leaves the copy in place; uninstalling the app does not remove it, and Settings offers a "Remove bridge" action.
 
 ## Acceptance criteria
 
