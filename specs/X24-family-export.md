@@ -1,6 +1,6 @@
 # X24 — Family Export
 
-> **Status: Accepted.** Nothing has shipped yet. The decisions behind this spec are in [ADR 0015](../docs/adr/0015-connection-families.md).
+> **Status: Implemented.** The decisions behind this spec are in [ADR 0015](../docs/adr/0015-connection-families.md).
 
 ## Purpose
 
@@ -59,22 +59,24 @@ No secrets travel, so nothing is added to `scripts/ipc-secret-allowlist.txt`.
 
 | Channel | Input | Output |
 |---|---|---|
-| `families:export` | `{familyId}` | `{saved: boolean, path?: string}`. Main shows the save dialog and writes the file. |
+| `families:export` | `{familyId}` | `{saved: false} \| {saved: true, path, ruleCount, rowSummaryCount}`. Main shows the save dialog and writes the file. |
 | `families:readExport` | `{}` | `{cancelled: true} \| {token, familyName, ruleCount, rowSummaryCount}`. Main shows the open dialog, validates the file, and holds the parsed content under a short-lived `token`. |
 | `families:planApply` | `{token, target: {familyId} \| {newName}}` | `ApplyPlan` |
 | `families:apply` | `{token, target, resolutions: Record<itemKey, 'keep' \| 'take'>}` | `ApplyResult` |
 
 ```ts
+/** One setting as the dialog shows it; `key` is its natural key, prefixed `rule:` or `summary:`. */
+interface FamilyExportItem { key: string; kind: 'rule' | 'rowSummary'; dbName: string; collection: string; field?: string; detail: string }
 interface ApplyPlan {
-  added: ItemRef[];       // not in the target: will be added
-  unchanged: ItemRef[];   // identical in the target: nothing to do
-  conflicts: { key: string; current: ItemSummary; incoming: ItemSummary }[];
+  added: FamilyExportItem[];       // not in the target: will be added
+  unchanged: FamilyExportItem[];   // identical in the target: nothing to do
+  conflicts: { key: string; current: FamilyExportItem; incoming: FamilyExportItem }[];
 }
 interface ApplyResult {
   familyId: string;
   added: number; replaced: number; kept: number; unchanged: number;
   /** Members whose Override hides something this Apply added or replaced. */
-  overriddenBy: { connectionId: string; keys: string[] }[];
+  overriddenBy: { connectionId: string; keys: string[]; items: FamilyExportItem[] }[];
 }
 ```
 
