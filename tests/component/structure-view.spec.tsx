@@ -521,6 +521,72 @@ describe('StructureView — section pills', () => {
     }
   });
 
+  describe('every pill answers a click', () => {
+    const open = async () => {
+      installAtelierMock({
+        index: { list: async () => [] },
+        meta: { collectionDetails: async () => DETAILS, sampleSchema: async () => ({ docs: [] }) },
+      });
+      renderStructure(sampled);
+      const nav = await screen.findByRole('navigation', { name: 'Sections' });
+      await within(nav).findByRole('button', { name: 'Validation' });
+      return nav;
+    };
+
+    it.each(['Indexes', 'Schema', 'Validation'])('%s: focuses the section and flashes it', async (name) => {
+      const nav = await open();
+      await userEvent.click(within(nav).getByRole('button', { name: new RegExp(`^${name}`) }));
+      const section = screen.getByRole('region', { name });
+      expect(section.getAttribute('data-structure-section')).toBe(name);
+      expect(document.activeElement).toBe(section);
+      expect(section.getAttribute('data-flash')).toBe('true');
+    });
+
+    it('clears the flash after a moment and moves it between sections', async () => {
+      const nav = await open();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        await userEvent.click(within(nav).getByRole('button', { name: /^Schema/ }));
+        await userEvent.click(within(nav).getByRole('button', { name: 'Validation' }));
+        expect(screen.getByRole('region', { name: 'Schema' }).hasAttribute('data-flash')).toBe(false);
+        const validation = screen.getByRole('region', { name: 'Validation' });
+        expect(validation.hasAttribute('data-flash')).toBe(true);
+        act(() => {
+          vi.advanceTimersByTime(1300);
+        });
+        expect(validation.hasAttribute('data-flash')).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('the scroll-spy watches Validation and marks its pill when it is in view', async () => {
+      const observed: Element[] = [];
+      let notify: ((entries: unknown[]) => void) | undefined;
+      class FakeObserver {
+        constructor(cb: (entries: unknown[]) => void) {
+          notify = cb;
+        }
+        observe(el: Element) {
+          observed.push(el);
+        }
+        disconnect() {}
+      }
+      vi.stubGlobal('IntersectionObserver', FakeObserver);
+      try {
+        const nav = await open();
+        const validation = screen.getByRole('region', { name: 'Validation' });
+        expect(observed).toContain(validation);
+        act(() => {
+          notify!([{ target: validation, isIntersecting: true, boundingClientRect: { top: 0 } }]);
+        });
+        expect(within(nav).getByRole('button', { name: 'Validation' }).getAttribute('aria-current')).toBe('true');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   it('offers no Validation pill for a view', async () => {
     installAtelierMock({
       index: { list: async () => [] },
@@ -1330,5 +1396,31 @@ describe('StructureView — review fixes', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Filter by this field' }));
     await waitFor(() => expect(patch).toHaveBeenCalled());
     expect(openDocuments).toHaveBeenCalledTimes(1);
+  });
+
+  it('Filter by this field on a nested path adds { path: { $exists: true } }, not $eq null', async () => {
+    base();
+    const patch = vi.fn();
+    render(
+      <CollectionWorkspaceProvider
+        state={{ ...DEFAULT_COLLECTION_TAB_STATE, activeBuilderTab: 'Raw' } as never}
+        actions={emptyWorkspaceActions({ patch, openDocuments: vi.fn() })}
+        meta={emptyWorkspaceMeta()}
+      >
+        <StructureViewConnected
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          state={state([{ path: 'items.qty', frequency: 1, types: { int: 1 } }])}
+          onPatch={vi.fn()}
+        />
+      </CollectionWorkspaceProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for items.qty' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Filter by this field' }));
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const raw = patch.mock.calls[0]![0].queryRaw as string;
+    expect(JSON.parse(raw)).toEqual({ 'items.qty': { $exists: true } });
+    expect(raw).not.toMatch(/null/);
   });
 });

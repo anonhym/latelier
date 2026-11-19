@@ -95,7 +95,10 @@ export function ValidationSection({ connectionId, dbName, collection, details, o
 
   return (
     <section
+      role="region"
       aria-label="Validation"
+      data-structure-section="Validation"
+      tabIndex={-1}
       style={{ flex: 'none', display: 'flex', flexDirection: 'column', overflow: 'visible' }}
     >
       <div

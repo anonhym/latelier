@@ -71,3 +71,58 @@ describe('useNavigatorData: cacheReset drops listings started before it', () => 
     expect(calls).toBe(1);
   });
 });
+
+describe('useNavigatorData: counts are read only when asked for', () => {
+  it('stats:false sends includeStats:false and the default does not', async () => {
+    const inputs: unknown[] = [];
+    installAtelierMock({
+      meta: {
+        listCollections: async (input: unknown) => {
+          inputs.push(input);
+          return [];
+        },
+      },
+    });
+    const { result } = renderHook(() => useNavigatorData());
+    await act(async () => {
+      await result.current.loadColls('c1', 'a', { stats: false });
+      await result.current.loadColls('c1', 'b');
+    });
+    expect(inputs).toEqual([
+      { connectionId: 'c1', dbName: 'a', includeStats: false },
+      { connectionId: 'c1', dbName: 'b' },
+    ]);
+  });
+
+  it('opening a database reads its figures even while a names-only sweep of it is in flight', async () => {
+    const inputs: Array<{ includeStats?: boolean }> = [];
+    const resolvers: Array<(rows: CollectionInfo[]) => void> = [];
+    installAtelierMock({
+      meta: {
+        listCollections: (input: { includeStats?: boolean }) => {
+          inputs.push(input);
+          return new Promise<CollectionInfo[]>((r) => resolvers.push(r));
+        },
+      },
+    });
+    const { result } = renderHook(() => useNavigatorData());
+    let sweep!: Promise<void>;
+    let open!: Promise<void>;
+    act(() => {
+      sweep = result.current.loadColls('c1', 'shop', { stats: false });
+      open = result.current.loadColls('c1', 'shop');
+    });
+    expect(inputs.map((i) => i.includeStats)).toEqual([false, undefined]);
+
+    // The figures land first; the later names-only answer must not replace them.
+    await act(async () => {
+      resolvers[1]!([{ name: 'orders', type: 'collection', capped: false, documentCount: 9 }]);
+      await open;
+    });
+    await act(async () => {
+      resolvers[0]!([{ name: 'orders', type: 'collection', capped: false }]);
+      await sweep;
+    });
+    expect(result.current.tree.caches.c1.colls.shop[0]!.documentCount).toBe(9);
+  });
+});

@@ -13,14 +13,14 @@ type Props = Omit<React.ComponentProps<typeof StructureView>, 'onFilterField'>;
 export function StructureViewConnected(props: Props) {
   const { state, actions } = useCollectionWorkspace();
   const addToFilter = useAddToFilter({ state, actions });
-  // A null value starts the condition at `field: null`, to be edited in the filter.
+  // The condition is `field: { $exists: true }`: a field row carries no value to match.
   // The builder and filter bar only exist on Documents, so go there first: the
   // result is visible, and the "filter drawer is open" prompt concerns a drawer the user can see.
   const openDocuments = actions.openDocuments;
   const onFilterField = React.useCallback(
     (path: string) => {
       openDocuments?.();
-      void addToFilter(path, null);
+      void addToFilter(path, true, '$exists');
     },
     [addToFilter, openDocuments],
   );

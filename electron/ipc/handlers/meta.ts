@@ -13,6 +13,7 @@ const ListDbsInput = z.object({
 const ListCollsInput = z.object({
   connectionId: NonEmpty,
   dbName: NonEmpty,
+  includeStats: z.boolean().optional(),
 });
 
 const SampleSchemaInput = CollectionTargetSchema.extend({

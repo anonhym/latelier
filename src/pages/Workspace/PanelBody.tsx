@@ -497,7 +497,7 @@ export function PanelBody({
             connection={recentConnection}
             cache={ownGet(navigatorData.tree.caches, recentConnection.id)}
             loadDbs={(id) => void navigatorData.loadDbs(id)}
-            loadColls={(id, db) => void navigatorData.loadColls(id, db)}
+            loadColls={(id, db, opts) => void navigatorData.loadColls(id, db, opts)}
             onOpen={(input) => void tabs.openCollection({ ...input, reuseExisting: true })}
             onSearch={onSearchCollections}
           />

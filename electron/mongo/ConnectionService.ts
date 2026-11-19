@@ -137,6 +137,7 @@ export class ConnectionService {
       }
 
       if (mongoRelevantFieldsChanged(existing, merged)) {
+        this.pool.emit('connection-identity-changed', id);
         await this.pool.disconnect(id);
       }
       return this.get(id);
@@ -147,6 +148,7 @@ export class ConnectionService {
     return this.withMutex(id, async () => {
       const existing = this.repo.findById(id);
       if (!existing) throw new NotFoundError(`connection ${id} not found`);
+      this.pool.emit('connection-identity-changed', id);
       await this.pool.disconnect(id);
       this.repo.deleteById(id); // FK cascade wipes dependents
     });
