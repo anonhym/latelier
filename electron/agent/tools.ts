@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import type { AgentGate, AgentSessionIdentity } from './AgentGate.ts';
+import type { Logger } from '../log.ts';
 import { cutName, wrap } from './envelope.ts';
+import { aggregateInputSchema, countInputSchema, findInputSchema } from './findOptions.ts';
+import { runAggregate, runCount, runFind } from './readOps.ts';
 
 /** What a tool hands back to the runner, which turns it into the MCP result and the log row. */
 export interface ToolOutcome {
@@ -19,6 +22,7 @@ export interface ToolContext {
   session: AgentSessionIdentity;
   /** Aborts when the client cancels the request or the transport closes. */
   signal: AbortSignal;
+  log: Pick<Logger, 'warn'>;
 }
 
 export interface AgentTool {
@@ -54,8 +58,32 @@ const listConnections = defineTool({
   },
 });
 
+const find = defineTool({
+  name: 'find',
+  description:
+    'Read documents from a collection. Takes filter, projection, sort, limit (default 50, at most 200) and skip (at most 10000), as Extended JSON objects. Results are Relaxed Extended JSON, at most 1 MiB; truncation is always stated. Server-side JavaScript ($where, $function, $accumulator) is refused: use $expr.',
+  inputSchema: findInputSchema,
+  run: runFind,
+});
+
+const count = defineTool({
+  name: 'count',
+  description:
+    'Count documents. With a filter the count is exact; without one it comes from collection metadata and is labelled as an estimate.',
+  inputSchema: countInputSchema,
+  run: runCount,
+});
+
+const aggregate = defineTool({
+  name: 'aggregate',
+  description:
+    'Run a read-only aggregation pipeline (at most 30 stages). Write stages, $collStats, $indexStats, $currentOp, $search and similar are refused. A $limit is appended (limit defaults to 50, at most 200). Results are Relaxed Extended JSON, at most 1 MiB.',
+  inputSchema: aggregateInputSchema,
+  run: runAggregate,
+});
+
 /** Every tool the server offers. Later slices add the rest of the ten. */
-export const AGENT_TOOLS: readonly AgentTool[] = [listConnections];
+export const AGENT_TOOLS: readonly AgentTool[] = [listConnections, find, count, aggregate];
 
 /** Metadata only: documents never travel in `structuredContent` (X27 §9.3). */
 export const OUTPUT_SCHEMA = z.object({
@@ -80,7 +108,7 @@ export function toolListEntries(tools: readonly AgentTool[]): ToolListEntry[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: z.toJSONSchema(tool.inputSchema, { target: 'draft-7', io: 'input' }) as ToolListEntry['inputSchema'],
+    inputSchema: z.toJSONSchema(tool.inputSchema, { target: 'draft-7', io: 'input', unrepresentable: 'any' }) as ToolListEntry['inputSchema'],
     outputSchema: output,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }));

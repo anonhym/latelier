@@ -3,7 +3,7 @@ import type { AgentTokenInfo } from '@shared/types';
 import { AGENT_ACCESS_KEY } from '../ipc/prefKeys.ts';
 import type { Logger } from '../log.ts';
 import { NotFoundError } from '../errors.ts';
-import { AgentGate } from '../agent/AgentGate.ts';
+import { AgentGate, type AgentPool } from '../agent/AgentGate.ts';
 import { AgentServer } from '../agent/AgentServer.ts';
 import { AgentToolRunner } from '../agent/AgentToolRunner.ts';
 import { AGENT_TOOLS } from '../agent/tools.ts';
@@ -18,7 +18,7 @@ export interface AgentAccessDeps {
   tokenRepo: AgentTokenRepo;
   readLogRepo: AgentReadLogRepo;
   connRepo: ConnectionRepo;
-  pool: { status(id: string): { status: 'connected' | 'connecting' | 'disconnected' | 'error' } };
+  pool: AgentPool;
   userData: string;
   log: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>;
 }
@@ -55,6 +55,7 @@ export class AgentAccessService {
       connections: deps.connRepo,
       pool: deps.pool,
       tokens: deps.tokenRepo,
+      log: deps.log,
     });
     const runner = new AgentToolRunner({
       gate: this.gate,
@@ -84,7 +85,13 @@ export class AgentAccessService {
   init(): void {
     if (this.unsubscribe) return;
     this.unsubscribe = this.deps.appState.subscribe<boolean>(AGENT_ACCESS_KEY, (value) => {
-      this.enqueue(value === true ? () => this.startServer() : () => this.server.stop());
+      if (value !== true) {
+        // Right now, not when the queue gets to it: no read may finish after the user said stop.
+        this.gate.revokeAll();
+        this.enqueue(() => this.server.stop());
+      } else {
+        this.enqueue(() => this.startServer());
+      }
     });
     if (this.isEnabled()) this.enqueue(() => this.startServer());
   }
@@ -93,8 +100,12 @@ export class AgentAccessService {
   async stop(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    // First, so the quit teardown aborts every in-flight Agent read before anything else closes.
+    this.gate.revokeAll();
     this.enqueue(() => this.server.stop());
     await this.chain;
+    await this.gate.close();
+    this.gate.dispose();
   }
 
   /** Resolves when every queued start or stop has finished. Tests use it to await the live switch. */
@@ -137,6 +148,7 @@ export class AgentAccessService {
   regenerateToken(id: string): { info: AgentTokenInfo; token: string } {
     const token = generateToken();
     if (!this.deps.tokenRepo.replaceHash(id, hashToken(token))) throw new NotFoundError(`agent token ${id} not found`);
+    this.gate.revokeToken(id);
     this.server.closeSessionsForToken(id);
     const row = this.deps.tokenRepo.findById(id);
     if (!row) throw new NotFoundError(`agent token ${id} not found`);
@@ -145,14 +157,16 @@ export class AgentAccessService {
 
   revokeToken(id: string): void {
     if (!this.deps.tokenRepo.deleteById(id)) throw new NotFoundError(`agent token ${id} not found`);
+    this.gate.revokeToken(id);
     this.server.closeSessionsForToken(id);
   }
 
-  /** Writes the share flag. The caller owns the dialog that must precede turning it on. */
+  /** Writes the share flag. The caller owns the dialog that must precede turning it on. Turning it off stops what is running on the Connection and closes its agent client. */
   setShared(connectionId: string, shared: boolean): void {
     if (!this.deps.connRepo.setShared(connectionId, shared)) {
       throw new NotFoundError(`connection ${connectionId} not found`);
     }
+    if (!shared) this.gate.revokeConnection(connectionId);
   }
 
   private enqueue(task: () => Promise<unknown>): void {

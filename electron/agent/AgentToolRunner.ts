@@ -77,7 +77,7 @@ export class AgentToolRunner {
       const tool = this.byName.get(name);
       if (!tool) throw new AgentToolError('INVALID_INPUT', 'Unknown tool.');
       const input = tool.inputSchema.parse(rawArgs ?? {});
-      outcome = await tool.run(input, { gate: this.deps.gate, session, signal });
+      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log });
     } catch (err) {
       failure = toAgentError(err);
       if (failure.code === 'DB_ERROR') {

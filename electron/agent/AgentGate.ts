@@ -1,4 +1,7 @@
+import type { MongoClient } from 'mongodb';
 import type { ConnectionRuntime } from '@shared/types';
+import type { Logger } from '../log.ts';
+import { Semaphore } from './concurrency.ts';
 import { AgentToolError } from './errorMap.ts';
 import { evaluateGates, type GateVerdict } from './gate.ts';
 import { matchHash } from './token.ts';
@@ -19,6 +22,25 @@ export interface SharedConnection {
   name: string;
 }
 
+/** The slice of `MongoPool` the gate uses. It reads a status and opens its own client, and nothing else: never `connect`, `readDb` or `readClient`. */
+export interface AgentPool {
+  status(id: string): Pick<ConnectionRuntime, 'status'>;
+  openAgentClient(id: string): Promise<MongoClient>;
+  on(event: 'status', listener: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void): unknown;
+  off(event: 'status', listener: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void): unknown;
+}
+
+/** One admitted Agent operation. Everything a tool needs to run, and to stop when told to. */
+export interface AgentLease {
+  client: MongoClient;
+  /** Aborts on revocation, on the client's `notifications/cancelled` and when the transport closes. Pass it to every driver call. */
+  signal: AbortSignal;
+  /** Call after every `await` that returns data, before serialising it: throws CANCELLED once any gate has closed. */
+  assertStill(): void;
+  /** Frees the concurrency slot. Idempotent. */
+  release(): void;
+}
+
 export interface AgentGateDeps {
   /** Live: reads the app-state switch on every call, never a cached copy. */
   accessOn: () => boolean;
@@ -26,21 +48,45 @@ export interface AgentGateDeps {
     findById(id: string): { id: string; name: string; share_with_agents?: number } | null;
     listShared(): Array<{ id: string; name: string }>;
   };
-  /** Reads a status only. The gate never connects: a call that could wake a Dormant Connection is the bug it exists to prevent. */
-  pool: { status(id: string): Pick<ConnectionRuntime, 'status'> };
+  /** The gate never connects: a call that could wake a Dormant Connection is the bug it exists to prevent. */
+  pool: AgentPool;
   tokens: { findById(id: string): { token_hash: string } | null };
+  log?: Pick<Logger, 'warn'>;
+}
+
+/** An operation in flight, registered so a revocation can abort it. */
+interface InFlight {
+  connectionId: string;
+  tokenId: string;
+  ctrl: AbortController;
 }
 
 /**
- * The gate in front of every Agent read (X27 §2, §6.1). This slice carries the
- * checks and the token re-check; the per-Connection agent client, the abort
- * registry and revocation arrive with the read path.
+ * The gate in front of every Agent read (X27 §2, §6.1). It checks the gates and
+ * the session's token on every acquisition, hands out the Connection's own
+ * agent client (never the user's pooled one), caps concurrency per Connection,
+ * and keeps each operation's `AbortController` so a revocation (§10) stops it.
  */
 export class AgentGate {
   private deps: AgentGateDeps;
+  private inFlight = new Set<InFlight>();
+  private limits = new Map<string, Semaphore>();
+  private clients = new Map<string, Promise<MongoClient>>();
+  private closing = new Set<Promise<void>>();
+  private onStatus: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void;
 
   constructor(deps: AgentGateDeps) {
     this.deps = deps;
+    // Closed, dropped, deleted or edited: every one ends in a status other than `connected`.
+    this.onStatus = (runtime) => {
+      if (runtime.status !== 'connected') this.revokeConnection(runtime.id);
+    };
+    deps.pool.on('status', this.onStatus);
+  }
+
+  /** Stops following the pool. Call `close` first when operations may still be running. */
+  dispose(): void {
+    this.deps.pool.off('status', this.onStatus);
   }
 
   /** Whether the session's token still matches the stored hash and Agent Access is on. */
@@ -75,5 +121,116 @@ export class AgentGate {
       name: row.name,
       state: this.deps.pool.status(row.id).status === 'connected' ? 'available' : 'unavailable',
     }));
+  }
+
+  /**
+   * Admits one operation: the gates and the token, a concurrency slot (BUSY past
+   * the queue), then the Connection's agent client, opened on first use. The
+   * gates are read again after each wait. Never connects the Connection.
+   */
+  async acquire(connectionId: string, session: AgentSessionIdentity, mcpSignal: AbortSignal): Promise<AgentLease> {
+    if (this.checkToken(session) !== 'ok') throw new AgentToolError('ACCESS_OFF');
+    this.assertConnection(connectionId);
+    const entry: InFlight = { connectionId, tokenId: session.tokenId, ctrl: new AbortController() };
+    this.inFlight.add(entry);
+    const signal = AbortSignal.any([mcpSignal, entry.ctrl.signal]);
+    const assertStill = () => this.assertStill(connectionId, session, signal);
+    const limit = this.limitFor(connectionId);
+    let releaseSlot: (() => void) | null = null;
+    const release = () => {
+      const free = releaseSlot;
+      releaseSlot = null;
+      free?.();
+      this.inFlight.delete(entry);
+      if (limit.idle && this.limits.get(connectionId) === limit) this.limits.delete(connectionId);
+    };
+    try {
+      releaseSlot = await limit.acquire(signal);
+      const client = await this.clientFor(connectionId);
+      // After both waits, the slot and the open: a gate that closed meanwhile refuses the call here.
+      assertStill();
+      return { client, signal, assertStill, release };
+    } catch (err) {
+      release();
+      throw err;
+    }
+  }
+
+  /** Aborts what is running on one Connection and closes its agent client: unshared, closed, dropped, deleted or edited. */
+  revokeConnection(connectionId: string): void {
+    for (const entry of this.inFlight) if (entry.connectionId === connectionId) entry.ctrl.abort();
+    this.closeClient(connectionId);
+  }
+
+  /** Aborts what one token's sessions are running: the token was revoked or regenerated. */
+  revokeToken(tokenId: string): void {
+    for (const entry of this.inFlight) if (entry.tokenId === tokenId) entry.ctrl.abort();
+  }
+
+  /** Aborts everything and closes every agent client: Agent Access went off, or the app is quitting. */
+  revokeAll(): void {
+    for (const entry of this.inFlight) entry.ctrl.abort();
+    for (const connectionId of [...this.clients.keys()]) this.closeClient(connectionId);
+  }
+
+  /** `revokeAll`, then resolves once every agent client has closed. */
+  async close(): Promise<void> {
+    this.revokeAll();
+    await this.whenClosed();
+  }
+
+  /** Resolves when every agent client closing right now has finished. */
+  async whenClosed(): Promise<void> {
+    await Promise.all([...this.closing]);
+  }
+
+  /** Whether an agent client exists (or is opening) for the Connection. */
+  hasClient(connectionId: string): boolean {
+    return this.clients.has(connectionId);
+  }
+
+  private assertStill(connectionId: string, session: AgentSessionIdentity, signal: AbortSignal): void {
+    if (signal.aborted || this.checkToken(session) !== 'ok' || this.checkConnection(connectionId) !== 'ok') {
+      throw new AgentToolError('CANCELLED');
+    }
+  }
+
+  private limitFor(connectionId: string): Semaphore {
+    let limit = this.limits.get(connectionId);
+    if (!limit) {
+      limit = new Semaphore();
+      this.limits.set(connectionId, limit);
+    }
+    return limit;
+  }
+
+  private clientFor(connectionId: string): Promise<MongoClient> {
+    let opening = this.clients.get(connectionId);
+    if (!opening) {
+      const created = this.deps.pool.openAgentClient(connectionId);
+      opening = created;
+      this.clients.set(connectionId, created);
+      // A failed open is delivered to the caller awaiting it; here it only clears the cache so the next call retries.
+      created.then(undefined, () => {
+        if (this.clients.get(connectionId) === created) this.clients.delete(connectionId);
+      });
+    }
+    return opening;
+  }
+
+  private closeClient(connectionId: string): void {
+    const opening = this.clients.get(connectionId);
+    if (!opening) return;
+    this.clients.delete(connectionId);
+    const closing: Promise<void> = opening
+      .then((client) => client.close())
+      .catch((err: unknown) => {
+        this.deps.log?.warn('agent', 'closing an agent client failed', {
+          connectionId,
+          errName: err instanceof Error ? err.name : typeof err,
+        });
+      })
+      .finally(() => this.closing.delete(closing));
+    this.closing.add(closing);
   }
 }

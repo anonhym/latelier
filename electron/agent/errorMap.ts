@@ -47,8 +47,8 @@ export class AgentToolError extends Error {
   public readonly code: AgentErrorCode;
   public readonly serverCode?: number;
 
-  constructor(code: AgentErrorCode, message?: string, serverCode?: number) {
-    super(message ?? DEFAULT_MESSAGES[code]);
+  constructor(code: AgentErrorCode, message?: string, serverCode?: number, options?: ErrorOptions) {
+    super(message ?? DEFAULT_MESSAGES[code], options);
     this.name = 'AgentToolError';
     this.code = code;
     this.serverCode = serverCode;

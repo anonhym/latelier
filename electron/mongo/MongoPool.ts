@@ -429,16 +429,31 @@ export class MongoPool extends EventEmitter {
    * Same URI, credentials and TLS as the pooled client. The caller closes it.
    */
   async openControlClient(id: string): Promise<MongoClient> {
+    return this.openOwnClient(id, 1, 'control client');
+  }
+
+  /**
+   * The client an Agent reads through (X27 §6.2): a pool of two, outside the
+   * user's own, so an Agent query never queues behind the UI. Built like the
+   * control client, and likewise never entered in `entries`, so it changes no
+   * Connection's status and an Agent call cannot wake a Dormant one. The
+   * caller (`AgentGate`) owns it and closes it.
+   */
+  async openAgentClient(id: string): Promise<MongoClient> {
+    return this.openOwnClient(id, 2, 'agent client');
+  }
+
+  private async openOwnClient(id: string, maxPoolSize: number, label: string): Promise<MongoClient> {
     const conn = this.repo.findById(id);
     if (!conn) throw new NotFoundError(`connection ${id} not found`);
     if (conn.ssh?.enabled) throw new ValidationError('SSH tunnels are not supported yet');
     const { uri, opts } = this.connectArgs(id, conn);
-    const client = this.clientFactory(uri, { ...opts, maxPoolSize: 1 });
+    const client = this.clientFactory(uri, { ...opts, maxPoolSize });
     try {
       await client.connect();
     } catch (err) {
       await client.close().catch((closeErr: unknown) => {
-        this.log?.warn('mongo', 'close failed (control client)', {
+        this.log?.warn('mongo', `close failed (${label})`, {
           connectionId: id,
           err: String(closeErr),
         });
