@@ -40,6 +40,21 @@ function stringField(args: unknown, key: string): string | null {
 }
 
 /**
+ * The arguments as the row stores them. Input nested thousands deep parses
+ * (the transport's own parser has no depth limit) but `JSON.stringify` throws
+ * on it: that must not cost the call its row, or a refusal would turn into
+ * DB_ERROR and leave no trace. The marker is stored like any other request.
+ */
+export function requestJsonOf(rawArgs: unknown): string {
+  try {
+    return JSON.stringify(rawArgs ?? {});
+  } catch (err) {
+    if (err instanceof RangeError) return '{"unserializable":true}';
+    throw err;
+  }
+}
+
+/**
  * Runs one `tools/call` in the order X27 requires: re-check the token, parse
  * the input, run the tool, then write the Agent Read Log row before any data
  * is returned. Every outcome, refusals included, writes its row; a row that
@@ -101,7 +116,7 @@ export class AgentToolRunner {
         clientVersion: session.clientVersion,
         ...this.target(rawArgs),
         tool: name.slice(0, MAX_LOGGED_TOOL),
-        requestJson: JSON.stringify(rawArgs ?? {}),
+        requestJson: requestJsonOf(rawArgs),
         docCount: failure ? 0 : outcome!.count,
         bytes: Buffer.byteLength(text),
         durationMs,
