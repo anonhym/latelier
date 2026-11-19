@@ -16,6 +16,7 @@ import { ResultStatus } from './ResultStatus';
 import { runUndo, useLatestUndo } from './undoStore';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
+import { RowSummaryPicker } from '../../features/rowSummary/RowSummaryPicker';
 
 const VIEWS: ResultViewMode[] = ['Table', 'Tree', 'JSON'];
 const VIEW_ICONS: Record<ResultViewMode, React.ReactNode> = { Table: I.table, Tree: I.tree, JSON: I.json };
@@ -50,6 +51,7 @@ export function ResultBar({ references }: ResultBarProps = {}) {
   const isView = !!meta.isView;
   const [exportOpen, setExportOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [rowSummaryOpen, setRowSummaryOpen] = React.useState(false);
 
   // The palette's Export… on this tab: the palette has already checked the
   // tab has documents to export, so this only opens the dialog, once.
@@ -174,6 +176,13 @@ export function ResultBar({ references }: ResultBarProps = {}) {
                   </Menu.Item>
                 </>
               )}
+              {/* The collapsed row's fields: a saved, per-collection choice, apart from the Fields list. */}
+              {!isReadOnly && view === 'Tree' && (
+                <>
+                  <Menu.Label>Display</Menu.Label>
+                  <Menu.Item onClick={() => setRowSummaryOpen(true)}>Row summary…</Menu.Item>
+                </>
+              )}
               {!isReadOnly && !isView && (
                 <>
                   <Menu.Label>Bulk actions</Menu.Label>
@@ -241,6 +250,14 @@ export function ResultBar({ references }: ResultBarProps = {}) {
           </Tooltip>
         )}
 
+        {rowSummaryOpen && (
+          <RowSummaryPicker
+            connectionId={meta.connectionId}
+            dbName={meta.dbName}
+            collection={meta.collection}
+            onClose={() => setRowSummaryOpen(false)}
+          />
+        )}
         {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
         {importOpen && (
           <ImportDialog

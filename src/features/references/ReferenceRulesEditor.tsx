@@ -9,6 +9,7 @@ import { SubmitButton } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
 import { useNamespaceSuggestions } from './useNamespaceSuggestions';
+import { useConnectionFamily } from '../connections/useConnectionFamily';
 import { ORIGIN_BADGE } from './originBadge';
 import type {
   EffectiveReferenceRule,
@@ -89,7 +90,7 @@ export function ReferenceRulesEditor({
   const T = themeVars;
   const [rules, setRules] = React.useState<EffectiveReferenceRule[]>([]);
   // The Family this Connection belongs to, if any: a new rule is shared with it by default.
-  const [family, setFamily] = React.useState<{ id: string; name: string } | null>(null);
+  const family = useConnectionFamily(connectionId);
   // Editing a shared rule asks first: change it for the whole family, or override it here.
   const [choosingScope, setChoosingScope] = React.useState(false);
   // A duplicate rule for the same source field, named so the editor can point at it.
@@ -173,21 +174,6 @@ export function ReferenceRulesEditor({
       void loadRules();
     });
   }, [loadRules]);
-
-  React.useEffect(() => {
-    let live = true;
-    api.families
-      .list()
-      .then((all) => {
-        if (!live) return;
-        const mine = all.find((f) => f.memberIds.includes(connectionId));
-        setFamily(mine ? { id: mine.id, name: mine.name } : null);
-      })
-      .catch((err) => live && setError(getErrorMessage(err, 'Could not load the family')));
-    return () => {
-      live = false;
-    };
-  }, [connectionId]);
 
   const refresh = async () => {
     await loadRules();

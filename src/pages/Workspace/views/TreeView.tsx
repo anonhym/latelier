@@ -32,6 +32,8 @@ import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useDeepPaths } from './useDeepPaths';
+import { summaryPairs } from '../../../features/rowSummary/rowSummaryDraft';
+import { useRowSummary } from '../../../features/rowSummary/useRowSummary';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -51,12 +53,7 @@ function getPreviewFields(
   override?: string[] | null,
 ): Array<[string, unknown]> {
   if (!isRecord(doc)) return [];
-  if (override != null) {
-    return override
-      .filter((k) => k !== '_id' && k in doc)
-      .slice(0, 4)
-      .map((k) => [k, doc[k]] as [string, unknown]);
-  }
+  if (override != null) return summaryPairs(doc, override);
   const allKeys = Object.keys(doc).filter((k) => k !== '_id');
   return allKeys.slice(0, 4).map((k) => [k, doc[k]]);
 }
@@ -484,12 +481,18 @@ export function TreeView({
   );
   const hasHidden = React.useMemo(() => hiddenFieldNames(documents, hide).length > 0, [documents, hide]);
   const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || hasHidden;
+  // A saved Row Summary (this Connection's or its Family's) wins; with none the
+  // strip is what it always was. It is independent of the Fields list: neither
+  // reads the other.
+  const { summary: rowSummary } = useRowSummary(meta.connectionId, meta.dbName, meta.collection);
+  const rowSummaryFields = rowSummary?.fields ?? null;
   const previewFields = React.useMemo(() => {
+    if (rowSummaryFields) return rowSummaryFields;
     if (!hasFieldConfig) return null;
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
     return ordered.filter((f) => f !== '_id' && !hide?.(f));
-  }, [hasFieldConfig, documents, columnConfig?.order, hide]);
+  }, [rowSummaryFields, hasFieldConfig, documents, columnConfig?.order, hide]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
