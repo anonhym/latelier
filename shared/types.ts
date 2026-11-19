@@ -1398,6 +1398,8 @@ export interface PersistedReferenceFrame {
   rule: ReferenceRule;
   valueEjson: string;
   label: string;
+  /** The Connection the frame was opened on; a frame saved without one belongs to its tab's. */
+  connectionId?: string;
 }
 
 export interface PersistedDrawerState {

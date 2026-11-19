@@ -86,6 +86,8 @@ export function useReferenceDrawer(
           rule: p.rule,
           value: ejsonParse(p.valueEjson),
           label: p.label,
+          // A stack belongs to its tab, so a frame saved without a Connection was opened on the tab's.
+          connectionId: p.connectionId ?? tab?.connectionId,
         });
       } catch {
         // Skip: the frame is unrecoverable, but the rest of the stack is fine.
@@ -126,6 +128,7 @@ export function useReferenceDrawer(
       rule: f.rule,
       valueEjson: ejsonStringify(f.value),
       label: f.label,
+      ...(f.connectionId !== undefined ? { connectionId: f.connectionId } : {}),
     }));
     patchCollectionStateRef.current(targetId, {
       referenceDrawer: { stack: persisted },

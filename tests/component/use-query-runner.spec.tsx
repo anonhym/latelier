@@ -1726,7 +1726,7 @@ describe('useQueryRunner: reference discovery', () => {
   it('offers the rule when the run returns a document holding the pasted value', async () => {
     await runWith(async () => ({ documents: [{ _id: { $oid: ID } }], durationMs: 1, hasMore: false }));
     await waitFor(() => expect(getReferenceSuggestion('t1')).toBeDefined());
-    expect(getReferenceSuggestion('t1')?.key).toBe('c1|app.orders.userId->app.users._id');
+    expect(getReferenceSuggestion('t1')?.key).toBe('c1|["app","orders","userId","app","users","_id"]');
   });
 
   it('offers nothing for a run that returns no match', async () => {

@@ -119,6 +119,23 @@ describe('useReferenceDrawer — EJSON persistence round-trip', () => {
     expect(line.message).not.toContain('secret');
   });
 
+  it('keeps the Connection a frame was opened on through persistence, and gives an older frame its tab\'s', async () => {
+    installAtelierMock();
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const withConn: PersistedReferenceFrame = { id: 'a', rule: shared, valueEjson: ejsonStringify('u1'), label: 'x', connectionId: 'opened-on' };
+    const older: PersistedReferenceFrame = { id: 'b', rule: shared, valueEjson: ejsonStringify('u2'), label: 'y' };
+    const tabs: WorkspaceTab[] = [makeCollectionTab('t1', [withConn, older])];
+    const patch = vi.fn();
+    const { result } = renderHook(() => useReferenceDrawer('t1', tabs, patch, 't1'));
+    expect(result.current.refStack.map((f) => f.connectionId)).toEqual(['opened-on', 'c1']);
+
+    act(() => {
+      result.current.handleRefOpen(shared, 'userId', 'u3');
+    });
+    const saved = (patch.mock.calls.at(-1)![1] as Partial<CollectionTabState>).referenceDrawer?.stack ?? [];
+    expect(saved.map((f) => f.connectionId)).toEqual(['c1']);
+  });
+
   it('persists a pushed ObjectId frame as canonical EJSON (round-trips back to ObjectId)', async () => {
     installAtelierMock();
     const oid = new ObjectId('64a7f0e1b1d4e8f2c3a45679');
