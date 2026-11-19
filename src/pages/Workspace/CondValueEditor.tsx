@@ -57,6 +57,13 @@ function keepEscapeInBox(e: React.KeyboardEvent<HTMLElement>, setSuggesting: (op
   if (listWasClosed) e.currentTarget.blur();
 }
 
+/** One line: line breaks at the very end are dropped, any others become one space. */
+function singleLine(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
+  return text.slice(0, end).replace(/[\r\n]+/g, ' ');
+}
+
 /**
  * The mongosh form of a parsed date, shown under the value box so the person
  * sees what the wrapped MQL will hold (`ISODate("2026-04-01")`). Every other
@@ -742,8 +749,10 @@ export function CondValueEditor({
           onChange={(e) => {
             if (isListOp) setListAsText(true);
             // The box is a textarea so long text wraps, but a value is one
-            // line: pasted line breaks become a single space.
-            onPatch({ value: e.target.value.replace(/[\r\n]+/g, ' ') }, 'value');
+            // line: pasted line breaks become a single space. Line breaks at
+            // the very end are dropped instead, as a copy from a terminal
+            // ends with one and a trailing space would match nothing.
+            onPatch({ value: singleLine(e.target.value) }, 'value');
             if (!suggesting) setSuggesting(true);
           }}
           onFocus={() => setSuggesting(true)}
