@@ -348,8 +348,10 @@ test('Save query and Reference rules keep the tab they were opened on across a t
       await refs.getByPlaceholder('contacts').fill('customers');
       await refs.getByPlaceholder('contacts').focus();
       await win.keyboard.press(`${MOD}+k`);
-      const palette = win.locator('[role=dialog]:has(input[role=combobox])');
-      await palette.locator('input[role=combobox]').fill('depot.orders');
+      // Not `input[role=combobox]`: the rule form's Target database and collection are comboboxes too.
+      const search = win.locator('input[aria-label="Search commands"]');
+      const palette = win.getByRole('dialog').filter({ has: search });
+      await search.fill('depot.orders');
       await expect(palette.getByRole('option').first()).toContainText('depot.orders');
       await win.keyboard.press('Enter');
       await expect(ws.collectionRow('depot', 'orders')).toHaveAttribute('aria-selected', 'true');
