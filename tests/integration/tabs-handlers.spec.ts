@@ -284,6 +284,12 @@ describe('tabs:update — the filter draft, via router and SQLite', () => {
     const aggregation = { stages: [], activeStageId: 2, multiOpen: true, openStageIds: [1, 2] };
     expect((await update({ aggregation })).ok).toBe(true);
     expect(storedState().aggregation).toEqual(aggregation);
+    // And it comes back from the service, not only from the row.
+    const listed = await shim.invoke<CollectionTab[]>(IPC_CHANNELS.tabsList, undefined);
+    if (!listed.ok) throw new Error(listed.error.message);
+    expect(listed.data.find((t) => t.id === tabId)).toMatchObject({
+      state: { aggregation: { multiOpen: true, openStageIds: [1, 2] } },
+    });
   });
 
   it('refuses a draft of the wrong shape and leaves the stored one alone', async () => {

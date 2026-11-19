@@ -38,8 +38,11 @@ describe('stagePreviewMeta', () => {
   it('says only the count when everything is shown', () => {
     expect(stagePreviewMeta({ op: '$match', shown: 3, count: 3, unordered: false })).toBe('$match · 3 docs');
   });
-  it('omits the count when it is unknown', () => {
-    expect(stagePreviewMeta({ op: '$match', shown: 5, count: undefined, unordered: false })).toBe('$match');
+  it('still states the scope when the count is unknown', () => {
+    expect(stagePreviewMeta({ op: '$match', shown: 5, count: undefined, unordered: false })).toBe(
+      '$match · first 5 docs',
+    );
+    expect(stagePreviewMeta({ op: '$match', shown: 0, count: undefined, unordered: false })).toBe('$match · 0 docs');
   });
   it('appends unordered', () => {
     expect(stagePreviewMeta({ op: '$group', shown: 5, count: 9, unordered: true })).toBe(
@@ -52,9 +55,9 @@ describe('runMeta', () => {
   it('states the docs and the time', () => {
     expect(runMeta({ rows: 7, durationMs: 12, hasMore: false, unordered: false })).toBe('7 docs · 12 ms');
   });
-  it('says more exist when the row cap cut it short', () => {
+  it('says row limit reached when the row cap cut it short', () => {
     expect(runMeta({ rows: 1000, durationMs: 12, hasMore: true, unordered: false })).toBe(
-      'first 1,000 docs, more exist · 12 ms',
+      'first 1,000 docs, row limit reached · 12 ms',
     );
   });
   it('appends unordered', () => {

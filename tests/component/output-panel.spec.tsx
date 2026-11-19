@@ -433,7 +433,7 @@ describe('OutputPanel — the selected stage', () => {
       outputUnordered: true,
     });
     expect(screen.getByTestId('preview-heading').textContent).toBe(
-      'Full aggregation · first 1 docs, more exist · 3 ms · unordered',
+      'Full aggregation · first 1 docs, row limit reached · 3 ms · unordered',
     );
   });
 

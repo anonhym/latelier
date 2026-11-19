@@ -26,21 +26,26 @@ export function stagePreviewMeta(opts: {
   unordered: boolean;
 }): string {
   const parts = [opts.op];
-  if (typeof opts.count === 'number') {
-    parts.push(
-      opts.count > opts.shown
-        ? `first ${opts.shown.toLocaleString('en-US')} of ${opts.count.toLocaleString('en-US')} docs`
-        : `${opts.count.toLocaleString('en-US')} docs`,
-    );
+  const shown = opts.shown.toLocaleString('en-US');
+  if (typeof opts.count !== 'number') {
+    // The count probe timed out or failed, so the sample is all that is known.
+    parts.push(opts.shown === 0 ? '0 docs' : `first ${shown} docs`);
+  } else if (opts.count > opts.shown) {
+    parts.push(`first ${shown} of ${opts.count.toLocaleString('en-US')} docs`);
+  } else {
+    parts.push(`${opts.count.toLocaleString('en-US')} docs`);
   }
   if (opts.unordered) parts.push('unordered');
   return parts.join(' · ');
 }
 
-/** The meta text beside the full run's heading. `hasMore` means the row cap cut it short. */
+/**
+ * The meta text beside the full run's heading. `hasMore` means the run returned
+ * as many rows as its limit, which does not say whether more exist.
+ */
 export function runMeta(opts: { rows: number; durationMs: number; hasMore: boolean; unordered: boolean }): string {
   const docs = opts.hasMore
-    ? `first ${opts.rows.toLocaleString('en-US')} docs, more exist`
+    ? `first ${opts.rows.toLocaleString('en-US')} docs, row limit reached`
     : `${opts.rows.toLocaleString('en-US')} docs`;
   const parts = [docs, `${opts.durationMs} ms`];
   if (opts.unordered) parts.push('unordered');
