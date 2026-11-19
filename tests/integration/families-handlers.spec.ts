@@ -221,6 +221,50 @@ describe('families / rowSummary / refs channels via router', () => {
     });
   });
 
+  // Each foreign key must name its own entity: an unknown family is never
+  // reported as an unknown connection, nor the other way round.
+  describe('an unknown owner is named for what it is', () => {
+    const message = async (channel: string, payload: unknown): Promise<string> => {
+      const env = await shim.invoke(channel, payload);
+      if (env.ok) throw new Error(`${channel} unexpectedly succeeded`);
+      expect(env.error.code).toBe('NOT_FOUND');
+      return env.error.message;
+    };
+    const rule = (owner: object) => ({
+      owner,
+      sourceDb: DB,
+      sourceCollection: 'orders',
+      sourceField: 'f',
+      targetDb: DB,
+      targetCollection: 'customers',
+    });
+    const summary = (owner: object) => ({ owner, dbName: DB, collection: 'orders', fields: ['a'] });
+
+    it('refs:create', async () => {
+      expect(await message(IPC_CHANNELS.refsCreate, rule({ familyId: 'ghost-fam' }))).toBe('family ghost-fam not found');
+      expect(await message(IPC_CHANNELS.refsCreate, rule({ connectionId: 'ghost-conn' }))).toBe('connection ghost-conn not found');
+    });
+
+    it('rowSummary:set', async () => {
+      expect(await message(IPC_CHANNELS.rowSummarySet, summary({ familyId: 'ghost-fam' }))).toBe('family ghost-fam not found');
+      expect(await message(IPC_CHANNELS.rowSummarySet, summary({ connectionId: 'ghost-conn' }))).toBe('connection ghost-conn not found');
+    });
+
+    it('families:setMembership and families:create', async () => {
+      expect(await message(IPC_CHANNELS.familiesSetMembership, { connectionIds: [A], familyId: 'ghost-fam' })).toBe('family ghost-fam not found');
+      const f = await call<ConnectionFamily>(IPC_CHANNELS.familiesCreate, { name: 'F' });
+      expect(await message(IPC_CHANNELS.familiesSetMembership, { connectionIds: ['ghost-conn'], familyId: f.id })).toBe('connection ghost-conn not found');
+      expect(await message(IPC_CHANNELS.familiesCreate, { name: 'G', memberIds: ['ghost-conn'] })).toBe('connection ghost-conn not found');
+    });
+
+    it('refs:override', async () => {
+      const f = await call<ConnectionFamily>(IPC_CHANNELS.familiesCreate, { name: 'F', memberIds: [A] });
+      const shared = await sharedRule(f.id);
+      expect(await message(IPC_CHANNELS.refsOverride, { connectionId: 'ghost-conn', sharedRuleId: shared.id, patch: {} })).toBe('connection ghost-conn not found');
+      expect(await message(IPC_CHANNELS.refsOverride, { connectionId: A, sharedRuleId: 'ghost-rule', patch: {} })).toBe('reference rule ghost-rule not found');
+    });
+  });
+
   describe('rowSummary:*', () => {
     const key = { dbName: DB, collection: 'orders' };
 
@@ -250,6 +294,7 @@ describe('families / rowSummary / refs channels via router', () => {
       expect(await code(IPC_CHANNELS.rowSummarySet, { owner, ...key, fields: ['a', 'b', 'c', 'd', 'e'] })).toBe('VALIDATION');
       expect(await code(IPC_CHANNELS.rowSummarySet, { owner: { connectionId: A, familyId: 'f' }, ...key, fields: ['a'] })).toBe('VALIDATION');
       expect(await code(IPC_CHANNELS.rowSummaryClear, { owner, ...key })).toBe('NOT_FOUND');
+      expect(await code(IPC_CHANNELS.rowSummarySet, { owner: { familyId: 'ghost-fam' }, ...key, fields: ['a'] })).toBe('NOT_FOUND');
       expect(await code(IPC_CHANNELS.rowSummaryGet, { connectionId: 'ghost', ...key })).toBe('NOT_FOUND');
     });
   });

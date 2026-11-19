@@ -166,7 +166,7 @@ describe('writes naming an unknown connection answer NOT_FOUND, not INTERNAL', (
 // the sole foreign key. A later migration that adds a second one must fail
 // here, not ship as a mislabelled NOT_FOUND.
 describe('tables written with a caller-supplied connectionId have connection_id as their only foreign key', () => {
-  it.each(['saved_queries', 'workspace_tabs', 'reference_rules', 'recent_field_values', 'recent_queries'])(
+  it.each(['saved_queries', 'workspace_tabs', 'recent_field_values', 'recent_queries'])(
     '%s',
     (table) => {
       const tmp = createTempDb();
@@ -179,4 +179,23 @@ describe('tables written with a caller-supplied connectionId have connection_id 
       }
     },
   );
+});
+
+// Owner tables have two foreign keys, one per possible owner. They do not use
+// `rethrowMissingConnection`: their repos name the owner the row was written
+// for, which is the only key a row can violate because the other column is
+// NULL. This pins the two keys, so a third one has to revisit that mapping.
+describe('owner tables have exactly one foreign key per possible owner', () => {
+  it.each(['reference_rules', 'row_summaries'])('%s', (table) => {
+    const tmp = createTempDb();
+    try {
+      const fks = tmp.db.prepare(`PRAGMA foreign_key_list(${table})`).all() as Array<{ from: string; table: string }>;
+      expect(fks.map((f) => `${f.from}>${f.table}`).sort((a, b) => a.localeCompare(b))).toEqual([
+        'connection_id>connections',
+        'family_id>connection_families',
+      ]);
+    } finally {
+      tmp.cleanup();
+    }
+  });
 });
