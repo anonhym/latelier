@@ -438,27 +438,41 @@ export class MongoPool extends EventEmitter {
    * control client, and likewise never entered in `entries`, so it changes no
    * Connection's status and an Agent call cannot wake a Dormant one. The
    * caller (`AgentGate`) owns it and closes it.
+   *
+   * `signal` abandons a still-opening client: aborting closes it, which drains
+   * the driver's server-selection wait queue, so a `connect()` against a
+   * server that stopped answering rejects at once instead of after the
+   * selection timeout. A revocation or the app quitting must not wait that out.
    */
-  async openAgentClient(id: string): Promise<MongoClient> {
-    return this.openOwnClient(id, 2, 'agent client');
+  async openAgentClient(id: string, signal?: AbortSignal): Promise<MongoClient> {
+    return this.openOwnClient(id, 2, 'agent client', signal);
   }
 
-  private async openOwnClient(id: string, maxPoolSize: number, label: string): Promise<MongoClient> {
+  private async openOwnClient(id: string, maxPoolSize: number, label: string, signal?: AbortSignal): Promise<MongoClient> {
     const conn = this.repo.findById(id);
     if (!conn) throw new NotFoundError(`connection ${id} not found`);
     if (conn.ssh?.enabled) throw new ValidationError('SSH tunnels are not supported yet');
+    if (signal?.aborted) throw new SystemError('DB_ERROR', `opening the ${label} was cancelled`);
     const { uri, opts } = this.connectArgs(id, conn);
     const client = this.clientFactory(uri, { ...opts, maxPoolSize });
-    try {
-      await client.connect();
-    } catch (err) {
-      await client.close().catch((closeErr: unknown) => {
+    const closeQuietly = () =>
+      client.close().catch((closeErr: unknown) => {
         this.log?.warn('mongo', `close failed (${label})`, {
           connectionId: id,
           err: String(closeErr),
         });
       });
+    const onAbort = () => void closeQuietly();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      await client.connect();
+      // The abort can land after connect() settled but before this continuation runs.
+      if (signal?.aborted) throw new SystemError('DB_ERROR', `opening the ${label} was cancelled`);
+    } catch (err) {
+      await closeQuietly();
       throw err;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
     }
     return client;
   }

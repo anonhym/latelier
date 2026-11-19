@@ -25,7 +25,8 @@ export interface SharedConnection {
 /** The slice of `MongoPool` the gate uses. It reads a status and opens its own client, and nothing else: never `connect`, `readDb` or `readClient`. */
 export interface AgentPool {
   status(id: string): Pick<ConnectionRuntime, 'status'>;
-  openAgentClient(id: string): Promise<MongoClient>;
+  /** `signal` abandons a client that is still opening: its rejection is how a revocation or a quit stops waiting on a server that never answers. */
+  openAgentClient(id: string, signal: AbortSignal): Promise<MongoClient>;
   on(event: 'status', listener: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void): unknown;
   off(event: 'status', listener: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void): unknown;
 }
@@ -54,6 +55,38 @@ export interface AgentGateDeps {
   log?: Pick<Logger, 'warn'>;
 }
 
+/** How long a quit waits for agent clients to finish closing before it moves on to the rest of the teardown. */
+export const CLOSE_BUDGET_MS = 1000;
+
+/** An agent client, opening or open, with the controller that abandons its open. */
+interface ClientEntry {
+  promise: Promise<MongoClient>;
+  ctrl: AbortController;
+}
+
+/** Settles like `promise`, or rejects with CANCELLED the moment `signal` aborts. The promise itself is left running. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) {
+      promise.catch(() => undefined);
+      reject(new AgentToolError('CANCELLED'));
+      return;
+    }
+    const onAbort = () => reject(new AgentToolError('CANCELLED'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** An operation in flight, registered so a revocation can abort it. */
 interface InFlight {
   connectionId: string;
@@ -71,7 +104,7 @@ export class AgentGate {
   private deps: AgentGateDeps;
   private inFlight = new Set<InFlight>();
   private limits = new Map<string, Semaphore>();
-  private clients = new Map<string, Promise<MongoClient>>();
+  private clients = new Map<string, ClientEntry>();
   private closing = new Set<Promise<void>>();
   private onStatus: (runtime: Pick<ConnectionRuntime, 'id' | 'status'>) => void;
 
@@ -146,7 +179,7 @@ export class AgentGate {
     };
     try {
       releaseSlot = await limit.acquire(signal);
-      const client = await this.clientFor(connectionId);
+      const client = await untilAborted(this.clientFor(connectionId), signal);
       // After both waits, the slot and the open: a gate that closed meanwhile refuses the call here.
       assertStill();
       return { client, signal, assertStill, release };
@@ -173,10 +206,21 @@ export class AgentGate {
     for (const connectionId of [...this.clients.keys()]) this.closeClient(connectionId);
   }
 
-  /** `revokeAll`, then resolves once every agent client has closed. */
-  async close(): Promise<void> {
+  /**
+   * `revokeAll`, then resolves once every agent client has closed, or after
+   * `budgetMs`: an unresponsive server must not hold the quit teardown, and a
+   * client still closing then finishes on its own.
+   */
+  async close(budgetMs = CLOSE_BUDGET_MS): Promise<void> {
     this.revokeAll();
-    await this.whenClosed();
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), budgetMs);
+      timer.unref();
+    });
+    const outcome = await Promise.race([this.whenClosed().then(() => 'closed' as const), budget]);
+    clearTimeout(timer);
+    if (outcome === 'late') this.deps.log?.warn('agent', 'agent clients were still closing at the end of the budget', { budgetMs });
   }
 
   /** Resolves when every agent client closing right now has finished. */
@@ -207,23 +251,29 @@ export class AgentGate {
   private clientFor(connectionId: string): Promise<MongoClient> {
     let opening = this.clients.get(connectionId);
     if (!opening) {
-      const created = this.deps.pool.openAgentClient(connectionId);
+      const ctrl = new AbortController();
+      const created: ClientEntry = { promise: this.deps.pool.openAgentClient(connectionId, ctrl.signal), ctrl };
       opening = created;
       this.clients.set(connectionId, created);
       // A failed open is delivered to the caller awaiting it; here it only clears the cache so the next call retries.
-      created.then(undefined, () => {
+      created.promise.then(undefined, () => {
         if (this.clients.get(connectionId) === created) this.clients.delete(connectionId);
       });
     }
-    return opening;
+    return opening.promise;
   }
 
   private closeClient(connectionId: string): void {
     const opening = this.clients.get(connectionId);
     if (!opening) return;
     this.clients.delete(connectionId);
-    const closing: Promise<void> = opening
-      .then((client) => client.close())
+    // A client still opening is abandoned: its open rejects at once, so there is nothing to wait for.
+    opening.ctrl.abort();
+    const closing: Promise<void> = opening.promise
+      .then(
+        (client) => client.close(),
+        () => undefined,
+      )
       .catch((err: unknown) => {
         this.deps.log?.warn('agent', 'closing an agent client failed', {
           connectionId,

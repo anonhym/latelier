@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { AgentGate, type AgentSessionIdentity } from '../../electron/agent/AgentGate';
 import * as ejsonModule from '../../electron/mongo/ejson';
@@ -332,6 +333,77 @@ describe('AgentGate with a real pool', () => {
       await change();
       expect(() => lease.assertStill()).toThrow(expect.objectContaining({ code: 'CANCELLED' }));
       lease.release();
+    });
+  });
+
+  describe('a client that is still opening', () => {
+    /** A server that accepts the TCP connection and never answers, as a database that stopped responding does. */
+    async function silentConnection(): Promise<string> {
+      const server = net.createServer(() => undefined);
+      const sockets = new Set<net.Socket>();
+      server.on('connection', (socket) => sockets.add(socket));
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      cleanups.push(async () => {
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      });
+      const id = randomUUID();
+      f.h.addConnection(id, 'silent', { shared: true, hostPort: { host: '127.0.0.1', port: (server.address() as net.AddressInfo).port } });
+      const real = f.m.pool.status.bind(f.m.pool);
+      vi.spyOn(f.m.pool, 'status').mockImplementation((target) => (target === id ? ({ status: 'connected' } as never) : real(target)));
+      return id;
+    }
+
+    it('lets close() return within a second while the open waits on a server that never answers', async () => {
+      await setup();
+      const id = await silentConnection();
+      const pending = refusal(gate.acquire(id, identity(), live()));
+      await flush();
+      expect(gate.hasClient(id)).toBe(true);
+      const started = Date.now();
+      await gate.close();
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(await pending).toBe('CANCELLED');
+      expect(gate.hasClient(id)).toBe(false);
+    });
+
+    it('rejects the pool open as soon as its signal aborts, against a server that never answers', async () => {
+      await setup();
+      const id = await silentConnection();
+      const ctrl = new AbortController();
+      const opening = f.m.pool.openAgentClient(id, ctrl.signal);
+      const outcome = opening.then(() => 'opened', () => 'rejected');
+      await flush();
+      const started = Date.now();
+      ctrl.abort();
+      expect(await outcome).toBe('rejected');
+      expect(Date.now() - started).toBeLessThan(1000);
+      await expect(f.m.pool.openAgentClient(id, ctrl.signal)).rejects.toThrow(/cancelled/);
+    });
+
+    it('stops waiting for agent clients that will not finish closing, and says so', async () => {
+      await setup();
+      vi.spyOn(f.m.pool, 'openAgentClient').mockImplementation(
+        () => Promise.resolve({ close: () => new Promise<void>(() => undefined) } as never),
+      );
+      (await gate.acquire(f.connectionId, identity(), live())).release();
+      const started = Date.now();
+      await gate.close(50);
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(f.h.log.warn).toHaveBeenCalledWith('agent', expect.stringContaining('still closing'), expect.anything());
+    });
+
+    it('frees the concurrency slot of a revoked call at once', async () => {
+      await setup();
+      vi.spyOn(f.m.pool, 'openAgentClient').mockImplementation(() => new Promise(() => undefined));
+      const callers = Array.from({ length: 2 }, () => refusal(gate.acquire(f.connectionId, identity(), live())));
+      await flush();
+      gate.revokeConnection(f.connectionId);
+      expect(await Promise.all(callers)).toEqual(['CANCELLED', 'CANCELLED']);
+      vi.restoreAllMocks();
+      // Both slots are free again, so two more calls are admitted instead of queueing behind dead ones.
+      const again = await Promise.all([1, 2].map(() => gate.acquire(f.connectionId, identity(), live())));
+      for (const l of again) l.release();
     });
   });
 
