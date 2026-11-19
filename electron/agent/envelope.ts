@@ -35,7 +35,5 @@ export function wrap(body: string, options: WrapOptions = {}): string {
   return lines.join('\n');
 }
 
-/** Names come from the server and can be chosen by whoever controls the data. */
-export function cutName(name: string, max = 256): string {
-  return name.length > max ? name.slice(0, max) : name;
-}
+// The cut lives with the namespace rules; the envelope re-exports it for callers that wrap names.
+export { cutName } from './namespaceGuard.ts';
