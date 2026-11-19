@@ -1,4 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -486,6 +487,84 @@ describe('Agent server', () => {
       await expect(server.start()).rejects.toThrow(/symbolic link/);
       expect(fs.readdirSync(attacker)).toEqual([]);
       expect(server.socketPath).toBeNull();
+    });
+  });
+
+  describe('Windows pipe endpoint file', () => {
+    class FakePipeServer extends EventEmitter {
+      static paths: string[] = [];
+      static failListen = false;
+      listening = false;
+      listen(p: string, cb: () => void): this {
+        if (FakePipeServer.failListen) {
+          setImmediate(() => this.emit('error', Object.assign(new Error('EADDRINUSE'), { code: 'EADDRINUSE' })));
+          return this;
+        }
+        FakePipeServer.paths.push(p);
+        this.listening = true;
+        setImmediate(cb);
+        return this;
+      }
+      close(cb?: () => void): this {
+        this.listening = false;
+        cb?.();
+        return this;
+      }
+    }
+
+    const dirs: string[] = [];
+    afterEach(() => {
+      vi.restoreAllMocks();
+      FakePipeServer.paths = [];
+      FakePipeServer.failListen = false;
+      for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    });
+
+    function winServer() {
+      vi.spyOn(net, 'createServer').mockImplementation(() => new FakePipeServer() as unknown as net.Server);
+      const userData = fs.mkdtempSync(path.join('/tmp', 'win-'));
+      dirs.push(userData);
+      const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
+      const server = new AgentServer({ userData, runner: {} as never, tools: [], tokens: { list: () => [] }, log, platform: 'win32' });
+      return { server, endpoint: path.join(userData, 'agent', 'endpoint') };
+    }
+
+    it('takes a fresh pipe name on every start and rewrites the endpoint file to match', async () => {
+      const { server, endpoint } = winServer();
+      await server.start();
+      const first = fs.readFileSync(endpoint, 'utf8');
+      await server.stop();
+      // A leftover from the last run, naming a valid pipe, must not be reused.
+      fs.writeFileSync(endpoint, first);
+      await server.start();
+      const second = fs.readFileSync(endpoint, 'utf8');
+      expect(first).toMatch(/^\\\\\.\\pipe\\latelier-agent-[0-9a-f]{32}\n$/);
+      expect(second).toMatch(/^\\\\\.\\pipe\\latelier-agent-[0-9a-f]{32}\n$/);
+      expect(second).not.toBe(first);
+      expect(FakePipeServer.paths).toEqual([first.trim(), second.trim()]);
+      expect(server.socketPath).toBe(second.trim());
+      if (posix) expect(fs.statSync(endpoint).mode & 0o777).toBe(0o600);
+      await server.stop();
+    });
+
+    it('removes a stale endpoint file when listening fails, and rethrows', async () => {
+      const { server, endpoint } = winServer();
+      fs.mkdirSync(path.dirname(endpoint), { recursive: true });
+      fs.writeFileSync(endpoint, '\\\\.\\pipe\\latelier-agent-' + 'a'.repeat(32) + '\n');
+      FakePipeServer.failListen = true;
+      await expect(server.start()).rejects.toThrow(/EADDRINUSE/);
+      expect(fs.existsSync(endpoint)).toBe(false);
+      expect(server.socketPath).toBeNull();
+    });
+
+    it('can start again after a failed listen', async () => {
+      const { server, endpoint } = winServer();
+      FakePipeServer.failListen = true;
+      await expect(server.start()).rejects.toThrow();
+      FakePipeServer.failListen = false;
+      expect(await server.start()).toBe(true);
+      expect(fs.existsSync(endpoint)).toBe(true);
+      await server.stop();
     });
   });
 });

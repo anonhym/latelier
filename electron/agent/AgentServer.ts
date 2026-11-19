@@ -9,7 +9,7 @@ import type { AgentSessionIdentity } from './AgentGate.ts';
 import type { AgentToolRunner } from './AgentToolRunner.ts';
 import type { AgentTool } from './tools.ts';
 import { ensureOwnedPrivateDir } from './ownedDir.ts';
-import { agentDir, endpointFile, pipeSuffixFrom, resolveEndpoint, type ResolvedEndpoint } from './endpoint.ts';
+import { agentDir, endpointFile, resolveEndpoint, type ResolvedEndpoint } from './endpoint.ts';
 import { readHandshake, refuse } from './handshake.ts';
 import { hashToken, matchHash } from './token.ts';
 
@@ -67,7 +67,6 @@ export class AgentServer {
     if (this.listener) return true;
     const platform = this.deps.platform ?? process.platform;
     const endpointPath = endpointFile(this.deps.userData);
-    const existing = this.readPipeSuffix(endpointPath);
     const endpoint = resolveEndpoint({
       platform,
       userData: this.deps.userData,
@@ -75,7 +74,6 @@ export class AgentServer {
       uid: this.deps.uid ?? process.getuid?.() ?? 'user',
       xdgRuntimeDir: this.deps.xdgRuntimeDir === undefined ? process.env.XDG_RUNTIME_DIR : this.deps.xdgRuntimeDir,
       randomHex: (n) => randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n),
-      existingPipeSuffix: existing,
     });
     // The 0700 agent/ directory is the real access control on Unix; the
     // socket's own mode below is a second line.
@@ -92,15 +90,24 @@ export class AgentServer {
 
     const listener = net.createServer((socket) => void this.accept(socket));
     listener.on('error', (err) => this.deps.log.error('agent', 'listener error', { errName: err.name }));
-    await new Promise<void>((resolve, reject) => {
-      listener.once('error', reject);
-      listener.listen(endpoint.path, () => {
-        listener.off('error', reject);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        listener.once('error', reject);
+        listener.listen(endpoint.path, () => {
+          listener.off('error', reject);
+          resolve();
+        });
       });
-    });
-    if (endpoint.kind === 'unix') fs.chmodSync(endpoint.path, 0o600);
-    await writePrivateFile(endpointPath, `${endpoint.path}\n`);
+      if (endpoint.kind === 'unix') fs.chmodSync(endpoint.path, 0o600);
+      await writePrivateFile(endpointPath, `${endpoint.path}\n`);
+    } catch (err) {
+      // The bridge reads this file to find the endpoint: never leave one that
+      // names a pipe or socket nothing serves.
+      if (listener.listening) await new Promise<void>((resolve) => listener.close(() => resolve()));
+      if (endpoint.kind === 'unix') fs.rmSync(endpoint.path, { force: true });
+      fs.rmSync(endpointPath, { force: true });
+      throw err;
+    }
     this.listener = listener;
     this.endpoint = endpoint;
     this.deps.log.info('agent', 'agent server listening', { fallbackPath: endpoint.fallback });
@@ -171,18 +178,6 @@ export class AgentServer {
     } catch (err) {
       this.deps.log.error('agent', 'session failed to start', { errName: err instanceof Error ? err.name : typeof err });
       session.destroy();
-    }
-  }
-
-  private readPipeSuffix(endpointPath: string): string | null {
-    try {
-      return pipeSuffixFrom(fs.readFileSync(endpointPath, 'utf8'));
-    } catch (err) {
-      // No file yet is the normal first run; anything else is worth a line.
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        this.deps.log.warn('agent', 'could not read the endpoint file', { errCode: (err as NodeJS.ErrnoException).code });
-      }
-      return null;
     }
   }
 

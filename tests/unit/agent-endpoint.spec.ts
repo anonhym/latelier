@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { agentDir, endpointFile, pipeSuffixFrom, resolveEndpoint } from '../../electron/agent/endpoint';
+import { agentDir, endpointFile, resolveEndpoint } from '../../electron/agent/endpoint';
 
 const hex = (n: number) => 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12'.slice(0, n);
 const base = { tmpdir: '/var/tmp', uid: 501, randomHex: hex };
@@ -100,32 +100,9 @@ describe('resolveEndpoint on Windows', () => {
     expect(asked).toBe(32);
   });
 
-  it('reuses a valid existing suffix and replaces an invalid one', () => {
-    const keep = 'c'.repeat(32);
-    expect(resolveEndpoint({ ...base, platform: 'win32', userData: 'C:\\x', existingPipeSuffix: keep }).path).toContain(keep);
-    const fresh = resolveEndpoint({ ...base, platform: 'win32', userData: 'C:\\x', randomHex: () => 'd'.repeat(32), existingPipeSuffix: 'not-hex' });
-    expect(fresh.path).toContain('d'.repeat(32));
-    expect(
-      resolveEndpoint({ ...base, platform: 'win32', userData: 'C:\\x', randomHex: () => 'd'.repeat(32), existingPipeSuffix: null }).path,
-    ).toContain('d'.repeat(32));
+  it('takes a new suffix from the random source on every call, never reusing one', () => {
+    const names = ['a', 'b'].map((c) => resolveEndpoint({ ...base, platform: 'win32', userData: 'C:\\x', randomHex: () => c.repeat(32) }).path);
+    expect(names[0]).not.toBe(names[1]);
   });
 });
 
-describe('pipeSuffixFrom', () => {
-  const name = `\\\\.\\pipe\\latelier-agent-${'0a'.repeat(16)}`;
-
-  it('reads the suffix back from the endpoint file, newline included', () => {
-    expect(pipeSuffixFrom(`${name}\n`)).toBe('0a'.repeat(16));
-  });
-
-  it.each([
-    ['a Unix path', '/data/agent/agent.sock\n'],
-    ['an empty file', ''],
-    ['a short suffix', '\\\\.\\pipe\\latelier-agent-abc'],
-    ['uppercase hex', `\\\\.\\pipe\\latelier-agent-${'0A'.repeat(16)}`],
-    ['a longer suffix', `${name}00`],
-    ['another prefix', `\\\\.\\pipe\\other-${'0a'.repeat(16)}`],
-  ])('returns null for %s', (_n, content) => {
-    expect(pipeSuffixFrom(content)).toBeNull();
-  });
-});
