@@ -239,3 +239,41 @@ export function shapeFields(
   }
   return { fields: [...out.values()], unknownShape };
 }
+
+/**
+ * The stages written so far in the pipeline array that ends at `text`'s end:
+ * its complete `{ $op: body }` elements, in order. The element the caret is in
+ * is not complete and is left out. An element that is not a one-operator
+ * document stands in as an unreadable stage, so the shape after it is unknown.
+ */
+export function stagesInPipelineText(text: string): ShapeStage[] {
+  const stages: ShapeStage[] = [];
+  let depth = 0;
+  let start = -1;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote !== null) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === '{' || c === '[') {
+      if (depth === 0 && c === '{') start = i;
+      depth++;
+    } else if (c === '}' || c === ']') {
+      depth--;
+      if (depth === 0 && c === '}') stages.push(stageOfElement(text.slice(start, i + 1)));
+    }
+  }
+  return stages;
+}
+
+function stageOfElement(element: string): ShapeStage {
+  const parsed = parseBody(element);
+  const keys = isPlain(parsed) ? Object.keys(parsed) : [];
+  if (isPlain(parsed) && keys.length === 1 && keys[0]!.startsWith('$')) {
+    return { op: keys[0]!, body: JSON.stringify(parsed[keys[0]!]), enabled: true };
+  }
+  return { op: '$unreadable', body: '', enabled: true };
+}

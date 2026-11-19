@@ -84,3 +84,28 @@ export function lookupFrom(body: string): string | null {
 export function isPlainKey(path: string): boolean {
   return /^[A-Za-z_$][\w$]*$/.test(path);
 }
+
+/** Where a path runs through a `$lookup`'s `pipeline`: the sub-stage it is in, and the path within it. */
+export interface SubPipelinePath {
+  /** The sub-stage's operator, or null between stages (where a stage name goes). */
+  op: string | null;
+  rest: string[];
+}
+
+/**
+ * Whether `path` (from the body's root) lies inside a `$lookup`'s
+ * `pipeline: [ ... ]`, and where. Its stages run over the joined collection.
+ */
+export function subPipelinePath(stageOp: string | undefined, path: readonly string[]): SubPipelinePath | null {
+  if (stageOp !== '$lookup' || path[0] !== 'pipeline' || path[1] !== '[]') return null;
+  const op = path[2];
+  return op !== undefined && op.startsWith('$') ? { op, rest: path.slice(3) } : { op: null, rest: [] };
+}
+
+/** The text of the sub-pipeline the caret is in, from just after its `[`, or null. */
+export function subPipelineText(body: string, caret: number): string | null {
+  const before = body.slice(0, caret);
+  const opens = [...before.matchAll(/["']?pipeline["']?\s*:\s*\[/g)];
+  const last = opens[opens.length - 1];
+  return last === undefined ? null : before.slice(last.index + last[0].length);
+}
