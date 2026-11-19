@@ -101,6 +101,28 @@ jobs:
             && echo "electron binary OK ($ver)" \
             || { echo "::error::electron binary missing after unzip"; exit 1; }
 
+      # The Agent Bridge (bridge/, X27) is a std-only Rust crate. rustup 1.28
+      # and later no longer installs the toolchain a rust-toolchain.toml names
+      # on its own; `rustup toolchain install` with no arguments does, from
+      # inside bridge/, pinned to the file's exact release.
+      - name: Install the pinned Rust toolchain
+        working-directory: bridge
+        run: rustup toolchain install
+
+      - name: Bridge tests
+        working-directory: bridge
+        run: cargo test
+
+      - name: Bridge clippy
+        working-directory: bridge
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The integration tests run this binary (tests/integration/agent-bridge.spec.ts)
+      # and fail, rather than skip, when it is absent on CI. The cargo test and
+      # clippy steps above already ran, so they are not repeated.
+      - name: Build the Agent Bridge
+        run: node scripts/build-bridge.mjs --skip-checks
+
       - name: Lint
         run: npm run lint
 
@@ -203,6 +225,43 @@ jobs:
       - uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # The Windows half of the Agent Bridge (bridge/src/pipe_windows.rs) compiles
+  # and runs nowhere else. Its relay is a single I/O thread polling the pipe,
+  # because a synchronous handle serializes a blocked read against a write; the
+  # smoke test moves a megabyte each way at once through a Node named-pipe
+  # server, which is exactly what a relay that stalls would fail.
+  bridge-windows:
+    name: Agent Bridge (Windows)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The smoke script needs Node only, and no dependencies.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Install the pinned Rust toolchain
+        working-directory: bridge
+        run: rustup toolchain install
+
+      - name: Bridge tests
+        working-directory: bridge
+        run: cargo test
+
+      - name: Bridge clippy
+        working-directory: bridge
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build the bridge (release)
+        working-directory: bridge
+        run: cargo build --release
+
+      - name: Smoke test against a Node named-pipe server
+        run: node scripts/bridge-smoke.mjs bridge/target/release/latelier-agent-bridge.exe
 
   # Runs on PRs targeting `main`, on pushes to `main`, and on manual dispatch.
   # It was `workflow_dispatch`-only while free runner minutes were the binding
@@ -393,6 +452,13 @@ jobs:
         with:
           path: ~/apt-debs
           key: ${{ steps.apt-key.outputs.key }}
+
+      # `npm run test:e2e` builds first, and the build includes the Agent
+      # Bridge (scripts/build-bridge.mjs), which on CI fails when cargo cannot
+      # run: the pinned toolchain has to be installed here.
+      - name: Install the pinned Rust toolchain
+        working-directory: bridge
+        run: rustup toolchain install
 
       - name: Run E2E
         env:

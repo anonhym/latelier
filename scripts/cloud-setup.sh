@@ -35,6 +35,37 @@ if command -v nvm >/dev/null 2>&1; then
   nvm use 24 || true
 fi
 
+# Rust, for the Agent Bridge (bridge/, X27): scripts/build-bridge.mjs runs
+# cargo inside every `npm run build`, and CI-style runs (CI set) refuse to
+# build without it. rustup-init is pinned to one release and verified against
+# its published checksum, then the toolchain is the exact release
+# bridge/rust-toolchain.toml names (keep RUST_TOOLCHAIN in step with it; this
+# script is pasted into the environment settings, so it cannot read the file).
+# --no-modify-path: the shell profile is not ours to edit, so the three
+# binaries are linked onto /usr/local/bin below instead, the same trick as
+# gitnexus, for the same reason (the session's PATH is not this script's).
+RUSTUP_VERSION=1.29.3
+RUSTUP_SHA256=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+RUST_TOOLCHAIN=1.100.0
+if ! command -v cargo >/dev/null 2>&1; then
+  rustup_dir=$(mktemp -d)
+  if curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --max-time 300 \
+       -o "$rustup_dir/rustup-init" \
+       "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+     && echo "${RUSTUP_SHA256}  $rustup_dir/rustup-init" | sha256sum -c -; then
+    chmod +x "$rustup_dir/rustup-init"
+    "$rustup_dir/rustup-init" -y --no-modify-path --profile minimal \
+      --default-toolchain "$RUST_TOOLCHAIN" -c clippy \
+      || echo "WARNING: rustup-init failed — the Agent Bridge will not build"
+  else
+    echo "WARNING: could not download a verified rustup-init — the Agent Bridge will not build"
+  fi
+  rm -rf "$rustup_dir"
+fi
+for bin in cargo rustc rustup cargo-clippy clippy-driver; do
+  [[ -x "$HOME/.cargo/bin/$bin" ]] && ln -sf "$HOME/.cargo/bin/$bin" "/usr/local/bin/$bin"
+done
+
 # GitNexus, globally: .mcp.json runs `gitnexus mcp`, and a global install is
 # what the CLI's own resolver prefers (npx on npm 11 hits the arborist crash).
 # The index itself is gitignored, so scripts/gitnexus-autoindex.mjs
