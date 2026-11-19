@@ -112,6 +112,28 @@ describe('DbCollectionNavigator — AC#4 fresh-load skeleton', () => {
   });
 });
 
+describe('DbCollectionNavigator — opening a database during a names-only sweep', () => {
+  it('still asks for the counts when the database is expanded while the filter\'s names-only listing is in flight', async () => {
+    const inputs: Array<{ includeStats?: boolean }> = [];
+    const listCollections = vi.fn((input: { includeStats?: boolean }) => {
+      inputs.push(input);
+      return new Promise<CollectionInfo[]>(() => {});
+    });
+    mountConnected(listCollections as never);
+    await screen.findByTestId(`nav-db-${DB_NAME}`);
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Filter collections'), { target: { value: 'ord' } });
+    });
+    await waitFor(() => expect(inputs.map((i) => i.includeStats)).toEqual([false]));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`nav-db-${DB_NAME}`));
+    });
+    await waitFor(() => expect(inputs.map((i) => i.includeStats)).toEqual([false, undefined]));
+  });
+});
+
 // ── AC#1 / AC#2 / AC#3: cached re-expand + background refresh ────────────────
 
 describe('DbCollectionNavigator — cached re-expand + background refresh', () => {
