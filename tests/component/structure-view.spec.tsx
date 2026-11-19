@@ -1331,4 +1331,30 @@ describe('StructureView — review fixes', () => {
     await waitFor(() => expect(patch).toHaveBeenCalled());
     expect(openDocuments).toHaveBeenCalledTimes(1);
   });
+
+  it('Filter by this field on a nested path adds { path: { $exists: true } }, not $eq null', async () => {
+    base();
+    const patch = vi.fn();
+    render(
+      <CollectionWorkspaceProvider
+        state={{ ...DEFAULT_COLLECTION_TAB_STATE, activeBuilderTab: 'Raw' } as never}
+        actions={emptyWorkspaceActions({ patch, openDocuments: vi.fn() })}
+        meta={emptyWorkspaceMeta()}
+      >
+        <StructureViewConnected
+          connectionId="c1"
+          dbName="shop"
+          collection="orders"
+          state={state([{ path: 'items.qty', frequency: 1, types: { int: 1 } }])}
+          onPatch={vi.fn()}
+        />
+      </CollectionWorkspaceProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Actions for items.qty' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Filter by this field' }));
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const raw = patch.mock.calls[0]![0].queryRaw as string;
+    expect(JSON.parse(raw)).toEqual({ 'items.qty': { $exists: true } });
+    expect(raw).not.toMatch(/null/);
+  });
 });

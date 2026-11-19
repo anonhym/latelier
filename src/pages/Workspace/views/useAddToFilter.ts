@@ -4,6 +4,7 @@ import { confirmDestructive } from '../../../utils/confirm';
 import { condFromDragged } from '../builder';
 import type { CollectionWorkspaceContextValue } from '../context';
 import { andAtRoot, parseFilter, printFilter } from '../filterTree';
+import type { CondNode } from '../filterTree';
 
 /**
  * Non-drag discovery path onto the Query Builder: the same root-level insert
@@ -16,7 +17,7 @@ export function useAddToFilter({
   actions,
 }: Pick<CollectionWorkspaceContextValue, 'state' | 'actions'>) {
   return React.useCallback(
-    async (fieldPath: string, value: unknown) => {
+    async (fieldPath: string, value: unknown, op?: '$exists') => {
       if (state.activeBuilderTab === 'Builder') {
         const proceed = await confirmDestructive({
           title: 'Add to filter?',
@@ -30,7 +31,12 @@ export function useAddToFilter({
         notify.error("Nothing added — the filter bar's text isn't valid JSON.");
         return;
       }
-      const nextRoot = andAtRoot(parsed.root, condFromDragged({ field: fieldPath, value }));
+      // `$exists` carries no value: the field merely has to be present.
+      const cond: CondNode =
+        op === '$exists'
+          ? { kind: 'cond', field: fieldPath, op: '$exists', valType: 'boolean', value: 'true' }
+          : condFromDragged({ field: fieldPath, value });
+      const nextRoot = andAtRoot(parsed.root, cond);
       const printed = printFilter(nextRoot);
       if (!printed.ok) {
         notify.error('Nothing added — the filter could not be updated.');
