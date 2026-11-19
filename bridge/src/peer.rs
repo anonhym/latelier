@@ -25,6 +25,16 @@ pub enum PeerCheck {
     Failed { call: &'static str, code: i32 },
 }
 
+/// Two independent checks that must both pass. The first one that did not is the verdict, so the
+/// line the bridge prints names the step that stopped it.
+pub fn both(first: PeerCheck, second: PeerCheck) -> PeerCheck {
+    if first == PeerCheck::SameUser {
+        second
+    } else {
+        first
+    }
+}
+
 /// `Ok` only when the token may be sent. The `Err` is the one line the bridge prints:
 /// it names the step and never the token.
 pub fn enforce(check: PeerCheck) -> Result<(), String> {
@@ -66,6 +76,19 @@ mod tests {
         for check in [PeerCheck::OtherUser, PeerCheck::Failed { call: "x", code: 0 }] {
             assert!(enforce(check).unwrap_err().contains("token was not sent"));
         }
+    }
+
+    #[test]
+    fn both_checks_must_pass_and_the_first_failure_is_the_verdict() {
+        use PeerCheck::*;
+        assert_eq!(both(SameUser, SameUser), SameUser);
+        assert_eq!(both(SameUser, OtherUser), OtherUser);
+        assert_eq!(both(OtherUser, SameUser), OtherUser);
+        assert_eq!(both(SameUser, Failed { call: "GetSecurityInfo", code: 5 }), Failed { call: "GetSecurityInfo", code: 5 });
+        assert_eq!(both(Failed { call: "OpenProcess", code: 5 }, OtherUser), Failed { call: "OpenProcess", code: 5 });
+        // A pipe owned by this user but served by another process (or the reverse) is never accepted.
+        assert!(enforce(both(OtherUser, SameUser)).is_err());
+        assert!(enforce(both(SameUser, OtherUser)).is_err());
     }
 
     #[test]

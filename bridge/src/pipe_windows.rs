@@ -38,6 +38,8 @@ extern "system" {
     fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
     /// `HANDLE GetCurrentProcess(void)`: a pseudo-handle, never closed.
     fn GetCurrentProcess() -> *mut c_void;
+    /// `HLOCAL LocalFree(HLOCAL)`: frees the descriptor `GetSecurityInfo` allocates.
+    fn LocalFree(memory: *mut c_void) -> *mut c_void;
 }
 
 #[link(name = "advapi32")]
@@ -52,6 +54,19 @@ extern "system" {
         information_length: u32,
         return_length: *mut u32,
     ) -> i32;
+    /// `DWORD GetSecurityInfo(HANDLE, SE_OBJECT_TYPE, SECURITY_INFORMATION, PSID*, PSID*, PACL*, PACL*, PSECURITY_DESCRIPTOR*)`:
+    /// returns 0 on success, otherwise the error code itself (not through `GetLastError`).
+    #[allow(clippy::too_many_arguments)]
+    fn GetSecurityInfo(
+        handle: *mut c_void,
+        object_type: u32,
+        security_information: u32,
+        owner: *mut *mut c_void,
+        group: *mut *mut c_void,
+        dacl: *mut *mut c_void,
+        sacl: *mut *mut c_void,
+        security_descriptor: *mut *mut c_void,
+    ) -> u32;
     /// `BOOL EqualSid(PSID, PSID)`.
     fn EqualSid(sid1: *mut c_void, sid2: *mut c_void) -> i32;
 }
@@ -63,6 +78,9 @@ const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 const TOKEN_QUERY: u32 = 0x0008;
 /// `TOKEN_INFORMATION_CLASS::TokenUser`.
 const TOKEN_USER_CLASS: u32 = 1;
+/// `SE_OBJECT_TYPE::SE_KERNEL_OBJECT`, and `OWNER_SECURITY_INFORMATION`.
+const SE_KERNEL_OBJECT: u32 = 6;
+const OWNER_SECURITY_INFORMATION: u32 = 1;
 
 /// `ERROR_PIPE_BUSY`: every instance of the pipe is serving a client for the moment.
 const ERROR_PIPE_BUSY: i32 = 231;
@@ -162,30 +180,70 @@ fn process_token(process: *mut c_void, call: &'static str) -> Result<OwnedHandle
     owned(token, call)
 }
 
-/// Whether the process serving `pipe` runs as the same user as this process. Any step that cannot
-/// be completed is a `Failed`, never a guess.
+/// Whether the pipe object itself is owned by `own` (the bridge's user SID). The server's process
+/// id can be reused between the lookup and the token query; the owner is fixed when the pipe is
+/// created, so a squatter that took over the name does not own it as this user. An elevated app
+/// would own its pipes as Administrators and be refused here: out of scope, the app is not elevated.
+fn check_pipe_owner(pipe: &File, own: &TokenUser) -> PeerCheck {
+    let mut owner: *mut c_void = ptr::null_mut();
+    let mut descriptor: *mut c_void = ptr::null_mut();
+    // SAFETY: the handle is the open client end of the pipe; the out-pointers that are not null
+    // point at live locals. On success `owner` points into `descriptor`, which is freed below.
+    let status = unsafe {
+        GetSecurityInfo(
+            pipe.as_raw_handle(),
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 || owner.is_null() {
+        return PeerCheck::Failed { call: "GetSecurityInfo", code: status as i32 };
+    }
+    // SAFETY: both SIDs are valid until the descriptor is freed on the next line.
+    let same = unsafe { EqualSid(own.sid(), owner) } != 0;
+    // SAFETY: `descriptor` was allocated by `GetSecurityInfo` and nothing uses it after this.
+    unsafe { LocalFree(descriptor) };
+    if same {
+        PeerCheck::SameUser
+    } else {
+        PeerCheck::OtherUser
+    }
+}
+
+/// Whether the pipe is served by this user, by two independent facts that must both hold: the
+/// process serving it runs as this user, and the pipe object is owned by this user. Any step that
+/// cannot be completed is a `Failed`, never a guess.
 fn check_peer(pipe: &File) -> PeerCheck {
+    // SAFETY: the pseudo-handle for this process; it is valid for the whole run and needs no close.
+    let current = unsafe { GetCurrentProcess() };
+    let own_user = match process_token(current, "OpenProcessToken (bridge)").and_then(|t| token_user(&t)) {
+        Ok(user) => user,
+        Err(failed) => return failed,
+    };
     let mut server_pid: u32 = 0;
     // SAFETY: the handle is the open client end of the pipe, and `server_pid` is a live local.
     if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut server_pid) } == 0 {
         return PeerCheck::Failed { call: "GetNamedPipeServerProcessId", code: io::Error::last_os_error().raw_os_error().unwrap_or(0) };
     }
-    let verdict = (|| -> Result<bool, PeerCheck> {
+    let server_process = (|| -> Result<bool, PeerCheck> {
         // SAFETY: plain value arguments; the result is checked for null by `owned`.
         let server = owned(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, server_pid) }, "OpenProcess")?;
         let server_token = process_token(server.as_raw_handle(), "OpenProcessToken (server)")?;
-        // SAFETY: the pseudo-handle for this process; it is valid for the whole run and needs no close.
-        let own_token = process_token(unsafe { GetCurrentProcess() }, "OpenProcessToken (bridge)")?;
         let server_user = token_user(&server_token)?;
-        let own_user = token_user(&own_token)?;
         // SAFETY: both SIDs point into buffers that outlive the call.
         Ok(unsafe { EqualSid(own_user.sid(), server_user.sid()) } != 0)
     })();
-    match verdict {
+    let by_process = match server_process {
         Ok(true) => PeerCheck::SameUser,
         Ok(false) => PeerCheck::OtherUser,
         Err(failed) => failed,
-    }
+    };
+    peer::both(by_process, check_pipe_owner(pipe, &own_user))
 }
 
 fn open(name: &str) -> io::Result<File> {
